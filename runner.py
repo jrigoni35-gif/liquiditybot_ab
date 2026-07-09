@@ -269,6 +269,12 @@ class BotRunner:
         try:
             while not self._stop:
                 now = time.time()
+                # heartbeat BEFORE the cycle body: a repeatedly-raising cycle
+                # (feed outage, etc.) must not let the lock go stale while
+                # this process is alive - a stale lock invites a second
+                # runner to take over and duplicate the loop.
+                if self._lock is not None:
+                    self._lock.refresh()
                 try:
                     for c in self.control.consume():
                         self.handle_command(c)
@@ -286,8 +292,6 @@ class BotRunner:
                     snap = self.build_status(now)
                     self._last_status = snap
                     self.status.write(snap, now)
-                    if self._lock is not None:
-                        self._lock.refresh()      # heartbeat: proves liveness
                 except KeyboardInterrupt:
                     log.info("shutdown requested")
                     break
