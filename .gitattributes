@@ -1,0 +1,9 @@
+# Line-ending law: the index is LF everywhere; working trees check out LF
+# too (matches .vscode files.eol "\n" and silences autocrlf conversion
+# warnings). Attributes override core.autocrlf on every clone, so endings
+# are identical no matter whose machine or git config touches the repo.
+* text=auto eol=lf
+
+# Windows batch is the one exception: cmd.exe mis-parses some LF-only
+# constructs (labels/goto), so .bat stays CRLF on disk.
+*.bat text eol=crlf
