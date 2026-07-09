@@ -25,7 +25,7 @@
             "problemMatcher": []
         },
         {
-            "label": "Smoke Test (188 checks)",
+            "label": "Smoke Test (full check battery)",
             "type": "shell",
             "command": "python",
             "args": [
@@ -77,9 +77,27 @@
             }
         },
         {
+            "label": "Stop Bot (graceful, snapshots + cancels)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-c",
+                "import sys; sys.path.insert(0, '.'); from core.runtime import ControlChannel; ControlChannel('outputs/control').send('stop'); print('stop sent - the runner exits after its current cycle.')"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PYTHONUTF8": "1"
+                }
+            },
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
             "label": "Setup (create venv + install deps)",
             "type": "shell",
-            "command": "${workspaceFolder}\\setup_windows.bat",
+            "command": "${workspaceFolder}\\install.bat",
             "options": {
                 "cwd": "${workspaceFolder}"
             },

@@ -11,16 +11,47 @@
             "env": { "PYTHONUTF8": "1" }
         },
         {
-            "name": "Assurance Check (47 invariants)",
+            "name": "Run Bot - start paused (step from dashboard)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/assurance_check.py",
+            "program": "${workspaceFolder}/runner.py",
+            "args": ["--paused"],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
         },
         {
-            "name": "Smoke Test (188 checks)",
+            "name": "Run Bot - fresh (CLEARS saved state)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/runner.py",
+            "args": ["--fresh"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Dashboard (Streamlit, loopback only)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "args": ["run", "ui/dashboard.py", "--server.address=127.0.0.1"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Full Test Suite (pytest)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests/", "-q"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Smoke Test (full check battery)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/smoke_test.py",
@@ -29,13 +60,94 @@
             "env": { "PYTHONUTF8": "1" }
         },
         {
-            "name": "Replay Session",
+            "name": "Assurance Check (invariants)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/scripts/replay.py",
+            "program": "${workspaceFolder}/scripts/assurance_check.py",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Overfit Battery (OF-1..OF-7)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/overfit_check.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Quant Trials (G1-G5 gates, 200x1200)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/quant_trials.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Session Digest (why did/didn't it trade)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/session_digest.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Train Meta-Model (purged walk-forward)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/train_meta.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Train Meta-Model - bootstrap labels",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/train_meta.py",
+            "args": ["--bootstrap"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Replay Session (pick recording)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/replay.py",
+            "args": ["--recording", "${input:recording}"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Parameter Sweep (recording x grid)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/sweep.py",
+            "args": ["--recording", "${input:recording}",
+                     "--grid", "${input:grid}"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "recording",
+            "type": "promptString",
+            "description": "Feed recording JSONL (record one by setting system.record_feeds=true, lands in outputs/recordings/)",
+            "default": "outputs/recordings/"
+        },
+        {
+            "id": "grid",
+            "type": "promptString",
+            "description": "Sweep grid: path.to.key=v1,v2,...  e.g. position_sizer.min_p_win=0.50,0.55,0.60",
+            "default": ""
         }
     ]
 }
