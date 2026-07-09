@@ -52,8 +52,6 @@ from strategies.signal_gates import SignalResult
 
 log = logging.getLogger("liquiditybot.strategies.informed_flow")
 
-_MATERIAL = 0.10          # a component "votes" when |s_i| >= this
-
 
 def _f(x, default=0.0) -> float:
     try:
@@ -118,6 +116,11 @@ class InformedFlowEngine:
         self.absorption_ad_min = _f(cfg.get("absorption_ad_min", 0.15), 0.15)
         self.absorption_move_sigmas = _f(
             cfg.get("absorption_move_sigmas", 1.0), 1.0)
+        # a component "votes" when |s_i| >= this (CLAUDE.md: no fitted-
+        # looking literals in decision paths - lifted with identical
+        # default, was module-level _MATERIAL = 0.10)
+        self.material = min(max(
+            _f(cfg.get("material_threshold", 0.10), 0.10), 0.0), 1.0)
         w = cfg.get("weights") or {}
         self.w = {
             "flow":  _f(w.get("flow", 1.00), 1.00),
@@ -320,7 +323,7 @@ class InformedFlowEngine:
 
         # ---- confirmation ----------------------------------------------
         agree = sum(1 for v in comps.values()
-                    if abs(v) >= _MATERIAL and (1 if v > 0 else -1) == sgn)
+                    if abs(v) >= self.material and (1 if v > 0 else -1) == sgn)
         # anti-spoof invariant (restores the rev-2 guarantee the fusion
         # rewrite lost): informed flow does not flip sides bar-to-bar —
         # spoofers do. Any MATERIALLY opposing print (>= 25% of the
@@ -342,11 +345,11 @@ class InformedFlowEngine:
         gates = {
             "if_1_flow_persistence": abs(s_flow) >= self.flow_min and
                                      not opposing,
-            "if_2_accumulation": abs(s_accum) >= _MATERIAL and
+            "if_2_accumulation": abs(s_accum) >= self.material and
                                  not absorption_veto,
-            "if_3_directional_burst": abs(s_burst) >= _MATERIAL,
+            "if_3_directional_burst": abs(s_burst) >= self.material,
             "if_4_funding_sanity": funding_ok,
-            "if_5_trend_alignment": abs(s_trend) >= _MATERIAL,
+            "if_5_trend_alignment": abs(s_trend) >= self.material,
             "v3_evidence": strength >= self.evidence_threshold,
             "v3_agreement": agree >= self.min_agree,
             "v3_no_absorption": not absorption_veto,
