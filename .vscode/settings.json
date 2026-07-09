@@ -1,11 +1,17 @@
 {
-    "python.analysis.extraPaths": ["${workspaceFolder}"],
-    "python.analysis.autoSearchPaths": true,
-    "python.analysis.diagnosticMode": "workspace",
-    "python.analysis.typeCheckingMode": "basic",
-    "python.autoComplete.extraPaths": ["${workspaceFolder}"],
     "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
     "python.terminal.activateEnvironment": true,
+    "python.analysis.extraPaths": ["${workspaceFolder}"],
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.exclude": [
+        "outputs/**",
+        ".venv/**",
+        "**/__pycache__"
+    ],
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": ["tests"],
+    "python.testing.unittestEnabled": false,
     "terminal.integrated.env.windows": {
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8"
@@ -21,8 +27,5 @@
     "search.exclude": {
         "outputs/**": true,
         ".venv/**": true
-    },
-    "chat.mcp.serverSampling": {
-        
     }
 }

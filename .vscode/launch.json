@@ -6,6 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/runner.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -16,6 +17,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/runner.py",
             "args": ["--paused"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -26,6 +28,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/runner.py",
             "args": ["--fresh"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -36,6 +39,7 @@
             "request": "launch",
             "module": "streamlit",
             "args": ["run", "ui/dashboard.py", "--server.address=127.0.0.1"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -46,6 +50,7 @@
             "request": "launch",
             "module": "pytest",
             "args": ["tests/", "-q"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -55,6 +60,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/smoke_test.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -64,6 +70,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/assurance_check.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -73,6 +80,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/overfit_check.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -82,6 +90,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/quant_trials.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -91,6 +100,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/session_digest.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -100,6 +110,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/train_meta.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -110,6 +121,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/train_meta.py",
             "args": ["--bootstrap"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -120,6 +132,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/replay.py",
             "args": ["--recording", "${input:recording}"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }
@@ -131,6 +144,7 @@
             "program": "${workspaceFolder}/scripts/sweep.py",
             "args": ["--recording", "${input:recording}",
                      "--grid", "${input:grid}"],
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "env": { "PYTHONUTF8": "1" }

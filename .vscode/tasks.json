@@ -2,108 +2,164 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Assurance Check (47 invariants)",
+            "label": "Run Bot (dry per config)",
             "type": "shell",
-            "command": "python",
-            "args": [
-                "scripts/assurance_check.py"
-            ],
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["runner.py"],
             "options": {
                 "cwd": "${workspaceFolder}",
-                "env": {
-                    "PYTHONUTF8": "1"
-                }
+                "env": { "PYTHONUTF8": "1" }
             },
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
+            "presentation": { "reveal": "always", "panel": "dedicated" },
             "problemMatcher": []
-        },
-        {
-            "label": "Smoke Test (full check battery)",
-            "type": "shell",
-            "command": "python",
-            "args": [
-                "scripts/smoke_test.py"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "PYTHONUTF8": "1"
-                }
-            },
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            }
-        },
-        {
-            "label": "Verify Audit Chain",
-            "type": "shell",
-            "command": "python",
-            "args": [
-                "-c",
-                "from core.audit import get_audit; print(get_audit().verify())"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "PYTHONUTF8": "1"
-                }
-            }
-        },
-        {
-            "label": "Run Bot (dry_run)",
-            "type": "shell",
-            "command": "python",
-            "args": [
-                "runner.py"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "PYTHONUTF8": "1"
-                }
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            }
         },
         {
             "label": "Stop Bot (graceful, snapshots + cancels)",
             "type": "shell",
-            "command": "python",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "args": [
                 "-c",
                 "import sys; sys.path.insert(0, '.'); from core.runtime import ControlChannel; ControlChannel('outputs/control').send('stop'); print('stop sent - the runner exits after its current cycle.')"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
-                "env": {
-                    "PYTHONUTF8": "1"
-                }
+                "env": { "PYTHONUTF8": "1" }
             },
-            "presentation": {
-                "reveal": "always"
-            }
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Verify Audit Chain",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": [
+                "-c",
+                "from core.audit import get_audit; print(get_audit().verify())"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Full Test Suite (pytest)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["-m", "pytest", "tests/", "-q"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "group": { "kind": "test", "isDefault": true },
+            "presentation": { "reveal": "always", "panel": "dedicated" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Smoke Test (full check battery)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["scripts/smoke_test.py"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "group": "test",
+            "presentation": { "reveal": "always", "panel": "dedicated" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Assurance Check (invariants)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["scripts/assurance_check.py"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "group": { "kind": "build", "isDefault": true },
+            "presentation": { "reveal": "always", "panel": "dedicated" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Overfit Battery (OF-1..OF-7)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["scripts/overfit_check.py"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint (ruff check)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": [
+                "-m", "ruff", "check",
+                "core", "data", "execution", "ml", "risk", "api", "ui",
+                "tests", "scripts/quant_trials.py", "scripts/overfit_check.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Security Scan (bandit)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": [
+                "-m", "bandit",
+                "-c", "pyproject.toml",
+                "-r", ".",
+                "-x", "./.venv,./tests"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Compile All (bytecode sanity)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "args": ["-m", "compileall", "-q", ".", "-x", ".venv"],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": { "PYTHONUTF8": "1" }
+            },
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Definition of Done (full matrix)",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Full Test Suite (pytest)",
+                "Smoke Test (full check battery)",
+                "Assurance Check (invariants)",
+                "Overfit Battery (OF-1..OF-7)",
+                "Lint (ruff check)",
+                "Security Scan (bandit)",
+                "Compile All (bytecode sanity)"
+            ],
+            "problemMatcher": []
         },
         {
             "label": "Setup (create venv + install deps)",
             "type": "shell",
             "command": "${workspaceFolder}\\install.bat",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "presentation": {
-                "reveal": "always"
-            }
+            "options": { "cwd": "${workspaceFolder}" },
+            "presentation": { "reveal": "always" },
+            "problemMatcher": []
         }
     ]
 }
