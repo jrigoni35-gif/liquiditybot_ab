@@ -1,0 +1,91 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Assurance Check (47 invariants)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "scripts/assurance_check.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PYTHONUTF8": "1"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Smoke Test (188 checks)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "scripts/smoke_test.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PYTHONUTF8": "1"
+                }
+            },
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Verify Audit Chain",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-c",
+                "from core.audit import get_audit; print(get_audit().verify())"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PYTHONUTF8": "1"
+                }
+            }
+        },
+        {
+            "label": "Run Bot (dry_run)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "runner.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PYTHONUTF8": "1"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Setup (create venv + install deps)",
+            "type": "shell",
+            "command": "${workspaceFolder}\\setup_windows.bat",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always"
+            }
+        }
+    ]
+}

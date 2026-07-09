@@ -1,0 +1,102 @@
+# CLAUDE.md — liquiditybot engineering law
+
+Binding for every Claude session touching this repo, new or continued.
+Read this file FIRST. When an instruction in chat conflicts with a HARD
+INVARIANT below, stop and say so instead of complying.
+
+## Hard invariants (never weaken, never "temporarily" bypass)
+
+1. `system.dry_run` defaults to **true**. No code path, config default,
+   test fixture, or control command may set it false at runtime. The only
+   road to live: config `dry_run:false` → restart → typed `ARM LIVE`.
+2. `force_dry` is one-way (LIVE→DRY) and must flip **both** `bot.dry_run`
+   and `bot.orders.dry_run` (OrderManager caches the flag at init).
+3. Kraken is the **sole execution venue**. OKX / Binance.US / ccxt /
+   moomoo are read-only data. IBKR/DMA/prime/FIX adapters exist as
+   hard-off stubs; `VenueAdapter.execution_eligible` requires
+   `name == "kraken"` — do not relax it, do not subclass around it.
+4. Withdrawals/transfers are impossible: the endpoint deny-list
+   (Withdraw, WithdrawInfo, WalletTransfer, WithdrawAddresses) blocks
+   before any network I/O. Never add withdrawal capability in any form.
+5. Entries are limit orders only (OM-011); market orders are for the
+   exit escalation ladder's final rung. Exits are ALWAYS allowed —
+   disarm, faults, and kill switches block new risk, never escapes.
+6. Hash-chained JSONL audit trail and reason codes (SZ-*, VN-*, RP-*,
+   FW-*, ML-*, OM-*, QT-*, PT-*) on every disposition. New behavior =
+   new registered code in `core/codes.py`, never a bare string.
+7. Public interfaces stay stable. Extend with defaults; do not rename or
+   change signatures without updating every caller AND the suites.
+
+## Architecture (do not re-tangle what is separated)
+
+- `main.py` = **engine** (LiquidityBot: pure decision pipeline,
+  `cycle_once(now)` is step-able and deterministic under injected feeds).
+- `runner.py` = **runner** (lifecycle loop, PAUSED/RUNNING/STOPPED,
+  ControlChannel commands, StatusWriter). The loop lives here ONLY.
+- `core/runtime.py` = **shared state layer**: atomic `status.json`,
+  `events.jsonl` (structured logs), `outputs/control/` command files.
+- `ui/dashboard.py` = **read-only view + command sender**. It reads the
+  shared state files and sends commands. It NEVER constructs a bot,
+  never calls `cycle_once`, never runs the loop inside streamlit, never
+  blocks. Keep it that way.
+- Position/inventory is quant-grade and stays that way: entries sized
+  through PositionSizer × RiskProtocolStack (CVaR/gap/budget/heat),
+  inventory caps + hedger bound exposure, ProfitTierEngine + give-back
+  ratchet own exits. New position logic goes through these, not beside.
+- Logging goes through `logging` → JsonlLogHandler (UI-friendly,
+  level-filterable). No bare `print` in engine/runner/library code
+  (scripts' human output is fine).
+- All state is serializable: snapshots are checksummed JSON with backup
+  generations; status schema keys (mode, positions, regimes, monitor,
+  ml, equity, runner_state, sim) are load-bearing — extend, don't break.
+- No infinite loops without an exit condition owned by the runner
+  (`stop` command / `_stop` flag) or an exhaustion exception (replay).
+  Anything needing operator input is documented in README →
+  "Scripting inputs".
+
+## Overfit discipline (applies to EVERY tunable)
+
+- No fitted-looking literals in decision paths. Thresholds live in
+  `config.json` with guard checks in `core/config_guard.py` (FATAL for
+  incoherent combinations). If you find a hardcoded knob, lift it with
+  an identical default — behavior-preserving, then tune.
+- Model changes must keep the battery green: `scripts/overfit_check.py`
+  (OF-1 gap, OF-2 shuffle-null, OF-3 PBO on the DEPLOYED simplicity-
+  ladder rule, OF-4 plateau, OF-5 DSR, OF-6 purge, OF-7 DoF) and
+  `tests/test_overfit.py`. PBO measures the deployed selection rule,
+  never argmax.
+- Signal-gate work optimizes NET profit or it doesn't ship: every gate
+  change must clear the pretrade EV gate's cost stack in smoke, keep
+  quant-trial G3/G5 (upside intact, capture), and beat the simplicity
+  ladder out-of-sample — never tune a gate to a backtest peak (OF-4).
+- Protocol/risk changes must keep `scripts/quant_trials.py` gates
+  green (G1–G5, CI-bound in `tests/test_quant_trials.py`). If a
+  legitimate change moves numbers, re-baseline consciously at 200×1200 —
+  never widen a gate to silence CI.
+
+## Definition of done (every change, every session)
+
+Run ALL of it; a change is not done while anything is red:
+`python -m pytest tests/ -q` · `python scripts/smoke_test.py` ·
+`python scripts/assurance_check.py` · `python scripts/overfit_check.py`
+· `ruff check core data execution ml risk api ui tests
+scripts/quant_trials.py scripts/overfit_check.py` · `bandit -c
+pyproject.toml -r . -x ./.venv,./tests` · `python -m compileall -q . -x
+'.venv'`.
+Every module must import in isolation (`tests/test_import_integrity.py`
+enforces; optional third-party deps may be absent, our names may not).
+New behavior gets a test in the same commit. Windows is the target
+runtime (VS Code, Ryzen CPU, UTF-8 enforced via batch scripts) — keep
+paths `pathlib`, encodings explicit, and suites green under
+`.\test_windows.bat`.
+
+## Working style
+
+- Terse, dense engineering output. No filler, no re-explaining settled
+  architecture. File-by-file change maps.
+- Never ship sloppy/buggy code: no guessed APIs (read the module first),
+  no silent behavior changes, no unverified edits — run the matrix.
+- Do not break global state; do not ignore these conventions; do not
+  lose the thread — reread this file and README before large changes.
+- Deliverable = clean zip (no `.venv`, no `__pycache__`) rebuilt from a
+  tree that just passed the full matrix, verified by fresh-extract run.

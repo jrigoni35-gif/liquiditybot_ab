@@ -1,0 +1,34 @@
+// api/liquiditybot.proto — gRPC surface mirroring the REST API, rev 4.
+// Same security posture: status reads + risk-neutral/reducing control
+// verbs only. arm_live is deliberately NOT part of this service.
+//
+// Generate stubs (grpcio-tools required, optional dependency):
+//   python -m grpc_tools.protoc -I api --python_out=api \
+//          --grpc_python_out=api api/liquiditybot.proto
+// api/grpc_server.py imports the generated modules lazily and degrades
+// with a warning if they're absent — the moomoo optional-dep pattern.
+
+syntax = "proto3";
+package liquiditybot;
+
+service BotService {
+  rpc GetStatus (Empty) returns (StatusJson);
+  rpc SendControl (ControlRequest) returns (ControlReply);
+}
+
+message Empty {}
+
+// The runner's status snapshot, passed as canonical JSON: one schema
+// (the REST/status.json one), zero drift between surfaces.
+message StatusJson { string json = 1; }
+
+message ControlRequest {
+  string cmd = 1;           // pause|start|step|snapshot|entries_on|
+                            // entries_off|disarm_live|flatten_all
+  string payload_json = 2;  // JSON object, may be empty
+}
+
+message ControlReply {
+  bool accepted = 1;
+  string message = 2;
+}

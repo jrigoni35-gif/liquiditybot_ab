@@ -1,0 +1,258 @@
+"""
+execution/pretrade.py — rev 2.0 (Assurance Build)
+
+The "is this trade worth existing?" gate. Rev 2 keeps every rev-1 veto
+and adds the two terms that decide whether a passive strategy makes or
+loses money at Kraken's 25/40bps fee tier:
+
+  ADVERSE SELECTION (maker path). A passive fill is not a free maker
+  fee — you get filled precisely when flow trades through you, so the
+  conditional expected move at fill time is against you. First-order
+  Glosten-Milgrom proxy:  as_kappa x sigma_bar (bps), added to the
+  maker cost stack. Rev 1 priced passive fills as fee-only, which
+  systematically overstated edge on every single entry.
+
+  FILL-PROBABILITY-WEIGHTED EV (maker path). A resting limit that
+  fills 8% of the time must clear its cost conditional on filling AND
+  beat the small friction of the 92% of attempts that expire:
+
+     EV = p_fill x (edge - cost) - (1 - p_fill) x miss_cost
+
+  p_fill uses the same distance-decay family as the dry-run fill
+  simulator (p0 x exp(-dist_bps / sigma_bar_bps)), so paper results and
+  the gate's arithmetic agree by construction. Both knobs ship gentle
+  (miss_cost 0.5bps, ev_min 0) — tighten via replay sweeps, not vibes.
+
+Everything is fail-closed: any non-finite input rejects (PT-010). All
+verdicts carry codes from core.codes. Interface unchanged.
+"""
+
+import logging
+import math
+from dataclasses import dataclass, field
+
+
+from core.codes import Code, tag
+
+log = logging.getLogger("liquiditybot.execution.pretrade")
+
+EPS = 1e-9
+
+
+def _fin(x) -> bool:
+    return isinstance(x, (int, float)) and math.isfinite(x)
+
+
+@dataclass
+class PreTradeContext:
+    kraken_book: dict
+    sigma_daily_pct: float
+    adv_usd: float
+    liq_label: str
+    spread_bps: float
+    staleness_ms: float
+    reduce_only_ok: bool = False
+
+
+@dataclass
+class PreTradeDecision:
+    approved: bool
+    size_units: float
+    est_cost_bps: float = 0.0
+    est_edge_bps: float = 0.0
+    reasons: list = field(default_factory=list)
+    taker: bool = False
+    p_fill: float = 1.0
+    ev_bps: float = 0.0
+
+
+class PreTradeGate:
+    def __init__(self, config: dict):
+        cfg = config or {}
+        self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
+        self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
+        self.impact_eta = float(cfg.get("impact_eta", 0.8))
+        self.min_edge_cost_ratio = float(cfg.get("min_edge_cost_ratio", 1.3))
+        self.max_spread_bps = float(cfg.get("max_spread_bps", 15.0))
+        self.max_staleness_ms = float(cfg.get("max_data_staleness_ms", 4000.0))
+        self.max_participation = float(cfg.get("max_participation_of_depth",
+                                               0.15))
+        self.min_order_usd = float(cfg.get("min_order_usd", 25.0))
+        # rev 2 profit terms (all bounded, all default-gentle)
+        self.as_kappa = min(max(float(cfg.get("adverse_selection_kappa",
+                                              0.35)), 0.0), 2.0)
+        self.maker_fill_p0 = min(max(float(cfg.get("maker_fill_p0", 0.45)),
+                                     0.01), 1.0)
+        self.p_fill_floor = min(max(float(cfg.get("p_fill_floor", 0.05)),
+                                    0.001), 1.0)
+        self.miss_cost_bps = min(max(float(cfg.get("miss_cost_bps", 0.5)),
+                                     0.0), 20.0)
+        self.ev_min_bps = float(cfg.get("ev_min_bps", 0.0))
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def book_walk_bps(book: dict, side: str, size_units: float) -> float:
+        """Avg slippage vs touch when sweeping the live book. Invalid
+        levels are skipped (fail-closed: they provide no liquidity)."""
+        levels = (book.get("asks") if side == "buy"
+                  else book.get("bids")) or []
+        if not levels or size_units <= EPS:
+            return 0.0
+        clean = []
+        for row in levels:
+            try:
+                p, s = float(row[0]), float(row[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if _fin(p) and p > 0 and _fin(s) and s > 0:
+                clean.append((p, s))
+        if not clean:
+            return 1e6
+        touch = clean[0][0]
+        remaining, cost = size_units, 0.0
+        for price, avail in clean:
+            take = min(remaining, avail)
+            cost += take * price
+            remaining -= take
+            if remaining <= EPS:
+                break
+        if remaining > EPS:
+            return 1e6
+        avg = cost / size_units
+        slip = (avg - touch) / touch if side == "buy" else (touch - avg) / touch
+        return max(slip, 0.0) * 1e4
+
+    def impact_bps(self, order_usd: float, sigma_daily_pct: float,
+                   adv_usd: float) -> float:
+        """Square-root impact: eta x sigma_daily x sqrt(Q / ADV)."""
+        if adv_usd <= EPS or order_usd <= EPS:
+            return 0.0
+        return self.impact_eta * (sigma_daily_pct * 100.0) * \
+            math.sqrt(order_usd / adv_usd)
+
+    # ------------------------------------------------------------------
+    def evaluate(self, side: str, size_units: float, ref_price: float,
+                 exp_alpha_bps: float, fv_edge_bps: float,
+                 ctx: PreTradeContext, taker: bool = False,
+                 extra_edge_ratio: float = 0.0) -> PreTradeDecision:
+        d = PreTradeDecision(approved=False, size_units=0.0, taker=taker)
+
+        # ---- fail-closed input validation (PT-010) ---------------------
+        if side not in ("buy", "sell") or not _fin(size_units) \
+                or not _fin(ref_price) or size_units <= EPS \
+                or ref_price <= EPS:
+            d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                 f"side={side!r} size={size_units!r} "
+                                 f"ref={ref_price!r}"))
+            return d
+        for name, v in ((" alpha", exp_alpha_bps), ("fv_edge", fv_edge_bps),
+                        ("sigma", ctx.sigma_daily_pct), ("adv", ctx.adv_usd),
+                        ("spread", ctx.spread_bps),
+                        ("stale", ctx.staleness_ms)):
+            if not _fin(v):
+                d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                     f"non-finite {name}={v!r}"))
+                return d
+
+        # ---- hard vetoes ------------------------------------------------
+        if ctx.staleness_ms > self.max_staleness_ms:
+            d.reasons.append(tag(Code.PT_STALE_DATA,
+                                 f"{ctx.staleness_ms:.0f}ms"))
+            return d
+        if ctx.spread_bps > self.max_spread_bps:
+            d.reasons.append(tag(Code.PT_SPREAD_WIDE,
+                                 f"{ctx.spread_bps:.1f}bps > "
+                                 f"{self.max_spread_bps:.0f}"))
+            return d
+        if ctx.liq_label == "spoofy" and not ctx.reduce_only_ok:
+            d.reasons.append(tag(Code.PT_SPOOFY_REGIME,
+                                 "new risk blocked"))
+            return d
+
+        # ---- participation cap (shrink, don't reject) --------------------
+        levels = (ctx.kraken_book.get("asks") if side == "buy"
+                  else ctx.kraken_book.get("bids")) or []
+        depth_units = 0.0
+        for row in levels[:10]:
+            try:
+                s = float(row[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if _fin(s) and s > 0:
+                depth_units += s
+        max_units = depth_units * self.max_participation
+        size = size_units
+        if max_units > EPS and size > max_units:
+            d.reasons.append(tag(Code.PT_PARTICIPATION_CLAMP,
+                                 f"{size:.6f} -> {max_units:.6f}"))
+            size = max_units
+        order_usd = size * ref_price
+        if order_usd < self.min_order_usd:
+            d.reasons.append(tag(Code.PT_BELOW_MIN_ORDER,
+                                 f"${order_usd:,.0f}"))
+            return d
+
+        # ---- cost stack ---------------------------------------------------
+        sigma_bar_bps = max(ctx.sigma_daily_pct * 100.0 / math.sqrt(288.0),
+                            1.0)                     # 5m bars per day
+        if taker:
+            fee = self.taker_fee_bps
+            spread_cost = 0.5 * ctx.spread_bps
+            walk = self.book_walk_bps(ctx.kraken_book, side, size)
+            if walk >= 1e6:
+                d.reasons.append(tag(Code.PT_BOOK_SHALLOW, "for size"))
+                return d
+            as_penalty = 0.0
+        else:
+            fee = self.maker_fee_bps
+            spread_cost = 0.0
+            walk = 0.0
+            # adverse selection: conditional on a passive fill, expected
+            # short-horizon move against us ~ kappa x per-bar vol
+            as_penalty = self.as_kappa * sigma_bar_bps
+        impact = self.impact_bps(order_usd, ctx.sigma_daily_pct, ctx.adv_usd)
+        cost = fee + spread_cost + walk + impact + as_penalty
+
+        # ---- edge stack -----------------------------------------------------
+        edge = max(exp_alpha_bps, 0.0) + max(fv_edge_bps, 0.0)
+        d.est_cost_bps, d.est_edge_bps = cost, edge
+
+        ratio = self.min_edge_cost_ratio + max(extra_edge_ratio, 0.0)
+        if edge < ratio * cost:
+            d.reasons.append(tag(Code.PT_EDGE_RATIO,
+                                 f"edge {edge:.1f}bps < {ratio:.2f}x cost "
+                                 f"{cost:.1f}bps"))
+            return d
+
+        # ---- fill-probability-weighted EV (maker only) ----------------------
+        if taker:
+            p_fill, ev = 1.0, edge - cost
+        else:
+            mid = 0.0
+            bids = ctx.kraken_book.get("bids") or []
+            asks = ctx.kraken_book.get("asks") or []
+            try:
+                if bids and asks:
+                    mid = 0.5 * (float(bids[0][0]) + float(asks[0][0]))
+            except (TypeError, ValueError, IndexError):
+                mid = 0.0
+            dist_bps = abs(mid - ref_price) / mid * 1e4 \
+                if _fin(mid) and mid > 0 else 0.0
+            p_fill = max(self.maker_fill_p0 *
+                         math.exp(-dist_bps / sigma_bar_bps),
+                         self.p_fill_floor)
+            ev = p_fill * (edge - cost) - (1.0 - p_fill) * self.miss_cost_bps
+        d.p_fill, d.ev_bps = float(p_fill), float(ev)
+        if ev < self.ev_min_bps:
+            d.reasons.append(tag(Code.PT_EV_NEGATIVE,
+                                 f"EV {ev:+.2f}bps @ p_fill {p_fill:.2f} "
+                                 f"< {self.ev_min_bps:.2f} floor"))
+            return d
+
+        d.approved = True
+        d.size_units = size
+        d.reasons.append(tag(Code.PT_APPROVED,
+                             f"edge {edge:.1f} / cost {cost:.1f} "
+                             f"(as={as_penalty:.1f}) EV {ev:+.2f}bps "
+                             f"@ p_fill {p_fill:.2f}"))
+        return d

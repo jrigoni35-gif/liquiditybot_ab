@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Bot (runner.py)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/runner.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Assurance Check (47 invariants)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/assurance_check.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Smoke Test (188 checks)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/smoke_test.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
+            "name": "Replay Session",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/replay.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": { "PYTHONUTF8": "1" }
+        }
+    ]
+}

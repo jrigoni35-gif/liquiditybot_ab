@@ -1,0 +1,11 @@
+# Tooling config. Kept minimal on purpose: no [tool.ruff] section, so ruff
+# continues to run on its defaults exactly as before this file existed.
+
+[tool.bandit]
+# B101 (assert_used) is skipped repo-wide. Every assert in the tree is either a
+# test-harness check (scripts/smoke_test.py, scripts/assurance_check.py) or a
+# type-narrowing invariant guard in library code (e.g. `assert x is not None`
+# after an init/fit step, to satisfy Pylance/pyright). None validate untrusted
+# input, so `python -O` stripping them is harmless. Other bandit findings stay
+# curated inline via `# nosec B<id>` markers, not blanket-skipped here.
+skips = ["B101"]

@@ -1,0 +1,121 @@
+"""
+core/codes.py — global reason-code registry (Assurance Build)
+
+One canonical, stable vocabulary for every machine decision in the
+system. Every reject, clamp, override, fault, and model-governance
+action carries exactly one code from this registry, in the form
+"XX-NNN: human detail". Codes are append-only: a code, once shipped,
+is never renumbered or reused (audit trails must stay interpretable
+forever).
+
+Prefix map (subsystem of origin):
+  FW  execution.risk_firewall     PT  execution.pretrade
+  OM  execution.order_manager     SZ  risk.position_sizer
+  QT  execution.market_maker      FV  execution.fair_value
+  ML  ml.* (contracts/registry/monitor)
+  WD  core.watchdog               CG  core.config_guard
+  FT  core.fault (system-level faults / state transitions)
+"""
+
+from enum import Enum
+
+
+class Code(str, Enum):
+    # ---- risk firewall (FW) ------------------------------------------
+    FW_INVALID_FIELD = "FW-010"
+    FW_INVALID_PRICE = "FW-011"
+    FW_INVALID_SIZE = "FW-012"
+    FW_INVALID_EQUITY = "FW-013"
+    FW_RATE_LIMIT = "FW-020"
+    FW_DUPLICATE = "FW-030"
+    FW_NOTIONAL_REJECT = "FW-040"
+    FW_NOTIONAL_CLAMP = "FW-041"
+    FW_COLLAR_REJECT = "FW-050"
+    FW_COLLAR_CLAMP = "FW-051"
+    FW_EXIT_PRICE_SUB = "FW-052"
+    FW_NO_REFERENCE = "FW-060"
+    FW_FAULT_REJECT = "FW-090"
+    FW_FAULT_DEGRADED = "FW-091"
+
+    # ---- pre-trade gate (PT) -----------------------------------------
+    PT_INVALID_INPUT = "PT-010"
+    PT_STALE_DATA = "PT-020"
+    PT_SPREAD_WIDE = "PT-021"
+    PT_SPOOFY_REGIME = "PT-022"
+    PT_BOOK_SHALLOW = "PT-023"
+    PT_PARTICIPATION_CLAMP = "PT-030"
+    PT_BELOW_MIN_ORDER = "PT-031"
+    PT_EV_NEGATIVE = "PT-040"        # fill-prob-weighted EV fails the bar
+    PT_EDGE_RATIO = "PT-041"         # edge/cost ratio below minimum
+    PT_APPROVED = "PT-000"
+
+    # ---- venue adapters (VN) -----------------------------------------
+    VN_REGISTERED = "VN-000"         # adapter registered (may be disabled)
+    VN_NOT_ENABLED = "VN-010"        # place() on a disabled adapter
+    VN_NOT_IMPLEMENTED = "VN-011"    # connectivity stub, no live transport
+    VN_ROGUE_EXECUTION = "VN-020"    # non-kraken adapter marked execution-eligible
+    VN_CREDENTIAL_MISSING = "VN-030" # enabled adapter without resolved creds
+
+    # ---- order manager (OM) ------------------------------------------
+    OM_INVALID_INPUT = "OM-010"
+    OM_MARKET_REFUSED = "OM-011"     # market order outside exit escalation
+    OM_BELOW_ORDERMIN = "OM-012"
+    OM_FIREWALL_REJECT = "OM-020"
+    OM_VENUE_REJECT = "OM-021"
+    OM_ILLEGAL_TRANSITION = "OM-030" # order state machine violation
+    OM_TIMEOUT_CANCEL = "OM-040"
+    OM_DEADMAN_FAIL = "OM-050"
+
+    # ---- sizer (SZ) ---------------------------------------------------
+    SZ_INVALID_INPUT = "SZ-010"
+    SZ_COOLDOWN = "SZ-020"
+    SZ_REGIME_BLOCK = "SZ-021"
+    SZ_DIRECTION_BLOCK = "SZ-022"
+    SZ_PWIN_BAR = "SZ-023"
+    SZ_KELLY_ZERO = "SZ-030"
+    SZ_MULT_ZERO = "SZ-031"
+    SZ_INVENTORY = "SZ-040"
+    SZ_LEVERAGE = "SZ-041"
+    SZ_MIN_TICKET = "SZ-042"
+    SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
+    SZ_APPROVED = "SZ-000"
+
+    # ---- risk protocol stack (advanced overlay) --------------------------
+    RP_VOL_TARGET = "RP-010"         # vol-target scaling applied
+    RP_CVAR_CAP = "RP-020"           # expected-shortfall budget capped size
+    RP_GAP_CAP = "RP-030"            # gap-at-risk shock cap applied
+    RP_BUDGET_TAPER = "RP-040"       # loss-budget taper active
+    RP_BUDGET_EXHAUSTED = "RP-041"   # daily/weekly loss budget spent: no new risk
+    RP_HEAT_CAP = "RP-050"           # portfolio heat headroom capped size
+    RP_HEAT_FULL = "RP-051"          # portfolio heat at max: no new risk
+    RP_WARMUP = "RP-060"             # component neutral: insufficient observations
+
+    # ---- quoter / fair value ------------------------------------------
+    QT_FEE_FLOOR = "QT-010"          # half-spread raised to structural floor
+    FV_NO_INPUT = "FV-010"
+    FV_INNOVATION_GATED = "FV-020"   # jump beyond gate: adaptive damping
+
+    # ---- ML governance (ML) -------------------------------------------
+    ML_CONTRACT_VIOLATION = "ML-010" # inference input outside data contract
+    ML_ARTIFACT_HASH_FAIL = "ML-011" # model file failed integrity check
+    ML_ARTIFACT_MISSING = "ML-012"
+    ML_SCHEMA_MISMATCH = "ML-013"
+    ML_FAILSAFE_PRIOR = "ML-020"     # inference bypassed -> cold-start prior
+    ML_LEVEL_CHANGE = "ML-030"
+    ML_DRIFT = "ML-031"
+    ML_RETRAIN_REQUEST = "ML-032"
+    ML_DEPLOY = "ML-040"
+    ML_DEPLOY_REJECT = "ML-041"
+    ML_KILL_SWITCH = "ML-050"        # model output disabled (level 2+)
+    ML_REGISTERED = "ML-060"         # artifact registered
+    ML_EXPLORATION = "ML-070"        # dry-run paper exploration entry (active learning)
+
+    # ---- system fault manager (FT) -------------------------------------
+    FT_LATCHED = "FT-010"
+    FT_CLEARED = "FT-011"
+    FT_STATE_CHANGE = "FT-020"
+
+
+def tag(code: Code, detail: str) -> str:
+    """Canonical 'CODE: detail' string used in reasons lists and audit."""
+    return f"{code.value}: {detail}"
