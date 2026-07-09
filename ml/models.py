@@ -331,6 +331,8 @@ def load_model(path: str):
         return NumpyMLP.from_dict(d)
     if kind == "gbt":
         return GradientBoostedStumps.from_dict(d)
+    if kind == "blend":
+        return BlendModel.from_dict(d)
     return LogisticModel.from_dict(d)
 
 
@@ -546,4 +548,39 @@ class GradientBoostedStumps:
         imp = d.get("importance")
         m.importance_ = {int(k): float(v) for k, v in imp.items()} \
             if isinstance(imp, dict) else {}
+        return m
+
+
+class BlendModel:
+    """Equal-weight probability blend of the linear baseline and the
+    boosted stumps — two decorrelated hypothesis classes averaged for
+    pure variance reduction. The blend weight is deliberately NOT
+    fitted: a tuned weight is one more degree of freedom to overfit on
+    the small datasets this bot produces (OF-7 discipline). It occupies
+    the ladder rung above gbt and ships only by beating gbt
+    out-of-sample by the Brier margin, like every other rung."""
+    kind = "blend"
+
+    def __init__(self, seed: int = 7):
+        self.seed = seed
+        self.a = LogisticModel(seed=seed)
+        self.b = GradientBoostedStumps(seed=seed)
+
+    def fit(self, X, y, sample_weight=None):
+        self.a.fit(X, y, sample_weight=sample_weight)
+        self.b.fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict_proba(self, X):
+        return 0.5 * (self.a.predict_proba(X) + self.b.predict_proba(X))
+
+    def to_dict(self):
+        return {"kind": self.kind, "seed": self.seed,
+                "a": self.a.to_dict(), "b": self.b.to_dict()}
+
+    @classmethod
+    def from_dict(cls, d):
+        m = cls(seed=int(d.get("seed", 7)))
+        m.a = LogisticModel.from_dict(d["a"])
+        m.b = GradientBoostedStumps.from_dict(d["b"])
         return m

@@ -183,6 +183,7 @@ class StateStore:
                 "monitor": bot.monitor.to_dict(),
                 "postmortem": bot.postmortem.to_dict(),
                 "candidates": bot.candidates.to_dict(),
+                "gate_stats": bot.gate_stats.to_dict(),
                 "stop_hit": dict(bot._stop_hit),
                 "risk_protocols": getattr(bot, "risk_protocols",
                                           None) and
@@ -299,6 +300,7 @@ class StateStore:
             bot.monitor.restore(data.get("monitor"))
             bot.postmortem.restore(data.get("postmortem"))
             bot.candidates.restore(data.get("candidates"))
+            bot.gate_stats.restore(data.get("gate_stats"))
             bot._stop_hit.update(data.get("stop_hit", {}))
             rp = data.get("risk_protocols")
             if rp and getattr(bot, "risk_protocols", None) is not None:

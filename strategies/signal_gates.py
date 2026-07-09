@@ -183,3 +183,105 @@ class SignalGateEngine:
             gates_passed=gates_passed,
         )
 
+
+def _wilson_lcb(wins: int, n: int, z: float = 1.96) -> float:
+    """Wilson lower confidence bound on a win rate — conservative for
+    small n, converges to the raw rate as evidence accrues."""
+    if n <= 0:
+        return 0.0
+    p = wins / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = p + z2 / (2 * n)
+    rad = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+    return max((center - rad) / denom, 0.0)
+
+
+class GateStats:
+    """Per-gate predictive-power ledger learned from labeled candidate
+    outcomes (engine-agnostic: works on any gates_passed dict, informed-
+    flow or 5-gate). For each gate it tracks labeled candidates where
+    that gate PASSED; the Wilson-LCB win rate relative to the overall
+    base rate becomes a bounded weight that shades gate_confidence
+    toward gates that actually predict wins on THIS feed.
+
+    Discipline: weights NEVER veto — direction and all_confirmed are
+    untouched; only the confidence shading (a meta-model feature and
+    the counter-trend p bar input) moves. A gate with fewer than
+    min_samples labeled passes stays at weight 1.0, so the cold start
+    reproduces the naive equal-weight confidence exactly."""
+
+    W_LO, W_HI = 0.7, 1.3
+
+    def __init__(self, cfg: dict | None = None):
+        c = cfg or {}
+        self.enabled = bool(c.get("enabled", False))
+        self.min_samples = max(int(c.get("min_samples", 40)), 5)
+        self.strength = min(max(float(c.get("strength", 2.0)), 0.0), 5.0)
+        self._stats: dict = {}       # gate -> [n_labeled_passes, wins]
+        self._total = [0, 0]         # all labeled candidates [n, wins]
+
+    def note_label(self, gates_passed, label) -> None:
+        """Called by the candidate labeler when a triple-barrier label
+        lands. Never raises — a stats hiccup must not break labeling."""
+        if not isinstance(gates_passed, dict) or not gates_passed:
+            return
+        try:
+            win = 1 if int(label) > 0 else 0
+        except (TypeError, ValueError):
+            return
+        self._total[0] += 1
+        self._total[1] += win
+        for g, passed in gates_passed.items():
+            if passed:
+                s = self._stats.setdefault(str(g), [0, 0])
+                s[0] += 1
+                s[1] += win
+
+    def weight(self, gate: str) -> float:
+        n, wins = self._stats.get(gate, (0, 0))
+        if n < self.min_samples or self._total[0] < self.min_samples:
+            return 1.0
+        base = self._total[1] / max(self._total[0], 1)
+        lcb = _wilson_lcb(wins, n)
+        return min(max(1.0 + (lcb - base) * self.strength,
+                       self.W_LO), self.W_HI)
+
+    def weighted_confidence(self, gates_passed, fallback: float) -> float:
+        """Weighted fraction of passing gates in [0, 1]. Equal weights
+        (cold start / disabled) reproduce the naive fraction exactly."""
+        if not self.enabled or not isinstance(gates_passed, dict) \
+                or not gates_passed:
+            return fallback
+        weights = {g: self.weight(str(g)) for g in gates_passed}
+        denom = sum(weights.values())
+        if denom <= 0:
+            return fallback
+        num = sum(weights[g] for g, p in gates_passed.items() if p)
+        return min(max(num / denom, 0.0), 1.0)
+
+    def summary(self) -> dict:
+        """Compact snapshot for status.json / dashboard."""
+        return {"enabled": self.enabled,
+                "labeled": self._total[0],
+                "base_rate": round(self._total[1] / self._total[0], 3)
+                if self._total[0] else None,
+                "weights": {g: round(self.weight(g), 3)
+                            for g in sorted(self._stats)}}
+
+    # --- persistence hooks (snapshot round-trip) ---
+    def to_dict(self) -> dict:
+        return {"stats": {g: list(s) for g, s in self._stats.items()},
+                "total": list(self._total)}
+
+    def restore(self, d) -> None:
+        if not isinstance(d, dict):
+            return
+        try:
+            self._stats = {str(g): [int(s[0]), int(s[1])]
+                           for g, s in (d.get("stats") or {}).items()}
+            t = d.get("total") or [0, 0]
+            self._total = [int(t[0]), int(t[1])]
+        except (TypeError, ValueError, IndexError):
+            self._stats, self._total = {}, [0, 0]
+

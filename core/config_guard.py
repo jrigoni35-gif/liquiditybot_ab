@@ -349,6 +349,49 @@ def validate(config: dict) -> list:
              f"45h evidence in outputs/monitor/liquidity_dist.jsonl) - "
              f"expect near-constant 'spoofy' labels vetoing all entries")
 
+    # --- rev-5 adaptive blocks: aggression / gate learning / exit coupling
+    ia = _f(config, "position_sizer.inventory_aggression", {}) or {}
+    if isinstance(ia, dict) and ia.get("enabled"):
+        lb = float(ia.get("light_boost", 1.10))
+        hc = float(ia.get("heavy_cut", 0.65))
+        if not (1.0 <= lb <= 1.5):
+            fatal(f"inventory_aggression.light_boost={lb} must be in "
+                  f"[1.0, 1.5] - below 1 punishes an empty book, above "
+                  f"1.5 overrides Kelly by half again")
+        if not (0.2 <= hc <= 1.0):
+            fatal(f"inventory_aggression.heavy_cut={hc} must be in "
+                  f"[0.2, 1.0] - 0 would silently veto every entry at a "
+                  f"full book (that is the inventory cap's job)")
+        if float(ia.get("short_window_hours", 6)) <= 0:
+            fatal("inventory_aggression.short_window_hours must be positive")
+        fh = float(ia.get("full_book_heat_frac", 0.35))
+        if not (0.05 <= fh <= 1.0):
+            fatal(f"inventory_aggression.full_book_heat_frac={fh} out of "
+                  f"[0.05, 1.0]")
+    if bool(_f(config, "profit_taking.signal_decay.enabled", False)):
+        sd_t = float(_f(config, "profit_taking.signal_decay.tighten_factor",
+                        0.5))
+        if not (0.1 <= sd_t <= 1.0):
+            fatal(f"profit_taking.signal_decay.tighten_factor={sd_t} must "
+                  f"be in [0.1, 1.0] - below it is an instant exit, above "
+                  f"it would LOOSEN the leash on a dead thesis")
+    if bool(_f(config, "profit_taking.inventory_coupling.enabled", False)):
+        icb = float(_f(config, "profit_taking.inventory_coupling.max_boost",
+                       0.5))
+        if not (0.0 <= icb <= 1.0):
+            fatal(f"profit_taking.inventory_coupling.max_boost={icb} must "
+                  f"be in [0, 1] - doubling a tier close at full pressure "
+                  f"is the sane ceiling")
+    lw = _f(config, "signal_gates.learned_weights", {}) or {}
+    if isinstance(lw, dict) and lw.get("enabled"):
+        if int(lw.get("min_samples", 40)) < 5:
+            warn("signal_gates.learned_weights.min_samples < 5: the Wilson "
+                 "bound on so few labeled passes is noise, not evidence")
+        st = float(lw.get("strength", 2.0))
+        if not (0.0 <= st <= 5.0):
+            fatal(f"signal_gates.learned_weights.strength={st} out of "
+                  f"[0, 5]")
+
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))

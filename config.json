@@ -74,6 +74,12 @@
       "indicator": "ema_cross",
       "fast_period": 9,
       "slow_period": 21
+    },
+    "learned_weights": {
+      "_doc": "per-gate predictive-power weights learned from labeled candidates; cold start (per-gate n < min_samples) reproduces naive equal-weight confidence exactly",
+      "enabled": true,
+      "min_samples": 40,
+      "strength": 2.0
     }
   },
   "profit_taking": {
@@ -120,6 +126,16 @@
       "tighten_gain_pct": 4.0,
       "tight_frac": 0.25,
       "_doc": "peak-gain-armed exit floor: past arm_gain_pct lock 60% of the peak move; past tighten_gain_pct lock 75%. Reconstructed from the persisted high_water \u2014 restart-safe, ratchet-only."
+    },
+    "signal_decay": {
+      "_doc": "runner leash: when the entry signal is no longer confirmed in the position direction, chandelier trail distance shrinks by tighten_factor (exits only ever come SOONER)",
+      "enabled": true,
+      "tighten_factor": 0.5
+    },
+    "inventory_coupling": {
+      "_doc": "crowded book: fired tiers retire up to (1+max_boost)x the configured close_pct at full inventory pressure",
+      "enabled": true,
+      "max_boost": 0.5
     }
   },
   "capital_management": {
@@ -292,7 +308,16 @@
     "min_ticket_usd": 25,
     "entry_cooldown_min": 20,
     "dd_throttle_power": 1.5,
-    "dd_throttle_floor": 0.15
+    "dd_throttle_floor": 0.15,
+    "inventory_aggression": {
+      "_doc": "lean in when the book is light, back off as short-term entry clustering or long-term gross heat builds; linear light_boost->heavy_cut over max(u_long, u_short)",
+      "enabled": true,
+      "light_boost": 1.1,
+      "heavy_cut": 0.65,
+      "short_window_hours": 6,
+      "max_recent_entries": 3,
+      "full_book_heat_frac": 0.35
+    }
   },
   "ml": {
     "model_path": "outputs/meta_model.json",
