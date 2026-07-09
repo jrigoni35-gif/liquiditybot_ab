@@ -1,0 +1,105 @@
+"""config_guard coverage for the informed_flow (rev-3 fusion) engine and the
+capital_management/position_sizer max-position-pct duplication.
+
+Both gaps were found in a flow/parity audit: strategies.engine defaults to
+"informed_flow" (config.json's shipped default), but config_guard previously
+validated only the five_gate rollback's signal_gates.* section - the active
+decision path had zero coherence checks. Separately, config_guard validated
+capital_management.max_position_size_pct_of_capital, but that value is read
+by risk/capital_manager.py's calculate_position_size, which is dead code -
+never called from main.py. The value that actually caps a live entry is
+position_sizer.max_position_size_pct_of_capital, read by
+risk/position_sizer.py's PositionSizer (the real Kelly sizer). The two keys
+share one default (10) in config.json but nothing enforced them staying in
+sync.
+"""
+from core.config_guard import validate
+
+
+def _cfg(**informed_flow_overrides):
+    cfg = {"system": {"dry_run": True},
+           "informed_flow": dict(informed_flow_overrides)}
+    return cfg
+
+
+def _warns(cfg):
+    return [m for sev, m in validate(cfg) if sev == "WARN"]
+
+
+def _fatals(cfg):
+    return [m for sev, m in validate(cfg) if sev == "FATAL"]
+
+
+def test_default_informed_flow_section_is_coherent():
+    # config.json's shipped defaults (mirrored here) must not trip any of
+    # the new checks
+    cfg = _cfg(min_agree=3, evidence_threshold=1.15, flow_min=0.25,
+               material_threshold=0.10, persistence_evals=3, fast_period=9,
+               slow_period=21, absorption_move_sigmas=1.0,
+               absorption_ad_min=0.15,
+               weights={"flow": 1.0, "delta": 0.6, "accum": 0.9,
+                        "burst": 0.8, "trend": 0.7})
+    fatals = _fatals(cfg)
+    assert not any("informed_flow" in m for m in fatals)
+
+
+def test_min_agree_out_of_component_range_is_fatal():
+    assert any("min_agree=6" in m and "must be in [1, 5]" in m
+               for m in _fatals(_cfg(min_agree=6)))
+    assert any("min_agree=0" in m for m in _fatals(_cfg(min_agree=0)))
+
+
+def test_slow_period_not_above_fast_is_fatal():
+    assert any("slow_period (9) must exceed fast_period (9)" in m
+               for m in _fatals(_cfg(fast_period=9, slow_period=9)))
+
+
+def test_negative_weight_warns_not_fatal():
+    warns = _warns(_cfg(weights={"flow": -1.0}))
+    assert any("negative entries" in m and "flow" in m for m in warns)
+    assert not any("negative entries" in m
+                  for m in _fatals(_cfg(weights={"flow": -1.0})))
+
+
+def test_evidence_threshold_must_be_positive():
+    assert any("evidence_threshold must be positive" in m
+               for m in _fatals(_cfg(evidence_threshold=0.0)))
+
+
+def test_flow_min_out_of_unit_range_is_fatal():
+    assert any("flow_min=1.5" in m for m in _fatals(_cfg(flow_min=1.5)))
+
+
+def test_material_threshold_out_of_unit_range_is_fatal():
+    assert any("material_threshold=-0.1" in m
+               for m in _fatals(_cfg(material_threshold=-0.1)))
+
+
+def _cap_cfg(cap_mgmt_pct, sizer_pct):
+    return {"system": {"dry_run": True},
+            "capital_management": {
+                "max_position_size_pct_of_capital": cap_mgmt_pct},
+            "position_sizer": {
+                "max_position_size_pct_of_capital": sizer_pct}}
+
+
+def test_max_position_pct_mismatch_is_fatal():
+    fatals = _fatals(_cap_cfg(10, 15))
+    assert any("max_position_size_pct_of_capital mismatch" in m
+               and "capital_management (10.0)" in m
+               and "position_sizer (15.0)" in m for m in fatals)
+
+
+def test_max_position_pct_match_is_not_flagged():
+    fatals = _fatals(_cap_cfg(10, 10))
+    assert not any("max_position_size_pct_of_capital mismatch" in m
+                  for m in fatals)
+
+
+def test_max_position_pct_missing_sizer_copy_defaults_to_cap_mgmt():
+    # position_sizer copy absent -> _f defaults to the cap_mgmt value itself,
+    # so this must NOT false-positive on repos/tests that only set one key
+    cfg = {"system": {"dry_run": True},
+           "capital_management": {"max_position_size_pct_of_capital": 10}}
+    assert not any("max_position_size_pct_of_capital mismatch" in m
+                  for m in _fatals(cfg))

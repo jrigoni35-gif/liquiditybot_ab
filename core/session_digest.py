@@ -64,6 +64,16 @@ SD_FEED_DEGRADED = "SD-009"
 _LIQ_RE = re.compile(r"liquidity=(\w+)")
 _ASSET_RE = re.compile(r"^\[(\w+)\]")
 
+# SD-004 dominance is meant to catch a code BURYING others unexpectedly -
+# not a code that is high-frequency BY DESIGN. ML-070 (dry-run active-
+# learning exploration entries, see main.py._exploration_active) fires
+# probabilistically every cycle by construction until explore_until_rows
+# is reached, so it dominating early sessions is expected, not a fault.
+# Excluded from the dominance calculation only; still counted in
+# `records` and still fully present in `top_codes`, so nothing is hidden
+# from the raw breakdown - only the false-positive WARN is suppressed.
+_ROUTINE_NOISE_CODES = {"ML-070"}
+
 
 def _read_jsonl(path: Path) -> list:
     out = []
@@ -116,7 +126,14 @@ def _audit_section(records: list, outputs: Path) -> dict:
     codes = Counter(r.get("code") for r in records)
     srcs = Counter(r.get("src") for r in records)
     total = len(records)
-    top_code, top_n = (codes.most_common(1)[0] if codes else (None, 0))
+    # dominance is computed on non-routine codes only (see
+    # _ROUTINE_NOISE_CODES) so expected-high-frequency background codes
+    # can't false-positive SD-004; top_codes/records below stay unfiltered
+    signal_codes = Counter({c: n for c, n in codes.items()
+                            if c not in _ROUTINE_NOISE_CODES})
+    signal_total = sum(signal_codes.values())
+    top_code, top_n = (signal_codes.most_common(1)[0]
+                       if signal_codes else (None, 0))
     # chain integrity via the real verifier (read-only)
     chain = {"ok": None}
     try:
@@ -126,10 +143,11 @@ def _audit_section(records: list, outputs: Path) -> dict:
         chain = {"ok": None, "error": "verifier unavailable"}
     return {
         "records": total,
+        "signal_records": signal_total,
         "by_src": dict(srcs.most_common()),
         "top_codes": codes.most_common(12),
         "dominant_code": top_code,
-        "dominant_frac": round(top_n / total, 3) if total else 0.0,
+        "dominant_frac": round(top_n / signal_total, 3) if signal_total else 0.0,
         "retrain_requests": codes.get("ML-032", 0),
         "kill_switch_events": codes.get("ML-050", 0),
         "chain_ok": chain.get("ok"),
@@ -253,12 +271,13 @@ def _detectors(digest: dict, config: dict) -> list:
             "On a near-zero-spread feed this is likely a classifier "
             "miscalibration, not real spoofing  -  inspect the book source")
 
-    # SD-004 audit noise
-    if aud.get("dominant_frac", 0) >= 0.30 and aud.get("records", 0) >= 50:
+    # SD-004 audit noise (routine background codes excluded - see
+    # _ROUTINE_NOISE_CODES; this now only fires on non-routine dominance)
+    if aud.get("dominant_frac", 0) >= 0.30 and aud.get("signal_records", 0) >= 50:
         add(SD_AUDIT_NOISE, "warn", "audit trail dominated by one code",
             f"{aud['dominant_code']} is {aud['dominant_frac']:.0%} of "
-            f"{aud['records']} records  -  consequential dispositions are buried; "
-            "rate-limit that emitter")
+            f"{aud['signal_records']} non-routine records  -  consequential "
+            "dispositions are buried; rate-limit that emitter")
 
     # SD-001 no activity
     traded = pnl["open_positions"] or model["history_rows"] or pm["count"] \
@@ -398,8 +417,10 @@ def render_markdown(d: dict) -> str:
         f"- Model: level {mdl['monitor_level']} | use_model={mdl['use_model']} "
         f"| brier {mdl['brier']} | history_rows {mdl['history_rows']} "
         f"| cold={mdl['cold']}",
-        f"- Audit: {aud['records']} records | dominant {aud['dominant_code']} "
-        f"({aud['dominant_frac']:.0%}) | chain_ok={aud['chain_ok']} | "
+        f"- Audit: {aud['records']} records ({aud['signal_records']} "
+        f"non-routine) | dominant {aud['dominant_code']} "
+        f"({aud['dominant_frac']:.0%} of non-routine) | "
+        f"chain_ok={aud['chain_ok']} | "
         f"retrain_requests {aud['retrain_requests']}",
         f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of classified cycles "
         f"| feed errors {evt['feed_error_events']}",

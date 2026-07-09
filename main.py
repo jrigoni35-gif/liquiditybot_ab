@@ -12,9 +12,10 @@ FAST  (every polling_interval_sec, default 5s)
 SLOW  (every slow_cycle_every_n fast cycles, default 30s)
         OKX/Binance.US fetch -> market view, fair value, vol/liquidity
         regimes, intraday correlation, sentiment poll, then the entry
-        pipeline: 5 gates -> features -> meta P(win) -> narrative
-        filter -> Kelly sizer -> AS quote -> pre-trade gate -> limit
-        order via OrderManager.
+        pipeline: signal engine (informed_flow by default; five_gate is
+        the rollback, set strategies.engine) -> features -> meta P(win)
+        -> narrative filter -> Kelly sizer -> AS quote -> pre-trade gate
+        -> limit order via OrderManager.
 
 HOURLY (macro_refit_minutes)
         Daily candles -> HMM/TSMOM macro regime refit, turbulence.

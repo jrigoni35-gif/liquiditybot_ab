@@ -156,6 +156,24 @@ def validate(config: dict) -> list:
     if not (0 < max_pos <= 100):
         fatal("max_position_size_pct_of_capital out of (0, 100]")
 
+    # capital_management.max_position_size_pct_of_capital is NOT what
+    # actually caps a live entry - risk/position_sizer.py's PositionSizer
+    # reads its own position_sizer.max_position_size_pct_of_capital copy
+    # (risk/capital_manager.py's calculate_position_size, which reads the
+    # capital_management copy, is dead code - never called from main.py).
+    # Same failure mode as the pretrade/order_manager fee split above: two
+    # independent copies of one number silently drift apart. Enforce parity
+    # rather than pick a canonical source, so either being edited catches it.
+    sizer_max_pos = float(_f(config,
+                             "position_sizer.max_position_size_pct_of_capital",
+                             max_pos))
+    if abs(max_pos - sizer_max_pos) > 1e-9:
+        fatal(f"max_position_size_pct_of_capital mismatch: "
+              f"capital_management ({max_pos}) != position_sizer "
+              f"({sizer_max_pos}) - only the position_sizer copy actually "
+              f"caps live entries; the capital_management copy is checked "
+              f"here but not enforced at runtime")
+
     # untradeable-by-construction check: if the largest permitted position
     # is below every minimum ticket, the bot will veto 100% of entries and
     # burn API quota doing nothing. Not dangerous - just pointless.
@@ -391,6 +409,58 @@ def validate(config: dict) -> list:
         if not (0.0 <= st <= 5.0):
             fatal(f"signal_gates.learned_weights.strength={st} out of "
                   f"[0, 5]")
+
+    # --- informed_flow (rev-3 fusion engine) coherence --------------------
+    # strategies.engine defaults to "informed_flow" (config.json's shipped
+    # default) - unlike signal_gates.learned_weights above, this section had
+    # NO guard coverage even though it is the active decision path, not the
+    # five_gate rollback. Checked unconditionally (like learned_weights) so
+    # switching strategies.engine later stays covered too.
+    N_COMPONENTS = 5  # flow, delta, accum, burst, trend - see evaluate_asset
+    if_min_agree = int(_f(config, "informed_flow.min_agree", 3))
+    if not (1 <= if_min_agree <= N_COMPONENTS):
+        fatal(f"informed_flow.min_agree={if_min_agree} must be in "
+              f"[1, {N_COMPONENTS}] - the engine fuses {N_COMPONENTS} "
+              f"components (flow/delta/accum/burst/trend); a value outside "
+              f"that range can never be satisfied or is not a real bar")
+    if_evidence = float(_f(config, "informed_flow.evidence_threshold", 1.15))
+    if if_evidence <= 0:
+        fatal("informed_flow.evidence_threshold must be positive - it "
+              "gates confirmation on |sum(w_i * s_i)|")
+    if_flow_min = float(_f(config, "informed_flow.flow_min", 0.25))
+    if not (0.0 <= if_flow_min <= 1.0):
+        fatal(f"informed_flow.flow_min={if_flow_min} must be in [0, 1] - "
+              f"s_flow is a tanh score bounded there")
+    if_material = float(_f(config, "informed_flow.material_threshold", 0.10))
+    if not (0.0 <= if_material <= 1.0):
+        fatal(f"informed_flow.material_threshold={if_material} must be in "
+              f"[0, 1] - components vote on |s_i| >= this")
+    if_persist = int(_f(config, "informed_flow.persistence_evals", 3))
+    if if_persist < 1:
+        fatal("informed_flow.persistence_evals must be >= 1")
+    if_fast = int(_f(config, "informed_flow.fast_period", 9))
+    if_slow = int(_f(config, "informed_flow.slow_period", 21))
+    if if_fast < 2:
+        fatal("informed_flow.fast_period must be >= 2")
+    if if_slow <= if_fast:
+        fatal(f"informed_flow.slow_period ({if_slow}) must exceed "
+              f"fast_period ({if_fast}) - EMA cross is meaningless "
+              f"otherwise (the engine silently clamps this at runtime, "
+              f"which is not the same as the configured intent being sane)")
+    if_weights = _f(config, "informed_flow.weights", {}) or {}
+    if isinstance(if_weights, dict):
+        neg = [k for k, v in if_weights.items()
+              if isinstance(v, (int, float)) and v < 0]
+        if neg:
+            warn(f"informed_flow.weights has negative entries {neg} - this "
+                 f"INVERTS that component's contribution to the evidence "
+                 f"sum; confirm that is intentional, not a sign typo")
+    if_amove = float(_f(config, "informed_flow.absorption_move_sigmas", 1.0))
+    if if_amove <= 0:
+        fatal("informed_flow.absorption_move_sigmas must be positive")
+    if_aad = float(_f(config, "informed_flow.absorption_ad_min", 0.15))
+    if not (0.0 <= if_aad <= 1.0):
+        fatal(f"informed_flow.absorption_ad_min={if_aad} must be in [0, 1]")
 
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
