@@ -1,7 +1,10 @@
-requests>=2.31.0
-numpy>=1.26
-defusedxml>=0.7   # hardened parsing of untrusted RSS feeds
-streamlit>=1.46   # operator dashboard (ui/dashboard.py); engine runs without it
+# Bounded pins: floors for the features we use, ceilings so a future
+# `pip install` cannot silently pull an unvetted new major (supply-chain
+# drift) into a trading bot.
+requests>=2.31.0,<3
+numpy>=1.26,<3
+defusedxml>=0.7,<1     # hardened parsing of untrusted RSS feeds
+streamlit>=1.46,<2     # operator dashboard (ui/dashboard.py); engine runs without it
 # optional: torch — ml/models.py exposes the same predict_proba interface
 # for sequence models if you want to slot PyTorch in later
 # optional: moomoo-api — read-only equities context via local OpenD gateway

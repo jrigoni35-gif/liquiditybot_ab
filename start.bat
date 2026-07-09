@@ -21,5 +21,8 @@ start "liquiditybot-runner" cmd /k "cd /d "%~dp0" && call .venv\Scripts\activate
 echo Starting dashboard (browser opens automatically)...
 echo   Ctrl+C here closes the dashboard only; the bot keeps running.
 echo   Run stop.bat to stop the bot.
-python -m streamlit run ui\dashboard.py
+REM --server.address is belt-and-braces with .streamlit\config.toml: the
+REM operator dashboard (stop/flatten/ARM controls) must never listen on
+REM anything but loopback.
+python -m streamlit run ui\dashboard.py --server.address=127.0.0.1
 endlocal
