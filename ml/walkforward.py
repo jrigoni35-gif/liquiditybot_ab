@@ -32,13 +32,17 @@ import logging
 import numpy as np
 
 from ml.calibration import brier_score
-from ml.models import (EnsembleMLP, GradientBoostedStumps, LogisticModel,
-                       auc_score)
+from ml.models import (BlendModel, EnsembleMLP, GradientBoostedStumps,
+                       LogisticModel, auc_score)
 
 log = logging.getLogger("liquiditybot.ml.walkforward")
 
-# simple -> complex; a step right must EARN its complexity
-_LADDER = ("logistic", "gbt", "mlp")
+# simple -> complex; a step right must EARN its complexity. blend
+# (logistic+gbt probability average, unfitted 0.5 weight) sits above
+# gbt: it contains gbt plus a second learner, so it must beat gbt by
+# the margin to ship — the "stronger model" transition is evidence-
+# gated, never assumed.
+_LADDER = ("logistic", "gbt", "blend", "mlp")
 BRIER_MARGIN = 0.002
 
 
@@ -82,6 +86,7 @@ def _factories(seed: int, ensemble_k: int) -> dict:
     return {
         "logistic": lambda: LogisticModel(seed=seed),
         "gbt": lambda: GradientBoostedStumps(seed=seed),
+        "blend": lambda: BlendModel(seed=seed),
         "mlp": lambda: EnsembleMLP(k=ensemble_k, seed=seed),
     }
 

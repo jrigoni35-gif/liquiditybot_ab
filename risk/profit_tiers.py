@@ -48,6 +48,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from core.codes import Code, tag
 from risk.protocols import give_back_stop
 
 log = logging.getLogger("liquiditybot.risk.profit_tiers")
@@ -88,6 +89,28 @@ class ProfitTierEngine:
             _f(cfg.get("tighten_factor", 0.85), 0.85), 0.5), 1.0)
         self.tighten_floor = min(max(
             _f(cfg.get("tighten_floor", 0.45), 0.45), 0.1), 1.0)
+        # SIGNAL-DECAY LEASH (rev 5): a runner's thesis is the ENTRY
+        # signal; when that signal is no longer confirmed in the
+        # position's direction, the chandelier distance shrinks by
+        # tighten_factor - the trade gets a shorter leash the moment its
+        # reason to exist has decayed, instead of riding a full-width
+        # trail on a dead thesis. signal_alive=None (unknown/stale
+        # snapshot) changes NOTHING: only a definitive "not confirmed"
+        # tightens, and exits can only come SOONER - never later.
+        sd = cfg.get("signal_decay", {}) or {}
+        self.sd_enabled = bool(sd.get("enabled", False))
+        self.sd_tighten = min(max(
+            _f(sd.get("tighten_factor", 0.5), 0.5), 0.1), 1.0)
+        self._sd_logged = set()
+        # INVENTORY-COUPLED CLOSES (rev 5): when the book is crowded,
+        # each fired tier retires MORE of the position (close_pct scaled
+        # up by inventory pressure, clamped at 100%). Profits bleed
+        # inventory down exactly when inventory is the binding risk;
+        # a light book keeps the configured runner fraction.
+        ic = cfg.get("inventory_coupling", {}) or {}
+        self.ic_enabled = bool(ic.get("enabled", False))
+        self.ic_max_boost = min(max(
+            _f(ic.get("max_boost", 0.5), 0.5), 0.0), 1.0)
         gb = cfg.get("give_back", {}) or {}
         self.gb_enabled = bool(gb.get("enabled", False))
         self.gb_arm_gain_pct = max(_f(gb.get("arm_gain_pct", 1.5), 1.5), 0.05)
@@ -146,7 +169,8 @@ class ProfitTierEngine:
             best = min(base, px)
         position.high_water = best
 
-    def _trail_distance_frac(self, position, sigma_bar_pct) -> float:
+    def _trail_distance_frac(self, position, sigma_bar_pct,
+                             decay_mult: float = 1.0) -> float:
         legacy = max(_f(self.trailing_stop_config.get("trail_pct", 1.0), 1.0),
                      0.01) / 100.0
         dist = legacy
@@ -161,7 +185,7 @@ class ProfitTierEngine:
             decay = self.tighten_factor ** ((bars - self.tighten_after_bars)
                                             / 48.0)
             dist *= max(decay, self.tighten_floor)
-        return dist
+        return dist * min(max(decay_mult, 0.1), 1.0)
 
     def _ratchet_stop(self, position, candidate: float) -> None:
         cur = position.trailing_stop_price
@@ -197,7 +221,8 @@ class ProfitTierEngine:
                      (1.0 - frac) * 100.0)
         return float(give_back_stop(e, hw, long, frac))
 
-    def _exit_floor_hit(self, position, px: float, sigma_bar_pct) -> bool:
+    def _exit_floor_hit(self, position, px: float, sigma_bar_pct,
+                        signal_alive=None) -> bool:
         ts_cfg = self.trailing_stop_config
         activate_after = int(ts_cfg.get("activate_after_tier", 2))
         trail_on = bool(ts_cfg.get("enabled", False)) and \
@@ -217,7 +242,22 @@ class ProfitTierEngine:
             self._ratchet_stop(position, be_px)
 
         if trail_on:
-            dist = self._trail_distance_frac(position, sigma_bar_pct)
+            decay_mult = 1.0
+            if self.sd_enabled and signal_alive is False:
+                decay_mult = self.sd_tighten
+                pid = getattr(position, "position_id", position.symbol)
+                if pid not in self._sd_logged:
+                    self._sd_logged.add(pid)
+                    log.info(tag(Code.TP_SIGNAL_DECAY,
+                                 f"{position.symbol} entry signal decayed - "
+                                 f"trail tightened x{self.sd_tighten:.2f}"))
+            elif signal_alive is True:
+                # thesis re-confirmed: allow the full leash again (the
+                # ratchet still never loosens an already-tight stop)
+                self._sd_logged.discard(
+                    getattr(position, "position_id", position.symbol))
+            dist = self._trail_distance_frac(position, sigma_bar_pct,
+                                             decay_mult)
             anchor = _f(getattr(position, "high_water", None),
                         position.entry_price) or position.entry_price
             cand = anchor * (1.0 - dist) if position.direction == "long" \
@@ -234,9 +274,18 @@ class ProfitTierEngine:
 
     # ------------------------------------------------------------------
     def evaluate(self, position, current_price: float,
-                 sigma_bar_pct=None) -> TierAction:
+                 sigma_bar_pct=None, signal_alive=None,
+                 inventory_pressure: float = 0.0) -> TierAction:
         """Next unfired tier first, then the ratcheting exit floor
-        (break-even + chandelier). One action max per cycle."""
+        (break-even + chandelier). One action max per cycle.
+
+        rev-5 optional inputs (defaults preserve rev-3/4 exactly):
+        signal_alive       True/False = the entry signal is / is no
+                           longer confirmed in this direction; None =
+                           unknown (stale or missing snapshot) - no-op.
+        inventory_pressure 0..1 crowding of the book; scales fired-tier
+                           close_pct up by ic_max_boost at full pressure.
+        """
         px = _f(current_price)
         if px <= 0:
             return TierAction(False, 0.0, 0.0)
@@ -250,18 +299,30 @@ class ProfitTierEngine:
             trigger = self._tier_trigger_pct(tier, sigma_bar_pct)
             close_pct = _f(tier.get("close_pct_of_position", 0.0))
             if close_pct > 0 and gain_pct >= trigger:
+                boost_note = ""
+                if self.ic_enabled and inventory_pressure > 0:
+                    p = min(max(_f(inventory_pressure), 0.0), 1.0)
+                    boosted = min(close_pct * (1.0 + self.ic_max_boost * p),
+                                  100.0)
+                    if boosted > close_pct + 0.5:
+                        boost_note = " " + tag(
+                            Code.TP_INV_COUPLING,
+                            f"close {close_pct:.0f}%->{boosted:.0f}% "
+                            f"(inventory pressure {p:.2f})")
+                        close_pct = boosted
                 pnl = self._estimate_realized_pnl(position, px, close_pct)
                 log.info(
                     "Tier %d triggered for %s: gain=%.2f%% (trigger=%.2f%%"
-                    "%s), closing %.0f%%", next_tier_index + 1,
+                    "%s), closing %.0f%%%s", next_tier_index + 1,
                     position.symbol, gain_pct, trigger,
                     ", vol-scaled" if (self.vol_scaled and
                                        sigma_bar_pct is not None) else "",
-                    close_pct)
+                    close_pct, boost_note)
                 return TierAction(True, close_pct, pnl,
                                   tier_fired=next_tier_index + 1)
 
-        if self._exit_floor_hit(position, px, sigma_bar_pct):
+        if self._exit_floor_hit(position, px, sigma_bar_pct,
+                                signal_alive=signal_alive):
             pnl = self._estimate_realized_pnl(position, px, 100.0)
             log.info("Exit floor hit for %s at %s (stop=%.6g, hw=%.6g)",
                      position.symbol, px,

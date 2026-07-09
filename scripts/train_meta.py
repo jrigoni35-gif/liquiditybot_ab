@@ -119,6 +119,7 @@ def main():
     log.info(f"selected={results['selected']} "
              f"logistic brier={results['logistic']['mean_brier']:.4f} "
              f"gbt brier={results['gbt']['mean_brier']:.4f} "
+             f"blend brier={results['blend']['mean_brier']:.4f} "
              f"mlp brier={results['mlp']['mean_brier']:.4f} -> {model_path}")
     log.info("NOTE: walk-forward AUC on bootstrap data is a weak prior, not "
              "proof of edge. The model improves as live labeled trades accrue.")

@@ -118,9 +118,14 @@ class CandidateLabeler:
     separately from live fills.
     """
 
-    def __init__(self, store: HistoryStore, ml_cfg: dict):
+    def __init__(self, store: HistoryStore, ml_cfg: dict, on_label=None):
         cfg = ml_cfg or {}
         self.store = store
+        # optional callback(gates_passed: dict|None, label: int), fired as
+        # each candidate labels - feeds per-gate predictive-power stats
+        # (strategies.signal_gates.GateStats) without coupling this module
+        # to any signal engine
+        self._on_label = on_label
         self.horizon = int(cfg.get("label_max_bars", 96))
         self.pt = float(cfg.get("label_pt_vol_mult", 8.0))
         self.sl = float(cfg.get("label_sl_vol_mult", 6.0))
@@ -157,7 +162,7 @@ class CandidateLabeler:
                 b[k] = b[k][-cap:]
 
     def register(self, asset: str, direction: str, features: np.ndarray,
-                sigma_bar: float, bar_time) -> None:
+                sigma_bar: float, bar_time, gates_passed=None) -> None:
         if self._last_reg.get((asset, direction)) == bar_time:
             return                      # same signal, same candle: no duplicate
         self._last_reg[(asset, direction)] = bar_time
@@ -168,7 +173,12 @@ class CandidateLabeler:
                             "direction": direction,
                             "features": features.copy(),
                             "sigma_bar": float(max(sigma_bar, 1e-5)),
-                            "bar_time": bar_time})
+                            "bar_time": bar_time,
+                            # which gates passed at signal time (JSON-safe
+                            # bools); the labeled outcome feeds per-gate stats
+                            "gates": {str(g): bool(v) for g, v in
+                                      gates_passed.items()}
+                            if isinstance(gates_passed, dict) else None})
 
     def poll(self) -> int:
         """Label candidates whose horizon has elapsed. Returns rows written."""
@@ -193,6 +203,12 @@ class CandidateLabeler:
             self.store._append_row(cand["id"], cand["asset"],
                                 cand["direction"], cand["features"],
                                 out.label, 0.0, "candidate")
+            if self._on_label is not None:
+                try:
+                    self._on_label(cand.get("gates"), out.label)
+                except Exception:
+                    log.exception("on_label callback failed - gate stats "
+                                  "skipped for this candidate")
             self._cands.remove(cand)
             written += 1
         if written:

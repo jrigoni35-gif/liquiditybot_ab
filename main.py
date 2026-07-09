@@ -53,7 +53,7 @@ from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
 from strategies.liquidity_model import LiquidityModel
-from strategies.signal_gates import SignalGateEngine
+from strategies.signal_gates import GateStats, SignalGateEngine
 from risk.capital_manager import CapitalManager
 from risk.profit_tiers import ProfitTierEngine
 from execution.algos import ExecutionScheduler
@@ -243,7 +243,13 @@ class LiquidityBot:
                                     .get("history_path", "outputs/signal_history.csv"))
         self.monitor = ModelMonitor(config.get("ml", {}).get("monitor", {}))
         self.postmortem = PostmortemEngine(config.get("ml", {}).get("postmortem", {}))
-        self.candidates = CandidateLabeler(self.history, config.get("ml", {}))
+        # per-gate predictive power learned from labeled candidates; the
+        # labeler feeds it as triple-barrier outcomes land (engine-agnostic
+        # over gates_passed dicts, so informed-flow gates learn too)
+        self.gate_stats = GateStats(config.get("signal_gates", {})
+                                    .get("learned_weights", {}))
+        self.candidates = CandidateLabeler(self.history, config.get("ml", {}),
+                                           on_label=self.gate_stats.note_label)
         # active-learning exploration: with no proven edge the sizer's net-Kelly
         # bar (p_win > ~0.60) vetoes every confirmed signal, so the bot never
         # trades and never gathers live labels to improve. In DRY RUN ONLY, take
@@ -724,9 +730,19 @@ class LiquidityBot:
                     self.state, asset, self.marks, equity))
                 if inv_ratio >= self.inventory.soft_cap_pct / self.inventory.hard_cap_pct:
                     scale *= 0.75          # bleed inventory down sooner
+                # is the ENTRY signal still confirmed in this direction?
+                # None (no fresh evaluation) must stay None - only a
+                # definitive "not confirmed" may tighten the runner leash
+                sig_snap = self.last_signals.get(asset)
+                signal_alive = None
+                if sig_snap and (now - float(sig_snap.get("ts", 0.0))) < 180.0:
+                    signal_alive = bool(sig_snap.get("confirmed")) and \
+                        sig_snap.get("direction") == pos.direction
                 action = self._tier_engine(scale).evaluate(
                     pos, px,
-                    sigma_bar_pct=self.vol.state(asset).sigma_bar_pct)
+                    sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                    signal_alive=signal_alive,
+                    inventory_pressure=min(inv_ratio, 1.0))
                 if action.should_close_partial and action.close_pct > 0:
                     self._submit_exit(pos, action.close_pct,
                                     f"tier {action.tier_fired or 'trail'}",
@@ -919,6 +935,11 @@ class LiquidityBot:
                 continue
 
             signal = self.gates.evaluate_asset(asset, v)
+            # learned per-gate weighting shades confidence toward gates
+            # that predict wins on this feed (cold start = naive fraction;
+            # never touches direction or all_confirmed)
+            signal.confidence = self.gate_stats.weighted_confidence(
+                signal.gates_passed, signal.confidence)
             self.last_signals[asset] = {
                 "confirmed": bool(signal.all_confirmed),
                 "direction": signal.direction,
@@ -977,7 +998,8 @@ class LiquidityBot:
             if v.get("candles"):
                 self.candidates.register(asset, signal.direction, feats,
                                         vol_state.sigma_bar_pct / 100.0,
-                                        v["candles"][-1]["time"])
+                                        v["candles"][-1]["time"],
+                                        gates_passed=signal.gates_passed)
             self.monitor.note_features(feats)
 
             lev_decision = self.lev_gov.decide(

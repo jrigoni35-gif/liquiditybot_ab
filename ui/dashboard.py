@@ -401,6 +401,18 @@ def monitor_panel(s: dict):
                    "the model retrains on.")
     l4.metric("Model", ml.get("model_kind") or "—")
 
+    gs = ml.get("gate_stats") or {}
+    if gs.get("enabled"):
+        learned = {g: w for g, w in (gs.get("weights") or {}).items()
+                   if abs(w - 1.0) > 1e-9}
+        detail = ", ".join(f"{g.replace('gate_', 'g')} x{w:.2f}"
+                           for g, w in sorted(learned.items())) \
+            if learned else "all neutral (accruing evidence)"
+        st.caption(f"Gate learning: {gs.get('labeled', 0)} labeled outcomes"
+                   + (f", base win rate {gs['base_rate']:.0%}"
+                      if gs.get("base_rate") is not None else "")
+                   + f" — weights: {detail}")
+
     drift_share = float(mon.get("drift_share", 0.0))
     if drift_share > 0:
         st.progress(min(drift_share, 1.0),

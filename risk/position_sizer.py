@@ -30,6 +30,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 from core.codes import Code, tag
@@ -119,6 +120,21 @@ class PositionSizer:
                                               risk_cfg or {},
                                               rt_cost_pct=self.rt_cost_pct)
         self.avg_loss_pct = float((risk_cfg or {}).get("stop_loss_pct", 2.0))
+        # inventory-aware aggression: lean in when the book is light,
+        # back off as short-term entry clustering or long-term gross
+        # exposure builds. Bounds are clamped so misconfiguration can
+        # neither zero the trade nor more-than-1.5x it.
+        ia = cfg.get("inventory_aggression", {}) or {}
+        self.ia_enabled = bool(ia.get("enabled", False))
+        self.ia_light_boost = min(max(
+            float(ia.get("light_boost", 1.10)), 1.0), 1.5)
+        self.ia_heavy_cut = min(max(
+            float(ia.get("heavy_cut", 0.65)), 0.2), 1.0)
+        self.ia_window_s = max(
+            float(ia.get("short_window_hours", 6.0)), 0.25) * 3600.0
+        self.ia_max_recent = max(int(ia.get("max_recent_entries", 3)), 1)
+        self.ia_full_heat = min(max(
+            float(ia.get("full_book_heat_frac", 0.35)), 0.05), 1.0)
         self._last_entry: dict = {}
         log.info("sizer payoff b=%.2f gross / %.2f net of %.2f%% rt cost "
                  "(net p(win) breakeven %.3f), kelly_fraction=%s, "
@@ -142,6 +158,34 @@ class PositionSizer:
             return heat / equity if equity > EPS else 0.0
         except Exception:
             return 0.0
+
+    def _inventory_aggression(self, state, marks, equity,
+                              now: float) -> tuple:
+        """(multiplier, u_long, u_short). u_long = gross open heat vs the
+        full-book fraction (how loaded the book is overall); u_short =
+        positions opened inside the recent window vs the clustering
+        budget (how fast risk was just added). The multiplier moves
+        linearly from light_boost at an empty book to heavy_cut at a
+        full/fast one — monotone, bounded, never zero. Never raises."""
+        u_long = min(self._open_heat_frac(state, marks, equity)
+                     / max(self.ia_full_heat, EPS), 1.0)
+        recent = 0
+        try:
+            cutoff = now - self.ia_window_s
+            for p in getattr(state, "positions", {}).values():
+                opened = getattr(p, "opened_at", None)
+                if isinstance(opened, datetime):
+                    o = opened if opened.tzinfo is not None \
+                        else opened.replace(tzinfo=timezone.utc)
+                    if o.timestamp() >= cutoff:
+                        recent += 1
+        except Exception:
+            recent = 0
+        u_short = min(recent / self.ia_max_recent, 1.0)
+        u = max(u_long, u_short)
+        mult = self.ia_light_boost + \
+            (self.ia_heavy_cut - self.ia_light_boost) * u
+        return mult, u_long, u_short
 
     def note_entry(self, asset: str, now: Optional[float] = None):
         self._last_entry[asset] = now if now is not None else time.time()
@@ -233,6 +277,14 @@ class PositionSizer:
         usd *= max(min(sent_risk_mult if _fin(sent_risk_mult) else 1.0,
                        1.2), 0.0)
         usd *= liq_state.size_mult
+        if self.ia_enabled:
+            ia_mult, u_l, u_s = self._inventory_aggression(
+                state, marks, equity, now)
+            usd *= ia_mult
+            if abs(ia_mult - 1.0) > 0.01:
+                d.reasons.append(tag(Code.SZ_INV_AGGRO,
+                                     f"x{ia_mult:.2f} (book u_long={u_l:.2f}"
+                                     f" u_short={u_s:.2f})"))
         usd *= max(min(risk_scale if _fin(risk_scale) else 1.0, 1.0), 0.0)
         if usd <= EPS:
             d.reasons.append(tag(Code.SZ_MULT_ZERO,

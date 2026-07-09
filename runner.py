@@ -233,7 +233,8 @@ class BotRunner:
                    "history_rows": bot.history.row_count(),
                    "pending_labels": len(bot.history._pending),
                    "open_candidates": len(bot.candidates._cands),
-                   "retrain_flag": bot.monitor.flag_path.exists()},
+                   "retrain_flag": bot.monitor.flag_path.exists(),
+                   "gate_stats": bot.gate_stats.summary()},
             "sim": bot.sim.describe(),
         }
 

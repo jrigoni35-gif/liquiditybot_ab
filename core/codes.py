@@ -15,6 +15,7 @@ Prefix map (subsystem of origin):
   ML  ml.* (contracts/registry/monitor)
   WD  core.watchdog               CG  core.config_guard
   FT  core.fault (system-level faults / state transitions)
+  TP  risk.profit_tiers (exit-system dispositions)
 """
 
 from enum import Enum
@@ -78,6 +79,7 @@ class Code(str, Enum):
     SZ_LEVERAGE = "SZ-041"
     SZ_MIN_TICKET = "SZ-042"
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
+    SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_APPROVED = "SZ-000"
 
     # ---- risk protocol stack (advanced overlay) --------------------------
@@ -109,6 +111,10 @@ class Code(str, Enum):
     ML_KILL_SWITCH = "ML-050"        # model output disabled (level 2+)
     ML_REGISTERED = "ML-060"         # artifact registered
     ML_EXPLORATION = "ML-070"        # dry-run paper exploration entry (active learning)
+
+    # ---- profit-tier exit system (TP) -----------------------------------
+    TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
+    TP_INV_COUPLING = "TP-011"       # tier close boosted by inventory pressure
 
     # ---- system fault manager (FT) -------------------------------------
     FT_LATCHED = "FT-010"
