@@ -16,6 +16,7 @@ Prefix map (subsystem of origin):
   WD  core.watchdog               CG  core.config_guard
   FT  core.fault (system-level faults / state transitions)
   TP  risk.profit_tiers (exit-system dispositions)
+  TH  strategies.thales (lazy-bot insecurity detectors / advice)
 """
 
 from enum import Enum
@@ -120,6 +121,14 @@ class Code(str, Enum):
     FT_LATCHED = "FT-010"
     FT_CLEARED = "FT-011"
     FT_STATE_CHANGE = "FT-020"
+
+    # ---- THALES lazy-bot insecurity model (TH) — docs/THALES.md ---------
+    TH_SHADOW = "TH-000"             # assessment recorded, zero influence
+    TH_GRID_LADDER = "TH-010"        # grid-bot ladder footprint detected
+    TH_METRONOME_MM = "TH-011"       # clock-driven market-maker cadence
+    TH_CLOCKWORK_FLOW = "TH-012"     # recurring scheduled flow window (null-tested)
+    TH_STOP_SWEEP = "TH-013"         # stop-cluster sweep-and-revert event
+    TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
 
 
 def tag(code: Code, detail: str) -> str:

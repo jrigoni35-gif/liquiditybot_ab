@@ -462,6 +462,37 @@ def validate(config: dict) -> list:
     if not (0.0 <= if_aad <= 1.0):
         fatal(f"informed_flow.absorption_ad_min={if_aad} must be in [0, 1]")
 
+    # --- THALES lazy-bot insecurity model (docs/THALES.md) ----------------
+    th_infl = str(_f(config, "thales.influence", "shadow")).lower()
+    th_enabled = bool(_f(config, "thales.enabled", False))
+    if th_infl not in ("off", "shadow", "advise"):
+        fatal(f"thales.influence='{th_infl}' unknown - must be off, shadow, "
+              f"or advise (the engine would silently fall back to shadow, "
+              f"which is not the same as the configured intent being sane)")
+    if th_infl == "advise" and not th_enabled:
+        fatal("thales.influence=advise with thales.enabled=false is "
+              "incoherent - advice requires a running detector bank")
+    th_shade = float(_f(config, "thales.max_conf_shade", 1.15))
+    if not (1.0 <= th_shade <= 1.5):
+        fatal(f"thales.max_conf_shade={th_shade} must be in [1.0, 1.5] - "
+              f"the advice channel is a SHADE on gate confidence, not a "
+              f"signal source; beyond 1.5 it overrides the gates")
+    if th_infl == "advise" and th_shade == 1.0:
+        warn("thales.influence=advise with max_conf_shade=1.0 is a no-op - "
+             "advice can never move confidence")
+    th_z = float(_f(config, "thales.clockwork.z_thr", 2.33))
+    if th_z < 1.5:
+        fatal(f"thales.clockwork.z_thr={th_z} below 1.5 disables the "
+              f"significance gate on time-of-day flow - that gate is the "
+              f"anti-overfit teeth (OF-2 discipline); mining unsignificant "
+              f"seasonality is exactly the lazy-bot sin this model hunts")
+    for knob in ("grid.gain", "metronome.gain", "clockwork.gain",
+                 "stops.pre_gain", "stops.post_gain"):
+        gv = float(_f(config, f"thales.{knob}", 0.0))
+        if gv < 0.0:
+            fatal(f"thales.{knob}={gv} negative - inverted advice; flip "
+                  f"the detector's exploit thesis in code, not via sign")
+
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))

@@ -235,6 +235,7 @@ class BotRunner:
                    "open_candidates": len(bot.candidates._cands),
                    "retrain_flag": bot.monitor.flag_path.exists(),
                    "gate_stats": bot.gate_stats.summary()},
+            "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "sim": bot.sim.describe(),
         }
 

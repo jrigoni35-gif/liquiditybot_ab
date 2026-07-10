@@ -251,6 +251,11 @@ class LiquidityBot:
                                     .get("learned_weights", {}))
         self.candidates = CandidateLabeler(self.history, config.get("ml", {}),
                                            on_label=self.gate_stats.note_label)
+        # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
+        # over public books/candles; shadow by default (telemetry only),
+        # bounded confidence shading only when influence=advise
+        from strategies.thales import ThalesEngine
+        self.thales = ThalesEngine(config.get("thales", {}))
         # active-learning exploration: with no proven edge the sizer's net-Kelly
         # bar (p_win > ~0.60) vetoes every confirmed signal, so the bot never
         # trades and never gathers live labels to improve. In DRY RUN ONLY, take
@@ -659,6 +664,8 @@ class LiquidityBot:
             if book:
                 self.kraken_books[asset] = book
                 self.book_ts[asset] = now
+                self.thales.observe_fast(asset, book,
+                                         self.marks.get(symbol, 0.0), now)
 
         # execution algos: release due child slices (paced, guarded)
         self._step_exec_algos(now)
@@ -888,6 +895,7 @@ class LiquidityBot:
         for asset, v in self.view.items():
             if asset in self.symbol_map and v.get("candles"):
                 self.candidates.update_candles(asset, v["candles"])
+                self.thales.observe_candles(asset, v["candles"], now)
         self.candidates.poll()
 
         if self._halted:
@@ -941,6 +949,17 @@ class LiquidityBot:
             # never touches direction or all_confirmed)
             signal.confidence = self.gate_stats.weighted_confidence(
                 signal.gates_passed, signal.confidence)
+            # THALES shade: bounded, post-gate-stats, never touches
+            # direction or all_confirmed; shadow mode records the
+            # counterfactual and leaves confidence untouched
+            th = self.thales.shade_confidence(
+                asset=asset, direction=signal.direction or "",
+                urgency=float(getattr(signal, "urgency", 0.0)),
+                confidence=signal.confidence,
+                macro_label=self.macro.state(asset).label, now=now)
+            signal.confidence = th.confidence
+            if th.notes and abs(th.would_mult - 1.0) > 1e-6:
+                log.info(f"thales {asset}: {'; '.join(th.notes)}")
             self.last_signals[asset] = {
                 "confirmed": bool(signal.all_confirmed),
                 "direction": signal.direction,

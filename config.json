@@ -461,6 +461,42 @@
     "fear_greed_fear_max": 15,
     "fear_greed_euphoria_min": 85
   },
+  "thales": {
+    "description": "Lazy-bot insecurity model (docs/THALES.md): detects grid ladders, clock-driven MM quoting, significance-gated scheduled flow, and stop-cluster sweeps from public data. influence=shadow records advice without applying it; advise applies bounded confidence shading only.",
+    "enabled": true,
+    "influence": "shadow",
+    "max_conf_shade": 1.15,
+    "grid": {
+      "min_levels": 6,
+      "skip_top": 2,
+      "score_thr": 0.55,
+      "gain": 0.5,
+      "ewma_alpha": 0.15
+    },
+    "metronome": {
+      "min_events": 8,
+      "window_events": 64,
+      "min_interval_sec": 8.0,
+      "score_thr": 0.6,
+      "gain": 0.4,
+      "urgency_min": 0.5
+    },
+    "clockwork": {
+      "bucket_minutes": 60,
+      "min_obs": 24,
+      "z_thr": 2.33,
+      "gain": 0.06,
+      "max_history_bars": 4032
+    },
+    "stops": {
+      "round_grid": "self-scaling",
+      "swing_lookback": 48,
+      "zone_tol_pct": 0.15,
+      "pre_gain": 0.1,
+      "post_gain": 0.1,
+      "revert_decay_sec": 1800
+    }
+  },
   "moomoo": {
     "description": "Read-only cross-asset quotes via moomoo OpenAPI (quote context only - execution impossible). Requires local OpenD gateway + pip install moomoo-api. Disabled by default.",
     "enabled": true,
