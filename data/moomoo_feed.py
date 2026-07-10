@@ -23,9 +23,16 @@ holders; check your own quote rights in the moomoo app.
 
 Failure model: SDK missing, OpenD down, or no quote rights -> snapshot
 reports available=False and everything downstream uses neutral values.
+"OpenD down" is enforced by us, not trusted to the SDK: the SDK's sync
+constructor retries a dead gateway forever inside __init__ (observed
+live 2026-07-09: it froze the whole cycle loop). A bounded TCP probe
+runs before any SDK code, and the context is opened async with a sync-
+query timeout so every later call fails with ret != 0 instead of
+blocking.
 """
 
 import logging
+import socket
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -53,6 +60,7 @@ class MoomooFeed:
         self.host = cfg.get("opend_host", "127.0.0.1")
         self.port = int(cfg.get("opend_port", 11111))
         self.poll_sec = float(cfg.get("poll_minutes", 5.0)) * 60.0
+        self.connect_timeout = float(cfg.get("connect_timeout_sec", 5.0))
         self.tickers = cfg.get("tickers", [])   # [{"code":"US.COIN","weight":1.0}]
         self._ctx = quote_ctx                    # injectable for tests
         self._sdk_ok = quote_ctx is not None
@@ -79,9 +87,29 @@ class MoomooFeed:
         from moomoo import OpenQuoteContext
         return OpenQuoteContext
 
+    def _probe_port(self) -> bool:
+        """Bounded TCP reachability check that runs BEFORE any SDK code.
+
+        OpenQuoteContext's sync constructor never returns while the
+        gateway is down (auto-reconnect loop inside __init__ with no
+        retry cap), so reaching the SDK with a dead OpenD would block
+        the caller — and the caller is the engine's cycle loop."""
+        try:
+            with socket.create_connection((self.host, self.port),
+                                          timeout=self.connect_timeout):
+                return True
+        except OSError:
+            return False
+
     def _ensure_ctx(self) -> bool:
         if self._ctx is not None:
             return True
+        if not self._probe_port():
+            if not self._warned:
+                log.warning(f"moomoo OpenD unreachable at {self.host}:"
+                            f"{self.port} - running without it")
+                self._warned = True
+            return False
         try:
             # Silence the SDK's own logger (WSAECONNREFUSED spam on
             # Windows when OpenD isn't running is what the wrapper is
@@ -91,10 +119,16 @@ class MoomooFeed:
                 lg.setLevel(logging.ERROR)
                 lg.propagate = False
             OpenQuoteContext = self._import_sdk()
-            ctx = OpenQuoteContext(host=self.host, port=self.port)
-            # The SDK connects in a background thread and retries on
-            # failure. Probe once with a get_global_state call; if the
-            # gateway isn't up, release the context immediately so the
+            # async connect + bounded sync-query wait: the default sync
+            # constructor loops forever if OpenD dies between the port
+            # probe and here (or accepts TCP without speaking the
+            # protocol). Async returns immediately, and the query
+            # timeout turns "not connected" into ret != 0 below.
+            ctx = OpenQuoteContext(host=self.host, port=self.port,
+                                   is_async_connect=True)
+            ctx.set_sync_query_connect_timeout(self.connect_timeout)
+            # Probe once with a get_global_state call; if the gateway
+            # isn't usable, release the context immediately so the
             # background retry loop cannot spam our stderr.
             try:
                 ret, _ = ctx.get_global_state()
