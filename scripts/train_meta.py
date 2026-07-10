@@ -40,6 +40,52 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("train_meta")
 
 
+def _deploy_challenger(config: dict, model, challenger_brier: float,
+                       extra: dict, model_path: str) -> bool:
+    """Champion/challenger deploy gate for a manually-trained model. Mirrors
+    the gate main.py's in-process auto-retrain already enforces (ModelMonitor
+    .should_deploy/.note_deployed) so a CLI retrain cannot silently swap in
+    a worse model - previously this script called save_model() unconditionally.
+    Returns True if the model was deployed."""
+    from ml.monitor import ModelMonitor
+    from core.persistence import StateStore
+
+    ml_cfg = config.get("ml", {})
+    state_path = config.get("system", {}).get("state_path",
+                                               "outputs/state.json")
+    store = StateStore(state_path)
+    state_data = store.load_raw()
+    monitor = ModelMonitor(ml_cfg.get("monitor", {}))
+    if state_data:
+        monitor.restore(state_data.get("monitor"))
+    prev_champion = monitor.champion_brier
+
+    if not monitor.should_deploy(challenger_brier):
+        log.error(f"REJECTED: challenger OOF Brier {challenger_brier:.4f} "
+                  f"does not beat champion {prev_champion:.4f} by the "
+                  f"required margin ({monitor.deploy_margin:.4f}) - "
+                  f"{model_path} left unchanged. This mirrors the bot's "
+                  f"own auto-retrain deploy gate.")
+        return False
+
+    save_model(model, model_path, extra=extra)
+    monitor.note_deployed(challenger_brier)
+    if state_data is not None:
+        state_data["monitor"] = monitor.to_dict()
+        if not store.write_raw(state_data):
+            log.warning("model deployed, but failed to persist the "
+                       "updated champion baseline to state.json - a "
+                       "running bot will still show the old baseline "
+                       "until restarted")
+    else:
+        log.info("no state.json snapshot yet - champion baseline starts "
+                "fresh from this deploy on next bot start")
+    log.warning(f"DEPLOYED: challenger brier {challenger_brier:.4f} "
+               f"(previous champion {prev_champion:.4f}) -> {model_path}. "
+               f"Restart the running bot to load the new model.")
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.json")
@@ -106,13 +152,6 @@ def main():
     oof_brier = brier_score(sel["oof_y"], oof_cal) if len(oof_cal) else 0.25
     log.info(f"OOF Brier (calibrated): {oof_brier:.4f} "
              f"(calibrator fitted={cal.fitted})")
-    save_model(results["model"], model_path,
-               extra={"calibration": cal.to_dict(), "oof_brier": oof_brier,
-                      "feature_deciles": feature_deciles(X),
-                      # walk-forward importance under its OWN key: "importance"
-                      # would overwrite the gbt model's internal per-feature
-                      # dict and crash from_dict on the next load
-                      "wf_importance": results.get("importance", [])})
     if results.get("importance"):
         log.info("feature importance (OOS AUC drop): " +
                  ", ".join(f"{n}={v:+.3f}" for n, v in results["importance"]))
@@ -120,9 +159,18 @@ def main():
              f"logistic brier={results['logistic']['mean_brier']:.4f} "
              f"gbt brier={results['gbt']['mean_brier']:.4f} "
              f"blend brier={results['blend']['mean_brier']:.4f} "
-             f"mlp brier={results['mlp']['mean_brier']:.4f} -> {model_path}")
+             f"mlp brier={results['mlp']['mean_brier']:.4f}")
     log.info("NOTE: walk-forward AUC on bootstrap data is a weak prior, not "
              "proof of edge. The model improves as live labeled trades accrue.")
+    extra = {"calibration": cal.to_dict(), "oof_brier": oof_brier,
+             "feature_deciles": feature_deciles(X),
+             # walk-forward importance under its OWN key: "importance"
+             # would overwrite the gbt model's internal per-feature dict
+             # and crash from_dict on the next load
+             "wf_importance": results.get("importance", [])}
+    if not _deploy_challenger(config, results["model"], oof_brier, extra,
+                              model_path):
+        return 1
     return 0
 
 

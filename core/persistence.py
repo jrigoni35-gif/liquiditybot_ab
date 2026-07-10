@@ -189,27 +189,60 @@ class StateStore:
                                           None) and
                 bot.risk_protocols.to_dict(),
             }
-            # integrity seal: checksum over the payload, so a torn or
-            # bit-rotted file is DETECTED at load instead of silently
-            # restoring a corrupt book
-            body = json.dumps(data, sort_keys=True)
-            data["_sha256"] = hashlib.sha256(body.encode()).hexdigest()
-            tmp = self.path.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-                f.flush()
-                os.fsync(f.fileno())        # survive power loss, not just crash
-            # rotate the previous good snapshot to .bak BEFORE replacing,
-            # so there is always one known-good generation to fall back to
-            if self.path.exists():
-                try:
-                    os.replace(self.path, self.path.with_suffix(".json.bak"))
-                except OSError:
-                    log.debug("bak rotation failed - continuing")
-            os.replace(tmp, self.path)
-            return True
+            return self._seal_and_write(data)
         except Exception:
             log.exception("snapshot failed - continuing without persisting")
+            return False
+
+    def _seal_and_write(self, data: dict) -> bool:
+        # integrity seal: checksum over the payload, so a torn or
+        # bit-rotted file is DETECTED at load instead of silently
+        # restoring a corrupt book
+        body = json.dumps(data, sort_keys=True)
+        data["_sha256"] = hashlib.sha256(body.encode()).hexdigest()
+        tmp = self.path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())        # survive power loss, not just crash
+        # rotate the previous good snapshot to .bak BEFORE replacing,
+        # so there is always one known-good generation to fall back to
+        if self.path.exists():
+            try:
+                os.replace(self.path, self.path.with_suffix(".json.bak"))
+            except OSError:
+                log.debug("bak rotation failed - continuing")
+        os.replace(tmp, self.path)
+        return True
+
+    def load_raw(self) -> Optional[dict]:
+        """Best-effort raw snapshot dict (primary, falling back to .bak) -
+        same verification path as restore(), for standalone scripts that
+        need to read one section (e.g. governor state) without a live bot
+        object to restore onto."""
+        for candidate in (self.path, self.path.with_suffix(".json.bak")):
+            if not Path(candidate).exists():
+                continue
+            try:
+                return self._load_verified(candidate)
+            except (OSError, json.JSONDecodeError, ValueError) as e:
+                log.error(f"state {candidate} unusable ({e}) - trying "
+                          f"next generation")
+        return None
+
+    def write_raw(self, data: dict) -> bool:
+        """Atomic partial-state write for standalone scripts that need to
+        update one section of the snapshot (e.g. manual model retrain
+        updating the governor's champion_brier) without a live bot to
+        snapshot from. Same checksum + backup-rotation guarantees as
+        snapshot()."""
+        try:
+            data = dict(data)
+            data.pop("_sha256", None)
+            return self._seal_and_write(data)
+        except Exception:
+            log.exception("state write failed - continuing without "
+                          "persisting")
             return False
 
     @staticmethod
