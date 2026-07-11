@@ -11,6 +11,7 @@ import time
 
 from core.audit import AuditTrail
 from core.codes import Code
+import scripts.checkin as checkin_mod
 from scripts.checkin import run_checkin
 
 
@@ -95,6 +96,34 @@ def test_broken_audit_chain_is_critical(tmp_path):
     assert report["audit_chain_ok"] is False
     assert report["anomaly"] is True
     assert report["paused_bot"] is True
+
+
+def test_warn_severity_digest_verdict_surfaces_as_warning_not_dropped(tmp_path, monkeypatch):
+    # session_digest uses "warn" (not "warning") for its non-fatal severity;
+    # regression for a string-mismatch bug that silently dropped every
+    # warn-level verdict (e.g. SD-004 audit noise) instead of surfacing it.
+    _seed_valid_chain(tmp_path)
+    _seed_equity(tmp_path)
+    _seed_status(tmp_path)
+    _seed_lock(tmp_path)
+
+    stub_digest = {
+        "verdict": "SD-004 audit trail dominated by one code",
+        "diagnostics": [{"id": "SD-004", "severity": "warn",
+                         "title": "audit trail dominated by one code",
+                         "detail": "stub"}],
+        "audit": {"chain_ok": True},
+        "model": {"monitor_level": 0},
+        "events": {"feed_error_events": 0},
+        "pnl": {"starting_capital": 25000.0, "equity_end": 25010.0},
+    }
+    monkeypatch.setattr(checkin_mod, "write_digest", lambda *a, **kw: stub_digest)
+
+    report = run_checkin("warntest", str(tmp_path), str(tmp_path / "nonexistent_config.json"))
+
+    assert report["anomaly"] is False
+    assert report["paused_bot"] is False
+    assert any("SD-004" in w for w in report["warnings"])
 
 
 def test_report_files_written(tmp_path):

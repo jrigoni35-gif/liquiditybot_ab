@@ -101,7 +101,7 @@ def run_checkin(label: str, outputs: str, config_path: str) -> dict:
     worst = digest["diagnostics"][0] if digest.get("diagnostics") else {}
     if worst.get("severity") == "error":
         critical.append(f"session_digest verdict: {digest.get('verdict')}")
-    elif worst.get("severity") == "warning":
+    elif worst.get("severity") == "warn":
         warnings.append(f"session_digest verdict: {digest.get('verdict')}")
 
     if audit.get("chain_ok") is False:
