@@ -32,9 +32,16 @@ _VALID_DEPTH_LIMITS = (5, 10, 20, 50, 100, 500, 1000, 5000)
 
 
 class BinanceUSFeed(ThrottledRestClient):
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, ws=None):
         super().__init__(config.get("rate_limit_per_sec", 5))
         self.symbols = config.get("symbols", [])
+        # optional push-based book source (data.ws_feed.WebSocketFeedManager,
+        # duck-typed on get_order_book). When it has a FRESH cached book the
+        # order-book read serves that instead of a REST round-trip; a stale
+        # or absent cache (or a disabled manager) returns None and we fall
+        # straight back to REST, so this is pure latency upside with no new
+        # failure mode.
+        self.ws = ws
 
     def _get(self, path: str, params: Optional[dict] = None):
         data = self._get_json(f"{BASE_URL}{path}", params, log, "Binance.US")
@@ -46,6 +53,15 @@ class BinanceUSFeed(ThrottledRestClient):
 
     # --- Public read-only data -------------------------------------------------
     def get_order_book(self, symbol: str, depth: int = 20) -> Optional[dict]:
+        # push-based fresh book first (sub-second); None means stale/absent/
+        # disabled -> REST, the always-available source of truth
+        if self.ws is not None:
+            try:
+                live = self.ws.get_order_book(symbol)
+            except Exception:
+                live = None
+            if live is not None:
+                return live
         limit = next((v for v in _VALID_DEPTH_LIMITS if v >= depth),
                     _VALID_DEPTH_LIMITS[-1])
         data = self._get("/api/v3/depth", {"symbol": symbol, "limit": limit})

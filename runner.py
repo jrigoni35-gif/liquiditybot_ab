@@ -236,6 +236,8 @@ class BotRunner:
                    "retrain_flag": bot.monitor.flag_path.exists(),
                    "gate_stats": bot.gate_stats.summary()},
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
+            "ws": bot.ws_manager.health()
+            if getattr(bot, "ws_manager", None) is not None else {},
             "sim": bot.sim.describe(),
         }
 
@@ -302,6 +304,9 @@ class BotRunner:
                 time.sleep(max(self.poll_sec - elapsed, 0.25))
         finally:
             bot.moomoo.close()
+            ws = getattr(bot, "ws_manager", None)
+            if ws is not None:
+                ws.stop()               # join the daemon stream thread
             if not bot.dry_run:
                 # nothing may rest unmanaged while the bot is offline:
                 # cancel every venue order, then disarm the dead-man timer

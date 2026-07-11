@@ -50,6 +50,7 @@ from core.watchdog import Watchdog
 from execution.risk_firewall import RiskFirewall
 from data.okx_feed import OKXFeed
 from data.binanceus_feed import BinanceUSFeed
+from data.ws_feed import WebSocketFeedManager
 from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
@@ -136,7 +137,18 @@ class LiquidityBot:
 
         # --- feeds (injectable for tests) ---
         self.okx = okx or OKXFeed(config["exchanges"]["okx"])
-        self.binanceus = binanceus or BinanceUSFeed(config["exchanges"]["binanceus"])
+        # push-based Binance.US depth stream. Symbols default to the REST
+        # feed's own list so the two never drift (a stream covering pairs the
+        # REST feed doesn't fetch, or vice versa, buys nothing). Ships
+        # DISABLED (config websockets.enabled=false): start() is then a no-op,
+        # get_order_book returns None, and the engine runs exactly on REST.
+        ws_cfg = dict(config.get("websockets", {}))
+        ws_cfg.setdefault("binanceus_symbols",
+                          config["exchanges"]["binanceus"].get("symbols", []))
+        self.ws_manager = WebSocketFeedManager(ws_cfg)
+        self.binanceus = binanceus or BinanceUSFeed(
+            config["exchanges"]["binanceus"], ws=self.ws_manager)
+        self.ws_manager.start()
         # optional read-only CCXT data adapter: config declared it but it was
         # never wired into the market view. Data-only by construction
         # (CCXT-001 refuses credentials); a broken optional feed must never
