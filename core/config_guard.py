@@ -534,6 +534,36 @@ def validate(config: dict) -> list:
                       f"profile window can't distinguish structure from "
                       f"noise (matches strategies/swing_points.MIN_BARS)")
 
+    # --- live websocket data feed (data/ws_feed.py) ----------------------
+    if bool(_f(config, "websockets.enabled", False)):
+        max_age = float(_f(config, "websockets.max_book_age_sec", 2.0))
+        poll = float(_f(config, "system.polling_interval_sec", 5))
+        if max_age <= 0:
+            fatal(f"websockets.max_book_age_sec={max_age} must be > 0 - a "
+                  f"non-positive staleness gate would trust a dead socket "
+                  f"forever")
+        if max_age > poll:
+            # a cache older than one poll interval buys no freshness over
+            # REST - the whole point is a book fresher than a poll cycle
+            findings.append(("WARN",
+                             f"websockets.max_book_age_sec={max_age} exceeds "
+                             f"system.polling_interval_sec={poll} - live "
+                             f"books can be older than a REST cycle, negating "
+                             f"the latency edge"))
+        interval = int(_f(config, "websockets.interval_ms", 100))
+        if interval < 100:
+            findings.append(("WARN",
+                             f"websockets.interval_ms={interval} is below "
+                             f"Binance.US's 100ms floor - it will be clamped "
+                             f"venue-side"))
+        depth = int(_f(config, "websockets.depth", 20))
+        if depth not in (5, 10, 20):
+            fatal(f"websockets.depth={depth} must be 5, 10, or 20 - the "
+                  f"Binance.US partial-depth stream only offers those levels")
+        if not (_f(config, "websockets.binanceus_symbols", []) or []):
+            fatal("websockets.enabled but websockets.binanceus_symbols is "
+                  "empty - nothing to subscribe to")
+
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))
