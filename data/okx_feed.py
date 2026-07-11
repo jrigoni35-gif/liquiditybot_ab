@@ -20,6 +20,34 @@ class OKXFeed(ThrottledRestClient):
     def __init__(self, config: dict):
         super().__init__(config.get("rate_limit_per_sec", 5))
         self.symbols = config.get("symbols", [])
+        self._ctval_cache: dict = {}
+
+    def _ctval(self, symbol: str) -> float:
+        """SWAP order-book size is in CONTRACTS, not coin units (e.g.
+        BTC-USDT-SWAP ctVal=0.01 means 1 contract = 0.01 BTC); spot symbols
+        need no conversion. Without this, price*size overstates USD depth
+        by 1/ctVal - the same unit-mismatch class that previously corrupted
+        the cross-venue imbalance ratio (see strategies/liquidity_model.py
+        _combined_imbalance), except the depth/liquidity_pool_usd figure
+        has no ratio to cancel it out, so it stayed wrong. Cached per
+        symbol - contract specs are static intraday; a failed lookup is
+        NOT cached so it retries on the next call instead of silently
+        pinning to the unconverted default forever."""
+        if "-SWAP" not in symbol.upper():
+            return 1.0
+        cached = self._ctval_cache.get(symbol)
+        if cached is not None:
+            return cached
+        data = self._get("/api/v5/public/instruments",
+                         {"instType": "SWAP", "instId": symbol})
+        if not data:
+            log.warning(f"OKX: ctVal lookup failed for {symbol} - order "
+                       f"book depth for this symbol is in raw CONTRACT "
+                       f"units this cycle, not coin-equivalent USD")
+            return 1.0
+        ct = safe_float(data[0].get("ctVal"), default=1.0, lo=1e-9, hi=1e6)
+        self._ctval_cache[symbol] = ct
+        return ct
 
     def _get(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
         data = self._get_json(f"{BASE_URL}{path}", params, log, "OKX")
@@ -35,9 +63,20 @@ class OKXFeed(ThrottledRestClient):
         if not data:
             return None
         book = data[0]
+        ct = self._ctval(symbol)
+
+        def _scaled(levels):
+            out = []
+            for lvl in levels:
+                try:
+                    out.append([float(lvl[0]), float(lvl[1]) * ct])
+                except (TypeError, ValueError, IndexError):
+                    out.append(lvl)   # malformed row: let clean_book reject it
+            return out
+
         return clean_book({
-            "bids": [list(lvl) for lvl in book.get("bids", [])],
-            "asks": [list(lvl) for lvl in book.get("asks", [])],
+            "bids": _scaled(book.get("bids", [])),
+            "asks": _scaled(book.get("asks", [])),
         })
 
     def get_candles(self, symbol: str, bar: str = "5m", limit: int = 100) -> list:
