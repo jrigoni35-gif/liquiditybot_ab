@@ -497,6 +497,47 @@ def signals_panel(s: dict):
             st.caption("Feed unavailable.")
 
 
+def thales_rows(th: dict) -> tuple[list, list]:
+    """Pure row-builder for the THALES panel (unit-tested): per-asset
+    detector scores and the advice channel's recent multipliers."""
+    rows = []
+    for asset, sc in sorted((th.get("assets") or {}).items()):
+        cdir = int(sc.get("clockwork_dir", 0) or 0)
+        rows.append({
+            "asset": asset,
+            "grid": f"{float(sc.get('grid', 0)):.2f}",
+            "metronome": f"{float(sc.get('metronome', 0)):.2f}",
+            "clockwork": (f"{float(sc.get('clockwork', 0)):.2f}"
+                          + (" ▲" if cdir > 0 else " ▼" if cdir < 0 else "")),
+            "stop zone": f"{float(sc.get('stop_zone', 0)):.2f}",
+        })
+    advice = [{
+        "asset": a.get("asset", "?"),
+        "dir": a.get("dir", "?"),
+        "mult": f"x{float(a.get('mult', 1)):.3f}",
+        "applied": "applied" if a.get("applied") else "shadow",
+    } for a in reversed(th.get("recent_advice") or [])]
+    return rows, advice
+
+
+def thales_panel(s: dict):
+    """THALES lazy-bot insecurity detectors (docs/THALES.md), read-only:
+    shadow mode advice is counterfactual, advise mode is applied."""
+    th = s.get("thales") or {}
+    infl = th.get("influence", "off")
+    if not th or infl == "off":
+        return
+    st.markdown(f"**THALES insecurity detectors** (`{infl}` mode)")
+    rows, advice = thales_rows(th)
+    if rows:
+        st.dataframe(rows, width="stretch", hide_index=True)
+    else:
+        st.caption("Detectors warming up — no scores yet.")
+    if advice:
+        st.caption("Recent advice (shadow = would-have, not applied):")
+        st.dataframe(advice, width="stretch", hide_index=True)
+
+
 def audit_panel():
     if not AUDIT.exists():
         st.caption("No audit records yet.")
@@ -612,6 +653,7 @@ def live_view():
         with c2:
             signals_panel(s)
             signal_engine_panel(s)
+            thales_panel(s)
     with tabs[1]:
         monitor_panel(s)
     with tabs[2]:
@@ -619,6 +661,7 @@ def live_view():
         st.divider()
         signals_panel(s)
         signal_engine_panel(s)
+        thales_panel(s)
     with tabs[3]:
         st.markdown("**Audit chain (last records — hash-chained, "
                     "tamper-evident)**")

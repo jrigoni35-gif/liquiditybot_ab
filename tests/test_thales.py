@@ -264,3 +264,30 @@ def test_guard_rejects_unclamped_shade_and_disarmed_significance():
         {"thales": {"enabled": True, "max_conf_shade": 2.0}}))
     assert any("z_thr" in m for m in _fatals(
         {"thales": {"enabled": True, "clockwork": {"z_thr": 0.5}}}))
+
+
+# ---------------------------------------------------------------------
+# dashboard panel row-builder (pure; the streamlit calls stay untested)
+# ---------------------------------------------------------------------
+def test_dashboard_thales_rows_format_and_order():
+    from ui.dashboard import thales_rows
+    th = {"influence": "shadow",
+          "assets": {"ETH": {"grid": 0.032, "metronome": 0.0,
+                             "clockwork": 0.41, "clockwork_dir": 1,
+                             "stop_zone": 0.466},
+                     "BTC": {"grid": 0.029, "metronome": 0.71,
+                             "clockwork": 0.0, "clockwork_dir": 0,
+                             "stop_zone": 0.202}},
+          "recent_advice": [
+              {"ts": 1.0, "asset": "BTC", "dir": "long", "mult": 1.08,
+               "applied": False},
+              {"ts": 2.0, "asset": "ETH", "dir": "short", "mult": 0.93,
+               "applied": True}]}
+    rows, advice = thales_rows(th)
+    assert [r["asset"] for r in rows] == ["BTC", "ETH"]      # sorted
+    assert rows[1]["clockwork"] == "0.41 ▲"
+    assert rows[0]["metronome"] == "0.71"
+    assert advice[0] == {"asset": "ETH", "dir": "short",
+                         "mult": "x0.930", "applied": "applied"}
+    assert advice[1]["applied"] == "shadow"                  # newest first
+    assert thales_rows({}) == ([], [])
