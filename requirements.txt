@@ -8,3 +8,5 @@ streamlit>=1.46,<2     # operator dashboard (ui/dashboard.py); engine runs witho
 # optional: torch — ml/models.py exposes the same predict_proba interface
 # for sequence models if you want to slot PyTorch in later
 # optional: moomoo-api — read-only equities context via local OpenD gateway
+# optional: ccxt — extra read-only spot feeds (data/ccxt_feed.py); shipped
+# config has exchanges.ccxt.enabled=false and absence is handled gracefully
