@@ -92,14 +92,28 @@ def synthetic_benchmark(n: int = 1200, seed: int = 11):
     return X, y
 
 
-def load_dataset(min_rows: int = 60):
+def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
+    """min_rows gates when the ML-layer checks (OF-1/2/3/6/7) switch from
+    the deterministic synthetic benchmark to real production history. It
+    defaults to 10 rows/feature (matching feature_dof_report's own
+    rows_per_feature_floor, OF-7) rather than a flat 60 — at 60 rows over
+    36 features that's 1.7 rows/feature, so the purged walk-forward and
+    shuffle-null checks were switching onto real data before there was
+    remotely enough of it to be well-posed (observed live: 87 rows / 36
+    features = 2.4 rows/feature failed OF-2 with a degenerate mean_auc=0.0
+    and OF-7 with rows_per_feature=2.4, neither a real overfitting signal,
+    just data starvation surfaced too early)."""
+    from ml.features import FEATURE_NAMES
+    if min_rows is None:
+        min_rows = len(FEATURE_NAMES) * 10
     store = HistoryStore()
     X, y, w = store.load_training_data()
-    if len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
+    if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
         return X, y, w, f"live history ({len(X)} rows)"
     Xs, ys = synthetic_benchmark()
-    return Xs, ys, None, (f"SYNTHETIC benchmark (live rows={len(X)} < "
-                          f"{min_rows}) — validating machinery, not market")
+    reason = "forced" if force_synthetic else f"live rows={len(X)} < {min_rows}"
+    return Xs, ys, None, (f"SYNTHETIC benchmark ({reason}) — validating "
+                          f"machinery, not market")
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +235,22 @@ def main() -> int:
     ap.add_argument("--recording", default="",
                     help="existing session.jsonl to sweep; default: "
                          "generate a deterministic offline one")
+    ap.add_argument("--force-synthetic", action="store_true",
+                    help="always use the deterministic synthetic benchmark "
+                         "for the ML layer, even if live history clears "
+                         "min_rows — for a CI-bound run that must not "
+                         "depend on ambient production telemetry state")
+    ap.add_argument("--report-path", default="outputs/overfit_report.md",
+                    help="where to write the markdown report — override "
+                         "for a CI-bound run so it doesn't clobber a human "
+                         "operator's last real audit")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
     t0 = time.time()
     print("liquiditybot overfit audit\n" + "=" * 42)
 
     # ---- ML layer -----------------------------------------------------
-    X, y, w, source = load_dataset()
+    X, y, w, source = load_dataset(force_synthetic=args.force_synthetic)
     print(f"[OF-1] train/OOF gap  ({source})")
     gaps = train_test_gap(X, y, sample_weight=w,
                           n_splits=3 if args.quick else 5)
@@ -342,7 +365,7 @@ def main() -> int:
               f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}")
 
     # ---- report ----------------------------------------------------------
-    out = Path("outputs") / "overfit_report.md"
+    out = Path(args.report_path)
     out.parent.mkdir(exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(f"# Overfit audit — {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n\n"
