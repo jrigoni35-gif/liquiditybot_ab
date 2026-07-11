@@ -73,7 +73,7 @@ from execution.hedging import HedgeEngine
 from execution.tactics import ExecutionPlanner
 from ml.features import FEATURE_NAMES, build_features
 from ml.meta_model import MetaModelService
-from ml.history import HistoryStore, CandidateLabeler
+from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
 from ml.monitor import ModelMonitor
 from ml.postmortem import PostmortemEngine, TradeThesis
 from sentiment.scanner import SentimentScanner
@@ -254,6 +254,12 @@ class LiquidityBot:
         self.meta = MetaModelService(config.get("ml", {}))
         self.history = HistoryStore(config.get("ml", {})
                                     .get("history_path", "outputs/signal_history.csv"))
+        # multi-horizon shadow evidence (separate fixed-schema file so it can
+        # never rotate the training data); only wired when enabled in config
+        mh_cfg = config.get("ml", {}).get("multi_horizon", {})
+        self.horizon_shadow = HorizonShadowStore(
+            mh_cfg.get("shadow_path", "outputs/horizon_shadow.csv")) \
+            if mh_cfg.get("enabled", False) else None
         self.monitor = ModelMonitor(config.get("ml", {}).get("monitor", {}))
         self.postmortem = PostmortemEngine(config.get("ml", {}).get("postmortem", {}))
         # per-gate predictive power learned from labeled candidates; the
@@ -262,7 +268,8 @@ class LiquidityBot:
         self.gate_stats = GateStats(config.get("signal_gates", {})
                                     .get("learned_weights", {}))
         self.candidates = CandidateLabeler(self.history, config.get("ml", {}),
-                                           on_label=self.gate_stats.note_label)
+                                           on_label=self.gate_stats.note_label,
+                                           shadow_store=self.horizon_shadow)
         # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
         # over public books/candles; shadow by default (telemetry only),
         # bounded confidence shading only when influence=advise
@@ -1072,7 +1079,8 @@ class LiquidityBot:
                 self.candidates.register(asset, signal.direction, feats,
                                         vol_state.sigma_bar_pct / 100.0,
                                         v["candles"][-1]["time"],
-                                        gates_passed=signal.gates_passed)
+                                        gates_passed=signal.gates_passed,
+                                        spread_bps=liq_state.spread_bps)
             self.monitor.note_features(feats)
 
             lev_decision = self.lev_gov.decide(

@@ -122,6 +122,44 @@ class HistoryStore:
         return np.array(X, float), np.array(y, float), np.array(w, float)
 
 
+class HorizonShadowStore:
+    """Append-only, FIXED-schema shadow log of multi-horizon barrier
+    outcomes. Deliberately NOT signal_history.csv: writing per-horizon
+    labels there would change the training header and trigger the schema
+    rotation that once lost live rows ([[history-schema-loss-incident]]).
+    One row per (candidate, horizon) in long format so the header never
+    depends on how many horizons are configured. This is EVIDENCE, not
+    training data - it answers "which holding horizon actually pays for
+    which asset" so a horizon feature can later be promoted on data, not
+    on a guess."""
+
+    HEADER = ["candidate_id", "asset", "direction", "horizon_bars",
+              "label", "net_ret_pct", "exit_reason", "ts"]
+
+    def __init__(self, path: str = "outputs/horizon_shadow.csv"):
+        self.path = Path(path)
+
+    def _ensure(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            with open(self.path, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(self.HEADER)
+
+    def append(self, candidate_id: str, asset: str, direction: str,
+               horizon_bars: int, label: int, net_ret_pct: float,
+               exit_reason: str):
+        try:
+            self._ensure()
+            with open(self.path, "a", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow([
+                    candidate_id, asset, direction, int(horizon_bars),
+                    int(label), f"{net_ret_pct:.6f}", exit_reason,
+                    f"{time.time():.0f}"])
+        except OSError:
+            log.debug("horizon shadow append failed (non-fatal)",
+                      exc_info=True)
+
+
 class CandidateLabeler:
     """Labels EVERY gate-confirmed signal - taken or vetoed - via
     triple-barrier on the subsequent price path. This is the dataset
@@ -131,7 +169,8 @@ class CandidateLabeler:
     separately from live fills.
     """
 
-    def __init__(self, store: HistoryStore, ml_cfg: dict, on_label=None):
+    def __init__(self, store: HistoryStore, ml_cfg: dict, on_label=None,
+                 shadow_store: "HorizonShadowStore | None" = None):
         cfg = ml_cfg or {}
         self.store = store
         # optional callback(gates_passed: dict|None, label: int), fired as
@@ -147,6 +186,21 @@ class CandidateLabeler:
         # profitability, not an optimistic ~0 - a 6bps default here taught the
         # model that near-breakeven trades were wins. Config-driven + guarded.
         self.rt_cost_pct = float(cfg.get("label_round_trip_cost_pct", 0.5))
+        # per-asset accuracy: add the asset's own execution spread on top of
+        # the fee floor so a wide-spread small cap's scalps are labeled at
+        # their REAL cost (the fee floor alone under-charges them and teaches
+        # the model to over-trade illiquid pairs). Capped so one blown-out
+        # book can't poison a label. Off -> old flat-cost behavior.
+        self.label_include_spread = bool(cfg.get("label_include_spread", True))
+        self.spread_cap_bps = float(cfg.get("label_spread_cap_bps", 60.0))
+        # multi-horizon SHADOW: also score each candidate at shorter/longer
+        # horizons and log the outcome (never touches the live label/model).
+        mh = cfg.get("multi_horizon", {}) or {}
+        self._mh_enabled = bool(mh.get("enabled", False))
+        self.horizons = sorted({int(h) for h in mh.get("horizons_bars", [])
+                                if 0 < int(h) <= self.horizon}) \
+            if self._mh_enabled else []
+        self.shadow_store = shadow_store
         self.max_candidates = int(cfg.get("max_open_candidates", 200))
         self._bars: dict = {}          # asset -> {"t":[], "c":[], "h":[], "l":[]}
         self._cands: list = []
@@ -175,7 +229,8 @@ class CandidateLabeler:
                 b[k] = b[k][-cap:]
 
     def register(self, asset: str, direction: str, features: np.ndarray,
-                sigma_bar: float, bar_time, gates_passed=None) -> None:
+                sigma_bar: float, bar_time, gates_passed=None,
+                spread_bps: float = 0.0) -> None:
         if self._last_reg.get((asset, direction)) == bar_time:
             return                      # same signal, same candle: no duplicate
         self._last_reg[(asset, direction)] = bar_time
@@ -187,11 +242,24 @@ class CandidateLabeler:
                             "features": features.copy(),
                             "sigma_bar": float(max(sigma_bar, 1e-5)),
                             "bar_time": bar_time,
+                            # asset's execution spread at signal time, folded
+                            # into the label's round-trip cost at poll time
+                            "spread_bps": float(max(spread_bps, 0.0)),
                             # which gates passed at signal time (JSON-safe
                             # bools); the labeled outcome feeds per-gate stats
                             "gates": {str(g): bool(v) for g, v in
                                       gates_passed.items()}
                             if isinstance(gates_passed, dict) else None})
+
+    def _cost_pct(self, cand: dict) -> float:
+        """Round-trip cost for this candidate's label: the fee floor plus,
+        when enabled, the asset's own (capped) execution spread."""
+        cost = self.rt_cost_pct
+        if self.label_include_spread:
+            spread = min(float(cand.get("spread_bps", 0.0)),
+                         self.spread_cap_bps)
+            cost += spread / 100.0     # bps -> percent
+        return cost
 
     def poll(self) -> int:
         """Label candidates whose horizon has elapsed. Returns rows written."""
@@ -210,12 +278,15 @@ class CandidateLabeler:
             highs = np.array(b["h"], float)
             lows = np.array(b["l"], float)
             side = 1 if cand["direction"] == "long" else -1
+            cost = self._cost_pct(cand)
             out = triple_barrier(closes, highs, lows, i, side,
                                 cand["sigma_bar"], self.pt, self.sl,
-                                self.horizon, cost_pct=self.rt_cost_pct)
+                                self.horizon, cost_pct=cost)
             self.store._append_row(cand["id"], cand["asset"],
                                 cand["direction"], cand["features"],
                                 out.label, 0.0, "candidate")
+            self._record_shadow_horizons(cand, closes, highs, lows, i, side,
+                                         cost)
             if self._on_label is not None:
                 try:
                     self._on_label(cand.get("gates"), out.label)
@@ -227,6 +298,29 @@ class CandidateLabeler:
         if written:
             log.info(f"labeled {written} candidate signal(s) via triple-barrier")
         return written
+
+    def _record_shadow_horizons(self, cand, closes, highs, lows, i, side,
+                                cost):
+        """Score this candidate at each configured shadow horizon and log
+        the outcome. Pure evidence: never affects the primary label, the
+        model, or any live decision. All horizons are <= the primary
+        horizon (guarded), so the data is already available when the
+        primary label fires. Failure here must never break labeling."""
+        if not self.horizons or self.shadow_store is None:
+            return
+        try:
+            for h in self.horizons:
+                if len(closes) - 1 - i < h:
+                    continue
+                o = triple_barrier(closes, highs, lows, i, side,
+                                   cand["sigma_bar"], self.pt, self.sl,
+                                   h, cost_pct=cost)
+                self.shadow_store.append(
+                    cand["id"], cand["asset"], cand["direction"], h,
+                    o.label, o.ret_pct, o.barrier)
+        except Exception:
+            log.debug("shadow horizon recording failed (non-fatal)",
+                      exc_info=True)
 
     # --- persistence hooks ---
     def to_dict(self) -> dict:

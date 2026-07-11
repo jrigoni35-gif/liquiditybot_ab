@@ -130,6 +130,25 @@ def validate(config: dict) -> list:
              f"maker round-trip {maker_rt_pct:.2f}% ({pt_maker:.0f}bps x2) - "
              f"triple-barrier labels understate cost and will mislabel "
              f"net-losing trades as wins, biasing the model to overtrade")
+    if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
+        fatal("ml.label_spread_cap_bps must be >= 0")
+
+    # multi-horizon shadow: every horizon must be a positive integer no
+    # larger than the primary label horizon, or its outcome would never be
+    # ready when the primary label fires (the shadow row would be silently
+    # dropped, defeating the whole point of collecting the evidence)
+    mh = config.get("ml", {}).get("multi_horizon", {}) or {}
+    if mh.get("enabled", False):
+        max_bars = int(_f(config, "ml.label_max_bars", 96))
+        horizons = mh.get("horizons_bars", [])
+        if not horizons:
+            fatal("ml.multi_horizon.enabled but horizons_bars is empty")
+        for h in horizons:
+            if not isinstance(h, (int, float)) or int(h) <= 0:
+                fatal(f"ml.multi_horizon.horizons_bars has non-positive {h!r}")
+            elif int(h) > max_bars:
+                fatal(f"ml.multi_horizon horizon {int(h)} > label_max_bars "
+                      f"{max_bars} - would never be labeled")
 
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
