@@ -15,6 +15,12 @@ log = logging.getLogger("liquiditybot.strategies.liquidity_model")
 
 # Canonical base asset -> Kraken trading pair. Keep in sync with
 # config.json's exchanges.kraken.trading_pairs list.
+# Default base-asset -> Kraken pair map. Kept for callers that construct
+# LiquidityModel without config (tests, offline tools); the live engine
+# passes the real map derived from config exchanges.kraken.trading_pairs
+# so adding a pair there needs no edit here. Adding a pair to trade meant
+# editing this literal too, which silently dropped any asset missing from
+# it at the view-merge layer.
 BASE_ASSET_TO_KRAKEN_PAIR = {
     "ETH": "ETH/USD",
     "BTC": "BTC/USD",
@@ -49,6 +55,14 @@ def extract_base_asset(symbol: str) -> Optional[str]:
 class LiquidityModel:
     def __init__(self, config: dict):
         self.gate_1_config = config.get("gate_1_liquidity_pool", {})
+        # base -> kraken pair map, derived from the configured execution
+        # pairs so a new trading_pair is picked up automatically; falls
+        # back to the module default when config carries no kraken block
+        # (bare LiquidityModel({}) in tests/offline tools).
+        pairs = (config.get("exchanges", {}).get("kraken", {})
+                 .get("trading_pairs")) or []
+        self.base_to_pair = {p.split("/")[0].upper(): p for p in pairs} \
+            or dict(BASE_ASSET_TO_KRAKEN_PAIR)
 
     def _combine_order_books(self, books: list) -> dict:
         """Concatenates bids/asks from multiple exchanges, best price first."""
@@ -130,7 +144,7 @@ class LiquidityModel:
 
         view = {}
         for base, entry in merged.items():
-            kraken_symbol = BASE_ASSET_TO_KRAKEN_PAIR.get(base)
+            kraken_symbol = self.base_to_pair.get(base)
             if kraken_symbol is None:
                 log.warning(f"No Kraken pair mapping for base asset {base}, skipping.")
                 continue

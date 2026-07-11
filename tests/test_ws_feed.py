@@ -62,7 +62,7 @@ def test_garbage_levels_never_raise_and_are_dropped():
                   [["nan", "x"]], [["64010", "1"]])   # poisoned bid
     # clean_book rejects the empty bid side -> None, no exception
     assert c.get_book("binanceus", "BTCUSD", 2.0) is None
-    c.update_trade("binanceus", "BTCUSD", "not-a-number")   # ignored
+    c.update_trade("binanceus", "BTCUSD", "not-a-number")   # type: ignore[arg-type]  # ignored
     assert c.get_mark("binanceus", "BTCUSD", 2.0) is None
 
 

@@ -252,6 +252,11 @@ class KrakenFeed(ThrottledRestClient):
         than pair_decimals (e.g. BTC/USD allows 1) - formatting every
         price to 2 decimals works for ETH and silently fails for BTC.
         Falls back to conservative known values offline."""
+        # Offline/test fallback. Values verified against Kraken AssetPairs
+        # (pair_decimals / lot_decimals / ordermin). Wrong price decimals =
+        # guaranteed AddOrder rejection, so each traded pair needs its own
+        # row; the generic default of 2 decimals would reject MINA (5) and
+        # ARB/FLOW/SUI (4). ordermin is in BASE units.
         fallback = {
             "ETHUSD": {"price_decimals": 2, "lot_decimals": 8,
                        "ordermin": 0.002},
@@ -259,6 +264,14 @@ class KrakenFeed(ThrottledRestClient):
                        "ordermin": 0.00005},
             "BTCUSD": {"price_decimals": 1, "lot_decimals": 8,
                        "ordermin": 0.00005},
+            "SUIUSD": {"price_decimals": 4, "lot_decimals": 5,
+                       "ordermin": 5.0},
+            "ARBUSD": {"price_decimals": 4, "lot_decimals": 5,
+                       "ordermin": 60.0},
+            "MINAUSD": {"price_decimals": 5, "lot_decimals": 8,
+                        "ordermin": 120.0},
+            "FLOWUSD": {"price_decimals": 4, "lot_decimals": 8,
+                        "ordermin": 200.0},
         }
         meta = {}
         result = self._public_get("AssetPairs", {"pair": ",".join(pairs)}) \

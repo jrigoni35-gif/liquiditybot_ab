@@ -216,12 +216,24 @@ class LiquidityBot:
         except Exception:
             pair_meta = {}
         if not pair_meta:
+            # verified Kraken AssetPairs metadata; mirrors the fallback in
+            # data/kraken_feed.get_pair_meta so offline/dry/test runs format
+            # prices to each pair's real precision (MINA=5, ARB/FLOW/SUI=4,
+            # not the generic 2 that would be rejected)
             fallback = {"ETHUSD": {"price_decimals": 2, "lot_decimals": 8,
                                    "ordermin": 0.002},
                         "XBTUSD": {"price_decimals": 1, "lot_decimals": 8,
                                    "ordermin": 0.00005},
                         "BTCUSD": {"price_decimals": 1, "lot_decimals": 8,
-                                   "ordermin": 0.00005}}
+                                   "ordermin": 0.00005},
+                        "SUIUSD": {"price_decimals": 4, "lot_decimals": 5,
+                                   "ordermin": 5.0},
+                        "ARBUSD": {"price_decimals": 4, "lot_decimals": 5,
+                                   "ordermin": 60.0},
+                        "MINAUSD": {"price_decimals": 5, "lot_decimals": 8,
+                                    "ordermin": 120.0},
+                        "FLOWUSD": {"price_decimals": 4, "lot_decimals": 8,
+                                    "ordermin": 200.0}}
             pair_meta = {p: fallback.get(p, {"price_decimals": 2,
                                              "lot_decimals": 8,
                                              "ordermin": 0.0})
@@ -865,9 +877,41 @@ class LiquidityBot:
             futures = [ex.submit(_safe, n, f) for n, f in feeds]
             return [f.result() for f in futures]   # feed order preserved
 
+    def _augment_view_with_kraken(self):
+        """Data-cold fallback: any execution-venue pair that the third-party
+        data feeds (OKX/Binance.US) don't carry - e.g. a Kraken-only listing
+        like MINA/USD - still needs intraday candles + a book to warm up
+        vol/liq/fair-value and to emit training candidates, or it would be
+        tradeable-but-inert. Fetch those from Kraken itself (the venue that
+        by definition lists every pair we trade), mirroring the daily-candle
+        Kraken fallback already in hourly_cycle. Only fills GAPS: an asset
+        the multi-venue view already covers is left untouched, so ETH/BTC
+        cross-venue imbalance is unchanged and this is behavior-preserving
+        for the existing universe."""
+        for asset, symbol in self.symbol_map.items():
+            existing = self.view.get(asset)
+            if existing and existing.get("candles"):
+                continue
+            pair = self.kraken.kraken_pair(symbol)
+            try:
+                candles = self.kraken.get_candles(pair)
+            except Exception:
+                log.debug("kraken intraday fallback failed for %s", asset,
+                          exc_info=True)
+                continue
+            if not candles:
+                continue
+            book = self.kraken_books.get(asset) or {}
+            entry = dict(existing or {})
+            entry["candles"] = candles
+            entry.setdefault("order_book", book)
+            entry.setdefault("kraken_symbol", symbol)
+            self.view[asset] = entry
+
     def slow_cycle(self, now: float):
         self.view = self.liquidity_model.build_view(
             *self._fetch_market_payloads())
+        self._augment_view_with_kraken()
 
         closes = {}
         for asset, v in self.view.items():
