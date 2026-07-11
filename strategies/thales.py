@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from core.codes import Code, tag
+from strategies.swing_points import swing_high_low
 
 log = logging.getLogger("liquiditybot.strategies.thales")
 
@@ -273,9 +274,10 @@ class ThalesEngine:
                 zones.append(round(mark / step) * step)
         lookback = int(self._s.get("swing_lookback", 48))
         hist = list(st.candle_hist)[-lookback:]
-        if len(hist) >= 8:
-            zones.append(max(h for _, _, h, _, _ in hist))
-            zones.append(min(low for _, _, _, low, _ in hist))
+        swing_hi, swing_lo = swing_high_low(st.candle_hist, lookback)
+        if swing_hi is not None:
+            zones.append(swing_hi)
+            zones.append(swing_lo)
         prox = 0.0
         for z in zones:
             d = abs(mark - z) / mark

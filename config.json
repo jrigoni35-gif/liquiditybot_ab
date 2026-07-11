@@ -497,6 +497,35 @@
       "revert_decay_sec": 1800
     }
   },
+  "smc": {
+    "description": "Smart Money Concepts structural features (docs/SMC.md): multi-timeframe trend alignment, premium/discount zone, liquidity-pocket pull, fair-value-gap pull + confluence, volume-profile POC/Value-Area position. Pure feature computation added to the meta-model's feature vector - never a gate, never a veto, never sizes or times an order.",
+    "enabled": true,
+    "mtf": {
+      "ltf_fast_period": 9,
+      "ltf_slow_period": 21,
+      "htf_fast_period": 5,
+      "htf_slow_period": 15
+    },
+    "pd_zone": {
+      "lookback": 48
+    },
+    "liquidity": {
+      "lookback": 48,
+      "pull_max_pct": 3.0
+    },
+    "fvg": {
+      "lookback_bars": 150,
+      "min_gap_pct": 0.02,
+      "pull_max_pct": 3.0,
+      "confluence_tol_pct": 0.3
+    },
+    "volume_profile": {
+      "lookback_bars": 200,
+      "n_bins": 24,
+      "value_area_pct": 0.68,
+      "poc_dist_cap_pct": 5.0
+    }
+  },
   "moomoo": {
     "description": "Read-only cross-asset quotes via moomoo OpenAPI (quote context only - execution impossible). Requires local OpenD gateway + pip install moomoo-api. Disabled by default.",
     "enabled": true,

@@ -256,6 +256,12 @@ class LiquidityBot:
         # bounded confidence shading only when influence=advise
         from strategies.thales import ThalesEngine
         self.thales = ThalesEngine(config.get("thales", {}))
+        # Smart Money Concepts structural features (docs/SMC.md): MTF
+        # trend alignment, premium/discount zone, liquidity-pocket pull,
+        # FVG pull/confluence, volume-profile POC/VA - additional signal
+        # inputs to the meta-model's feature vector, never a gate/veto
+        from strategies.smc import SMCEngine
+        self.smc = SMCEngine(config.get("smc", {}))
         # active-learning exploration: with no proven edge the sizer's net-Kelly
         # bar (p_win > ~0.60) vetoes every confirmed signal, so the bot never
         # trades and never gathers live labels to improve. In DRY RUN ONLY, take
@@ -979,9 +985,12 @@ class LiquidityBot:
             others = [a for a in self.symbol_map if a != asset]
 
             gate_conf = min(max(signal.confidence + verdict.confidence_tilt, 0.0), 1.0)
+            smc_feats = self.smc.compute(asset, v.get("candles") or [],
+                                         signal.direction, now,
+                                         daily_candles=self.daily_candles.get(asset))
             feats = build_features(asset, signal.direction, gate_conf, v,
                                 fv_state, vol_state, liq_state, macro_state,
-                                self.corr.state, sentiment,
+                                self.corr.state, sentiment, smc_feats,
                                 other_asset=others[0] if others else None,
                                 extras=self._feature_extras(
                                     asset, v, web, risk,

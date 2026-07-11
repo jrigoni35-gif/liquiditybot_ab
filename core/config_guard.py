@@ -493,6 +493,47 @@ def validate(config: dict) -> list:
             fatal(f"thales.{knob}={gv} negative - inverted advice; flip "
                   f"the detector's exploit thesis in code, not via sign")
 
+    # --- Smart Money Concepts features (docs/SMC.md) ----------------------
+    smc_enabled = bool(_f(config, "smc.enabled", True))
+    if smc_enabled:
+        for fast_path, slow_path in (
+                ("smc.mtf.ltf_fast_period", "smc.mtf.ltf_slow_period"),
+                ("smc.mtf.htf_fast_period", "smc.mtf.htf_slow_period")):
+            mtf_fast = int(_f(config, fast_path, 9))
+            mtf_slow = int(_f(config, slow_path, 21))
+            if mtf_fast < 2:
+                fatal(f"{fast_path} must be >= 2")
+            if mtf_slow <= mtf_fast:
+                fatal(f"{slow_path} ({mtf_slow}) must exceed {fast_path} "
+                      f"({mtf_fast}) - EMA cross is meaningless otherwise")
+        for path, lo, hi in (
+                ("smc.liquidity.pull_max_pct", 0.0, 100.0),
+                ("smc.fvg.pull_max_pct", 0.0, 100.0),
+                ("smc.fvg.min_gap_pct", 0.0, 100.0),
+                ("smc.fvg.confluence_tol_pct", 0.0, 100.0),
+                ("smc.volume_profile.poc_dist_cap_pct", 0.0, 100.0)):
+            v = float(_f(config, path, 1.0))
+            if not (lo < v <= hi):
+                fatal(f"{path}={v} must be in ({lo}, {hi}] - zero or "
+                      f"negative disables the feature as a silent no-op "
+                      f"instead of an explicit smc.enabled=false")
+        va_pct = float(_f(config, "smc.volume_profile.value_area_pct", 0.68))
+        if not (0.0 < va_pct <= 1.0):
+            fatal(f"smc.volume_profile.value_area_pct={va_pct} must be in "
+                  f"(0, 1] - it is a fraction of total profile volume")
+        n_bins = int(_f(config, "smc.volume_profile.n_bins", 24))
+        if n_bins < 3:
+            fatal(f"smc.volume_profile.n_bins={n_bins} must be >= 3 - a "
+                  f"POC/Value-Area needs bins either side of the mode")
+        for path in ("smc.pd_zone.lookback", "smc.liquidity.lookback",
+                     "smc.fvg.lookback_bars",
+                     "smc.volume_profile.lookback_bars"):
+            lb = int(_f(config, path, 8))
+            if lb < 8:
+                fatal(f"{path}={lb} must be >= 8 - below that the swing/"
+                      f"profile window can't distinguish structure from "
+                      f"noise (matches strategies/swing_points.MIN_BARS)")
+
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))

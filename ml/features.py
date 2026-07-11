@@ -17,6 +17,11 @@ sentiment        - blended influencer/news/crowd score, fear-spike
                      flag (filter inputs only; never *creates* a signal)
 context          - crypto Fear&Greed index, BTC-dominance delta
                     (web data), risk-equity z (moomoo basket)
+smc              - Smart Money Concepts structural context
+                    (strategies/smc.py, docs/SMC.md): multi-timeframe
+                    trend alignment, premium/discount zone, liquidity-
+                    pocket pull, fair-value-gap pull + confluence,
+                    volume-profile POC/Value-Area position
 signal           - direction (+1/-1), gate confidence
 """
 
@@ -42,6 +47,8 @@ FEATURE_NAMES = [
     "fear_greed", "dominance_delta", "equity_risk_z",
     "hour_sin", "hour_cos", "weekend",
     "imbalance_delta", "other_ret_6", "depth_ratio",
+    "mtf_align", "pd_zone", "liq_pocket_pull",
+    "fvg_pull", "fvg_liq_confluence", "poc_dist", "va_pos",
     "direction", "gate_confidence",
 ]
 
@@ -63,7 +70,7 @@ def _ret(closes: np.ndarray, k: int, sigma_bar: float) -> float:
 
 def build_features(asset: str, direction: str, gate_confidence: float,
                 view: dict, fv_state, vol_state, liq_state,
-                macro_state, corr_state, sentiment,
+                macro_state, corr_state, sentiment, smc_feats: dict,
                 other_asset: Optional[str] = None,
                 extras: Optional[dict] = None) -> np.ndarray:
     candles = view.get("candles") or []
@@ -124,6 +131,13 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((extras or {}).get("imbalance_delta", 0.0), -2, 2)),
         float(np.clip((extras or {}).get("other_ret_6", 0.0), -3, 3)),
         float(np.clip((extras or {}).get("depth_ratio", 1.0), 0, 3)),
+        float(np.clip((smc_feats or {}).get("mtf_align", 0.0), -1, 1)),
+        float(np.clip((smc_feats or {}).get("pd_zone", 0.5), 0, 1)),
+        float(np.clip((smc_feats or {}).get("liq_pocket_pull", 0.0), 0, 1)),
+        float(np.clip((smc_feats or {}).get("fvg_pull", 0.0), 0, 1)),
+        float(np.clip((smc_feats or {}).get("fvg_liq_confluence", 0.0), 0, 1)),
+        float(np.clip((smc_feats or {}).get("poc_dist", 0.0), -1, 1)),
+        float(np.clip((smc_feats or {}).get("va_pos", 0.0), -1, 1)),
         1.0 if direction == "long" else -1.0,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)
