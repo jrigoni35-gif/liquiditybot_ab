@@ -103,6 +103,8 @@ class Code(str, Enum):
     ML_ARTIFACT_HASH_FAIL = "ML-011" # model file failed integrity check
     ML_ARTIFACT_MISSING = "ML-012"
     ML_SCHEMA_MISMATCH = "ML-013"
+    ML_CALIBRATION_SKIPPED = "ML-014"  # isotonic PAV had <20 OOF points to
+                                        # fit; artifact ships uncalibrated
     ML_FAILSAFE_PRIOR = "ML-020"     # inference bypassed -> cold-start prior
     ML_LEVEL_CHANGE = "ML-030"
     ML_DRIFT = "ML-031"

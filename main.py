@@ -1261,6 +1261,16 @@ class LiquidityBot:
                             .get('ensemble_seeds', 3)))
             sel = results[results["selected"]]
             cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
+            if not cal.fitted:
+                log.warning(f"ML-014: calibration skipped - only "
+                           f"{len(sel['oof_p'])} OOF points (<20 needed) - "
+                           f"challenger ships with raw, uncalibrated "
+                           f"probabilities")
+                get_audit().log("ml_governor", Code.ML_CALIBRATION_SKIPPED,
+                                f"isotonic PAV had {len(sel['oof_p'])} OOF "
+                                f"points (<20) - auto-retrain challenger "
+                                f"ships uncalibrated",
+                                {"oof_points": int(len(sel["oof_p"]))})
             oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
             challenger_brier = brier_score(sel["oof_y"], oof_cal) \
                 if len(oof_cal) else 0.25

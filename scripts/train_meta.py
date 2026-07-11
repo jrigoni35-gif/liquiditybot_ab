@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
+from core.audit import get_audit  # noqa: E402
+from core.codes import Code  # noqa: E402
 from ml.history import HistoryStore, bootstrap_dataset  # noqa: E402
 from ml.walkforward import evaluate_and_select  # noqa: E402
 from ml.models import save_model  # noqa: E402
@@ -148,6 +150,15 @@ def main():
         ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)))
     sel = results[results["selected"]]
     cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
+    if not cal.fitted:
+        log.warning(f"ML-014: calibration skipped - only "
+                   f"{len(sel['oof_p'])} OOF points (<20 needed) - "
+                   f"challenger ships with raw, uncalibrated probabilities")
+        get_audit().log("ml_governor", Code.ML_CALIBRATION_SKIPPED,
+                        f"isotonic PAV had {len(sel['oof_p'])} OOF points "
+                        f"(<20) - manual retrain challenger ships "
+                        f"uncalibrated",
+                        {"oof_points": int(len(sel["oof_p"]))})
     oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
     oof_brier = brier_score(sel["oof_y"], oof_cal) if len(oof_cal) else 0.25
     log.info(f"OOF Brier (calibrated): {oof_brier:.4f} "
