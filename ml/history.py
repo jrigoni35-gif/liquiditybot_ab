@@ -38,20 +38,32 @@ class HistoryStore:
         self._pending: dict = {}      # position_id -> features
         # meta column named "side": FEATURE_NAMES also contains "direction",
         # and a duplicated CSV header made DictReader consumers silently read
-        # whichever column came last. Schema rotation below archives any file
-        # written under the old header.
-        header = ["position_id", "asset", "side", *FEATURE_NAMES,
-                "label", "net_pnl_usd", "source", "ts"]
+        # whichever column came last.
+        self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
+                        "label", "net_pnl_usd", "source", "ts"]
+
+    def _ensure_schema(self):
+        """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
+        __init__, which made merely constructing a HistoryStore (e.g.
+        overfit_check loading training data, or any QA script pointed at
+        the default path) rotate the production CSV as a side effect —
+        after a FEATURE_NAMES change, the first read-only QA run silently
+        swept the bot's entire accumulated training set into a .bak.
+        Checked before every append (not once) so a long-lived process
+        holding an older schema in memory can never interleave misaligned
+        rows into a file another process has since re-headered — observed
+        live 2026-07-11: a pre-SMC runner appended 43-column rows under a
+        50-column post-SMC header, corrupting all three."""
         if self.path.exists():
             with open(self.path, encoding="utf-8") as f:
                 existing = f.readline().strip().split(",")
-            if existing != header:      # feature schema changed: rotate
-                bak = self.path.with_suffix(f".bak_{int(time.time())}")
-                os.replace(self.path, bak)      # cross-platform atomic
-                log.warning(f"history schema changed - old file kept at {bak}")
-        if not self.path.exists():
-            with open(self.path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(header)
+            if existing == self._header:
+                return
+            bak = self.path.with_suffix(f".bak_{int(time.time())}")
+            os.replace(self.path, bak)      # cross-platform atomic
+            log.warning(f"history schema changed - old file kept at {bak}")
+        with open(self.path, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(self._header)
 
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray):
@@ -59,6 +71,7 @@ class HistoryStore:
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float, source: str):
+        self._ensure_schema()
         with open(self.path, "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([position_id, asset, direction,
                                     *[f"{v:.6f}" for v in feats],
