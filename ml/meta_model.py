@@ -97,8 +97,18 @@ class MetaModelService:
               shrinkage: float | None = None, use_model: bool = True) -> float:
         """shrinkage/use_model are live overrides from the governor —
         a degraded model gets pulled harder toward 0.5; a failing one
-        is bypassed entirely (kill switch)."""
-        prior = self.prior_p if gate_confidence >= 0.999 else 0.50
+        is bypassed entirely (kill switch).
+
+        prior is the cold-start/fallback estimate, served whenever there is
+        no usable model output (untrained, contract violation, inference
+        fault). Always self.prior_p: the sole caller (main.py) only ever
+        invokes p_win() after signal.all_confirmed is verified True, so a
+        prior gate of `gate_confidence >= 0.999` was dead code - gate_conf
+        there is a continuously-shaded score (gate_stats weighted_confidence
+        + THALES shading), essentially never exactly >=0.999, so every
+        fallback silently used an unconfigurable 0.50 instead of the
+        operator-configured cold_start_prior_p."""
+        prior = self.prior_p
         if self.model is None or not use_model:
             return prior
         ok, reasons = self.contract.check(features)

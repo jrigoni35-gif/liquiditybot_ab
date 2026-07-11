@@ -327,6 +327,31 @@ def test_meta_service_serves_gbt_artifact_end_to_end(tmp_path):
     assert p2 == pytest.approx(0.56) and svc.fallbacks == 1
 
 
+def test_cold_start_prior_used_regardless_of_gate_confidence(tmp_path):
+    """Regression: p_win() used to gate the configured cold_start_prior_p
+    on `gate_confidence >= 0.999`, but the sole production caller
+    (main.py, after signal.all_confirmed is verified True) always passes a
+    continuously-shaded score that is essentially never exactly >=0.999 -
+    so the fallback silently served an unconfigurable 0.50 instead of the
+    operator-configured prior. Confirmed dead by 2026-07-11 user sign-off:
+    fix it to always use self.prior_p regardless of gate_confidence."""
+    from ml.features import FEATURE_NAMES
+    from ml.meta_model import MetaModelService
+
+    # model_path defaults to outputs/meta_model.json - point it at a
+    # nonexistent tmp path so this test doesn't pick up a real trained
+    # model and stays a genuine cold-start (untrained) scenario
+    svc = MetaModelService({"cold_start_prior_p": 0.56,
+                            "model_path": str(tmp_path / "no_model.json")})
+    assert not svc.trained
+    zeros = np.zeros(len(FEATURE_NAMES))
+
+    # the exact bug scenario: a realistic shaded confidence well below the
+    # old dead 0.999 threshold must still get the configured prior, not 0.50
+    for gc in (0.62, 0.7, 0.91, 0.0, 1.0):
+        assert svc.p_win(zeros, gate_confidence=gc) == pytest.approx(0.56)
+
+
 def test_informed_flow_rejects_alternating_imbalance():
     """Anti-spoof invariant: a materially opposing print inside the
     persistence window disqualifies flow, however strong the final
