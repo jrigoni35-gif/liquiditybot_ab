@@ -111,7 +111,9 @@ def test_heartbeat_refreshes_even_when_every_cycle_raises(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)                     # outputs/ lands in tmp
     bot = _fake_bot()
     lock = _RecordingLock()
-    runner = BotRunner({}, bot=bot, lock=lock)
+    # test doubles standing in for LiquidityBot/SingleInstanceLock: the
+    # runner only touches the attributes both fakes provide
+    runner = BotRunner({}, bot=bot, lock=lock)  # type: ignore[arg-type]
     n = {"calls": 0}
 
     def exploding_cycle(now):

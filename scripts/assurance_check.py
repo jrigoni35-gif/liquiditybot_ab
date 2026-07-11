@@ -69,9 +69,11 @@ def main():
         check("5-record chain verifies", r["ok"] and r["records"] == 5)
         # tamper with record 3 and confirm the chain breaks there
         p = os.path.join(td, "audit.jsonl")
-        lines = open(p, encoding="utf-8").readlines()
+        with open(p, encoding="utf-8") as f:
+            lines = f.readlines()
         lines[2] = lines[2].replace("record 2", "record X")
-        open(p, "w", encoding="utf-8").writelines(lines)
+        with open(p, "w", encoding="utf-8") as f:
+            f.writelines(lines)
         r = a.verify()
         check("tampering detected at exact record",
               not r["ok"] and r["first_break"] == 3)
@@ -197,12 +199,14 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         reg = ModelRegistry(td)
         art = os.path.join(td, "m.json")
-        open(art, "w", encoding="utf-8").write('{"kind": "logistic"}')
+        with open(art, "w", encoding="utf-8") as f:
+            f.write('{"kind": "logistic"}')
         mid = reg.register(art, {"kind": "logistic", "oof_brier": 0.21})
         check("artifact registers with id", len(mid) == 12)
         check("untampered artifact verifies",
               reg.verify(art)["ok"] is True)
-        open(art, "a", encoding="utf-8").write(" ")
+        with open(art, "a", encoding="utf-8") as f:
+            f.write(" ")
         check("tampered artifact fails verify (ML-011)",
               reg.verify(art)["ok"] is False)
 

@@ -280,6 +280,7 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
     fast, slow = _ema(closes, 9), _ema(closes, 21)
     rets = np.diff(np.log(np.maximum(closes, 1e-9)))
     X, y = [], []
+    name_idx = {n: k for k, n in enumerate(FEATURE_NAMES)}
     for i in range(60, len(closes) - max_bars - 1):
         crossed_up = fast[i] > slow[i] and fast[i - 1] <= slow[i - 1]
         crossed_dn = fast[i] < slow[i] and fast[i - 1] >= slow[i - 1]
@@ -290,10 +291,9 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         out = triple_barrier(closes, highs, lows, i, side, sigma_bar,
                             pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
         feats = np.zeros(len(FEATURE_NAMES))
-        name_idx = {n: k for k, n in enumerate(FEATURE_NAMES)}
 
-        def setf(name, val):
-            feats[name_idx[name]] = val
+        def setf(name, val, _feats=feats):
+            _feats[name_idx[name]] = val
 
         for name, k in (("ret_1", 1), ("ret_6", 6), ("ret_12", 12), ("ret_48", 48)):
             if i - k >= 0 and closes[i - k] > 0:

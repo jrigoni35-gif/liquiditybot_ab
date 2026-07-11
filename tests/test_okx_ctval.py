@@ -31,6 +31,7 @@ def test_swap_book_size_scaled_by_ctval():
 
     book = feed.get_order_book("BTC-USDT-SWAP")
 
+    assert book is not None
     assert book["bids"] == [[50000.0, 0.1]]     # 10 contracts * 0.01 BTC/contract
     assert book["asks"] == [[50001.0, 0.08]]
     assert calls[1][0] == "/api/v5/public/instruments"
@@ -57,6 +58,7 @@ def test_failed_ctval_lookup_falls_back_unscaled_and_is_not_cached():
 
     book = feed.get_order_book("BTC-USDT-SWAP")
 
+    assert book is not None
     assert book["bids"] == [[50000.0, 10.0]]    # unscaled fallback (ctVal=1.0)
     assert "BTC-USDT-SWAP" not in feed._ctval_cache  # not cached -> will retry
 
@@ -68,5 +70,6 @@ def test_spot_symbol_never_looks_up_ctval():
 
     book = feed.get_order_book("ETH-USDT")
 
+    assert book is not None
     assert book["bids"] == [[3000.0, 5.0]]      # unscaled: spot is already coin-denominated
     assert len(calls) == 1                       # no instrument lookup at all

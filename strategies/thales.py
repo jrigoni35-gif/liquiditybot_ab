@@ -69,7 +69,7 @@ class _AssetState:
         self.prev_levels: set = set()
         self.metro_events: deque = deque(
             maxlen=int(m.get("window_events", 64)))
-        self.prev_top = None
+        self.prev_top: tuple | None = None
         self.metro_score = 0.0
         # clockwork accumulators: bucket -> [n, sum_ret, sum_ret2]
         self.buckets: dict = {}
@@ -114,7 +114,8 @@ class ThalesEngine:
     # ------------------------------------------------------------------
     # FAST-cycle observation (order book, ~5s cadence). O(levels).
     # ------------------------------------------------------------------
-    def observe_fast(self, asset: str, book: dict, mark: float, now: float):
+    def observe_fast(self, asset: str, book: dict | None, mark: float,
+                     now: float):
         if not self.active:
             return
         try:
@@ -301,7 +302,7 @@ class ThalesEngine:
     # advice
     # ------------------------------------------------------------------
     def shade_confidence(self, asset: str, direction: str, urgency: float,
-                         confidence: float, macro_label: str,
+                         confidence: float, macro_label: str | None,
                          now: float) -> ThalesShade:
         """Compose detector scores into one bounded multiplier. Shadow
         mode records the counterfactual and returns confidence

@@ -59,7 +59,7 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
     state_data = store.load_raw()
     monitor = ModelMonitor(ml_cfg.get("monitor", {}))
     if state_data:
-        monitor.restore(state_data.get("monitor"))
+        monitor.restore(state_data.get("monitor") or {})
     prev_champion = monitor.champion_brier
 
     if not monitor.should_deploy(challenger_brier):

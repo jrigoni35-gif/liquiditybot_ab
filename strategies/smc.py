@@ -61,7 +61,7 @@ def _clip(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
-def _to_bars(candles: list) -> List[tuple]:
+def _to_bars(candles: Optional[list]) -> List[tuple]:
     """Sanitizes a raw candle list into ascending, deduped
     (ts, open, high, low, close, volume) tuples. Mirrors
     thales.py's observe_candles parsing so both modules read the
@@ -112,7 +112,7 @@ def _trend_dir(closes: Sequence[float], fast: int, slow: int) -> int:
 
 
 def mtf_align(ltf_closes: Sequence[float], htf_closes: Sequence[float],
-             direction: str, cfg: dict) -> float:
+             direction: Optional[str], cfg: dict) -> float:
     """Agreement between an EMA-cross trend read on the LTF (5m view
     candles) and the SAME read on genuine HTF candles (main.py's daily
     bars, already fetched for the macro regime engine - not a resample
@@ -146,7 +146,8 @@ def pd_zone(bars: List[tuple], cfg: dict) -> float:
     swing_hi, swing_lo = swing_high_low(
         [(ts, o, h, lo, c) for ts, o, h, lo, c, _ in bars], lookback)
     price = bars[-1][4]
-    if swing_hi is None or swing_hi - swing_lo < EPS or price <= EPS:
+    if swing_hi is None or swing_lo is None \
+            or swing_hi - swing_lo < EPS or price <= EPS:
         return 0.5
     return _clip((price - swing_lo) / (swing_hi - swing_lo), 0.0, 1.0)
 
@@ -154,7 +155,8 @@ def pd_zone(bars: List[tuple], cfg: dict) -> float:
 # ---------------------------------------------------------------------
 # 3. Liquidity pockets
 # ---------------------------------------------------------------------
-def liq_pocket_pull(bars: List[tuple], direction: str, cfg: dict) -> float:
+def liq_pocket_pull(bars: List[tuple], direction: Optional[str],
+                    cfg: dict) -> float:
     if not bars or direction not in ("long", "short"):
         return 0.0
     lookback = int(cfg.get("lookback", 48))
@@ -162,7 +164,8 @@ def liq_pocket_pull(bars: List[tuple], direction: str, cfg: dict) -> float:
     swing_hi, swing_lo = swing_high_low(
         [(ts, o, h, lo, c) for ts, o, h, lo, c, _ in bars], lookback)
     price = bars[-1][4]
-    if swing_hi is None or price <= EPS or pull_max_pct <= EPS:
+    if swing_hi is None or swing_lo is None \
+            or price <= EPS or pull_max_pct <= EPS:
         return 0.0
     target = swing_hi if direction == "long" else swing_lo
     dist_frac = abs(target - price) / price
@@ -223,7 +226,8 @@ def _find_unfilled_fvgs(bars: List[tuple], lookback_bars: int,
     return unfilled
 
 
-def fvg_pull(bars: List[tuple], direction: str, cfg: dict) -> float:
+def fvg_pull(bars: List[tuple], direction: Optional[str],
+             cfg: dict) -> float:
     if not bars or direction not in ("long", "short"):
         return 0.0
     price = bars[-1][4]
@@ -245,14 +249,14 @@ def fvg_pull(bars: List[tuple], direction: str, cfg: dict) -> float:
     return _clip(1.0 - dist_frac / cap, 0.0, 1.0)
 
 
-def fvg_liq_confluence(bars: List[tuple], direction: str, cfg: dict,
-                       liquidity_cfg: dict) -> float:
+def fvg_liq_confluence(bars: List[tuple], direction: Optional[str],
+                       cfg: dict, liquidity_cfg: dict) -> float:
     if not bars or direction not in ("long", "short"):
         return 0.0
     lookback = int(liquidity_cfg.get("lookback", 48))
     swing_hi, swing_lo = swing_high_low(
         [(ts, o, h, lo, c) for ts, o, h, lo, c, _ in bars], lookback)
-    if swing_hi is None:
+    if swing_hi is None or swing_lo is None:
         return 0.0
     target = swing_hi if direction == "long" else swing_lo
     price = bars[-1][4]
@@ -343,7 +347,7 @@ def poc_dist(bars: List[tuple], cfg: dict) -> float:
 
 def va_pos(bars: List[tuple], cfg: dict) -> float:
     poc, val, vah = _volume_profile(bars, cfg)
-    if poc is None or not bars:
+    if poc is None or val is None or vah is None or not bars:
         return 0.0
     price = bars[-1][4]
     if price <= EPS:
@@ -380,8 +384,9 @@ class SMCEngine:
         self._vp = cfg.get("volume_profile", {})
         self._last: dict = {}   # asset -> last computed snapshot (telemetry)
 
-    def compute(self, asset: str, candles: list, direction: str,
-               now: float, daily_candles: Optional[list] = None) -> dict:
+    def compute(self, asset: str, candles: Optional[list],
+               direction: Optional[str], now: float,
+               daily_candles=None) -> dict:
         if not self.enabled:
             return dict(NEUTRAL)
         try:
