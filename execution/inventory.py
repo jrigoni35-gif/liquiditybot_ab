@@ -7,6 +7,10 @@ enforced rule in every trading competition for a reason: unbounded
 inventory converts a pricing edge into directional gambling.
 
 Rules enforced here:
+  * Per-asset same-side position COUNT cap (variety rule): USD caps
+    alone don't stop fixation when tickets are small - five tiny ETH
+    longs fit far under the soft cap but concentrate the whole book in
+    one bet. Hedge positions don't count (system-driven, not fixation).
   * Per-asset soft cap  (% of equity): above it, no adds in the same
     direction; profit tiers tighten (signaled via tier_tighten) so the
     position bleeds down on its own.
@@ -23,6 +27,8 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
+
+from core.codes import Code
 
 log = logging.getLogger("liquiditybot.execution.inventory")
 
@@ -44,6 +50,7 @@ class AddDecision:
     allowed_usd: float
     reason: str = ""
     tier_tighten: bool = False
+    code: str = ""      # specific reason code; empty = generic SZ_INVENTORY
 
 
 class InventoryManager:
@@ -53,6 +60,7 @@ class InventoryManager:
         self.hard_cap_pct = float(cfg.get("hard_cap_pct_of_equity", 25.0))
         self.max_age_hours = float(cfg.get("stale_max_age_hours", 36.0))
         self.stale_loss_pct = float(cfg.get("stale_min_loss_pct", 0.5))
+        self.max_same_side = int(cfg.get("max_same_side_positions_per_asset", 2))
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -81,6 +89,17 @@ class InventoryManager:
     # ------------------------------------------------------------------
     def can_add(self, state, asset: str, direction: str, order_usd: float,
                 equity: float, marks: dict) -> AddDecision:
+        n_same = sum(1 for pos in state.open_positions()
+                     if self._asset_of(pos.symbol) == asset
+                     and pos.direction == direction
+                     and not getattr(pos, "is_hedge", False))
+        if n_same >= self.max_same_side:
+            return AddDecision(False, 0.0,
+                               f"{n_same} open {direction} in {asset} at "
+                               f"per-asset cap {self.max_same_side} "
+                               f"(variety rule)",
+                               code=Code.SZ_ASSET_CROWDED)
+
         inv = self.inventory_usd(state, asset, marks)
         soft = equity * self.soft_cap_pct / 100.0
         hard = equity * self.hard_cap_pct / 100.0

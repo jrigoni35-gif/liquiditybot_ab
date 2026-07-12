@@ -307,6 +307,13 @@ class LiquidityBot:
         self.explore_p_win = min(max(float(_ex.get("p_win", 0.62)), 0.0), 0.95)
         self.explore_size_scale = min(max(float(_ex.get("size_scale", 0.25)),
                                           0.01), 1.0)
+        # variety: stop exploration-bumping an asset once it holds this
+        # share of the labeled history (the active pair otherwise hogs
+        # every learning slot and quiet pairs never accrue fill labels)
+        self.explore_max_asset_share = min(max(
+            float(_ex.get("max_asset_share", 0.5)), 0.0), 1.0)
+        self.explore_share_min_rows = int(_ex.get("share_min_rows", 10))
+        self._entry_rotation = 0            # round-robin offset, see _entry_assets
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
         self._stop_hit: dict = {}           # position_id -> bool
@@ -872,18 +879,47 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline
     # ------------------------------------------------------------------
-    def _exploration_active(self, now: float) -> bool:
+    def _exploration_active(self, now: float, asset: str = None) -> bool:
         """True only when it is safe and useful to take a paper exploration
         trade. HARD INVARIANT: dry_run only - exploration must never influence
         a live order. Off once enough training rows have accrued (the model
-        can then be trusted to gate on its own)."""
+        can then be trusted to gate on its own). When `asset` is given, an
+        asset already holding >= max_asset_share of the labeled history is
+        skipped (variety: the most active pair otherwise hogs every learning
+        slot and quiet pairs never accrue fill labels)."""
         if not self.dry_run:
             return False                        # never in live - hard-gated
         if not self.explore_enabled:
             return False
         if self.history.row_count() >= self.explore_until_rows:
             return False                        # enough data: trust the model
-        return self._explore_rng.random() < self.explore_epsilon
+        if self._explore_rng.random() >= self.explore_epsilon:
+            return False
+        if asset is not None and self.explore_max_asset_share < 1.0:
+            counts = self.history.asset_counts()
+            total = sum(counts.values())
+            if (total >= self.explore_share_min_rows
+                    and counts.get(asset, 0) / total
+                    >= self.explore_max_asset_share):
+                log.info("[%s] exploration skipped: asset holds %d/%d labeled "
+                         "rows (>= %.0f%% share cap) - leaving the learning "
+                         "slot for under-sampled assets", asset,
+                         counts.get(asset, 0), total,
+                         self.explore_max_asset_share * 100)
+                return False
+        return True
+
+    def _entry_assets(self) -> list:
+        """Per-cycle entry evaluation order, round-robin rotated. Fixed dict
+        order would hand the first asset permanent first claim on scarce
+        position slots (variety: under contention ETH would win every free
+        slot simply by being evaluated first)."""
+        items = [(a, v) for a, v in self.view.items() if a in self.symbol_map]
+        if not items:
+            return items
+        k = self._entry_rotation % len(items)
+        self._entry_rotation += 1
+        return items[k:] + items[:k]
 
     def _log_sizer_veto(self, asset: str, reasons: list, explored: bool):
         """Exploration entries surface their sizer veto at INFO: these are
@@ -1031,9 +1067,7 @@ class LiquidityBot:
                         f"venue truth - entries blocked until reconciled")
             return
 
-        for asset, v in self.view.items():
-            if asset not in self.symbol_map:
-                continue
+        for asset, v in self._entry_assets():
             symbol = self.symbol_map[asset]
             if not self._live_order_allowed("entry"):
                 break
@@ -1097,7 +1131,7 @@ class LiquidityBot:
             # logged FEATURES and the win/loss LABEL stay real (honest data).
             model_p, explore_scale = p_win, 1.0
             explored = False
-            if self._exploration_active(now):
+            if self._exploration_active(now, asset):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale

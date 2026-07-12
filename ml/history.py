@@ -95,6 +95,21 @@ class HistoryStore:
         with open(self.path, encoding="utf-8") as f:
             return max(sum(1 for _ in f) - 1, 0)
 
+    def asset_counts(self) -> dict:
+        """Labeled rows per asset (row layout: position_id, asset, ...).
+        Full-file scan, but callers only hit it on the rare exploration
+        rolls - same cost class as row_count."""
+        if not self.path.exists():
+            return {}
+        counts: dict = {}
+        with open(self.path, encoding="utf-8") as f:
+            next(f, None)                       # header
+            for line in f:
+                parts = line.split(",", 2)
+                if len(parts) >= 2 and parts[1]:
+                    counts[parts[1]] = counts.get(parts[1], 0) + 1
+        return counts
+
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4):
         """Returns X, y, w. Sample weights encode two honest priors:

@@ -314,7 +314,7 @@ class PositionSizer:
         add = inventory_mgr.can_add(state, asset, direction, usd, equity,
                                     marks)
         if not add.allowed:
-            d.reasons.append(tag(Code.SZ_INVENTORY, add.reason))
+            d.reasons.append(tag(add.code or Code.SZ_INVENTORY, add.reason))
             return d
         usd = min(usd, add.allowed_usd)
         if lev_decision is not None:

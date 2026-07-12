@@ -284,7 +284,8 @@
     "soft_cap_pct_of_equity": 15,
     "hard_cap_pct_of_equity": 25,
     "stale_max_age_hours": 36,
-    "stale_min_loss_pct": 0.5
+    "stale_min_loss_pct": 0.5,
+    "max_same_side_positions_per_asset": 2
   },
   "hedging": {
     "enabled": true,
@@ -347,7 +348,9 @@
       "epsilon": 0.25,
       "until_live_rows": 120,
       "p_win": 0.62,
-      "size_scale": 1.0
+      "size_scale": 1.0,
+      "max_asset_share": 0.5,
+      "share_min_rows": 10
     },
     "monitor": {
       "window_trades": 30,

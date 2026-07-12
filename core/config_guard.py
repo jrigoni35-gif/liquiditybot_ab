@@ -176,6 +176,24 @@ def validate(config: dict) -> list:
     if soft >= hardc:
         fatal(f"inventory soft cap ({soft}) must be below hard cap ({hardc})")
 
+    mss = int(_f(config, "inventory.max_same_side_positions_per_asset", 2))
+    if mss < 1:
+        fatal(f"inventory.max_same_side_positions_per_asset ({mss}) must be "
+              f">= 1 - at 0 every entry is vetoed as crowded")
+    n_pairs = len(_f(config, "exchanges.kraken.trading_pairs", []) or [])
+    if n_pairs and mss * 2 * n_pairs < max_conc:
+        warn(f"max_concurrent_positions ({max_conc}) can never be reached: "
+             f"{n_pairs} pairs x {mss} same-side cap x 2 directions = "
+             f"{mss * 2 * n_pairs} slots. Not dangerous, just unreachable.")
+
+    ex_share = float(_f(config, "ml.exploration.max_asset_share", 0.5))
+    if not (0.0 < ex_share <= 1.0):
+        fatal(f"ml.exploration.max_asset_share ({ex_share}) must be in "
+              f"(0, 1] - at 0 exploration never fires once any asset has a "
+              f"labeled row; 1 disables the share check")
+    if int(_f(config, "ml.exploration.share_min_rows", 10)) < 1:
+        fatal("ml.exploration.share_min_rows must be >= 1")
+
     max_pos = float(_f(config,
                        "capital_management.max_position_size_pct_of_capital", 10))
     if not (0 < max_pos <= 100):
