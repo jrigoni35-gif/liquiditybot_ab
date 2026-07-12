@@ -983,7 +983,8 @@ def test_moomoo_feed():
 
 
 def test_runtime_and_runner():
-    import shutil, os
+    import shutil
+    import os
     from core.runtime import (ControlChannel, StatusWriter, JsonlLogHandler,
                               tail_events, ARM_PHRASE)
     from runner import BotRunner

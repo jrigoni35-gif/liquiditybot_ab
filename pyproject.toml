@@ -1,5 +1,13 @@
-# Tooling config. Kept minimal on purpose: no [tool.ruff] section, so ruff
-# continues to run on its defaults exactly as before this file existed.
+# Tooling config. Kept minimal on purpose.
+
+[tool.ruff.lint.per-file-ignores]
+# scripts/smoke_test.py is a dense offline test harness (200+ checks) that
+# uses intentional compact one-liners - `ch.send("pause"); ch.send(...)`,
+# `mm.maybe_poll(t); t += 1` - and a couple of deliberately-local imports.
+# It is already OUTSIDE the Definition-of-Done ruff scope; this stops the
+# editor's on-save linter from flagging that harness style as errors while
+# every shipped engine/library path stays on ruff defaults, unignored.
+"scripts/smoke_test.py" = ["E702", "E401", "E402"]
 
 [tool.bandit]
 # B101 (assert_used) is skipped repo-wide. Every assert in the tree is either a
