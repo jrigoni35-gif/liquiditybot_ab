@@ -13,6 +13,7 @@ data/kraken_feed.py next to the withdrawal deny-list.
 """
 
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -27,12 +28,23 @@ class ThrottledRestClient:
         self._min_interval = 1.0 / max(rate_limit_per_sec, 1)
         self._last_call = 0.0
         self.session = requests.Session()
+        # The Kraken client is SHARED between the market-data cycle and the
+        # order path, and a websocket REST-fallback can call it off the main
+        # thread. Without this lock, concurrent callers each read a stale
+        # _last_call, all pass the interval check, and fire together - a
+        # burst that blows the venue rate limit (a ban risk on the execution
+        # venue). The lock spaces every caller by min_interval, globally.
+        self._throttle_lock = threading.Lock()
 
     def _throttle(self):
-        elapsed = time.time() - self._last_call
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
-        self._last_call = time.time()
+        # Held across the sleep on purpose: waiting threads queue here, which
+        # IS the rate limiter serializing them. The network GET runs AFTER
+        # this returns (lock released), so requests still overlap on the wire.
+        with self._throttle_lock:
+            elapsed = time.time() - self._last_call
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_call = time.time()
 
     def _get_raw(self, url: str, params: Optional[dict],
                  log: logging.Logger, venue: str, timeout: float = 10):

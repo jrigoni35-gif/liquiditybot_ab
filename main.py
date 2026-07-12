@@ -696,6 +696,13 @@ class LiquidityBot:
         pair_of = {a: self.kraken.kraken_pair(s)
                    for a, s in self.symbol_map.items()}
         marks = self.kraken.get_tickers(list(pair_of.values()))
+        # Books stay a SERIAL loop: measured live, parallelizing the 6 fetches
+        # saved ~0ms (serial 2004ms vs parallel 2014ms) because the Kraken 3/s
+        # rate limit is the binding constraint - concurrency can't beat a wall
+        # you're rate-limited against. Under a rate limit only cutting call
+        # COUNT helps (see the batched ticker above); the push-based websocket
+        # feed is what actually removes these calls. Not worth threads on the
+        # stop-feeding hot path for no gain.
         for asset, symbol in self.symbol_map.items():
             pair = pair_of[asset]
             px = marks.get(pair)
