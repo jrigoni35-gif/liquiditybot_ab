@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from core.codes import Code
 from ml.features import FEATURE_NAMES
 from ml.labeling import triple_barrier
 
@@ -72,6 +73,19 @@ class HistoryStore:
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float, source: str):
         self._ensure_schema()
+        # width invariant: a row must have exactly as many fields as the
+        # header. The header check above only guards the FILE's schema -
+        # a stale feature vector (e.g. a candidate persisted before a
+        # FEATURE_NAMES bump and restored after) would silently write a
+        # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
+        # 36-feature candidates labeled under the 43-feature header.
+        if 3 + len(feats) + 4 != len(self._header):
+            log.warning(
+                f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
+                f"{position_id[:12]} ({asset}): {len(feats)} features vs "
+                f"schema {len(self._header) - 7} - stale pre-rotation "
+                f"vector, row would misalign under the current header")
+            return
         with open(self.path, "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([position_id, asset, direction,
                                     *[f"{v:.6f}" for v in feats],
@@ -352,8 +366,19 @@ class CandidateLabeler:
         self._bars = {a: {k: list(v) for k, v in bb.items()}
                     for a, bb in d.get("bars", {}).items()}
         self._seq = int(d.get("seq", 0))
-        self._cands = [{**c, "features": np.array(c["features"], float)}
-                    for c in d.get("cands", [])]
+        cands = [{**c, "features": np.array(c["features"], float)}
+                 for c in d.get("cands", [])]
+        # a candidate persisted before a FEATURE_NAMES bump is unlabelable
+        # after it: its vector can't be mapped onto the new schema, and
+        # labeling it would write a misaligned short row (see _append_row)
+        want = len(FEATURE_NAMES)
+        stale = sum(1 for c in cands if len(c["features"]) != want)
+        if stale:
+            log.warning(f"{Code.ML_SCHEMA_MISMATCH.value}: dropped {stale} "
+                        f"restored "
+                        f"candidate(s) with pre-rotation feature width "
+                        f"(current schema: {want} features)")
+        self._cands = [c for c in cands if len(c["features"]) == want]
         self._last_reg = {}
         for key, t in (d.get("last_reg") or {}).items():
             a, _, direc = key.partition("|")

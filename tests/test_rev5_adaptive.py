@@ -132,7 +132,9 @@ def test_labeler_fires_on_label_with_gates(tmp_path):
     lab = CandidateLabeler(store, {"label_max_bars": 4},
                            on_label=lambda g, y: seen.append((g, y)))
     lab.update_candles("T", _candles(2))
-    lab.register("T", "long", np.zeros(36), 0.01, 1000 + 300,
+    # current schema width: restore/append guards (ML-013) drop stale widths
+    from ml.features import FEATURE_NAMES
+    lab.register("T", "long", np.zeros(len(FEATURE_NAMES)), 0.01, 1000 + 300,
                  gates_passed={"g1": True, "g2": False})
     lab.update_candles("T", _candles(10))
     written = lab.poll()
@@ -146,7 +148,8 @@ def test_labeler_gates_survive_persistence(tmp_path):
     store = HistoryStore(str(tmp_path / "hist.csv"))
     lab = CandidateLabeler(store, {"label_max_bars": 90})
     lab.update_candles("T", _candles(2))
-    lab.register("T", "long", np.zeros(36), 0.01, 1300,
+    from ml.features import FEATURE_NAMES
+    lab.register("T", "long", np.zeros(len(FEATURE_NAMES)), 0.01, 1300,
                  gates_passed={"gx": True})
     lab2 = CandidateLabeler(store, {"label_max_bars": 90})
     lab2.restore(lab.to_dict())

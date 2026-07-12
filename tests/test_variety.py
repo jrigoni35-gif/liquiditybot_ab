@@ -121,9 +121,9 @@ def _explore_bot(counts, share=0.5, min_rows=10):
     b.explore_max_asset_share = share
     b.explore_share_min_rows = min_rows
     b._explore_rng = __import__("random").Random(1)
-    b.history = types.SimpleNamespace(
+    setattr(b, "history", types.SimpleNamespace(
         row_count=lambda: sum(counts.values()),
-        asset_counts=lambda: dict(counts))
+        asset_counts=lambda: dict(counts)))
     return b
 
 

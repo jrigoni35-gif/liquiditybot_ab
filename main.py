@@ -879,7 +879,8 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline
     # ------------------------------------------------------------------
-    def _exploration_active(self, now: float, asset: str = None) -> bool:
+    def _exploration_active(self, now: float,
+                            asset: Optional[str] = None) -> bool:
         """True only when it is safe and useful to take a paper exploration
         trade. HARD INVARIANT: dry_run only - exploration must never influence
         a live order. Off once enough training rows have accrued (the model

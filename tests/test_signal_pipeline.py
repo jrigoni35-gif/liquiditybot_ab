@@ -100,7 +100,10 @@ def test_new_bar_or_direction_registers_again(tmp_path):
 
 def test_dedup_state_survives_snapshot_roundtrip(tmp_path):
     lab = _labeler(tmp_path)
-    feats = np.zeros(4)
+    # restore's ML-013 width filter drops non-schema candidates, so the
+    # roundtrip must carry a current-width vector to survive it
+    from ml.features import FEATURE_NAMES
+    feats = np.zeros(len(FEATURE_NAMES))
     lab.register("ETH", "long", feats, 0.004, bar_time=100)
     lab2 = _labeler(tmp_path)
     lab2.restore(lab.to_dict())
