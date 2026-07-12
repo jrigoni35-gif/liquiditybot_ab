@@ -14,6 +14,11 @@ log = logging.getLogger("liquiditybot.risk.capital_manager")
 
 class CapitalManager:
     def __init__(self, config: dict):
+        # Accepts the full config or the bare capital_management section.
+        # main.py historically passed the full config, so every .get()
+        # below fell through to its default and config.json's section was
+        # silently ignored (harmless only while the values matched).
+        config = config.get("capital_management", config)
         self.savings_pct = config.get("savings_pct_of_profit", 20)
         self.reinvestment_pct = config.get("reinvestment_pct_of_profit", 80)
         self.max_position_size_pct = config.get("max_position_size_pct_of_capital", 10)

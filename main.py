@@ -186,7 +186,7 @@ class LiquidityBot:
             self.gates = SignalGateEngine(config)
         log.info(f"signal engine: {engine_kind}")
         self.tactics = ExecutionPlanner(config.get("execution_tactics", {}))
-        self.capital = CapitalManager(config)
+        self.capital = CapitalManager(config.get("capital_management", {}))
         self.tiers_base = config.get("profit_taking", {})
         self._tier_engines = {}
         self.last_signals: dict = {}     # asset -> last evaluation snapshot (UI)

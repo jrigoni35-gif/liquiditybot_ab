@@ -165,6 +165,12 @@ def validate(config: dict) -> list:
               f"hard_stop_drawdown_pct ({hard}) - the daily brake must "
               f"engage before the parachute")
 
+    max_conc = int(_f(config, "capital_management.max_concurrent_positions", 3))
+    if max_conc < 1:
+        fatal(f"capital_management.max_concurrent_positions ({max_conc}) "
+              f"must be >= 1 - at 0 can_open_new_position vetoes every "
+              f"entry and the bot idles silently")
+
     soft = float(_f(config, "inventory.soft_cap_pct_of_equity", 15))
     hardc = float(_f(config, "inventory.hard_cap_pct_of_equity", 25))
     if soft >= hardc:
