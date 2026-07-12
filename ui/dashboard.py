@@ -34,6 +34,15 @@ EQUITY = OUT / "equity.csv"
 PM_SUMMARY = OUT / "postmortem_summary.csv"
 AUDIT = OUT / "audit.jsonl"
 
+# Runner-staleness banner threshold. The engine refreshes the lock
+# heartbeat BEFORE each cycle but writes status.json AFTER it, so a slow
+# cycle briefly ages the status file while the runner is perfectly healthy.
+# With 6 pairs a normal cycle runs ~7s and a single feed can take its full
+# 10s timeout, so a legitimate cycle can approach ~18s. 30s still catches a
+# genuinely hung or dead runner without false-alarming on a slow cycle
+# (the old hardcoded 10s was calibrated for the 2-pair bot's ~3s cycles).
+STALE_THRESHOLD_SEC = 30
+
 st.set_page_config(page_title="liquiditybot", page_icon="💧", layout="wide",
                    initial_sidebar_state="expanded")
 control = ControlChannel(str(OUT / "control"))
@@ -110,7 +119,7 @@ def sidebar_live_strip():
     track the runner without requiring a click."""
     s = load_status() or {}
     stale = stale_seconds(s)
-    if stale > 10:
+    if stale > STALE_THRESHOLD_SEC:
         st.error(f"runner stale ({min(stale, 9999):.0f}s) — is it running?")
     else:
         st.success(f"runner OK ({stale:.1f}s ago)")
