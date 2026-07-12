@@ -108,8 +108,12 @@ def build_report(outputs="outputs"):
                 rets = sh[a][h]
                 win = sum(1 for x in rets if x > 0) / len(rets)
                 mean = sum(rets) / len(rets)
+                # net_ret_pct is ALREADY in percent units (HorizonShadowStore
+                # writes triple_barrier ret_pct); format as a plain number
+                # with a literal % - a .2% format would multiply by 100 and
+                # report -1.1% as a nonsensical -112%.
                 parts.append(f"h{h}: n={len(rets)} win={win:.0%} "
-                             f"mean_ret={mean:+.2%}")
+                             f"mean_ret={mean:+.2f}%")
             lines.append("  horizon evidence: " + " | ".join(parts))
         else:
             lines.append("  horizon evidence: none yet (writes when a "
