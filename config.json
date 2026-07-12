@@ -264,7 +264,7 @@
     "max_spread_bps": 15,
     "max_data_staleness_ms": 4000,
     "max_participation_of_depth": 0.15,
-    "min_order_usd": 25,
+    "min_order_usd": 15,
     "adverse_selection_kappa": 0.35,
     "maker_fill_p0": 0.45,
     "p_fill_floor": 0.05,
@@ -292,7 +292,7 @@
     "max_net_delta_pct_of_equity": 20,
     "rebalance_band_pct": 8,
     "min_hedge_correlation": 0.55,
-    "min_hedge_usd": 50,
+    "min_hedge_usd": 15,
     "beta_floor": 0.1,
     "max_equity_frac": 0.5
   },
@@ -310,7 +310,7 @@
     "kelly_cap": 0.12,
     "min_p_win": 0.55,
     "max_position_size_pct_of_capital": 10,
-    "min_ticket_usd": 25,
+    "min_ticket_usd": 15,
     "entry_cooldown_min": 20,
     "dd_throttle_power": 1.5,
     "dd_throttle_floor": 0.15,
@@ -343,7 +343,7 @@
       "shadow_path": "outputs/horizon_shadow.csv"
     },
     "exploration": {
-      "_doc": "DRY-RUN active learning: take a fraction of confirmed signals as small paper trades so real-fill labels accrue and the cold model can improve. Hard-gated on dry_run; auto-off once until_live_rows history rows exist.",
+      "_doc": "DRY-RUN active learning: take a fraction of confirmed signals as small paper trades so real-fill labels accrue and the cold model can improve. Hard-gated on dry_run; auto-off once until_live_rows history rows exist. SCALE NOTE: on ledgers under ~$5k set size_scale=1.0 - a 0.25 slice of a small kelly ticket falls below min_ticket_usd and every exploration entry gets vetoed (observed at $25k/scale-0.25).",
       "enabled": true,
       "epsilon": 0.5,
       "until_live_rows": 240,
