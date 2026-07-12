@@ -506,11 +506,27 @@ def validate(config: dict) -> list:
               f"anti-overfit teeth (OF-2 discipline); mining unsignificant "
               f"seasonality is exactly the lazy-bot sin this model hunts")
     for knob in ("grid.gain", "metronome.gain", "clockwork.gain",
-                 "stops.pre_gain", "stops.post_gain"):
+                 "stops.pre_gain", "stops.post_gain",
+                 "feed_integrity.gain"):
         gv = float(_f(config, f"thales.{knob}", 0.0))
         if gv < 0.0:
             fatal(f"thales.{knob}={gv} negative - inverted advice; flip "
                   f"the detector's exploit thesis in code, not via sign")
+    # TH-014 feed_integrity bounds: a threshold outside [0,1] or a min_obs
+    # not inside [1, window] makes the detector either never fire or fire on
+    # noise. Fail loud rather than shade on a nonsense config.
+    fi_thr = float(_f(config, "thales.feed_integrity.dirty_frac_thr", 0.25))
+    if not (0.0 <= fi_thr <= 1.0):
+        fatal(f"thales.feed_integrity.dirty_frac_thr={fi_thr} must be a "
+              f"fraction in [0, 1] - it gates on a rejected-data RATE")
+    fi_win = int(_f(config, "thales.feed_integrity.window", 40))
+    fi_min = int(_f(config, "thales.feed_integrity.min_obs", 20))
+    if fi_win < 1:
+        fatal(f"thales.feed_integrity.window={fi_win} must be >= 1")
+    if not (1 <= fi_min <= fi_win):
+        fatal(f"thales.feed_integrity.min_obs={fi_min} must be in "
+              f"[1, window={fi_win}] - beyond the window the detector can "
+              f"never accumulate enough samples to ever judge")
 
     # --- Smart Money Concepts features (docs/SMC.md) ----------------------
     smc_enabled = bool(_f(config, "smc.enabled", True))

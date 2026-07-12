@@ -266,6 +266,20 @@ def test_guard_rejects_unclamped_shade_and_disarmed_significance():
         {"thales": {"enabled": True, "clockwork": {"z_thr": 0.5}}}))
 
 
+def test_guard_rejects_nonsense_feed_integrity():
+    # TH-014 knobs: threshold out of [0,1], min_obs beyond the window,
+    # and a negative gain must each be FATAL, not silently misbehave.
+    assert any("dirty_frac_thr" in m for m in _fatals(
+        {"thales": {"enabled": True,
+                    "feed_integrity": {"dirty_frac_thr": 1.5}}}))
+    assert any("min_obs" in m for m in _fatals(
+        {"thales": {"enabled": True,
+                    "feed_integrity": {"window": 10, "min_obs": 99}}}))
+    assert any("feed_integrity.gain" in m for m in _fatals(
+        {"thales": {"enabled": True,
+                    "feed_integrity": {"gain": -0.2}}}))
+
+
 # ---------------------------------------------------------------------
 # dashboard panel row-builder (pure; the streamlit calls stay untested)
 # ---------------------------------------------------------------------
