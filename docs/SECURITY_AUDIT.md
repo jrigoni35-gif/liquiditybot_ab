@@ -25,6 +25,7 @@ The surfaces that matter:
 ## Findings & fixes
 
 ### HIGH — non-finite number injection (FIXED)
+
 Python's `json` module accepts `NaN`, `Infinity`, `-Infinity` by
 default. A single `NaN` poisons every downstream comparison (all
 comparisons return False, corrupting regime/risk logic); `Infinity`
@@ -39,6 +40,7 @@ numeric parsing now routes through it. Verified: poisoned webdata falls
 back to 50.0 / 0.0, never NaN/Inf.
 
 ### HIGH — poisoned order books / candles reaching execution (FIXED)
+
 A malicious or corrupt order book with a `NaN`, negative, or `Infinity`
 price would flow straight into fair value, the Avellaneda-Stoikov
 quoter, and stop-loss math.
@@ -49,6 +51,7 @@ across all three exchange feeds (OKX, Binance.US, Kraken) including the
 execution-critical `get_ticker_price` and `get_order_book`.
 
 ### MEDIUM — XML entity-expansion DoS (FIXED)
+
 RSS feeds were parsed with stdlib `ElementTree`, vulnerable to the
 "billion laughs" entity-expansion attack from a hostile feed.
 **Fix:** parsing now uses `defusedxml` (pinned as a hard requirement),
@@ -58,16 +61,19 @@ Verified: an entity bomb is rejected at parse time
 broken install and is annotated `# nosec`.
 
 ### LOW — response-size exhaustion (FIXED)
+
 No bound on response body size before parsing.
 **Fix:** 5 MB cap on all JSON/XML/text responses (`loads_bounded`,
 `safe_rss_root`, `cap_text`) before parsing.
 
 ### LOW — assert in a hot path (FIXED)
+
 `ml/features.py` used `assert` to check feature-vector length; asserts
 are stripped under `python -O`, silently disabling the check.
 **Fix:** replaced with an explicit `raise ValueError`.
 
 ### LOW — bare `try/except/pass` (FIXED)
+
 Three swallow-everything blocks (moomoo cleanup, runner shutdown) could
 hide errors.
 **Fix:** all now log at debug; the two genuinely best-effort

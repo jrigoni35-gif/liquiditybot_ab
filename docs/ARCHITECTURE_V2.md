@@ -7,7 +7,7 @@ engine, 4-tier profit taking, and capital manager.
 
 ## Pipeline
 
-```
+```text
                     ┌────────────── HOURLY ──────────────┐
  OKX/BinanceUS/Kraken → daily candles → MacroRegimeEngine (HMM + TSMOM + drawdown/vol)
                                   → CorrelationEngine.turbulence (Kritzman–Li)
@@ -36,7 +36,7 @@ engine, 4-tier profit taking, and capital manager.
 ## Model pedigree
 
 | Component | Source model |
-|---|---|
+| --- | --- |
 | Macro regimes | Hamilton (1989) Markov regime switching — Gaussian HMM, Baum-Welch, pure numpy |
 | Trend vote | Time-series momentum, Moskowitz–Ooi–Pedersen (2012), 1/3/6-month lookbacks |
 | Vol targeting | Moreira–Muir (2017) volatility-managed sizing; leverage = target_vol/realized |

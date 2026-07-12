@@ -16,7 +16,7 @@ repo's own pre-audit history is the design template** — we shipped
 every one of these sins ourselves before the audits caught them:
 
 | Our past sin (fixed) | The market-wide archetype it exemplifies |
-|---|---|
+| --- | --- |
 | Imbalance unit-mixing (OKX swap + Binance spot concat, 22–112×) | bots that never sanity-check feature units |
 | Whiplash 0.55 silent veto (size_mult=0, no log) | bots with dead code paths silently steering size |
 | Untuned config defaults running in prod (rollback gate on defaults) | bots trading vendor defaults verbatim |
@@ -30,6 +30,7 @@ those footprints plus a bounded advice channel to profit from them.
 ## Insecurity catalogue (v1: four detectors)
 
 ### TH-010 `grid_ladder` — the Procrustes insecurity
+
 **Archetype:** grid bots (Pionex/3Commas/Bitsgap/Crypto.com style) place
 ladders of buy/sell limits at *fixed, evenly spaced* price levels and
 mechanically re-arm each rung.
@@ -47,6 +48,7 @@ persistence gate helps but cannot fully separate; hence bounded shading
 only, never a standalone trigger.
 
 ### TH-011 `metronome_mm` — the Metronome insecurity
+
 **Archetype:** Hummingbot pure-market-making defaults: quotes refreshed
 every `order_refresh_time` seconds with `order_refresh_tolerance_pct=0`
 (cancel/replace on a clock even when nothing moved), `max_order_age`
@@ -65,6 +67,7 @@ within clamps.
 the autocorrelation peak to clear a noise floor.
 
 ### TH-012 `clockwork_flow` — the Sisyphus insecurity
+
 **Archetype:** DCA bots and naive TWAP slicers execute at fixed
 timestamps (top of hour/day), documented intraday algo seasonality in
 crypto (arXiv 2009.04200).
@@ -79,6 +82,7 @@ before a favorable window get patience.
 built-in shuffle-null and the warmup gate are mandatory, not optional.
 
 ### TH-013 `stop_herding` — the Lemming insecurity
+
 **Archetype:** stops cluster at round numbers (~10% of FX orders end in
 "00" — Osler's classic result, reproduced across retail crypto) and at
 obvious swing highs/lows; sweep-and-revert is the documented signature
@@ -98,6 +102,7 @@ window.
 close-back-inside confirmation and decay window bound the damage.
 
 ### TH-014 `feed_integrity` — the hostile-venue insecurity
+
 **Archetype:** the *data itself* is the attack surface. A venue (or an
 adversary in front of one) can screw a bot through the values it returns:
 unsorted books that hide the true touch, crossed/garbage books, physically
@@ -154,17 +159,17 @@ forced into a market-behaviour model.
 
 - Aristotle, *Politics* I.11 (Thales and the olive presses)
 - Hummingbot pure-MM docs: order refresh mechanics and defaults —
-  https://hummingbot.org/strategies/v1-strategies/pure-market-making/
-- Grid bot mechanics: https://www.coinbase.com/learn/advanced-trading/what-is-a-grid-trading-bot-and-how-does-it-work ,
-  https://bitsgap.com/crypto-trading-bot/grid-bot
+  <https://hummingbot.org/strategies/v1-strategies/pure-market-making/>
+- Grid bot mechanics: <https://www.coinbase.com/learn/advanced-trading/what-is-a-grid-trading-bot-and-how-does-it-work> ,
+  <https://bitsgap.com/crypto-trading-bot/grid-bot>
 - Stale-quote sniping / adverse selection: Aquilina, Budish, O'Neill
   "Quantifying the High-Frequency Trading Arms Race"; crypto framing —
-  https://multicoin.capital/2026/02/17/adverse-selection-rules-everything-around-me/
+  <https://multicoin.capital/2026/02/17/adverse-selection-rules-everything-around-me/>
 - Round-number stop clustering: C. Osler, "Currency Orders and Exchange
   Rate Dynamics" (JF 2003); practitioner reproduction —
-  https://www.tradingview.com/chart/GOLD/R0q3tkr1-Stop-Loss-Basics-Why-Round-Numbers-Get-Your-Stop-Hunted/
+  <https://www.tradingview.com/chart/GOLD/R0q3tkr1-Stop-Loss-Basics-Why-Round-Numbers-Get-Your-Stop-Hunted/>
 - Liquidation cascades / sweep-revert:
-  https://www.bit.com/insights/knowledge-hub/cascade-liquidation ,
-  https://chartinglens.com/blog/liquidity-sweeps-trading-guide
+  <https://www.bit.com/insights/knowledge-hub/cascade-liquidation> ,
+  <https://chartinglens.com/blog/liquidity-sweeps-trading-guide>
 - Intraday algo seasonality in crypto: arXiv 2009.04200 "Rise of the
   Machines? Intraday High-Frequency Trading Patterns of Cryptocurrencies"

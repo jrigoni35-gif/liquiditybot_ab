@@ -15,10 +15,12 @@ narrative filter that cannot trigger trades. Full design: `docs/ARCHITECTURE_V2.
 Three separate processes, connected only through files in `outputs/`
 (all writes atomic). The UI can never block or crash the trading loop.
 
-    main.py         engine     loop-free; exposes cycle_once()
-    runner.py       runner     the ONLY loop; consumes control commands,
-                               writes status.json + equity.csv each cycle
-     dashboard  Streamlit; reads files, drops commands
+```text
+main.py         engine     loop-free; exposes cycle_once()
+runner.py       runner     the ONLY loop; consumes control commands,
+                           writes status.json + equity.csv each cycle
+dashboard       Streamlit  reads files, drops commands
+```
 
 ## Quickstart — two commands
 
@@ -76,6 +78,7 @@ sim_force_regime {asset,label,cycles} · sim_clear (sim_* dry-run only).
 ## Live-money safety model
 
 Layered, each independent:
+
 1. `system.dry_run: true` (default) — everything simulated.
 2. In live config, ALL new orders are blocked until the operator arms
    from the dashboard by typing exactly `ARM LIVE`. Disarm is one
@@ -89,7 +92,7 @@ Layered, each independent:
 ## Outputs (standardized)
 
 | file | what |
-|---|---|
+| --- | --- |
 | outputs/status.json | full UI state, rewritten every cycle (atomic) |
 | outputs/equity.csv | equity curve, one row / 15s |
 | outputs/events.jsonl | every log record, structured `{ts,level,logger,msg}` |
@@ -167,7 +170,7 @@ aren't in the frames).
 ## Security
 
 Audited with bandit + pip-audit + manual threat-model review:
-**0 static-analysis issues, 0 known dependency CVEs; suites: 136 pytest + 205 smoke + 47 assurance checks.**
+**0 static-analysis issues, 0 known dependency CVEs; suites: 345 pytest + 205 smoke + 47 assurance checks.**
 The attack surface is untrusted inbound *data* (no listening sockets).
 All external feed data — exchange books/candles and web/RSS/JSON — is
 sanitized at the boundary: non-finite numbers (NaN/Inf) rejected,
@@ -191,25 +194,25 @@ python scripts/smoke_test.py        # 205 checks, no network needed
 
 **Required — the engine will not start without these** (all in `requirements.txt`):
 
-- **Python 3.11+** — the codebase uses modern typing (`X | None`) and stdlib features. Tested on 3.14.
-- **requests** (`>=2.31.0`) — HTTP client for public market data and REST calls.
-- **numpy** (`>=1.26`) — every quant path: signals, position sizing, the ML models, and the HMM macro-regime detector.
-- **defusedxml** (`>=0.7`) — hardened XML/RSS parsing for untrusted sentiment feeds (blocks entity-expansion attacks).
+* **Python 3.11+** — the codebase uses modern typing (`X | None`) and stdlib features. Tested on 3.14.
+* **requests** (`>=2.31.0`) — HTTP client for public market data and REST calls.
+* **numpy** (`>=1.26`) — every quant path: signals, position sizing, the ML models, and the HMM macro-regime detector.
+* **defusedxml** (`>=0.7`) — hardened XML/RSS parsing for untrusted sentiment feeds (blocks entity-expansion attacks).
 
 **Operator dashboard — optional, but listed in `requirements.txt`:**
 
-- **streamlit** (`>=1.46`) — powers `ui/dashboard.py`. The trading engine runs fully headless without it; install only if you want the live operator view.
+* **streamlit** (`>=1.46`) — powers `ui/dashboard.py`. The trading engine runs fully headless without it; install only if you want the live operator view.
 
 **Optional feature dependencies — the bot degrades gracefully (one warning, keeps running) if any are absent:**
 
-- **ccxt** — multi-exchange crypto data feeds (`data/ccxt_feed.py`). Install with `pip install ccxt`. Absent → that feed disables itself.
-- **moomoo-api** — read-only equities/macro context via a local moomoo OpenD gateway (`data/moomoo_feed.py`). Install with `pip install moomoo-api`.
-- **grpcio** + **grpcio-tools** — optional gRPC control surface (`api/grpc_server.py`). The REST surface works without them. Install with `pip install grpcio grpcio-tools`, then generate the stubs (see below).
-- **torch** — only if you later slot in PyTorch sequence models; the default models are pure-numpy and need nothing extra.
+* **ccxt** — multi-exchange crypto data feeds (`data/ccxt_feed.py`). Install with `pip install ccxt`. Absent → that feed disables itself.
+* **moomoo-api** — read-only equities/macro context via a local moomoo OpenD gateway (`data/moomoo_feed.py`). Install with `pip install moomoo-api`.
+* **grpcio** + **grpcio-tools** — optional gRPC control surface (`api/grpc_server.py`). The REST surface works without them. Install with `pip install grpcio grpcio-tools`, then generate the stubs (see below).
+* **torch** — only if you later slot in PyTorch sequence models; the default models are pure-numpy and need nothing extra.
 
 **Development / testing:**
 
-- **pytest** — runs the suite in `tests/`. Install with `pip install pytest`, then `pytest -q`.
+* **pytest** — runs the suite in `tests/`. Install with `pip install pytest`, then `pytest -q`.
 
 One-liner for all optional extras:
 
@@ -232,10 +235,11 @@ python -m grpc_tools.protoc -I api --python_out=api --grpc_python_out=api api/li
 If Python aborts at startup with `Fatal Python error: preconfig_init_utf8_mode: invalid PYTHONUTF8`, the `PYTHONUTF8` environment variable is set to something other than `0` or `1`. Set `PYTHONUTF8=1` (or clear it). The provided `.vscode/settings.json` already sets it correctly for the integrated terminal.
 
 Edit `config.json`:
-- `exchanges.kraken.api_key/api_secret` — trade + query permissions only
+
+* `exchanges.kraken.api_key/api_secret` — trade + query permissions only
   (no withdrawal). OKX/Binance.US stay keyless.
-- `pretrade.maker_fee_bps / taker_fee_bps` — set to your actual Kraken tier.
-- `capital_management.starting_capital_usd`.
+* `pretrade.maker_fee_bps / taker_fee_bps` — set to your actual Kraken tier.
+* `capital_management.starting_capital_usd`.
 
 Run:
 
@@ -272,16 +276,16 @@ never load into a live session (and vice versa).
 
 ## Safety properties
 
-- Entries are post-only limits priced by the AS quoter; exits are
+* Entries are post-only limits priced by the AS quoter; exits are
   slippage-capped marketable limits that bypass the edge gate (risk
   reduction is never blocked).
-- Hard stops are vol- and regime-scaled and enforced every 5s cycle.
-- Inventory: soft cap blocks same-side adds, hard cap forces reduction,
+* Hard stops are vol- and regime-scaled and enforced every 5s cycle.
+* Inventory: soft cap blocks same-side adds, hard cap forces reduction,
   stale losers with the regime against them are purged.
-- Crisis regime (vol/turbulence spike) blocks all new entries immediately.
-- Spoofy liquidity regime blocks new risk; detection is defensive only.
-- Fear narratives without structural confirmation are ignored by design.
-- v1 hard-stop drawdown halt still rules everything: breach flattens the
+* Crisis regime (vol/turbulence spike) blocks all new entries immediately.
+* Spoofy liquidity regime blocks new risk; detection is defensive only.
+* Fear narratives without structural confirmation are ignored by design.
+* v1 hard-stop drawdown halt still rules everything: breach flattens the
   book and stops new risk.
 
 ## Institutional hardening (added)
@@ -290,36 +294,36 @@ Layered defenses against the "expect the unexpected" class of failure.
 Each row is a real-world failure mode caught somewhere in the stack;
 full catalog in `docs/HARDENING.md`.
 
-- **Config guard** — refuses live start on sub-floor fees, mismatched
+* **Config guard** — refuses live start on sub-floor fees, mismatched
   fee sections, unset live capital, misordered risk ladder, non-
   monotonic tiers. Warns on untradeable-by-construction sizing (e.g.
   $100 capital × 10% cap = $10 < $25 min ticket).
-- **Watchdog** — stale-data trip (30s warn / 120s critical + alert),
+* **Watchdog** — stale-data trip (30s warn / 120s critical + alert),
   cross-venue divergence trip (>150bps between Kraken and OKX/BinanceUS
   composite), PnL-velocity circuit breaker (-6% in 15min latches new
   entries off for 30min), single-tick quarantine (>8% jump holds stops
   one cycle for confirmation).
-- **Risk firewall** — independent last-line checks on EVERY submitted
+* **Risk firewall** — independent last-line checks on EVERY submitted
   order: price collar (100bps entries reject / 500bps exits clamp),
   notional caps ($25k absolute, 30% equity), per-minute rate limit,
   duplicate suppression. In the spirit of SEC 15c3-5.
-- **Dead-man's switch** — Kraken `CancelAllOrdersAfter(60s)` refreshed
+* **Dead-man's switch** — Kraken `CancelAllOrdersAfter(60s)` refreshed
   every fast cycle. Process death → resting orders die with it. Clean
   shutdown cancels every venue order and disarms the timer.
-- **Exit-escalation ladder** — an unfilled exit doubles its slippage
+* **Exit-escalation ladder** — an unfilled exit doubles its slippage
   cap on each retry (up to 3%); after three failed attempts it goes
   MARKET. In a gapping book, being out at a bad price beats being
   trapped at a good one.
-- **Venue precision** — per-pair `AssetPairs` metadata: BTC/USD orders
+* **Venue precision** — per-pair `AssetPairs` metadata: BTC/USD orders
   format to 1 decimal (previous hardcoded 2 → guaranteed venue reject).
   Below-`ordermin` orders skipped pre-flight. Market orders refused for
   entries as a hard invariant.
-- **Snapshot integrity** — SHA-256 checksum + `fsync` + `.json.bak`
+* **Snapshot integrity** — SHA-256 checksum + `fsync` + `.json.bak`
   generation. Corrupt primary falls back to backup automatically.
-- **Equity truth sync (live)** — hourly `TradeBalance` cross-check.
+* **Equity truth sync (live)** — hourly `TradeBalance` cross-check.
   Drift >2% between internal ledger and venue alerts and blocks new
   entries. The ledger is never silently corrected.
-- **Alert sink** — rate-limited webhook (Slack/Discord/Mattermost
+* **Alert sink** — rate-limited webhook (Slack/Discord/Mattermost
   compatible) for critical events. Disabled by default; set
   `alerts.enabled=true` and `alerts.webhook_url` to receive them.
 

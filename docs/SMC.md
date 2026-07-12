@@ -23,7 +23,7 @@ fail-safe contract as `strategies/thales.py`.
 ## The seven features
 
 | Feature | Range | Concept |
-|---|---|---|
+| --- | --- | --- |
 | `mtf_align` | [-1, 1] | Multi-timeframe context |
 | `pd_zone` | [0, 1] | Premium vs. discount zone |
 | `liq_pocket_pull` | [0, 1] | Liquidity pockets |
@@ -33,6 +33,7 @@ fail-safe contract as `strategies/thales.py`.
 | `va_pos` | [-1, 1] | Volume Profile: position vs. Value Area |
 
 ### `mtf_align` — multi-timeframe context
+
 EMA fast/slow cross computed independently on the LTF view candles
 (5m, `smc.mtf.ltf_fast_period`/`ltf_slow_period`) and on genuine HTF
 daily candles (`smc.mtf.htf_fast_period`/`htf_slow_period`) — **not**
@@ -44,6 +45,7 @@ history simply drops its vote rather than forcing a tie. `+1` = every
 available timeframe agrees with the trade, `-1` = every one disagrees.
 
 ### `pd_zone` — premium vs. discount
+
 Price's position inside the swing range (`swing_high_low` over
 `smc.pd_zone.lookback` bars, shared primitive — see below): `0` sits
 on the discount extreme (swing low), `1` on the premium extreme (swing
@@ -52,6 +54,7 @@ favor premium) via its interaction with the existing `direction`
 feature; this module does not hardcode that bias.
 
 ### `liq_pocket_pull` — liquidity pockets
+
 Magnetism toward the resting stop-loss/order cluster beyond the swing
 extreme, in the trade's own direction: for a long, the target is the
 swing high (buy-side liquidity resting above it); for a short, the
@@ -67,6 +70,7 @@ a target (shade the model's belief when price is being drawn toward
 one).
 
 ### `fvg_pull` + `fvg_liq_confluence` — Fair Value Gaps
+
 Classic 3-candle imbalance: bar `i-1`'s high/low doesn't overlap bar
 `i+1`'s low/high, leaving a gap most of bar `i`'s range covers. A gap
 is "unfilled" if no later bar's range has traded back into it since
@@ -81,6 +85,7 @@ higher-probability zone precisely because two independent SMC readings
 agree on it.
 
 ### `poc_dist` + `va_pos` — Volume Profile
+
 A lightweight volume histogram over `smc.volume_profile.lookback_bars`
 (`n_bins` price buckets, each bar's volume assigned to its typical
 price `(h+l+c)/3`). POC = highest-volume bin's midpoint. Value Area =

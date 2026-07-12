@@ -2,7 +2,7 @@
 
 ## Two commands (recommended)
 
-```
+```bat
 install.bat              # one-time: creates .venv, installs everything, verifies
 start.bat                # runs the bot AND opens the dashboard in your browser
 ```
@@ -12,7 +12,7 @@ offline verification matrix before you trust it with anything.
 
 ## Manual setup (equivalent)
 
-```
+```bat
 install.bat                              # creates .venv, installs requirements
 test_windows.bat                         # runs the verification checks (offline)
 python runner.py                         # starts the bot alone (dry_run=true by default)
@@ -63,7 +63,7 @@ included `.vscode/` folder configures:
 
 ## Verify a live session's audit chain
 
-```
+```bash
 python -c "from core.audit import get_audit; print(get_audit().verify())"
 ```
 

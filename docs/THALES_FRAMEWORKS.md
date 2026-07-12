@@ -11,6 +11,7 @@ times an order to trigger anyone else's stops (`strategies/thales.py`).
 ## Documented default footprints
 
 **Hummingbot Pure Market Making** (v1 PMM, the most-copied config):
+
 - `order_refresh_time` — the strategy cancels and replaces its resting
   orders every N seconds on a timer. Common template value **30s**. This
   is a *clock*, not event-driven flow: top-of-book gets replaced at a
@@ -22,6 +23,7 @@ times an order to trigger anyone else's stops (`strategies/thales.py`).
   even, size-uniform ladder on both sides.
 
 **freqtrade** (default/template strategy):
+
 - `minimal_roi` — a time-since-**entry** exit ladder, e.g.
   `{"40":0.0,"30":0.01,"20":0.02,"0":0.04}`: take profit at 4%, decaying
   to break-even by 40 minutes held.
@@ -38,7 +40,7 @@ strategy-configs); freqtrade stoploss & strategy-customization docs.
 ## Detector mapping and calibration check
 
 | Framework footprint | THALES detector | Calibrated to catch it? |
-|---|---|---|
+| --- | --- | --- |
 | Hummingbot `order_refresh_time` ~30s timer | **TH-011 metronome_mm** | **Yes.** Detector flags low coefficient-of-variation of top-of-book replacement intervals with a `min_interval_sec` floor of 8s — a 30s refresh sits comfortably above the floor and reads as near-zero CV (clock-quoting). |
 | Hummingbot `order_levels` even ladder | **TH-010 grid_ladder** | **Yes.** Detector scores even spacing + size uniformity + level persistence (Jaccard) of resting levels. |
 | freqtrade fixed `stoploss` clustering | **TH-013 stop_herding** | **Yes, and it is the one firing live** (see report below). Stops cluster at round numbers / swing extremes; detector scores proximity + sweep-and-revert. |

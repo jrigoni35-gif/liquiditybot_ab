@@ -15,7 +15,7 @@ rewriting sound code for its own sake adds risk, not assurance.
 ## The assurance spine (new)
 
 | module | provides |
-|---|---|
+| --- | --- |
 | core/codes.py | global append-only reason-code registry; every reject/clamp/fault/deploy carries one |
 | core/audit.py | hash-chained JSONL audit trail (outputs/audit.jsonl); tampering breaks the chain at the exact record; `verify()` replays it |
 | core/fault.py | latching fault manager; INIT/ARMED/DEGRADED/HALTED op-state machine; exits always allowed |
@@ -27,7 +27,7 @@ rewriting sound code for its own sake adds risk, not assurance.
 ## Requirement trace matrix
 
 | REQ | requirement | enforced by | codes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | FW-01/02 | every order input positively validated; unverifiable reference fails closed (entries) / safe (exits) | risk_firewall._validate | FW-01x, FW-060 |
 | FW-03..06 | rate limit, dupe suppression, price collar, notional ceilings on EVERY order | risk_firewall._check | FW-020..051 |
 | FW-07/08 | firewall never raises at runtime; power-on self-test refuses to arm on failure | check() wrapper, self_test() | FW-09x |
@@ -92,12 +92,14 @@ zero paper hours — run it in dry_run before trusting it with size.
 
 ## Verification procedure
 
-    python scripts/assurance_check.py    # 36 invariant checks, offline
-    python scripts/smoke_test.py         # 188 end-to-end checks, offline
-    python -m bandit -r . -x ./scripts/smoke_test.py   # 0 issues
-    python - <<'EOF'                     # audit chain integrity
-    from core.audit import get_audit; print(get_audit().verify())
-    EOF
+```bash
+python scripts/assurance_check.py    # 47 invariant checks, offline
+python scripts/smoke_test.py         # 205 end-to-end checks, offline
+python -m bandit -c pyproject.toml -r . -x ./.venv,./tests   # 0 issues
+python - <<'EOF'                     # audit chain integrity
+from core.audit import get_audit; print(get_audit().verify())
+EOF
+```
 
 ## Operations doctrine
 
