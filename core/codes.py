@@ -130,6 +130,7 @@ class Code(str, Enum):
     TH_METRONOME_MM = "TH-011"       # clock-driven market-maker cadence
     TH_CLOCKWORK_FLOW = "TH-012"     # recurring scheduled flow window (null-tested)
     TH_STOP_SWEEP = "TH-013"         # stop-cluster sweep-and-revert event
+    TH_FEED_INTEGRITY = "TH-014"     # sustained missing/rejected feed data (hostile/unreliable venue)
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
 
 

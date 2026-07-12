@@ -80,6 +80,11 @@ class _AssetState:
             int(cfg.get("stops", {}).get("swing_lookback", 48)) + 4, 64))
         self.last_sweep: dict = {}               # {"dir": +1/-1, "ts": t}
         self.marks: deque = deque(maxlen=8)
+        # feed-integrity window: 1 = clean book this cycle, 0 = missing or
+        # sanitize-rejected. A sustained low clean-rate means a hostile or
+        # unreliable venue for THIS asset -> shade its confidence down.
+        fi = cfg.get("feed_integrity", {})
+        self.feed_obs: deque = deque(maxlen=int(fi.get("window", 40)))
 
 
 class ThalesEngine:
@@ -97,6 +102,7 @@ class ThalesEngine:
         self._m = cfg.get("metronome", {})
         self._c = cfg.get("clockwork", {})
         self._s = cfg.get("stops", {})
+        self._fi = cfg.get("feed_integrity", {})
         self._assets: dict = {}
         self._counterfactuals: deque = deque(maxlen=200)
 
@@ -360,6 +366,19 @@ class ThalesEngine:
                                          f"post-sweep revert window "
                                          f"({1 - age:.0%} left)"))
 
+            # feed integrity: a venue that keeps feeding this asset missing
+            # or sanitize-rejected books is hostile-or-unreliable; shade DOWN
+            # (never up). Complementary to the watchdog's hard staleness
+            # block - this is the softer, per-asset "trust the signal less".
+            dirty = self._feed_integrity(st)
+            fi_thr = float(self._fi.get("dirty_frac_thr", 0.25))
+            if dirty > fi_thr:
+                mult *= 1.0 - float(self._fi.get("gain", 0.5)) * (
+                    dirty - fi_thr)
+                out.notes.append(tag(Code.TH_FEED_INTEGRITY,
+                                     f"feed dirty {dirty:.0%}: unreliable "
+                                     f"venue, trust signal less"))
+
             lo, hi = 1.0 / self.max_shade, self.max_shade
             mult = max(lo, min(hi, mult))
             out.would_mult = mult
@@ -383,6 +402,25 @@ class ThalesEngine:
     # ------------------------------------------------------------------
     # telemetry
     # ------------------------------------------------------------------
+    def observe_feed_health(self, asset: str, clean: bool, now: float):
+        """One record per fast cycle per asset: did a CLEAN book arrive, or
+        was it missing / rejected by the sanitize boundary? Never raises."""
+        if not self.active:
+            return
+        try:
+            self._st(asset).feed_obs.append(1 if clean else 0)
+        except Exception:
+            log.debug("thales feed-health observe degraded", exc_info=True)
+
+    def _feed_integrity(self, st: _AssetState) -> float:
+        """Dirty fraction over the window, or 0.0 until enough samples. High
+        = the venue keeps feeding this asset missing/rejected data, which is
+        a hostile-or-unreliable signal to trust its own signal less."""
+        obs = st.feed_obs
+        if len(obs) < int(self._fi.get("min_obs", 20)):
+            return 0.0
+        return 1.0 - (sum(obs) / len(obs))
+
     def _scores(self, st: _AssetState, now: float) -> dict:
         c_score, c_dir = self._clockwork(st, now)
         mark = st.marks[-1][1] if st.marks else 0.0
@@ -390,7 +428,8 @@ class ThalesEngine:
         return {"grid": round(st.grid_score, 3),
                 "metronome": round(st.metro_score, 3),
                 "clockwork": round(c_score, 3), "clockwork_dir": c_dir,
-                "stop_zone": round(prox, 3)}
+                "stop_zone": round(prox, 3),
+                "feed_dirty": round(self._feed_integrity(st), 3)}
 
     def status(self, now: float) -> dict:
         if not self.enabled:

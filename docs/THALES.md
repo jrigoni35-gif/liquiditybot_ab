@@ -97,6 +97,32 @@ window.
 **Failure mode:** genuine breakouts look like sweeps at first — the
 close-back-inside confirmation and decay window bound the damage.
 
+### TH-014 `feed_integrity` — the hostile-venue insecurity
+**Archetype:** the *data itself* is the attack surface. A venue (or an
+adversary in front of one) can screw a bot through the values it returns:
+unsorted books that hide the true touch, crossed/garbage books, physically
+impossible OHLC, `Infinity`/`NaN` numeric fields that inject phantom fills
+or infinite entry prices. Those are all **rejected at the sanitize
+boundary** (`core/sanitize`, fail-closed) — that is the correct layer and
+where the 2026-07-12 hardening lives. THALES's complementary role is to
+notice the *pattern*: an asset whose feed keeps failing integrity is a
+hostile-or-unreliable venue, and our signal on it deserves less trust.
+**Detection:** per-asset rolling clean-rate of the fast-cycle book (1 =
+a clean book arrived, 0 = missing or sanitize-rejected). Dirty fraction
+past `dirty_frac_thr`, once `min_obs` samples exist, engages the shade.
+**Exploit — defensive only:** shade that asset's entry confidence DOWN,
+proportional to the dirty fraction; never up, never a direction. It is
+the *soft* per-asset complement to the watchdog's *hard* staleness block
+(watchdog halts new risk on full staleness; TH-014 quietly distrusts an
+asset that is merely flaky-or-manipulated below that threshold).
+**Failure mode:** a transient network blip raises the dirty rate without
+malice — bounded by `min_obs` (needs sustained failure) and the shade
+clamp, and it is only ever conservative (trades smaller / not at all).
+**Note:** this is the one session-hardening theme that genuinely belongs
+in THALES. The rest (dead code, type gaps, schema-loss, the sanitize
+fixes themselves) are boundary/code faults fixed at their own layer — not
+forced into a market-behaviour model.
+
 ## Activation ladder (build the concept over time)
 
 1. **shadow** *(default, ships now)* — detectors run, scores land in

@@ -711,6 +711,10 @@ class LiquidityBot:
                 self.marks[symbol] = mark
                 self._stop_ok[asset] = stop_ok
             book = self.kraken.get_order_book(pair)
+            # feed-integrity signal: book is None when missing OR sanitize-
+            # rejected (crossed/poisoned). THALES treats a sustained bad rate
+            # per asset as an unreliable-venue shade (TH-014).
+            self.thales.observe_feed_health(asset, book is not None, now)
             if book:
                 self.kraken_books[asset] = book
                 self.book_ts[asset] = now

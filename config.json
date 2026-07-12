@@ -515,6 +515,13 @@
       "pre_gain": 0.1,
       "post_gain": 0.1,
       "revert_decay_sec": 1800
+    },
+    "feed_integrity": {
+      "_doc": "TH-014: shade an asset's entry confidence DOWN when its book feed shows a sustained rate of missing/sanitize-rejected data (hostile or unreliable venue). Softer, per-asset complement to the watchdog's hard staleness block. window=recent fast cycles tracked; min_obs before it judges; dirty_frac_thr=rejection fraction above which shading engages; gain=shade strength.",
+      "window": 40,
+      "min_obs": 20,
+      "dirty_frac_thr": 0.25,
+      "gain": 0.5
     }
   },
   "smc": {
