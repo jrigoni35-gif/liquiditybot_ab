@@ -100,6 +100,10 @@ class TradeThesis:
     fair_value: float
     quote_price: float               # AS price we asked for
     model_scored: bool
+    # venue display precision for this pair, so a sub-dollar asset's prices
+    # in the report aren't shown on a 2-decimal grid (default keeps old
+    # behavior for callers that don't set it)
+    price_decimals: int = 2
     # filled at/after close
     fill_price: float = 0.0
     marks: list = field(default_factory=list)        # (ts, price) during hold
@@ -291,10 +295,10 @@ class PostmortemEngine:
 **Verdict: {cause.upper().replace('_', ' ')}** — realized {_fmt_pct(t.realized_ret_pct)} vs expected {t.expected_ret_pct:+.2f}% (shortfall {shortfall_str})
 
 ## Thesis at entry
-p(win) {t.p_win:.2f} ({'model' if t.model_scored else 'prior'}) | expected cost {t.expected_cost_bps:.0f}bps | stop {t.stop_pct:.2f}% | target {t.target_pct:.2f}% | regime {t.entry_regime}/{t.entry_liq} | narrative {t.narrative_label} | fv {t.fair_value:.2f} | quoted {t.quote_price:.2f}
+p(win) {t.p_win:.2f} ({'model' if t.model_scored else 'prior'}) | expected cost {t.expected_cost_bps:.0f}bps | stop {t.stop_pct:.2f}% | target {t.target_pct:.2f}% | regime {t.entry_regime}/{t.entry_liq} | narrative {t.narrative_label} | fv {t.fair_value:.{t.price_decimals}f} | quoted {t.quote_price:.{t.price_decimals}f}
 
 ## What happened
-filled {t.fill_price:.2f} | held {held_h:.1f}h | MFE {mfe:+.2f}% / MAE {mae:+.2f}% | fees ${t.fees_usd:.2f} | cost overrun {overrun:+.0f}bps | exit regime {t.exit_regime}/{t.exit_liq} | stopped_out={t.stopped_out} | recovered_after_stop={recovered} | stress_during_hold={t.stress_seen}
+filled {t.fill_price:.{t.price_decimals}f} | held {held_h:.1f}h | MFE {mfe:+.2f}% / MAE {mae:+.2f}% | fees ${t.fees_usd:.2f} | cost overrun {overrun:+.0f}bps | exit regime {t.exit_regime}/{t.exit_liq} | stopped_out={t.stopped_out} | recovered_after_stop={recovered} | stress_during_hold={t.stress_seen}
 
 ## Mitigation
 {MITIGATIONS.get(cause, MITIGATIONS['underperformance'])}

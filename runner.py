@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from core.persistence import StateStore
+from core.precision import round_price
 from core.runtime import (ARM_PHRASE, ControlChannel, JsonlLogHandler,
                           SingleInstanceLock, StatusWriter)
 from core.session_digest import write_digest
@@ -156,7 +157,9 @@ class BotRunner:
         bot = self.bot
         marks = bot.marks
         positions = []
+        pm = getattr(bot.orders, "pair_meta", {})
         for p in bot.state.open_positions():
+            pair = bot.kraken.kraken_pair(p.symbol)
             mark = marks.get(p.symbol) or p.entry_price
             # entry <= 0 is never a real fill. Without this guard the uPnL
             # below evaluates to mark*size - the ENTIRE notional shown as
@@ -171,14 +174,21 @@ class BotRunner:
             positions.append({
                 "id": p.position_id[:8], "symbol": p.symbol,
                 "direction": p.direction, "size": round(p.size, 8),
-                "entry": round(p.entry_price, 2), "mark": round(mark, 2),
+                # prices at per-asset venue precision (sub-dollar pairs keep
+                # >=4 decimals) - a hardcoded 2 quantized ARB/MINA/FLOW into
+                # a wrong entry/mark and a wrong on-screen uPnL. uPnL itself
+                # is computed from FULL-precision entry_price, then rounded as
+                # a dollar/pct value.
+                "entry": round_price(p.entry_price, pm, pair),
+                "mark": round_price(mark, pm, pair),
                 "upnl_pct": None if bad_entry
                 else round(p.unrealized_pnl_pct(mark), 3),
                 "upnl_usd": None if bad_entry
                 else round((mark - p.entry_price) * p.size *
                                   (1 if p.direction == "long" else -1), 2),
-                "stop": round(p.stop_price, 2) if p.stop_price else None,
-                "trail": round(p.trailing_stop_price, 2)
+                "stop": round_price(p.stop_price, pm, pair)
+                if p.stop_price else None,
+                "trail": round_price(p.trailing_stop_price, pm, pair)
                 if p.trailing_stop_price else None,
                 "tiers_fired": p.tier_closed,
                 "age_h": round((now - p.opened_at.timestamp()) / 3600.0, 1),
@@ -187,7 +197,8 @@ class BotRunner:
             })
         orders = [{
             "id": o.order_id, "symbol": o.symbol, "side": o.side,
-            "purpose": o.purpose, "price": round(o.price, 2),
+            "purpose": o.purpose,
+            "price": round_price(o.price, pm, bot.kraken.kraken_pair(o.symbol)),
             "size": round(o.size, 8), "fill": round(o.fill_ratio * 100, 1),
             "age_s": round(now - o.created_ts, 1), "status": o.status,
         } for o in bot.orders.open_orders()]

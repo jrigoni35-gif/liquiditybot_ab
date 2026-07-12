@@ -41,6 +41,7 @@ import numpy as np
 from core.audit import get_audit
 from core.codes import Code
 from core.sanitize import safe_float
+from core.precision import fmt_price, price_decimals as _price_decimals
 from core.state import PortfolioState, Position
 from core.persistence import StateStore
 from core.runtime import SimOverrides
@@ -457,7 +458,7 @@ class LiquidityBot:
             self.algo.note_child_order(parent.parent_id, position_id)
             log.info(f"ALGO-CHILD {child.seq}/{child.n_total} "
                      f"{parent.side} {child.units:.6f} {parent.symbol} "
-                     f"@ {plan.price:.2f} [{plan.style}] "
+                     f"@ {self._px(parent.symbol, plan.price)} [{plan.style}] "
                      f"parent={parent.parent_id}")
         else:
             self.algo.note_child_rejected(parent.parent_id, child.units,
@@ -484,6 +485,14 @@ class LiquidityBot:
 
     def _asset_of(self, symbol: str) -> str:
         return symbol.split("/")[0]
+
+    def _px(self, symbol: str, price) -> str:
+        """Format a price at its venue precision for human output, so a
+        sub-dollar pair (ARB/MINA/FLOW) is never logged on a 2-decimal grid
+        coarser than its own tick. Display only - the engine computes on
+        the full-precision float."""
+        return fmt_price(price, getattr(self.orders, "pair_meta", {}),
+                         self.kraken.kraken_pair(symbol))
 
     def _equity(self) -> float:
         return self.state.total_equity(self.marks) if self.marks \
@@ -560,7 +569,8 @@ class LiquidityBot:
                     self.history.log_entry(position_id, self._asset_of(pos.symbol),
                                         pos.direction, order.meta["features"])
                 log.info(f"OPEN {pos.direction} {pos.size:.6f} {pos.symbol} "
-                        f"@ {pos.entry_price:.2f} (p={pos.confidence:.2f}, "
+                        f"@ {self._px(pos.symbol, pos.entry_price)} "
+                        f"(p={pos.confidence:.2f}, "
                         f"hedge={pos.is_hedge})")
             else:
                 total = pos.size + event.fill_size
@@ -599,8 +609,8 @@ class LiquidityBot:
             self._pos_realized[pos.position_id] = \
                 self._pos_realized.get(pos.position_id, 0.0) + net
             log.info(f"CLOSE {event.fill_size:.6f} {pos.symbol} @ "
-                    f"{event.fill_price:.2f} net ${net:+,.2f} "
-                    f"(remaining {pos.size:.6f})")
+                    f"{self._px(pos.symbol, event.fill_price)} "
+                    f"net ${net:+,.2f} (remaining {pos.size:.6f})")
             if pos.size <= pos.original_size * 1e-4 or pos.size <= EPS:
                 total_net = self._pos_realized.pop(pos.position_id, net)
                 self._finalize_position(pos, total_net, now)
@@ -781,7 +791,8 @@ class LiquidityBot:
                     (pos.direction == "long" and px <= pos.stop_price) or
                     (pos.direction == "short" and px >= pos.stop_price)):
                 self._stop_hit[pos.position_id] = True
-                self._submit_exit(pos, 100.0, f"stop {pos.stop_price:.2f} hit",
+                self._submit_exit(pos, 100.0,
+                                  f"stop {self._px(pos.symbol, pos.stop_price)} hit",
                                   now=now)
                 continue
 
@@ -1180,6 +1191,9 @@ class LiquidityBot:
                 entry_regime=macro_state.label, entry_liq=liq_state.label,
                 narrative_label=verdict.label,
                 fair_value=fv_state.fair_value, quote_price=entry_price,
+                price_decimals=_price_decimals(
+                    getattr(self.orders, "pair_meta", {}),
+                    self.kraken.kraken_pair(symbol), entry_price),
                 # exploration trades carry a FORCED p_win (explore_p_win), not
                 # the model's own call, so they must NOT score the model's
                 # calibration - counting them made the governor blame the model
@@ -1226,7 +1240,8 @@ class LiquidityBot:
                 self.sizer.note_entry(asset, now)
                 log.info(
                     f"ENTRY {signal.direction} {symbol} [{plan.style}]: ${sized.usd:,.0f} "
-                    f"({decision.size_units:.6f}) @ {entry_price:.2f} | "
+                    f"({decision.size_units:.6f}) @ "
+                    f"{self._px(symbol, entry_price)} | "
                     f"p={p_win:.2f} edge={decision.est_edge_bps:.0f}bps "
                     f"cost={decision.est_cost_bps:.0f}bps regime={macro_state.label} "
                     f"narrative={verdict.label}")

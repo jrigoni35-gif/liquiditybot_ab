@@ -303,34 +303,42 @@ def trade_stats_panel():
     c4.metric("Stop-outs", stops)
 
 
+def position_rows(positions: list):
+    """Pure row-builder for the positions table. Reads the runner's status
+    keys DIRECTLY and uses its SERVER-COMPUTED, per-asset-precision uPnL.
+
+    The panel used to recompute uPnL here from p["entry_price"] - a key the
+    runner never writes (it writes "entry") - so entry read 0 and uPnL
+    became mark*size, the entire notional shown as phantom profit. The
+    runner already computes uPnL from the full-precision entry with a
+    zero-entry guard; read it, don't re-derive it. Returns (rows, total)."""
+    rows, total_upnl = [], 0.0
+    for p in positions:
+        upnl_usd = p.get("upnl_usd")
+        total_upnl += float(upnl_usd) if upnl_usd is not None else 0.0
+        rows.append({
+            "symbol": p.get("symbol"),
+            "dir": p.get("direction"),
+            "size": p.get("size"),
+            "entry": p.get("entry"),
+            "mark": p.get("mark"),
+            "uPnL $": upnl_usd,
+            "uPnL %": p.get("upnl_pct"),
+            "stop": p.get("stop"),
+            "tier": p.get("tiers_fired", 0),
+            "hedge": p.get("hedge", False),
+            "p_win": p.get("p_win"),
+        })
+    return rows, total_upnl
+
+
 def positions_panel(s: dict):
     positions = s.get("positions") or []
     st.subheader(f"Open positions ({len(positions)})")
     if not positions:
         st.info("No open positions.")
         return
-    rows, total_upnl = [], 0.0
-    for p in positions:
-        entry = float(p.get("entry_price") or 0)
-        mark = float(p.get("mark") or entry)
-        size = float(p.get("size") or 0)
-        sgn = -1.0 if p.get("direction") == "short" else 1.0
-        upnl_usd = sgn * (mark - entry) * size
-        upnl_pct = sgn * ((mark - entry) / entry * 100.0) if entry else 0.0
-        total_upnl += upnl_usd
-        rows.append({
-            "symbol": p.get("symbol"),
-            "dir": p.get("direction"),
-            "size": size,
-            "entry": entry,
-            "mark": mark,
-            "uPnL $": round(upnl_usd, 2),
-            "uPnL %": round(upnl_pct, 2),
-            "stop": p.get("stop_price"),
-            "tier": p.get("tier_closed", 0),
-            "hedge": p.get("is_hedge", False),
-            "p_win": p.get("p_win"),
-        })
+    rows, total_upnl = position_rows(positions)
     st.dataframe(rows, width="stretch", hide_index=True)
     st.caption(f"Total unrealized: **{fmt_usd(total_upnl)}**")
 
@@ -342,13 +350,13 @@ def orders_panel(s: dict):
         st.caption("No resting or in-flight orders.")
         return
     st.dataframe([{
-        "pair": o.get("pair"),
+        "pair": o.get("symbol"),               # runner writes "symbol"
         "side": o.get("side"),
         "size": o.get("size"),
-        "price": o.get("price"),
+        "price": o.get("price"),               # per-asset precision
         "purpose": o.get("purpose"),
         "status": o.get("status"),
-        "fills": f"{o.get('filled', 0)}/{o.get('size', 0)}",
+        "fill %": o.get("fill"),               # runner writes "fill" (ratio*100)
     } for o in orders], width="stretch", hide_index=True)
 
 
