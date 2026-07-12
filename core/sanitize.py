@@ -136,6 +136,12 @@ def clean_book(book: dict, max_levels: int = 100) -> Optional[dict]:
         out[side] = clean
     if not out["bids"] or not out["asks"]:
         return None
+    # A venue (or an adversary) can return levels in ANY order; downstream
+    # trusts [0] to be the touch (best bid / best ask) for mid, imbalance,
+    # fair value and STOP logic. Sort explicitly so an unsorted book can't
+    # feed a wrong touch into the stop engine. Bids high->low, asks low->high.
+    out["bids"].sort(key=lambda lvl: lvl[0], reverse=True)
+    out["asks"].sort(key=lambda lvl: lvl[0])
     # sanity: best bid must be below best ask (reject crossed/garbage books)
     if out["bids"][0][0] >= out["asks"][0][0]:
         log.warning("rejected crossed/garbage order book (bid >= ask)")
@@ -158,6 +164,13 @@ def clean_candles(candles: list, max_n: int = 2000) -> list:
         except (TypeError, KeyError):
             continue
         if min(o, h, lo, cl) <= 0:
+            continue
+        # OHLC must be self-consistent: high is the ceiling, low the floor.
+        # A row with high < low, or a body poking outside [low, high], is
+        # physically impossible - a corrupt/adversarial candle that would
+        # poison volatility (sigma_bar), ATR, swing points and every
+        # candle-derived feature. Drop it rather than trust it.
+        if h < lo or h < max(o, cl) or lo > min(o, cl):
             continue
         out.append({"time": c.get("time", 0), "open": o, "high": h,
                     "low": lo, "close": cl,

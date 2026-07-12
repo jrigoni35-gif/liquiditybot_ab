@@ -41,6 +41,7 @@ import numpy as np
 
 from core.audit import get_audit
 from core.codes import Code, tag
+from core.sanitize import safe_float
 
 log = logging.getLogger("liquiditybot.execution.order_manager")
 
@@ -365,11 +366,15 @@ class OrderManager:
             self._timed_private("QueryOrders", {"txid": order.txid})
         if result and order.txid in result:
             info = result[order.txid]
-            try:
-                vol_exec = float(info.get("vol_exec", 0.0))
-                avg = float(info.get("price", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                vol_exec, avg = order.filled, order.avg_price
+            # Kraken returns numbers as STRINGS, so raw float("Infinity"/"NaN")
+            # SUCCEEDS (they don't raise) and would inject an infinite phantom
+            # fill or an infinite entry price straight into a live position.
+            # safe_float's isfinite gate rejects both; a non-finite/garbage
+            # field degrades to the last known good value, never a poison.
+            vol_exec = safe_float(info.get("vol_exec"), default=order.filled,
+                                  lo=0.0)
+            avg = safe_float(info.get("price"), default=order.avg_price,
+                             lo=0.0)
             status = info.get("status", "open")
             new_fill = vol_exec - order.filled
             if new_fill > EPS:
