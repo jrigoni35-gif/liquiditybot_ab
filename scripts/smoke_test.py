@@ -401,6 +401,10 @@ class MockKraken:
     def get_ticker_price(self, pair):
         return self.prices["ETH" if pair.startswith("ETH") else "BTC"]
 
+    def get_tickers(self, pairs):
+        # mirror the real batched contract: {pair: price}
+        return {p: self.get_ticker_price(p) for p in pairs}
+
     def get_order_book(self, pair, depth=20):
         px = self.get_ticker_price(pair)
         return synth_book(px, spread_bps=5.0, depth=80, seed=int(px) % 97)

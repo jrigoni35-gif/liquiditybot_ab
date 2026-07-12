@@ -689,10 +689,16 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     def fast_cycle(self, now: float):
         # marks + books from the execution venue; every mark passes the
-        # tick quarantine so one anomalous print can't fire every stop
+        # tick quarantine so one anomalous print can't fire every stop.
+        # Marks fetch in ONE batched Ticker call (6 pairs -> 1 request)
+        # rather than per-pair, cutting fast-cycle Kraken round-trips; the
+        # per-pair book (Depth is single-pair only) still loops below.
+        pair_of = {a: self.kraken.kraken_pair(s)
+                   for a, s in self.symbol_map.items()}
+        marks = self.kraken.get_tickers(list(pair_of.values()))
         for asset, symbol in self.symbol_map.items():
-            pair = self.kraken.kraken_pair(symbol)
-            px = self.kraken.get_ticker_price(pair)
+            pair = pair_of[asset]
+            px = marks.get(pair)
             if px:
                 mark, stop_ok = self.watchdog.filter_mark(asset, px)
                 self.marks[symbol] = mark

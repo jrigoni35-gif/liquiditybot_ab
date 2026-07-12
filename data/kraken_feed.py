@@ -62,6 +62,11 @@ class KrakenFeed(ThrottledRestClient):
                 self.api_secret = ""  # nosec B105 - clearing the secret, not a literal
         self.trading_pairs = config.get("trading_pairs", [])
         self._last_nonce = 0
+        # Kraken echoes its own internal pair names ("XETHZUSD") not the
+        # altnames we request ("ETHUSD"); get_pair_meta populates this
+        # internal->altname map from AssetPairs so a BATCHED Ticker response
+        # (many pairs in one call) can be mapped back to our config pairs.
+        self._internal_to_alt: dict = {}
 
     @staticmethod
     def _resolve_cred(config: dict, direct_key: str, env_name_key: str,
@@ -152,6 +157,39 @@ class KrakenFeed(ThrottledRestClient):
         key = next(iter(result))  # Kraken echoes back its own internal pair name
         px = safe_float(result[key]["c"][0], default=0.0)  # 'c' = last trade
         return px if px > 0 else None
+
+    def get_tickers(self, pairs: list) -> dict:
+        """Batched last-trade prices: ONE Ticker call for many pairs (Kraken
+        accepts a comma-separated pair list), returning {config_pair: price}.
+        Collapses the fast cycle's per-pair ticker fetches (6 calls -> 1)
+        without threading the shared, execution-carrying REST client past
+        its rate limit. Never LESS correct than get_ticker_price: any pair
+        the batch can't confidently map falls back to a single-pair fetch,
+        so a stale name map degrades to the old behavior, only slower."""
+        out: dict = {}
+        pairs = [p for p in pairs if p]
+        if not pairs:
+            return out
+        result = self._public_get("Ticker", {"pair": ",".join(pairs)})
+        if result:
+            want = set(pairs)
+            for internal, info in result.items():
+                # newer listings: internal name == altname; legacy pairs
+                # (XETHZUSD): resolve via the AssetPairs map
+                alt = self._internal_to_alt.get(internal, internal)
+                if alt not in want and internal in want:
+                    alt = internal
+                if alt in want:
+                    px = safe_float((info.get("c") or [0])[0], default=0.0)
+                    if px > 0:
+                        out[alt] = px
+        # correctness backstop: single-pair fetch for anything unmapped
+        for p in pairs:
+            if p not in out:
+                px = self.get_ticker_price(p)
+                if px:
+                    out[p] = px
+        return out
 
     def get_order_book(self, pair: str, depth: int = 20) -> Optional[dict]:
         result = self._public_get("Depth", {"pair": pair, "count": depth})
@@ -277,8 +315,10 @@ class KrakenFeed(ThrottledRestClient):
         result = self._public_get("AssetPairs", {"pair": ",".join(pairs)}) \
             if pairs else None
         if result:
-            for _, info in result.items():
+            for internal_key, info in result.items():
                 alt = str(info.get("altname", ""))
+                if alt:
+                    self._internal_to_alt[internal_key] = alt
                 meta[alt] = {
                     "price_decimals": int(safe_float(
                         info.get("pair_decimals"), default=2, lo=0, hi=10)),
