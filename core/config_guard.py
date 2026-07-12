@@ -599,6 +599,35 @@ def validate(config: dict) -> list:
             fatal("websockets.enabled but websockets.binanceus_symbols is "
                   "empty - nothing to subscribe to")
 
+    # --- moomoo equities context (optional, read-only) -------------------
+    # Degrades to neutral on any failure, so bad config can't stop the bot -
+    # but a nonsense port/interval/weight silently yields no data forever
+    # instead of failing loud, so validate it like every other feed block.
+    if bool(_f(config, "moomoo.enabled", False)):
+        m_port = int(_f(config, "moomoo.opend_port", 11111))
+        if not (1 <= m_port <= 65535):
+            fatal(f"moomoo.opend_port={m_port} is not a valid TCP port "
+                  f"(1-65535)")
+        m_poll = float(_f(config, "moomoo.poll_minutes", 5.0))
+        if m_poll <= 0:
+            fatal(f"moomoo.poll_minutes={m_poll} must be > 0")
+        m_to = float(_f(config, "moomoo.connect_timeout_sec", 5.0))
+        if m_to <= 0:
+            fatal(f"moomoo.connect_timeout_sec={m_to} must be > 0 - a "
+                  f"non-positive TCP-probe timeout never completes")
+        tickers = _f(config, "moomoo.tickers", []) or []
+        if not tickers:
+            findings.append(("WARN",
+                             "moomoo.enabled but moomoo.tickers is empty - "
+                             "the basket will always be unavailable/neutral"))
+        for t in tickers:
+            if not isinstance(t, dict) or not t.get("code"):
+                fatal(f"moomoo.tickers entry {t!r} missing a 'code'")
+            elif float(t.get("weight", 1.0)) < 0:
+                fatal(f"moomoo ticker {t.get('code')} has negative weight "
+                      f"{t.get('weight')} - flip the basket thesis in code, "
+                      f"not via a negative weight")
+
     # --- hedging ---------------------------------------------------------
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))

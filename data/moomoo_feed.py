@@ -149,6 +149,9 @@ class MoomooFeed:
                 return False
             self._ctx = ctx
             self._sdk_ok = True
+            # re-arm the one-shot warning: a later outage after this
+            # recovery should warn again, not go silent
+            self._warned = False
             log.info(f"moomoo OpenD connected at {self.host}:{self.port}")
             return True
         except ImportError:

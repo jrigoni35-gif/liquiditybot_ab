@@ -32,6 +32,25 @@ def test_batch_maps_internal_names_and_returns_prices(monkeypatch):
     assert calls[0][1]["pair"] == "ETHUSD,XBTUSD,SUIUSD"
 
 
+def test_btc_requested_as_BTCUSD_maps_despite_kraken_XBT(monkeypatch):
+    """The live bug: config requests BTCUSD, Kraken denominates Bitcoin as
+    XBT so the response keys XXBTZUSD -> altname XBTUSD. Without XBT<->BTC
+    aliasing, BTC silently missed the batch and hit a per-cycle fallback
+    every fast cycle. It must now resolve straight from the batch."""
+    f = _feed()
+    f._internal_to_alt = {"XXBTZUSD": "XBTUSD"}          # as AssetPairs sets it
+    single = []
+    monkeypatch.setattr(f, "get_ticker_price",
+                        lambda pair: single.append(pair) or None)
+    monkeypatch.setattr(f, "_public_get",
+                        lambda e, p=None: {"XXBTZUSD": {"c": ["64000.0", "1"]}})
+
+    out = f.get_tickers(["BTCUSD"])                       # caller's spelling
+
+    assert out == {"BTCUSD": 64000.0}                    # mapped to BTCUSD
+    assert single == []                                  # NO fallback fetch
+
+
 def test_unmapped_pair_falls_back_to_single_fetch(monkeypatch):
     f = _feed()
     # batch returns only ETH; FLOW must be backfilled via get_ticker_price

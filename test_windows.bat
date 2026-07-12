@@ -26,7 +26,7 @@ echo === overfit_check (OF-1..OF-7 battery) ===
 
 echo.
 echo === ruff lint ===
-%PY% -m ruff check core data execution ml risk api ui tests scripts\quant_trials.py scripts\overfit_check.py || (echo RUFF FAILED & exit /b 1)
+%PY% -m ruff check core data execution ml risk api ui strategies regime sentiment tests scripts\quant_trials.py scripts\overfit_check.py || (echo RUFF FAILED & exit /b 1)
 
 echo.
 echo === bandit security scan ===

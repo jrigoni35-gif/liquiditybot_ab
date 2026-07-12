@@ -110,3 +110,39 @@ def test_failed_probe_call_releases_ctx_and_degrades():
     assert not snap.available
     assert feed._ctx is None                 # released for a clean retry
     assert feed._warned
+
+
+def test_warned_rearms_on_successful_reconnect():
+    """A one-shot _warned that never resets makes a SECOND OpenD outage
+    (after a recovery) go silent. Reconnecting must re-arm the warning."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        feed = MoomooFeed(_cfg(port))
+        feed._warned = True                  # simulate a prior outage warning
+        with patch.object(MoomooFeed, "_import_sdk",
+                          return_value=FakeQuoteCtx):
+            ok = feed._ensure_ctx()
+    assert ok
+    assert feed._warned is False             # re-armed for the next outage
+
+
+def test_config_guard_validates_moomoo_block():
+    from core.config_guard import validate
+
+    def _fatals(m):
+        return [msg for sev, msg in validate({"moomoo": m}) if sev == "FATAL"]
+
+    assert any("opend_port" in m for m in _fatals(
+        {"enabled": True, "opend_port": 99999}))
+    assert any("poll_minutes" in m for m in _fatals(
+        {"enabled": True, "poll_minutes": 0}))
+    assert any("negative weight" in m for m in _fatals(
+        {"enabled": True, "tickers": [{"code": "US.COIN", "weight": -1}]}))
+    assert any("missing a 'code'" in m for m in _fatals(
+        {"enabled": True, "tickers": [{"weight": 1.0}]}))
+    # disabled moomoo is never validated (validate() runs the whole guard,
+    # so filter to moomoo-specific findings, not the empty-config noise)
+    disabled = _fatals({"enabled": False, "opend_port": 99999})
+    assert not any(("moomoo" in m or "opend_port" in m) for m in disabled)

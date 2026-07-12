@@ -158,6 +158,20 @@ class KrakenFeed(ThrottledRestClient):
         px = safe_float(result[key]["c"][0], default=0.0)  # 'c' = last trade
         return px if px > 0 else None
 
+    @staticmethod
+    def _alias_variants(pair: str) -> set:
+        """Every spelling a pair might arrive as. Kraken denominates Bitcoin
+        as XBT while our config (and most of the world) writes BTC, so a
+        requested BTCUSD can come back keyed XBTUSD / XXBTZUSD. Return both
+        spellings so the batched-ticker match doesn't silently miss BTC and
+        drop it to a per-cycle fallback fetch (the 6->1 batch is the point)."""
+        v = {pair}
+        if "XBT" in pair:
+            v.add(pair.replace("XBT", "BTC"))
+        if "BTC" in pair:
+            v.add(pair.replace("BTC", "XBT"))
+        return v
+
     def get_tickers(self, pairs: list) -> dict:
         """Batched last-trade prices: ONE Ticker call for many pairs (Kraken
         accepts a comma-separated pair list), returning {config_pair: price}.
@@ -172,17 +186,18 @@ class KrakenFeed(ThrottledRestClient):
             return out
         result = self._public_get("Ticker", {"pair": ",".join(pairs)})
         if result:
-            want = set(pairs)
+            # every alias spelling of each requested pair -> the caller's
+            # exact string, so an XBTUSD/XXBTZUSD response resolves to BTCUSD
+            want = {v: p for p in pairs for v in self._alias_variants(p)}
             for internal, info in result.items():
                 # newer listings: internal name == altname; legacy pairs
-                # (XETHZUSD): resolve via the AssetPairs map
+                # (XETHZUSD/XXBTZUSD): resolve via the AssetPairs map
                 alt = self._internal_to_alt.get(internal, internal)
-                if alt not in want and internal in want:
-                    alt = internal
-                if alt in want:
+                key = want.get(alt) or want.get(internal)
+                if key:
                     px = safe_float((info.get("c") or [0])[0], default=0.0)
                     if px > 0:
-                        out[alt] = px
+                        out[key] = px
         # correctness backstop: single-pair fetch for anything unmapped
         for p in pairs:
             if p not in out:
