@@ -269,7 +269,14 @@ def header(s: dict):
     with right:
         c1, c2, c3 = st.columns(3)
         c1.metric("Cycle", s.get("cycle", 0))
-        c2.metric("Latency", f"{float(s.get('latency_ms', 0)):.0f} ms")
+        # order latency measures private POSTs, which dry-run never makes -
+        # fall back to the data-feed RTT so the metric is never a dead zero
+        lat = float(s.get("latency_ms", 0))
+        if lat > 0:
+            c2.metric("Order latency", f"{lat:.0f} ms")
+        else:
+            c2.metric("Feed latency",
+                      f"{float(s.get('feed_latency_ms', 0)):.0f} ms")
         c3.metric("Fees", fmt_usd(s.get("fees_total")))
 
     if halted:

@@ -27,6 +27,11 @@ class ThrottledRestClient:
         self.rate_limit_per_sec = rate_limit_per_sec
         self._min_interval = 1.0 / max(rate_limit_per_sec, 1)
         self._last_call = 0.0
+        # EWMA of COMPLETED-request wire RTT (throttle wait excluded, so a
+        # rate-limit queue can't masquerade as network latency). In dry-run
+        # this is the only real latency signal: order latency_ms measures
+        # private POSTs that paper mode never makes.
+        self.latency_ms: float = 0.0
         self.session = requests.Session()
         # The Kraken client is SHARED between the market-data cycle and the
         # order path, and a websocket REST-fallback can call it off the main
@@ -35,6 +40,11 @@ class ThrottledRestClient:
         # burst that blows the venue rate limit (a ban risk on the execution
         # venue). The lock spaces every caller by min_interval, globally.
         self._throttle_lock = threading.Lock()
+
+    def _note_rtt(self, t0: float):
+        rtt = (time.time() - t0) * 1000.0
+        self.latency_ms = 0.7 * self.latency_ms + 0.3 * rtt \
+            if self.latency_ms else rtt
 
     def _throttle(self):
         # Held across the sleep on purpose: waiting threads queue here, which
@@ -51,9 +61,11 @@ class ThrottledRestClient:
         """Throttled GET returning the Response, or None on transport
         failure. Callers decode/validate the venue's own envelope."""
         self._throttle()
+        t0 = time.time()
         try:
             resp = self.session.get(url, params=params, timeout=timeout)
             resp.raise_for_status()
+            self._note_rtt(t0)
             return resp
         except requests.RequestException as e:
             log.error(f"{venue} request failed for {url}: {e}")
@@ -65,10 +77,13 @@ class ThrottledRestClient:
         transport/decode failure (requests>=2.27 JSONDecodeError is a
         RequestException, so one except covers both)."""
         self._throttle()
+        t0 = time.time()
         try:
             resp = self.session.get(url, params=params, timeout=timeout)
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            self._note_rtt(t0)
+            return data
         except requests.RequestException as e:
             log.error(f"{venue} request failed for {url}: {e}")
             return None

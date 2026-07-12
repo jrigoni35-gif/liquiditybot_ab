@@ -228,6 +228,7 @@ class BotRunner:
             "fees_total": round(bot.state.fees_paid_total, 2),
             "drawdown_pct": round(bot.state.drawdown_pct(), 2),
             "latency_ms": round(bot.orders.latency_ms, 1),
+            "feed_latency_ms": round(getattr(bot.kraken, "latency_ms", 0.0), 1),
             "positions": positions, "open_orders": orders,
             "signals": getattr(bot, "last_signals", {}),
             "exec_algos": bot.algo.status() if hasattr(bot, "algo") else {},
