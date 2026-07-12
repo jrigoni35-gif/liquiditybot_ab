@@ -143,7 +143,7 @@
     }
   },
   "capital_management": {
-    "starting_capital_usd": 25000,
+    "starting_capital_usd": 100000,
     "savings_pct_of_profit": 20,
     "reinvestment_pct_of_profit": 80,
     "max_position_size_pct_of_capital": 10,
@@ -298,7 +298,7 @@
   },
   "leverage": {
     "description": "use_margin=false keeps everything spot (1x). Region cap: Kraken allows max 10x here; pair-level caps may be lower.",
-    "use_margin": false,
+    "use_margin": true,
     "region_max_leverage": 10,
     "target_vol_annual_pct": 35,
     "min_leverage": 0.25,
@@ -345,10 +345,10 @@
     "exploration": {
       "_doc": "DRY-RUN active learning: take a fraction of confirmed signals as small paper trades so real-fill labels accrue and the cold model can improve. Hard-gated on dry_run; auto-off once until_live_rows history rows exist.",
       "enabled": true,
-      "epsilon": 0.25,
-      "until_live_rows": 120,
+      "epsilon": 0.5,
+      "until_live_rows": 240,
       "p_win": 0.62,
-      "size_scale": 1.0,
+      "size_scale": 0.25,
       "max_asset_share": 0.5,
       "share_min_rows": 10
     },
@@ -357,8 +357,8 @@
       "min_trades_to_judge": 15,
       "brier_margin": 0.01,
       "calibration_gap_max": 0.15,
-      "retrain_cooldown_hours": 12,
-      "retrain_min_new_rows": 40,
+      "retrain_cooldown_hours": 6,
+      "retrain_min_new_rows": 25,
       "challenger_brier_margin": 0.005,
       "shrinkage_base": 0.35,
       "shrinkage_max": 0.7,
