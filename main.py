@@ -1180,7 +1180,13 @@ class LiquidityBot:
                 entry_regime=macro_state.label, entry_liq=liq_state.label,
                 narrative_label=verdict.label,
                 fair_value=fv_state.fair_value, quote_price=entry_price,
-                model_scored=self.monitor.use_model and self.meta.trained))
+                # exploration trades carry a FORCED p_win (explore_p_win), not
+                # the model's own call, so they must NOT score the model's
+                # calibration - counting them made the governor blame the model
+                # for epsilon-greedy noise and degrade/throttle it unfairly.
+                # They still feed training history; they just don't grade it.
+                model_scored=(self.monitor.use_model and self.meta.trained
+                              and not explored)))
             notional_usd = decision.size_units * entry_price
             if self.algo.should_engage(notional_usd):
                 parent = self.algo.create_parent(

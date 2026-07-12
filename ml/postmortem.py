@@ -232,8 +232,18 @@ class PostmortemEngine:
         if not t.marks or t.fill_price <= 0:
             return 0.0, 0.0
         sgn = 1.0 if t.direction == "long" else -1.0
-        rel = [(sgn * (px - t.fill_price) / t.fill_price * 100.0)
-            for _, px in t.marks]
+        prices = [px for _, px in t.marks]
+        # A single anomalous print that slipped past the live mark filter
+        # must NOT define a trade's best/worst excursion (observed: a lone
+        # up-spike drove MFE to 17-24% on minute-scale BTC scalps while MAE
+        # stayed sane, because max() latches the outlier). Reject bad ticks
+        # by robust median-absolute-deviation distance before taking the
+        # extremes. Telemetry only - _excursions never feeds a decision.
+        med = sorted(prices)[len(prices) // 2]
+        devs = sorted(abs(p - med) for p in prices)
+        mad = devs[len(devs) // 2] or (med * 1e-4)
+        clean = [p for p in prices if abs(p - med) <= 8.0 * mad] or prices
+        rel = [sgn * (p - t.fill_price) / t.fill_price * 100.0 for p in clean]
         return max(rel + [0.0]), min(rel + [0.0])     # MFE, MAE (pct)
 
     def _recovered(self, t: TradeThesis) -> bool:

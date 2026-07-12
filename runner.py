@@ -158,12 +158,24 @@ class BotRunner:
         positions = []
         for p in bot.state.open_positions():
             mark = marks.get(p.symbol) or p.entry_price
+            # entry <= 0 is never a real fill. Without this guard the uPnL
+            # below evaluates to mark*size - the ENTIRE notional shown as
+            # fake profit (observed on a just-opened position flashing a
+            # +$218 "winner"). Show a null uPnL and log it loudly so the
+            # transient that produces a zero entry gets caught at the source.
+            bad_entry = not (p.entry_price and p.entry_price > 0)
+            if bad_entry:
+                log.warning("status: %s %s serialized with entry_price=%r "
+                            "(<=0) - uPnL suppressed; investigate the open "
+                            "path", p.symbol, p.position_id[:8], p.entry_price)
             positions.append({
                 "id": p.position_id[:8], "symbol": p.symbol,
                 "direction": p.direction, "size": round(p.size, 8),
                 "entry": round(p.entry_price, 2), "mark": round(mark, 2),
-                "upnl_pct": round(p.unrealized_pnl_pct(mark), 3),
-                "upnl_usd": round((mark - p.entry_price) * p.size *
+                "upnl_pct": None if bad_entry
+                else round(p.unrealized_pnl_pct(mark), 3),
+                "upnl_usd": None if bad_entry
+                else round((mark - p.entry_price) * p.size *
                                   (1 if p.direction == "long" else -1), 2),
                 "stop": round(p.stop_price, 2) if p.stop_price else None,
                 "trail": round(p.trailing_stop_price, 2)
