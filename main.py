@@ -102,6 +102,18 @@ def load_config(path: str = "config.json") -> dict:
         return json.load(f)
 
 
+def _book_mid(book: dict) -> float:
+    """Top-of-book mid, 0.0 when either side is missing/malformed."""
+    try:
+        bid = float(book["bids"][0][0])
+        ask = float(book["asks"][0][0])
+        if bid > 0 and ask > 0:
+            return (bid + ask) / 2.0
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass
+    return 0.0
+
+
 class LiquidityBot:
     def __init__(self, config: dict, okx=None, binanceus=None, kraken=None,
                 webdata=None, moomoo=None, sentiment_scanner=None,
@@ -318,6 +330,7 @@ class LiquidityBot:
             config.get("system", {}).get("seed", 42)))
         self._stop_hit: dict = {}           # position_id -> bool
         self._last_imb: dict = {}           # asset -> last log-imbalance
+        self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._rows_at_last_train = self.history.row_count()
         self.xscan = sentiment_scanner or SentimentScanner(
             config.get("sentiment", {}))
@@ -1025,6 +1038,13 @@ class LiquidityBot:
             self.vol.update(asset, v.get("candles") or [],
                             self.daily_candles.get(asset) or [])
             self.liq.update(asset, v.get("order_book") or {}, kbook, now)
+            # regime age: when did the macro label last change? Feeds the
+            # regime_age feature - a 2-bar-old "range" and a 3-day-old
+            # "range" are different animals the one-hots cannot separate.
+            label = self.macro.state(asset).label
+            prev = self._regime_since.get(asset)
+            if prev is None or prev[0] != label:
+                self._regime_since[asset] = (label, now)
             if v.get("candles"):
                 closes[asset] = float(v["candles"][-1]["close"])
         if closes:
@@ -1315,13 +1335,25 @@ class LiquidityBot:
             if c[-7]["close"] > 0:
                 other_ret6 = float(np.log(c[-1]["close"] / c[-7]["close"])
                                    * 100.0)
+        # kraken (execution venue) vs the composite view book, in bps:
+        # positive = kraken rich vs the street. Both books already sit in
+        # memory - no extra I/O.
+        disloc_bps = 0.0
+        km = _book_mid(self.kraken_books.get(asset) or {})
+        vm = _book_mid(v.get("order_book") or {})
+        if km > 0 and vm > 0:
+            disloc_bps = (km - vm) / vm * 1e4
+        since = self._regime_since.get(asset)
         return {"fear_greed": web.fear_greed,
                 "dominance_delta": web.dominance_delta,
                 "equity_risk_z": risk.risk_z,
                 "ts": now,
                 "imbalance_delta": delta,
                 "other_ret_6": other_ret6,
-                "depth_ratio": self.liq.state(asset).depth_ratio}
+                "depth_ratio": self.liq.state(asset).depth_ratio,
+                "regime_age_sec": max(now - since[1], 0.0) if since else 0.0,
+                "venue_disloc_bps": disloc_bps,
+                "thales": self.thales.feature_scores(asset, now)}
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence

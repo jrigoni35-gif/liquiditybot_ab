@@ -14,8 +14,8 @@ def _bar(o, h, lo, c):
     return {"open": o, "high": h, "low": lo, "close": c}
 
 
-def test_schema_is_46_wide_with_patterns_before_direction():
-    assert len(FEATURE_NAMES) == 46
+def test_schema_has_patterns_before_direction():
+    assert len(FEATURE_NAMES) == 53
     assert FEATURE_NAMES[-5:] == ["pat_engulf_dir", "pat_hammer_dir",
                                   "pat_marubozu_dir", "direction",
                                   "gate_confidence"]

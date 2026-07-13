@@ -39,6 +39,13 @@ _INSIGHT = {
     "corr_fast": "how the majors are moving together",
     "turbulence_pct": "how disordered the tape has become",
     "fear_greed": "the crowd's fear and greed",
+    "regime_age": "how long the current market weather has held",
+    "funding_dist": "where we stand on the funding clock",
+    "venue_disloc_dir": "kraken's gap to the street, with or against the trade",
+    "th_grid": "grid-bot ladders resting in the book",
+    "th_metronome": "market-makers quoting on a timer",
+    "th_clockwork": "scheduled flow at this hour",
+    "th_stopzone": "a crowd of stops within reach",
     "sent_dir": "the news-flow tone, with or against the trade",
 }
 

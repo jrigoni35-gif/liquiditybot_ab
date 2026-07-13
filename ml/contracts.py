@@ -50,6 +50,10 @@ _RANGES = {
     "mtf_align": (-1, 1), "pd_zone": (0, 1), "liq_pocket_pull": (0, 1),
     "fvg_pull": (0, 1), "fvg_liq_confluence": (0, 1),
     "poc_dist": (-1, 1), "va_pos": (-1, 1),
+    "regime_age": (0, 1), "funding_dist": (0, 1),
+    "venue_disloc_dir": (-3, 3),
+    "th_grid": (0, 1), "th_metronome": (0, 1),
+    "th_clockwork": (0, 1), "th_stopzone": (0, 1),
     "pat_engulf_dir": (-1, 1), "pat_hammer_dir": (-1, 1), "pat_marubozu_dir": (-1, 1),
     "direction": (-1, 1), "gate_confidence": (0, 1),
 }

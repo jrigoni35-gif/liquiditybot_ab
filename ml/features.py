@@ -40,10 +40,20 @@ EPS = 1e-9
 PATTERN_NEUTRAL = {"pat_engulf_dir": 0.0, "pat_hammer_dir": 0.0,
                    "pat_marubozu_dir": 0.0}
 
-# Bumped whenever same-width vectors change MEANING (v2: side-relative
-# encoding). Restore paths must drop pending vectors from other versions
-# - the width guard alone cannot see a semantic change.
-FEATURE_SCHEMA_VERSION = 2
+# migration neutrals for the context/THALES block: 0.5 = "unknown
+# mid-point" for bounded clocks and ages (a padded row should not claim
+# a fresh regime or an imminent settlement), 0.0 = "no footprint / no
+# dislocation observed".
+CONTEXT_NEUTRAL = {"regime_age": 0.5, "funding_dist": 0.5,
+                   "venue_disloc_dir": 0.0, "th_grid": 0.0,
+                   "th_metronome": 0.0, "th_clockwork": 0.0,
+                   "th_stopzone": 0.0}
+
+# Bumped whenever vectors change MEANING (v2: side-relative encoding;
+# v3: +context/THALES block, 46->53). Restore paths must drop pending
+# vectors from other versions - the width guard alone cannot see a
+# semantic change, and versioning also documents additive bumps.
+FEATURE_SCHEMA_VERSION = 3
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -68,9 +78,29 @@ FEATURE_NAMES = [
     "imbalance_delta_dir", "other_ret_6_dir", "depth_ratio",
     "mtf_align", "pd_zone", "liq_pocket_pull",
     "fvg_pull", "fvg_liq_confluence", "poc_dist", "va_pos",
+    "regime_age",                 # 0..1: hours since macro label change /24
+    "funding_dist",               # 0..1: fraction of 8h cycle to settlement
+    "venue_disloc_dir",           # kraken vs street mid, with/against trade
+    "th_grid", "th_metronome", "th_clockwork", "th_stopzone",  # THALES [0,1]
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
     "direction", "gate_confidence",
 ]
+
+FUNDING_PERIOD_SEC = 8 * 3600.0
+
+
+def _funding_dist(ts: float) -> float:
+    """Time to the NEXT perp funding settlement (00/08/16 UTC), as a
+    fraction of the 8h cycle: 0.0 = settling this instant, ~1.0 = just
+    settled. Pure clock math, like hour_sin/cos - the clockwork detector
+    hunts this pattern in OTHER bots; this feature tells our model where
+    IT stands on the same clock."""
+    try:
+        r = float(ts) % FUNDING_PERIOD_SEC
+    except (TypeError, ValueError):
+        return 0.5
+    return ((FUNDING_PERIOD_SEC - r) % FUNDING_PERIOD_SEC
+            / FUNDING_PERIOD_SEC)
 
 
 def _hour_frac(extras) -> float:
@@ -121,6 +151,14 @@ def _candle_patterns(candles: list) -> tuple:
     hammer = float(np.clip((lower - upper) / rng, -1.0, 1.0) * small_body)
     marubozu = float(np.sign(body) * min(abs(body) / rng, 1.0))
     return engulf, hammer, marubozu
+
+
+def _th(extras, key: str) -> float:
+    """THALES detector score from extras, 0.0 when absent/malformed."""
+    try:
+        return float(((extras or {}).get("thales") or {}).get(key, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _ret(closes: np.ndarray, k: int, sigma_bar: float) -> float:
@@ -206,6 +244,15 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((smc_feats or {}).get("fvg_liq_confluence", 0.0), 0, 1)),
         float(np.clip((smc_feats or {}).get("poc_dist", 0.0), -1, 1)),
         float(np.clip((smc_feats or {}).get("va_pos", 0.0), -1, 1)),
+        float(np.clip((extras or {}).get("regime_age_sec", 0.0)
+                      / 86400.0, 0, 1)),
+        _funding_dist((extras or {}).get("ts", time.time())),
+        dir_sign * float(np.clip((extras or {}).get("venue_disloc_bps", 0.0),
+                                 -30, 30)) / 10.0,
+        float(np.clip(_th(extras, "grid"), 0, 1)),
+        float(np.clip(_th(extras, "metronome"), 0, 1)),
+        float(np.clip(_th(extras, "clockwork"), 0, 1)),
+        float(np.clip(_th(extras, "stop_zone"), 0, 1)),
         *(dir_sign * v for v in _candle_patterns(candles)),
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),

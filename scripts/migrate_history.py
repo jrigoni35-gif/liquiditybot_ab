@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.features import FEATURE_NAMES  # noqa: E402
 from ml.history import HistoryStore  # noqa: E402
-from ml.features import PATTERN_NEUTRAL  # noqa: E402
+from ml.features import CONTEXT_NEUTRAL, PATTERN_NEUTRAL  # noqa: E402
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
 
 # side-relative features derivable from an older absolute-encoded file:
@@ -46,7 +46,7 @@ DIR_DERIVED = {
 }
 
 # every feature family with a documented migration neutral
-KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL,
+KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL, **CONTEXT_NEUTRAL,
                  **{k: 0.0 for k in DIR_DERIVED}}
 
 META_COLS = ("position_id", "asset", "side", "label", "net_pnl_usd",

@@ -16,7 +16,7 @@ from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION, build_features
 DIR_FEATURES = {
     "ret_1_dir", "ret_6_dir", "ret_12_dir", "ret_48_dir", "imbalance_dir",
     "basis_dir", "funding_dir", "mom_dir", "sent_dir",
-    "imbalance_delta_dir", "other_ret_6_dir",
+    "imbalance_delta_dir", "other_ret_6_dir", "venue_disloc_dir",
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir", "direction",
 }
 
@@ -41,11 +41,16 @@ def _vector(direction: str) -> np.ndarray:
                           macro, None, sent, smc,
                           extras={"ts": 1_700_000_000.0, "fear_greed": 30.0,
                                   "imbalance_delta": 0.5,
-                                  "other_ret_6": 1.2, "depth_ratio": 1.1})
+                                  "other_ret_6": 1.2, "depth_ratio": 1.1,
+                                  "regime_age_sec": 7200.0,
+                                  "venue_disloc_bps": 9.0,
+                                  "thales": {"grid": 0.4, "metronome": 0.2,
+                                             "clockwork": 0.1,
+                                             "stop_zone": 0.7}})
 
 
-def test_schema_version_is_2():
-    assert FEATURE_SCHEMA_VERSION == 2
+def test_schema_version_current():
+    assert FEATURE_SCHEMA_VERSION == 3
 
 
 def test_long_short_flip_exactly_the_dir_features():

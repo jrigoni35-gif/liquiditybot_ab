@@ -431,6 +431,27 @@ class ThalesEngine:
                 "stop_zone": round(prox, 3),
                 "feed_dirty": round(self._feed_integrity(st), 3)}
 
+    def feature_scores(self, asset: str, now: float) -> dict:
+        """Bounded [0,1] detector scores for the meta-model feature
+        vector (influence-ladder rung 3, operator-enabled): the model
+        learns each footprint's weight from labeled outcomes instead of
+        a hand-tuned shade. Read-only, never raises; zeros when the
+        engine is disabled or the asset has not warmed up."""
+        zeros = {"grid": 0.0, "metronome": 0.0, "clockwork": 0.0,
+                 "stop_zone": 0.0}
+        if not self.enabled:
+            return zeros
+        st = self._assets.get(asset)
+        if st is None:
+            return zeros
+        try:
+            s = self._scores(st, now)
+            return {k: float(min(max(float(s.get(k, 0.0)), 0.0), 1.0))
+                    for k in zeros}
+        except Exception:
+            log.debug("thales feature_scores degraded", exc_info=True)
+            return zeros
+
     def status(self, now: float) -> dict:
         if not self.enabled:
             return {"influence": "off"}
