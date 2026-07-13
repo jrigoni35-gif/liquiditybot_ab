@@ -119,6 +119,11 @@ def order_to_dict(o) -> dict:
     }
 
 
+def _feature_schema_version() -> int:
+    from ml.features import FEATURE_SCHEMA_VERSION
+    return FEATURE_SCHEMA_VERSION
+
+
 def order_from_dict(d: dict):
     from execution.order_manager import ManagedOrder
     o = ManagedOrder(
@@ -173,6 +178,7 @@ class StateStore:
                 },
                 "open_orders": [order_to_dict(o)
                                 for o in bot.orders.open_orders()],
+                "feature_schema_version": _feature_schema_version(),
                 "history_pending": {
                     pid: {"asset": a, "direction": d, "features": f.tolist()}
                     for pid, (a, d, f) in bot.history._pending.items()
@@ -324,12 +330,26 @@ class StateStore:
         except Exception:
             log.exception("open-orders section malformed - skipped")
 
-        # pending history features
+        # pending history features - version-gated: a feature-schema bump
+        # changes what same-width vectors MEAN (v2: side-relative), so a
+        # pending vector from another version must not produce a training
+        # row. The positions themselves still restore; only their future
+        # label rows are forfeited to keep the dataset pure.
         try:
-            for pid, h in data.get("history_pending", {}).items():
-                bot.history._pending[pid] = (
-                    h["asset"], h["direction"],
-                    np.array(h["features"], dtype=float))
+            snap_ver = int(data.get("feature_schema_version", 1) or 1)
+            if snap_ver != _feature_schema_version():
+                n = len(data.get("history_pending", {}))
+                if n:
+                    log.warning(
+                        "dropped %d pending label vector(s) from feature-"
+                        "schema v%d (current v%d) - their positions stay "
+                        "managed but will not produce training rows",
+                        n, snap_ver, _feature_schema_version())
+            else:
+                for pid, h in data.get("history_pending", {}).items():
+                    bot.history._pending[pid] = (
+                        h["asset"], h["direction"],
+                        np.array(h["features"], dtype=float))
         except Exception:
             log.exception("history section malformed - skipped")
 

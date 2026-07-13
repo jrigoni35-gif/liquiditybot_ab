@@ -24,22 +24,22 @@ from pathlib import Path
 # feature name -> the plain-language insight it represents, so the bot
 # describes what it has LEARNED rather than reciting column names
 _INSIGHT = {
-    "mom_score": "longer-horizon momentum",
-    "ret_1": "the last five minutes of drift",
-    "ret_6": "the last half-hour of drift",
-    "ret_12": "the last hour's trend",
-    "ret_48": "the four-hour trend",
+    "mom_dir": "longer-horizon momentum, with or against the trade",
+    "ret_1_dir": "the last five minutes of drift, with or against the trade",
+    "ret_6_dir": "the last half-hour of drift, with or against the trade",
+    "ret_12_dir": "the last hour's trend, with or against the trade",
+    "ret_48_dir": "the four-hour trend, with or against the trade",
     "sigma_bar_pct": "its own volatility, bar by bar",
     "vol_percentile": "where volatility sits within its own range",
-    "imbalance": "the weight of the order book",
+    "imbalance_dir": "the book's weight, leaning with or against the trade",
     "spread_bps": "the cost of crossing the spread",
     "fv_edge_bps": "the gap between price and fair value",
-    "basis_bps": "the basis between venues",
-    "funding_bps": "the cost carried by leverage",
+    "basis_dir": "the venue basis, with or against the trade",
+    "funding_dir": "the leverage carry, paid by my side or the other",
     "corr_fast": "how the majors are moving together",
     "turbulence_pct": "how disordered the tape has become",
     "fear_greed": "the crowd's fear and greed",
-    "sent_score": "the tone of the news flow",
+    "sent_dir": "the news-flow tone, with or against the trade",
 }
 
 

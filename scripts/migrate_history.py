@@ -30,8 +30,24 @@ from ml.history import HistoryStore  # noqa: E402
 from ml.features import PATTERN_NEUTRAL  # noqa: E402
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
 
+# side-relative features derivable from an older absolute-encoded file:
+# new_value = old_value * direction (the direction FEATURE column, +/-1).
+# Derivation preserves the old rows' full information; padding would
+# have thrown it away.
+DIR_DERIVED = {
+    "ret_1_dir": "ret_1", "ret_6_dir": "ret_6", "ret_12_dir": "ret_12",
+    "ret_48_dir": "ret_48", "imbalance_dir": "imbalance",
+    "basis_dir": "basis_bps", "funding_dir": "funding_bps",
+    "mom_dir": "mom_score", "sent_dir": "sent_score",
+    "imbalance_delta_dir": "imbalance_delta",
+    "other_ret_6_dir": "other_ret_6",
+    "pat_engulf_dir": "pat_engulf", "pat_hammer_dir": "pat_hammer",
+    "pat_marubozu_dir": "pat_marubozu",
+}
+
 # every feature family with a documented migration neutral
-KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL}
+KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL,
+                 **{k: 0.0 for k in DIR_DERIVED}}
 
 META_COLS = ("position_id", "asset", "side", "label", "net_pnl_usd",
              "source", "ts")
@@ -49,13 +65,21 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
         raise SystemExit(f"source is not a signal-history file - missing "
                          f"meta columns {missing_meta}")
 
-    padded = [n for n in FEATURE_NAMES if n not in src_cols]
+    def _derivable(n):
+        return (n in DIR_DERIVED and DIR_DERIVED[n] in src_cols
+                and "direction" in src_cols)
+
+    padded = [n for n in FEATURE_NAMES
+              if n not in src_cols and not _derivable(n)]
     out = []
     for r in src_rows:
         feats = []
         for n in FEATURE_NAMES:
             if n in src_cols:
                 feats.append(r[n])
+            elif _derivable(n):
+                sign = 1.0 if float(r["direction"]) >= 0 else -1.0
+                feats.append(f"{float(r[DIR_DERIVED[n]]) * sign:.6f}")
             else:
                 feats.append(f"{float(KNOWN_NEUTRAL.get(n, 0.0)):.6f}")
         out.append([r["position_id"], r["asset"], r["side"], *feats,

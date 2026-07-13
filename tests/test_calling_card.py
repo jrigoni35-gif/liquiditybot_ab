@@ -15,7 +15,7 @@ def _setup(o):
     (o / "meta_model.json").write_text(json.dumps({
         "kind": "ensemble_mlp", "oof_brier": 0.157,
         "calibration": {"x": [0.1], "y": [0.1]},
-        "wf_importance": [["mom_score", 0.13], ["ret_6", 0.08]],
+        "wf_importance": [["mom_dir", 0.13], ["ret_6_dir", 0.08]],
     }), encoding="utf-8")
     import csv
     with open(o / "signal_history.csv", "w", newline="",

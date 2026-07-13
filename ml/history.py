@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from core.codes import Code
-from ml.features import FEATURE_NAMES
+from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
 from ml.labeling import triple_barrier
 
 log = logging.getLogger("liquiditybot.ml.history")
@@ -354,6 +354,7 @@ class CandidateLabeler:
     # --- persistence hooks ---
     def to_dict(self) -> dict:
         return {"bars": self._bars, "seq": self._seq,
+                "schema_version": FEATURE_SCHEMA_VERSION,
                 "cands": [{**c, "features": c["features"].tolist()}
                         for c in self._cands],
                 # JSON keys must be strings: "asset|direction" -> bar_time
@@ -363,6 +364,20 @@ class CandidateLabeler:
     def restore(self, d: dict):
         if not d:
             return
+        # SEMANTIC guard: a version bump means same-width vectors changed
+        # meaning (v2: side-relative encoding) - the width check below
+        # cannot see that, and labeling a stale-semantics vector would
+        # append a silently-poisoned row under the current header.
+        ver = int(d.get("schema_version", 1) or 1)
+        if ver != FEATURE_SCHEMA_VERSION:
+            n = len(d.get("cands", []))
+            if n:
+                log.warning(
+                    f"{Code.ML_SCHEMA_MISMATCH.value}: dropped {n} restored "
+                    f"candidate(s) from feature-schema v{ver} (current "
+                    f"v{FEATURE_SCHEMA_VERSION}) - same width, different "
+                    f"meaning; they re-register fresh")
+            d = {**d, "cands": []}
         self._bars = {a: {k: list(v) for k, v in bb.items()}
                     for a, bb in d.get("bars", {}).items()}
         self._seq = int(d.get("seq", 0))

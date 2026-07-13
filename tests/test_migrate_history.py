@@ -31,8 +31,14 @@ def test_migrated_rows_load_under_current_schema(tmp_path):
     rows, padded = migrate_rows(str(src))
 
     assert len(rows) == 3
-    # every current feature the old file lacked is padded
-    assert set(padded) == {n for n in FEATURE_NAMES if n not in OLD_FEATS}
+    # every current feature the old file lacked is padded, EXCEPT the
+    # side-relative ones derivable from the old absolute column x the
+    # direction column - those carry real values, not neutrals
+    derivable = {"ret_1_dir", "imbalance_dir"}
+    assert set(padded) == {n for n in FEATURE_NAMES
+                           if n not in OLD_FEATS} - derivable
+    # derivation: old ret_1=0.1, direction=+1 -> ret_1_dir = +0.1
+    assert float(rows[0][3 + FEATURE_NAMES.index("ret_1_dir")]) == 0.1
     # SMC features use their documented neutrals, not blanket zeros
     for name, neutral in SMC_NEUTRAL.items():
         idx = 3 + FEATURE_NAMES.index(name)
@@ -92,5 +98,5 @@ def test_pattern_features_have_documented_neutral(tmp_path):
     """pat_* pads must be silent (documented neutral), not the
     'no documented neutral' warning path."""
     from scripts.migrate_history import KNOWN_NEUTRAL
-    for name in ("pat_engulf", "pat_hammer", "pat_marubozu"):
+    for name in ("pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir"):
         assert name in KNOWN_NEUTRAL and KNOWN_NEUTRAL[name] == 0.0

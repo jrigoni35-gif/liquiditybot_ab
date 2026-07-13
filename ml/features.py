@@ -37,26 +37,38 @@ EPS = 1e-9
 # 0.0 = "no formation present", the exact value _candle_patterns returns
 # when the shape is absent - padded old rows are indistinguishable from
 # genuinely patternless bars.
-PATTERN_NEUTRAL = {"pat_engulf": 0.0, "pat_hammer": 0.0,
-                   "pat_marubozu": 0.0}
+PATTERN_NEUTRAL = {"pat_engulf_dir": 0.0, "pat_hammer_dir": 0.0,
+                   "pat_marubozu_dir": 0.0}
 
+# Bumped whenever same-width vectors change MEANING (v2: side-relative
+# encoding). Restore paths must drop pending vectors from other versions
+# - the width guard alone cannot see a semantic change.
+FEATURE_SCHEMA_VERSION = 2
+
+# *_dir features are SIDE-RELATIVE: market-absolute signed quantities
+# multiplied by trade direction, so "+" always means "with my trade".
+# Labels are side-aware (win = the side taken paid); presenting signed
+# features in the same frame lets the linear ladder baseline use them
+# without waiting for a tree model to earn interactions. fv_edge_bps
+# and mtf_align were ALREADY side-relative by construction and keep
+# their names.
 FEATURE_NAMES = [
-    "ret_1", "ret_6", "ret_12", "ret_48",          # 5m,30m,1h,4h returns / vol
+    "ret_1_dir", "ret_6_dir", "ret_12_dir", "ret_48_dir",  # drift w/ trade
     "sigma_bar_pct", "vol_percentile",
-    "imbalance", "spread_bps", "depth_log",
-    "fv_edge_bps", "basis_bps",
-    "volume_z", "funding_bps",
-    "mom_score", "drawdown_pct",
+    "imbalance_dir", "spread_bps", "depth_log",
+    "fv_edge_bps", "basis_dir",
+    "volume_z", "funding_dir",
+    "mom_dir", "drawdown_pct",
     "regime_bull_quiet", "regime_bull_vol", "regime_range",
     "regime_bear", "regime_crisis",
     "corr_fast", "corr_shift", "turbulence_pct",
-    "sent_score", "sent_fear",
+    "sent_dir", "sent_fear",
     "fear_greed", "dominance_delta", "equity_risk_z",
     "hour_sin", "hour_cos", "weekend",
-    "imbalance_delta", "other_ret_6", "depth_ratio",
+    "imbalance_delta_dir", "other_ret_6_dir", "depth_ratio",
     "mtf_align", "pd_zone", "liq_pocket_pull",
     "fvg_pull", "fvg_liq_confluence", "poc_dist", "va_pos",
-    "pat_engulf", "pat_hammer", "pat_marubozu",
+    "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
     "direction", "gate_confidence",
 ]
 
@@ -123,6 +135,7 @@ def build_features(asset: str, direction: str, gate_confidence: float,
                 macro_state, corr_state, sentiment, smc_feats: dict,
                 other_asset: Optional[str] = None,
                 extras: Optional[dict] = None) -> np.ndarray:
+    dir_sign = 1.0 if direction == "long" else -1.0
     candles = view.get("candles") or []
     closes = np.array([c["close"] for c in candles], dtype=float) \
         if candles else np.array([0.0])
@@ -152,25 +165,28 @@ def build_features(asset: str, direction: str, gate_confidence: float,
     sent_fear = float(bool(getattr(sentiment, "fear_spike", False)))
 
     x = np.array([
-        _ret(closes, 1, sigma_bar), _ret(closes, 6, sigma_bar),
-        _ret(closes, 12, sigma_bar), _ret(closes, 48, sigma_bar),
+        dir_sign * _ret(closes, 1, sigma_bar),
+        dir_sign * _ret(closes, 6, sigma_bar),
+        dir_sign * _ret(closes, 12, sigma_bar),
+        dir_sign * _ret(closes, 48, sigma_bar),
         float(np.clip(vol_state.sigma_bar_pct, 0, 5)),
         vol_state.percentile / 100.0,
-        imb,
+        dir_sign * imb,
         float(np.clip(liq_state.spread_bps, 0, 60)) / 10.0,
         float(np.log1p(max(liq_state.depth_top10_usd, 0.0)) / 15.0),
         float(np.clip(fv_state.edge_bps("buy" if direction == "long" else "sell"),
                     -50, 50)) / 10.0,
-        float(np.clip(fv_state.basis_bps, -80, 80)) / 10.0,
+        dir_sign * float(np.clip(fv_state.basis_bps, -80, 80)) / 10.0,
         volume_z,
-        float(np.clip((view.get("funding_rate") or 0.0) * 1e4, -30, 30)) / 10.0,
-        macro_state.momentum_score,
+        dir_sign * float(np.clip((view.get("funding_rate") or 0.0) * 1e4,
+                                 -30, 30)) / 10.0,
+        dir_sign * macro_state.momentum_score,
         float(np.clip(macro_state.drawdown_pct, 0, 90)) / 100.0,
         *one_hot,
         corr_fast,
         float(np.clip(corr_shift, -1, 1)),
         turb_pct / 100.0,
-        float(np.clip(sent_score, -1, 1)),
+        dir_sign * float(np.clip(sent_score, -1, 1)),
         sent_fear,
         float(np.clip((extras or {}).get("fear_greed", 50.0), 0, 100)) / 100.0,
         float(np.clip((extras or {}).get("dominance_delta", 0.0), -3, 3)),
@@ -178,8 +194,10 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         math.sin(2 * math.pi * _hour_frac(extras)),
         math.cos(2 * math.pi * _hour_frac(extras)),
         float(time.gmtime((extras or {}).get("ts", time.time())).tm_wday >= 5),
-        float(np.clip((extras or {}).get("imbalance_delta", 0.0), -2, 2)),
-        float(np.clip((extras or {}).get("other_ret_6", 0.0), -3, 3)),
+        dir_sign * float(np.clip((extras or {}).get("imbalance_delta", 0.0),
+                                 -2, 2)),
+        dir_sign * float(np.clip((extras or {}).get("other_ret_6", 0.0),
+                                 -3, 3)),
         float(np.clip((extras or {}).get("depth_ratio", 1.0), 0, 3)),
         float(np.clip((smc_feats or {}).get("mtf_align", 0.0), -1, 1)),
         float(np.clip((smc_feats or {}).get("pd_zone", 0.5), 0, 1)),
@@ -188,8 +206,8 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((smc_feats or {}).get("fvg_liq_confluence", 0.0), 0, 1)),
         float(np.clip((smc_feats or {}).get("poc_dist", 0.0), -1, 1)),
         float(np.clip((smc_feats or {}).get("va_pos", 0.0), -1, 1)),
-        *_candle_patterns(candles),
-        1.0 if direction == "long" else -1.0,
+        *(dir_sign * v for v in _candle_patterns(candles)),
+        dir_sign,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)
     if x.shape[0] != len(FEATURE_NAMES):

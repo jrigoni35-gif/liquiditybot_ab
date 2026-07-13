@@ -15,7 +15,7 @@ import logging
 
 import numpy as np
 
-from ml.features import FEATURE_NAMES
+from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
 from ml.history import CandidateLabeler, HistoryStore
 
 WANT = len(FEATURE_NAMES)
@@ -42,6 +42,7 @@ def test_restore_drops_pre_rotation_candidates(tmp_path, caplog):
     store = HistoryStore(str(tmp_path / "h.csv"))
     lab = CandidateLabeler(store, {"label_max_bars": 96})
     snapshot = {"bars": {}, "seq": 2, "last_reg": {},
+                "schema_version": FEATURE_SCHEMA_VERSION,
                 "cands": [
                     {"id": "cand-1", "asset": "ETH", "direction": "long",
                      "features": [0.0] * (WANT - 7), "sigma_bar": 0.01,
@@ -54,3 +55,22 @@ def test_restore_drops_pre_rotation_candidates(tmp_path, caplog):
     assert [c["id"] for c in lab._cands] == ["cand-2"]
     assert any("ML-013" in r.getMessage() and "dropped 1" in r.getMessage()
                for r in caplog.records)
+
+
+def test_restore_drops_other_schema_versions_entirely(tmp_path, caplog):
+    """Same width, different MEANING: a snapshot from another feature-
+    schema version (or a versionless pre-v2 one) must drop every
+    candidate - the width check cannot see a semantic change like the
+    v2 side-relative re-encoding."""
+    store = HistoryStore(str(tmp_path / "h.csv"))
+    lab = CandidateLabeler(store, {"label_max_bars": 96})
+    snapshot = {"bars": {}, "seq": 1, "last_reg": {},
+                "cands": [{"id": "cand-1", "asset": "BTC",
+                           "direction": "long",
+                           "features": [0.0] * WANT, "sigma_bar": 0.01,
+                           "bar_time": 1000, "spread_bps": 1.0,
+                           "gates": None}]}          # no schema_version: v1
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        lab.restore(snapshot)
+    assert lab._cands == []
+    assert "different meaning" in caplog.text
