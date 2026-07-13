@@ -47,13 +47,17 @@ PATTERN_NEUTRAL = {"pat_engulf_dir": 0.0, "pat_hammer_dir": 0.0,
 CONTEXT_NEUTRAL = {"regime_age": 0.5, "funding_dist": 0.5,
                    "venue_disloc_dir": 0.0, "th_grid": 0.0,
                    "th_metronome": 0.0, "th_clockwork": 0.0,
-                   "th_stopzone": 0.0}
+                   "th_stopzone": 0.0,
+                   # options positioning: 0.0 = "no fear signal read"
+                   "opt_pcr_z": 0.0, "opt_oi_pcr_z": 0.0,
+                   "opt_iv_skew": 0.0}
 
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
-# v3: +context/THALES block, 46->53). Restore paths must drop pending
-# vectors from other versions - the width guard alone cannot see a
-# semantic change, and versioning also documents additive bumps.
-FEATURE_SCHEMA_VERSION = 3
+# v3: +context/THALES block, 46->53; v4: +options positioning, 53->56).
+# Restore paths must drop pending vectors from other versions - the
+# width guard alone cannot see a semantic change, and versioning also
+# documents additive bumps.
+FEATURE_SCHEMA_VERSION = 4
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -82,6 +86,9 @@ FEATURE_NAMES = [
     "funding_dist",               # 0..1: fraction of 8h cycle to settlement
     "venue_disloc_dir",           # kraken vs street mid, with/against trade
     "th_grid", "th_metronome", "th_clockwork", "th_stopzone",  # THALES [0,1]
+    "opt_pcr_z",                  # put/call VOLUME ratio z (day hedge flow)
+    "opt_oi_pcr_z",               # put/call OPEN-INTEREST ratio z (stock)
+    "opt_iv_skew",                # put-minus-call IV, points/10 [-1,1]
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
     "direction", "gate_confidence",
 ]
@@ -253,6 +260,12 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip(_th(extras, "metronome"), 0, 1)),
         float(np.clip(_th(extras, "clockwork"), 0, 1)),
         float(np.clip(_th(extras, "stop_zone"), 0, 1)),
+        # options positioning stays ABSOLUTE (like fear_greed/turbulence):
+        # a fear gauge whose directional payoff the model must learn -
+        # contrarian vs confirmation is an empirical question, not doctrine
+        float(np.clip((extras or {}).get("opt_pcr_z", 0.0), -4, 4)),
+        float(np.clip((extras or {}).get("opt_oi_pcr_z", 0.0), -4, 4)),
+        float(np.clip((extras or {}).get("opt_iv_skew", 0.0), -1, 1)),
         *(dir_sign * v for v in _candle_patterns(candles)),
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),

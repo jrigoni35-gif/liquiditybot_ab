@@ -1377,7 +1377,10 @@ class LiquidityBot:
                 "depth_ratio": self.liq.state(asset).depth_ratio,
                 "regime_age_sec": max(now - since[1], 0.0) if since else 0.0,
                 "venue_disloc_bps": disloc_bps,
-                "thales": self.thales.feature_scores(asset, now)}
+                "thales": self.thales.feature_scores(asset, now),
+                "opt_pcr_z": risk.opt_pcr_z,
+                "opt_oi_pcr_z": risk.opt_oi_pcr_z,
+                "opt_iv_skew": risk.opt_iv_skew}
 
     def _maybe_unwind_unteachable(self, now: float):
         """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:

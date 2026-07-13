@@ -51,6 +51,16 @@ class MoomooSnapshot:
     per_ticker: dict = field(default_factory=dict)   # code -> session ret %
     available: bool = False
     ts: float = field(default_factory=time.time)
+    # options positioning on the same risk basket (nearest expiry, NTM):
+    # put/call volume-ratio z vs own history (crowd fear when high) and
+    # the put-minus-call IV skew (tail-hedging premium). Read-only quote
+    # data; neutral 0.0 whenever chains are unavailable/unentitled.
+    opt_pcr_z: float = 0.0            # put/call VOLUME ratio, z (day flow)
+    opt_oi_pcr_z: float = 0.0         # put/call OPEN-INTEREST ratio, z (stock)
+    opt_iv_skew: float = 0.0          # put-minus-call IV, points/10, clipped
+    opt_pcr: float = 0.0              # raw volume ratio, for the dashboard
+    opt_oi_pcr: float = 0.0           # raw OI ratio, for the dashboard
+    options_available: bool = False
 
 
 class MoomooFeed:
@@ -66,6 +76,21 @@ class MoomooFeed:
         self._sdk_ok = quote_ctx is not None
         self._last_poll = 0.0
         self._ret_hist: deque = deque(maxlen=int(cfg.get("z_lookback_polls", 60)))
+        ocfg = cfg.get("options", {}) or {}
+        self.opt_enabled = bool(ocfg.get("enabled", True))
+        self.opt_underlyings = list(ocfg.get("underlyings", [])) or \
+            [t["code"] for t in self.tickers if t.get("code")][:2]
+        self.opt_poll_sec = float(ocfg.get("poll_minutes", 15.0)) * 60.0
+        self.opt_max_contracts = int(ocfg.get("max_contracts", 60))
+        self.opt_ntm_pct = float(ocfg.get("ntm_band_pct", 10.0))
+        self._opt_hist: deque = deque(maxlen=int(ocfg.get("z_lookback_polls",
+                                                          40)))
+        self._opt_oi_hist: deque = deque(maxlen=int(ocfg.get(
+            "z_lookback_polls", 40)))
+        self._last_opt_poll = 0.0
+        # (pcr_z, oi_pcr_z, iv_skew, raw_pcr, raw_oi_pcr)
+        self._opt_vals = (0.0, 0.0, 0.0, 0.0, 0.0)
+        self._opt_available = False
         self._snapshot = MoomooSnapshot()
         self._warned = False
 
@@ -219,10 +244,115 @@ class MoomooFeed:
         sd = float(arr.std()) if len(arr) >= 8 else 0.0
         z = float(np.clip((basket - float(arr.mean())) / sd, -4, 4)) if sd > EPS else 0.0
 
+        # options ride the same connection on their own slower cadence; a
+        # chain failure must never take down the equity snapshot, so this
+        # is fully fenced and merely reuses the last good option values.
+        if self.opt_enabled and now - self._last_opt_poll >= self.opt_poll_sec:
+            self._last_opt_poll = now
+            try:
+                self._opt_vals = self._poll_options()
+                self._opt_available = True
+            except Exception as e:
+                log.warning(f"moomoo options poll failed ({e}) - options "
+                            f"context neutral until next attempt")
+                self._opt_available = False
+
+        pcr_z, oi_z, skew, pcr, oi_pcr = self._opt_vals \
+            if self._opt_available else (0.0, 0.0, 0.0, 0.0, 0.0)
         snap = MoomooSnapshot(risk_z=z, basket_ret_pct=round(basket, 3),
-                            per_ticker=per, available=True, ts=now)
-        log.info(f"moomoo: basket {basket:+.2f}% (z={z:+.2f}) {per}")
+                            per_ticker=per, available=True, ts=now,
+                            opt_pcr_z=pcr_z, opt_oi_pcr_z=oi_z,
+                            opt_iv_skew=skew, opt_pcr=pcr,
+                            opt_oi_pcr=oi_pcr,
+                            options_available=self._opt_available)
+        log.info(f"moomoo: basket {basket:+.2f}% (z={z:+.2f}) {per}"
+                 + (f" | options vol-pcr={pcr:.2f} (z={pcr_z:+.2f}) "
+                    f"oi-pcr={oi_pcr:.2f} (z={oi_z:+.2f}) "
+                    f"skew={skew:+.2f}" if self._opt_available else ""))
         return snap
+
+    def _poll_options(self) -> tuple:
+        """Nearest-expiry, near-the-money put/call positioning across the
+        configured underlyings - quote-context reads only (expiries ->
+        chain -> market snapshot on the contract codes). Two ratios are
+        read PRECISELY apart because they mean different things:
+        VOLUME put/call = today's hedging flow; OPEN-INTEREST put/call =
+        the standing stock of positioning. IV skew = the tail-hedging
+        premium. Returns (pcr_z, oi_pcr_z, iv_skew, raw_pcr, raw_oi_pcr);
+        raises on gateway/data problems (the caller fences it)."""
+        assert self._ctx is not None
+        put_vol = call_vol = put_oi = call_oi = 0.0
+        put_iv, call_iv = [], []
+        for code in self.opt_underlyings:
+            ret, exp = self._ctx.get_option_expiration_date(code)
+            if ret != 0 or exp is None or len(exp) == 0:
+                continue
+            expiry = str(exp.iloc[0]["strike_time"])  # type: ignore  # SDK stubs type the payload as str; DataFrame after ret==0
+            ret, chain = self._ctx.get_option_chain(code, start=expiry,
+                                                    end=expiry)
+            if ret != 0 or chain is None or len(chain) == 0:  # type: ignore  # same SDK stub union
+                continue
+            rows = list(chain.iterrows())  # type: ignore  # DataFrame after the ret==0 guard
+            strikes = sorted(float(r.get("strike_price") or 0.0)
+                             for _, r in rows if r.get("strike_price"))
+            if not strikes:
+                continue
+            # median strike anchors the near-the-money band: chains are
+            # listed densest around spot, so the median tracks it without
+            # needing a separate quote round-trip
+            mid = strikes[len(strikes) // 2]
+            band = mid * self.opt_ntm_pct / 100.0
+            picked = [(str(r.get("code")), str(r.get("option_type")))
+                      for _, r in rows
+                      if r.get("code")
+                      and abs(float(r.get("strike_price") or 0.0) - mid)
+                      <= band]
+            picked = picked[: self.opt_max_contracts]
+            if not picked:
+                continue
+            ret, snapdf = self._ctx.get_market_snapshot(
+                [c for c, _ in picked])
+            if ret != 0:
+                raise RuntimeError(f"option snapshot ret={ret}: {snapdf}")
+            types = dict(picked)
+            for _, row in snapdf.iterrows():  # type: ignore  # DataFrame after the ret==0 guard
+                c = str(row.get("code"))
+                vol = float(row.get("volume") or 0.0)
+                oi = float(row.get("option_open_interest") or 0.0)
+                iv = float(row.get("option_implied_volatility") or 0.0)
+                if types.get(c) == "PUT":
+                    put_vol += vol
+                    put_oi += oi
+                    if iv > EPS:
+                        put_iv.append(iv)
+                else:
+                    call_vol += vol
+                    call_oi += oi
+                    if iv > EPS:
+                        call_iv.append(iv)
+        if call_vol <= EPS and put_vol <= EPS:
+            raise RuntimeError("no option volume in NTM band")
+
+        def _z(ratio: float, hist: deque) -> float:
+            hist.append(ratio)
+            arr = np.array(hist, float)
+            sd = float(arr.std()) if len(arr) >= 8 else 0.0
+            return float(np.clip((ratio - float(arr.mean())) / sd,
+                                 -4, 4)) if sd > EPS else 0.0
+
+        pcr = put_vol / max(call_vol, 1.0)
+        pcr_z = _z(pcr, self._opt_hist)
+        # OI may be unentitled/zero on some plans: neutral, never fatal
+        oi_pcr = (put_oi / max(call_oi, 1.0)) \
+            if (put_oi > EPS or call_oi > EPS) else 0.0
+        oi_z = _z(oi_pcr, self._opt_oi_hist) if oi_pcr > EPS else 0.0
+        skew = 0.0
+        if put_iv and call_iv:
+            # IV points (e.g. 65 vs 58 -> +7): /10 and clip to [-1, 1]
+            skew = float(np.clip(
+                (sum(put_iv) / len(put_iv) - sum(call_iv) / len(call_iv))
+                / 10.0, -1.0, 1.0))
+        return (pcr_z, oi_z, skew, round(pcr, 3), round(oi_pcr, 3))
 
     def close(self):
         if self._ctx is not None:

@@ -519,6 +519,13 @@ def signals_panel(s: dict):
             z = float(risk.get("risk_z", 0))
             st.metric("Basket z", f"{z:+.2f}",
                       f"{risk.get('basket_ret_pct', 0):+.2f}% return")
+            if risk.get("options_available"):
+                st.caption(
+                    f"options: vol-P/C {risk.get('opt_pcr', 0):.2f} "
+                    f"(z {risk.get('opt_pcr_z', 0):+.2f}) · "
+                    f"OI-P/C {risk.get('opt_oi_pcr', 0):.2f} "
+                    f"(z {risk.get('opt_oi_pcr_z', 0):+.2f}) · "
+                    f"IV skew {risk.get('opt_iv_skew', 0):+.2f}")
         else:
             st.caption("Feed unavailable.")
 

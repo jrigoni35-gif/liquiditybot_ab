@@ -50,7 +50,7 @@ def _vector(direction: str) -> np.ndarray:
 
 
 def test_schema_version_current():
-    assert FEATURE_SCHEMA_VERSION == 3
+    assert FEATURE_SCHEMA_VERSION == 4
 
 
 def test_long_short_flip_exactly_the_dir_features():

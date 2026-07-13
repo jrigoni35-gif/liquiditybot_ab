@@ -27,7 +27,7 @@ from ml.features import FEATURE_NAMES
 
 log = logging.getLogger("liquiditybot.ml.contracts")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # name -> (lo, hi) inclusive legal range; tolerance added at check time
 _RANGES = {
@@ -54,6 +54,7 @@ _RANGES = {
     "venue_disloc_dir": (-3, 3),
     "th_grid": (0, 1), "th_metronome": (0, 1),
     "th_clockwork": (0, 1), "th_stopzone": (0, 1),
+    "opt_pcr_z": (-4, 4), "opt_oi_pcr_z": (-4, 4), "opt_iv_skew": (-1, 1),
     "pat_engulf_dir": (-1, 1), "pat_hammer_dir": (-1, 1), "pat_marubozu_dir": (-1, 1),
     "direction": (-1, 1), "gate_confidence": (0, 1),
 }
