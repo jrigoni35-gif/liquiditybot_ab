@@ -12,7 +12,8 @@ This runner owns the ONLY loop in the system, and around each cycle it:
   4. snapshots on cadence (the engine also snapshots after every fill)
 
 Commands: start, pause, stop, step, snapshot, entries_on, entries_off,
-arm_live (requires confirm phrase), disarm_live, flatten_all,
+arm_live (requires confirm phrase), disarm_live, force_dry (one-way
+LIVE->DRY), flatten_all,
 sim_price_shock / sim_force_fear / sim_force_regime / sim_clear
 (sim_* are refused outright when config is live).
 
