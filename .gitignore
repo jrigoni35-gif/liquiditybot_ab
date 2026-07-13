@@ -8,8 +8,11 @@ __pycache__/
 # runtime telemetry (live bot state, audit trail, logs) - never in history
 outputs/
 
-# harness/session files
-.claude/
+# harness/session files: project hooks/settings ARE committed (they carry
+# the web-session bootstrap + learning-continuity import); only per-machine
+# local overrides stay out of history.
+.claude/settings.local.json
+.claude/*.local.*
 
 # packaged deliverables
 *.zip

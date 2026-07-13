@@ -40,6 +40,7 @@ PORTABLE = [
     "checkin/checkin_log.jsonl",
     "postmortem_summary.csv",
     "overfit_report.md",
+    "meta_model.json",
 ]
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}

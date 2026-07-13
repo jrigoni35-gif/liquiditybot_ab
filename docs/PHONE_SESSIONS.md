@@ -18,6 +18,27 @@ Live runner state never travels in either lane: `state.json` /
 `status.json` describe one running ledger and importing them elsewhere
 would fork the book. The export tool refuses to bundle them.
 
+## The continuity loop (no matter which device)
+
+Both devices feed and drink from the SAME stream — one code line
+(`main`), one data branch (`paper-telemetry`):
+
+- **Cloud session starts** → the SessionStart hook
+  (`.claude/hooks/session-start.sh`, registered in
+  `.claude/settings.json`) installs dependencies, fetches
+  `paper-telemetry`, and imports every bundle into `outputs/` before any
+  work begins. The bot resumes from the accumulated training rows and
+  adopts the bundled `meta_model.json` when it has none — never a cold
+  start after the first session.
+- **Cloud session runs** → hourly export pushes the growing bundle back
+  to `paper-telemetry`.
+- **At home** → import bundles with `session_import.py` (below); export
+  after a home run with `session_export.py` so the next phone session
+  consumes what home learned. The trained model travels copy-if-absent:
+  a machine that already has `outputs/meta_model.json` keeps its own and
+  retrains from the merged rows; only a machine with no model adopts the
+  bundled one.
+
 ## Session side (automated in-session)
 
 ```

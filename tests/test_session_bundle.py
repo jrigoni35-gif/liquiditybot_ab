@@ -121,3 +121,33 @@ def test_import_merges_dedupes_and_never_touches_state(tmp_path):
     rows2 = [ln for ln in (home / "signal_history.csv")
              .read_text(encoding="utf-8").splitlines()[1:] if ln.strip()]
     assert len(rows2) == 4
+
+
+def test_model_travels_copy_if_absent(tmp_path):
+    out = _seed_outputs(tmp_path)
+    (out / "meta_model.json").write_text('{"kind": "gbt", "v": 1}',
+                                         encoding="utf-8")
+    dst = tmp_path / "bundle"
+    m = sx.export(str(out), str(dst), "qa")
+    assert "meta_model.json" in m["files"]
+
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    assert si.run(str(dst), str(home), apply=True) == 0
+    assert (home / "meta_model.json").read_text(encoding="utf-8") == \
+        '{"kind": "gbt", "v": 1}'
+
+
+def test_model_never_overwrites_local(tmp_path):
+    out = _seed_outputs(tmp_path)
+    (out / "meta_model.json").write_text('{"v": "session"}', encoding="utf-8")
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    (home / "meta_model.json").write_text('{"v": "home-authoritative"}',
+                                          encoding="utf-8")
+    assert si.run(str(dst), str(home), apply=True) == 0
+    assert (home / "meta_model.json").read_text(encoding="utf-8") == \
+        '{"v": "home-authoritative"}'

@@ -146,6 +146,15 @@ def run(src: str, outputs: str, apply: bool) -> int:
         return 0
 
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    # the trained model travels copy-if-absent: a machine that already has
+    # outputs/meta_model.json keeps its own (retrain locally from the merged
+    # rows); a fresh container consumes the bundled brain immediately.
+    model_src = srcp / "meta_model.json"
+    model_dst = out / "meta_model.json"
+    if model_src.exists() and not model_dst.exists():
+        model_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(model_src, model_dst)
+        print("  meta_model.json adopted (none present locally)")
     dest_hist = out / "signal_history.csv"
     if new_lines:
         if dest_hist.exists():
