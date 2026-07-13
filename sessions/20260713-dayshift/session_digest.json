@@ -1,97 +1,113 @@
 {
-  "generated_at": 1783963762.9613268,
+  "generated_at": 1783970294.011551,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1783963754.0,
-    "duration_h": 6.94
+    "end": 1783970287.0,
+    "duration_h": 8.75
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 799.75,
-    "equity_min": 799.75,
+    "equity_end": 799.24,
+    "equity_min": 799.24,
     "equity_max": 800.2,
-    "equity_range": 0.45,
-    "realized_pnl_total": 0.15,
-    "fees_paid_total": 0.8264,
+    "equity_range": 0.96,
+    "realized_pnl_total": -0.42,
+    "fees_paid_total": 1.267,
     "open_positions": 5,
-    "samples": 1573
+    "samples": 1970
   },
   "activity": {
-    "signal_rows_total": 6,
-    "live_labeled_trades": 6,
-    "candidate_rows": 0
+    "signal_rows_total": 22,
+    "live_labeled_trades": 10,
+    "candidate_rows": 12
   },
   "audit": {
-    "records": 81,
-    "signal_records": 25,
+    "records": 104,
+    "signal_records": 37,
     "by_src": {
-      "exploration": 56,
-      "order_manager": 23,
-      "startup": 2
+      "exploration": 67,
+      "order_manager": 33,
+      "startup": 4
     },
     "top_codes": [
       [
         "ML-070",
-        56
+        67
       ],
       [
         "OM-000",
-        23
+        33
       ],
       [
         "CG-000",
-        2
+        4
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.92,
+    "dominant_frac": 0.892,
     "retrain_requests": 0,
     "kill_switch_events": 0,
     "chain_ok": true,
     "chain_first_break": null
   },
   "events": {
-    "records": 3888,
+    "records": 6759,
     "by_level": {
-      "INFO": 3880,
-      "WARNING": 4,
-      "ERROR": 4
+      "INFO": 4824,
+      "ERROR": 1834,
+      "WARNING": 101
     },
     "top_warnings": [
       [
-        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        2
-      ],
-      [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        2
-      ],
-      [
-        "control: sim_force_regime {'asset': 'BTC', 'label': 'range', 'cycles': 12} -> ok (runner=RUNNING)",
-        1
-      ],
-      [
-        "control: sim_force_regime {'asset': 'BTC', 'label': 'range', 'cycles': 5000} -> ok (runner=RUNNING)",
-        1
+        821
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
-        1
+        708
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        1
+        115
+      ],
+      [
+        "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
+        38
+      ],
+      [
+        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
+        38
+      ],
+      [
+        "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
+        38
+      ],
+      [
+        "OKX request failed for https://www.okx.com/api/v5/public/funding-rate: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceed",
+        38
+      ],
+      [
+        "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
+        38
+      ],
+      [
+        "Binance.US: skipping ETHUSD, order book unavailable",
+        19
+      ],
+      [
+        "Binance.US: skipping BTCUSD, order book unavailable",
+        19
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1776,
-      "thin": 384
+      "spoofy": 2157,
+      "thin": 468
     },
     "spoofy_frac": 0.822,
-    "cycles_estimate": 784,
-    "feed_error_events": 4
+    "cycles_estimate": 962,
+    "feed_error_events": 1921
   },
   "model": {
     "monitor_level": 0,
@@ -99,13 +115,15 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.25,
     "brier": "n/a",
-    "history_rows": 6,
+    "history_rows": 10,
     "cold": true
   },
   "postmortems": {
-    "count": 0,
-    "causes": {},
-    "worst_realized_pct": 0.0,
+    "count": 2,
+    "causes": {
+      "cost_overrun": 2
+    },
+    "worst_realized_pct": -2.2,
     "impossible_count": 0
   },
   "streams_present": {
@@ -114,7 +132,7 @@
     "equity.csv": true,
     "state.json": true,
     "signal_history.csv": true,
-    "postmortem_summary.csv": false
+    "postmortem_summary.csv": true
   },
   "diagnostics": [
     {
