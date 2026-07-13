@@ -96,3 +96,33 @@ Windows. Two Task Scheduler entries reproduce it:
 
 `core/watchdog.py` (feed staleness / PnL-velocity quarantine) is always
 on inside the engine and needs no scheduling.
+
+## Home runbook (Windows) — full parity in ~15 minutes
+
+One-time setup on the PC, in order:
+
+1. **Bot**: clone the repo, run `install.bat`, then `start.bat`
+   (dashboard opens locally; bot starts in DRY RUN as always).
+2. **Adopt the cloud learning**: fetch the telemetry branch and import -
+   see "Home side" above. If the import reports a schema mismatch, run
+   the `migrate_history.py` command it prints, then re-import.
+3. **Watchdog** (Task Scheduler, two entries, see previous section):
+   keepalive every 10 min + `run_checkin.bat` hourly; create
+   `outputs\keepalive.on` to arm revival.
+4. **Phone dashboard** (Tailscale, no repo config changes - the
+   loopback hardening in `.streamlit/config.toml` stays exactly as is):
+   - install Tailscale on the PC and sign in (same account as the phone)
+   - in PowerShell: `tailscale serve --bg 8501`
+   - the dashboard is now `https://<pc-name>.<tailnet>.ts.net` from any
+     of your tailnet devices, TLS included. Phone on the same Wi-Fi
+     connects directly (single-digit ms); on LTE typically 30-80ms.
+   - `tailscale serve --https=443 off` disables it; the serve config
+     survives reboots otherwise.
+5. **Optional - moomoo equities context**: install the OpenD gateway,
+   log in, leave it running (port 11111), `pip install moomoo-api` in
+   the venv. The bot auto-detects it on the next poll; without it the
+   `equity_risk_z` feature simply stays neutral.
+
+Cloud sessions and the home bot then share one code line (`main`) and
+one learning stream (`paper-telemetry`), with the phone able to watch
+either dashboard through the same private tailnet.
