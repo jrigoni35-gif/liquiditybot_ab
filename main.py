@@ -102,6 +102,28 @@ def load_config(path: str = "config.json") -> dict:
         return json.load(f)
 
 
+def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
+                            rows: int, until_live_rows: int, now: float,
+                            min_age_h: float):
+    """Learning-phase anti-wedge (ML-071), pure decision logic: when the
+    book is full and NOT ONE open position can produce a training row
+    (their pending vectors were dropped by a feature-schema gate), the
+    row pipeline is starved behind dead weight - return the OLDEST
+    non-hedge position to unwind, one per call. If even one position
+    still teaches, or exploration has graduated (rows >=
+    until_live_rows), never intervenes. Exits remain owned by the tier
+    engine/ratchet in every other circumstance."""
+    if not at_capacity or rows >= until_live_rows or not positions:
+        return None
+    if any(p.position_id in pending_ids for p in positions):
+        return None
+    old_enough = [p for p in positions if not p.is_hedge and
+                  (now - p.opened_at.timestamp()) / 3600.0 >= min_age_h]
+    if not old_enough:
+        return None
+    return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
+
+
 def _book_mid(book: dict) -> float:
     """Top-of-book mid, 0.0 when either side is missing/malformed."""
     try:
@@ -1051,6 +1073,7 @@ class LiquidityBot:
         if closes:
             self.corr.update_intraday(closes)
 
+        self._maybe_unwind_unteachable(now)
         sentiment = self.xscan.maybe_poll(now)
         web = self.webdata.maybe_poll(now)
         risk = self.moomoo.maybe_poll(now)
@@ -1355,6 +1378,31 @@ class LiquidityBot:
                 "regime_age_sec": max(now - since[1], 0.0) if since else 0.0,
                 "venue_disloc_bps": disloc_bps,
                 "thales": self.thales.feature_scores(asset, now)}
+
+    def _maybe_unwind_unteachable(self, now: float):
+        """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:
+        live exits stay entirely with the tier engine and operator."""
+        cfg = self.config.get("ml", {}).get("exploration", {})
+        if not self.dry_run or not cfg.get("unteachable_unwind", True):
+            return
+        positions = self.state.open_positions()
+        cap = self.capital.max_concurrent_positions
+        pos = pick_unteachable_unwind(
+            positions, set(self.history._pending), len(positions) >= cap,
+            self.history.row_count(),
+            int(cfg.get("until_live_rows", 240)), now,
+            float(cfg.get("unteachable_min_age_h", 1.0)))
+        if pos is None:
+            return
+        get_audit().log("engine", Code.ML_UNTEACHABLE_UNWIND,
+                        f"learning-phase unwind {pos.symbol} "
+                        f"{pos.position_id[:8]}: book full, zero pending "
+                        f"label vectors - freeing a slot for trades that "
+                        f"teach", {"position_id": pos.position_id})
+        log.warning(f"{Code.ML_UNTEACHABLE_UNWIND.value}: unwinding "
+                    f"{pos.symbol} {pos.position_id[:8]} - full book, no "
+                    f"open position can produce a training row")
+        self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)")
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence
