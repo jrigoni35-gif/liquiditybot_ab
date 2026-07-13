@@ -27,7 +27,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.features import FEATURE_NAMES  # noqa: E402
 from ml.history import HistoryStore  # noqa: E402
+from ml.features import PATTERN_NEUTRAL  # noqa: E402
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
+
+# every feature family with a documented migration neutral
+KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL}
 
 META_COLS = ("position_id", "asset", "side", "label", "net_pnl_usd",
              "source", "ts")
@@ -53,7 +57,7 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
             if n in src_cols:
                 feats.append(r[n])
             else:
-                feats.append(f"{float(SMC_NEUTRAL.get(n, 0.0)):.6f}")
+                feats.append(f"{float(KNOWN_NEUTRAL.get(n, 0.0)):.6f}")
         out.append([r["position_id"], r["asset"], r["side"], *feats,
                     r["label"], r["net_pnl_usd"], r["source"], r["ts"]])
     return out, padded
@@ -69,7 +73,7 @@ def main() -> int:
     args = ap.parse_args()
 
     rows, padded = migrate_rows(args.src)
-    unknown = [n for n in padded if n not in SMC_NEUTRAL]
+    unknown = [n for n in padded if n not in KNOWN_NEUTRAL]
     print(f"source rows: {len(rows)}")
     print(f"padded features ({len(padded)}): {padded}")
     if unknown:
@@ -83,11 +87,16 @@ def main() -> int:
 
     store = HistoryStore(args.dest)
     dest = Path(args.dest)
+    # rotate-or-create FIRST: reading dedupe ids from a dest that is
+    # about to be rotated away compared the migrated rows against their
+    # own old-schema selves - every row skipped as a "duplicate", zero
+    # written (observed on the 43->46 candle-pattern bump; the 36->43
+    # migrations never hit it because their dest was already rotated).
+    store._ensure_schema()
     existing_ids = set()
     if dest.exists():
         with open(dest, newline="", encoding="utf-8") as f:
             existing_ids = {r.get("position_id") for r in csv.DictReader(f)}
-    store._ensure_schema()
     written = skipped = 0
     with open(dest, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)

@@ -50,6 +50,7 @@ _RANGES = {
     "mtf_align": (-1, 1), "pd_zone": (0, 1), "liq_pocket_pull": (0, 1),
     "fvg_pull": (0, 1), "fvg_liq_confluence": (0, 1),
     "poc_dist": (-1, 1), "va_pos": (-1, 1),
+    "pat_engulf": (-1, 1), "pat_hammer": (-1, 1), "pat_marubozu": (-1, 1),
     "direction": (-1, 1), "gate_confidence": (0, 1),
 }
 _TOL = 1e-6

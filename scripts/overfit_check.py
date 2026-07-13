@@ -89,7 +89,7 @@ def synthetic_benchmark(n: int | None = None, seed: int = 11):
     rng = np.random.default_rng(seed)
     d = len(FEATURE_NAMES)
     if n is None:
-        n = d * 35
+        n = d * 40
     X = np.zeros((n, d))
     live = rng.normal(size=(n, 6))
     X[:, 0] = np.clip(live[:, 0], -6, 6)          # ret_1

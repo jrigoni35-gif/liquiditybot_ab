@@ -33,6 +33,13 @@ from typing import Optional
 
 EPS = 1e-9
 
+# documented neutrals for schema migration (scripts/migrate_history.py):
+# 0.0 = "no formation present", the exact value _candle_patterns returns
+# when the shape is absent - padded old rows are indistinguishable from
+# genuinely patternless bars.
+PATTERN_NEUTRAL = {"pat_engulf": 0.0, "pat_hammer": 0.0,
+                   "pat_marubozu": 0.0}
+
 FEATURE_NAMES = [
     "ret_1", "ret_6", "ret_12", "ret_48",          # 5m,30m,1h,4h returns / vol
     "sigma_bar_pct", "vol_percentile",
@@ -49,6 +56,7 @@ FEATURE_NAMES = [
     "imbalance_delta", "other_ret_6", "depth_ratio",
     "mtf_align", "pd_zone", "liq_pocket_pull",
     "fvg_pull", "fvg_liq_confluence", "poc_dist", "va_pos",
+    "pat_engulf", "pat_hammer", "pat_marubozu",
     "direction", "gate_confidence",
 ]
 
@@ -59,6 +67,48 @@ def _hour_frac(extras) -> float:
     crypto has)."""
     tm = time.gmtime((extras or {}).get("ts", time.time()))
     return (tm.tm_hour + tm.tm_min / 60.0) / 24.0
+
+
+def _candle_patterns(candles: list) -> tuple:
+    """Two-bar formation scores in [-1, 1], 0.0 = absent/neutral. Pure
+    mathematically-defined formations on the last two COMMITTED bars
+    (the feeds drop the forming candle), fed to the meta-model as
+    features - never a gate, never a veto (same contract as the SMC
+    block): the model learns from labeled outcomes whether each
+    formation deserves weight.
+
+    pat_engulf   signed body-engulfing: opposite-colour body covering
+                 the prior body's span; strength = body-size ratio
+                 (2x prior body saturates at +/-1)
+    pat_hammer   signed rejection wick: + long lower wick (hammer),
+                 - long upper wick (shooting star), damped toward 0 as
+                 the body grows (a full-body bar rejects nothing)
+    pat_marubozu signed conviction: body share of true range, sign =
+                 candle direction; +/-1 full-body momentum bar, 0 doji
+    """
+    if not candles or len(candles) < 2:
+        return 0.0, 0.0, 0.0
+    try:
+        prev, last = candles[-2], candles[-1]
+        o0, c0 = float(prev["open"]), float(prev["close"])
+        o1, h1 = float(last["open"]), float(last["high"])
+        l1, c1 = float(last["low"]), float(last["close"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0, 0.0, 0.0
+    rng = max(h1 - l1, EPS)
+    body, body_prev = c1 - o1, c0 - o0
+    engulf = 0.0
+    if body * body_prev < 0 and abs(body) > EPS:
+        lo0, hi0 = min(o0, c0), max(o0, c0)
+        if min(o1, c1) <= lo0 and max(o1, c1) >= hi0:
+            ratio = abs(body) / (abs(body_prev) + EPS)
+            engulf = float(np.sign(body) * np.clip(ratio / 2.0, 0.0, 1.0))
+    upper = h1 - max(o1, c1)
+    lower = min(o1, c1) - l1
+    small_body = 1.0 - min(abs(body) / rng, 1.0)
+    hammer = float(np.clip((lower - upper) / rng, -1.0, 1.0) * small_body)
+    marubozu = float(np.sign(body) * min(abs(body) / rng, 1.0))
+    return engulf, hammer, marubozu
 
 
 def _ret(closes: np.ndarray, k: int, sigma_bar: float) -> float:
@@ -138,6 +188,7 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((smc_feats or {}).get("fvg_liq_confluence", 0.0), 0, 1)),
         float(np.clip((smc_feats or {}).get("poc_dist", 0.0), -1, 1)),
         float(np.clip((smc_feats or {}).get("va_pos", 0.0), -1, 1)),
+        *_candle_patterns(candles),
         1.0 if direction == "long" else -1.0,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)
