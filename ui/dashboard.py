@@ -268,7 +268,9 @@ def header(s: dict):
                   delta_color=("inverse" if dd > 0 else "off"))
     with right:
         c1, c2, c3 = st.columns(3)
-        c1.metric("Cycle", s.get("cycle", 0))
+        c1.metric("Cycle", s.get("cycle", 0),
+                  help="this process; lifetime survives restarts")
+        c1.caption(f"lifetime {s.get('cycle_lifetime', 0):,}")
         # order latency measures private POSTs, which dry-run never makes -
         # fall back to the data-feed RTT so the metric is never a dead zero
         lat = float(s.get("latency_ms", 0))

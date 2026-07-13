@@ -217,7 +217,9 @@ class BotRunner:
         risk = bot.moomoo.snapshot()
         equity = bot._equity()
         return {
-            "ts": now, "cycle": bot._cycle, "runner_state": self.state,
+            "ts": now, "cycle": bot._cycle,
+            "cycle_lifetime": getattr(bot, "_cycle_lifetime", 0),
+            "runner_state": self.state,
             "mode": "DRY_RUN" if bot.dry_run else
                     ("LIVE_ARMED" if bot.live_armed else "LIVE_DISARMED"),
             "entries_enabled": bot.entries_enabled, "halted": bot._halted,

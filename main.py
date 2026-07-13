@@ -362,7 +362,8 @@ class LiquidityBot:
         self.daily_candles: dict = {}       # base asset -> daily candles
         self.margin_level_pct: float = 0.0
         self._pos_realized: dict = {}       # position_id -> cumulative net PnL
-        self._cycle = 0
+        self._cycle = 0                     # per-process heartbeat
+        self._cycle_lifetime = 0            # survives restarts via snapshot
         self._last_macro = 0.0
         self._last_snapshot = 0.0
         self._halted = False
@@ -1512,6 +1513,7 @@ class LiquidityBot:
         if self._cycle % self.slow_every == 0:
             self.slow_cycle(now)
         self._cycle += 1
+        self._cycle_lifetime += 1
 
     def _apply_sim(self):
         if not self.dry_run or not self.sim.active():

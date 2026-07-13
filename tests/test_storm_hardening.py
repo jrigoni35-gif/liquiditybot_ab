@@ -78,3 +78,34 @@ def test_old_snapshot_without_key_keeps_init_value(tmp_path):
     revived = _stub_bot(rows_at_last_train=112)
     assert store.restore(revived)
     assert revived._rows_at_last_train == 112       # init default retained
+
+
+def test_cycle_lifetime_survives_snapshot_roundtrip(tmp_path):
+    """The lifetime cycle counter is snapshot state: per-process _cycle
+    resets on every restart by design, but _cycle_lifetime must carry
+    across restarts so the operator can see total engine work."""
+    store = StateStore(str(tmp_path / "state.json"))
+    bot = _stub_bot(rows_at_last_train=0)
+    bot._cycle_lifetime = 12345
+    assert store.snapshot(bot)
+    revived = _stub_bot(rows_at_last_train=0)
+    revived._cycle_lifetime = 0
+    assert store.restore(revived)
+    assert revived._cycle_lifetime == 12345
+
+
+def test_old_snapshot_without_lifetime_starts_at_zero(tmp_path):
+    store = StateStore(str(tmp_path / "state.json"))
+    bot = _stub_bot(rows_at_last_train=0)
+    bot._cycle_lifetime = 777
+    assert store.snapshot(bot)
+    import json as _json
+    p = tmp_path / "state.json"
+    data = _json.loads(p.read_text(encoding="utf-8"))
+    del data["cycle_lifetime"]                  # simulate pre-upgrade snapshot
+    data.pop("_sha256", None)                   # pre-checksum-era files pass
+    assert store.write_raw(data)
+    revived = _stub_bot(rows_at_last_train=0)
+    revived._cycle_lifetime = 0
+    assert store.restore(revived)
+    assert revived._cycle_lifetime == 0

@@ -179,6 +179,7 @@ class StateStore:
                 "open_orders": [order_to_dict(o)
                                 for o in bot.orders.open_orders()],
                 "feature_schema_version": _feature_schema_version(),
+                "cycle_lifetime": int(getattr(bot, "_cycle_lifetime", 0)),
                 "history_pending": {
                     pid: {"asset": a, "direction": d, "features": f.tolist()}
                     for pid, (a, d, f) in bot.history._pending.items()
@@ -356,6 +357,8 @@ class StateStore:
         bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
         bot._pos_realized.update(data.get("pos_realized", {}))
         bot._halted = bool(data.get("halted", False))
+        # absent in pre-upgrade snapshots -> starts counting from now
+        bot._cycle_lifetime = int(data.get("cycle_lifetime", 0) or 0)
         # absent in pre-upgrade snapshots -> keep the init-time value
         # (rows at launch), the old behavior
         if data.get("rows_at_last_train") is not None:
