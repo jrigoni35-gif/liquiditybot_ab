@@ -21,7 +21,8 @@ Notes:
 import logging
 from typing import Optional
 
-from core.sanitize import (clean_book, clean_candles, safe_float)
+from core.sanitize import (clean_book, clean_candles, drop_forming_candles,
+                           interval_str_to_sec, safe_float)
 from data._http import ThrottledRestClient
 
 BASE_URL = "https://api.binance.us"
@@ -73,8 +74,11 @@ class BinanceUSFeed(ThrottledRestClient):
         })
 
     def get_candles(self, symbol: str, interval: str = "5m",
-                    limit: int = 100) -> list:
-        """interval: 1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M"""
+                    limit: int = 100, include_forming: bool = False) -> list:
+        """interval: 1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M.
+        Committed bars only by default: Binance's last kline is still
+        open and mutates until its window closes; a frozen first sight
+        in an append-only cache understates every intrabar range."""
         data = self._get("/api/v3/klines",
                         {"symbol": symbol, "interval": interval,
                         "limit": min(limit, 1000)})
@@ -89,11 +93,17 @@ class BinanceUSFeed(ThrottledRestClient):
             "low": row[3], "close": row[4], "volume": row[5]}
             for row in data
         ]
-        return clean_candles(raw)
+        out = clean_candles(raw)
+        if include_forming:
+            return out
+        return drop_forming_candles(out, interval_str_to_sec(interval))
 
     def get_daily_candles(self, symbol: str, limit: int = 720) -> list:
-        """Daily OHLCV, oldest-first. Feeds the macro regime engine (HMM/TSMOM)."""
-        return self.get_candles(symbol, interval="1d", limit=min(limit, 1000))
+        """Daily OHLCV, oldest-first. Feeds the macro regime engine
+        (HMM/TSMOM). Keeps today's forming bar: regime reads momentum "as
+        of now" and the hourly refit self-corrects the partial bar."""
+        return self.get_candles(symbol, interval="1d", limit=min(limit, 1000),
+                                include_forming=True)
 
     def get_funding_rate(self, symbol: str) -> Optional[float]:
         """Binance.US is spot-only: no perps, no funding. Returns None so the

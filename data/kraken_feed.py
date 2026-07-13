@@ -20,7 +20,8 @@ import urllib.parse
 from typing import Optional
 
 import requests
-from core.sanitize import (clean_book, clean_candles, safe_float, loads_bounded)
+from core.sanitize import (clean_book, clean_candles, drop_forming_candles,
+                           safe_float, loads_bounded)
 from data._http import ThrottledRestClient
 
 BASE_URL = "https://api.kraken.com"
@@ -217,8 +218,15 @@ class KrakenFeed(ThrottledRestClient):
             "asks": [list(lvl) for lvl in book.get("asks", [])],
         })
 
-    def get_candles(self, pair: str, interval: int = 5) -> list:
-        """interval in minutes: 1, 5, 15, 30, 60, 240, 1440, 10080, 21600"""
+    def get_candles(self, pair: str, interval: int = 5,
+                    include_forming: bool = False) -> list:
+        """interval in minutes: 1, 5, 15, 30, 60, 240, 1440, 10080, 21600.
+        Committed bars only by default: Kraken's last OHLC row is the
+        still-forming frame (its `last` field marks the committed
+        boundary) and a mutating bar frozen into any append-only cache
+        understates every intrabar range. include_forming=True restores
+        the raw tail for consumers that want the partial bar (daily
+        regime context)."""
         result = self._public_get("OHLC", {"pair": pair, "interval": interval})
         if not result:
             return []
@@ -226,7 +234,7 @@ class KrakenFeed(ThrottledRestClient):
         if key is None:
             return []
         # Kraken returns oldest-first already: [time, open, high, low, close, vwap, volume, count]
-        return clean_candles([
+        out = clean_candles([
             {
                 "time": int(row[0]),
                 "open": row[1], "high": row[2], "low": row[3],
@@ -234,10 +242,15 @@ class KrakenFeed(ThrottledRestClient):
             }
             for row in result[key]
         ])
+        if include_forming:
+            return out
+        return drop_forming_candles(out, interval * 60)
 
     def get_daily_candles(self, pair: str, limit: int = 720) -> list:
-        """Daily OHLCV, oldest-first (Kraken caps OHLC history at 720 rows)."""
-        candles = self.get_candles(pair, interval=1440)
+        """Daily OHLCV, oldest-first (Kraken caps OHLC history at 720 rows).
+        Keeps today's forming bar: the macro regime reads momentum/vol "as
+        of now" and refreshes hourly, so the partial bar self-corrects."""
+        candles = self.get_candles(pair, interval=1440, include_forming=True)
         return candles[-limit:] if candles else []
 
     # --- Private read-only data (account state, not orders) --------------------

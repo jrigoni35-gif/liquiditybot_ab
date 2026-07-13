@@ -9,7 +9,8 @@ Kraken (execution/order_manager.py) is the sole execution venue.
 import logging
 from typing import Optional
 
-from core.sanitize import (clean_book, clean_candles, safe_float)
+from core.sanitize import (clean_book, clean_candles, drop_forming_candles,
+                           interval_str_to_sec, safe_float)
 from data._http import ThrottledRestClient
 
 BASE_URL = "https://www.okx.com"
@@ -79,7 +80,11 @@ class OKXFeed(ThrottledRestClient):
             "asks": _scaled(book.get("asks", [])),
         })
 
-    def get_candles(self, symbol: str, bar: str = "5m", limit: int = 100) -> list:
+    def get_candles(self, symbol: str, bar: str = "5m", limit: int = 100,
+                    include_forming: bool = False) -> list:
+        """Committed bars only by default: OKX's newest row is the forming
+        candle (confirm=0) whose H/L/C keep mutating - poison for any
+        append-only downstream cache. include_forming=True restores it."""
         data = self._get("/api/v5/market/candles", {"instId": symbol, "bar": bar, "limit": limit})
         if not data:
             return []
@@ -95,11 +100,17 @@ class OKXFeed(ThrottledRestClient):
         raw.reverse()  # oldest-first for EMA/indicator calcs
         # same sanitize layer as the Kraken/Binance.US candle paths:
         # numeric coercion + malformed-bar rejection in one place
-        return clean_candles(raw)
+        out = clean_candles(raw)
+        if include_forming:
+            return out
+        return drop_forming_candles(out, interval_str_to_sec(bar))
 
     def get_daily_candles(self, symbol: str, limit: int = 300) -> list:
-        """Daily OHLCV, oldest-first. Feeds the macro regime engine (HMM/TSMOM)."""
-        return self.get_candles(symbol, bar="1D", limit=min(limit, 300))
+        """Daily OHLCV, oldest-first. Feeds the macro regime engine
+        (HMM/TSMOM). Keeps today's forming bar: regime reads momentum "as
+        of now" and the hourly refit self-corrects the partial bar."""
+        return self.get_candles(symbol, bar="1D", limit=min(limit, 300),
+                                include_forming=True)
 
     def get_history_candles(self, symbol: str, bar: str = "5m",
                             total: int = 2880) -> list:
@@ -128,7 +139,9 @@ class OKXFeed(ThrottledRestClient):
             for r in rows[:total]
         ]
         raw.reverse()                      # oldest-first for indicator calcs
-        return clean_candles(raw)
+        # bootstrap training data must be committed bars only too
+        return drop_forming_candles(clean_candles(raw),
+                                    interval_str_to_sec(bar))
 
     def get_funding_rate(self, symbol: str) -> Optional[float]:
         data = self._get("/api/v5/public/funding-rate", {"instId": symbol})

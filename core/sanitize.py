@@ -23,6 +23,7 @@ on top of using read-only feeds and a withdrawal-disabled exchange key.
 import json
 import logging
 import math
+import time
 from typing import Optional
 
 log = logging.getLogger("liquiditybot.sanitize")
@@ -176,3 +177,33 @@ def clean_candles(candles: list, max_n: int = 2000) -> list:
                     "low": lo, "close": cl,
                     "volume": safe_float(c.get("volume"), 0.0, lo=0.0)})
     return out
+
+
+_INTERVAL_UNIT_SEC = {"m": 60, "h": 3600, "H": 3600, "d": 86400,
+                      "D": 86400, "w": 604800, "W": 604800, "M": 2592000}
+
+
+def interval_str_to_sec(interval: str) -> float:
+    """Venue bar-size string -> seconds. Case is load-bearing across both
+    conventions in use (Binance '1m' minute vs '1M' month; OKX '1m'/'1H'/
+    '1D'/'1M'): lowercase m is minutes, uppercase M is months."""
+    try:
+        return float(interval[:-1]) * _INTERVAL_UNIT_SEC[interval[-1]]
+    except (KeyError, ValueError, IndexError, TypeError):
+        return 0.0
+
+
+def drop_forming_candles(candles: list, interval_sec: float,
+                         now: Optional[float] = None) -> list:
+    """Keep committed bars only: drop any bar whose window is still open
+    (time + interval > now). Venues serve the currently-forming candle as
+    the last row and its high/low/close keep mutating; an append-only
+    downstream cache freezes the first sight, understating every intrabar
+    range (missed triple-barrier touches, crushed ATR/sigma). Also sheds
+    future-timestamped bars from clock skew or a venue glitch. A zero or
+    unknown interval passes the list through untouched - better the old
+    behavior than silently dropping everything."""
+    if not isinstance(candles, list) or not candles or interval_sec <= 0:
+        return candles if isinstance(candles, list) else []
+    cutoff = (time.time() if now is None else now) - interval_sec
+    return [c for c in candles if safe_float(c.get("time"), 0.0) <= cutoff]
