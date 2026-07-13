@@ -1,22 +1,22 @@
 {
-  "generated_at": 1783956231.8448308,
+  "generated_at": 1783963762.9613268,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1783956217.0,
-    "duration_h": 4.84
+    "end": 1783963754.0,
+    "duration_h": 6.94
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 799.84,
-    "equity_min": 799.79,
+    "equity_end": 799.75,
+    "equity_min": 799.75,
     "equity_max": 800.2,
-    "equity_range": 0.41,
+    "equity_range": 0.45,
     "realized_pnl_total": 0.15,
-    "fees_paid_total": 0.79,
-    "open_positions": 4,
-    "samples": 1104
+    "fees_paid_total": 0.8264,
+    "open_positions": 5,
+    "samples": 1573
   },
   "activity": {
     "signal_rows_total": 6,
@@ -24,21 +24,21 @@
     "candidate_rows": 0
   },
   "audit": {
-    "records": 77,
-    "signal_records": 24,
+    "records": 81,
+    "signal_records": 25,
     "by_src": {
-      "exploration": 53,
-      "order_manager": 22,
+      "exploration": 56,
+      "order_manager": 23,
       "startup": 2
     },
     "top_codes": [
       [
         "ML-070",
-        53
+        56
       ],
       [
         "OM-000",
-        22
+        23
       ],
       [
         "CG-000",
@@ -46,22 +46,26 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.917,
+    "dominant_frac": 0.92,
     "retrain_requests": 0,
     "kill_switch_events": 0,
     "chain_ok": true,
     "chain_first_break": null
   },
   "events": {
-    "records": 2733,
+    "records": 3888,
     "by_level": {
-      "INFO": 2728,
+      "INFO": 3880,
       "WARNING": 4,
-      "ERROR": 1
+      "ERROR": 4
     },
     "top_warnings": [
       [
         "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
+        2
+      ],
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
         2
       ],
       [
@@ -73,17 +77,21 @@
         1
       ],
       [
-        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
+        1
+      ],
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1270,
-      "thin": 267
+      "spoofy": 1776,
+      "thin": 384
     },
-    "spoofy_frac": 0.826,
-    "cycles_estimate": 550,
-    "feed_error_events": 1
+    "spoofy_frac": 0.822,
+    "cycles_estimate": 784,
+    "feed_error_events": 4
   },
   "model": {
     "monitor_level": 0,
@@ -113,7 +121,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 83% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 82% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     }
   ],
   "verdict": "SD-003 liquidity vetoed feed-wide"
