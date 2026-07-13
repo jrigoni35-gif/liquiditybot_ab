@@ -127,10 +127,19 @@ def _explore_bot(counts, share=0.5, min_rows=10):
     return b
 
 
-def test_exploration_skips_dominant_asset():
-    b = _explore_bot({"ETH": 8, "BTC": 2})    # ETH at 80% share
-    assert b._exploration_active(0.0, "ETH") is False
+def test_exploration_tapers_dominant_asset():
+    # ETH at 80% share: the taper passes ~20% of rolls - variety pressure
+    # without the hard-skip deadlock (a sole-confirming dominant asset
+    # once starved learning entirely)
+    b = _explore_bot({"ETH": 8, "BTC": 2})
+    fires = sum(b._exploration_active(0.0, "ETH") for _ in range(1000))
+    assert 100 < fires < 320, fires
     assert b._exploration_active(0.0, "BTC") is True
+
+
+def test_exploration_never_fires_at_total_dominance():
+    b = _explore_bot({"ETH": 50})             # 100% share -> taper reaches 0
+    assert not any(b._exploration_active(0.0, "ETH") for _ in range(300))
 
 
 def test_exploration_share_needs_min_rows():

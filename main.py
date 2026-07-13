@@ -899,15 +899,24 @@ class LiquidityBot:
         if asset is not None and self.explore_max_asset_share < 1.0:
             counts = self.history.asset_counts()
             total = sum(counts.values())
-            if (total >= self.explore_share_min_rows
-                    and counts.get(asset, 0) / total
-                    >= self.explore_max_asset_share):
-                log.info("[%s] exploration skipped: asset holds %d/%d labeled "
-                         "rows (>= %.0f%% share cap) - leaving the learning "
-                         "slot for under-sampled assets", asset,
-                         counts.get(asset, 0), total,
-                         self.explore_max_asset_share * 100)
-                return False
+            share = counts.get(asset, 0) / total \
+                if total >= self.explore_share_min_rows else 0.0
+            if share >= self.explore_max_asset_share:
+                # TAPER, not a wall: pass with probability (1 - share). A
+                # hard skip deadlocked live - when the dominant asset is
+                # the ONLY one confirming, yielding the slot leaves it
+                # empty and learning starves entirely (observed at $800:
+                # BTC 59% share, sole signal source, zero labels). The
+                # taper keeps variety pressure but can only reach zero
+                # exploration at 100% share.
+                if self._explore_rng.random() >= (1.0 - share):
+                    log.info("[%s] exploration yielded: asset holds %d/%d "
+                             "labeled rows (share %.0f%% >= cap %.0f%%; "
+                             "taper passes %.0f%% of rolls)", asset,
+                             counts.get(asset, 0), total, share * 100,
+                             self.explore_max_asset_share * 100,
+                             (1.0 - share) * 100)
+                    return False
         return True
 
     def _entry_assets(self) -> list:
