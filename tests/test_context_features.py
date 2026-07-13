@@ -12,9 +12,9 @@ from ml.features import (CONTEXT_NEUTRAL, FEATURE_NAMES,
 from strategies.thales import ThalesEngine
 
 
-def test_schema_is_56_wide_v4():
-    assert len(FEATURE_NAMES) == 56
-    assert FEATURE_SCHEMA_VERSION == 4
+def test_schema_is_57_wide_v5():
+    assert len(FEATURE_NAMES) == 57
+    assert FEATURE_SCHEMA_VERSION == 5
     for n in ("regime_age", "funding_dist", "venue_disloc_dir", "th_grid",
               "th_metronome", "th_clockwork", "th_stopzone"):
         assert n in FEATURE_NAMES

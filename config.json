@@ -385,6 +385,8 @@
     },
     "max_open_candidates": 200,
     "sample_weights": {
+      "manip_discount": 0.5,
+      "_manip_doc": "training-hygiene: rows labeled under manipulation-suspect data (manip_suspect feature: spoof/whiplash/cross-venue book divergence, parameter-free max) are down-weighted by (1 - manip_discount * suspect). A painted book teaches the painter's lesson.",
       "half_life_days": 30,
       "candidate_weight": 0.4
     },

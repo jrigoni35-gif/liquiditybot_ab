@@ -125,12 +125,17 @@ class HistoryStore:
         return counts
 
     def load_training_data(self, half_life_days: float = 30.0,
-                        candidate_weight: float = 0.4):
-        """Returns X, y, w. Sample weights encode two honest priors:
+                        candidate_weight: float = 0.4,
+                        manip_discount: float = 0.5):
+        """Returns X, y, w. Sample weights encode three honest priors:
         recent rows matter more (markets are non-stationary; exponential
-        recency decay with a config half-life), and live-fill rows carry
+        recency decay with a config half-life), live-fill rows carry
         real execution costs while candidate rows are barrier
-        counterfactuals (down-weighted, not discarded)."""
+        counterfactuals (down-weighted, not discarded), and rows labeled
+        under manipulation-suspect data (manip_suspect feature) are
+        discounted in proportion - a lesson learned from a painted book
+        may be the manipulator's lesson, not the market's:
+        w *= (1 - manip_discount * manip_suspect)."""
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         if not self.path.exists():
             return empty
@@ -145,6 +150,9 @@ class HistoryStore:
                     ww = 0.5 ** (age_d / max(half_life_days, 1e-6))
                     if row.get("source") == "candidate":
                         ww *= candidate_weight
+                    suspect = min(max(float(
+                        row.get("manip_suspect") or 0.0), 0.0), 1.0)
+                    ww *= 1.0 - min(max(manip_discount, 0.0), 1.0) * suspect
                     w.append(ww)
                 except (KeyError, ValueError):
                     continue

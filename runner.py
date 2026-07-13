@@ -256,6 +256,7 @@ class BotRunner:
                        "opt_oi_pcr_z": round(risk.opt_oi_pcr_z, 2),
                        "opt_iv_skew": round(risk.opt_iv_skew, 3),
                        "options_available": risk.options_available},
+            "manip_suspect": dict(getattr(bot, "_manip_scores", {})),
             "watchdog": bot.watchdog.status(),
             "equity_drift_pct": round(bot._equity_drift_pct, 3),
             "monitor": bot.monitor.status(),

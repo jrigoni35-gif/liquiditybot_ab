@@ -50,14 +50,16 @@ CONTEXT_NEUTRAL = {"regime_age": 0.5, "funding_dist": 0.5,
                    "th_stopzone": 0.0,
                    # options positioning: 0.0 = "no fear signal read"
                    "opt_pcr_z": 0.0, "opt_oi_pcr_z": 0.0,
-                   "opt_iv_skew": 0.0}
+                   "opt_iv_skew": 0.0,
+                   "manip_suspect": 0.0}
 
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
-# v3: +context/THALES block, 46->53; v4: +options positioning, 53->56).
+# v3: +context/THALES block, 46->53; v4: +options positioning, 53->56;
+# v5: +manip_suspect adversarial-data score, 56->57).
 # Restore paths must drop pending vectors from other versions - the
 # width guard alone cannot see a semantic change, and versioning also
 # documents additive bumps.
-FEATURE_SCHEMA_VERSION = 4
+FEATURE_SCHEMA_VERSION = 5
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -89,6 +91,7 @@ FEATURE_NAMES = [
     "opt_pcr_z",                  # put/call VOLUME ratio z (day hedge flow)
     "opt_oi_pcr_z",               # put/call OPEN-INTEREST ratio z (stock)
     "opt_iv_skew",                # put-minus-call IV, points/10 [-1,1]
+    "manip_suspect",              # adversarial-data suspicion [0,1]
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
     "direction", "gate_confidence",
 ]
@@ -266,6 +269,7 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((extras or {}).get("opt_pcr_z", 0.0), -4, 4)),
         float(np.clip((extras or {}).get("opt_oi_pcr_z", 0.0), -4, 4)),
         float(np.clip((extras or {}).get("opt_iv_skew", 0.0), -1, 1)),
+        float(np.clip((extras or {}).get("manip_suspect", 0.0), 0, 1)),
         *(dir_sign * v for v in _candle_patterns(candles)),
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),

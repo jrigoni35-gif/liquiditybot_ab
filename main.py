@@ -124,6 +124,39 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
+def manip_suspect_score(spoof: float, whiplash: float,
+                        kraken_imb: float, composite_imb: float) -> float:
+    """Adversarial-data suspicion in [0, 1], parameter-free (MAX of
+    normalized components, no fitted weights): the most alarming single
+    indicator sets the level. Components a manipulator cannot cheaply
+    fake in unison:
+      spoof      - resting-ladder manipulation signature (liquidity regime)
+      whiplash   - imbalance flip-flopping (painted flow)
+      divergence - the EXECUTION venue's book disagreeing with the
+                   composite street book: painting every venue at once,
+                   including the one we trade on, is expensive
+    Feeds three places, none a new gate: the manip_suspect FEATURE (the
+    model learns what fear of manipulation is worth), a training-weight
+    DISCOUNT (lessons learned under suspect data count less), and the
+    status panel (the operator sees who is being leaned on)."""
+    divergence = min(abs(float(kraken_imb) - float(composite_imb)) / 4.0,
+                     1.0)                      # imb is clipped to [-2, 2]
+    return float(min(max(spoof, whiplash, divergence), 1.0))
+
+
+def _book_imbalance(book: dict) -> float:
+    """log(bid depth / ask depth) over the top 10 levels, clipped like the
+    imbalance feature; 0.0 when a side is missing."""
+    try:
+        bids = sum(float(sz) for _, sz in book.get("bids", [])[:10])
+        asks = sum(float(sz) for _, sz in book.get("asks", [])[:10])
+        if bids > 0 and asks > 0:
+            return float(np.clip(np.log(bids / asks), -2, 2))
+    except (TypeError, ValueError):
+        pass
+    return 0.0
+
+
 def _book_mid(book: dict) -> float:
     """Top-of-book mid, 0.0 when either side is missing/malformed."""
     try:
@@ -353,6 +386,7 @@ class LiquidityBot:
         self._stop_hit: dict = {}           # position_id -> bool
         self._last_imb: dict = {}           # asset -> last log-imbalance
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
+        self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
         self._rows_at_last_train = self.history.row_count()
         self.xscan = sentiment_scanner or SentimentScanner(
             config.get("sentiment", {}))
@@ -1368,6 +1402,14 @@ class LiquidityBot:
         if km > 0 and vm > 0:
             disloc_bps = (km - vm) / vm * 1e4
         since = self._regime_since.get(asset)
+        liq_state = self.liq.state(asset)
+        kb_imb = _book_imbalance(self.kraken_books.get(asset) or {})
+        vb_imb = _book_imbalance(v.get("order_book") or {})
+        suspect = manip_suspect_score(
+            liq_state.spoof_score,
+            min(liq_state.imbalance_whiplash, 1.0),
+            kb_imb, vb_imb)
+        self._manip_scores[asset] = round(suspect, 3)
         return {"fear_greed": web.fear_greed,
                 "dominance_delta": web.dominance_delta,
                 "equity_risk_z": risk.risk_z,
@@ -1380,7 +1422,8 @@ class LiquidityBot:
                 "thales": self.thales.feature_scores(asset, now),
                 "opt_pcr_z": risk.opt_pcr_z,
                 "opt_oi_pcr_z": risk.opt_oi_pcr_z,
-                "opt_iv_skew": risk.opt_iv_skew}
+                "opt_iv_skew": risk.opt_iv_skew,
+                "manip_suspect": suspect}
 
     def _maybe_unwind_unteachable(self, now: float):
         """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:
@@ -1501,7 +1544,8 @@ class LiquidityBot:
             sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
             X, y, w = self.history.load_training_data(
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
-                candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)))
+                candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
+                manip_discount=float(sw_cfg.get("manip_discount", 0.5)))
             if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
                 return
             log.warning(f"auto-retrain: {len(X)} rows "
