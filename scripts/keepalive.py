@@ -17,6 +17,7 @@ import subprocess  # nosec B404 - fixed argv relaunch of our own runner
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SENTINEL = ROOT / "outputs" / "keepalive.on"
@@ -55,11 +56,10 @@ def main() -> int:
     # detach per-OS: Windows wants its own process group/console flags,
     # POSIX wants a new session so scheduler/terminal signals never reach
     # the revived runner. Same detach contract, both platforms.
-    if os.name == "nt":
-        detach = {"creationflags": (subprocess.DETACHED_PROCESS
-                                    | subprocess.CREATE_NEW_PROCESS_GROUP)}
-    else:
-        detach = {"start_new_session": True}
+    detach: dict[str, Any] = (
+        {"creationflags": (subprocess.DETACHED_PROCESS
+                           | subprocess.CREATE_NEW_PROCESS_GROUP)}
+        if os.name == "nt" else {"start_new_session": True})
     subprocess.Popen(  # nosec B603 - fixed argv, repo-local interpreter
         [str(py), "runner.py"], cwd=str(ROOT),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

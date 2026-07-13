@@ -25,7 +25,8 @@ def test_funding_clock_math():
     assert _funding_dist(4 * 3600.0) == 0.5     # halfway through the cycle
     assert _funding_dist(16 * 3600.0) == 0.0    # every 8h boundary
     assert _funding_dist(8 * 3600.0 + 1) > 0.99  # just settled
-    assert _funding_dist(None) == 0.5           # malformed -> neutral
+    assert _funding_dist(
+        None) == 0.5  # pyright: ignore[reportArgumentType]  # malformed
 
 
 def test_thales_extras_reader_is_defensive():

@@ -45,7 +45,8 @@ def test_drop_forming_sheds_future_bars_and_tolerates_bad_input():
     out = drop_forming_candles([{"time": 2000.0}], 300, now=1000.0)
     assert out == []
     assert drop_forming_candles([], 300) == []
-    assert drop_forming_candles("nope", 300) == []
+    assert drop_forming_candles(
+        "nope", 300) == []  # pyright: ignore[reportArgumentType]
     bars = [{"time": 1.0}]
     assert drop_forming_candles(bars, 0) == bars      # unknown interval
 
