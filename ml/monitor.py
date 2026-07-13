@@ -302,6 +302,13 @@ class ModelMonitor:
     def note_deployed(self, brier: float):
         self.champion_brier = brier
         self.level = 0
+        self._level_streak = 0
+        # the window judges the DEPLOYED model - a fresh champion must not
+        # inherit its predecessor's rap sheet. Without this, the very next
+        # record_close re-evaluated the stale window and re-convicted the
+        # new model 0 -> 2 on evidence it never generated (observed live:
+        # kelly_mult pinned at 0.7 through two deploys).
+        self._records.clear()
         self._apply_level()
         self.flag_path.unlink(missing_ok=True)
 

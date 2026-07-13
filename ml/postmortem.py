@@ -104,6 +104,11 @@ class TradeThesis:
     # in the report aren't shown on a 2-decimal grid (default keeps old
     # behavior for callers that don't set it)
     price_decimals: int = 2
+    # the model's OWN (shrunk, calibrated) probability before any
+    # exploration bump: exploration forces p_win up for SIZING, and the
+    # governor must grade the model on what it actually said, not on the
+    # forced number. -1 = unknown (thesis predates this field).
+    model_p: float = -1.0
     # filled at/after close
     fill_price: float = 0.0
     marks: list = field(default_factory=list)        # (ts, price) during hold

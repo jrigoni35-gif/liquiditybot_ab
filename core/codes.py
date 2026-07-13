@@ -80,6 +80,7 @@ class Code(str, Enum):
     SZ_LEVERAGE = "SZ-041"
     SZ_MIN_TICKET = "SZ-042"
     SZ_ASSET_CROWDED = "SZ-043"      # per-asset same-side position count cap (variety rule)
+    SZ_EXPLORE_FLOOR = "SZ-044"      # exploration ticket floored to min ticket (label acquisition)
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_APPROVED = "SZ-000"

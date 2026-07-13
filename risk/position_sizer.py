@@ -201,7 +201,8 @@ class PositionSizer:
              sent_risk_mult: float, inventory_mgr, lev_decision,
              marks: dict, now: Optional[float] = None,
              risk_scale: float = 1.0,
-             symbol: Optional[str] = None) -> SizeDecision:
+             symbol: Optional[str] = None,
+             floor_to_min: bool = False) -> SizeDecision:
         d = SizeDecision(usd=0.0, units=0.0,
                          p_win=p_win if _fin(p_win) else 0.0,
                          kelly_f=0.0, payoff_b=self.b)
@@ -308,6 +309,21 @@ class PositionSizer:
             usd *= p_mult
             if usd <= EPS:
                 return d
+
+        # ---- exploration label-acquisition floor ------------------------------
+        # an exploration entry exists to BUY A LABEL; at small equity the
+        # kelly x multiplier stack routinely sizes below the min ticket and
+        # every learning trade dies SZ-042 (observed at $800: $1-4 tickets,
+        # zero label flow, kill-switch deadlock). Floor the nonzero result at
+        # the min ticket: every hard veto above (regime, p-bar, zero-mult,
+        # cooldown, RP hard vetoes) has already had its say, and the caps
+        # below still bound it. Dry-run only by construction: main only sets
+        # floor_to_min on exploration entries, which are hard-gated dry_run.
+        if floor_to_min and EPS < usd < self.min_ticket_usd:
+            d.reasons.append(tag(Code.SZ_EXPLORE_FLOOR,
+                                 f"${usd:,.2f} -> ${self.min_ticket_usd:,.2f}"
+                                 f" exploration label-acquisition floor"))
+            usd = self.min_ticket_usd
 
         # ---- caps -------------------------------------------------------------
         usd = min(usd, equity * self.max_position_pct / 100.0)

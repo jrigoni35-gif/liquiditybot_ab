@@ -780,7 +780,7 @@ class LiquidityBot:
         self.postmortem.record_marks(self.marks, now)
         self.risk_protocols.observe(equity, self.marks, now)
         for cause, thesis in self.postmortem.poll(now):
-            self.monitor.record_close(thesis.p_win,
+            self.monitor.record_close(self._thesis_scored_p(thesis),
                                     int(thesis.realized_net_usd > 0),
                                     thesis.model_scored, cause)
 
@@ -921,6 +921,16 @@ class LiquidityBot:
         k = self._entry_rotation % len(items)
         self._entry_rotation += 1
         return items[k:] + items[:k]
+
+    @staticmethod
+    def _thesis_scored_p(thesis) -> float:
+        """The probability the governor grades the model on: the model's own
+        call (model_p) when the thesis recorded one. Exploration bumps p_win
+        for SIZING; grading the model on that forced number is how the
+        governor once blamed it for epsilon-greedy noise. Theses from before
+        the model_p field (sentinel -1) fall back to the sized p_win."""
+        mp = float(getattr(thesis, "model_p", -1.0))
+        return mp if mp >= 0.0 else float(thesis.p_win)
 
     def _log_sizer_veto(self, asset: str, reasons: list, explored: bool):
         """Exploration entries surface their sizer veto at INFO: these are
@@ -1170,7 +1180,7 @@ class LiquidityBot:
                 verdict.risk_multiplier, self.inventory, lev_decision,
                 self.marks, now,
                 risk_scale=self.monitor.kelly_mult * explore_scale,
-                symbol=symbol)
+                symbol=symbol, floor_to_min=explored)
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
                 continue
@@ -1229,13 +1239,15 @@ class LiquidityBot:
                 price_decimals=_price_decimals(
                     getattr(self.orders, "pair_meta", {}),
                     self.kraken.kraken_pair(symbol), entry_price),
-                # exploration trades carry a FORCED p_win (explore_p_win), not
-                # the model's own call, so they must NOT score the model's
-                # calibration - counting them made the governor blame the model
-                # for epsilon-greedy noise and degrade/throttle it unfairly.
-                # They still feed training history; they just don't grade it.
-                model_scored=(self.monitor.use_model and self.meta.trained
-                              and not explored)))
+                # exploration trades carry a FORCED p_win (explore_p_win) for
+                # sizing, so the governor must never grade the model on p_win
+                # here - but the model's OWN call (model_p) is honest evidence
+                # on every fill. Grading model_p keeps the window alive at
+                # small equity where exploration is most of the flow; the old
+                # not-explored exclusion starved the window and froze the
+                # governor (kelly pinned at 0.7, then a kill-switch deadlock).
+                model_p=model_p,
+                model_scored=(self.monitor.use_model and self.meta.trained)))
             notional_usd = decision.size_units * entry_price
             if self.algo.should_engage(notional_usd):
                 parent = self.algo.create_parent(
