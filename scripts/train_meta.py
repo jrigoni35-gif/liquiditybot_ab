@@ -29,8 +29,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
-from core.audit import get_audit  # noqa: E402
+from core.audit import configure_audit, get_audit  # noqa: E402
 from core.codes import Code  # noqa: E402
+
+# SIDE-CAR AUDIT: this script can run beside a LIVE runner (operator
+# retrain). Two processes appending to the prod chain each hold their own
+# in-memory seq/prev and fork it — observed live 2026-07-13: a manual run's
+# ML-041 landed as a duplicate seq 227, breaking verification from record
+# 228 and tripping the check-in watchdog every 4h (SD-007). The runner's
+# own in-process records remain the chain of record for deploys.
+configure_audit(Path(__file__).resolve().parents[1]
+                / "outputs" / "audit_train_meta.jsonl")
 from ml.history import HistoryStore, bootstrap_dataset  # noqa: E402
 from ml.walkforward import evaluate_and_select  # noqa: E402
 from ml.models import save_model  # noqa: E402

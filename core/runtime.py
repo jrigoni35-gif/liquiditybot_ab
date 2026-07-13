@@ -242,6 +242,7 @@ class StatusWriter:
         self.status_path = Path(status_path)
         self.equity_path = Path(equity_path)
         self._last_equity_ts = 0.0
+        self._write_fails = 0        # consecutive status-write losses
         if not self.equity_path.exists():
             self.equity_path.parent.mkdir(parents=True, exist_ok=True)
             self.equity_path.write_text("ts,equity,daily_pnl\n", encoding="utf-8")
@@ -249,7 +250,25 @@ class StatusWriter:
     def write(self, payload: dict, now: float | None = None):
         now = now if now is not None else time.time()
         payload["written_at"] = now
-        atomic_write_json(self.status_path, payload)
+        try:
+            atomic_write_json(self.status_path, payload)
+            if self._write_fails:
+                log.info("status writes recovered after %d failed "
+                         "attempt(s)", self._write_fails)
+                self._write_fails = 0
+        except PermissionError:
+            # Windows: an external reader/scanner (dashboard, Defender,
+            # sync client) can hold status.json past the retry window. A
+            # lost status write is benign - the next cycle rewrites - but
+            # letting it raise turned each collision into a full
+            # cycle-error traceback (476 in one storm) and tripped the
+            # check-in's error-volume anomaly. Count, warn sparsely.
+            self._write_fails += 1
+            if self._write_fails in (1, 10, 100) \
+                    or self._write_fails % 1000 == 0:
+                log.warning("status write skipped (reader holds the file; "
+                            "WinError 5) - %d consecutive failures; next "
+                            "cycle rewrites", self._write_fails)
         if now - self._last_equity_ts >= 15.0:
             self._last_equity_ts = now
             try:

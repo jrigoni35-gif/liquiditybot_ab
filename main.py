@@ -1439,8 +1439,17 @@ class LiquidityBot:
                                 f"ships uncalibrated",
                                 {"oof_points": int(len(sel["oof_p"]))})
             oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
-            challenger_brier = brier_score(sel["oof_y"], oof_cal) \
-                if len(oof_cal) else 0.25
+            if not len(oof_cal):
+                # purged walk-forward can produce ZERO out-of-fold points at
+                # small row counts (the purge span swallows every test fold)
+                # - the challenger is then UNSCOREABLE, not "0.25". Say so
+                # instead of letting a fabricated score masquerade as a fair
+                # reject (observed: 88 rows -> 0 OOF -> silent auto-reject).
+                log.warning("auto-retrain unscoreable: 0 OOF points at "
+                            "%d rows (purge span eats the folds) - keeping "
+                            "champion until more labels accrue", len(X))
+                return
+            challenger_brier = brier_score(sel["oof_y"], oof_cal)
             self._rows_at_last_train = rows
             if not self.monitor.should_deploy(challenger_brier):
                 return

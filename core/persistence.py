@@ -185,6 +185,13 @@ class StateStore:
                 "candidates": bot.candidates.to_dict(),
                 "gate_stats": bot.gate_stats.to_dict(),
                 "stop_hit": dict(bot._stop_hit),
+                # restart must not defer auto-retrain: this counter's
+                # init default is "rows right now", which pushes the
+                # new-rows trigger back by retrain_min_new_rows on every
+                # relaunch (observed: a keepalive revival moved the
+                # goalpost from 62 to 137 rows mid-recovery)
+                "rows_at_last_train": int(getattr(bot,
+                                                  "_rows_at_last_train", 0)),
                 "risk_protocols": getattr(bot, "risk_protocols",
                                           None) and
                 bot.risk_protocols.to_dict(),
@@ -329,6 +336,10 @@ class StateStore:
         bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
         bot._pos_realized.update(data.get("pos_realized", {}))
         bot._halted = bool(data.get("halted", False))
+        # absent in pre-upgrade snapshots -> keep the init-time value
+        # (rows at launch), the old behavior
+        if data.get("rows_at_last_train") is not None:
+            bot._rows_at_last_train = int(data["rows_at_last_train"])
         try:
             bot.monitor.restore(data.get("monitor"))
             bot.postmortem.restore(data.get("postmortem"))
