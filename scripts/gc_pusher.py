@@ -54,7 +54,10 @@ def gauge(name: str, value: float, attrs: dict | None = None,
     if attrs:
         dp["attributes"] = [{"key": k, "value": {"stringValue": str(v)}}
                             for k, v in attrs.items()]
-    return {"name": name, "unit": "1", "gauge": {"dataPoints": [dp]}}
+    # unit stays EMPTY: Grafana Cloud's OTLP translator appends "_ratio"
+    # to unit-"1" gauges, which mislabels raw counts (cycles, rows) as
+    # ratios; with no unit the stored name matches the exported name
+    return {"name": name, "unit": "", "gauge": {"dataPoints": [dp]}}
 
 
 def collect(status_path: str) -> list:

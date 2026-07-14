@@ -58,7 +58,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_equity_ratio",
+      "expr": "liquiditybot_equity{job=\"liquiditybot\"}",
       "legendFormat": "Equity",
       "refId": "A"
      }
@@ -114,7 +114,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_daily_pnl_ratio",
+      "expr": "liquiditybot_daily_pnl{job=\"liquiditybot\"}",
       "legendFormat": "Daily PnL",
       "refId": "A"
      }
@@ -166,7 +166,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_realized_total_ratio",
+      "expr": "liquiditybot_realized_total{job=\"liquiditybot\"}",
       "legendFormat": "Realized total",
       "refId": "A"
      }
@@ -218,7 +218,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_fees_total_ratio",
+      "expr": "liquiditybot_fees_total{job=\"liquiditybot\"}",
       "legendFormat": "Fees total",
       "refId": "A"
      }
@@ -278,7 +278,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_drawdown_pct_ratio",
+      "expr": "liquiditybot_drawdown_pct{job=\"liquiditybot\"}",
       "legendFormat": "Drawdown",
       "refId": "A"
      }
@@ -330,7 +330,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_equity_drift_pct_ratio",
+      "expr": "liquiditybot_equity_drift_pct{job=\"liquiditybot\"}",
       "legendFormat": "Equity drift",
       "refId": "A"
      }
@@ -387,7 +387,7 @@
     "id": 8,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -400,7 +400,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_running_ratio",
+      "expr": "liquiditybot_running{job=\"liquiditybot\"}",
       "legendFormat": "Running",
       "refId": "A"
      }
@@ -439,7 +439,7 @@
     "id": 9,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -452,7 +452,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_positions_open_ratio",
+      "expr": "liquiditybot_positions_open{job=\"liquiditybot\"}",
       "legendFormat": "Open positions",
       "refId": "A"
      }
@@ -498,7 +498,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_equity_ratio",
+      "expr": "liquiditybot_equity{job=\"liquiditybot\"}",
       "legendFormat": "equity",
       "refId": "A"
      }
@@ -550,7 +550,7 @@
     "id": 12,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -563,7 +563,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_history_rows_ratio",
+      "expr": "liquiditybot_ml_history_rows{job=\"liquiditybot\"}",
       "legendFormat": "Training rows (labeled)",
       "refId": "A"
      }
@@ -602,7 +602,7 @@
     "id": 13,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -615,7 +615,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_open_candidates_ratio",
+      "expr": "liquiditybot_ml_open_candidates{job=\"liquiditybot\"}",
       "legendFormat": "Open candidates",
       "refId": "A"
      }
@@ -654,7 +654,7 @@
     "id": 14,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -667,7 +667,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_pending_labels_ratio",
+      "expr": "liquiditybot_ml_pending_labels{job=\"liquiditybot\"}",
       "legendFormat": "Pending labels",
       "refId": "A"
      }
@@ -706,7 +706,7 @@
     "id": 15,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -719,7 +719,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_cycle_lifetime_ratio",
+      "expr": "liquiditybot_cycle_lifetime{job=\"liquiditybot\"}",
       "legendFormat": "Lifetime cycles",
       "refId": "A"
      }
@@ -766,7 +766,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_history_rows_ratio",
+      "expr": "liquiditybot_ml_history_rows{job=\"liquiditybot\"}",
       "legendFormat": "labeled rows",
       "refId": "A"
      },
@@ -775,7 +775,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_open_candidates_ratio",
+      "expr": "liquiditybot_ml_open_candidates{job=\"liquiditybot\"}",
       "legendFormat": "open candidates",
       "refId": "B"
      },
@@ -784,7 +784,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_pending_labels_ratio",
+      "expr": "liquiditybot_ml_pending_labels{job=\"liquiditybot\"}",
       "legendFormat": "pending labels",
       "refId": "C"
      }
@@ -831,7 +831,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_cycle_lifetime_ratio",
+      "expr": "liquiditybot_cycle_lifetime{job=\"liquiditybot\"}",
       "legendFormat": "lifetime (persistent)",
       "refId": "A"
      },
@@ -840,7 +840,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_cycle_ratio",
+      "expr": "liquiditybot_cycle{job=\"liquiditybot\"}",
       "legendFormat": "session (resets on restart)",
       "refId": "B"
      }
@@ -902,7 +902,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_signal_confidence_ratio",
+      "expr": "liquiditybot_signal_confidence{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -951,7 +951,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_signal_urgency_ratio",
+      "expr": "liquiditybot_signal_urgency{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1010,7 +1010,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_manip_suspect_ratio",
+      "expr": "liquiditybot_manip_suspect{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1059,7 +1059,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_thales_grid_ratio",
+      "expr": "liquiditybot_thales_grid{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1108,7 +1108,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_thales_metronome_ratio",
+      "expr": "liquiditybot_thales_metronome{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1157,7 +1157,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_thales_clockwork_ratio",
+      "expr": "liquiditybot_thales_clockwork{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1206,7 +1206,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_thales_stop_zone_ratio",
+      "expr": "liquiditybot_thales_stop_zone{job=\"liquiditybot\"}",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
@@ -1265,7 +1265,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_moomoo_risk_z_ratio",
+      "expr": "liquiditybot_moomoo_risk_z{job=\"liquiditybot\"}",
       "legendFormat": "risk z",
       "refId": "A"
      }
@@ -1311,7 +1311,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_moomoo_opt_pcr_z_ratio",
+      "expr": "liquiditybot_moomoo_opt_pcr_z{job=\"liquiditybot\"}",
       "legendFormat": "volume PCR z",
       "refId": "A"
      },
@@ -1320,7 +1320,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_moomoo_opt_oi_pcr_z_ratio",
+      "expr": "liquiditybot_moomoo_opt_oi_pcr_z{job=\"liquiditybot\"}",
       "legendFormat": "OI PCR z",
       "refId": "B"
      },
@@ -1329,7 +1329,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_moomoo_opt_iv_skew_ratio",
+      "expr": "liquiditybot_moomoo_opt_iv_skew{job=\"liquiditybot\"}",
       "legendFormat": "IV skew",
       "refId": "C"
      }
@@ -1402,7 +1402,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_feed_latency_ms_ratio",
+      "expr": "liquiditybot_feed_latency_ms{job=\"liquiditybot\"}",
       "legendFormat": "Feed latency",
       "refId": "A"
      }
@@ -1462,7 +1462,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_status_age_sec_ratio",
+      "expr": "liquiditybot_status_age_sec{job=\"liquiditybot\"}",
       "legendFormat": "Status age",
       "refId": "A"
      }
@@ -1501,7 +1501,7 @@
     "id": 32,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -1514,7 +1514,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_cycle_ratio",
+      "expr": "liquiditybot_cycle{job=\"liquiditybot\"}",
       "legendFormat": "Session cycle",
       "refId": "A"
      }
@@ -1553,7 +1553,7 @@
     "id": 33,
     "options": {
      "colorMode": "value",
-     "graphMode": "area",
+     "graphMode": "none",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -1566,7 +1566,7 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_pending_labels_ratio",
+      "expr": "liquiditybot_ml_pending_labels{job=\"liquiditybot\"}",
       "legendFormat": "Pending labels",
       "refId": "A"
      }

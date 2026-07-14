@@ -137,9 +137,11 @@ Streamlit remains available locally but is not served anywhere.
 - **Dashboard source of truth**: `docs/grafana/liquiditybot_dashboard.json`
   (uid `liquiditybot-ctrl`). Import/update via the HTTP API
   (`POST /api/dashboards/db`, service-account token) or the UI.
-  Metric names carry the `_ratio` suffix Grafana's OTLP translator
-  appends to unit-"1" gauges — query the stored names, not the
-  pusher-side names.
+  Stored metric names match the pusher's exported names exactly
+  (`liquiditybot_equity`, `liquiditybot_ml_history_rows`, ...): the
+  pusher sends an EMPTY unit because Grafana's OTLP translator appends
+  `_ratio` to unit-"1" gauges, which would mislabel raw counts. Every
+  query carries `{job="liquiditybot"}` (set from service.name).
 - **Pusher** (either machine, venv python):
   set `GC_OTLP_URL`, `GC_INSTANCE_ID`, `GC_TOKEN_FILE` (a chmod-600
   file holding the OTLP write token — never committed), then run
