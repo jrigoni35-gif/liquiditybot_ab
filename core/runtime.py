@@ -139,11 +139,14 @@ class SingleInstanceLock:
     runner's heartbeat goes stale and the next launch takes over — self-healing,
     no OS-specific PID probing (portable to Windows)."""
 
+    LOST_LIMIT = 3      # consecutive lost refreshes before forfeiting
+
     def __init__(self, path: str = "outputs/runner.lock",
                  stale_after_sec: float = 30.0):
         self.path = Path(path)
         self.pid = os.getpid()
         self.stale_after = stale_after_sec
+        self.lost_count = 0
 
     def acquire(self) -> Optional[dict]:
         """Return None on success, or the holder's record if a LIVE runner
@@ -156,12 +159,32 @@ class SingleInstanceLock:
         self.refresh()
         return None
 
-    def refresh(self):
+    def refresh(self) -> bool:
+        """Heartbeat, OWNERSHIP-AWARE. The original rewrote {pid, heartbeat}
+        unconditionally, so two live runners flip-flopped the file every
+        cycle - each believed it held the lock and the duplicate ran
+        forever (observed live 2026-07-14: THREE runners, zombies eating
+        stop commands and racing snapshots). A fresh FOREIGN record is now
+        never overwritten: the loser's refresh fails, and after LOST_LIMIT
+        consecutive losses `forfeited` turns True and the runner exits.
+        Deterministic winner, still portable (no fcntl on Windows)."""
+        cur = read_json(self.path)
+        if isinstance(cur, dict) and cur.get("pid") != self.pid:
+            age = time.time() - float(cur.get("heartbeat", 0) or 0)
+            if age < self.stale_after:
+                self.lost_count += 1            # a LIVE peer owns the dir
+                return False
         try:
             atomic_write_json(self.path, {"pid": self.pid,
                                           "heartbeat": time.time()})
         except OSError:
             pass                                # lock is advisory; never fatal
+        self.lost_count = 0
+        return True
+
+    @property
+    def forfeited(self) -> bool:
+        return self.lost_count >= self.LOST_LIMIT
 
     def release(self):
         cur = read_json(self.path)

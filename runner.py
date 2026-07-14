@@ -320,7 +320,26 @@ class BotRunner:
                 # this process is alive - a stale lock invites a second
                 # runner to take over and duplicate the loop.
                 if self._lock is not None:
-                    self._lock.refresh()
+                    if not self._lock.refresh() and self._lock.forfeited:
+                        # a LIVE peer owns this outputs/ dir - we are the
+                        # duplicate. Exiting stops new risk only (the peer
+                        # keeps managing positions/exits); staying would
+                        # race snapshots and eat its control commands.
+                        from core.codes import Code
+                        log.critical(
+                            "%s: lost the instance lock to a live peer "
+                            "for %d consecutive heartbeats - this runner "
+                            "is a duplicate and is shutting down",
+                            Code.RT_DUPLICATE_RUNNER.value,
+                            self._lock.lost_count)
+                        get_audit().log(
+                            "runner", Code.RT_DUPLICATE_RUNNER,
+                            "duplicate runner self-terminated (lost "
+                            "instance lock to live peer)",
+                            {"pid": self._lock.pid,
+                             "lost_count": self._lock.lost_count})
+                        self._stop = True
+                        break
                 try:
                     for c in self.control.consume():
                         self.handle_command(c)

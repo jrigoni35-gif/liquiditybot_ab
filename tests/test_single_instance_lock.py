@@ -76,9 +76,11 @@ class _RecordingLock:
     def __init__(self):
         self.refreshes = 0
         self.released = False
+        self.forfeited = False      # interface parity with SingleInstanceLock
 
     def refresh(self):
         self.refreshes += 1
+        return True                 # this stub always owns the lock
 
     def release(self):
         self.released = True
@@ -127,3 +129,56 @@ def test_heartbeat_refreshes_even_when_every_cycle_raises(tmp_path, monkeypatch)
     assert n["calls"] == 3                          # every cycle raised...
     assert lock.refreshes >= 3                      # ...liveness never lapsed
     assert lock.released                            # clean shutdown freed it
+
+
+# --- ownership-aware refresh (RT-010): duplicates must lose, then exit ----
+
+def test_refresh_never_overwrites_fresh_foreign_lock(tmp_path):
+    """Two live runners used to flip-flop the lockfile every cycle (each
+    unconditionally rewriting {pid, heartbeat}), so both believed they
+    held it and the duplicate ran forever - observed live 2026-07-14 as
+    THREE coexisting runners. A fresh foreign record must be sacred."""
+    from core.runtime import SingleInstanceLock
+    a = SingleInstanceLock(str(tmp_path / "r.lock"), stale_after_sec=30)
+    b = SingleInstanceLock(str(tmp_path / "r.lock"), stale_after_sec=30)
+    a.pid, b.pid = 111, 222
+    assert a.acquire() is None                  # A owns
+    assert a.refresh() is True
+    assert b.refresh() is False                 # B must NOT steal
+    import json
+    holder = json.load(open(tmp_path / "r.lock"))
+    assert holder["pid"] == 111, "foreign fresh lock was overwritten"
+    assert a.refresh() is True                  # A unaffected
+
+
+def test_duplicate_forfeits_after_consecutive_losses(tmp_path):
+    from core.runtime import SingleInstanceLock
+    a = SingleInstanceLock(str(tmp_path / "r.lock"), stale_after_sec=30)
+    b = SingleInstanceLock(str(tmp_path / "r.lock"), stale_after_sec=30)
+    a.pid, b.pid = 111, 222
+    a.acquire()
+    for i in range(SingleInstanceLock.LOST_LIMIT):
+        assert not b.forfeited or i == SingleInstanceLock.LOST_LIMIT
+        b.refresh()
+    assert b.forfeited, "duplicate must forfeit after LOST_LIMIT losses"
+    assert not a.forfeited
+    # one successful refresh (e.g. after the peer died) resets the count
+    import json
+    import time
+    json.dump({"pid": 111, "heartbeat": time.time() - 999},
+              open(tmp_path / "r.lock", "w"))    # peer went stale
+    assert b.refresh() is True
+    assert b.lost_count == 0 and not b.forfeited
+
+
+def test_stale_takeover_still_works(tmp_path):
+    import json
+    import time
+    from core.runtime import SingleInstanceLock
+    lockfile = tmp_path / "r.lock"
+    json.dump({"pid": 999, "heartbeat": time.time() - 120},
+              open(lockfile, "w"))
+    b = SingleInstanceLock(str(lockfile), stale_after_sec=30)
+    b.pid = 222
+    assert b.acquire() is None, "stale holder must be replaceable"
+    assert json.load(open(lockfile))["pid"] == 222
