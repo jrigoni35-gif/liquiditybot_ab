@@ -329,7 +329,19 @@ class CandidateLabeler:
         return cost
 
     def poll(self) -> int:
-        """Label candidates whose horizon has elapsed. Returns rows written."""
+        """Label candidates. Returns rows written.
+
+        EARLY DECIDABILITY: a pt/sl barrier hit inside the available
+        candle window is FINAL - triple_barrier scans chronologically
+        and stops at the first touch, so later bars cannot change the
+        outcome. Only the 'time' label must wait for the full horizon.
+        Waiting for all 96 bars regardless (old behavior) delayed every
+        label by 8h even when it was decided in minutes, and turned any
+        registration gap into an equal-width label drought 8h later.
+        Early-labeled candidates STAY in the pool (labeled=True) until
+        the full horizon so the multi-horizon shadow record - which
+        needs the complete path - stays whole; the primary row is
+        written exactly once."""
         written = 0
         for cand in list(self._cands):
             b = self._bars.get(cand["asset"])
@@ -339,33 +351,49 @@ class CandidateLabeler:
                     self._cands.remove(cand)
                 continue
             i = b["t"].index(cand["bar_time"])
-            if len(b["t"]) - 1 - i < self.horizon:
+            avail = len(b["t"]) - 1 - i
+            if avail < 1:
                 continue
             closes = np.array(b["c"], float)
             highs = np.array(b["h"], float)
             lows = np.array(b["l"], float)
             side = 1 if cand["direction"] == "long" else -1
             cost = self._cost_pct(cand)
+            if avail >= self.horizon:
+                # full window: finish shadows, label if still unlabeled
+                if not cand.get("labeled"):
+                    out = triple_barrier(closes, highs, lows, i, side,
+                                        cand["sigma_bar"], self.pt, self.sl,
+                                        self.horizon, cost_pct=cost)
+                    written += self._emit_label(cand, out)
+                self._record_shadow_horizons(cand, closes, highs, lows, i,
+                                             side, cost)
+                self._cands.remove(cand)
+                continue
+            if cand.get("labeled"):
+                continue                    # waiting only for shadows now
             out = triple_barrier(closes, highs, lows, i, side,
                                 cand["sigma_bar"], self.pt, self.sl,
                                 self.horizon, cost_pct=cost)
-            self.store._append_row(cand["id"], cand["asset"],
-                                cand["direction"], cand["features"],
-                                out.label, 0.0, "candidate",
-                                signal_ts=float(cand["bar_time"]))
-            self._record_shadow_horizons(cand, closes, highs, lows, i, side,
-                                         cost)
-            if self._on_label is not None:
-                try:
-                    self._on_label(cand.get("gates"), out.label)
-                except Exception:
-                    log.exception("on_label callback failed - gate stats "
-                                  "skipped for this candidate")
-            self._cands.remove(cand)
-            written += 1
+            if out.barrier in ("pt", "sl"):
+                written += self._emit_label(cand, out)
+                cand["labeled"] = True
         if written:
             log.info(f"labeled {written} candidate signal(s) via triple-barrier")
         return written
+
+    def _emit_label(self, cand: dict, out) -> int:
+        self.store._append_row(cand["id"], cand["asset"],
+                            cand["direction"], cand["features"],
+                            out.label, 0.0, "candidate",
+                            signal_ts=float(cand["bar_time"]))
+        if self._on_label is not None:
+            try:
+                self._on_label(cand.get("gates"), out.label)
+            except Exception:
+                log.exception("on_label callback failed - gate stats "
+                              "skipped for this candidate")
+        return 1
 
     def _record_shadow_horizons(self, cand, closes, highs, lows, i, side,
                                 cost):
