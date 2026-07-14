@@ -1,0 +1,130 @@
+"""
+scripts/gc_pusher.py — push bot telemetry to Grafana Cloud (OTLP/HTTP).
+
+Sidecar, not engine code: reads outputs/status.json (the same atomic
+snapshot the dashboard reads) every PERIOD seconds and posts gauges to
+the Grafana Cloud OTLP gateway. The bot never knows this exists; any
+failure logs one line and retries next tick. Works everywhere the repo
+does — cloud container, Windows PC — so phone monitoring survives any
+single machine dying.
+
+Configuration is environment-only, no secrets in the repo or argv:
+
+  GC_OTLP_URL      OTLP metrics endpoint, e.g.
+                   https://otlp-gateway-prod-us-east-3.grafana.net/otlp/v1/metrics
+  GC_INSTANCE_ID   numeric Grafana Cloud instance / username for Basic auth
+  GC_TOKEN_FILE    path to a file containing the OTLP write token
+                   (chmod 600; NEVER commit the file)
+  LB_STATUS        status.json path (default: outputs/status.json)
+  GC_PERIOD_SEC    push interval seconds (default: 30)
+
+Grafana Cloud's OTLP translator appends a `_ratio` suffix to unit-"1"
+gauges, so `liquiditybot_equity` is stored as `liquiditybot_equity_ratio`;
+docs/grafana/liquiditybot_dashboard.json queries the stored names.
+"""
+import base64
+import json
+import os
+import time
+import urllib.request
+
+
+def _cfg() -> dict:
+    url = os.environ.get("GC_OTLP_URL", "")
+    instance = os.environ.get("GC_INSTANCE_ID", "")
+    token_file = os.environ.get("GC_TOKEN_FILE", "")
+    if not (url.startswith("https://") and instance and token_file):
+        raise SystemExit(
+            "gc_pusher: set GC_OTLP_URL (https), GC_INSTANCE_ID and "
+            "GC_TOKEN_FILE — see the module docstring")
+    with open(token_file, encoding="utf-8") as fh:
+        token = fh.read().strip()
+    return {
+        "url": url,
+        "auth": base64.b64encode(f"{instance}:{token}".encode()).decode(),
+        "status": os.environ.get("LB_STATUS", "outputs/status.json"),
+        "period": float(os.environ.get("GC_PERIOD_SEC", "30")),
+    }
+
+
+def gauge(name: str, value: float, attrs: dict | None = None,
+          ts: float | None = None) -> dict:
+    dp: dict = {"asDouble": float(value),
+                "timeUnixNano": str(int((ts or time.time()) * 1e9))}
+    if attrs:
+        dp["attributes"] = [{"key": k, "value": {"stringValue": str(v)}}
+                            for k, v in attrs.items()]
+    return {"name": name, "unit": "1", "gauge": {"dataPoints": [dp]}}
+
+
+def collect(status_path: str) -> list:
+    with open(status_path, encoding="utf-8") as fh:
+        s = json.load(fh)
+    ts = float(s.get("written_at") or time.time())
+    m = []
+    for key in ("equity", "daily_pnl", "drawdown_pct", "cycle",
+                "cycle_lifetime", "feed_latency_ms", "fees_total",
+                "realized_total", "equity_drift_pct"):
+        v = s.get(key)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_{key}", v, ts=ts))
+    m.append(gauge("liquiditybot_positions_open",
+                   len(s.get("positions") or []), ts=ts))
+    m.append(gauge("liquiditybot_running",
+                   1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
+    ml = s.get("ml") or {}
+    for key in ("history_rows", "open_candidates", "pending_labels"):
+        v = ml.get(key)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_ml_{key}", v, ts=ts))
+    for asset, v in (s.get("manip_suspect") or {}).items():
+        m.append(gauge("liquiditybot_manip_suspect", v, {"asset": asset}, ts))
+    for asset, sig in (s.get("signals") or {}).items():
+        if isinstance(sig, dict):
+            for k in ("confidence", "urgency"):
+                if isinstance(sig.get(k), (int, float)):
+                    m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
+                                   {"asset": asset}, ts))
+    for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
+        for k in ("grid", "metronome", "clockwork", "stop_zone"):
+            if isinstance(th.get(k), (int, float)):
+                m.append(gauge(f"liquiditybot_thales_{k}", th[k],
+                               {"asset": asset}, ts))
+    mm = s.get("moomoo") or {}
+    for k in ("risk_z", "opt_pcr_z", "opt_oi_pcr_z", "opt_iv_skew"):
+        v = mm.get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_moomoo_{k}", v, ts=ts))
+    return m
+
+
+def push(cfg: dict, metrics: list) -> int:
+    body = {"resourceMetrics": [{
+        "resource": {"attributes": [
+            {"key": "service.name",
+             "value": {"stringValue": "liquiditybot"}}]},
+        "scopeMetrics": [{"metrics": metrics}]}]}
+    req = urllib.request.Request(
+        cfg["url"], data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Basic {cfg['auth']}"})
+    # scheme is validated to https in _cfg(); file:// can't reach here
+    with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310
+        return r.status
+
+
+def main() -> None:
+    cfg = _cfg()
+    while True:
+        try:
+            code = push(cfg, collect(cfg["status"]))
+            print(f"{time.strftime('%H:%M:%S')} pushed HTTP {code}",
+                  flush=True)
+        except Exception as e:
+            print(f"{time.strftime('%H:%M:%S')} push failed: {e}",
+                  flush=True)
+        time.sleep(cfg["period"])
+
+
+if __name__ == "__main__":
+    main()

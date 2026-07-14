@@ -126,3 +126,27 @@ One-time setup on the PC, in order:
 Cloud sessions and the home bot then share one code line (`main`) and
 one learning stream (`paper-telemetry`), with the phone able to watch
 either dashboard through the same private tailnet.
+
+## Grafana Cloud (phone dashboard, no tailnet required)
+
+The primary phone view is a Grafana Cloud stack fed by
+`scripts/gc_pusher.py`, a sidecar that reads `outputs/status.json`
+every 30s and posts OTLP gauges. The bot never knows it exists;
+Streamlit remains available locally but is not served anywhere.
+
+- **Dashboard source of truth**: `docs/grafana/liquiditybot_dashboard.json`
+  (uid `liquiditybot-ctrl`). Import/update via the HTTP API
+  (`POST /api/dashboards/db`, service-account token) or the UI.
+  Metric names carry the `_ratio` suffix Grafana's OTLP translator
+  appends to unit-"1" gauges — query the stored names, not the
+  pusher-side names.
+- **Pusher** (either machine, venv python):
+  set `GC_OTLP_URL`, `GC_INSTANCE_ID`, `GC_TOKEN_FILE` (a chmod-600
+  file holding the OTLP write token — never committed), then run
+  `python scripts/gc_pusher.py`. One instance at a time is plenty.
+- **moomoo over the tailnet**: when OpenD runs on the PC, share it with
+  `tailscale serve --bg --tcp 11111 tcp://127.0.0.1:11111`; a cloud
+  container (userspace tailscaled, no TUN) reaches it via
+  `python scripts/tailnet_forward.py --tailscale <bin> --socket
+  <ts.sock> --dest <pc-100.x-ip> --port 11111`, which makes
+  `127.0.0.1:11111` work exactly as the feed expects.

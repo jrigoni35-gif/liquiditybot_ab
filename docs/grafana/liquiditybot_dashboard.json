@@ -1,0 +1,811 @@
+{
+ "dashboard": {
+  "panels": [
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 2,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "currencyUSD"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 0,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_equity_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Equity",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 2,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "currencyUSD"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 4,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_daily_pnl_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Daily PnL",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 2,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "percent"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 8,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_drawdown_pct_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Drawdown",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 12,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_ml_history_rows_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Training rows",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 16,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_running_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Running",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 4,
+     "x": 20,
+     "y": 0
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_cycle_ratio_lifetime_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Lifetime cycles",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "custom": {
+       "fillOpacity": 10,
+       "lineWidth": 2,
+       "showPoints": "never",
+       "stacking": {
+        "mode": "none"
+       }
+      },
+      "unit": "currencyUSD"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 8,
+     "w": 16,
+     "x": 0,
+     "y": 4
+    },
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom"
+     },
+     "tooltip": {
+      "mode": "multi"
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_equity_ratio",
+      "legendFormat": "equity",
+      "refId": "A"
+     }
+    ],
+    "title": "Equity (USD)",
+    "type": "timeseries"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "custom": {
+       "fillOpacity": 10,
+       "lineWidth": 2,
+       "showPoints": "never",
+       "stacking": {
+        "mode": "none"
+       }
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 8,
+     "w": 8,
+     "x": 16,
+     "y": 4
+    },
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom"
+     },
+     "tooltip": {
+      "mode": "multi"
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_ml_history_rows_ratio",
+      "legendFormat": "rows",
+      "refId": "A"
+     }
+    ],
+    "title": "Learning pipeline",
+    "type": "timeseries"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 3,
+      "max": 1.0,
+      "min": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 0.5
+        },
+        {
+         "color": "red",
+         "value": 0.85
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 7,
+     "w": 8,
+     "x": 0,
+     "y": 12
+    },
+    "options": {
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     },
+     "showThresholdLabels": false
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_manip_suspect_ratio",
+      "legendFormat": "{{asset}}",
+      "refId": "A"
+     }
+    ],
+    "title": "Manipulation suspicion (per asset)",
+    "type": "gauge"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "custom": {
+       "fillOpacity": 10,
+       "lineWidth": 2,
+       "showPoints": "never",
+       "stacking": {
+        "mode": "none"
+       }
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 7,
+     "w": 8,
+     "x": 8,
+     "y": 12
+    },
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom"
+     },
+     "tooltip": {
+      "mode": "multi"
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_signal_confidence_ratio",
+      "legendFormat": "{{asset}}",
+      "refId": "A"
+     }
+    ],
+    "title": "Signal confidence (per asset)",
+    "type": "timeseries"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 3,
+      "max": 1.0,
+      "min": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 0.5
+        },
+        {
+         "color": "red",
+         "value": 0.85
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 7,
+     "w": 8,
+     "x": 16,
+     "y": 12
+    },
+    "options": {
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     },
+     "showThresholdLabels": false
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_thales_stop_zone_ratio",
+      "legendFormat": "{{asset}}",
+      "refId": "A"
+     }
+    ],
+    "title": "THALES stop-zone (per asset)",
+    "type": "gauge"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "ms"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 6,
+     "x": 0,
+     "y": 19
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_feed_latency_ms_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Feed latency",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 6,
+     "x": 6,
+     "y": 19
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_positions_open_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Open positions",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 2,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "currencyUSD"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 6,
+     "x": 12,
+     "y": 19
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_fees_total_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Fees total",
+    "type": "stat"
+   },
+   {
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "fieldConfig": {
+     "defaults": {
+      "color": {
+       "mode": "thresholds"
+      },
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        }
+       ]
+      },
+      "unit": "none"
+     },
+     "overrides": []
+    },
+    "gridPos": {
+     "h": 4,
+     "w": 6,
+     "x": 18,
+     "y": 19
+    },
+    "options": {
+     "colorMode": "value",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "liquiditybot_ml_open_candidates_ratio",
+      "legendFormat": "",
+      "refId": "A"
+     }
+    ],
+    "title": "Open candidates",
+    "type": "stat"
+   }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+   "liquiditybot"
+  ],
+  "templating": {
+   "list": []
+  },
+  "time": {
+   "from": "now-6h",
+   "to": "now"
+  },
+  "timezone": "utc",
+  "title": "liquiditybot \u2014 control",
+  "uid": "liquiditybot-ctrl"
+ }
+}
