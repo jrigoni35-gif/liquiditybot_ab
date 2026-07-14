@@ -2,8 +2,8 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-13 10:33 UTC -> 2026-07-14 06:01 UTC (19.47h, ~2138 cycles)
-- Equity: $800.00 -> $798.47 (range $1.76) | realized PnL $-1.40 | fees $2.68
+- Window: 2026-07-13 10:33 UTC -> 2026-07-14 07:32 UTC (20.98h, ~2310 cycles)
+- Equity: $800.00 -> $798.45 (range $1.77) | realized PnL $-1.40 | fees $2.68
 - Activity: 5 open | 12 live labeled trades | 12 candidates | 9 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 12 | cold=True
 - Audit: 231 records (80 non-routine) | dominant OM-000 (82% of non-routine) | chain_ok=True | retrain_requests 0
