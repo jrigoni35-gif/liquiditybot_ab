@@ -169,6 +169,21 @@ def manip_suspect_score(spoof: float, whiplash: float,
     return float(min(max(spoof, whiplash, divergence), 1.0))
 
 
+def whiplash_suspicion(whiplash_std: float, healthy_p95: float,
+                       spoofy_threshold: float) -> float:
+    """Normalize the liquidity model's raw imbalance-whiplash (a STD with
+    healthy p50~1.1 / p95~1.27 at the 30s book cadence — see the 45h
+    calibration in regime/liquidity_regime.py) into the [0, 1] suspicion
+    scale manip_suspect_score expects: 0 anywhere inside the healthy
+    envelope, 1 at the classifier's own 'spoofy' threshold. Feeding the
+    raw std saturated the score on every quiet book (healthy median 1.1
+    clamps to 1.0), which pegged manip_suspect=1.0 for entire overnight
+    sessions and halved the training weight of perfectly good rows."""
+    span = max(float(spoofy_threshold) - float(healthy_p95), 1e-9)
+    return float(min(max((float(whiplash_std) - float(healthy_p95)) / span,
+                         0.0), 1.0))
+
+
 def _book_imbalance(book: dict) -> float:
     """log(bid depth / ask depth) over the top 10 levels, clipped like the
     imbalance feature; 0.0 when a side is missing."""
@@ -1439,9 +1454,13 @@ class LiquidityBot:
         liq_state = self.liq.state(asset)
         kb_imb = _book_imbalance(self.kraken_books.get(asset) or {})
         vb_imb = _book_imbalance(v.get("order_book") or {})
+        lr_cfg = self.config.get("liquidity_regime", {})
         suspect = manip_suspect_score(
             liq_state.spoof_score,
-            min(liq_state.imbalance_whiplash, 1.0),
+            whiplash_suspicion(
+                liq_state.imbalance_whiplash,
+                float(lr_cfg.get("whiplash_healthy_p95", 1.27)),
+                float(lr_cfg.get("imbalance_whiplash_threshold", 1.45))),
             kb_imb, vb_imb)
         self._manip_scores[asset] = round(suspect, 3)
         return {"fear_greed": web.fear_greed,

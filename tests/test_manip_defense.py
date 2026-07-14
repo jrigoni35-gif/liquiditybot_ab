@@ -8,13 +8,30 @@ never a new gate. Pins the math, the bounds, and the hygiene weighting.
 """
 import numpy as np
 
-from main import _book_imbalance, manip_suspect_score
+from main import _book_imbalance, manip_suspect_score, whiplash_suspicion
 from ml.features import FEATURE_NAMES
 from ml.history import HistoryStore
 
 
 def test_clean_data_scores_zero():
     assert manip_suspect_score(0.0, 0.0, 0.5, 0.5) == 0.0
+
+
+def test_whiplash_normalized_against_calibrated_envelope():
+    # raw imbalance-whiplash is a STD (healthy p50~1.1, p95~1.27,
+    # 'spoofy' at 1.45): inside the healthy envelope suspicion is ZERO -
+    # feeding the raw std saturated manip_suspect at 1.0 on quiet books
+    assert whiplash_suspicion(1.10, 1.27, 1.45) == 0.0   # healthy median
+    assert whiplash_suspicion(1.27, 1.27, 1.45) == 0.0   # healthy p95
+    assert abs(whiplash_suspicion(1.36, 1.27, 1.45) - 0.5) < 1e-9
+    assert whiplash_suspicion(1.45, 1.27, 1.45) == 1.0   # spoofy threshold
+    assert whiplash_suspicion(9.99, 1.27, 1.45) == 1.0   # clipped ceiling
+    assert whiplash_suspicion(0.0, 1.27, 1.45) == 0.0
+
+
+def test_whiplash_degenerate_span_never_divides_by_zero():
+    assert whiplash_suspicion(2.0, 1.45, 1.45) == 1.0
+    assert whiplash_suspicion(1.0, 1.45, 1.45) == 0.0
 
 
 def test_max_composition_no_fitted_weights():

@@ -409,6 +409,21 @@ def validate(config: dict) -> list:
              f"the healthy-book baseline (p50~1.1 at the 30s book cadence; "
              f"45h evidence in outputs/monitor/liquidity_dist.jsonl) - "
              f"expect near-constant 'spoofy' labels vetoing all entries")
+    # manip_suspect's whiplash component normalizes the raw std against
+    # [healthy_p95, threshold]; a p95 at/above the threshold collapses the
+    # ramp into a 0/1 step, and a p95 at/below the healthy MEDIAN re-creates
+    # the saturation bug this knob exists to prevent (manip pegged 1.0 on
+    # ordinary quiet books, halving healthy rows' training weight)
+    wp95 = float(_f(config, "liquidity_regime.whiplash_healthy_p95", 1.27))
+    if wp95 >= wt:
+        fatal(f"liquidity_regime.whiplash_healthy_p95={wp95} >= "
+              f"imbalance_whiplash_threshold={wt} - the manip_suspect "
+              f"whiplash ramp needs healthy_p95 strictly below the spoofy "
+              f"threshold")
+    elif wp95 <= 1.1:
+        warn(f"liquidity_regime.whiplash_healthy_p95={wp95} sits at/below "
+             f"the healthy-book median (p50~1.1) - manip_suspect will read "
+             f"elevated on ordinary quiet books")
 
     # --- rev-5 adaptive blocks: aggression / gate learning / exit coupling
     ia = _f(config, "position_sizer.inventory_aggression", {}) or {}

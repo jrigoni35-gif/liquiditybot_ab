@@ -232,6 +232,7 @@
     "spoof_max_lifetime_sec": 90,
     "spoof_score_threshold": 0.45,
     "imbalance_whiplash_threshold": 1.45,
+    "whiplash_healthy_p95": 1.27,
     "spoof_touch_buffer_bps": 5.0,
     "track_levels": 15
   },
@@ -341,7 +342,11 @@
     "multi_horizon": {
       "_doc": "SHADOW-ONLY: score each candidate at several holding horizons and log the outcome to shadow_path (never the live label/model). Evidence for whether some asset pairs pay over a longer hold than others - promote a horizon feature only once scripts/horizon_report.py shows a per-asset edge. All horizons must be <= label_max_bars.",
       "enabled": true,
-      "horizons_bars": [24, 48, 96],
+      "horizons_bars": [
+        24,
+        48,
+        96
+      ],
       "shadow_path": "outputs/horizon_shadow.csv"
     },
     "exploration": {
@@ -479,7 +484,10 @@
   "websockets": {
     "description": "Push-based Binance.US depth stream (data/ws_feed.py). Fresh cached book feeds the engine when live; REST is the always-on fallback whenever the socket is stale/down. Disabled by default; requires the 'websockets' package. Read-only data only.",
     "enabled": false,
-    "binanceus_symbols": ["BTCUSD", "ETHUSD"],
+    "binanceus_symbols": [
+      "BTCUSD",
+      "ETHUSD"
+    ],
     "depth": 20,
     "interval_ms": 100,
     "max_book_age_sec": 2.0
@@ -495,12 +503,12 @@
     "description": "Lazy-bot insecurity model (docs/THALES.md): detects grid ladders, clock-driven MM quoting, significance-gated scheduled flow, and stop-cluster sweeps from public data. influence=shadow records advice without applying it; advise applies bounded confidence shading only.",
     "enabled": true,
     "influence": "shadow",
-   "barclose": {
-    "_doc": "TH-015: no-code/indicator bots evaluate on candle close; their activity clusters in the first seconds after bar boundaries (intraday periodicity). Buckets top-of-book change events by phase-of-bar; score = excess share of bucket zero.",
-    "buckets": 10,
-    "bar_sec": 300,
-    "min_events": 120
-   },
+    "barclose": {
+      "_doc": "TH-015: no-code/indicator bots evaluate on candle close; their activity clusters in the first seconds after bar boundaries (intraday periodicity). Buckets top-of-book change events by phase-of-bar; score = excess share of bucket zero.",
+      "buckets": 10,
+      "bar_sec": 300,
+      "min_events": 120
+    },
     "max_conf_shade": 1.15,
     "grid": {
       "min_levels": 6,
@@ -643,7 +651,7 @@
     "flow_min": 0.25,
     "absorption_ad_min": 0.15,
     "absorption_move_sigmas": 1.0,
-    "material_threshold": 0.10,
+    "material_threshold": 0.1,
     "weights": {
       "flow": 1.0,
       "delta": 0.6,
