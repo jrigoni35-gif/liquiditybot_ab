@@ -62,6 +62,10 @@ def collect(status_path: str) -> list:
         s = json.load(fh)
     ts = float(s.get("written_at") or time.time())
     m = []
+    # stamped with NOW, not written_at: a frozen runner (or stale file)
+    # shows up as a rising age even while runner_state still says RUNNING
+    m.append(gauge("liquiditybot_status_age_sec",
+                   max(0.0, time.time() - ts), ts=time.time()))
     for key in ("equity", "daily_pnl", "drawdown_pct", "cycle",
                 "cycle_lifetime", "feed_latency_ms", "fees_total",
                 "realized_total", "equity_drift_pct"):

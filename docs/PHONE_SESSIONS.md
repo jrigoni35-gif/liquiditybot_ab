@@ -144,6 +144,15 @@ Streamlit remains available locally but is not served anywhere.
   set `GC_OTLP_URL`, `GC_INSTANCE_ID`, `GC_TOKEN_FILE` (a chmod-600
   file holding the OTLP write token — never committed), then run
   `python scripts/gc_pusher.py`. One instance at a time is plenty.
+  It also exports `liquiditybot_status_age_sec` stamped with wall-clock
+  time, so a frozen runner (status file no longer advancing) is visible
+  even while `runner_state` still reads RUNNING.
+- **Alerts** (provisioned in the stack, folder `liquiditybot`):
+  `telemetry stale or down` (status age > 180s for 5m, and NO DATA —
+  a dead pusher — also fires) and `manipulation suspicion high`
+  (any asset's `manip_suspect` > 0.9 for 10m). Both route to the
+  stack's default contact point — set an email/push target there once
+  and every rule uses it.
 - **moomoo over the tailnet**: when OpenD runs on the PC, share it with
   `tailscale serve --bg --tcp 11111 tcp://127.0.0.1:11111`; a cloud
   container (userspace tailscaled, no TUN) reaches it via
