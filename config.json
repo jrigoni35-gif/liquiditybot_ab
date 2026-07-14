@@ -259,9 +259,10 @@
     "min_profit_bps": 1.0
   },
   "pretrade": {
-    "description": "Set maker/taker fees to your actual Kraken tier. 25/40 is the public spot floor - config_guard refuses live start below it unless allow_sub_floor_fees is true.",
+    "description": "Set maker/taker fees to your actual Kraken tier. 25/40 is the public spot floor - config_guard refuses live start below it unless allow_sub_floor_fees is true. price_exit_leg adds the unwind leg (taker fee + half spread) to the EV cost stack - entries must clear ROUND-TRIP cost, not entry-only.",
     "maker_fee_bps": 25,
     "taker_fee_bps": 40,
+    "price_exit_leg": true,
     "impact_eta": 0.8,
     "min_edge_cost_ratio": 1.3,
     "max_spread_bps": 15,

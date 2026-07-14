@@ -132,7 +132,11 @@ def main():
     ctx = PreTradeContext(kraken_book=deep, sigma_daily_pct=3.0,
                           adv_usd=5e7, liq_label="liquid",
                           spread_bps=5.0, staleness_ms=100.0)
-    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=80.0,
+    # re-baselined for round-trip pricing (price_exit_leg): "strong" at
+    # the 25/40 tier now means clearing entry + taker-exit + half-spread
+    # (~74bps cost -> ~96bps bar at 1.3x), evidenced by 9/9 live
+    # cost_overrun postmortems at median 44bps under entry-only pricing
+    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=110.0,
                    fv_edge_bps=10.0, ctx=ctx)
     check("strong edge approves with p_fill/EV attached",
           d.approved and 0 < d.p_fill <= 1 and d.ev_bps > 0)

@@ -71,6 +71,7 @@ class PreTradeGate:
         cfg = config or {}
         self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
         self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
+        self.price_exit_leg = bool(cfg.get("price_exit_leg", True))
         self.impact_eta = float(cfg.get("impact_eta", 0.8))
         self.min_edge_cost_ratio = float(cfg.get("min_edge_cost_ratio", 1.3))
         self.max_spread_bps = float(cfg.get("max_spread_bps", 15.0))
@@ -211,7 +212,14 @@ class PreTradeGate:
             # short-horizon move against us ~ kappa x per-bar vol
             as_penalty = self.as_kappa * sigma_bar_bps
         impact = self.impact_bps(order_usd, ctx.sigma_daily_pct, ctx.adv_usd)
-        cost = fee + spread_cost + walk + impact + as_penalty
+        # exit leg: every entry must be unwound, and the escalation
+        # ladder's common terminal case is a taker exit through the
+        # current spread. Pricing entry-only is how an 86% hit rate
+        # still nets red: 9/9 live postmortems showed realized costs
+        # exceeding this estimate by a median 44bps - one taker leg.
+        exit_leg = (self.taker_fee_bps + 0.5 * ctx.spread_bps) \
+            if self.price_exit_leg else 0.0
+        cost = fee + spread_cost + walk + impact + as_penalty + exit_leg
 
         # ---- edge stack -----------------------------------------------------
         edge = max(exp_alpha_bps, 0.0) + max(fv_edge_bps, 0.0)

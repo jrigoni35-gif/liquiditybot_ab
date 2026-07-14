@@ -208,6 +208,13 @@ def test_pretrade():
     huge = gate.evaluate("buy", 1e6, 2000.0, 500.0, 0.0, ctx, taker=True)
     check("pretrade caps participation vs depth",
           (not huge.approved) or huge.size_units < 1e6)
+    legless = PreTradeGate({"maker_fee_bps": 16, "taker_fee_bps": 26,
+                            "min_edge_cost_ratio": 1.3,
+                            "price_exit_leg": False})
+    g2 = legless.evaluate("buy", 0.5, 2000.0, exp_alpha_bps=60.0,
+                          fv_edge_bps=10.0, ctx=ctx, taker=False)
+    check("pretrade prices the unwind leg (taker fee + half spread)",
+          abs((good.est_cost_bps - g2.est_cost_bps) - (26.0 + 2.0)) < 1e-9)
 
 
 def test_triple_barrier():
@@ -490,6 +497,7 @@ def test_entry_fill_exit_path():
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history2.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1   # let the forced signal through
+    cfg["pretrade"]["price_exit_leg"] = False  # subject: order pipeline, not cost policy
     # this scenario tests tier PLUMBING (reduce + book PnL) against the
     # legacy fixed-% path; rev-3 vol-scaled calculus is covered by
     # tests/test_rev3.py
@@ -584,6 +592,10 @@ def test_persistence_roundtrip():
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history3.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
+    # subject here is persistence, not gate economics: without these the
+    # round-trip cost stack (price_exit_leg) can EV-veto the synthetic
+    # entry and the roundtrip has no position to snapshot
+    cfg["pretrade"]["price_exit_leg"] = False
     Path(str(TMP / "smoke_history3.csv")).unlink(missing_ok=True)
     Path(str(TMP / "smoke_state.json")).unlink(missing_ok=True)
 
@@ -1219,6 +1231,7 @@ def test_record_replay_sweep():
                                  entry_cooldown_min=0, min_p_win=0.50)
     cfg["ml"]["cold_start_prior_p"] = 0.62
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
+    cfg["pretrade"]["price_exit_leg"] = False  # subject: recorder, not cost policy
 
     # --- record a live-ish session with mocked feeds + forced signal ---
     prices = {"ETH": 2000.0, "BTC": 60000.0}
