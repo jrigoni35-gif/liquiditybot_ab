@@ -1573,6 +1573,89 @@
     ],
     "title": "Pending labels",
     "type": "stat"
+   },
+   {
+    "collapsed": false,
+    "gridPos": {
+     "h": 1,
+     "w": 24,
+     "x": 0,
+     "y": 51
+    },
+    "id": 34,
+    "panels": [],
+    "title": "Event log",
+    "type": "row"
+   },
+   {
+    "datasource": {
+     "type": "loki",
+     "uid": "grafanacloud-logs"
+    },
+    "description": "Bot events at WARNING and above, streamed from outputs/events.jsonl by scripts/gc_log_pusher.py. Every line carries its reason codes (SZ-*, ML-*, TH-*, ...) \u2014 click a line for label details, or open in Explore to search the full history.",
+    "gridPos": {
+     "h": 9,
+     "w": 24,
+     "x": 0,
+     "y": 52
+    },
+    "id": 35,
+    "options": {
+     "dedupStrategy": "none",
+     "enableLogDetails": true,
+     "showTime": true,
+     "sortOrder": "Descending",
+     "wrapLogMessage": true
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "loki",
+       "uid": "grafanacloud-logs"
+      },
+      "expr": "{service_name=\"liquiditybot\"} | severity_text=~\"WARNING|ERROR|CRITICAL\"",
+      "maxLines": 200,
+      "queryType": "range",
+      "refId": "A"
+     }
+    ],
+    "title": "Warnings & incidents",
+    "type": "logs"
+   },
+   {
+    "datasource": {
+     "type": "loki",
+     "uid": "grafanacloud-logs"
+    },
+    "description": "Complete structured event stream \u2014 the bot's flight recorder. Filter by logger or severity via the log details, or query in Explore: e.g. {service_name=\"liquiditybot\"} |= \"ML-071\" for every unteachable-unwind ever shipped.",
+    "gridPos": {
+     "h": 9,
+     "w": 24,
+     "x": 0,
+     "y": 61
+    },
+    "id": 36,
+    "options": {
+     "dedupStrategy": "none",
+     "enableLogDetails": true,
+     "showTime": true,
+     "sortOrder": "Descending",
+     "wrapLogMessage": true
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "loki",
+       "uid": "grafanacloud-logs"
+      },
+      "expr": "{service_name=\"liquiditybot\"}",
+      "maxLines": 200,
+      "queryType": "range",
+      "refId": "A"
+     }
+    ],
+    "title": "Live event stream (all levels)",
+    "type": "logs"
    }
   ],
   "refresh": "30s",

@@ -149,6 +149,12 @@ Streamlit remains available locally but is not served anywhere.
   It also exports `liquiditybot_status_age_sec` stamped with wall-clock
   time, so a frozen runner (status file no longer advancing) is visible
   even while `runner_state` still reads RUNNING.
+- **Event log → Loki** (`scripts/gc_log_pusher.py`, same env vars):
+  tails `outputs/events.jsonl` into the stack's Loki via the same OTLP
+  gateway (`/otlp/v1/logs`), offset-persisted and rotation-safe, so the
+  full reason-coded event history is searchable from the phone
+  (`{service_name="liquiditybot"} |= "ML-071"` in Explore). The
+  dashboard's "Event log" section shows warnings and the live stream.
 - **Alerts** (provisioned in the stack, folder `liquiditybot`):
   `telemetry stale or down` (status age > 180s for 5m, and NO DATA —
   a dead pusher — also fires) and `manipulation suspicion high`
