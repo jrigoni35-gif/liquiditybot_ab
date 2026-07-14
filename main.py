@@ -1223,8 +1223,14 @@ class LiquidityBot:
         verdict = self.narrative.evaluate(sentiment, structure)
         self.postmortem.note_stress(verdict.label == "confirmed_stress")
 
+        # operator pause and ledger-drift blocks stop NEW RISK, not the
+        # learning lane or the signals panel (same reasoning as the
+        # capital cap above: candidates cost nothing, and a frozen
+        # status gauge is a blind operator). The WATCHDOG block stays a
+        # hard return: it trips on data quality - candidates registered
+        # from suspect feeds would poison the training set.
         if not self.entries_enabled:
-            return
+            can_enter = False
         if self.watchdog.state.entries_blocked:
             log.info(f"watchdog blocking entries: "
                      f"{self.watchdog.state.reasons}")
@@ -1232,12 +1238,12 @@ class LiquidityBot:
         if abs(self._equity_drift_pct) > self.max_equity_drift_pct:
             log.warning(f"equity drift {self._equity_drift_pct:+.2f}% vs "
                         f"venue truth - entries blocked until reconciled")
-            return
+            can_enter = False
 
         for asset, v in self._entry_assets():
             symbol = self.symbol_map[asset]
             if not self._live_order_allowed("entry"):
-                break
+                can_enter = False      # live-not-armed: learning continues
             if self.orders.has_open(asset, "entry"):
                 continue
 

@@ -75,9 +75,21 @@ class IsotonicCalibrator:
                 vals[-1] += v
                 wts[-1] += w
                 xs[-1] = x   # right edge of pool
-            # merge duplicate x knots
-        self.x = np.array(xs, float)
-        self.y = np.clip(np.array(vals, float) / np.array(wts, float), 0.02, 0.98)
+        # merge duplicate x knots: tree/blend models emit clustered raw
+        # probabilities, so adjacent pools can share a right edge —
+        # np.interp needs increasing xp, so keep the LAST (largest) y
+        # per distinct x
+        ys = list(np.clip(np.array(vals, float) / np.array(wts, float),
+                          0.02, 0.98))
+        mx, my = [], []
+        for xv, yv in zip(xs, ys):
+            if mx and xv == mx[-1]:
+                my[-1] = yv
+            else:
+                mx.append(xv)
+                my.append(yv)
+        self.x = np.array(mx, float)
+        self.y = np.array(my, float)
         return self
 
     @property

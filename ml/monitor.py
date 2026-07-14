@@ -287,8 +287,11 @@ class ModelMonitor:
 
     def should_deploy(self, challenger_brier: float) -> bool:
         """Champion/challenger deployment gate."""
+        # no-champion clause still demands the challenger beat a coin:
+        # 0.25 is the Brier of predicting 0.5 forever — shipping a first
+        # model WORSE than that would hand Kelly a net-harmful p
         ok = challenger_brier < self.champion_brier - self.deploy_margin \
-            or self.champion_brier >= 0.25
+            or (self.champion_brier >= 0.25 and challenger_brier < 0.25)
         get_audit().log("ml_governor",
                         Code.ML_DEPLOY if ok else Code.ML_DEPLOY_REJECT,
                         f"challenger brier {challenger_brier:.4f} vs "

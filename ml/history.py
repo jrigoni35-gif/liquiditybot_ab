@@ -272,7 +272,12 @@ class CandidateLabeler:
             return                      # same signal, same candle: no duplicate
         self._last_reg[(asset, direction)] = bar_time
         if len(self._cands) >= self.max_candidates:
-            self._cands.pop(0)
+            # evict the NEWEST pending candidate, never index 0: poll()
+            # runs first each cycle, so the head of the list is the
+            # candidate closest to its label horizon — evicting it (old
+            # behavior) killed the about-to-ripen row exactly when
+            # signal flow was busiest, biasing labels toward quiet hours
+            self._cands.pop()
         self._seq += 1
         self._cands.append({"id": f"cand-{self._seq}", "asset": asset,
                             "direction": direction,

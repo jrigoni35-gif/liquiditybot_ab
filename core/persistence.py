@@ -180,6 +180,12 @@ class StateStore:
                                 for o in bot.orders.open_orders()],
                 "feature_schema_version": _feature_schema_version(),
                 "cycle_lifetime": int(getattr(bot, "_cycle_lifetime", 0)),
+                # regime_age_sec feature integrity: without this a restart
+                # resets every regime's age to zero and rows recorded in
+                # the following hours understate it ("a 2-bar-old range
+                # and a 3-day-old range are different animals")
+                "regime_since": {a: [lbl, ts] for a, (lbl, ts) in
+                                 getattr(bot, "_regime_since", {}).items()},
                 "history_pending": {
                     pid: {"asset": a, "direction": d, "features": f.tolist()}
                     for pid, (a, d, f) in bot.history._pending.items()
@@ -359,6 +365,15 @@ class StateStore:
         bot._halted = bool(data.get("halted", False))
         # absent in pre-upgrade snapshots -> starts counting from now
         bot._cycle_lifetime = int(data.get("cycle_lifetime", 0) or 0)
+        # regime ages survive restarts; if the label changed while we were
+        # down, slow_cycle's change detection resets that asset naturally
+        try:
+            if hasattr(bot, "_regime_since"):
+                bot._regime_since.update(
+                    {a: (str(lbl), float(ts)) for a, (lbl, ts) in
+                     (data.get("regime_since") or {}).items()})
+        except (TypeError, ValueError):
+            log.warning("regime_since section malformed - ages restart at 0")
         # absent in pre-upgrade snapshots -> keep the init-time value
         # (rows at launch), the old behavior
         if data.get("rows_at_last_train") is not None:

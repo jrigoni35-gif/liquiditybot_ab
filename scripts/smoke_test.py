@@ -616,6 +616,14 @@ def test_capped_book_learning():
           f"orders={len(bot.orders._orders)}")
     check("capped book still surfaces signals to status",
           bot.last_signals.get("ETH", {}).get("confirmed") is True)
+    # operator pause: same contract - learning and gauges live, no orders
+    bot.entries_enabled = False
+    bot.last_signals.clear()
+    bot.slow_cycle(t + 5)
+    check("entries_off still surfaces signals to status",
+          bot.last_signals.get("ETH", {}).get("confirmed") is True)
+    check("entries_off places zero live entry orders",
+          len(bot.orders._orders) == 0)
 
 
 def test_persistence_roundtrip():
@@ -673,6 +681,7 @@ def test_persistence_roundtrip():
           bot.state.open_position_count() == 1)
     pos_before = bot.state.open_positions()[0]
     bot.sizer.note_entry("ETH", t)
+    bot._regime_since["ETH"] = ("bull_quiet", t - 7200.0)   # 2h-old regime
     ok = bot.store.snapshot(bot)
     check("persistence: snapshot written", ok and Path(str(TMP / "smoke_state.json")).exists())
 
@@ -680,6 +689,8 @@ def test_persistence_roundtrip():
     bot2 = LiquidityBot(cfg, okx=MockOKX(prices), binanceus=MockBinanceUS(prices),
                         kraken=MockKraken(prices), resume=True)
     check("persistence: resume flag set", bot2._resumed)
+    check("persistence: regime age survives restart (regime_age_sec)",
+          bot2._regime_since.get("ETH") == ("bull_quiet", t - 7200.0))
     check("persistence: position survives restart",
           bot2.state.open_position_count() == 1)
     p2 = bot2.state.open_positions()[0]
