@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784039908.2284439,
+  "generated_at": 1784047671.2284834,
   "outputs_dir": "outputs",
   "window": {
-    "start": 1783938784.182,
-    "end": 1784039907.106,
-    "duration_h": 28.09
+    "start": 1783938784.183,
+    "end": 1784047668.479,
+    "duration_h": 30.25
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,26 +16,27 @@
     "realized_pnl_total": -2.07,
     "fees_paid_total": 3.204,
     "open_positions": 0,
-    "samples": 6256
+    "samples": 6731
   },
   "activity": {
-    "signal_rows_total": 85,
+    "signal_rows_total": 135,
     "live_labeled_trades": 19,
-    "candidate_rows": 66
+    "candidate_rows": 116
   },
   "audit": {
-    "records": 339,
-    "signal_records": 103,
+    "records": 386,
+    "signal_records": 111,
     "by_src": {
-      "exploration": 236,
+      "exploration": 275,
       "order_manager": 80,
-      "startup": 22,
+      "startup": 28,
+      "ml_governor": 2,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        236
+        275
       ],
       [
         "OM-000",
@@ -43,76 +44,85 @@
       ],
       [
         "CG-000",
-        22
+        28
       ],
       [
         "ML-071",
         1
+      ],
+      [
+        "ML-032",
+        1
+      ],
+      [
+        "ML-014",
+        1
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.777,
-    "retrain_requests": 0,
+    "dominant_frac": 0.721,
+    "retrain_requests": 1,
     "kill_switch_events": 0,
     "chain_ok": true,
     "chain_first_break": null
   },
   "events": {
-    "records": 18120,
+    "records": 1323,
     "by_level": {
-      "INFO": 15697,
-      "ERROR": 2231,
-      "WARNING": 192
+      "INFO": 1087,
+      "ERROR": 218,
+      "WARNING": 17,
+      "CRITICAL": 1
     },
     "top_warnings": [
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        992
+        98
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
-        860
+        88
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        141
+        12
+      ],
+      [
+        "control: stop  -> ok (runner=RUNNING)",
+        6
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
-        48
+        4
       ],
       [
         "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-        48
+        4
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
-        46
+        4
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/public/funding-rate: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceed",
-        46
+        4
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
-        46
+        4
       ],
       [
         "Binance.US: skipping ETHUSD, order book unavailable",
-        25
-      ],
-      [
-        "OKX: skipping ETH-USDT-SWAP, order book unavailable",
-        25
+        2
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5915,
-      "thin": 2059
+      "spoofy": 337,
+      "thin": 172
     },
-    "spoofy_frac": 0.742,
-    "cycles_estimate": 3091,
-    "feed_error_events": 2339
+    "spoofy_frac": 0.662,
+    "cycles_estimate": 195,
+    "feed_error_events": 226
   },
   "model": {
     "monitor_level": 0,
@@ -144,13 +154,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 74% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 66% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 78% of 103 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 72% of 111 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-003 liquidity vetoed feed-wide"
