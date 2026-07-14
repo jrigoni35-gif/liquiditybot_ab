@@ -571,6 +571,53 @@ def test_entry_fill_exit_path():
               _p is None or _p.size < start_size * 0.6)
 
 
+def test_capped_book_learning():
+    """A full book (position cap reached) must starve LIVE entries only -
+    never the learning lane. Observed live: hours of ~110 blocked
+    cycles/hour with zero new candidates drained the open-candidate pool
+    65 -> 7. Candidates are shadow trades: zero capital, always safe."""
+    from main import LiquidityBot, load_config
+    from strategies.signal_gates import SignalResult
+
+    cfg = load_config(str(Path(__file__).resolve().parents[1] / "config.json"))
+    cfg["capital_management"]["starting_capital_usd"] = 10_000
+    cfg["capital_management"]["max_concurrent_positions"] = 0   # cap saturated
+    cfg["system"]["dry_run"] = True
+    cfg["sentiment"]["enabled"] = False
+    cfg["webdata"]["enabled"] = False
+    cfg["moomoo"]["enabled"] = False
+    qa_redirect_paths(cfg, "capped")
+    cfg["ml"]["model_path"] = str(TMP / "none.json")
+    cfg["ml"]["history_path"] = str(TMP / "smoke_capped.csv")
+    Path(str(TMP / "smoke_capped.csv")).unlink(missing_ok=True)
+
+    prices = {"ETH": 2000.0, "BTC": 60000.0}
+    bot = LiquidityBot(cfg, okx=MockOKX(prices), binanceus=MockBinanceUS(prices),
+                       kraken=MockKraken(prices), resume=False)
+    bot.gates.evaluate_asset = lambda base_asset, view: SignalResult(  # type: ignore[assignment]
+        symbol="ETH/USD", direction="long", confidence=1.0, size=0.0,
+        all_confirmed=True, gates_passed={}) if base_asset == "ETH" else \
+        SignalResult(symbol="BTC/USD", direction=None, confidence=0.0,
+                     size=0.0, all_confirmed=False, gates_passed={})
+    t = time.time()
+    bot.hourly_cycle(t)
+    for a in ("ETH", "BTC"):
+        st = bot.macro.state(a)
+        st.label = "bull_quiet"
+        st.playbook = dict(bot.macro.playbooks["bull_quiet"])
+        bot.macro._states[a] = st
+    bot.fast_cycle(t)
+    bot.slow_cycle(t)
+    check("capped book still registers training candidates",
+          len(bot.candidates._cands) >= 1,
+          f"cands={len(bot.candidates._cands)}")
+    check("capped book places zero live entry orders",
+          len(bot.orders._orders) == 0,
+          f"orders={len(bot.orders._orders)}")
+    check("capped book still surfaces signals to status",
+          bot.last_signals.get("ETH", {}).get("confirmed") is True)
+
+
 def test_persistence_roundtrip():
     """Open a position, snapshot, resume into a NEW bot instance, and verify
     the restored bot has identical state and keeps managing the position
@@ -1796,6 +1843,7 @@ if __name__ == "__main__":
     print("[10] full-bot integration");     test_integration()
     print("[11] entry->fill->exit lifecycle"); test_entry_fill_exit_path()
     print("[12] persistence round-trip");   test_persistence_roundtrip()
+    print("[12b] capped-book learning lane"); test_capped_book_learning()
     print("[13] probability calibration");  test_calibration()
     print("[14] model monitor ladder");     test_monitor_ladder()
     print("[15] trade postmortems");        test_postmortem()

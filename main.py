@@ -1196,8 +1196,14 @@ class LiquidityBot:
             return
 
         equity = self._equity()
-        if equity <= EPS or not self.capital.can_open_new_position(self.state):
+        if equity <= EPS:
             return
+        # the capital cap gates LIVE entries only - never the learning
+        # lane: shadow candidates cost nothing, and halting evaluation
+        # while the book is full starves the label pipeline for hours
+        # (observed live: ~110 blocked cycles/hour, zero new candidates,
+        # open-candidate pool drained 65 -> 7 during a capped stretch)
+        can_enter = self.capital.can_open_new_position(self.state)
 
         # structural stress inputs for the narrative filter
         vols = [self.vol.state(a).percentile for a in self.symbol_map]
@@ -1292,7 +1298,7 @@ class LiquidityBot:
             # logged FEATURES and the win/loss LABEL stay real (honest data).
             model_p, explore_scale = p_win, 1.0
             explored = False
-            if self._exploration_active(now, asset):
+            if can_enter and self._exploration_active(now, asset):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale
@@ -1317,6 +1323,8 @@ class LiquidityBot:
                                         gates_passed=signal.gates_passed,
                                         spread_bps=liq_state.spread_bps)
             self.monitor.note_features(feats)
+            if not can_enter:
+                continue          # book full: lesson recorded, no new risk
 
             lev_decision = self.lev_gov.decide(
                 self.state, self.marks, equity, vol_state.sigma_annual_pct,
