@@ -41,7 +41,7 @@ class HistoryStore:
         # and a duplicated CSV header made DictReader consumers silently read
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
-                        "label", "net_pnl_usd", "source", "ts"]
+                        "label", "net_pnl_usd", "source", "ts", "signal_ts"]
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -68,10 +68,15 @@ class HistoryStore:
 
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray):
-        self._pending[position_id] = (asset, direction, features.copy())
+        # signal time captured HERE: rows are appended at label time, and
+        # the purged walk-forward must order/purge by when the SIGNAL
+        # happened, not when its barrier resolved
+        self._pending[position_id] = (asset, direction, features.copy(),
+                                      time.time())
 
     def _append_row(self, position_id: str, asset: str, direction: str,
-                    feats: np.ndarray, label: int, pnl_usd: float, source: str):
+                    feats: np.ndarray, label: int, pnl_usd: float,
+                    source: str, signal_ts: float | None = None):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -79,7 +84,7 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 4 != len(self._header):
+        if 3 + len(feats) + 5 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
@@ -87,19 +92,25 @@ class HistoryStore:
                 f"vector, row would misalign under the current header")
             return
         with open(self.path, "a", newline="", encoding="utf-8") as f:
+            now = time.time()
             csv.writer(f).writerow([position_id, asset, direction,
                                     *[f"{v:.6f}" for v in feats],
                                     label, f"{pnl_usd:.2f}", source,
-                                    f"{time.time():.0f}"])
+                                    f"{now:.0f}",
+                                    f"{signal_ts if signal_ts else now:.0f}"])
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
         if entry is None:
             return
-        asset, direction, feats = entry
+        if len(entry) == 4:
+            asset, direction, feats, sig_ts = entry
+        else:                                   # pre-upgrade snapshot shape
+            asset, direction, feats = entry
+            sig_ts = None
         label = int(net_pnl_usd > 0)
         self._append_row(position_id, asset, direction, feats, label,
-                        net_pnl_usd, "live")
+                        net_pnl_usd, "live", signal_ts=sig_ts)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 
@@ -139,13 +150,17 @@ class HistoryStore:
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         if not self.path.exists():
             return empty
-        X, y, w = [], [], []
+        X, y, w, sig = [], [], [], []
         now = time.time()
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 try:
                     X.append([float(row[n]) for n in FEATURE_NAMES])
                     y.append(float(row["label"]))
+                    # signal-time ordering for the purged walk-forward;
+                    # pre-upgrade rows fall back to label time (ts)
+                    sig.append(float(row.get("signal_ts")
+                                     or row.get("ts") or now))
                     age_d = max(now - float(row.get("ts") or now), 0.0) / 86400.0
                     ww = 0.5 ** (age_d / max(half_life_days, 1e-6))
                     if row.get("source") == "candidate":
@@ -156,7 +171,12 @@ class HistoryStore:
                     w.append(ww)
                 except (KeyError, ValueError):
                     continue
-        return np.array(X, float), np.array(y, float), np.array(w, float)
+        X, y, w = (np.array(X, float), np.array(y, float),
+                   np.array(w, float))
+        if len(sig):
+            order = np.argsort(np.array(sig), kind="mergesort")
+            X, y, w = X[order], y[order], w[order]
+        return X, y, w
 
 
 class HorizonShadowStore:
@@ -331,7 +351,8 @@ class CandidateLabeler:
                                 self.horizon, cost_pct=cost)
             self.store._append_row(cand["id"], cand["asset"],
                                 cand["direction"], cand["features"],
-                                out.label, 0.0, "candidate")
+                                out.label, 0.0, "candidate",
+                                signal_ts=float(cand["bar_time"]))
             self._record_shadow_horizons(cand, closes, highs, lows, i, side,
                                          cost)
             if self._on_label is not None:

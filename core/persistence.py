@@ -187,8 +187,11 @@ class StateStore:
                 "regime_since": {a: [lbl, ts] for a, (lbl, ts) in
                                  getattr(bot, "_regime_since", {}).items()},
                 "history_pending": {
-                    pid: {"asset": a, "direction": d, "features": f.tolist()}
-                    for pid, (a, d, f) in bot.history._pending.items()
+                    pid: {"asset": e[0], "direction": e[1],
+                          "features": e[2].tolist(),
+                          # signal time (4th slot; older 3-tuples lack it)
+                          "signal_ts": float(e[3]) if len(e) > 3 else None}
+                    for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
                 "pos_realized": dict(bot._pos_realized),
@@ -356,7 +359,9 @@ class StateStore:
                 for pid, h in data.get("history_pending", {}).items():
                     bot.history._pending[pid] = (
                         h["asset"], h["direction"],
-                        np.array(h["features"], dtype=float))
+                        np.array(h["features"], dtype=float),
+                        float(h["signal_ts"]) if h.get("signal_ts")
+                        else time.time())
         except Exception:
             log.exception("history section malformed - skipped")
 
