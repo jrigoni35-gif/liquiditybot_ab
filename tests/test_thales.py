@@ -183,6 +183,41 @@ def test_stop_cluster_proximity_shades_down():
     assert any("not the lemming" in n for n in out.notes)
 
 
+def test_coarse_tick_market_has_no_stop_zone_signal():
+    """FLOW/USD live footprint: price $0.026, Kraken tick 0.0001 = 38bps
+    of price - wider than the whole 15bps zone tolerance. Every
+    representable price sits on the k/100 lattice AND the crawling
+    2-3-tick market parks the mark exactly on a swing extreme, so
+    proximity pinned at exactly 1.0 for hours (observed on the
+    dashboard). A price grid coarser than the tolerance band makes
+    proximity information-free: it must read 0, not 1."""
+    eng = ThalesEngine(_cfg())
+    bars = [{"ts": 1000.0 + 300 * i, "open": 0.0264, "close": 0.0264,
+             "high": 0.0265, "low": 0.0264} for i in range(48)]
+    eng.observe_candles("FLOW", bars, 20000.0)
+    st = eng._st("FLOW")
+    prox, _ = eng._stop_zones(st, 0.0264)     # mark dead on the lattice
+    assert prox == 0.0, "coarse-tick prox must be suppressed"
+    assert st.zone_degenerate
+    # a completely dead window (one distinct price ever) is equally blind
+    eng2 = ThalesEngine(_cfg())
+    flat = [{"ts": 1000.0 + 300 * i, "open": 0.0264, "close": 0.0264,
+             "high": 0.0264, "low": 0.0264} for i in range(48)]
+    eng2.observe_candles("FLOW", flat, 20000.0)
+    assert eng2._stop_zones(eng2._st("FLOW"), 0.0264)[0] == 0.0
+    # fine-tick market revisiting its swing low keeps the signal: that
+    # proximity is the stop-hunt footprint the detector exists for
+    eng3 = ThalesEngine(_cfg())
+    wave = [{"ts": 1000.0 + 300 * i, "open": 100.0 + 0.01 * i,
+             "close": 100.01 + 0.01 * i, "high": 100.06 + 0.01 * i,
+             "low": 99.96 + 0.01 * i} for i in range(48)]
+    eng3.observe_candles("BTC", wave, 20000.0)
+    st3 = eng3._st("BTC")
+    prox3, _ = eng3._stop_zones(st3, 99.9601)  # a hair off the swing low
+    assert prox3 > 0.5, "fine-tick swing-low proximity must survive"
+    assert not st3.zone_degenerate
+
+
 # ---------------------------------------------------------------------
 # advice channel: clamps, shadow, off, garbage
 # ---------------------------------------------------------------------

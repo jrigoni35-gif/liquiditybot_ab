@@ -86,6 +86,7 @@ class _AssetState:
         self.candle_hist: deque = deque(maxlen=max(
             int(cfg.get("stops", {}).get("swing_lookback", 48)) + 4, 64))
         self.last_sweep: dict = {}               # {"dir": +1/-1, "ts": t}
+        self.zone_degenerate = False             # tick grid >= tol band
         self.marks: deque = deque(maxlen=8)
         # feed-integrity window: 1 = clean book this cycle, 0 = missing or
         # sanitize-rejected. A sustained low clean-rate means a hostile or
@@ -280,24 +281,47 @@ class ThalesEngine:
         if not mark or not math.isfinite(mark) or mark <= EPS:
             return 0.0, 0
         tol = float(self._s.get("zone_tol_pct", 0.15)) / 100.0
-        zones = []
-        # self-scaling round-number grid: steps {1, 2.5, 5}x10^k that
-        # land between 0.3% and 3% of price (Osler clustering)
-        k = 10.0 ** math.floor(math.log10(mark))
-        for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2):
-            if 0.003 * mark <= step <= 0.03 * mark:
-                zones.append(round(mark / step) * step)
         lookback = int(self._s.get("swing_lookback", 48))
         hist = list(st.candle_hist)[-lookback:]
-        swing_hi, swing_lo = swing_high_low(st.candle_hist, lookback)
-        if swing_hi is not None:
-            zones.append(swing_hi)
-            zones.append(swing_lo)
+        # proximity only discriminates when the venue's price grid is
+        # finer than the tolerance band: on a coarse-tick asset (FLOW
+        # at $0.026, one tick = 38bps vs tol 15bps) every representable
+        # price IS a magnet and prox pins at 1.0 carrying zero
+        # information. Infer the effective tick as the smallest gap
+        # between distinct prices in the window; a window with a single
+        # price (dead market) is equally uninformative.
+        degenerate = False
+        if hist:
+            prices = sorted({p for _, o, hi, lo, c in hist
+                             for p in (o, hi, lo, c)})
+            if len(prices) < 2:
+                degenerate = True
+            else:
+                tick = min(b - a for a, b in zip(prices, prices[1:]))
+                degenerate = tick >= tol * mark
+        if degenerate != st.zone_degenerate:
+            st.zone_degenerate = degenerate
+            log.info("thales stop-zone %s: proximity %s (price grid vs "
+                     "%.2f%% tolerance band)", "degenerate" if degenerate
+                     else "informative again", "disabled" if degenerate
+                     else "re-enabled", tol * 100.0)
         prox = 0.0
-        for z in zones:
-            d = abs(mark - z) / mark
-            if d < tol:
-                prox = max(prox, 1.0 - d / tol)
+        if not degenerate:
+            zones = []
+            # self-scaling round-number grid: steps {1, 2.5, 5}x10^k
+            # that land between 0.3% and 3% of price (Osler clustering)
+            k = 10.0 ** math.floor(math.log10(mark))
+            for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2):
+                if 0.003 * mark <= step <= 0.03 * mark:
+                    zones.append(round(mark / step) * step)
+            swing_hi, swing_lo = swing_high_low(st.candle_hist, lookback)
+            if swing_hi is not None:
+                zones.append(swing_hi)
+                zones.append(swing_lo)
+            for z in zones:
+                d = abs(mark - z) / mark
+                if d < tol:
+                    prox = max(prox, 1.0 - d / tol)
         sweep = 0
         if len(hist) >= 2:
             ts, o, hi, lo, c = hist[-1]
