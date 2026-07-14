@@ -77,6 +77,8 @@ class ModelMonitor:
         self.flag_path = Path(cfg.get("retrain_flag_path",
                                       "outputs/retrain_requested.flag"))
         self.shrink_base = float(cfg.get("shrinkage_base", 0.35))
+        self.cause_stale_sec = float(
+            cfg.get("cause_stale_hours", 4.0)) * 3600.0
         self.shrink_max = float(cfg.get("shrinkage_max", 0.70))
         self.kelly_mult_min = float(cfg.get("kelly_mult_min", 0.40))
         self.edge_ratio_bump_max = float(cfg.get("edge_ratio_bump_max", 0.4))
@@ -93,6 +95,7 @@ class ModelMonitor:
         self._records: deque = deque(maxlen=self.window * 3)
         self._cause_tally: Counter = Counter()
         self._causes_window: deque = deque(maxlen=20)
+        self._last_cause_ts = 0.0
         self.level = 0
         self._level_streak = 0
         self._last_retrain_request = 0.0
@@ -115,6 +118,7 @@ class ModelMonitor:
         if cause:
             self._cause_tally[cause] += 1
             self._causes_window.append(cause)
+            self._last_cause_ts = time.time()
             self._apply_cause_adjustments()
         self._evaluate()
 
@@ -200,6 +204,32 @@ class ModelMonitor:
             self.shrinkage = self.shrink_max
             self.kelly_mult = self.kelly_mult_min
             self.use_model = False          # ML-050 kill switch
+
+    def decay_stale_causes(self, now: float) -> None:
+        """Adaptive penalties must never deadlock. Bumps raised by past
+        postmortems normally decay when NEW closes refresh the causes
+        window — but a raised entry bar can prevent the very trades that
+        would refresh it (observed live: +0.4 edge bump on top of
+        round-trip cost pricing = zero entries for hours, window frozen
+        at 14 cost_overruns; entries need the bar down, the bar needs
+        clean exits, exits need entries). Once no close has arrived for
+        cause_stale_hours, each call retires one stale cause and decays
+        the penalties one step, so the state converges on a silent book
+        at an evidence-paced rate instead of never."""
+        if not self._causes_window or self._last_cause_ts <= 0:
+            return
+        if now - self._last_cause_ts < self.cause_stale_sec:
+            return
+        self._causes_window.popleft()
+        if self.edge_ratio_bump > 0:
+            self.edge_ratio_bump = max(self.edge_ratio_bump - 0.05, 0.0)
+        if self.stop_widen > 1.0:
+            self.stop_widen = max(self.stop_widen - 0.05, 1.0)
+        log.info("stale-cause decay (no closes for %.1fh): edge_bump=%.2f "
+                 "stop_widen=%.2f window=%d",
+                 (now - self._last_cause_ts) / 3600.0,
+                 self.edge_ratio_bump, self.stop_widen,
+                 len(self._causes_window))
 
     def _apply_cause_adjustments(self):
         recent = Counter(self._causes_window)
@@ -349,7 +379,8 @@ class ModelMonitor:
                 "use_model": self.use_model,
                 "edge_ratio_bump": self.edge_ratio_bump,
                 "stop_widen": self.stop_widen,
-                "last_retrain_request": self._last_retrain_request}
+                "last_retrain_request": self._last_retrain_request,
+                "last_cause_ts": self._last_cause_ts}
 
     def restore(self, d: dict):
         if not d:
@@ -364,6 +395,7 @@ class ModelMonitor:
         self.kelly_mult = float(d.get("kelly_mult", 1.0))
         self.use_model = bool(d.get("use_model", True))
         self.edge_ratio_bump = float(d.get("edge_ratio_bump", 0.0))
+        self._last_cause_ts = float(d.get("last_cause_ts", 0.0))
         self.stop_widen = float(d.get("stop_widen", 1.0))
         self._last_retrain_request = float(d.get("last_retrain_request",
                                                  0.0))

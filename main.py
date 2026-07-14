@@ -1532,6 +1532,10 @@ class LiquidityBot:
     # HOURLY cycle - macro regime + turbulence
     # ------------------------------------------------------------------
     def hourly_cycle(self, now: float):
+        # adaptive-penalty staleness decay: without this a raised entry
+        # bar can deadlock (bar blocks trades -> no closes -> the causes
+        # window that justifies the bar never refreshes)
+        self.monitor.decay_stale_causes(now)
         okx_syms = self.config["exchanges"]["okx"].get("symbols", [])
         binanceus_syms = self.config["exchanges"]["binanceus"].get("symbols", [])
         for asset in self.symbol_map:

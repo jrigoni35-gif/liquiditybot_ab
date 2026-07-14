@@ -55,6 +55,30 @@ def test_isotonic_merges_duplicate_knots():
     assert np.all(np.diff(out) >= 0), "calibration must stay monotone"
 
 
+def test_stale_causes_decay_instead_of_deadlocking():
+    """A +bump raised by cost_overruns can block the very trades whose
+    clean exits would decay it (observed live: zero entries for hours,
+    causes window frozen). With no new closes for cause_stale_hours,
+    each decay call must retire one cause and step the penalties down."""
+    import time as _t
+    mon = ModelMonitor({"cause_stale_hours": 4.0})
+    for _ in range(6):
+        mon.record_close(0.6, 0, True, cause="cost_overrun")
+    assert mon.edge_ratio_bump > 0
+    bump0, win0 = mon.edge_ratio_bump, len(mon._causes_window)
+    now = _t.time()
+    mon.decay_stale_causes(now + 1800)            # fresh: no-op
+    assert mon.edge_ratio_bump == bump0
+    mon.decay_stale_causes(now + 5 * 3600)        # stale: one step
+    assert mon.edge_ratio_bump < bump0
+    assert len(mon._causes_window) == win0 - 1
+    for _ in range(30):                           # converges to zero
+        mon.decay_stale_causes(now + 6 * 3600)
+    assert mon.edge_ratio_bump == 0.0
+    d = mon.to_dict()                             # ts survives restarts
+    assert "last_cause_ts" in d
+
+
 def test_first_challenger_must_still_beat_a_coin():
     mon = ModelMonitor({})
     assert mon.champion_brier >= 0.25          # no champion yet
