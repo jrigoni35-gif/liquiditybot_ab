@@ -1170,7 +1170,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
-    "description": "TH-013 stop-zone, 0-1: stop-cluster sweep pressure near round-number levels (Osler cascades).",
+    "description": "TH-013 stop-zone, averaged: the raw score is an INSTANTANEOUS proximity to the nearest stop-cluster magnet (round-number lattice + swing extremes, 1.0 at the magnet, 0 past 0.15%), which naturally square-waves as price wanders between magnets spaced 0.3-3% apart. This panel shows the 30-minute average - the share of recent time price spent pinned to cascade territory. Sustained elevation = crowded magnet = Osler sweep risk. The model consumes the raw instantaneous value at signal time, which is exactly right for that purpose.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -1206,12 +1206,12 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_thales_stop_zone{job=\"liquiditybot\"}",
+      "expr": "avg_over_time(liquiditybot_thales_stop_zone{job=\"liquiditybot\"}[30m])",
       "legendFormat": "{{asset}}",
       "refId": "A"
      }
     ],
-    "title": "THALES stop clusters",
+    "title": "THALES stop clusters (30m avg time-near-magnet)",
     "type": "timeseries"
    },
    {
