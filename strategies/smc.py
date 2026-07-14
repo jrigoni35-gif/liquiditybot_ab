@@ -383,6 +383,7 @@ class SMCEngine:
         self._fvg = cfg.get("fvg", {})
         self._vp = cfg.get("volume_profile", {})
         self._last: dict = {}   # asset -> last computed snapshot (telemetry)
+        self.compute_faults = 0  # degradations to NEUTRAL (surfaced in status)
 
     def compute(self, asset: str, candles: Optional[list],
                direction: Optional[str], now: float,
@@ -412,12 +413,21 @@ class SMCEngine:
             self._last[asset] = out
             return out
         except Exception:
-            log.debug("smc compute degraded to neutral", exc_info=True)
+            # NEUTRAL values are in contract range, so nothing downstream
+            # ever flags this - the counter + WARNING are the ONLY trace
+            # of a dead SMC block (7 features silently zeroed)
+            self.compute_faults += 1
+            if self.compute_faults == 1 or self.compute_faults % 50 == 0:
+                log.warning("smc compute degraded to neutral (fault #%d)",
+                            self.compute_faults, exc_info=True)
+            else:
+                log.debug("smc compute degraded to neutral", exc_info=True)
             return dict(NEUTRAL)
 
     def status(self) -> dict:
         if not self.enabled:
             return {"enabled": False}
         return {"enabled": True,
+                "compute_faults": self.compute_faults,
                 "assets": {a: {k: round(v, 3) for k, v in s.items()}
                            for a, s in self._last.items()}}

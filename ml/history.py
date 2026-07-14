@@ -193,8 +193,13 @@ class HorizonShadowStore:
                     int(label), f"{net_ret_pct:.6f}", exit_reason,
                     f"{time.time():.0f}"])
         except OSError:
-            log.debug("horizon shadow append failed (non-fatal)",
-                      exc_info=True)
+            self.dropped = getattr(self, "dropped", 0) + 1
+            if self.dropped == 1 or self.dropped % 20 == 0:
+                log.warning("horizon shadow append failed (%d dropped) - "
+                            "research dataset truncating", self.dropped)
+            else:
+                log.debug("horizon shadow append failed (non-fatal)",
+                          exc_info=True)
 
 
 class CandidateLabeler:
@@ -361,6 +366,9 @@ class CandidateLabeler:
                     cand["id"], cand["asset"], cand["direction"], h,
                     o.label, o.ret_pct, o.barrier)
         except Exception:
+            if self.shadow_store is not None:
+                self.shadow_store.dropped = getattr(
+                    self.shadow_store, "dropped", 0) + 1
             log.debug("shadow horizon recording failed (non-fatal)",
                       exc_info=True)
 

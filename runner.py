@@ -27,6 +27,7 @@ import logging
 import time
 from pathlib import Path
 
+from core.audit import get_audit
 from core.persistence import StateStore
 from core.precision import round_price
 from core.runtime import (ARM_PHRASE, ControlChannel, JsonlLogHandler,
@@ -268,7 +269,15 @@ class BotRunner:
                    "pending_labels": len(bot.history._pending),
                    "open_candidates": len(bot.candidates._cands),
                    "retrain_flag": bot.monitor.flag_path.exists(),
+                   # failure-visibility counters: each event logs, but only
+                   # a surfaced cumulative count exposes the TREND of a
+                   # subsystem quietly dying behind in-range neutral values
+                   "model_fallbacks": bot.meta.fallbacks,
+                   "infer_faults": bot.meta.infer_faults,
+                   "contract_failed": bot.meta.contract.failed,
+                   "smc_faults": getattr(bot.smc, "compute_faults", 0),
                    "gate_stats": bot.gate_stats.summary()},
+            "audit_dropped_writes": get_audit().dropped,
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "ws": bot.ws_manager.health()
             if getattr(bot, "ws_manager", None) is not None else {},

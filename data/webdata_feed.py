@@ -123,7 +123,14 @@ class WebDataFeed:
             snap.dominance_delta = 0.0
             snap.total_mcap_usd = self._snapshot.total_mcap_usd
 
-        snap.available = got_any or self._snapshot.available
+        # freshness-based, never a sticky latch: a feed that has failed
+        # every poll for 3+ cycles must READ dead - the old
+        # `or self._snapshot.available` kept it "available" forever off
+        # one ancient success while values froze at last-good
+        if got_any:
+            self._last_success = now
+        snap.available = got_any or (
+            now - getattr(self, "_last_success", 0.0) < 3 * self.poll_sec)
         if got_any:
             log.info(f"webdata: F&G={snap.fear_greed:.0f} "
                     f"BTC.D={snap.btc_dominance:.1f}% "
