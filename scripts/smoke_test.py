@@ -624,6 +624,15 @@ def test_capped_book_learning():
           bot.last_signals.get("ETH", {}).get("confirmed") is True)
     check("entries_off places zero live entry orders",
           len(bot.orders._orders) == 0)
+    # cold-start training trigger: degradation/drift both need an existing
+    # model, so an untrained bot with enough rows must SELF-flag - without
+    # this the first champion never trains no matter how many rows accrue
+    bot.monitor.flag_path.unlink(missing_ok=True)
+    bot.history.row_count = lambda: bot.monitor.retrain_min_rows + 1  # type: ignore[method-assign]
+    bot._maybe_auto_retrain()
+    check("cold start with enough rows requests the FIRST training",
+          bot.monitor.flag_path.exists())
+    bot.monitor.flag_path.unlink(missing_ok=True)
 
 
 def test_persistence_roundtrip():

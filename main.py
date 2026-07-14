@@ -1611,10 +1611,18 @@ class LiquidityBot:
         retrain in-process on live+candidate history. The challenger only
         deploys if its out-of-fold Brier beats the champion's - the bot
         never swaps in a worse model just to feel busy."""
+        rows = self.history.row_count()
+        # COLD START has no other trigger: degradation needs a model and
+        # drift needs a trained model's deciles, so without this the
+        # first champion never trains no matter how many rows accrue -
+        # the bot would run on the prior forever. request_retrain owns
+        # the cooldown/flag hygiene; note_deployed clears it on success.
+        if not self.meta.trained and rows >= self.monitor.retrain_min_rows:
+            self.monitor.request_retrain(
+                f"cold start: {rows} labeled rows and no champion")
         want = self.monitor.level >= 2 or self.monitor.flag_path.exists()
         if not want:
             return
-        rows = self.history.row_count()
         if rows - self._rows_at_last_train < self.monitor.retrain_min_new_rows \
                 or rows < self.monitor.retrain_min_rows:
             return
