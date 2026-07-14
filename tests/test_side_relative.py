@@ -44,13 +44,13 @@ def _vector(direction: str) -> np.ndarray:
                                   "other_ret_6": 1.2, "depth_ratio": 1.1,
                                   "regime_age_sec": 7200.0,
                                   "venue_disloc_bps": 9.0,
-                                  "thales": {"grid": 0.4, "metronome": 0.2,
+                                  "thales": {"grid": 0.4, "metronome": 0.2, "barclose": 0.3,
                                              "clockwork": 0.1,
                                              "stop_zone": 0.7}})
 
 
 def test_schema_version_current():
-    assert FEATURE_SCHEMA_VERSION == 5
+    assert FEATURE_SCHEMA_VERSION == 6
 
 
 def test_long_short_flip_exactly_the_dir_features():

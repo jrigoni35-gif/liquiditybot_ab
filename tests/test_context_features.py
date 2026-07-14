@@ -12,9 +12,9 @@ from ml.features import (CONTEXT_NEUTRAL, FEATURE_NAMES,
 from strategies.thales import ThalesEngine
 
 
-def test_schema_is_57_wide_v5():
-    assert len(FEATURE_NAMES) == 57
-    assert FEATURE_SCHEMA_VERSION == 5
+def test_schema_is_58_wide_v6():
+    assert len(FEATURE_NAMES) == 58
+    assert FEATURE_SCHEMA_VERSION == 6
     for n in ("regime_age", "funding_dist", "venue_disloc_dir", "th_grid",
               "th_metronome", "th_clockwork", "th_stopzone"):
         assert n in FEATURE_NAMES
@@ -48,7 +48,7 @@ def test_migration_neutrals_are_documented():
 def test_thales_feature_scores_zeros_when_disabled_or_cold():
     off = ThalesEngine({"enabled": False})
     zeros = {"grid": 0.0, "metronome": 0.0, "clockwork": 0.0,
-             "stop_zone": 0.0}
+             "stop_zone": 0.0, "barclose": 0.0}
     assert off.feature_scores("BTC", 1000.0) == zeros
     on = ThalesEngine({"enabled": True, "influence": "shadow"})
     assert on.feature_scores("NEVER_SEEN", 1000.0) == zeros

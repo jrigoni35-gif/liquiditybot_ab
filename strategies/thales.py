@@ -76,6 +76,13 @@ class _AssetState:
         self.seen_bars: deque = deque(maxlen=int(c.get("max_history_bars",
                                                        4032)))
         self.seen_bar_set: set = set()
+        bc = cfg.get("barclose", {})
+        self.bc_nb = int(bc.get("buckets", 10))
+        self.bc_bar_sec = float(bc.get("bar_sec", 300.0))
+        self.bc_min_events = float(bc.get("min_events", 120.0))
+        self.bc_buckets = [0.0] * self.bc_nb
+        self.bc_prev_top: tuple | None = None
+        self.bc_last_bar = -1
         self.candle_hist: deque = deque(maxlen=max(
             int(cfg.get("stops", {}).get("swing_lookback", 48)) + 4, 64))
         self.last_sweep: dict = {}               # {"dir": +1/-1, "ts": t}
@@ -132,6 +139,7 @@ class ThalesEngine:
             asks = (book or {}).get("asks") or []
             self._update_grid(st, bids, asks, mark)
             self._update_metronome(st, bids, asks, now)
+            self._update_barclose(st, bids, asks, now)
         except Exception:
             log.debug("thales observe_fast degraded", exc_info=True)
 
@@ -421,6 +429,38 @@ class ThalesEngine:
             return 0.0
         return 1.0 - (sum(obs) / len(obs))
 
+    def _update_barclose(self, st: _AssetState, bids: list, asks: list,
+                         now: float):
+        """TH-015 bar-close herding: no-code/indicator bots evaluate on
+        candle close, so their activity clusters in the first seconds
+        after bar boundaries (documented intraday periodicity: bursts in
+        the opening 30s bucket of every 5-minute bar). Count top-of-book
+        change events into phase-of-bar buckets; the herd shows up as an
+        excess share in bucket zero. Rolling decay at each bar rollover
+        keeps the window recent (~30 bars at 0.97)."""
+        if not bids or not asks:
+            return
+        top = (float(bids[0][0]), float(asks[0][0]))
+        bar_idx = int(now // st.bc_bar_sec)
+        if bar_idx != st.bc_last_bar:
+            st.bc_last_bar = bar_idx
+            st.bc_buckets = [v * 0.97 for v in st.bc_buckets]
+        if st.bc_prev_top is not None and top != st.bc_prev_top:
+            phase = (now % st.bc_bar_sec) / st.bc_bar_sec
+            b = min(int(phase * st.bc_nb), st.bc_nb - 1)
+            st.bc_buckets[b] += 1.0
+        st.bc_prev_top = top
+
+    @staticmethod
+    def _barclose_score(st: _AssetState) -> float:
+        total = sum(st.bc_buckets)
+        if total < st.bc_min_events:
+            return 0.0
+        uniform = 1.0 / st.bc_nb
+        share0 = st.bc_buckets[0] / total
+        return float(min(max((share0 - uniform) / (1.0 - uniform), 0.0),
+                         1.0))
+
     def _scores(self, st: _AssetState, now: float) -> dict:
         c_score, c_dir = self._clockwork(st, now)
         mark = st.marks[-1][1] if st.marks else 0.0
@@ -429,6 +469,7 @@ class ThalesEngine:
                 "metronome": round(st.metro_score, 3),
                 "clockwork": round(c_score, 3), "clockwork_dir": c_dir,
                 "stop_zone": round(prox, 3),
+                "barclose": round(self._barclose_score(st), 3),
                 "feed_dirty": round(self._feed_integrity(st), 3)}
 
     def feature_scores(self, asset: str, now: float) -> dict:
@@ -438,7 +479,7 @@ class ThalesEngine:
         a hand-tuned shade. Read-only, never raises; zeros when the
         engine is disabled or the asset has not warmed up."""
         zeros = {"grid": 0.0, "metronome": 0.0, "clockwork": 0.0,
-                 "stop_zone": 0.0}
+                 "stop_zone": 0.0, "barclose": 0.0}
         if not self.enabled:
             return zeros
         st = self._assets.get(asset)

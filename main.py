@@ -124,6 +124,31 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
+def nudge_stop_off_round_number(stop: float, direction: str,
+                                buffer_bps: float) -> float:
+    """Osler (Stop-Loss Orders and Price Cascades in Currency Markets,
+    J. Int'l Money & Finance 2005 / NY Fed SR150): stop orders cluster
+    at round numbers, and cascades fire just AFTER price crosses one -
+    a stop resting within buffer_bps of a round level fills at the
+    bottom of the herd's cascade, not at its trigger. Nudge ours to the
+    safe side of the level (long stops just ABOVE it, short stops just
+    BELOW), exiting BEFORE the cluster detonates. The round lattice is
+    magnitude-relative: half of the second-significant-digit unit
+    (BTC ~63k -> every 500; ETH ~1.8k -> every 50; MINA ~0.45 -> every
+    0.005), matching the 00/50 endings Osler documents. The nudge only
+    ever TIGHTENS the stop (toward entry); if it cannot stay on the
+    stop's own side of the level, the stop is returned unchanged."""
+    if stop <= 0 or buffer_bps <= 0:
+        return stop
+    import math as _math
+    spacing = 10.0 ** (_math.floor(_math.log10(stop)) - 1) / 2.0
+    level = round(stop / spacing) * spacing
+    if abs(stop - level) / stop * 1e4 > buffer_bps:
+        return stop
+    pad = level * buffer_bps / 1e4
+    return level + pad if direction == "long" else level - pad
+
+
 def manip_suspect_score(spoof: float, whiplash: float,
                         kraken_imb: float, composite_imb: float) -> float:
     """Adversarial-data suspicion in [0, 1], parameter-free (MAX of
@@ -596,8 +621,17 @@ class LiquidityBot:
                        self.stop_vol_mult * vol_state.sigma_bar_pct)
         stop_pct *= macro_state.playbook.get("stop_mult", 1.0)
         stop_pct *= self.monitor.stop_widen
-        return entry * (1 - stop_pct / 100.0) if direction == "long" \
+        stop = entry * (1 - stop_pct / 100.0) if direction == "long" \
             else entry * (1 + stop_pct / 100.0)
+        # Osler round-number hygiene: never rest a stop inside the herd's
+        # cascade zone (see nudge_stop_off_round_number). Config-gated;
+        # the nudge is bps-scale and only ever tightens.
+        buf = float(self.config.get("risk_management", {})
+                    .get("stop_round_buffer_bps", 5.0))
+        nudged = nudge_stop_off_round_number(stop, direction, buf)
+        if direction == "long":
+            return min(max(nudged, stop), entry * 0.999)
+        return max(min(nudged, stop), entry * 1.001)
 
     # ------------------------------------------------------------------
     # fill handling

@@ -153,6 +153,8 @@
   },
   "risk": {
     "stop_loss_pct": 2.0,
+    "stop_round_buffer_bps": 5.0,
+    "_stop_round_doc": "Osler round-number hygiene: a stop resting within this many bps of a magnitude-relative round level (00/50 endings) is nudged to the safe side of the level (long above, short below) so it exits BEFORE stop-cascade zones, never inside them. 0 disables.",
     "stop_vol_mult": 4.0,
     "max_slippage_pct": 0.5,
     "exit_escalation": {
@@ -493,6 +495,12 @@
     "description": "Lazy-bot insecurity model (docs/THALES.md): detects grid ladders, clock-driven MM quoting, significance-gated scheduled flow, and stop-cluster sweeps from public data. influence=shadow records advice without applying it; advise applies bounded confidence shading only.",
     "enabled": true,
     "influence": "shadow",
+   "barclose": {
+    "_doc": "TH-015: no-code/indicator bots evaluate on candle close; their activity clusters in the first seconds after bar boundaries (intraday periodicity). Buckets top-of-book change events by phase-of-bar; score = excess share of bucket zero.",
+    "buckets": 10,
+    "bar_sec": 300,
+    "min_events": 120
+   },
     "max_conf_shade": 1.15,
     "grid": {
       "min_levels": 6,
