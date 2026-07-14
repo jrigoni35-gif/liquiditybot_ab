@@ -19,6 +19,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Paper-ledger equity in USD (DRY-RUN). Source: outputs/status.json 'equity', exported every 30s by scripts/gc_pusher.py.",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -70,6 +71,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Profit/loss for the current UTC day, USD. Green >= 0, red < 0.",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -125,6 +127,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Cumulative realized PnL across all closed trades, USD. Fees are tracked separately in 'Fees total'.",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -176,6 +179,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Cumulative venue fees paid, USD (simulated at Kraken's fee schedule in DRY-RUN).",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -227,6 +231,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Current drawdown from peak equity, in PERCENT (0.14 means 0.14%). Yellow >= 5%, red >= 10%.",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -286,6 +291,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Live-equity vs internal-ledger divergence, percent. Nonzero means the equity truth-check disagrees with the book; the watchdog trips on sustained drift.",
     "fieldConfig": {
      "defaults": {
       "decimals": 3,
@@ -337,6 +343,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Runner state: UP only when runner_state == RUNNING. PAUSED, STOPPED, or a dead process all read DOWN. A frozen runner can still read UP \u2014 that's what 'Status age' catches.",
     "fieldConfig": {
      "defaults": {
       "mappings": [
@@ -406,6 +413,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Open positions in the paper ledger right now.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -457,6 +465,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Equity curve, USD. Same series as the Equity stat.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -515,6 +524,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Labeled rows in signal_history \u2014 the meta-model's training set (live + exploration-candidate lanes, feature schema v6 / 58 features).",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -566,6 +576,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Exploration candidates currently open: shadow entries taken to generate training data, awaiting their triple-barrier outcome.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -617,6 +628,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Feature vectors recorded at signal time, waiting for the triple-barrier label (profit target / stop / time expiry).",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -668,6 +680,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Persistent engine-cycle counter. Carried in the snapshot, so it survives restarts and container moves \u2014 the bot's odometer.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -719,6 +732,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Growth of the training set. 'Labeled rows' only ever rises; candidates/pending oscillate as trades open and resolve.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -783,6 +797,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Lifetime = persistent odometer. Session = cycles since the current runner process started; a reset to 0 marks a restart.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -851,12 +866,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Meta-model gate confidence, 0-1. Entries require this gate to clear; the liquidity defense suppresses confidence when the book looks manipulated, so low values on thin alts are the defense working.",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -896,12 +915,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Signal urgency, 0-1 \u2014 how strongly the current signal presses for action this cycle.",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -941,6 +964,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "manip_suspect, 0-1, parameter-free: MAX of spoof score, whiplash score, and Kraken-vs-composite book divergence. Training-sample weights are discounted in proportion; alert fires above 0.9 sustained 10m.",
     "fieldConfig": {
      "defaults": {
       "decimals": 2,
@@ -999,12 +1023,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "TH-010, 0-1: evenly spaced resting-order ladders \u2014 grid bots living in the book.",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -1044,12 +1072,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "TH-011 metronome, 0-1: top-of-book requoting on a fixed clock \u2014 lazy market-maker automation.",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -1089,12 +1121,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "TH-012 clockwork, 0-1: statistically significant time-of-day flow (significance-gated).",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -1134,12 +1170,16 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "TH-013 stop-zone, 0-1: stop-cluster sweep pressure near round-number levels (Osler cascades).",
     "fieldConfig": {
      "defaults": {
       "custom": {
        "fillOpacity": 0,
        "lineWidth": 2
       },
+      "decimals": 2,
+      "max": 1,
+      "min": 0,
       "unit": "short"
      },
      "overrides": []
@@ -1192,6 +1232,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Cross-asset risk appetite: z-scored move of the moomoo equity basket (COIN, MSTR, QQQ weights 1/1/0.7). Flat 0 while the US market is closed or OpenD is unreachable.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -1237,6 +1278,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "COIN nearest-expiry, near-the-money options via moomoo: volume put/call ratio z, open-interest put/call ratio z, and IV skew (put IV minus call IV, /10, clipped to \u00b11). Z-scores need ~60 polls (15min cadence) of history before they move.",
     "fieldConfig": {
      "defaults": {
       "custom": {
@@ -1313,6 +1355,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Market-data fetch latency for the engine's feed cycle, milliseconds. Yellow >= 400ms, red >= 1s.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -1372,6 +1415,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Seconds since the runner last wrote status.json, stamped at PUSH time \u2014 keeps rising if the runner freezes, even while 'Running' still shows UP. Alert fires at >180s for 5m (no-data also alerts).",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -1431,6 +1475,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Engine cycles since the current runner process started. Resets on every restart \u2014 compare with Lifetime cycles.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -1482,6 +1527,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
+    "description": "Feature vectors recorded at signal time, waiting for the triple-barrier label (profit target / stop / time expiry).",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -1531,6 +1577,10 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
+  "tags": [
+   "liquiditybot",
+   "paper-trading"
+  ],
   "templating": {
    "list": []
   },
