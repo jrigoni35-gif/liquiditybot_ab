@@ -98,3 +98,23 @@ def test_deploy_demands_oof_evidence_not_just_score():
     assert mon.should_deploy(0.15, n_oof=30)      # evidence floor met
     assert mon.should_deploy(0.15, n_oof=None)    # legacy callers: score-only
     assert not mon.should_deploy(0.26, n_oof=500) # evidence can't save a coin-loser
+
+
+def test_stale_decay_seeds_clock_for_pre_upgrade_windows():
+    """Restored snapshots carry a causes window but no last_cause_ts
+    (0.0). The decay guard used to skip on ts<=0 - and ts stays 0 until
+    a NEW close arrives, which the bump prevents: the deadlock one
+    level deeper. First call must seed the clock; staleness then
+    decays from there."""
+    import time as _t
+    mon = ModelMonitor({"cause_stale_hours": 4.0})
+    mon._causes_window.extend(["cost_overrun"] * 6)
+    mon.edge_ratio_bump = 0.4
+    mon._last_cause_ts = 0.0                      # pre-upgrade snapshot
+    now = _t.time()
+    mon.decay_stale_causes(now)                   # seeds the clock
+    assert mon._last_cause_ts == now
+    assert mon.edge_ratio_bump == 0.4             # no decay yet
+    mon.decay_stale_causes(now + 5 * 3600)        # now provably stale
+    assert mon.edge_ratio_bump < 0.4
+    assert len(mon._causes_window) == 5

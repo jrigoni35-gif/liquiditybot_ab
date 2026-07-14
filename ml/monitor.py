@@ -217,7 +217,15 @@ class ModelMonitor:
         cause_stale_hours, each call retires one stale cause and decays
         the penalties one step, so the state converges on a silent book
         at an evidence-paced rate instead of never."""
-        if not self._causes_window or self._last_cause_ts <= 0:
+        if not self._causes_window:
+            return
+        if self._last_cause_ts <= 0:
+            # restored from a pre-upgrade snapshot (no timestamp) or the
+            # causes predate this process: the age is unknown, so start
+            # the staleness clock NOW - otherwise ts stays 0 until a new
+            # close arrives, and the bump that blocks closes never decays
+            # (the deadlock this method exists to break, one level deeper)
+            self._last_cause_ts = now
             return
         if now - self._last_cause_ts < self.cause_stale_sec:
             return
