@@ -1065,6 +1065,9 @@ def test_runtime_and_runner():
     r.status.write(r.build_status(now), now)
     check("runner: step executed exactly one cycle while paused",
           bot._cycle == 1 and r.state == "PAUSED")
+    check("manip gauge refreshes every slow cycle (not only at signals)",
+          set(bot._manip_scores) >= set(prices)
+          and all(0.0 <= v <= 1.0 for v in bot._manip_scores.values()))
     st = json.loads(Path(str(TMP / "smoke_rt" / "status.json")).read_text(encoding="utf-8"))
     check("runner: status schema complete",
           all(k in st for k in ("mode", "positions", "regimes", "monitor",

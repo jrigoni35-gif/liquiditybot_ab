@@ -315,6 +315,9 @@ class LiquidityBot:
         self.macro = MacroRegimeEngine(config.get("regime", {}))
         self.vol = VolRegimeEngine(config.get("vol_regime", {}))
         self.liq = LiquidityRegimeEngine(config.get("liquidity_regime", {}))
+        _lr = config.get("liquidity_regime", {})
+        self._wl_p95 = float(_lr.get("whiplash_healthy_p95", 1.27))
+        self._wl_thr = float(_lr.get("imbalance_whiplash_threshold", 1.45))
         self.corr = CorrelationEngine(config.get("correlation", {}))
         self.fv = FairValueEngine(config.get("fair_value", {}))
         self.quoter = AvellanedaStoikovQuoter(config.get("market_maker", {}))
@@ -1144,6 +1147,17 @@ class LiquidityBot:
             self.vol.update(asset, v.get("candles") or [],
                             self.daily_candles.get(asset) or [])
             self.liq.update(asset, v.get("order_book") or {}, kbook, now)
+            # refresh the manipulation score EVERY cycle, not only at
+            # signal evaluation: while the position cap pauses entries no
+            # signals are evaluated, and a defense gauge that freezes on
+            # its last value is blind exactly when the operator watches it
+            ls = self.liq.state(asset)
+            self._manip_scores[asset] = round(manip_suspect_score(
+                ls.spoof_score,
+                whiplash_suspicion(ls.imbalance_whiplash,
+                                   self._wl_p95, self._wl_thr),
+                _book_imbalance(kbook),
+                _book_imbalance(v.get("order_book") or {})), 3)
             # regime age: when did the macro label last change? Feeds the
             # regime_age feature - a 2-bar-old "range" and a 3-day-old
             # "range" are different animals the one-hots cannot separate.
@@ -1454,13 +1468,10 @@ class LiquidityBot:
         liq_state = self.liq.state(asset)
         kb_imb = _book_imbalance(self.kraken_books.get(asset) or {})
         vb_imb = _book_imbalance(v.get("order_book") or {})
-        lr_cfg = self.config.get("liquidity_regime", {})
         suspect = manip_suspect_score(
             liq_state.spoof_score,
-            whiplash_suspicion(
-                liq_state.imbalance_whiplash,
-                float(lr_cfg.get("whiplash_healthy_p95", 1.27)),
-                float(lr_cfg.get("imbalance_whiplash_threshold", 1.45))),
+            whiplash_suspicion(liq_state.imbalance_whiplash,
+                               self._wl_p95, self._wl_thr),
             kb_imb, vb_imb)
         self._manip_scores[asset] = round(suspect, 3)
         return {"fear_greed": web.fear_greed,
