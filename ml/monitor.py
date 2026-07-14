@@ -74,6 +74,7 @@ class ModelMonitor:
         self.retrain_min_new_rows = int(cfg.get("retrain_min_new_rows", 40))
         self.retrain_min_rows = int(cfg.get("retrain_min_rows", 60))
         self.deploy_margin = float(cfg.get("challenger_brier_margin", 0.005))
+        self.deploy_min_oof = int(cfg.get("deploy_min_oof", 30))
         self.flag_path = Path(cfg.get("retrain_flag_path",
                                       "outputs/retrain_requested.flag"))
         self.shrink_base = float(cfg.get("shrinkage_base", 0.35))
@@ -315,8 +316,24 @@ class ModelMonitor:
                      "`python scripts/train_meta.py` (or let auto-retrain "
                      "pick it up next slow cycle)", reason)
 
-    def should_deploy(self, challenger_brier: float) -> bool:
+    def should_deploy(self, challenger_brier: float,
+                      n_oof: int | None = None) -> bool:
         """Champion/challenger deployment gate."""
+        # evidence floor: when the purge first stops swallowing folds the
+        # challenger may carry only a handful of OOF points, and a Brier
+        # on 5 points beats a coin by luck. Calibration already demands
+        # >= 20 points; CROWNING demands deploy_min_oof. None = caller
+        # has no count (legacy/manual paths) - score-only gate applies.
+        if n_oof is not None and n_oof < self.deploy_min_oof:
+            get_audit().log("ml_governor", Code.ML_DEPLOY_REJECT,
+                            f"challenger rejected: {n_oof} OOF points < "
+                            f"deploy_min_oof {self.deploy_min_oof} - "
+                            f"score {challenger_brier:.4f} is not evidence",
+                            {"decision": "REJECT", "n_oof": int(n_oof)})
+            log.info("challenger brier=%.4f on only %d OOF points "
+                     "(< %d) -> REJECT (insufficient evidence)",
+                     challenger_brier, n_oof, self.deploy_min_oof)
+            return False
         # no-champion clause still demands the challenger beat a coin:
         # 0.25 is the Brier of predicting 0.5 forever — shipping a first
         # model WORSE than that would hand Kelly a net-harmful p

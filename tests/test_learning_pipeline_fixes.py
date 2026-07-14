@@ -85,3 +85,16 @@ def test_first_challenger_must_still_beat_a_coin():
     assert not mon.should_deploy(0.26), \
         "worse-than-coin challenger must NOT ship as first champion"
     assert mon.should_deploy(0.22)             # honest first model ships
+
+
+def test_deploy_demands_oof_evidence_not_just_score():
+    """A lucky Brier on a handful of OOF points must not crown a
+    champion: when folds first survive the purge the challenger may
+    carry 5-15 points, and 0.20-on-5-points is noise, not evidence."""
+    mon = ModelMonitor({"deploy_min_oof": 30})
+    assert not mon.should_deploy(0.15, n_oof=5), \
+        "great score on 5 OOF points is luck, not evidence"
+    assert not mon.should_deploy(0.15, n_oof=29)
+    assert mon.should_deploy(0.15, n_oof=30)      # evidence floor met
+    assert mon.should_deploy(0.15, n_oof=None)    # legacy callers: score-only
+    assert not mon.should_deploy(0.26, n_oof=500) # evidence can't save a coin-loser

@@ -1669,7 +1669,8 @@ class LiquidityBot:
                 return
             challenger_brier = brier_score(sel["oof_y"], oof_cal)
             self._rows_at_last_train = rows
-            if not self.monitor.should_deploy(challenger_brier):
+            if not self.monitor.should_deploy(challenger_brier,
+                                              n_oof=len(oof_cal)):
                 return
             from ml.registry import sha256_array
             save_model(results["model"], self.meta.model_path,
