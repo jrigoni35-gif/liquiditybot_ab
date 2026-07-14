@@ -1,6 +1,6 @@
-# Overfit audit — 2026-07-14 16:34 UTC
+# Overfit audit — 2026-07-14 18:46 UTC
 
-Dataset: SYNTHETIC benchmark (live rows=135 < 580) — validating machinery, not market
+Dataset: SYNTHETIC benchmark (live rows=138 < 580) — validating machinery, not market
 
 - **PASS** gap[logistic]: OOF gap within memorization band — train_auc=0.646 oof_auc=0.616 gap=+0.030
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.689 oof_auc=0.616 gap=+0.073
