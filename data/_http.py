@@ -23,8 +23,17 @@ import requests
 class ThrottledRestClient:
     """requests.Session + min-interval throttle + JSON GET helper."""
 
-    def __init__(self, rate_limit_per_sec: float = 1):
+    def __init__(self, rate_limit_per_sec: float = 1,
+                 transport_retries: int = 1):
         self.rate_limit_per_sec = rate_limit_per_sec
+        # bounded in-place retry for INSTANT transport drops (proxy flap:
+        # ProxyError/RemoteDisconnected). Never retries timeouts (each
+        # would stall a full extra timeout inside the cycle) or HTTP
+        # errors (4xx/5xx do not heal by hammering). Keeps every cycle's
+        # loads complete through a flaky egress instead of serving the
+        # engine a one-cycle-stale book.
+        self.transport_retries = max(int(transport_retries), 0)
+        self.retries_recovered = 0
         self._min_interval = 1.0 / max(rate_limit_per_sec, 1)
         self._last_call = 0.0
         # EWMA of COMPLETED-request wire RTT (throttle wait excluded, so a
@@ -56,34 +65,51 @@ class ThrottledRestClient:
                 time.sleep(self._min_interval - elapsed)
             self._last_call = time.time()
 
+    @staticmethod
+    def _retryable(e: Exception) -> bool:
+        """Instant connection-layer drops only: ProxyError and friends are
+        ConnectionError subclasses; ConnectTimeout is BOTH ConnectionError
+        and Timeout and is excluded (a retry would stall another full
+        timeout inside the cycle)."""
+        return isinstance(e, requests.exceptions.ConnectionError) and \
+            not isinstance(e, requests.exceptions.Timeout)
+
+    def _request(self, url, params, log, venue, timeout, decode_json):
+        last_err: Optional[Exception] = None
+        for attempt in range(self.transport_retries + 1):
+            self._throttle()               # every attempt is rate-limited
+            t0 = time.time()
+            try:
+                resp = self.session.get(url, params=params, timeout=timeout)
+                resp.raise_for_status()
+                out = resp.json() if decode_json else resp
+                self._note_rtt(t0)
+                if attempt:
+                    self.retries_recovered += 1
+                    log.info(f"{venue} transport retry recovered "
+                             f"{url.split('?')[0]} (attempt {attempt + 1}, "
+                             f"{self.retries_recovered} total recoveries)")
+                return out
+            except requests.RequestException as e:
+                last_err = e
+                if self._retryable(e) and attempt < self.transport_retries:
+                    log.debug(f"{venue} transport drop, retrying: {e}")
+                    continue
+                break                      # timeout/HTTP/decode: no hammer
+        log.error(f"{venue} request failed for {url}: {last_err}")
+        return None
+
     def _get_raw(self, url: str, params: Optional[dict],
                  log: logging.Logger, venue: str, timeout: float = 10):
         """Throttled GET returning the Response, or None on transport
         failure. Callers decode/validate the venue's own envelope."""
-        self._throttle()
-        t0 = time.time()
-        try:
-            resp = self.session.get(url, params=params, timeout=timeout)
-            resp.raise_for_status()
-            self._note_rtt(t0)
-            return resp
-        except requests.RequestException as e:
-            log.error(f"{venue} request failed for {url}: {e}")
-            return None
+        return self._request(url, params, log, venue, timeout,
+                             decode_json=False)
 
     def _get_json(self, url: str, params: Optional[dict],
                   log: logging.Logger, venue: str, timeout: float = 10):
         """Throttled GET returning decoded JSON, or None on any
         transport/decode failure (requests>=2.27 JSONDecodeError is a
         RequestException, so one except covers both)."""
-        self._throttle()
-        t0 = time.time()
-        try:
-            resp = self.session.get(url, params=params, timeout=timeout)
-            resp.raise_for_status()
-            data = resp.json()
-            self._note_rtt(t0)
-            return data
-        except requests.RequestException as e:
-            log.error(f"{venue} request failed for {url}: {e}")
-            return None
+        return self._request(url, params, log, venue, timeout,
+                             decode_json=True)
