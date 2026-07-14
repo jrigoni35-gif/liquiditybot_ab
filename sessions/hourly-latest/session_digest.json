@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784047671.2284834,
+  "generated_at": 1784051312.333135,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784047668.479,
-    "duration_h": 30.25
+    "end": 1784051300.0,
+    "duration_h": 31.25
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,18 +16,18 @@
     "realized_pnl_total": -2.07,
     "fees_paid_total": 3.204,
     "open_positions": 0,
-    "samples": 6731
+    "samples": 6952
   },
   "activity": {
-    "signal_rows_total": 135,
+    "signal_rows_total": 138,
     "live_labeled_trades": 19,
-    "candidate_rows": 116
+    "candidate_rows": 119
   },
   "audit": {
-    "records": 386,
+    "records": 395,
     "signal_records": 111,
     "by_src": {
-      "exploration": 275,
+      "exploration": 284,
       "order_manager": 80,
       "startup": 28,
       "ml_governor": 2,
@@ -36,7 +36,7 @@
     "top_codes": [
       [
         "ML-070",
-        275
+        284
       ],
       [
         "OM-000",
@@ -67,21 +67,21 @@
     "chain_first_break": null
   },
   "events": {
-    "records": 1323,
+    "records": 1806,
     "by_level": {
-      "INFO": 1087,
-      "ERROR": 218,
+      "INFO": 1567,
+      "ERROR": 221,
       "WARNING": 17,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        98
+        99
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
-        88
+        90
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
@@ -117,12 +117,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 337,
-      "thin": 172
+      "spoofy": 557,
+      "thin": 225
     },
-    "spoofy_frac": 0.662,
-    "cycles_estimate": 195,
-    "feed_error_events": 226
+    "spoofy_frac": 0.712,
+    "cycles_estimate": 305,
+    "feed_error_events": 229
   },
   "model": {
     "monitor_level": 0,
@@ -154,7 +154,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 66% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 71% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
