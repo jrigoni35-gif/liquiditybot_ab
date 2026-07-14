@@ -1,49 +1,49 @@
 {
-  "generated_at": 1784024233.155826,
+  "generated_at": 1784031525.1182775,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784024228.0,
-    "duration_h": 23.73
+    "end": 1784031522.0,
+    "duration_h": 25.76
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 798.48,
-    "equity_min": 798.42,
+    "equity_end": 798.35,
+    "equity_min": 798.26,
     "equity_max": 800.2,
-    "equity_range": 1.78,
-    "realized_pnl_total": -1.4,
-    "fees_paid_total": 2.6837,
+    "equity_range": 1.94,
+    "realized_pnl_total": -1.36,
+    "fees_paid_total": 2.9018,
     "open_positions": 5,
-    "samples": 5280
+    "samples": 5733
   },
   "activity": {
-    "signal_rows_total": 64,
-    "live_labeled_trades": 12,
-    "candidate_rows": 52
+    "signal_rows_total": 79,
+    "live_labeled_trades": 14,
+    "candidate_rows": 65
   },
   "audit": {
-    "records": 233,
-    "signal_records": 82,
+    "records": 253,
+    "signal_records": 90,
     "by_src": {
-      "exploration": 151,
-      "order_manager": 66,
-      "startup": 15,
+      "exploration": 163,
+      "order_manager": 72,
+      "startup": 17,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        151
+        163
       ],
       [
         "OM-000",
-        66
+        72
       ],
       [
         "CG-000",
-        15
+        17
       ],
       [
         "ML-071",
@@ -51,18 +51,18 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.805,
+    "dominant_frac": 0.8,
     "retrain_requests": 0,
     "kill_switch_events": 0,
     "chain_ok": true,
     "chain_first_break": null
   },
   "events": {
-    "records": 15261,
+    "records": 16414,
     "by_level": {
-      "INFO": 12859,
-      "ERROR": 2229,
-      "WARNING": 173
+      "INFO": 14007,
+      "ERROR": 2230,
+      "WARNING": 177
     },
     "top_warnings": [
       [
@@ -75,7 +75,7 @@
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        140
+        141
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
@@ -107,12 +107,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5007,
-      "thin": 1699
+      "spoofy": 5404,
+      "thin": 1818
     },
-    "spoofy_frac": 0.747,
-    "cycles_estimate": 2606,
-    "feed_error_events": 2337
+    "spoofy_frac": 0.748,
+    "cycles_estimate": 2831,
+    "feed_error_events": 2338
   },
   "model": {
     "monitor_level": 0,
@@ -120,7 +120,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.25,
     "brier": "n/a",
-    "history_rows": 12,
+    "history_rows": 14,
     "cold": true
   },
   "postmortems": {
@@ -150,7 +150,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 80% of 82 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 80% of 90 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-003 liquidity vetoed feed-wide"
