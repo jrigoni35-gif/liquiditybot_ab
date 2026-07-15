@@ -112,9 +112,15 @@ def main():
 
     store = HistoryStore(ml_cfg.get("history_path", "outputs/signal_history.csv"))
     sw_cfg = ml_cfg.get("sample_weights", {})
-    X, y, w = store.load_training_data(
+    # signal-time array too: the deployed selector must purge folds by TIME, not
+    # row count. Signals arrive in bursts, so a fixed row count spans a variable
+    # amount of time and a dense pre-boundary burst leaks future labels the
+    # row-count purge silently keeps (OF-6). overfit_check already measures the
+    # TIME-purged process; without this the DEPLOYED selection didn't use it.
+    X, y, w, sig = store.load_training_data(
         half_life_days=float(sw_cfg.get("half_life_days", 30)),
-        candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)))
+        candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
+        return_sig=True)
     source = "live history"
 
     if args.bootstrap or len(X) < min_rows:
@@ -153,10 +159,19 @@ def main():
 
     log.info(f"training on {len(X)} samples ({source}), "
              f"base rate={y.mean():.2%} wins")
+    # bootstrap rows carry no live signal-time, so a mixed cold-start set has no
+    # coherent per-row clock: fall back to the row-count purge (exact enough for
+    # the rough cold-start prior). Pure-live history keeps the leak-free TIME
+    # purge — the case that trains the deployed steady-state model.
+    if sig is not None and len(sig) != len(X):
+        log.info("cold-start mix (%d rows) lacks aligned signal-times — "
+                 "row-count purge this run; TIME purge resumes on pure-live "
+                 "history", len(X))
+        sig = None
     results = evaluate_and_select(
         X, y, label_span=int(ml_cfg.get("label_max_bars", 96)),
         sample_weight=w, feature_names=FEATURE_NAMES,
-        ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)))
+        ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)), sig=sig)
     sel = results[results["selected"]]
     cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
     if not cal.fitted:
