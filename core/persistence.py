@@ -228,35 +228,35 @@ class StateStore:
         # restoring a corrupt book
         body = json.dumps(data, sort_keys=True)
         data["_sha256"] = hashlib.sha256(body.encode()).hexdigest()
-        tmp = self.path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-            f.flush()
-            os.fsync(f.fileno())        # survive power loss, not just crash
-        # rotate the previous good snapshot to .bak BEFORE replacing,
-        # so there is always one known-good generation to fall back to
-        if self.path.exists():
-            try:
-                os.replace(self.path, self.path.with_suffix(".json.bak"))
-            except OSError:
-                log.debug("bak rotation failed - continuing")
-        os.replace(tmp, self.path)
-        return True
+        # PID-scoped tmp: a fixed shared "state.tmp" lets two runners (the
+        # single-instance-lock convergence window) truncate/rename the SAME
+        # tmp and clobber each other's snapshot — the torn write that
+        # runtime.atomic_write_json already PID-scopes for status.json. Cleaned
+        # up on any failure so a crashed write leaves no orphan behind.
+        tmp = self.path.with_suffix(f".{os.getpid()}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+                f.flush()
+                os.fsync(f.fileno())    # survive power loss, not just crash
+            # rotate the previous good snapshot to .bak BEFORE replacing,
+            # so there is always one known-good generation to fall back to
+            if self.path.exists():
+                try:
+                    os.replace(self.path, self.path.with_suffix(".json.bak"))
+                except OSError:
+                    log.debug("bak rotation failed - continuing")
+            os.replace(tmp, self.path)
+            return True
+        finally:
+            Path(tmp).unlink(missing_ok=True)   # no-op on success (renamed away)
 
     def load_raw(self) -> Optional[dict]:
         """Best-effort raw snapshot dict (primary, falling back to .bak) -
         same verification path as restore(), for standalone scripts that
         need to read one section (e.g. governor state) without a live bot
         object to restore onto."""
-        for candidate in (self.path, self.path.with_suffix(".json.bak")):
-            if not Path(candidate).exists():
-                continue
-            try:
-                return self._load_verified(candidate)
-            except (OSError, json.JSONDecodeError, ValueError) as e:
-                log.error(f"state {candidate} unusable ({e}) - trying "
-                          f"next generation")
-        return None
+        return self._pick_snapshot()
 
     def write_raw(self, data: dict) -> bool:
         """Atomic partial-state write for standalone scripts that need to
@@ -291,22 +291,29 @@ class StateStore:
             raise ValueError(f"checksum mismatch in {path}")
         return data
 
-    def restore(self, bot) -> bool:
-        if not self.path.exists():
-            return False
-        data = None
+    def _pick_snapshot(self) -> Optional[dict]:
+        """Newest usable snapshot generation, or None. A MISSING primary is
+        NOT fatal: a crash between _seal_and_write's primary->.bak rotation and
+        the tmp->primary publish leaves the primary gone but .bak valid. Both
+        restore() and load_raw() go through here so neither discards state the
+        .bak still holds — the old restore() early-returned on a missing
+        primary and lost every position/order/PnL the backup was keeping."""
         for candidate in (self.path, self.path.with_suffix(".json.bak")):
             if not Path(candidate).exists():
                 continue
             try:
                 data = self._load_verified(candidate)
                 if candidate != self.path:
-                    log.warning(f"primary snapshot corrupt - restored from "
+                    log.warning(f"primary snapshot unavailable - restored from "
                                 f"backup generation {candidate}")
-                break
+                return data
             except (OSError, json.JSONDecodeError, ValueError) as e:
                 log.error(f"snapshot {candidate} unusable ({e}) - trying "
                           f"next generation")
+        return None
+
+    def restore(self, bot) -> bool:
+        data = self._pick_snapshot()
         if data is None:
             log.error("no usable snapshot generation - starting fresh")
             return False
@@ -410,4 +417,10 @@ class StateStore:
         return True
 
     def clear(self):
+        # remove ALL persisted generations so --fresh is truly fresh: leaving
+        # .bak behind would let restore() (which now falls back to it)
+        # resurrect the very state --fresh meant to discard.
         self.path.unlink(missing_ok=True)
+        self.path.with_suffix(".json.bak").unlink(missing_ok=True)
+        for t in self.path.parent.glob(self.path.stem + ".*.tmp"):
+            t.unlink(missing_ok=True)
