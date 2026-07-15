@@ -975,7 +975,19 @@ class LiquidityBot:
 
         self.state.maybe_reset_daily_pnl()
         equity = self._equity()
-        self.state.note_equity(equity)   # ratchet peak MTM equity for drawdown
+        # A quarantined (unconfirmed, anomalous >tick_jump_pct) print on a HELD
+        # asset poisons mark-to-market equity for exactly one cycle. While it is
+        # unconfirmed, don't let it (a) ratchet the peak equity high-water — a
+        # fat-finger spike would persist a fake peak that then reads as a huge
+        # fabricated drawdown once the outlier is discarded — or (b) trip the
+        # catastrophe hard-stop into a full-book liquidation at a price that
+        # never held. Both defer ONE cycle; a real move confirms next tick and
+        # fires, exactly like the per-position protective stop's quarantine.
+        marks_confirmed = all(
+            self._stop_ok.get(self._asset_of(p.symbol), True)
+            for p in self.state.open_positions())
+        if marks_confirmed:
+            self.state.note_equity(equity)  # ratchet peak MTM equity for drawdown
 
         # tail-event sentry: staleness / divergence / pnl velocity
         kraken_mids = {}
@@ -989,7 +1001,7 @@ class LiquidityBot:
             now, self.book_ts, list(self.symbol_map), kraken_mids, fvs,
             equity, self.state.open_position_count(), self.dry_run)
 
-        if self.capital.hard_stop_triggered(self.state, equity):
+        if marks_confirmed and self.capital.hard_stop_triggered(self.state, equity):
             if not self._halted:
                 log.critical("HARD STOP drawdown breached - flattening, no new risk")
                 self._halted = True
@@ -1026,8 +1038,13 @@ class LiquidityBot:
                                   now=now)
                 continue
 
-            # 2) profit tiers, scaled by regime + inventory pressure
-            if not pos.is_hedge:
+            # 2) profit tiers, scaled by regime + inventory pressure. Gated on
+            # the SAME tick quarantine as the hard stop above: the tier engine
+            # ratchets pos.high_water and the give-back/chandelier stop from
+            # `px`, so consuming a fat-finger mark would (a) corrupt persisted
+            # high_water and (b) fabricate a give-back/trail exit. A quarantined
+            # asset skips one cycle; the confirmed move fires the tier next tick.
+            if not pos.is_hedge and self._stop_ok.get(asset, True):
                 scale = macro_states[asset].playbook.get("tier_scale", 1.0)
                 inv_ratio = abs(self.inventory.inventory_ratio(
                     self.state, asset, self.marks, equity))
@@ -1052,11 +1069,14 @@ class LiquidityBot:
                                     tier_fired=action.tier_fired, now=now,
                                     profit_take=action.is_profit_take)
 
-        # 3) inventory derisk (hard caps, stale losers)
+        # 3) inventory derisk (hard caps, stale losers). Same quarantine gate:
+        # a fat-finger mark can push inventory_ratio over a hard cap or trip a
+        # stale-loser threshold, fabricating a forced reduction. Skip the asset
+        # for one cycle; a real breach re-fires on the confirmed next tick.
         for act in self.inventory.derisk_actions(self.state, self.marks, equity,
                                                 macro_states, now):
             pos = self.state.get_position(act.position_id)
-            if pos:
+            if pos and self._stop_ok.get(self._asset_of(pos.symbol), True):
                 self._submit_exit(pos, act.close_pct, act.reason, now=now)
 
         # 4) hedging
