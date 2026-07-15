@@ -100,6 +100,47 @@ def test_deploy_demands_oof_evidence_not_just_score():
     assert not mon.should_deploy(0.26, n_oof=500) # evidence can't save a coin-loser
 
 
+def test_cost_bump_applies_once_per_close_not_twice():
+    """record_close() applied the cause adjustment, then _evaluate() applied
+    it AGAIN. Below min_trades the Brier window is None so _evaluate early-
+    returns and only one call lands - which is why every existing test (all
+    < 15 closes) passed. But in production steady state (>= min_trades
+    model-scored closes) BOTH fired: a cost_overrun raised edge_ratio_bump
+    +0.2/close, hitting the cap in 2 closes instead of 4 and doubling the
+    entry-suppression the decay exists to relieve. It must raise +0.1 once,
+    identically whether or not the Brier window is full."""
+    def _bump_step(prefill):
+        mon = ModelMonitor({})
+        if prefill:                     # fill the Brier window (no causes)
+            for i in range(mon.min_trades + 3):
+                mon.record_close(0.8 if i % 2 else 0.2, i % 2, True)
+            assert mon._windows() is not None
+        else:
+            assert mon._windows() is None
+        for _ in range(4):              # window n<5: no raise yet
+            mon.record_close(0.8, 1, True, cause="cost_overrun")
+        assert mon.edge_ratio_bump == 0.0
+        mon.record_close(0.8, 1, True, cause="cost_overrun")   # n==5: 1 raise
+        return round(mon.edge_ratio_bump, 4)
+
+    cold = _bump_step(prefill=False)    # Brier window empty (cold start)
+    warm = _bump_step(prefill=True)     # Brier window full (steady state)
+    assert cold == 0.1, f"cold-start raise must be +0.1, got {cold}"
+    assert warm == 0.1, f"full-window raise must ALSO be +0.1, got {warm}"
+    assert cold == warm, "the bump must not depend on Brier-window fullness"
+
+
+def test_clean_close_decays_bump_during_cold_start():
+    """A raised bump must decay on clean closes even before the model trains
+    - previously the decay lived only in _evaluate, which early-returns below
+    min_trades, so during cold start a clean close never decayed the bump."""
+    mon = ModelMonitor({})
+    mon.edge_ratio_bump = 0.3
+    assert mon._windows() is None                 # cold start
+    mon.record_close(0.6, 1, True)                # clean close, no cause
+    assert mon.edge_ratio_bump < 0.3, "clean close must decay the bump"
+
+
 def test_stale_decay_seeds_clock_for_pre_upgrade_windows():
     """Restored snapshots carry a causes window but no last_cause_ts
     (0.0). The decay guard used to skip on ts<=0 - and ts stays 0 until

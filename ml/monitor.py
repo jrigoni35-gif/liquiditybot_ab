@@ -120,7 +120,15 @@ class ModelMonitor:
             self._cause_tally[cause] += 1
             self._causes_window.append(cause)
             self._last_cause_ts = time.time()
-            self._apply_cause_adjustments()
+        # exactly ONCE per close, after the causes window is updated and
+        # independent of the Brier window: _evaluate() used to call this a
+        # SECOND time, so once >= min_trades model-scored closes existed a
+        # cost_overrun raised edge_ratio_bump +0.2/close (max in 2 not 4) -
+        # doubling the entry-suppression the decay was built to relieve.
+        # It also must run in cold start (where _evaluate early-returns),
+        # or a clean close never decays a raised bump before the model
+        # trains. Placed here, not in _evaluate, it is level-independent.
+        self._apply_cause_adjustments()
         self._evaluate()
 
     def _windows(self):
@@ -171,7 +179,9 @@ class ModelMonitor:
             self._level_streak = 0
 
         self._apply_level()
-        self._apply_cause_adjustments()
+        # NOTE: cause adjustments are applied once in record_close, NOT here
+        # (calling it here too double-applied the bump once the Brier window
+        # filled - see record_close).
         if self.level != prev:
             detail = {"brier": round(model_brier, 4),
                       "baseline": round(baseline_brier, 4),
