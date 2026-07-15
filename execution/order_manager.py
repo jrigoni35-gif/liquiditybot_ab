@@ -243,11 +243,16 @@ class OrderManager:
                 "deadman_failures": self._deadman_failures}
 
     def _timed_private(self, endpoint: str, data: dict):
-        t0 = time.time()
+        t0 = time.monotonic()
         result = self.feed._private_post(endpoint, data)
-        rtt = (time.time() - t0) * 1000.0
-        self.latency_ms = 0.7 * self.latency_ms + 0.3 * rtt \
-            if self.latency_ms else rtt
+        # monotonic + clamp: a wall-clock step must not inject a negative/huge
+        # RTT into the order-path latency EWMA (drives the venue-latency panel
+        # and the deadman/escalation health read). Finiteness is checked on the
+        # RAW sample before the clamp (max(0.0, nan) would swallow a NaN to 0).
+        raw = (time.monotonic() - t0) * 1000.0
+        if math.isfinite(raw):
+            self.latency_ms = 0.7 * self.latency_ms + 0.3 * max(0.0, raw) \
+                if self.latency_ms else max(0.0, raw)
         return result
 
     # ------------------------------------------------------------------

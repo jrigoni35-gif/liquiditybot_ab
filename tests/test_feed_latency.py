@@ -44,7 +44,8 @@ def test_latency_starts_zero_and_updates_on_success():
 def test_latency_ewma_blends():
     c = _client()
     c.latency_ms = 100.0
-    c._note_rtt(__import__("time").time() - 0.2)       # ~200ms sample
+    # t0 is a MONOTONIC timestamp now (wall-clock-step immune); ~200ms sample
+    c._note_rtt(__import__("time").monotonic() - 0.2)
     assert 100.0 < c.latency_ms < 200.0                # 0.7*100 + 0.3*~200
 
 

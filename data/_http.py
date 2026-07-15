@@ -13,11 +13,46 @@ data/kraken_feed.py next to the withdrawal deny-list.
 """
 
 import logging
+import math
+import socket
 import threading
 import time
 from typing import Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+
+log_mod = logging.getLogger("liquiditybot.data.http")
+
+
+def _keepalive_socket_options() -> list:
+    """Latency + connection-warmth socket options for a long-lived polling
+    client. TCP_NODELAY disables Nagle so a small request/response isn't held
+    for a delayed-ACK (a classic tens-of-ms tax on tiny GETs). SO_KEEPALIVE +
+    tuned idle probes keep the TCP connection from being silently reaped during
+    the seconds-long idle between polls, so the next poll reuses the warm
+    connection (one RTT) instead of paying a fresh TCP+TLS handshake (2-3 RTT).
+    Every option is feature-detected: Windows (the target runtime) has
+    TCP_NODELAY + SO_KEEPALIVE but not TCP_KEEPIDLE/INTVL/CNT, which are simply
+    skipped."""
+    opts = [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    for name, value in (("TCP_KEEPIDLE", 15), ("TCP_KEEPINTVL", 15),
+                        ("TCP_KEEPCNT", 4)):
+        opt = getattr(socket, name, None)
+        if opt is not None:
+            opts.append((socket.IPPROTO_TCP, opt, value))
+    return opts
+
+
+class _KeepAliveAdapter(HTTPAdapter):
+    """HTTPAdapter that stamps every pooled connection with the keep-alive /
+    no-delay socket options above. Retries are handled by the caller's own
+    bounded transport-retry loop, so the adapter never re-tries on its own."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["socket_options"] = _keepalive_socket_options()
+        super().init_poolmanager(*args, **kwargs)
 
 
 class ThrottledRestClient:
@@ -42,6 +77,15 @@ class ThrottledRestClient:
         # private POSTs that paper mode never makes.
         self.latency_ms: float = 0.0
         self.session = requests.Session()
+        # keep-alive + no-delay on a warm pooled connection: the biggest
+        # code-side lever on per-poll REST latency (avoids a fresh TLS
+        # handshake every idle cycle). pool sized for the shared client's
+        # concurrent callers (market-data loop + order path + ws REST fallback
+        # thread). Our own transport-retry loop owns retries -> adapter does 0.
+        _adapter = _KeepAliveAdapter(pool_connections=4, pool_maxsize=8,
+                                     max_retries=0)
+        self.session.mount("https://", _adapter)
+        self.session.mount("http://", _adapter)
         # The Kraken client is SHARED between the market-data cycle and the
         # order path, and a websocket REST-fallback can call it off the main
         # thread. Without this lock, concurrent callers each read a stale
@@ -51,7 +95,14 @@ class ThrottledRestClient:
         self._throttle_lock = threading.Lock()
 
     def _note_rtt(self, t0: float):
-        rtt = (time.time() - t0) * 1000.0
+        # monotonic delta: a wall-clock step (NTP correction) mid-request could
+        # otherwise inject a negative or huge RTT and poison the EWMA. Test the
+        # RAW sample for finiteness BEFORE clamping (max(0.0, nan) would swallow
+        # a NaN into a spurious 0.0), then floor a backward step at 0.
+        raw = (time.monotonic() - t0) * 1000.0
+        if not math.isfinite(raw):
+            return                                 # bad sample: ignore entirely
+        rtt = max(0.0, raw)
         self.latency_ms = 0.7 * self.latency_ms + 0.3 * rtt \
             if self.latency_ms else rtt
 
@@ -59,11 +110,15 @@ class ThrottledRestClient:
         # Held across the sleep on purpose: waiting threads queue here, which
         # IS the rate limiter serializing them. The network GET runs AFTER
         # this returns (lock released), so requests still overlap on the wire.
+        # monotonic clock so a backward wall-clock step can't compute a
+        # negative elapsed and either burst past the rate limit or sleep for a
+        # very long time.
         with self._throttle_lock:
-            elapsed = time.time() - self._last_call
-            if elapsed < self._min_interval:
+            now = time.monotonic()
+            elapsed = now - self._last_call
+            if 0.0 <= elapsed < self._min_interval:
                 time.sleep(self._min_interval - elapsed)
-            self._last_call = time.time()
+            self._last_call = time.monotonic()
 
     @staticmethod
     def _retryable(e: Exception) -> bool:
@@ -78,7 +133,7 @@ class ThrottledRestClient:
         last_err: Optional[Exception] = None
         for attempt in range(self.transport_retries + 1):
             self._throttle()               # every attempt is rate-limited
-            t0 = time.time()
+            t0 = time.monotonic()
             try:
                 resp = self.session.get(url, params=params, timeout=timeout)
                 resp.raise_for_status()
