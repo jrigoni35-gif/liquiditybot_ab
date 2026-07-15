@@ -154,23 +154,32 @@ class HistoryStore:
         now = time.time()
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                # ATOMIC per row: build every column into a local first, and
+                # only extend the four parallel lists once ALL parse. A bare
+                # X.append() before a later ValueError (e.g. an empty label
+                # cell from a truncated write or a hand edit) left X one longer
+                # than y/sig/w, and the argsort(sig) reindex below then paired
+                # X row i with y row j for every row past the bad one - silent
+                # feature/label misalignment across the whole tail.
                 try:
-                    X.append([float(row[n]) for n in FEATURE_NAMES])
-                    y.append(float(row["label"]))
+                    xr = [float(row[n]) for n in FEATURE_NAMES]
+                    yr = float(row["label"])
                     # signal-time ordering for the purged walk-forward;
                     # pre-upgrade rows fall back to label time (ts)
-                    sig.append(float(row.get("signal_ts")
-                                     or row.get("ts") or now))
+                    sr = float(row.get("signal_ts") or row.get("ts") or now)
                     age_d = max(now - float(row.get("ts") or now), 0.0) / 86400.0
-                    ww = 0.5 ** (age_d / max(half_life_days, 1e-6))
+                    wr = 0.5 ** (age_d / max(half_life_days, 1e-6))
                     if row.get("source") == "candidate":
-                        ww *= candidate_weight
+                        wr *= candidate_weight
                     suspect = min(max(float(
                         row.get("manip_suspect") or 0.0), 0.0), 1.0)
-                    ww *= 1.0 - min(max(manip_discount, 0.0), 1.0) * suspect
-                    w.append(ww)
+                    wr *= 1.0 - min(max(manip_discount, 0.0), 1.0) * suspect
                 except (KeyError, ValueError):
                     continue
+                X.append(xr)
+                y.append(yr)
+                sig.append(sr)
+                w.append(wr)
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         if len(sig):
@@ -267,6 +276,15 @@ class CandidateLabeler:
         self._bars: dict = {}          # asset -> {"t":[], "c":[], "h":[], "l":[]}
         self._cands: list = []
         self._seq = 0
+        # per-instance salt in the candidate id. _seq is persisted and
+        # restored, but a filesystem rollback (lived 2026-07-14) reverts
+        # state.json to an OLDER seq while signal_history.csv keeps the ids it
+        # already wrote - so a bare cand-{seq} gets REUSED and the training
+        # file collects duplicate position_ids for two distinct signals. A
+        # fresh random salt per labeler (NOT persisted) makes a reset seq
+        # unable to collide with a previously-written id, with no dependence
+        # on clock resolution or process timing.
+        self._id_salt = os.urandom(4).hex()
         # (asset, direction) -> last registered bar_time: a signal that stays
         # confirmed across several slow cycles inside ONE candle must yield
         # ONE candidate row, not near-identical duplicates that overweight
@@ -304,7 +322,8 @@ class CandidateLabeler:
             # signal flow was busiest, biasing labels toward quiet hours
             self._cands.pop()
         self._seq += 1
-        self._cands.append({"id": f"cand-{self._seq}", "asset": asset,
+        self._cands.append({"id": f"cand-{self._id_salt}-{self._seq}",
+                            "asset": asset,
                             "direction": direction,
                             "features": features.copy(),
                             "sigma_bar": float(max(sigma_bar, 1e-5)),
