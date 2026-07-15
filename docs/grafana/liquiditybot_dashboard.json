@@ -2109,7 +2109,7 @@
      "type": "prometheus",
      "uid": "grafanacloud-prom"
     },
-    "description": "Feature vectors recorded at signal time, waiting for the triple-barrier label (profit target / stop / time expiry).",
+    "description": "Age of the OLDEST live Kraken mark. feed_latency_ms only moves on a SUCCESSFUL call, so a Ticker-only outage freezes prices AND that gauge; marks_age_sec keeps climbing the instant a price stops updating - the truthful stale-price signal.",
     "fieldConfig": {
      "defaults": {
       "decimals": 0,
@@ -2117,12 +2117,20 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "text",
+         "color": "green",
          "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 60
+        },
+        {
+         "color": "red",
+         "value": 180
         }
        ]
       },
-      "unit": "short"
+      "unit": "s"
      },
      "overrides": []
     },
@@ -2135,7 +2143,7 @@
     "id": 33,
     "options": {
      "colorMode": "value",
-     "graphMode": "none",
+     "graphMode": "area",
      "reduceOptions": {
       "calcs": [
        "lastNotNull"
@@ -2148,12 +2156,12 @@
        "type": "prometheus",
        "uid": "grafanacloud-prom"
       },
-      "expr": "liquiditybot_ml_pending_labels{job=\"liquiditybot\"}",
-      "legendFormat": "Pending labels",
+      "expr": "liquiditybot_marks_age_sec{job=\"liquiditybot\"}",
+      "legendFormat": "marks age",
       "refId": "A"
      }
     ],
-    "title": "Pending labels",
+    "title": "Marks age",
     "type": "stat"
    },
    {
