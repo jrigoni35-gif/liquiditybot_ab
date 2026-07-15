@@ -132,6 +132,16 @@ def validate(config: dict) -> list:
              f"net-losing trades as wins, biasing the model to overtrade")
     if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
         fatal("ml.label_spread_cap_bps must be >= 0")
+    sgf = float(_f(config, "ml.postmortem.stop_gap_factor", 2.0))
+    if sgf <= 1.0:
+        fatal(f"ml.postmortem.stop_gap_factor={sgf} must be > 1.0 - at or "
+              f"below 1x every ordinary slippage-past-stop fill becomes an "
+              f"'ops failure' and the cost/whipsaw governors go blind to "
+              f"real execution problems")
+    elif sgf > 5.0:
+        warn(f"ml.postmortem.stop_gap_factor={sgf} above 5x will almost "
+             f"never fire - unenforced-stop losses will keep polluting the "
+             f"cost governor (the 2026-07-14 failure this knob exists for)")
 
     # multi-horizon shadow: every horizon must be a positive integer no
     # larger than the primary label horizon, or its outcome would never be
@@ -592,6 +602,11 @@ def validate(config: dict) -> list:
     if lp_skew < 0:
         fatal(f"thales.lapse.clock_skew_tol_sec={lp_skew} negative - "
               f"tolerance is a magnitude")
+    elif lp_skew >= lp_gap:
+        warn(f"thales.lapse.clock_skew_tol_sec={lp_skew} >= "
+             f"fast_gap_sec={lp_gap}: tolerating a bigger backwards clock "
+             f"jump than the forward gap called a lapse silently disables "
+             f"the counter-rollback arm (the 2026-07-14 incident class)")
 
     # --- Smart Money Concepts features (docs/SMC.md) ----------------------
     smc_enabled = bool(_f(config, "smc.enabled", True))

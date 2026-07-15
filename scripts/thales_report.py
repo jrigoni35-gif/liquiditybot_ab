@@ -44,6 +44,7 @@ DETECTORS = {
     "TH-013": "stop_herding    (freqtrade fixed-stop cluster sweeps)",
     "TH-014": "feed_integrity  (hostile/unreliable venue: missing/rejected data)",
     "TH-015": "barclose_herd   (no-code bots firing on candle close)",
+    "TH-016": "observation_lapse (our own stream gapped: reset + warmup)",
 }
 _WOULD_RE = re.compile(r"would x([0-9]+\.[0-9]+)")
 _ASSET_RE = re.compile(r"^thales ([A-Z0-9]+):")

@@ -196,6 +196,11 @@ class StateStore:
                 "sizer_last_entry": dict(bot.sizer._last_entry),
                 "pos_realized": dict(bot._pos_realized),
                 "halted": bot._halted,
+                # NOTE: THALES detector state is deliberately NOT
+                # snapshotted - TH-016's restart safety relies on
+                # last_fast_ts==0 cold-starting fresh (docs/THALES.md).
+                # Persisting it without the lapse fields would silently
+                # re-create the 2026-07-14 stale-advice hole.
                 "monitor": bot.monitor.to_dict(),
                 "postmortem": bot.postmortem.to_dict(),
                 "candidates": bot.candidates.to_dict(),

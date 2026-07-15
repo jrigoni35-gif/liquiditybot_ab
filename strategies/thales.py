@@ -96,9 +96,11 @@ class _AssetState:
         # broken evidence, never as adjacent snapshots.
         self.last_fast_ts = 0.0                  # newest fast observation
         self.lapse_until = 0.0                   # advice muted until here
-        self.lapse_count = 0                     # lifetime lapses (telemetry)
-        self.last_bar_ts = 0.0                   # newest ingested candle ts
+        self.lapse_count = 0                     # fast-stream lapses (telemetry)
+        self.sweep_fence_ts = 0.0                # sweeps older than this never latch
+        self.last_bar_ts = 0.0                   # ts of last accepted candle
         self.bar_spacing = 0.0                   # EWMA of candle spacing
+        self.bar_hole_count = 0                  # venue-side candle holes fenced
         # feed-integrity window: 1 = clean book this cycle, 0 = missing or
         # sanitize-rejected. A sustained low clean-rate means a hostile or
         # unreliable venue for THIS asset -> shade its confidence down.
@@ -168,7 +170,8 @@ class ThalesEngine:
         st.metro_score = 0.0          # its evidence deque just vanished
         st.bc_prev_top = None
         st.last_sweep = {}            # a pre-gap sweep must not advise now
-        st.marks.clear()
+        st.sweep_fence_ts = now       # ...nor re-latch from surviving
+        st.marks.clear()              # pre-gap candle_hist via _stop_zones
         log.warning("%s", tag(Code.TH_LAPSE,
                     f"{asset}: observation gap {now - last:.0f}s (lapse "
                     f"#{st.lapse_count}) - continuity state reset, advice "
@@ -267,6 +270,22 @@ class ThalesEngine:
             return
         try:
             st = self._st(asset)
+            # TH-016: seed the bar-spacing estimate from the BATCH median
+            # delta, never from a single first delta - if the first two
+            # bars of a fresh state straddle a hole, a raw seed inflates
+            # the estimate (3h seed on a 5m feed) and masks every later
+            # genuine hole. The median over a windowed fetch is robust:
+            # holes are a minority of deltas in any real batch.
+            if st.bar_spacing <= 0 and len(candles) >= 3:
+                try:
+                    tss = sorted(float(b.get("ts") or b.get("time") or 0.0)
+                                 for b in candles)
+                    diffs = sorted(b - a for a, b in zip(tss, tss[1:])
+                                   if b - a > 0 and math.isfinite(b - a))
+                    if diffs:
+                        st.bar_spacing = diffs[len(diffs) // 2]
+                except (TypeError, ValueError, AttributeError):
+                    pass
             for bar in candles:
                 try:
                     ts = float(bar.get("ts") or bar.get("time") or 0.0)
@@ -276,8 +295,8 @@ class ThalesEngine:
                     lo = float(bar.get("low") or min(o, c))
                 except (TypeError, ValueError, AttributeError):
                     continue
-                if ts <= 0 or o <= EPS or c <= EPS:
-                    continue
+                if ts <= 0 or o <= EPS or c <= EPS or not math.isfinite(ts):
+                    continue      # non-finite ts would poison last_bar_ts
                 if ts in st.seen_bar_set:
                     continue
                 if len(st.seen_bars) == st.seen_bars.maxlen:
@@ -297,7 +316,7 @@ class ThalesEngine:
                             "bar_gap_bars", 3.0)) * st.bar_spacing):
                         st.candle_hist.clear()
                         st.last_sweep = {}
-                        st.lapse_count += 1
+                        st.bar_hole_count += 1
                         log.warning("%s", tag(Code.TH_LAPSE,
                                     f"{asset}: candle hole {d:.0f}s "
                                     f"(~{d / st.bar_spacing:.0f} bars) - "
@@ -308,8 +327,11 @@ class ThalesEngine:
                     elif d > 0:
                         st.bar_spacing = d if st.bar_spacing <= 0 else (
                             0.9 * st.bar_spacing + 0.1 * d)
-                if ts > st.last_bar_ts:
-                    st.last_bar_ts = ts
+                # plain assignment, not max: feeds are normalized oldest-
+                # first, so after one absurd-but-finite ts (ms-vs-s bar)
+                # the next real bar re-bases DOWN and the fence self-heals
+                # instead of staying dead behind a huge watermark
+                st.last_bar_ts = ts
                 st.candle_hist.append((ts, o, hi, lo, c))
                 ret = (c / o - 1.0) * 100.0
                 bmin = int(self._c.get("bucket_minutes", 60))
@@ -405,6 +427,9 @@ class ThalesEngine:
                 sweep = +1        # swept the highs, closed back inside
             elif lo < prior_lo and c > prior_lo:
                 sweep = -1        # swept the lows, closed back inside
+            if sweep and ts < st.sweep_fence_ts:
+                sweep = 0         # TH-016: pre-lapse sweep bar re-derived
+                                  # from surviving candle_hist - never latch
             if sweep:
                 st.last_sweep = {"dir": sweep, "ts": ts}
         return prox, sweep
@@ -578,6 +603,7 @@ class ThalesEngine:
                 "barclose": round(self._barclose_score(st), 3),
                 "feed_dirty": round(self._feed_integrity(st), 3),
                 "lapses": st.lapse_count,
+                "bar_holes": st.bar_hole_count,
                 "lapse_warmup_sec": max(0, int(st.lapse_until - now))}
 
     def feature_scores(self, asset: str, now: float) -> dict:

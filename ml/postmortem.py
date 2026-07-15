@@ -24,6 +24,12 @@ cost_overrun   - realized fees+slippage exceeded the pre-trade
                 estimate materially.
 whipsaw        - stopped out, then price recovered past entry within
                 the observation window.
+stop_gap       - the exit realized far beyond the configured stop
+                distance: the exit engine could not act when the stop
+                was crossed (runner outage / observation gap - lived
+                2026-07-14: a 1.8% ETH stop filled at -6.9% after the
+                loop was dead for hours). Ops, not costs, not alpha -
+                and it must NOT feed the cost/whipsaw governors.
 regime_shift   - macro or liquidity regime changed mid-trade.
 fear_event     - a confirmed-stress narrative verdict appeared during
                 the hold.
@@ -67,6 +73,15 @@ MITIGATIONS = {
                 "inside the noise. Mitigation: monitor widens stops (bounded) "
                 "if this recurs; consider risk.stop_vol_mult +1 or entering "
                 "smaller with a wider stop (same risk, more room)."),
+    "stop_gap": ("The exit engine could not act when the stop was crossed "
+                 "(runner outage / observation gap): the realized loss is an "
+                 "OPERATIONS failure, not a market cost - it is excluded from "
+                 "cost/whipsaw governor adjustments by cause name. Mitigation: "
+                 "keep the runner supervised (session-start self-heal + "
+                 "single-instance lock); for live mode prefer venue-resident "
+                 "stop orders so the venue enforces the stop while we are "
+                 "down. Paper fills at revival price overstate the loss a "
+                 "live venue stop would have taken."),
     "regime_shift": ("Macro/liquidity regime flipped mid-trade. Mitigation: "
                     "largely irreducible - regimes lag by design. The stale-"
                     "loser purge and regime stop_mult already respond; "
@@ -129,6 +144,9 @@ class PostmortemEngine:
         cfg = config or {}
         self.shortfall_ratio = float(cfg.get("shortfall_ratio", 0.10))
         self.min_abs_shortfall_pct = float(cfg.get("min_abs_shortfall_pct", 0.25))
+        # realized loss beyond this multiple of the configured stop means
+        # the exit engine could not act at the stop (ops gap), not costs
+        self.stop_gap_factor = float(cfg.get("stop_gap_factor", 2.0))
         self.observe_min = float(cfg.get("observe_minutes", 45.0))
         self.mark_every_s = float(cfg.get("mark_sample_sec", 30.0))
         self.out_dir = Path(cfg.get("report_dir", "outputs/postmortems"))
@@ -275,6 +293,17 @@ class PostmortemEngine:
         overrun = self._cost_overrun_bps(t)
         if self._recovered(t):
             return "whipsaw"
+        # checked BEFORE cost_overrun: a stop that realized far beyond its
+        # configured distance means the exit engine could not act when the
+        # stop was crossed (runner outage / observation gap). The gap loss
+        # dwarfs any fee quirk on the same trade, and it must not feed the
+        # cost governor (lived 2026-07-14: 1.8% ETH stop filled at -6.9%
+        # after dead hours, classified cost_overrun by its 54bps fee tail,
+        # 8 false causes holding the entry bump up).
+        if (t.stopped_out and t.stop_pct > 0
+                and math.isfinite(t.realized_ret_pct)
+                and -t.realized_ret_pct > self.stop_gap_factor * t.stop_pct):
+            return "stop_gap"
         if overrun > max(10.0, 0.5 * t.expected_cost_bps):
             return "cost_overrun"
         if t.stopped_out and mfe < 0.3 * t.target_pct:

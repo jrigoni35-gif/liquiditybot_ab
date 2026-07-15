@@ -543,6 +543,9 @@ def thales_rows(th: dict) -> tuple[list, list]:
             "clockwork": (f"{float(sc.get('clockwork', 0)):.2f}"
                           + (" ▲" if cdir > 0 else " ▼" if cdir < 0 else "")),
             "stop zone": f"{float(sc.get('stop_zone', 0)):.2f}",
+            "lapse": (f"warmup {int(sc.get('lapse_warmup_sec', 0))}s"
+                      if float(sc.get("lapse_warmup_sec", 0) or 0) > 0
+                      else str(int(sc.get("lapses", 0) or 0))),
         })
     advice = [{
         "asset": a.get("asset", "?"),

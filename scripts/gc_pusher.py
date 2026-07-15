@@ -93,7 +93,8 @@ def collect(status_path: str) -> list:
                     m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
                                    {"asset": asset}, ts))
     for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
-        for k in ("grid", "metronome", "clockwork", "stop_zone"):
+        for k in ("grid", "metronome", "clockwork", "stop_zone",
+                  "lapses", "bar_holes", "lapse_warmup_sec"):
             if isinstance(th.get(k), (int, float)):
                 m.append(gauge(f"liquiditybot_thales_{k}", th[k],
                                {"asset": asset}, ts))
