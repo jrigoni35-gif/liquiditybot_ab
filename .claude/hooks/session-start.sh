@@ -89,11 +89,26 @@ fi
 
 # --- 5. process continuity: telemetry pushers (optional, env-gated) -------
 # The phone dashboard only survives a hard restart if its OTLP token does.
-# The ephemeral scratchpad does not reliably persist secrets, so this launches
-# the pushers ONLY when a token + endpoint are supplied through durable env
-# (an environment secret configured for the Claude Code environment). No
-# secret is ever committed; when the env is absent this block is a silent
-# no-op and the pushers stay operator-managed.
+# Endpoint + tenant are NOT secrets, so bake correct defaults for this stack
+# (us-east-3, metrics write-instance 1722437 — the value the OTLP connection
+# page authorises; the datasource's read-side id differs and must NOT be used
+# here). That leaves the TOKEN as the only secret, re-materialised below from a
+# durable environment secret so a filesystem rollback that wipes the ephemeral
+# scratchpad cannot silently 401 the feed. No secret is ever committed.
+: "${GC_OTLP_URL:=https://otlp-gateway-prod-us-east-3.grafana.net/otlp/v1/metrics}"
+: "${GC_INSTANCE_ID:=1722437}"
+export GC_OTLP_URL GC_INSTANCE_ID
+# Re-materialise the OTLP write token from the durable secret GC_OTLP_TOKEN
+# (set as a Claude Code environment secret) into a stable 0600 file OUTSIDE the
+# repo, so it is present on every cold start and never enters git. When the
+# secret is absent we fall back to any operator-supplied GC_TOKEN_FILE.
+if [ -n "${GC_OTLP_TOKEN:-}" ]; then
+  TOKDIR="${HOME:-/root}/.liquiditybot"; mkdir -p "$TOKDIR"
+  ( umask 077; printf '%s' "$GC_OTLP_TOKEN" > "$TOKDIR/gc-token" )
+  chmod 600 "$TOKDIR/gc-token"
+  export GC_TOKEN_FILE="$TOKDIR/gc-token"
+  log "OTLP token materialised from durable secret"
+fi
 if [ -n "${GC_TOKEN_FILE:-}" ] && [ -s "${GC_TOKEN_FILE:-/nonexistent}" ] \
    && [ -n "${GC_OTLP_URL:-}" ] && [ -n "${GC_INSTANCE_ID:-}" ]; then
   if ! pgrep -f "[g]c_pusher\.py" >/dev/null 2>&1; then

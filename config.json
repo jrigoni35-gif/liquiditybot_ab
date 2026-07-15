@@ -488,8 +488,8 @@
     "recording_dir": "outputs/recordings"
   },
   "websockets": {
-    "description": "Push-based Binance.US depth stream (data/ws_feed.py). Fresh cached book feeds the engine when live; REST is the always-on fallback whenever the socket is stale/down. Disabled by default; requires the 'websockets' package. Read-only data only.",
-    "enabled": false,
+    "description": "Push-based Binance.US depth stream (data/ws_feed.py). Fresh cached book feeds the engine when live; REST is the always-on fallback whenever the socket is stale/down. Read-only data only (Binance.US is a data venue; Kraken execution marks stay on REST by design). Requires the 'websockets' package.",
+    "enabled": true,
     "binanceus_symbols": [
       "BTCUSD",
       "ETHUSD"
