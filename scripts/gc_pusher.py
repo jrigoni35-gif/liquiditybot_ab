@@ -25,7 +25,6 @@ docs/grafana/liquiditybot_dashboard.json queries the stored names.
 import base64
 import json
 import os
-import socket
 import time
 import urllib.request
 
@@ -40,17 +39,11 @@ def _cfg() -> dict:
             "GC_TOKEN_FILE — see the module docstring")
     with open(token_file, encoding="utf-8") as fh:
         token = fh.read().strip()
-    # stable per-instance id so two bots never collide on one Grafana series:
-    # the cloud runner exports LB_INSTANCE=cloud; a local clone that forgets to
-    # falls back to its hostname, still unique. Never empty.
-    inst_label = (os.environ.get("LB_INSTANCE", "").strip()
-                  or socket.gethostname() or "unknown")
     return {
         "url": url,
         "auth": base64.b64encode(f"{instance}:{token}".encode()).decode(),
         "status": os.environ.get("LB_STATUS", "outputs/status.json"),
         "period": float(os.environ.get("GC_PERIOD_SEC", "30")),
-        "instance_label": inst_label,
     }
 
 
@@ -114,19 +107,19 @@ def collect(status_path: str) -> list:
 
 
 def push(cfg: dict, metrics: list) -> int:
+    # ONE resource attribute only: service.name -> job="liquiditybot". Adding
+    # service.instance.id here would split the EXISTING series (historical
+    # samples have no instance label) into two - every panel then draws two
+    # identical lines for the whole retention window. Single-instance is
+    # enforced operationally (the single-runner lock + the self-heal keeping
+    # exactly one pusher), so a per-instance label buys nothing and only
+    # duplicates the dashboard. If a true multi-instance setup ever lands,
+    # add the label AND ship dashboard queries that select/aggregate it in
+    # the same change - never one without the other.
     body = {"resourceMetrics": [{
         "resource": {"attributes": [
             {"key": "service.name",
-             "value": {"stringValue": "liquiditybot"}},
-            # per-instance identity: without service.instance.id every pusher
-            # writes the SAME {job="liquiditybot"} series, so a second bot (a
-            # local clone sharing the OTLP token) collides into one series ->
-            # out-of-order-sample rejection + values flapping between the two
-            # bots' states. A unique instance id makes them distinct series;
-            # the cloud runner sets LB_INSTANCE=cloud, a clone defaults to its
-            # hostname, so they never overwrite each other.
-            {"key": "service.instance.id",
-             "value": {"stringValue": cfg["instance_label"]}}]},
+             "value": {"stringValue": "liquiditybot"}}]},
         "scopeMetrics": [{"metrics": metrics}]}]}
     req = urllib.request.Request(
         cfg["url"], data=json.dumps(body).encode(),
