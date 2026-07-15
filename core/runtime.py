@@ -41,7 +41,13 @@ ARM_PHRASE = "ARM LIVE"
 
 def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # PID-scoped tmp: a fixed "status.json.tmp" is shared, so during the
+    # single-instance-lock convergence window (LOST_LIMIT cycles, or a
+    # cold-start race) two runners open the SAME tmp -> truncate+interleave,
+    # and os.replace can publish a half-written file a reader then fails to
+    # parse. A per-writer tmp keeps each publish atomic and un-interleaved
+    # (last writer wins the destination, but never a torn file).
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, default=str)
     # Windows: os.replace raises PermissionError (WinError 5) when a READER

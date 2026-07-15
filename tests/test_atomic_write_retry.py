@@ -45,3 +45,33 @@ def test_normal_write_is_unaffected(tmp_path):
     p = tmp_path / "s.json"
     rt.atomic_write_json(p, {"a": [1, 2, 3]})
     assert json.loads(p.read_text(encoding="utf-8")) == {"a": [1, 2, 3]}
+
+
+def test_tmp_path_is_pid_scoped_so_two_writers_cannot_interleave(tmp_path):
+    """A fixed status.json.tmp is shared: during the single-instance-lock
+    convergence window two runners open the SAME tmp -> truncate/interleave
+    -> os.replace can publish a torn file a reader fails to parse. The tmp
+    name must carry the writer's pid so each publish is atomic and private."""
+    import os
+    p = tmp_path / "status.json"
+    # capture the tmp path atomic_write_json actually opens
+    seen = {}
+    real_open = open
+
+    def spy_open(path, *a, **k):
+        if str(path).endswith(".tmp"):
+            seen["tmp"] = str(path)
+        return real_open(path, *a, **k)
+
+    import builtins
+    orig = builtins.open
+    builtins.open = spy_open
+    try:
+        rt.atomic_write_json(p, {"ok": 1})
+    finally:
+        builtins.open = orig
+    assert str(os.getpid()) in seen["tmp"], \
+        f"tmp path must be pid-scoped, got {seen['tmp']}"
+    # a different pid would resolve to a different tmp -> no shared-file race
+    assert seen["tmp"] != str(p.with_suffix(p.suffix + ".tmp"))
+    assert json.loads(p.read_text(encoding="utf-8")) == {"ok": 1}

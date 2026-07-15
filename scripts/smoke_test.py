@@ -1215,6 +1215,20 @@ def test_runtime_and_runner():
           all(k in st for k in ("mode", "positions", "regimes", "monitor",
                                 "ml", "equity", "runner_state", "sim")))
     check("runner: mode reported DRY_RUN", st["mode"] == "DRY_RUN")
+    # mark-freshness: after a cycle the marks just updated, so age ~0. This is
+    # the TRUTHFUL staleness signal - feed_latency_ms freezes on a Ticker
+    # outage, marks_age_sec keeps climbing when a price stops updating.
+    check("runner: marks_age_sec present and fresh after a live cycle",
+          "marks_age_sec" in st and st["marks_age_sec"] < 5.0,
+          f"marks_age_sec={st.get('marks_age_sec')}")
+    # freeze a mark (simulate a Ticker-only outage: _mark_ts stops advancing)
+    # and rebuild - the age must climb, exposing the stale price as stale
+    for s in bot._mark_ts:
+        bot._mark_ts[s] -= 120.0
+    st2 = r.build_status(now)
+    check("runner: marks_age_sec climbs when a mark freezes (stale != live)",
+          st2["marks_age_sec"] >= 120.0,
+          f"marks_age_sec={st2['marks_age_sec']}")
 
     # --- sim injection: price shock moves marks (dry only) ---
     r.handle_command({"cmd": "sim_price_shock",

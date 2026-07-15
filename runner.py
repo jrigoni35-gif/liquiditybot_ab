@@ -233,8 +233,21 @@ class BotRunner:
             "drawdown_pct": round(bot.state.drawdown_pct(), 2),
             "latency_ms": round(bot.orders.latency_ms, 1),
             "feed_latency_ms": round(getattr(bot.kraken, "latency_ms", 0.0), 1),
+            # truthful mark freshness: feed_latency_ms only updates on a
+            # SUCCESSFUL Kraken call, so a Ticker outage freezes prices AND
+            # freezes the latency gauge - stale marks read as live everywhere.
+            # marks_age_sec = age of the OLDEST live mark; it climbs the moment
+            # a price stops updating, giving the UI a real staleness signal.
+            "marks_age_sec": round(max(
+                (now - bot._mark_ts.get(s, now)
+                 for s in bot.marks), default=0.0), 1),
             "positions": positions, "open_orders": orders,
-            "signals": getattr(bot, "last_signals", {}),
+            # shallow-copy: the REST/gRPC provider returns _last_status from an
+            # API thread while the engine thread mutates bot.last_signals in
+            # slow_cycle - a live reference risks a torn read / "dict changed
+            # size". Copied like manip_suspect below. The file path is already
+            # safe (serialized in-thread), this covers the API path.
+            "signals": dict(getattr(bot, "last_signals", {})),
             "exec_algos": bot.algo.status() if hasattr(bot, "algo") else {},
             "regimes": regimes,
             "sentiment": {"score": round(sent.score, 3),

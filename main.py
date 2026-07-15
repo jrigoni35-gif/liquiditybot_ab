@@ -473,6 +473,7 @@ class LiquidityBot:
         self.view: dict = {}                # base asset -> merged venue view
         self.kraken_books: dict = {}        # base asset -> kraken order book
         self.marks: dict = {}               # kraken symbol -> last price
+        self._mark_ts: dict = {}            # kraken symbol -> last mark update
         self.book_ts: dict = {}             # base asset -> fetch time
         self.daily_candles: dict = {}       # base asset -> daily candles
         self.margin_level_pct: float = 0.0
@@ -864,6 +865,7 @@ class LiquidityBot:
             if px:
                 mark, stop_ok = self.watchdog.filter_mark(asset, px)
                 self.marks[symbol] = mark
+                self._mark_ts[symbol] = now      # mark freshness (TH-freeze)
                 self._stop_ok[asset] = stop_ok
             book = self.kraken.get_order_book(pair)
             # feed-integrity signal: book is None when missing OR sanitize-
