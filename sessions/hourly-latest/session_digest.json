@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784100474.4060674,
+  "generated_at": 1784102276.137657,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784100465.0,
-    "duration_h": 44.91
+    "end": 1784102269.0,
+    "duration_h": 45.41
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,21 +16,21 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 4632
+    "samples": 4745
   },
   "activity": {
-    "signal_rows_total": 230,
+    "signal_rows_total": 247,
     "live_labeled_trades": 19,
-    "candidate_rows": 211
+    "candidate_rows": 228
   },
   "audit": {
-    "records": 287,
-    "signal_records": 86,
+    "records": 289,
+    "signal_records": 88,
     "by_src": {
       "exploration": 201,
       "order_manager": 56,
-      "startup": 24,
-      "ml_governor": 5,
+      "startup": 25,
+      "ml_governor": 6,
       "engine": 1
     },
     "top_codes": [
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        24
+        25
       ],
       [
         "ML-032",
@@ -61,21 +61,25 @@
       [
         "ML-030",
         1
+      ],
+      [
+        "ML-040",
+        1
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.651,
+    "dominant_frac": 0.636,
     "retrain_requests": 2,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 13292,
+    "records": 13589,
     "by_level": {
-      "INFO": 11270,
+      "INFO": 11558,
       "ERROR": 1853,
-      "WARNING": 167,
+      "WARNING": 176,
       "CRITICAL": 2
     },
     "top_warnings": [
@@ -121,18 +125,18 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 4628,
-      "thin": 1360
+      "spoofy": 4736,
+      "thin": 1415
     },
-    "spoofy_frac": 0.773,
-    "cycles_estimate": 2285,
+    "spoofy_frac": 0.77,
+    "cycles_estimate": 2341,
     "feed_error_events": 1944
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.25,
+    "champion_brier": 0.21450777595556275,
     "brier": "n/a",
     "history_rows": 19,
     "cold": true
@@ -176,7 +180,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 65% of 86 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 64% of 88 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
