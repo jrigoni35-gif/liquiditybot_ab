@@ -117,6 +117,13 @@ class InformedFlowEngine:
         self.vol_z_min = max(_f(cfg.get("vol_z_min", 2.0), 2.0), 0.5)
         self.clv_min = min(max(_f(cfg.get("clv_min", 0.60), 0.60), 0.5), 1.0)
         self.max_abs_funding = _f(cfg.get("max_abs_funding_rate", 0.01), 0.01)
+        # Funding is a crowding VETO sourced only from OKX perps; Kraken (the
+        # sole execution venue) is SPOT and pays no funding. So an unavailable
+        # rate is a lost minor filter, never an unhedged cost — default to
+        # PASSING the veto (keep trading) rather than starving entries on a
+        # single-feed outage. Set false for strict fail-closed.
+        self.funding_pass_when_unavailable = bool(
+            cfg.get("funding_pass_when_unavailable", True))
         self.fast_period = max(int(cfg.get("fast_period", 9)), 2)
         self.slow_period = max(int(cfg.get("slow_period", 21)),
                                self.fast_period + 1)
@@ -338,7 +345,13 @@ class InformedFlowEngine:
         sgn = 1 if evidence > 0 else -1
 
         # ---- vetoes ----------------------------------------------------
-        funding_ok = abs(_f(view.get("funding_rate"))) <= self.max_abs_funding
+        # unavailable funding (OKX perp feed down): explicit policy, not the
+        # silent _f(None)->0 coincidence. Default passes (see __init__).
+        if not view.get("funding_available", True) \
+                and self.funding_pass_when_unavailable:
+            funding_ok = True
+        else:
+            funding_ok = abs(_f(view.get("funding_rate"))) <= self.max_abs_funding
         absorption = (move_sig >= self.absorption_move_sigmas and
                       abs(s_accum) >= self.absorption_ad_min and
                       (1 if s_accum > 0 else -1) != move_dir)

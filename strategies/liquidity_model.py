@@ -168,6 +168,11 @@ class LiquidityModel:
                 "venue_books": list(entry["order_books"]),
                 "candles": entry["candles"],
                 "funding_rate": avg_funding,
+                # distinguish "genuinely ~0 funding" from "no funding source
+                # this cycle" (OKX perp feed down) — avg_funding is 0.0 for
+                # BOTH, so consumers that must not silently treat unknown as
+                # zero (the funding veto) read this flag instead.
+                "funding_available": bool(entry["funding_rates"]),
                 "volume_24h": entry["volume_24h_total"],
             }
         return view

@@ -109,13 +109,20 @@ class SignalGateEngine:
 
     def _check_gate_4(self, view: dict) -> bool:
         """Funding rate must stay within the configured absolute cap.
-        An UNAVAILABLE rate (feed returned None/NaN) fails closed - the old
-        code crashed on abs(None), taking the whole cycle down."""
+
+        UNAVAILABLE funding (OKX perp feed down; the merge yields 0.0 for both
+        "truly ~0" and "no source", so `funding_available` disambiguates) is a
+        lost minor crowding filter, NOT an unhedged cost — Kraken (sole venue)
+        is spot and pays no funding. Default PASSES the gate rather than
+        starving all entries on a single-feed outage; set
+        gate_4.pass_when_unavailable=false for strict fail-closed. (This matches
+        the deployed informed_flow engine; never crashes on abs(None).)"""
         if not self.gate_4.get("enabled", True):
             return True
+        pass_unavail = bool(self.gate_4.get("pass_when_unavailable", True))
         funding_rate = _f(view.get("funding_rate"))
-        if funding_rate is None:
-            return False
+        if not view.get("funding_available", True) or funding_rate is None:
+            return pass_unavail
         return abs(funding_rate) <= float(
             self.gate_4.get("max_abs_funding_rate", 0.01))
 

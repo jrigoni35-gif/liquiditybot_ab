@@ -50,11 +50,21 @@ def test_flat_config_still_works():
     assert r.gates_passed["gate_1_liquidity_pool"] is False
 
 
-# --- 2: fail-closed input boundary ------------------------------------------
-def test_none_funding_fails_closed_not_crash():
+# --- 2: unavailable-funding input boundary ----------------------------------
+def test_none_funding_fails_open_by_default_not_crash():
+    # policy: Kraken is spot (pays no funding), so an unavailable OKX perp rate
+    # is a lost minor crowding filter, not a cost — the funding gate PASSES by
+    # default rather than starving entries. Must never crash on abs(None).
     r = SignalGateEngine({}).evaluate_asset("ETH", _view(funding_rate=None))
+    assert r.gates_passed["gate_4_funding_rate"] is True
+
+
+def test_none_funding_can_fail_closed_when_configured():
+    eng = SignalGateEngine({"gate_4_funding_rate":
+                            {"pass_when_unavailable": False}})
+    r = eng.evaluate_asset("ETH", _view(funding_rate=None))
+    assert r.gates_passed["gate_4_funding_rate"] is False   # strict fail-closed
     assert r.all_confirmed is False
-    assert r.gates_passed["gate_4_funding_rate"] is False
 
 
 def test_malformed_candles_never_raise():
