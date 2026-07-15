@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784077758.9710476,
+  "generated_at": 1784079681.9319758,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784077752.0,
-    "duration_h": 38.6
+    "end": 1784079680.157,
+    "duration_h": 39.14
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 3246
+    "samples": 3366
   },
   "activity": {
     "signal_rows_total": 143,
@@ -24,19 +24,19 @@
     "candidate_rows": 124
   },
   "audit": {
-    "records": 189,
-    "signal_records": 74,
+    "records": 201,
+    "signal_records": 77,
     "by_src": {
-      "exploration": 115,
+      "exploration": 124,
       "order_manager": 56,
-      "startup": 15,
+      "startup": 18,
       "ml_governor": 2,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        115
+        124
       ],
       [
         "OM-000",
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        15
+        18
       ],
       [
         "ML-032",
@@ -60,18 +60,18 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.757,
+    "dominant_frac": 0.727,
     "retrain_requests": 1,
     "kill_switch_events": 0,
-    "chain_ok": true,
-    "chain_first_break": null
+    "chain_ok": false,
+    "chain_first_break": 199
   },
   "events": {
-    "records": 9952,
+    "records": 10198,
     "by_level": {
-      "INFO": 7942,
+      "INFO": 8187,
       "ERROR": 1852,
-      "WARNING": 157,
+      "WARNING": 158,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -117,11 +117,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3308,
-      "thin": 920
+      "spoofy": 3428,
+      "thin": 934
     },
-    "spoofy_frac": 0.782,
-    "cycles_estimate": 1594,
+    "spoofy_frac": 0.786,
+    "cycles_estimate": 1655,
     "feed_error_events": 1943
   },
   "model": {
@@ -151,6 +151,12 @@
   },
   "diagnostics": [
     {
+      "id": "SD-007",
+      "severity": "error",
+      "title": "audit chain broken",
+      "detail": "hash chain first breaks at record 199  -  the trail was truncated, reordered, or corrupted past that point"
+    },
+    {
       "id": "SD-005",
       "severity": "error",
       "title": "postmortem realized% contradicts its own excursions",
@@ -160,14 +166,14 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 78% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 79% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 76% of 74 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 73% of 77 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
-  "verdict": "SD-005 postmortem realized% contradicts its own excursions"
+  "verdict": "SD-007 audit chain broken"
 }
