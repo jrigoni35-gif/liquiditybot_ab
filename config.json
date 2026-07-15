@@ -496,7 +496,11 @@
     ],
     "depth": 20,
     "interval_ms": 100,
-    "max_book_age_sec": 2.0
+    "max_book_age_sec": 2.0,
+    "kraken_enabled": true,
+    "kraken_depth": 10,
+    "kraken_max_book_age_sec": 5.0,
+    "kraken_note": "Kraken v2 public book channel (wss://ws.kraken.com/v2). Real-time incremental books for the 6 trading_pairs, keyed by Kraken REST pair so fast_cycle's get_order_book(pair) reads the cache and skips the rate-limited REST Depth loop. Read-only public data; Kraken execution stays on the REST order path (invariant 3). Fail-safe: stale/down/disabled -> REST."
   },
   "webdata": {
     "description": "Free keyless crypto context: CoinGecko global (BTC dominance, mcap) + alternative.me Fear & Greed index.",

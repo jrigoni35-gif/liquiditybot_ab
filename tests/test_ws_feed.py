@@ -8,9 +8,9 @@ REST-fallback (disabled/stale both yield None so the REST path stays the
 source of truth)."""
 import json
 
-from data.ws_feed import (BinanceUSDepthStream, LiveMarketCache,
-                           ResilientWebSocket, WebSocketFeedManager,
-                           _backoff_delay)
+from data.ws_feed import (BinanceUSDepthStream, KrakenV2BookStream,
+                           LiveMarketCache, ResilientWebSocket,
+                           WebSocketFeedManager, _backoff_delay)
 
 
 class _Clock:
@@ -155,3 +155,114 @@ def test_stop_before_start_is_safe():
 def test_available_reflects_importability():
     # websockets is installed in the dev venv; the method must not raise
     assert isinstance(ResilientWebSocket.available(), bool)
+
+
+# --- KrakenV2BookStream (incremental book "understanding") ---------------
+# Real Kraken v2 frame shapes: bids/asks are [{price, qty}] lists; a
+# snapshot carries the full top-N, updates carry only changed levels, and
+# qty==0 removes a level. Cache is keyed by the caller's REST pair.
+def _snap(sym, bids, asks):
+    return json.dumps({"channel": "book", "type": "snapshot", "data": [{
+        "symbol": sym,
+        "bids": [{"price": p, "qty": q} for p, q in bids],
+        "asks": [{"price": p, "qty": q} for p, q in asks],
+        "checksum": 1, "timestamp": "t"}]})
+
+
+def _upd(sym, bids, asks):
+    return json.dumps({"channel": "book", "type": "update", "data": [{
+        "symbol": sym,
+        "bids": [{"price": p, "qty": q} for p, q in bids],
+        "asks": [{"price": p, "qty": q} for p, q in asks],
+        "checksum": 1, "timestamp": "t"}]})
+
+
+def _kstream(cache, depth=10):
+    # v2 symbol 'BTC/USD' caches under the REST pair 'BTCUSD'
+    return KrakenV2BookStream({"BTC/USD": "BTCUSD"}, cache, depth=depth)
+
+
+def test_kraken_snapshot_caches_under_rest_pair():
+    clk = _Clock()
+    cache = LiveMarketCache(now=clk)
+    s = _kstream(cache)
+    s.handle(_snap("BTC/USD", [(64901.9, 1.6)], [(64902.0, 0.5)]))
+    book = cache.get_book("kraken", "BTCUSD", 5.0)      # keyed by REST pair
+    assert book == {"bids": [[64901.9, 1.6]], "asks": [[64902.0, 0.5]]}
+    assert cache.get_mark("kraken", "BTCUSD", 5.0) == (64901.9 + 64902.0) / 2
+
+
+def test_kraken_update_sets_and_removes_levels():
+    cache = LiveMarketCache(now=_Clock())
+    s = _kstream(cache)
+    s.handle(_snap("BTC/USD",
+                   [(100.0, 1.0), (99.0, 2.0)], [(101.0, 1.0), (102.0, 2.0)]))
+    # update: replace the 99 bid qty, add a better 100.5 ask
+    s.handle(_upd("BTC/USD", [(99.0, 5.0)], [(100.5, 3.0)]))
+    book = cache.get_book("kraken", "BTCUSD", 5.0)
+    assert [100.0, 1.0] in book["bids"] and [99.0, 5.0] in book["bids"]
+    assert book["asks"][0] == [100.5, 3.0]              # best ask now 100.5
+    # qty 0 removes the 99 bid
+    s.handle(_upd("BTC/USD", [(99.0, 0.0)], []))
+    book = cache.get_book("kraken", "BTCUSD", 5.0)
+    assert all(lvl[0] != 99.0 for lvl in book["bids"])
+
+
+def test_kraken_book_is_sorted_and_depth_capped():
+    cache = LiveMarketCache(now=_Clock())
+    s = _kstream(cache, depth=2)
+    s.handle(_snap("BTC/USD",
+                   [(98.0, 1), (100.0, 1), (99.0, 1)],       # unsorted
+                   [(103.0, 1), (101.0, 1), (102.0, 1)]))
+    book = cache.get_book("kraken", "BTCUSD", 5.0)
+    assert [lvl[0] for lvl in book["bids"]] == [100.0, 99.0]   # desc, top-2
+    assert [lvl[0] for lvl in book["asks"]] == [101.0, 102.0]  # asc, top-2
+
+
+def test_kraken_resnapshot_resets_state():
+    # a reconnect re-subscribes -> Kraken resends a snapshot; stale levels
+    # from the prior connection must not survive (no drift across reconnects)
+    cache = LiveMarketCache(now=_Clock())
+    s = _kstream(cache)
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)]))
+    s.handle(_snap("BTC/USD", [(200.0, 1.0)], [(201.0, 1.0)]))   # fresh snap
+    book = cache.get_book("kraken", "BTCUSD", 5.0)
+    assert book == {"bids": [[200.0, 1.0]], "asks": [[201.0, 1.0]]}
+
+
+def test_kraken_drops_malformed_and_unknown_frames():
+    cache = LiveMarketCache()
+    s = _kstream(cache)
+    s.handle("not json")                                   # no raise
+    s.handle(json.dumps({"channel": "heartbeat"}))         # not a book frame
+    s.handle(_snap("ETH/USD", [(1, 1)], [(2, 1)]))         # unsubscribed sym
+    s.handle(_snap("BTC/USD", [], []))                     # empty sides
+    s.handle(json.dumps({"channel": "book", "type": "snapshot",
+                         "data": [{"symbol": "BTC/USD",
+                                   "bids": [{"price": "nan"}]}]}))  # bad level
+    assert cache.stats()["books"] == 0
+
+
+def test_kraken_subscribe_msg_is_book_channel_all_symbols():
+    s = KrakenV2BookStream({"BTC/USD": "BTCUSD", "ETH/USD": "ETHUSD"},
+                           LiveMarketCache(), depth=10)
+    msg = json.loads(s.subscribe_msg())
+    assert msg["method"] == "subscribe"
+    assert msg["params"]["channel"] == "book"
+    assert set(msg["params"]["symbol"]) == {"BTC/USD", "ETH/USD"}
+    assert msg["params"]["depth"] == 10
+    assert s.url() == "wss://ws.kraken.com/v2"
+
+
+def test_manager_with_kraken_adapter_serves_book_by_pair():
+    clk = _Clock()
+    cache = LiveMarketCache(now=clk)
+    adapter = KrakenV2BookStream({"BTC/USD": "BTCUSD"}, cache, depth=10)
+    m = WebSocketFeedManager({"enabled": True, "max_book_age_sec": 5.0},
+                             cache=cache, adapter=adapter)
+    assert m.venue == "kraken"
+    adapter.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)]))
+    assert m.get_order_book("BTCUSD") == {"bids": [[100.0, 1.0]],
+                                          "asks": [[101.0, 1.0]]}
+    clk.t += 9.0
+    assert m.get_order_book("BTCUSD") is None              # stale -> REST

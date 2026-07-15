@@ -51,7 +51,8 @@ from core.watchdog import Watchdog
 from execution.risk_firewall import RiskFirewall
 from data.okx_feed import OKXFeed
 from data.binanceus_feed import BinanceUSFeed
-from data.ws_feed import WebSocketFeedManager
+from data.ws_feed import (KrakenV2BookStream, LiveMarketCache,
+                          WebSocketFeedManager)
 from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
@@ -456,6 +457,31 @@ class LiquidityBot:
         for sym in config["exchanges"]["kraken"].get("trading_pairs", []):
             self.symbol_map[sym.split("/")[0]] = sym
         self.hedger = HedgeEngine(config.get("hedging", {}), self.symbol_map)
+
+        # Kraken v2 public book stream (execution venue, READ-ONLY public
+        # data): when live it replaces the rate-limited per-pair REST Depth
+        # loop in fast_cycle with a push feed. Cache is keyed by the Kraken
+        # REST pair, so fast_cycle's get_order_book(pair) reads it directly.
+        # Fail-safe: disabled/stale/down -> None -> REST, no behavior change.
+        # Gated on the REAL Kraken feed (kraken is None): when a feed is
+        # injected - tests (MockKraken), replay/backtest - we must NOT open a
+        # live socket that would override the injected book source and break
+        # hermeticity/determinism. Production (kraken is None) gets the stream.
+        self.kraken_ws = None
+        _kws = config.get("websockets", {}) or {}
+        if kraken is None and _kws.get("kraken_enabled", False):
+            _sym_to_pair = {sym: self.kraken.kraken_pair(sym)
+                            for sym in self.symbol_map.values()}
+            _kcache = LiveMarketCache()
+            _kadapter = KrakenV2BookStream(
+                _sym_to_pair, _kcache,
+                depth=int(_kws.get("kraken_depth", 10)))
+            self.kraken_ws = WebSocketFeedManager(
+                {"enabled": True,
+                 "max_book_age_sec": float(
+                     _kws.get("kraken_max_book_age_sec", 5.0))},
+                cache=_kcache, adapter=_kadapter)
+            self.kraken_ws.start()
 
         risk_cfg = config.get("risk", {})
         self.base_stop_pct = float(risk_cfg.get("stop_loss_pct", 2.0))
@@ -896,7 +922,16 @@ class LiquidityBot:
                 self.marks[symbol] = mark
                 self._mark_ts[symbol] = now      # mark freshness (TH-freeze)
                 self._stop_ok[asset] = stop_ok
-            book = self.kraken.get_order_book(pair)
+            # push-based Kraken book first (sub-second, keyed by REST pair);
+            # None means disabled/stale/down -> REST, the source of truth
+            book = None
+            if self.kraken_ws is not None:
+                try:
+                    book = self.kraken_ws.get_order_book(pair)
+                except Exception:
+                    book = None
+            if book is None:
+                book = self.kraken.get_order_book(pair)
             # feed-integrity signal: book is None when missing OR sanitize-
             # rejected (crossed/poisoned). THALES treats a sustained bad rate
             # per asset as an unreliable-venue shade (TH-014).

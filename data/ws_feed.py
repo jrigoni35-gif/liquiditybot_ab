@@ -42,6 +42,12 @@ log = logging.getLogger("liquiditybot.data.ws")
 # classic source of order-book desync bugs). 100ms cadence.
 _BINANCEUS_WS_BASE = "wss://stream.binance.us:9443/stream"
 
+# Kraken v2 public book channel: one snapshot per (re)subscribe then
+# incremental updates. Unlike Binance's full-frame stream this needs local
+# book maintenance (see KrakenV2BookStream), but a reconnect re-subscribes
+# and Kraken resends a snapshot that RESETS state, so drift self-heals.
+_KRAKEN_WS_V2 = "wss://ws.kraken.com/v2"
+
 
 class LiveMarketCache:
     """Thread-safe latest-snapshot store, keyed by (venue, symbol).
@@ -264,6 +270,14 @@ class BinanceUSDepthStream:
                  for v in self._to_venue.values()]
         return f"{_BINANCEUS_WS_BASE}?streams={'/'.join(parts)}"
 
+    # uniform adapter interface (see WebSocketFeedManager): Binance encodes
+    # its subscription in the URL, so there is no post-connect subscribe frame
+    def url(self) -> str:
+        return self.stream_url()
+
+    def subscribe_msg(self) -> Optional[str]:
+        return None
+
     def handle(self, text: str):
         """Parse one combined-stream frame into a book update. Never
         raises: a malformed frame is dropped, the cache keeps its last
@@ -288,26 +302,129 @@ class BinanceUSDepthStream:
         self.cache.update_book(self.VENUE, symbol, bids, asks)
 
 
+class KrakenV2BookStream:
+    """Venue adapter: Kraken v2 public `book` channel -> LiveMarketCache.
+
+    Kraken streams an INCREMENTAL book: one `snapshot` frame per
+    (re)subscribe carrying the full top-N, then `update` frames carrying
+    only changed levels (qty>0 sets/replaces a level, qty==0 removes it).
+    We keep the book per symbol and republish the top-N levels keyed by the
+    caller's Kraken REST *pair* (e.g. 'BTCUSD'), so a cache read lines up
+    with get_order_book(pair) exactly like the Binance adapter's symbol key.
+
+    Correctness without checksums: within one connection websocket delivery
+    is ordered and lossless, so applying every update in order reproduces
+    Kraken's book. A dropped connection makes ResilientWebSocket re-send the
+    subscribe; Kraken answers with a fresh snapshot, and `snapshot` RESETS
+    local state - so a reconnect can never leave a drifted book. Reads are
+    still staleness-gated and clean_book-sanitised, so a crossed/degenerate
+    book degrades to None -> REST, same as every other cache read.
+
+    READ-ONLY public market data. Kraken execution stays exclusively on the
+    hardened REST order path (invariant 3)."""
+
+    VENUE = "kraken"
+
+    def __init__(self, sym_to_pair: dict, cache: LiveMarketCache,
+                 depth: int = 10):
+        self.cache = cache
+        # v2 symbol ('BTC/USD') -> cache key = Kraken REST pair ('BTCUSD')
+        self.sym_to_pair = dict(sym_to_pair or {})
+        self._symbols = list(self.sym_to_pair.keys())
+        self.depth = max(int(depth), 1)
+        # v2 symbol -> {'bids': {price: qty}, 'asks': {price: qty}}
+        self._state: dict = {}
+
+    def url(self) -> str:
+        return _KRAKEN_WS_V2
+
+    def subscribe_msg(self) -> Optional[str]:
+        import json
+        if not self._symbols:
+            return None
+        return json.dumps({"method": "subscribe", "params": {
+            "channel": "book", "symbol": self._symbols, "depth": self.depth}})
+
+    def _publish(self, sym: str):
+        st = self._state.get(sym)
+        pair = self.sym_to_pair.get(sym)
+        if not st or pair is None:
+            return
+        # top-N: bids highest-first, asks lowest-first (matches REST shape)
+        bids = sorted(st["bids"].items(), reverse=True)[:self.depth]
+        asks = sorted(st["asks"].items())[:self.depth]
+        if not bids or not asks:
+            return
+        self.cache.update_book(self.VENUE, pair,
+                               [[p, q] for p, q in bids],
+                               [[p, q] for p, q in asks])
+
+    def handle(self, text: str):
+        """Apply one book frame. Never raises: a malformed frame is dropped
+        and the cache keeps its last good snapshot until staleness expires."""
+        import json
+        try:
+            msg = json.loads(text)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(msg, dict) or msg.get("channel") != "book":
+            return
+        typ = msg.get("type")
+        data = msg.get("data")
+        if not isinstance(data, list):
+            return
+        for d in data:
+            if not isinstance(d, dict):
+                continue
+            sym = d.get("symbol")
+            if sym not in self.sym_to_pair:
+                continue
+            st = self._state.setdefault(sym, {"bids": {}, "asks": {}})
+            if typ == "snapshot":                 # (re)subscribe: hard reset
+                st["bids"].clear()
+                st["asks"].clear()
+            for side in ("bids", "asks"):
+                book_side = st[side]
+                for lvl in d.get(side) or []:
+                    try:
+                        px = float(lvl["price"])
+                        qty = float(lvl["qty"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if qty <= 0.0:
+                        book_side.pop(px, None)   # qty 0 removes the level
+                    else:
+                        book_side[px] = qty
+            self._publish(sym)
+
+
 class WebSocketFeedManager:
     """Owns one venue's live stream: cache + adapter + resilient socket,
     plus REST-fallback accessors the engine can call synchronously.
 
-    Currently wires Binance.US (clean public depth stream, no auth). The
-    adapter is the only venue-specific piece; adding OKX/Kraken public
-    books is a second adapter + branch, not a rewrite."""
+    Venue-agnostic: it drives any adapter exposing url() / subscribe_msg() /
+    handle() / VENUE. Ships adapters for Binance.US (URL-encoded depth
+    stream) and Kraken v2 (post-connect book subscribe). Pass `adapter` to
+    select one; the default builds Binance.US from config for back-compat."""
 
-    def __init__(self, config: dict, cache: Optional[LiveMarketCache] = None):
+    def __init__(self, config: dict, cache: Optional[LiveMarketCache] = None,
+                 adapter=None):
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled", False))
         self.max_age_s = float(cfg.get("max_book_age_sec", 2.0))
         self.cache = cache or LiveMarketCache()
-        symbols = cfg.get("binanceus_symbols") or []
-        self.adapter = BinanceUSDepthStream(
-            symbols, self.cache,
-            depth=int(cfg.get("depth", 20)),
-            interval_ms=int(cfg.get("interval_ms", 100)))
+        if adapter is not None:
+            self.adapter = adapter
+            self._symbols = list(getattr(adapter, "_symbols", []) or [])
+        else:
+            symbols = cfg.get("binanceus_symbols") or []
+            self.adapter = BinanceUSDepthStream(
+                symbols, self.cache,
+                depth=int(cfg.get("depth", 20)),
+                interval_ms=int(cfg.get("interval_ms", 100)))
+            self._symbols = list(symbols)
+        self.venue = self.adapter.VENUE
         self._ws: Optional[ResilientWebSocket] = None
-        self._symbols = list(symbols)
 
     def start(self):
         if not self.enabled:
@@ -316,13 +433,13 @@ class WebSocketFeedManager:
             log.warning("ws manager enabled but no symbols configured - "
                         "staying on REST")
             return
-        self._ws = ResilientWebSocket(self.adapter.stream_url(),
+        self._ws = ResilientWebSocket(self.adapter.url(),
                                       self.adapter.handle,
+                                      subscribe=self.adapter.subscribe_msg(),
                                       backoff_cap=float(
                                           self.max_age_s * 15))
         self._ws.start()
-        log.info("ws feed started: binanceus %s (depth=%d, %dms)",
-                 self._symbols, self.adapter.depth, self.adapter.interval_ms)
+        log.info("ws feed started: %s %s", self.venue, self._symbols)
 
     def stop(self):
         if self._ws is not None:
@@ -332,17 +449,17 @@ class WebSocketFeedManager:
     def get_order_book(self, symbol: str) -> Optional[dict]:
         """Fresh cached book or None (caller falls back to REST). Disabled
         or stale both return None, so the engine's existing REST path is
-        the single source of truth whenever live data is not trustworthy."""
+        the single source of truth whenever live data is not trustworthy.
+        `symbol` is whatever key the adapter caches under (Binance symbol /
+        Kraken REST pair)."""
         if not self.enabled:
             return None
-        return self.cache.get_book(BinanceUSDepthStream.VENUE, symbol,
-                                   self.max_age_s)
+        return self.cache.get_book(self.venue, symbol, self.max_age_s)
 
     def get_mark(self, symbol: str) -> Optional[float]:
         if not self.enabled:
             return None
-        return self.cache.get_mark(BinanceUSDepthStream.VENUE, symbol,
-                                   self.max_age_s)
+        return self.cache.get_mark(self.venue, symbol, self.max_age_s)
 
     def health(self) -> dict:
         return {
