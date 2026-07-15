@@ -635,6 +635,69 @@ def test_capped_book_learning():
     bot.monitor.flag_path.unlink(missing_ok=True)
 
 
+def test_pending_entries_count_against_the_cap():
+    """Positions are booked on FILL; a resting (pending) entry order is
+    committed risk invisible to open_position_count(). With one pending
+    entry allowed per asset, a cap that counted only filled positions
+    could be overfilled when they land. The cap must reserve a slot per
+    pending entry - here zero filled + a cap-full book of PENDING entries
+    must block a new live entry while the learning lane stays open."""
+    from main import LiquidityBot, load_config
+    from strategies.signal_gates import SignalResult
+
+    cfg = load_config(str(Path(__file__).resolve().parents[1] / "config.json"))
+    cfg["capital_management"]["starting_capital_usd"] = 10_000
+    cfg["capital_management"]["max_concurrent_positions"] = 1
+    cfg["system"]["dry_run"] = True
+    cfg["sentiment"]["enabled"] = False
+    cfg["webdata"]["enabled"] = False
+    cfg["moomoo"]["enabled"] = False
+    qa_redirect_paths(cfg, "pending_cap")
+    cfg["ml"]["model_path"] = str(TMP / "none_pc.json")
+    cfg["ml"]["history_path"] = str(TMP / "smoke_pending_cap.csv")
+    Path(str(TMP / "smoke_pending_cap.csv")).unlink(missing_ok=True)
+
+    prices = {"ETH": 2000.0, "BTC": 60000.0}
+    bot = LiquidityBot(cfg, okx=MockOKX(prices), binanceus=MockBinanceUS(prices),
+                       kraken=MockKraken(prices), resume=False)
+    bot.gates.evaluate_asset = lambda base_asset, view: SignalResult(  # type: ignore[assignment]
+        symbol=f"{base_asset}/USD", direction="long", confidence=1.0, size=0.0,
+        all_confirmed=True, gates_passed={})
+    # a REAL resting BTC entry (buy limit far below market never fills, so it
+    # stays pending through poll) holds the single cap slot while
+    # open_position_count() is still 0 - the exact positions-vs-pending gap
+    from execution.order_manager import ManagedOrder
+    bot.orders._orders["pend-btc"] = ManagedOrder(
+        order_id="pend-btc", txid=None, asset="BTC", pair="XXBTZUSD",
+        symbol="BTC/USD", side="buy", price=1.0, size=0.001,
+        status="pending", purpose="entry", position_id="pp")
+    t = time.time()
+    bot.hourly_cycle(t)
+    for a in ("ETH", "BTC"):
+        st = bot.macro.state(a)
+        st.label = "bull_quiet"
+        st.playbook = dict(bot.macro.playbooks["bull_quiet"])
+        bot.macro._states[a] = st
+    reg0 = len(bot.candidates._cands)
+    seen_in_flight = []
+    _orig_cap = bot.capital.can_open_new_position
+    bot.capital.can_open_new_position = (                        # type: ignore[method-assign]
+        lambda state, in_flight_entries=0: seen_in_flight.append(in_flight_entries)
+        or _orig_cap(state, in_flight_entries))
+    bot.fast_cycle(t)
+    bot.slow_cycle(t)
+    bot.capital.can_open_new_position = _orig_cap               # type: ignore[method-assign]
+    check("engine feeds the pending-entry count into the concurrency cap",
+          bool(seen_in_flight) and max(seen_in_flight) >= 1,
+          f"in_flight seen={seen_in_flight}")
+    check("pending entry reserves the only slot: cap reports full",
+          _orig_cap(bot.state, 1) is False and bot.state.open_position_count() == 0,
+          f"filled={bot.state.open_position_count()}")
+    check("cap-full-by-pending still registers training candidates",
+          len(bot.candidates._cands) > reg0,
+          f"cands {reg0} -> {len(bot.candidates._cands)}")
+
+
 def test_persistence_roundtrip():
     """Open a position, snapshot, resume into a NEW bot instance, and verify
     the restored bot has identical state and keeps managing the position
@@ -1864,6 +1927,7 @@ if __name__ == "__main__":
     print("[11] entry->fill->exit lifecycle"); test_entry_fill_exit_path()
     print("[12] persistence round-trip");   test_persistence_roundtrip()
     print("[12b] capped-book learning lane"); test_capped_book_learning()
+    print("[12c] pending entries reserve cap slots"); test_pending_entries_count_against_the_cap()
     print("[13] probability calibration");  test_calibration()
     print("[14] model monitor ladder");     test_monitor_ladder()
     print("[15] trade postmortems");        test_postmortem()

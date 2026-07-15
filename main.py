@@ -1202,8 +1202,15 @@ class LiquidityBot:
         # lane: shadow candidates cost nothing, and halting evaluation
         # while the book is full starves the label pipeline for hours
         # (observed live: ~110 blocked cycles/hour, zero new candidates,
-        # open-candidate pool drained 65 -> 7 during a capped stretch)
-        can_enter = self.capital.can_open_new_position(self.state)
+        # open-candidate pool drained 65 -> 7 during a capped stretch).
+        # Pending (resting, unfilled) entry orders are committed risk that
+        # positions-on-fill accounting hasn't booked yet; reserve a cap slot
+        # for each so filled + pending never exceeds max_concurrent. The
+        # counter is decremented forward as this cycle places entries.
+        reserved_entries = sum(1 for o in self.orders.open_orders()
+                               if o.purpose == "entry")
+        can_enter = self.capital.can_open_new_position(
+            self.state, reserved_entries)
 
         # structural stress inputs for the narrative filter
         vols = [self.vol.state(a).percentile for a in self.symbol_map]
@@ -1432,6 +1439,10 @@ class LiquidityBot:
                     f"ENTRY-ALGO {signal.direction} {symbol} "
                     f"[{parent.algo}]: ${notional_usd:,.0f} sliced over "
                     f"{self.algo.max_children} children | p={p_win:.2f}")
+                reserved_entries += 1                  # committed a slot
+                if not self.capital.can_open_new_position(
+                        self.state, reserved_entries):
+                    can_enter = False
                 continue
             order = self.orders.submit(
                 asset=asset, symbol=symbol,
@@ -1449,6 +1460,10 @@ class LiquidityBot:
             )
             if order:
                 self.sizer.note_entry(asset, now)
+                reserved_entries += 1                  # committed a slot
+                if not self.capital.can_open_new_position(
+                        self.state, reserved_entries):
+                    can_enter = False
                 log.info(
                     f"ENTRY {signal.direction} {symbol} [{plan.style}]: ${sized.usd:,.0f} "
                     f"({decision.size_units:.6f}) @ "

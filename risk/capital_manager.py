@@ -26,9 +26,19 @@ class CapitalManager:
         self.daily_loss_limit_pct = config.get("daily_loss_limit_pct", 5)
         self.hard_stop_drawdown_pct = config.get("hard_stop_drawdown_pct", 15)
 
-    def can_open_new_position(self, state) -> bool:
-        if state.open_position_count() >= self.max_concurrent_positions:
-            log.info("Blocked: max concurrent positions reached.")
+    def can_open_new_position(self, state, in_flight_entries: int = 0) -> bool:
+        # A pending ENTRY order is committed risk that has not yet landed in
+        # open_position_count() (positions are added on FILL, not on submit).
+        # Counting only filled positions lets the concurrency cap be blown:
+        # entries are limit orders (OM-011) that rest, and with one pending
+        # entry allowed per asset the book can accumulate one-per-asset and
+        # overfill max_concurrent when they fill. in_flight_entries reserves
+        # a slot per resting entry so the cap bounds filled + pending, not
+        # filled alone. Default 0 keeps every existing caller behaviour-exact.
+        if (state.open_position_count() + max(0, int(in_flight_entries))
+                >= self.max_concurrent_positions):
+            log.info("Blocked: max concurrent positions reached "
+                     "(filled + pending entries).")
             return False
 
         if state.starting_capital > 0:

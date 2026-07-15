@@ -53,6 +53,24 @@ def test_cap_blocks_at_limit_and_allows_below():
     assert cm.can_open_new_position(_state(6)) is False
 
 
+def test_pending_entries_reserve_cap_slots():
+    """Positions are booked on FILL, not on submit, so a resting (pending)
+    entry order is committed risk invisible to open_position_count(). The
+    cap must count filled + pending, or one-pending-entry-per-asset can
+    overfill max_concurrent when they all fill. Default 0 = legacy exact."""
+    cm = CapitalManager({"max_concurrent_positions": 5})
+    # 3 filled + 2 pending entries == 5 committed: cap is reached
+    assert cm.can_open_new_position(_state(3), in_flight_entries=2) is False
+    assert cm.can_open_new_position(_state(3), in_flight_entries=1) is True
+    # pending alone can reach the cap with zero filled
+    assert cm.can_open_new_position(_state(0), in_flight_entries=5) is False
+    assert cm.can_open_new_position(_state(0), in_flight_entries=4) is True
+    # a stray negative can never LOOSEN the cap
+    assert cm.can_open_new_position(_state(5), in_flight_entries=-3) is False
+    # the default preserves the pre-reservation behaviour exactly
+    assert cm.can_open_new_position(_state(4)) is True
+
+
 def test_guard_zero_max_concurrent_is_fatal():
     cfg = {"system": {"dry_run": True},
            "capital_management": {"max_concurrent_positions": 0}}
