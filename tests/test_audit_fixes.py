@@ -10,9 +10,28 @@ Collected here as each verified finding is fixed:
 """
 from datetime import datetime, timezone
 
+import json
+from pathlib import Path
+
 from core.state import PortfolioState, Position
 from execution.hedging import HedgeEngine
 from risk.protocols import RiskProtocolStack
+
+_CFG = json.loads((Path(__file__).resolve().parents[1] / "config.json")
+                  .read_text(encoding="utf-8"))
+
+
+# --- config_guard now covers the Kraken v2 ws (was unguarded) ---------------
+def test_config_guard_fatals_book_age_that_defeats_watchdog():
+    import core.config_guard as g
+    assert not g.validate(_CFG), "shipped config must validate clean"
+    bad = json.loads(json.dumps(_CFG))
+    bad["websockets"]["kraken_max_book_age_sec"] = 300.0
+    assert any("kraken_max_book_age" in str(x) for x in g.validate(bad)), \
+        "guard must FATAL a book-age that reads stale books as fresh"
+    bad2 = json.loads(json.dumps(_CFG))
+    bad2["websockets"]["kraken_depth"] = 7
+    assert any("kraken_depth" in str(x) for x in g.validate(bad2))
 
 MARKS = {"ETH/USD": 2000.0, "BTC/USD": 60000.0}
 SYMBOLS = {"ETH": "ETH/USD", "BTC": "BTC/USD"}

@@ -679,6 +679,34 @@ def validate(config: dict) -> list:
             fatal("websockets.enabled but websockets.binanceus_symbols is "
                   "empty - nothing to subscribe to")
 
+    # --- Kraken v2 live book stream (data/ws_feed.KrakenV2BookStream) -----
+    # Wired INDEPENDENTLY of websockets.enabled (main.py gates it on
+    # websockets.kraken_enabled), so its knobs need their OWN validation — they
+    # were previously unguarded, so a high kraken_max_book_age_sec silently
+    # served stale books into stops/imbalance/firewall AND defeated the
+    # staleness watchdog (book_ts is stamped at read time, not data time).
+    if bool(_f(config, "websockets.kraken_enabled", False)):
+        k_age = float(_f(config, "websockets.kraken_max_book_age_sec", 5.0))
+        poll = float(_f(config, "system.polling_interval_sec", 5))
+        if k_age <= 0:
+            fatal(f"websockets.kraken_max_book_age_sec={k_age} must be > 0 - a "
+                  f"non-positive staleness gate would trust a dead socket "
+                  f"forever")
+        if k_age > 30.0:
+            fatal(f"websockets.kraken_max_book_age_sec={k_age} must be <= 30s - "
+                  f"a book that stale reads as FRESH (book_ts is stamped at read "
+                  f"time) and defeats the staleness watchdog that guards stops")
+        elif k_age > poll:
+            findings.append(("WARN",
+                             f"websockets.kraken_max_book_age_sec={k_age} "
+                             f"exceeds system.polling_interval_sec={poll} - live "
+                             f"books can be older than a REST cycle"))
+        k_depth = int(_f(config, "websockets.kraken_depth", 10))
+        if k_depth not in (10, 25, 100, 500, 1000):
+            fatal(f"websockets.kraken_depth={k_depth} must be one of "
+                  f"10/25/100/500/1000 - the Kraken v2 book channel only "
+                  f"offers those depths")
+
     # --- moomoo equities context (optional, read-only) -------------------
     # Degrades to neutral on any failure, so bad config can't stop the bot -
     # but a nonsense port/interval/weight silently yields no data forever
