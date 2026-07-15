@@ -136,16 +136,26 @@ if [ -z "${GC_TOKEN_FILE:-}" ] \
   export GC_TOKEN_FILE="${HOME:-/root}/.liquiditybot/gc-token"
   log "OTLP token recovered from persisted ~/.liquiditybot/gc-token"
 fi
-if [ -n "${GC_TOKEN_FILE:-}" ] && [ -s "${GC_TOKEN_FILE:-/nonexistent}" ] \
+# Grafana push OWNERSHIP: the metric series is single-instance by design
+# (job="liquiditybot", no host label — see scripts/gc_pusher.py). The always-on
+# PC (scripts/pc_supervisor.py) owns that series; a cloud session pushing at the
+# same time would interleave both bots' samples into one garbled line. So the
+# CLOUD does NOT push by default. Set GC_CLOUD_PUSH=1 (env secret) to let a cloud
+# session own the feed instead — e.g. when the PC is offline. This gate does not
+# touch the PC: its supervisor launches the pushers independently of this hook.
+if [ "${GC_CLOUD_PUSH:-0}" = "1" ] \
+   && [ -n "${GC_TOKEN_FILE:-}" ] && [ -s "${GC_TOKEN_FILE:-/nonexistent}" ] \
    && [ -n "${GC_OTLP_URL:-}" ] && [ -n "${GC_INSTANCE_ID:-}" ]; then
   if ! pgrep -f "[g]c_pusher\.py" >/dev/null 2>&1; then
     setsid nohup "$PY" scripts/gc_pusher.py >> outputs/gc_pusher.log 2>&1 < /dev/null &
-    log "metrics pusher relaunched"
+    log "metrics pusher relaunched (GC_CLOUD_PUSH=1)"
   fi
   if ! pgrep -f "[g]c_log_pusher\.py" >/dev/null 2>&1; then
     setsid nohup "$PY" scripts/gc_log_pusher.py >> outputs/gc_log_pusher.log 2>&1 < /dev/null &
-    log "log pusher relaunched"
+    log "log pusher relaunched (GC_CLOUD_PUSH=1)"
   fi
+else
+  log "cloud Grafana push disabled (GC_CLOUD_PUSH!=1) — the PC owns the series"
 fi
 
 # --- 6. learning DURABILITY: checkpoint training rows to paper-telemetry ---
