@@ -465,6 +465,11 @@ class LiquidityBot:
         self.esc_widen_mult = float(esc.get("widen_mult", 2.0))
         self.esc_max_slip_pct = float(esc.get("max_slippage_cap_pct", 3.0))
         self.esc_market_after = int(esc.get("market_after_attempts", 3))
+        # maker-first PROFIT exits: rest post-only on our side first, capture
+        # the spread; risk exits stay marketable. On by default (the whole
+        # point), config-gated for a clean A/B and instant rollback.
+        self.maker_first_profit_exits = bool(
+            esc.get("maker_first_profit_exits", True))
         self._exit_attempts: dict = {}      # position_id -> failed attempts
         self._stop_ok: dict = {}            # asset -> stop eval allowed this cycle
         self._equity_drift_pct: float = 0.0
@@ -764,7 +769,8 @@ class LiquidityBot:
                         f"total net ${total_net:+,.2f}")
 
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
-                 tier_fired: int = 0, now: Optional[float] = None):
+                 tier_fired: int = 0, now: Optional[float] = None,
+                 profit_take: bool = False):
         """Risk-reduction exit: marketable limit, slippage-capped, never
         blocked by the pre-trade edge gate (exits are risk management).
 
@@ -803,14 +809,36 @@ class LiquidityBot:
         book = self.kraken_books.get(asset) or {}
         bids, asks = book.get("bids") or [], book.get("asks") or []
         mark = self.marks.get(pos.symbol, pos.entry_price)
+        # MAKER-FIRST profit exits: a scheduled profit-TARGET take (price
+        # reached the tier trigger; profit_take=True) is not urgent risk-off -
+        # it is capturing gains, so its FIRST attempt rests POST-ONLY on our
+        # own side of the book (sell at the ask / buy at the bid) to CAPTURE
+        # the spread instead of paying it. The 35-54bps that bled 8/8 live
+        # trades IS this exit leg. If it does not fill it expires (order
+        # timeout) and escalates into the existing marketable ladder below
+        # (attempt>=1), so nothing gets trapped. RISK exits stay marketable-
+        # first: hard stops, faults, derisk, hedge unwind, AND protective
+        # floor/trail/BE closes (which carry tier_fired>0 for bookkeeping but
+        # are risk-off, so profit_take is False) - being out fast beats the
+        # spread. Requires a live two-sided book; degrades to marketable if
+        # the touch is missing.
+        maker_first = bool(self.maker_first_profit_exits and profit_take
+                           and attempts == 0 and bids and asks
+                           and not go_market)
         if pos.direction == "long":
-            touch = bids[0][0] if bids else mark
-            price = touch * (1 - slip_pct / 100.0)
             side = "sell"
+            if maker_first:
+                price = asks[0][0]                 # rest at the ask (maker)
+            else:
+                touch = bids[0][0] if bids else mark
+                price = touch * (1 - slip_pct / 100.0)
         else:
-            touch = asks[0][0] if asks else mark
-            price = touch * (1 + slip_pct / 100.0)
             side = "buy"
+            if maker_first:
+                price = bids[0][0]                 # rest at the bid (maker)
+            else:
+                touch = asks[0][0] if asks else mark
+                price = touch * (1 + slip_pct / 100.0)
         size = pos.size * close_pct / 100.0
         if size <= EPS:
             return
@@ -823,7 +851,8 @@ class LiquidityBot:
         order = self.orders.submit(
             asset=asset, symbol=pos.symbol, pair=self.kraken.kraken_pair(pos.symbol),
             side=side, price=price, size=size, purpose="exit",
-            position_id=pos.position_id, close_pct=close_pct, post_only=False,
+            position_id=pos.position_id, close_pct=close_pct,
+            post_only=maker_first,
             ordertype="market" if go_market else "limit",
             ref_price=mark, equity=self._equity(),
             book=book, sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
@@ -966,7 +995,8 @@ class LiquidityBot:
                 if action.should_close_partial and action.close_pct > 0:
                     self._submit_exit(pos, action.close_pct,
                                     f"tier {action.tier_fired or 'trail'}",
-                                    tier_fired=action.tier_fired, now=now)
+                                    tier_fired=action.tier_fired, now=now,
+                                    profit_take=action.is_profit_take)
 
         # 3) inventory derisk (hard caps, stale losers)
         for act in self.inventory.derisk_actions(self.state, self.marks, equity,

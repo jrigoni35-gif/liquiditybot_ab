@@ -158,10 +158,11 @@
     "stop_vol_mult": 4.0,
     "max_slippage_pct": 0.5,
     "exit_escalation": {
-      "description": "Each unfilled exit attempt widens the slippage cap by widen_mult (capped at max_slippage_cap_pct); after market_after_attempts failed attempts the exit goes MARKET. Being out at a bad price beats being trapped at a good one.",
+      "description": "Each unfilled exit attempt widens the slippage cap by widen_mult (capped at max_slippage_cap_pct); after market_after_attempts failed attempts the exit goes MARKET. Being out at a bad price beats being trapped at a good one. maker_first_profit_exits: a PROFIT-tier close rests post-only on our own side (sell at ask / buy at bid) on its FIRST attempt to capture the spread instead of paying it, then escalates into this marketable ladder if unfilled; risk exits are always marketable-first.",
       "widen_mult": 2.0,
       "max_slippage_cap_pct": 3.0,
-      "market_after_attempts": 3
+      "market_after_attempts": 3,
+      "maker_first_profit_exits": true
     }
   },
   "risk_protocols": {

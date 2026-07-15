@@ -70,6 +70,12 @@ class TierAction:
     close_pct: float          # % of *current* position size to close
     realized_pnl: float       # estimated PnL of this close (net of est fees)
     tier_fired: int = 0
+    # True ONLY for a scheduled profit-target TAKE (price reached the tier
+    # trigger). A protective floor/trail/BE exit also carries tier_fired>0
+    # (= tiers already closed) for bookkeeping, but is risk-off, not a take -
+    # it must NOT get maker-first resting treatment. Default False preserves
+    # the interface (invariant 7).
+    is_profit_take: bool = False
 
 
 class ProfitTierEngine:
@@ -319,7 +325,8 @@ class ProfitTierEngine:
                                        sigma_bar_pct is not None) else "",
                     close_pct, boost_note)
                 return TierAction(True, close_pct, pnl,
-                                  tier_fired=next_tier_index + 1)
+                                  tier_fired=next_tier_index + 1,
+                                  is_profit_take=True)
 
         if self._exit_floor_hit(position, px, sigma_bar_pct,
                                 signal_alive=signal_alive):

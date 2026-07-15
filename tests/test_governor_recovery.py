@@ -45,7 +45,13 @@ def _size(floor_to_min, size_mult=1.0, risk_scale=0.4):
                             playbook=dict(DEFAULT_PLAYBOOKS["bull_quiet"]))
     vol = VolState("ETH", sigma_annual_pct=50.0)
     liq = LiquidityState("ETH", size_mult=size_mult)
-    return sizer.size("ETH", "long", 2000.0, 0.62, EQUITY, state, bull, vol,
+    # p(win) 0.66: a marginal-but-POSITIVE net edge, just above the honest
+    # net breakeven. The exit-leg cost fix (maker entry + taker exit, not
+    # 2*maker) raised b_net's breakeven to ~0.632; the old 0.62 fixture now
+    # sits BELOW it, so net-Kelly f* <= 0 (SZ-030) zeroes the trade before the
+    # exploration-FLOOR logic under test can run. Re-baselined consciously to
+    # keep exercising the floor mechanism (SZ-042/044/031), not the breakeven.
+    return sizer.size("ETH", "long", 2000.0, 0.66, EQUITY, state, bull, vol,
                       liq, 1.0, InventoryManager({}), lev, {},
                       risk_scale=risk_scale, floor_to_min=floor_to_min)
 

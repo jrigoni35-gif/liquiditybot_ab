@@ -100,12 +100,20 @@ class PositionSizer:
             cfg.get("dd_throttle_floor", 0.15)), 0.0), 1.0)
         self.hard_stop_dd_pct = float(
             (capital_cfg or {}).get("hard_stop_drawdown_pct", 15.0))
-        # round-trip cost in % for net payoffs: maker in + maker out at
-        # the configured tier (conservative; taker exits cost more and
-        # the pre-trade gate prices those separately)
+        # round-trip cost in % for net payoffs: maker ENTRY (resting limit,
+        # OM-011) + taker EXIT. The old 2*maker under-priced the exit leg -
+        # exits fill through the touch (taker), so the realized round-trip was
+        # maker+taker, not 2*maker. b_net was therefore too generous and Kelly
+        # allocated to marginal edges that realized as cost overruns (8/8
+        # live postmortems, 35-54bps over the estimate). Sizing on the TRUE
+        # net win/loss distribution (matching the pre-trade gate's exit-leg
+        # convention) shrinks marginal tickets toward zero. Maker-first
+        # profit exits (below) recapture part of this, but the sizer stays
+        # honest-worst-case: it never assumes a fill it hasn't earned.
         pt = pretrade_cfg or {}
         maker = float(pt.get("maker_fee_bps", 25.0))
-        self.rt_cost_pct = 2.0 * maker / 100.0
+        taker = float(pt.get("taker_fee_bps", 40.0))
+        self.rt_cost_pct = (maker + taker) / 100.0
         # COST DECOMPOSITION (no double counting):
         #   .b       gross payoff ratio — main derives the alpha ESTIMATE
         #            from it, and the pre-trade gate charges execution
