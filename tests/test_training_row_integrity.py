@@ -119,3 +119,35 @@ def test_untaken_candidates_are_fully_kept_when_no_live_rows_exist(tmp_path):
                           "candidate", signal_ts=1000.0 + i)
     X, y, w = store.load_training_data()
     assert len(X) == 6, "all synthetic rows kept when no real twin exists"
+
+
+def test_restored_bare_ids_are_reminted_onto_the_launch_salt(tmp_path):
+    """The salt makes NEW ids collision-proof, but candidates persisted by a
+    pre-salt (or foreign-salt) process keep bare `cand-{seq}` ids across
+    restore - and when they finally label they write that id as the row's
+    position_id, colliding with a `cand-{seq}` already in signal_history.csv
+    (the 2026-07-14 rollback collision). Restore must re-mint every restored
+    id onto THIS launch's unique salt."""
+    lab, _ = _labeler(tmp_path)
+    feats = np.zeros(len(FEATURE_NAMES))
+    # a snapshot from an OLD process: BARE ids, low seq (rollback-style)
+    snap = {"schema_version": lab.to_dict()["schema_version"], "seq": 3,
+            "bars": {}, "last_reg": {},
+            "cands": [{"id": f"cand-{n}", "asset": "BTC", "direction": "long",
+                       "features": list(feats), "sigma_bar": 0.01,
+                       "bar_time": 1000 + n, "spread_bps": 0.0,
+                       "gates_passed": {}, "labeled": False}
+                      for n in (1, 2, 3)]}
+    lab2, _ = _labeler(tmp_path)
+    lab2.restore(snap)
+    ids = [c["id"] for c in lab2._cands]
+    assert len(ids) == 3
+    # every restored id now carries the launch salt - none stays bare
+    assert all(c["id"].startswith(f"cand-{lab2._id_salt}-") for c in lab2._cands), \
+        f"restored ids not re-minted onto the salt: {ids}"
+    assert not any(i in (f"cand-{n}" for n in (1, 2, 3)) for i in ids), \
+        "a bare pre-salt id survived restore -> can still collide with the file"
+    # a NEW registration after restore stays disjoint from the re-minted ones
+    lab2.register("ETH", "short", feats, 0.01, 9999)
+    all_ids = [c["id"] for c in lab2._cands]
+    assert len(set(all_ids)) == len(all_ids), "re-mint + new reg must not collide"

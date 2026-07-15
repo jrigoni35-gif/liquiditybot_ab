@@ -378,7 +378,7 @@ def feature_dof_report(X, y, feature_names, label_span: int = 96,
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     n, d = X.shape
-    folds = [f for f in purged_walk_forward(n, n_splits, label_span)
+    folds = [f for f in purged_walk_forward(n, n_splits, label_span, sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
     dead, imp = [], []
     if folds:

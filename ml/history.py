@@ -151,7 +151,10 @@ class HistoryStore:
         w *= (1 - manip_discount * manip_suspect)."""
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         if not self.path.exists():
-            return empty
+            # honor return_sig on the empty path too: a fresh checkout has no
+            # signal_history.csv (outputs/ is gitignored), and the DoD's
+            # `python scripts/overfit_check.py` unpacks 4 values
+            return (*empty, np.empty(0)) if return_sig else empty
         # SYNTHETIC-vs-REAL clash guard. A taken trade is written TWICE: once
         # as a live row (realized close = REAL label, full weight) and once as
         # the candidate it was registered as at signal time (triple-barrier
@@ -522,6 +525,18 @@ class CandidateLabeler:
                         f"candidate(s) with pre-rotation feature width "
                         f"(current schema: {want} features)")
         self._cands = [c for c in cands if len(c["features"]) == want]
+        # RE-MINT restored ids onto THIS launch's salt. A candidate persisted
+        # by an earlier process carries either a bare `cand-{seq}` id (pre-salt
+        # builds) or a FOREIGN salt; when it finally labels it writes that id
+        # as the row's position_id, which can already exist in
+        # signal_history.csv - the filesystem-rollback collision the salt
+        # exists to kill (lived 2026-07-14: seq reset -> reused bare id). The
+        # per-launch salt is unique, so re-minting every restored id under it
+        # is collision-proof against the file; advancing the shared _seq keeps
+        # new registrations disjoint from the re-minted ones too.
+        for c in self._cands:
+            self._seq += 1
+            c["id"] = f"cand-{self._id_salt}-{self._seq}"
         self._last_reg = {}
         for key, t in (d.get("last_reg") or {}).items():
             a, _, direc = key.partition("|")

@@ -67,3 +67,15 @@ def test_load_training_data_returns_aligned_sorted_sig(tmp_path):
     assert list(y) == [0.0, 1.0, 1.0]               # labels track their rows
     # legacy 3-tuple call still works unchanged
     assert len(store.load_training_data()) == 3
+
+
+def test_return_sig_on_missing_file_still_unpacks_to_four(tmp_path):
+    """A fresh checkout has no signal_history.csv (outputs/ is gitignored).
+    load_training_data(return_sig=True) must still return a 4-tuple there,
+    or `python scripts/overfit_check.py` (a DoD gate) crashes on the unpack
+    before it can fall back to the synthetic benchmark."""
+    store = HistoryStore(str(tmp_path / "does_not_exist.csv"))
+    X, y, w, sig = store.load_training_data(return_sig=True)   # must not raise
+    assert len(X) == len(y) == len(w) == len(sig) == 0
+    # legacy 3-tuple path on a missing file is unchanged
+    assert len(store.load_training_data()) == 3

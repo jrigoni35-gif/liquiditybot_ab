@@ -52,7 +52,11 @@ def test_restore_drops_pre_rotation_candidates(tmp_path, caplog):
                      "bar_time": 1000, "spread_bps": 1.0, "gates": None}]}
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         lab.restore(snapshot)
-    assert [c["id"] for c in lab._cands] == ["cand-2"]
+    # the correct-width candidate (cand-2, BTC) survives; the pre-rotation
+    # one (cand-1) is dropped. Its id is re-minted onto the launch salt
+    # (collision-proofing), so identify the survivor by asset, not old id.
+    assert len(lab._cands) == 1 and lab._cands[0]["asset"] == "BTC"
+    assert lab._cands[0]["id"].startswith(f"cand-{lab._id_salt}-")
     assert any("ML-013" in r.getMessage() and "dropped 1" in r.getMessage()
                for r in caplog.records)
 

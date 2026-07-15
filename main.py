@@ -1685,9 +1685,13 @@ class LiquidityBot:
             log.warning(f"auto-retrain: {len(X)} rows "
                         f"({rows - self._rows_at_last_train} new)")
             # sig -> TIME-based fold purge: the deployed champion is selected
-            # on leak-free OOF (row-count purge under-purges bursty signals)
+            # on leak-free OOF (row-count purge under-purges bursty signals).
+            # label_span MUST match the labeler's actual horizon (config
+            # label_max_bars) or the purge window and the label window drift.
             results = evaluate_and_select(
                 X, y, sample_weight=w, feature_names=FEATURE_NAMES,
+                label_span=int(self.config.get('ml', {})
+                            .get('label_max_bars', 96)),
                 ensemble_k=int(self.config.get('ml', {})
                             .get('ensemble_seeds', 3)), sig=sig)
             sel = results[results["selected"]]
