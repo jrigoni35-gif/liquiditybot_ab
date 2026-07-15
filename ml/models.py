@@ -104,6 +104,14 @@ class LogisticModel:
         z = Xs @ self.w + self.b
         return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
 
+    @property
+    def n_features(self):
+        """Input width this model was fit on (None if unfitted). Lets the
+        loader reject a champion trained under a superseded feature schema
+        instead of faulting it on every inference (ML-013)."""
+        mu = getattr(self.std, "mu", None)
+        return None if mu is None else int(np.asarray(mu).shape[0])
+
     def to_dict(self):
         assert (self.w is not None and self.std.mu is not None
                 and self.std.sd is not None), "model must be fitted before to_dict()"
@@ -237,6 +245,11 @@ class NumpyMLP:
         p, _ = self._forward(Xs, self.params, False, np.random.default_rng(0))
         return p
 
+    @property
+    def n_features(self):
+        mu = getattr(self.std, "mu", None)
+        return None if mu is None else int(np.asarray(mu).shape[0])
+
     def to_dict(self):
         assert (self.params is not None and self.std.mu is not None
                 and self.std.sd is not None), "model must be fitted before to_dict()"
@@ -277,6 +290,10 @@ class EnsembleMLP:
     def predict_proba(self, X):
         return np.mean([m.predict_proba(X) for m in self.members], axis=0)
 
+    @property
+    def n_features(self):
+        return self.members[0].n_features if self.members else None
+
     def to_dict(self):
         return {"kind": self.kind, "k": self.k,
                 "members": [m.to_dict() for m in self.members]}
@@ -296,6 +313,12 @@ def save_model(model, path: str, extra: dict | None = None):
     d = model.to_dict()
     if extra:
         d.update(extra)
+    # self-describing artifact: stamp the feature schema the model was
+    # trained under so the loader can reject a champion left behind by a
+    # schema bump (ML-013) instead of faulting it on every inference. The
+    # running code's schema IS the artifact's schema at save time.
+    from ml.contracts import SCHEMA_VERSION
+    d["feature_schema_version"] = SCHEMA_VERSION
     with open(path, "w", encoding="utf-8") as f:
         json.dump(d, f)
     log.info(f"model saved -> {path}")
@@ -386,6 +409,7 @@ class GradientBoostedStumps:
         self.trees: list = []
         self.base = 0.0
         self.importance_: dict = {}
+        self.n_features_ = None       # input width, stamped at fit
 
     # ---- split machinery ------------------------------------------------
     # Exact greedy scan, vectorized: each feature is argsorted ONCE per
@@ -463,6 +487,7 @@ class GradientBoostedStumps:
         rng = np.random.default_rng(self.seed)
         X = np.asarray(X, float)
         y = np.asarray(y, float)
+        self.n_features_ = int(X.shape[1])   # input width, before val split
         sw = np.ones(len(y)) if sample_weight is None else \
             np.asarray(sample_weight, float)
         sw = sw / (sw.mean() + EPS)
@@ -528,9 +553,14 @@ class GradientBoostedStumps:
             raw += self.lr * self._node_out(tree, X)
         return 1.0 / (1.0 + np.exp(-np.clip(raw, -30, 30)))
 
+    @property
+    def n_features(self):
+        return self.n_features_
+
     def to_dict(self):
         return {"kind": self.kind, "base": self.base, "lr": self.lr,
                 "max_depth": self.max_depth, "colsample": self.colsample,
+                "n_features": self.n_features_,
                 "trees": self.trees,
                 "importance": {str(k): v for k, v in self.importance_.items()}}
 
@@ -541,6 +571,8 @@ class GradientBoostedStumps:
         m.lr = float(d.get("lr", 0.05))
         m.max_depth = int(d.get("max_depth", 2))
         m.colsample = float(d.get("colsample", 1.0))
+        nf = d.get("n_features")
+        m.n_features_ = int(nf) if nf is not None else None
         m.trees = d["trees"]
         # tolerate a clobbered/foreign importance field (an artifact's extra
         # metadata once overwrote it with a list): importance is diagnostic
@@ -573,6 +605,11 @@ class BlendModel:
 
     def predict_proba(self, X):
         return 0.5 * (self.a.predict_proba(X) + self.b.predict_proba(X))
+
+    @property
+    def n_features(self):
+        # the logistic member always carries a standardizer -> reliable width
+        return self.a.n_features
 
     def to_dict(self):
         return {"kind": self.kind, "seed": self.seed,

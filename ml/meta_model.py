@@ -70,23 +70,56 @@ class MetaModelService:
                          "running on cold-start prior until a verified "
                          "model is deployed")
             return
-        self.model = load_model(self.model_path)
-        if self.model is None:
+        model = load_model(self.model_path)
+        if model is None:
             return
-        self.model_id = v.get("model_id", "")
         try:
             with open(p, encoding="utf-8") as f:
                 d = json.load(f)
-            self.calibrator = IsotonicCalibrator.from_dict(
-                d.get("calibration"))
-            self.feature_deciles = d.get("feature_deciles") or []
         except (OSError, ValueError):
-            pass
+            d = {}
+        # schema gate: a champion trained under a superseded feature schema
+        # (or of a mismatched input width) must be REJECTED here, not loaded
+        # and then faulted on every inference. Rejection drops the service to
+        # the cold-start prior, which the retrain gate reads as "no champion"
+        # and rebuilds against the current schema. (ML-013)
+        reason = self._schema_mismatch(model, d)
+        if reason:
+            log.critical("ML-013: rejecting stale meta-model — %s; running on "
+                         "cold-start prior until a current-schema model is "
+                         "trained", reason)
+            return
+        self.model = model
+        self.model_id = v.get("model_id", "")
+        self.calibrator = IsotonicCalibrator.from_dict(d.get("calibration"))
+        self.feature_deciles = d.get("feature_deciles") or []
         log.info("meta-model %s loaded from %s (%s, calibrated=%s, "
                  "provenance=%s)", self.model_id or "?", self.model_path,
                  self.model.kind, self.calibrator.fitted,
                  {True: "verified", None: "unregistered"}.get(v.get("ok"),
                                                               "FAILED"))
+
+    def _schema_mismatch(self, model, d: dict) -> str:
+        """Non-empty reason if `model` does not match the current feature
+        schema, else "". Two independent checks:
+          1. the artifact's stamped feature_schema_version vs the contract's
+             SCHEMA_VERSION — kind-agnostic, definitive when present;
+          2. the model's own input width vs the contract feature count —
+             catches legacy artifacts saved before the stamp existed (the
+             stale 43-feature champion that motivated this gate)."""
+        from ml.contracts import SCHEMA_VERSION
+        sv = d.get("feature_schema_version")
+        if sv is not None:
+            try:
+                if int(sv) != int(SCHEMA_VERSION):
+                    return f"feature-schema v{sv} != current v{SCHEMA_VERSION}"
+            except (TypeError, ValueError):
+                return f"unreadable feature-schema tag {sv!r}"
+        width = getattr(model, "n_features", None)
+        if width is not None and width != self.contract.n:
+            return (f"model width {width} != current schema "
+                    f"{self.contract.n} features")
+        return ""
 
     @property
     def trained(self) -> bool:

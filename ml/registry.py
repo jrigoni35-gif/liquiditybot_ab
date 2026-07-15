@@ -46,6 +46,17 @@ def sha256_array(arr) -> str:
     return hashlib.sha256(a.tobytes()).hexdigest()[:16]
 
 
+def _canonical(path) -> str:
+    """Windows is the runtime; an artifact path arrives with either
+    separator style (str(Path) yields backslashes on Windows, forward
+    slashes elsewhere). Canonicalize to forward slashes so register() and
+    verify() agree — and so the FILE READ resolves — regardless of the
+    caller's separator, matching the posix-keyed ledger. Backslash is a
+    path separator on the target OS and never appears in this project's
+    artifact filenames, so this is loss-free here."""
+    return str(path).replace("\\", "/")
+
+
 class ModelRegistry:
     def __init__(self, directory: str = "outputs/models"):
         self.dir = Path(directory)
@@ -70,6 +81,7 @@ class ModelRegistry:
         """Hash the artifact, archive an immutable copy, append the card.
         Returns model_id ('' on failure — registration failure never
         blocks trading; it blocks silence about trading)."""
+        artifact_path = _canonical(artifact_path)
         try:
             digest = sha256_file(artifact_path)
         except OSError:
@@ -103,6 +115,7 @@ class ModelRegistry:
         ledger entry for that path. Unregistered artifacts verify as
         ok=None (unknown provenance — loudly logged, not blocked, so a
         hand-trained model still loads; it just has no pedigree)."""
+        artifact_path = _canonical(artifact_path)
         try:
             actual = sha256_file(artifact_path)
         except OSError:
