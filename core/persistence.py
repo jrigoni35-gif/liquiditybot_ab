@@ -173,6 +173,11 @@ class StateStore:
                     "daily_realized_pnl": state.daily_realized_pnl,
                     "fees_paid_total": state.fees_paid_total,
                     "last_pnl_reset_date": state._last_pnl_reset_date,
+                    # peak MTM equity — persist so the drawdown backstop's
+                    # high-water survives a restart (else it re-seats lower and
+                    # understates true drawdown, delaying the catastrophe halt)
+                    "equity_high_water": getattr(state, "_equity_high_water",
+                                                 state.starting_capital),
                     "positions": [position_to_dict(p)
                                 for p in state.open_positions()],
                 },
@@ -339,6 +344,8 @@ class StateStore:
             state.daily_realized_pnl = float(p["daily_realized_pnl"])
             state.fees_paid_total = float(p.get("fees_paid_total", 0.0))
             state._last_pnl_reset_date = p.get("last_pnl_reset_date", "")
+            state._equity_high_water = float(p.get("equity_high_water",
+                                                   state.starting_capital))
             for pd in p.get("positions", []):
                 state.add_position(position_from_dict(pd))
         except (KeyError, TypeError, ValueError):

@@ -975,6 +975,7 @@ class LiquidityBot:
 
         self.state.maybe_reset_daily_pnl()
         equity = self._equity()
+        self.state.note_equity(equity)   # ratchet peak MTM equity for drawdown
 
         # tail-event sentry: staleness / divergence / pnl velocity
         kraken_mids = {}
@@ -988,7 +989,7 @@ class LiquidityBot:
             now, self.book_ts, list(self.symbol_map), kraken_mids, fvs,
             equity, self.state.open_position_count(), self.dry_run)
 
-        if self.capital.hard_stop_triggered(self.state):
+        if self.capital.hard_stop_triggered(self.state, equity):
             if not self._halted:
                 log.critical("HARD STOP drawdown breached - flattening, no new risk")
                 self._halted = True

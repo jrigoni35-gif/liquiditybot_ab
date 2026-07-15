@@ -73,6 +73,29 @@ def _corr():
                      betas={("ETH", "BTC"): 1.2, ("BTC", "ETH"): 0.6})
 
 
+# --- MTM drawdown: catastrophe hard-stop sees unrealized loss ---------------
+def test_hard_stop_and_dd_use_mark_to_market_drawdown():
+    import pytest
+    from risk.capital_manager import CapitalManager
+    st = PortfolioState(starting_capital=1000.0)
+    st.note_equity(1000.0)                        # peak = 1000
+    cm = CapitalManager({"hard_stop_drawdown_pct": 15})
+    # nothing realized, but the book is -20% on marks
+    assert st.drawdown_pct() == 0.0               # realized-only: blind
+    assert st.drawdown_mtm_pct(800.0) == pytest.approx(20.0)
+    assert cm.hard_stop_triggered(st, 800.0) is True   # MTM -> halt fires
+    assert cm.hard_stop_triggered(st) is False         # realized-only fallback: no halt
+
+
+def test_mtm_drawdown_is_peak_based():
+    import pytest
+    st = PortfolioState(starting_capital=1000.0)
+    st.note_equity(1200.0)                         # grew to 1200 (new peak)
+    st.note_equity(1100.0)                         # dipped; peak stays 1200
+    assert st.drawdown_mtm_pct(1080.0) == pytest.approx(10.0)   # (1200-1080)/1200
+    assert st.drawdown_mtm_pct(900.0) == pytest.approx(25.0)    # from the 1200 peak
+
+
 # --- drift PSI: degenerate (binary) deciles do not fabricate drift ----------
 def test_psi_binary_feature_no_false_drift():
     import numpy as np

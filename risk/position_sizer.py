@@ -264,7 +264,10 @@ class PositionSizer:
 
         # ---- drawdown throttle (SZ-050): decelerate toward the halt --------
         try:
-            dd = max(float(state.drawdown_pct()), 0.0)
+            # MARK-TO-MARKET, peak-based drawdown (equity here is the MTM
+            # sizing base): decelerate on real economic drawdown incl.
+            # unrealized loss, not only realized losses.
+            dd = max(float(state.drawdown_mtm_pct(equity)), 0.0)
         except Exception:
             dd = 0.0
         if self.hard_stop_dd_pct > EPS and dd > 0:

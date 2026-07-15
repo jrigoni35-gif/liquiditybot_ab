@@ -54,6 +54,10 @@ class PortfolioState:
     def __post_init__(self):
         self.cash_balance = self.starting_capital
         self._last_pnl_reset_date = datetime.now(timezone.utc).date().isoformat()
+        # peak mark-to-market equity, for a TRUE (unrealized-aware, peak-based)
+        # drawdown backstop — realized-only drawdown_pct is blind to a book that
+        # is deep underwater on marks but not yet closed.
+        self._equity_high_water = self.starting_capital
 
     # --- Position management -------------------------------------------------
     def add_position(self, position: Position):
@@ -132,3 +136,24 @@ class PortfolioState:
         if self.starting_capital == 0:
             return 0.0
         return (self.starting_capital - current) / self.starting_capital * 100
+
+    def note_equity(self, mtm_equity: float) -> None:
+        """Ratchet the peak mark-to-market equity (call once per cycle with the
+        MTM equity). The peak is the high-water for drawdown_mtm_pct."""
+        try:
+            self._equity_high_water = max(self._equity_high_water,
+                                          float(mtm_equity))
+        except (TypeError, ValueError):
+            pass
+
+    def drawdown_mtm_pct(self, mtm_equity: float) -> float:
+        """TRUE drawdown %: peak-to-current on MARK-TO-MARKET equity (includes
+        unrealized loss) — the basis the catastrophe hard-stop + sizer throttle
+        use so a book underwater on marks (stops unable to fill in a gap) trips
+        the halt. peak is the high-water, floored at starting capital."""
+        peak = max(self._equity_high_water, self.starting_capital, 1e-9)
+        try:
+            cur = float(mtm_equity)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, (peak - cur) / peak * 100.0)

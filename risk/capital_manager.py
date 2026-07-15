@@ -79,8 +79,13 @@ class CapitalManager:
         else:
             log.info(f"Realized loss {realized_pnl:.2f} recorded.")
 
-    def hard_stop_triggered(self, state) -> bool:
-        drawdown = state.drawdown_pct()
+    def hard_stop_triggered(self, state, mtm_equity=None) -> bool:
+        # MARK-TO-MARKET drawdown when the caller supplies live equity: the
+        # catastrophe backstop must see a book underwater on MARKS (stops unable
+        # to fill in a gap), not only realized losses. Falls back to realized-
+        # only for any caller without marks.
+        drawdown = (state.drawdown_mtm_pct(mtm_equity)
+                    if mtm_equity is not None else state.drawdown_pct())
         if drawdown >= self.hard_stop_drawdown_pct:
             log.warning(f"Hard stop drawdown triggered: {drawdown:.2f}% >= {self.hard_stop_drawdown_pct}%")
             return True
