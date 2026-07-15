@@ -21,6 +21,8 @@ Prefix map (subsystem of origin):
 
 from enum import Enum
 
+from core import code_stats
+
 
 class Code(str, Enum):
     # ---- risk firewall (FW) ------------------------------------------
@@ -141,5 +143,9 @@ class Code(str, Enum):
 
 
 def tag(code: Code, detail: str) -> str:
-    """Canonical 'CODE: detail' string used in reasons lists and audit."""
+    """Canonical 'CODE: detail' string used in reasons lists and audit. Also
+    bumps the process-global code tally (core.code_stats) so the FREQUENCY of
+    every emitted code is countable — the central ledger the codes never had.
+    The bump never raises, so telemetry cannot wedge a decision path."""
+    code_stats.bump(code.value)
     return f"{code.value}: {detail}"

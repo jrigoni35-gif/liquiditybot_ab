@@ -456,6 +456,11 @@ class LiquidityBot:
         # per process; if the challenger fails to deploy, normal new-row
         # throttling resumes (no retrain storm).
         self._retrain_attempted = False
+        # retrain is wrapped in a fail-safe except (below): if walk-forward /
+        # calibration / deploy throws EVERY cycle the bot silently keeps the
+        # stale champion forever ("the ML worked until it didn't"). Count the
+        # failures so a rising number is visible on the incidents dashboard.
+        self._retrain_failures = 0
         self.xscan = sentiment_scanner or SentimentScanner(
             config.get("sentiment", {}))
         self.narrative = NarrativeFilter(config.get("sentiment", {}).get("filter", {}))
@@ -1840,7 +1845,9 @@ class LiquidityBot:
             log.warning(f"auto-retrain DEPLOYED {results['selected']} "
                         f"(oof brier {challenger_brier:.4f})")
         except Exception:
-            log.exception("auto-retrain failed - keeping current model")
+            self._retrain_failures += 1
+            log.exception("auto-retrain failed - keeping current model "
+                          "(retrain_failures=%d)", self._retrain_failures)
 
     def cycle_once(self, now: Optional[float] = None):
         """Exactly one engine cycle. The engine owns NO loop - runner.py

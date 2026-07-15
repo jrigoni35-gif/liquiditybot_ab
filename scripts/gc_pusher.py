@@ -116,6 +116,59 @@ def collect(status_path: str) -> list:
         v = kws.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_ws_kraken_{k}", v, ts=ts))
+    # ---- fault & health signals (the incidents dashboard) --------------
+    # These were tracked internally but never exported; a degrading subsystem
+    # showed up only in a log line nobody was watching.
+    m.append(gauge("liquiditybot_halted",
+                   1.0 if s.get("halted") else 0.0, ts=ts))
+    m.append(gauge("liquiditybot_entries_enabled",
+                   1.0 if s.get("entries_enabled") else 0.0, ts=ts))
+    # ML governor kill-switch level: 0 ok / 1 degraded / 2 model killed
+    mon = s.get("monitor") or {}
+    if isinstance(mon.get("level"), (int, float)):
+        m.append(gauge("liquiditybot_monitor_level", mon["level"], ts=ts))
+    # ML fault counters (fallbacks/inference faults/contract breaches/SMC
+    # degrades/retrain failures) — rising = a subsystem quietly dying
+    for k in ("model_fallbacks", "infer_faults", "contract_failed",
+              "smc_faults", "retrain_failures"):
+        v = ml.get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+    m.append(gauge("liquiditybot_audit_dropped_writes",
+                   float(s.get("audit_dropped_writes") or 0), ts=ts))
+    # moomoo up/down (options + basket feed) — was dark
+    m.append(gauge("liquiditybot_moomoo_options_available",
+                   1.0 if mm.get("options_available") else 0.0, ts=ts))
+    m.append(gauge("liquiditybot_moomoo_available",
+                   1.0 if mm.get("available") else 0.0, ts=ts))
+    # watchdog trips — each blocks new entries
+    wd = s.get("watchdog") or {}
+    for k in ("entries_blocked", "critical_stale", "velocity_tripped"):
+        m.append(gauge(f"liquiditybot_watchdog_{k}",
+                       1.0 if wd.get(k) else 0.0, ts=ts))
+    m.append(gauge("liquiditybot_watchdog_divergent",
+                   float(len(wd.get("divergent") or [])), ts=ts))
+    m.append(gauge("liquiditybot_watchdog_stale_assets",
+                   float(len(wd.get("stale_assets") or [])), ts=ts))
+    # risk firewall: latched fault (1/0) + per-code reject/clamp tallies
+    fw = s.get("firewall") or {}
+    m.append(gauge("liquiditybot_firewall_fault",
+                   1.0 if fw.get("fault") else 0.0, ts=ts))
+    for code, cnt in (fw.get("counters") or {}).items():
+        if isinstance(cnt, (int, float)):
+            m.append(gauge("liquiditybot_firewall_count", cnt,
+                           {"code": str(code)}, ts))
+    # order manager: venue rejects (OM-021) + dead-man refresh failures (OM-050)
+    om = s.get("order_manager") or {}
+    for k in ("venue_rejects", "deadman_failures"):
+        v = om.get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
+    # central reason-code frequency ledger, aggregated by prefix (SZ/PT/RP/FW/…)
+    for prefix, cnt in ((s.get("code_stats") or {}).get("by_prefix") or {}).items():
+        if isinstance(cnt, (int, float)):
+            m.append(gauge("liquiditybot_code_count", cnt,
+                           {"prefix": str(prefix)}, ts))
     return m
 
 

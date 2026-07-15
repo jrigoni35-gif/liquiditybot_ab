@@ -27,6 +27,7 @@ import logging
 import time
 from pathlib import Path
 
+from core import code_stats
 from core.audit import get_audit
 from core.persistence import StateStore
 from core.precision import round_price
@@ -289,8 +290,23 @@ class BotRunner:
                    "infer_faults": bot.meta.infer_faults,
                    "contract_failed": bot.meta.contract.failed,
                    "smc_faults": getattr(bot.smc, "compute_faults", 0),
+                   # rising -> retrain silently failing every cycle, stale
+                   # champion kept forever (was invisible before)
+                   "retrain_failures": getattr(bot, "_retrain_failures", 0),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
+            # previously-dark fault ledgers — status() methods the runner never
+            # called. Firewall's latched fault + per-code reject tallies; the
+            # order manager's venue rejects (OM-021) and dead-man refresh
+            # failures (OM-050); and the central reason-code frequency ledger
+            # (every PT-/SZ-/RP-/FW-/… emission). Surfaced for the incidents
+            # dashboard so nothing keeps failing invisibly.
+            "firewall": bot.firewall.status()
+            if getattr(bot, "firewall", None) is not None else {},
+            "order_manager": bot.orders.status()
+            if getattr(bot, "orders", None) is not None else {},
+            "code_stats": {"by_prefix": code_stats.by_prefix(),
+                           "top": code_stats.top(15)},
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "ws": bot.ws_manager.health()
             if getattr(bot, "ws_manager", None) is not None else {},
