@@ -125,6 +125,17 @@ if [ -n "${GC_OTLP_TOKEN:-}" ]; then
   export GC_TOKEN_FILE="$TOKDIR/gc-token"
   log "OTLP token materialised from durable secret"
 fi
+# Fallback for a container PAUSE (not a full rebuild): the session-scratchpad
+# token path carries a per-session UUID the hook can't rediscover, but a token
+# persisted to the stable ~/.liquiditybot/gc-token survives a pause. Recover
+# from it when no durable GC_OTLP_TOKEN secret is configured, so a resume
+# self-heals the feed instead of leaving the dashboard dark (2026-07-15: a 6h
+# idle-pause left the pushers unrelaunched because the token env was gone).
+if [ -z "${GC_TOKEN_FILE:-}" ] \
+   && [ -s "${HOME:-/root}/.liquiditybot/gc-token" ]; then
+  export GC_TOKEN_FILE="${HOME:-/root}/.liquiditybot/gc-token"
+  log "OTLP token recovered from persisted ~/.liquiditybot/gc-token"
+fi
 if [ -n "${GC_TOKEN_FILE:-}" ] && [ -s "${GC_TOKEN_FILE:-/nonexistent}" ] \
    && [ -n "${GC_OTLP_URL:-}" ] && [ -n "${GC_INSTANCE_ID:-}" ]; then
   if ! pgrep -f "[g]c_pusher\.py" >/dev/null 2>&1; then
