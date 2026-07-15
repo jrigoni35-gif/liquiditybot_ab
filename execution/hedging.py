@@ -70,6 +70,13 @@ class HedgeEngine:
             return []
 
         net = self.net_delta_usd(state, marks)
+        # unwind decisions must read SIGNAL-only delta (exclude the hedge
+        # itself): a correctly-sized hedge is exactly what pulls TOTAL net into
+        # the band, so testing total net would unwind the hedge the moment it
+        # worked -> net back out of band -> re-open -> perpetual open/unwind
+        # thrash (whenever beta >= 1, the common ETH-hedged-with-BTC case). The
+        # OPEN check below deliberately keeps TOTAL net (we cap real exposure).
+        signal_net = self.net_delta_usd(state, marks, include_hedges=False)
         cap = equity * self.max_net_delta_pct / 100.0
         band = equity * self.rebalance_band_pct / 100.0
 
@@ -86,11 +93,11 @@ class HedgeEngine:
                                            usd=pos.size * (marks.get(pos.symbol) or pos.entry_price),
                                         position_id=pos.position_id,
                                         reason=f"correlation {corr:.2f} below floor"))
-            elif abs(net) <= band:
+            elif abs(signal_net) <= band:
                 actions.append(HedgeAction("unwind", a, pos.symbol, pos.direction,
                                            usd=pos.size * (marks.get(pos.symbol) or pos.entry_price),
                                         position_id=pos.position_id,
-                                        reason="net delta normalized"))
+                                        reason="signal delta normalized"))
         if actions:
             return actions
 

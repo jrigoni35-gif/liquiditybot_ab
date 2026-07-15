@@ -260,7 +260,7 @@ class RiskProtocolStack:
                         reasons.append(tag(
                             Code.RP_CVAR_CAP,
                             f"ES{self.cv_alpha * 100:.1f} hold "
-                            f"{es_bar * math.sqrt(self.cv_horizon) * 100:.2f}% "
+                            f"{es_bar * math.sqrt(max(self.cv_horizon, 1.0)) * 100:.2f}% "
                             f"caps frac at {f_max:.3f} -> x{m:.2f}"))
                 else:
                     reasons.append(tag(Code.RP_WARMUP,
@@ -279,7 +279,16 @@ class RiskProtocolStack:
                         f"{self.gap_shock_pct:.0f}% gap x frac <= "
                         f"{self.gap_max_loss_pct:.1f}% equity caps frac at "
                         f"{f_max:.3f} -> x{m:.2f}"))
+        except Exception as e:                       # SOFT caps only: an error
+            # here degrades the soft caps to neutral but must NOT skip the HARD
+            # vetoes below — the old single try returned 1.0 and bypassed the
+            # 0.0 budget/heat vetoes, sizing up a book that should be halted.
+            reasons.append(tag(Code.RP_WARMUP,
+                               f"protocol soft-cap error ({e!r}) — neutral"))
 
+        # HARD vetoes: budget/heat return 0.0 = NO new risk. An error computing
+        # them fails CLOSED (block new risk), never open.
+        try:
             if self.bd_enabled:
                 sd, sw = self.spent_fracs(equity)
                 s = max(sd, sw)
@@ -315,11 +324,13 @@ class RiskProtocolStack:
                                        f"{self.ht_max:.2f} headroom {head:.3f}"
                                        f" -> x{m:.2f}"))
 
-            return max(mult, self.stack_floor), reasons
-        except Exception as e:                       # fail neutral, loudly
-            reasons.append(tag(Code.RP_WARMUP,
-                               f"protocol stack error ({e!r}) — neutral"))
-            return 1.0, reasons
+        except Exception as e:                       # HARD vetoes fail CLOSED
+            reasons.append(tag(Code.RP_BUDGET_EXHAUSTED,
+                               f"protocol hard-veto error ({e!r}) — failing "
+                               f"closed (no new risk)"))
+            return 0.0, reasons
+
+        return max(mult, self.stack_floor), reasons
 
     # ---------------- persistence ----------------
     def to_dict(self) -> dict:
