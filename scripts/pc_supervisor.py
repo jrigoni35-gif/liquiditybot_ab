@@ -34,6 +34,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 CHECK_SEC = 30.0
 STALE_SEC = 120.0          # a heartbeat older than this = process is gone
+# test-gated self-update cadence: how often to check origin/main for new code.
+# Default daily; LB_NO_AUTO_UPDATE=1 disables it entirely (checked here AND in
+# auto_update.py, so either gate turns it fully off).
+try:
+    UPDATE_SEC = float(os.environ.get("LB_AUTO_UPDATE_SEC", "86400"))
+except ValueError:
+    UPDATE_SEC = 86400.0
+_UPDATE_STAMP = OUT / ".auto_update_stamp"
 IS_WIN = os.name == "nt"
 PY = sys.executable        # the venv's python (pythonw.exe when run hidden)
 
@@ -64,17 +72,39 @@ def _fresh(path: Path, key: str | None = None) -> bool:
         return False
 
 
-def _spawn(argv: list) -> None:
-    """Launch a detached, WINDOWLESS child that outlives this process."""
+def _spawn(argv: list, own_log: bool = True) -> None:
+    """Launch a detached, WINDOWLESS child that outlives this process. When
+    own_log is False the child keeps its own log file, so stdout goes to
+    DEVNULL (avoids double-writing every line)."""
     kwargs: dict = {"cwd": str(ROOT)}
     if IS_WIN:
         # DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         kwargs["creationflags"] = 0x00000008 | 0x08000000 | 0x00000200
     else:
         kwargs["start_new_session"] = True          # setsid-equivalent
-    logf = open(OUT / (Path(argv[1]).stem + ".log"), "a", encoding="utf-8")
-    subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT,  # nosec B603
+    out = (open(OUT / (Path(argv[1]).stem + ".log"), "a", encoding="utf-8")
+           if own_log else subprocess.DEVNULL)
+    subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,  # nosec B603
                      stdin=subprocess.DEVNULL, **kwargs)
+
+
+def _auto_update_due() -> bool:
+    """True when a test-gated self-update check is due (never run, or older than
+    UPDATE_SEC). Off entirely when LB_NO_AUTO_UPDATE is set."""
+    if os.environ.get("LB_NO_AUTO_UPDATE"):
+        return False
+    try:
+        return (time.time() - _UPDATE_STAMP.stat().st_mtime) >= UPDATE_SEC
+    except OSError:
+        return True          # no stamp yet -> due (check once on first boot)
+
+
+def _mark_update_checked() -> None:
+    try:
+        OUT.mkdir(exist_ok=True)
+        _UPDATE_STAMP.touch()
+    except OSError:
+        pass
 
 
 def _materialise_token() -> None:
@@ -116,6 +146,14 @@ def tick() -> None:
         if not _fresh(OUT / "gc_log_pusher.log"):
             log("log pusher stale/absent -> relaunching")
             _spawn([PY, "scripts/gc_log_pusher.py"])
+    # 3) test-gated self-update (opt-in cadence; disabled by LB_NO_AUTO_UPDATE).
+    # auto_update.py tests origin/main in an isolated worktree and only fast-
+    # forwards if the battery is green, then signals a stop so we relaunch on the
+    # new code. Detached: a 20-min battery must never block liveness checks.
+    if _auto_update_due():
+        log("auto-update check due -> spawning test-gated updater")
+        _mark_update_checked()
+        _spawn([PY, "scripts/auto_update.py"], own_log=False)
 
 
 def main() -> None:
