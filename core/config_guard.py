@@ -718,6 +718,31 @@ def validate(config: dict) -> list:
         fatal(f"hedging.max_equity_frac={h_eq_frac} must be in (0, 1] - "
               f"a single hedge larger than equity is leverage in disguise")
 
+    # --- exploration coherence: a DRY-RUN learning entry bumps p_win to
+    # exploration.p_win for SIZING; if that sits at/below the net-Kelly
+    # breakeven the sizer SZ-030-vetoes EVERY exploration entry and the
+    # learning lane goes silent. Observed 2026-07-15: the cost-honest
+    # rt_cost (maker+taker) raised the breakeven to ~0.632 while p_win stayed
+    # 0.62 -> zero exploration trades, flat equity, model starved of labels.
+    if bool(_f(config, "ml.exploration.enabled", False)):
+        ep = float(_f(config, "ml.exploration.p_win", 0.62))
+        try:
+            from risk.position_sizer import payoff_ratio_from_config
+            pt = config.get("pretrade", {}) or {}
+            rt = (float(pt.get("maker_fee_bps", 25.0))
+                  + float(pt.get("taker_fee_bps", 40.0))) / 100.0
+            b_net = payoff_ratio_from_config(
+                config.get("profit_taking", {}) or {},
+                config.get("risk", {}) or {}, rt_cost_pct=rt)
+            breakeven = 1.0 / (1.0 + b_net)
+        except Exception:
+            breakeven = None
+        if breakeven is not None and ep <= breakeven:
+            fatal(f"ml.exploration.p_win={ep:.3f} is at/below the net-Kelly "
+                  f"breakeven {breakeven:.3f} (maker+taker round-trip cost) - "
+                  f"every exploration entry SZ-030-vetoes and the DRY-RUN "
+                  f"learning lane goes silent. Raise p_win above the breakeven.")
+
     return findings
 
 

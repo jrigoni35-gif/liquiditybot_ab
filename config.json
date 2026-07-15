@@ -355,11 +355,11 @@
       "_doc": "DRY-RUN active learning: take a fraction of confirmed signals as small paper trades so real-fill labels accrue and the cold model can improve. Hard-gated on dry_run; auto-off once until_live_rows history rows exist. SCALE NOTE: on ledgers under ~$5k set size_scale=1.0 - a 0.25 slice of a small kelly ticket falls below min_ticket_usd and every exploration entry gets vetoed (observed at $25k/scale-0.25).",
       "enabled": true,
       "epsilon": 0.5,
-      "until_live_rows": 240,
+      "until_live_rows": 500,
       "unteachable_unwind": true,
       "unteachable_min_age_h": 1.0,
       "_unwind_doc": "learning-phase anti-wedge: when the book is at max_concurrent_positions and NO open position carries a pending label vector (schema gates dropped them), the row pipeline is starved - unwind the oldest such position (one per slow cycle, dry-run only, min age gate) so slots go back to trades that teach. ML-071.",
-      "p_win": 0.62,
+      "p_win": 0.64,
       "size_scale": 1.0,
       "max_asset_share": 0.5,
       "share_min_rows": 10
