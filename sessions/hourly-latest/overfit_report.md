@@ -1,6 +1,6 @@
-# Overfit audit — 2026-07-15 01:39 UTC
+# Overfit audit — 2026-07-15 03:34 UTC
 
-Dataset: SYNTHETIC benchmark (live rows=143 < 580) — validating machinery, not market
+Dataset: SYNTHETIC benchmark (live rows=146 < 580) — validating machinery, not market
 
 - **PASS** gap[logistic]: OOF gap within memorization band — train_auc=0.646 oof_auc=0.616 gap=+0.030
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.689 oof_auc=0.616 gap=+0.073
@@ -18,4 +18,4 @@ Dataset: SYNTHETIC benchmark (live rows=143 < 580) — validating machinery, not
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — DEFERRED — 19 live labeled trades < 30; rerun after live history accrues
 
-7 passed, 0 failed (20s)
+7 passed, 0 failed (24s)
