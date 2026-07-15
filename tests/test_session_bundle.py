@@ -136,6 +136,12 @@ def test_model_travels_copy_if_absent(tmp_path):
     assert si.run(str(dst), str(home), apply=True) == 0
     assert (home / "meta_model.json").read_text(encoding="utf-8") == \
         '{"kind": "gbt", "v": 1}'
+    # the adopted brain must be REGISTERED in the destination ledger, or the
+    # runner's integrity gate (ML-011) refuses it as tampered — the exact
+    # cross-machine papercut this hand-off exists to avoid.
+    from ml.registry import ModelRegistry
+    v = ModelRegistry(str(home / "models")).verify(str(home / "meta_model.json"))
+    assert v["ok"] is True
 
 
 def test_model_never_overwrites_local(tmp_path):

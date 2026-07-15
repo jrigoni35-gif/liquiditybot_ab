@@ -154,7 +154,22 @@ def run(src: str, outputs: str, apply: bool) -> int:
     if model_src.exists() and not model_dst.exists():
         model_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(model_src, model_dst)
-        print("  meta_model.json adopted (none present locally)")
+        # register the adopted brain in THIS machine's ledger so its
+        # integrity gate (ML-011) accepts it. A foreign artifact has no
+        # local pedigree, and any stale ledger entry for the path would fail
+        # the hash match — refusing the model until a retrain, exactly the
+        # cross-machine papercut this hand-off exists to avoid. Registration
+        # files the adopted hash as the expected one. Never blocks the copy.
+        try:
+            from ml.registry import ModelRegistry
+            mid = ModelRegistry(str(out / "models")).register(
+                str(model_dst),
+                {"source": f"bundle:{manifest.get('label')}",
+                 "bundle_created": manifest.get("created_at_utc"),
+                 "adopted": True})
+            print(f"  meta_model.json adopted + registered locally ({mid})")
+        except Exception as e:                       # noqa: BLE001 - never block
+            print(f"  meta_model.json adopted (local registration skipped: {e})")
     dest_hist = out / "signal_history.csv"
     if new_lines:
         if dest_hist.exists():
