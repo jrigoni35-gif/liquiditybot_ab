@@ -324,7 +324,6 @@ def save_model(model, path: str, extra: dict | None = None):
     log.info(f"model saved -> {path}")
     try:
         from ml.registry import get_registry
-        from ml.contracts import SCHEMA_VERSION
         x = extra or {}
         card = {"kind": d.get("kind"),
                 "oof_brier": x.get("oof_brier"),

@@ -23,11 +23,16 @@ import logging
 
 import numpy as np
 
-from ml.features import FEATURE_NAMES
+from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
 
 log = logging.getLogger("liquiditybot.ml.contracts")
 
-SCHEMA_VERSION = 6
+# single source of truth: the feature-schema version is OWNED by ml.features
+# (which owns FEATURE_NAMES). The contract, the model-artifact stamp
+# (ml.models.save_model), the loader guard (ml.meta_model), and the
+# snapshot/history versioning (core.persistence, ml.history) all reference
+# this one number, so a schema bump cannot leave any of them disagreeing.
+SCHEMA_VERSION = FEATURE_SCHEMA_VERSION
 
 # name -> (lo, hi) inclusive legal range; tolerance added at check time
 _RANGES = {
