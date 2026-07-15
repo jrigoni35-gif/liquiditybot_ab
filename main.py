@@ -1836,7 +1836,13 @@ class LiquidityBot:
                     extra={"calibration": cal.to_dict(),
                             "oof_brier": challenger_brier,
                             "feature_deciles": feature_deciles(X),
-                            "importance": results.get("importance", []),
+                            # walk-forward importance under its OWN key:
+                            # "importance" would overwrite the gbt model's
+                            # internal {idx: gain} dict in save_model's
+                            # d.update(extra), so an auto-deployed gbt lost its
+                            # gain importance while a CLI-deployed one kept it.
+                            # Match scripts/train_meta.py's key.
+                            "wf_importance": results.get("importance", []),
                             "rows": int(len(X)),
                             "class_balance": round(float(y.mean()), 3),
                             "train_data_sha": sha256_array(X)})

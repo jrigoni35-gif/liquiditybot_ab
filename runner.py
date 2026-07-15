@@ -372,8 +372,18 @@ class BotRunner:
                         self._stop = True
                         break
                 try:
+                    # per-command isolation: consume() has already unlinked
+                    # every cmd file, so a raise in one command would drop the
+                    # REST of the batch — including a queued `stop` behind a
+                    # failing `flatten_all`. Each command stands alone.
                     for c in self.control.consume():
-                        self.handle_command(c)
+                        try:
+                            self.handle_command(c)
+                        except Exception:
+                            log.exception("control command %r failed - "
+                                          "continuing with the rest",
+                                          (c or {}).get("cmd", c)
+                                          if isinstance(c, dict) else c)
                     if self._stop:
                         break
                     if self.state == "RUNNING" or self._step_requested:
