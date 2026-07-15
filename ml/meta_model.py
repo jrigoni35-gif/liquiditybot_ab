@@ -101,12 +101,22 @@ class MetaModelService:
 
     def _schema_mismatch(self, model, d: dict) -> str:
         """Non-empty reason if `model` does not match the current feature
-        schema, else "". Two independent checks:
+        schema, else "". Three independent checks, in order of definitiveness:
           1. the artifact's stamped feature_schema_version vs the contract's
              SCHEMA_VERSION — kind-agnostic, definitive when present;
           2. the model's own input width vs the contract feature count —
              catches legacy artifacts saved before the stamp existed (the
-             stale 43-feature champion that motivated this gate)."""
+             stale 43-feature champion that motivated this gate);
+          3. FUNCTIONAL probe when BOTH the stamp and the reported width are
+             absent (a bare, unstamped model, e.g. the current gbt champion):
+             feed the model a contract-width vector. A wider/mismatched legacy
+             artifact indexes past it or shape-mismatches and raises -> reject;
+             a correct bare model returns a value -> accept. Closes the hole
+             where n_features=None skipped check 2 and an unstamped artifact of
+             the WRONG width was adopted silently. (A narrower unstamped gbt
+             that merely ignores extra columns can still slip this probe, but
+             every model saved since stamping carries checks 1+2; the governor's
+             Brier monitor is the backstop for that shrinking legacy case.)"""
         from ml.contracts import SCHEMA_VERSION
         sv = d.get("feature_schema_version")
         if sv is not None:
@@ -119,6 +129,12 @@ class MetaModelService:
         if width is not None and width != self.contract.n:
             return (f"model width {width} != current schema "
                     f"{self.contract.n} features")
+        if sv is None and width is None:
+            try:
+                model.predict_proba(np.zeros((1, self.contract.n), dtype=float))
+            except Exception as e:                       # noqa: BLE001
+                return (f"unstamped unknown-width model failed a "
+                        f"{self.contract.n}-feature probe ({type(e).__name__})")
         return ""
 
     @property
