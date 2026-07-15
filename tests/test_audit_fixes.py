@@ -73,6 +73,28 @@ def _corr():
                      betas={("ETH", "BTC"): 1.2, ("BTC", "ETH"): 0.6})
 
 
+# --- drift PSI: degenerate (binary) deciles do not fabricate drift ----------
+def test_psi_binary_feature_no_false_drift():
+    import numpy as np
+    from ml.calibration import feature_deciles, psi
+    rng = np.random.default_rng(0)
+    train = (rng.random((500, 1)) < 0.28).astype(float)   # 28% ones
+    live = (rng.random(500) < 0.28).astype(float)          # SAME distribution
+    edges = feature_deciles(train)[0]
+    assert psi(edges, live) == 0.0, \
+        "a binary feature with an identical distribution must not read as drift"
+
+
+def test_psi_continuous_feature_still_detects_real_shift():
+    import numpy as np
+    from ml.calibration import feature_deciles, psi
+    rng = np.random.default_rng(1)
+    train = rng.normal(0, 1, (600, 1))
+    edges = feature_deciles(train)[0]
+    assert psi(edges, rng.normal(0, 1, 600)) < 0.1     # same dist -> stable
+    assert psi(edges, rng.normal(3, 1, 600)) > 0.25    # real shift -> flagged
+
+
 def test_working_hedge_not_unwound_while_signal_delta_out_of_band():
     state = PortfolioState(starting_capital=10_000)
     state.add_position(_pos("eth1", "ETH/USD", "long", 2000.0, 1.0))     # signal +$2000

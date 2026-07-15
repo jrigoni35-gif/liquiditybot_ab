@@ -135,6 +135,18 @@ def psi(train_edges: list, recent_col) -> float:
     # np.array (not asarray) so overwriting the outer edges below never mutates
     # a caller's stored decile array in place (silent drift-baseline corruption)
     edges = np.array(train_edges, float)
+    # DEGENERATE deciles: a binary / one-hot / sparse feature collapses its
+    # decile edges to repeated values (weekend -> [0,...,0,1,1]). np.histogram
+    # on duplicate edges buckets almost all mass into one bin vs the flat 0.1
+    # expectation and reports an ENORMOUS PSI even for an IDENTICAL live
+    # distribution — this pinned drift_share permanently >= 0.30 across the ~18
+    # binary/flag features (one-hot regimes, th_*, pat_*, SMC flags), firing
+    # spurious retrains and burying real drift on continuous features. Deciles-
+    # PSI is only meaningful when the edges are strictly increasing; for a
+    # degenerate (tied) feature report 0 (no false drift) rather than a
+    # fabricated shift.
+    if np.unique(edges).size < edges.size:
+        return 0.0
     edges[0], edges[-1] = -np.inf, np.inf
     expected = np.full(10, 0.1)
     counts, _ = np.histogram(x, bins=edges)
