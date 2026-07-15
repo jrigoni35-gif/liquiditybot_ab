@@ -48,8 +48,8 @@ runner's single-instance lock refuses a duplicate).
 ### Use it
 ```
 schtasks /Run  /TN LiquidityBot     REM start now, without re-logging-in
-type outputs\pc_supervisor.log      REM watch the supervisor
-type outputs\runner_stdout.log      REM watch the bot
+type outputs\pc_supervisor.log      REM watch the supervisor (relaunch decisions)
+type outputs\runner.log             REM watch the bot (supervisor writes THIS file)
 scripts\uninstall_autostart.bat     REM remove the autostart task
 ```
 From now on the bot starts hidden at every logon and stays up. To run the local
