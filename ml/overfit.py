@@ -49,7 +49,7 @@ log = logging.getLogger("liquiditybot.ml.overfit")
 # 1) train-vs-OOF gap
 # ---------------------------------------------------------------------------
 def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
-                   seed: int = 7, sample_weight=None) -> dict:
+                   seed: int = 7, sample_weight=None, sig=None) -> dict:
     """Per candidate: mean train AUC/Brier vs mean OOF AUC/Brier over the
     purged folds, plus the gaps. Interpretation guide (empirical, this
     data scale): gap_auc < 0.05 healthy, 0.05-0.12 watch, > 0.12 the
@@ -65,7 +65,8 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
     out = {}
     for name, factory in candidates.items():
         tr_a, te_a, tr_b, te_b, folds = [], [], [], [], 0
-        for tr, te in purged_walk_forward(len(X), n_splits, label_span):
+        for tr, te in purged_walk_forward(len(X), n_splits, label_span,
+                                          sig=sig):
             if y[tr].sum() < 5 or (len(y[tr]) - y[tr].sum()) < 5:
                 continue
             m = factory().fit(X[tr], y[tr],
@@ -106,7 +107,7 @@ def _auc_null_se(y: np.ndarray) -> float:
 
 def shuffled_label_check(X, y, label_span: int = 96, n_splits: int = 5,
                          repeats: int = 3, seed: int = 7,
-                         z_limit: float = 3.0) -> dict:
+                         z_limit: float = 3.0, sig=None) -> dict:
     """Destroy the labels; the pipeline must learn NOTHING out-of-fold.
     Uses the most flexible candidate (gbt) — if anything can exploit a
     leak, it's the model with the most capacity. Pass criterion: mean
@@ -119,7 +120,8 @@ def shuffled_label_check(X, y, label_span: int = 96, n_splits: int = 5,
         ys = y.copy()
         rng.shuffle(ys)
         fold_aucs = []
-        for tr, te in purged_walk_forward(len(X), n_splits, label_span):
+        for tr, te in purged_walk_forward(len(X), n_splits, label_span,
+                                          sig=sig):
             if ys[tr].sum() < 5 or (len(ys[tr]) - ys[tr].sum()) < 5:
                 continue
             m = GradientBoostedStumps(seed=seed + r).fit(X[tr], ys[tr])
@@ -187,7 +189,7 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
 
 
 def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
-                    seed: int = 7, n_blocks: int = 8) -> dict:
+                    seed: int = 7, n_blocks: int = 8, sig=None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
@@ -209,7 +211,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                                                      seed=seed),
         "mlp_small": lambda: NumpyMLP(hidden=(16, 8), seed=seed),
     }
-    folds = [f for f in purged_walk_forward(len(X), n_splits, label_span)
+    folds = [f for f in purged_walk_forward(len(X), n_splits, label_span,
+                                            sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
     if not folds:
         return {"pbo": None, "reason": "no viable folds"}
@@ -361,7 +364,7 @@ def purge_leakage_probe(n: int = 900, label_span: int = 48, n_splits: int = 5,
 # 6) feature degrees-of-freedom
 # ---------------------------------------------------------------------------
 def feature_dof_report(X, y, feature_names, label_span: int = 96,
-                       n_splits: int = 5, seed: int = 7,
+                       n_splits: int = 5, seed: int = 7, sig=None,
                        rows_per_feature_floor: float = 10.0,
                        dead_importance_eps: float = 0.002) -> dict:
     """Effective degrees of freedom of the fit: rows per feature, and the

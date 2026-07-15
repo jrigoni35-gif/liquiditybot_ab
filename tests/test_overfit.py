@@ -51,8 +51,9 @@ def test_shuffle_null_catches_split_contamination(monkeypatch):
     break the splitter deliberately and the probe must fire."""
     import ml.overfit as of
 
-    def leaky_splitter(n, n_splits, label_span):
+    def leaky_splitter(n, n_splits, label_span, sig=None):
         # every "test" row is also in "train" — the purge bug incarnate
+        # (sig accepted for interface parity with the time-purge signature)
         idx = np.arange(n)
         block = n // (n_splits + 1)
         for k in range(1, n_splits + 1):

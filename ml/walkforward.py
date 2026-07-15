@@ -44,13 +44,33 @@ log = logging.getLogger("liquiditybot.ml.walkforward")
 # gated, never assumed.
 _LADDER = ("logistic", "gbt", "blend", "mlp")
 BRIER_MARGIN = 0.002
+# canonical bar interval for the triple-barrier horizon (5-minute candles);
+# time-based purge converts label_span (bars) -> seconds with this.
+BAR_SECONDS = 300.0
 
 
 def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
-                        embargo_frac: float = 0.02):
-    """Yields (train_idx, test_idx) with purge + embargo, expanding window."""
+                        embargo_frac: float = 0.02, sig=None):
+    """Yields (train_idx, test_idx) with purge + embargo, expanding window.
+
+    Purge mode:
+      - row-count (sig=None, default): drop the last `label_span` training
+        ROWS before each test block. Correct ONLY if rows are evenly spaced
+        in time.
+      - time-based (sig given): drop every training row whose label window
+        (sig[i] + label_span * BAR_SECONDS) reaches into the test block's
+        first signal. Signals arrive in BURSTS, so a fixed row count spans a
+        variable amount of TIME - a dense burst right before the boundary
+        leaks future labels that the row-count purge silently keeps (OF-6
+        leakage). `sig` is the per-row signal timestamp (seconds), sorted
+        ascending as load_training_data returns it; `n` must equal len(sig).
+    """
     if n < (n_splits + 1) * 30:
         n_splits = max(2, n // 60)
+    use_time = sig is not None and len(sig) == n
+    if use_time:
+        sig = np.asarray(sig, float)
+        horizon_sec = float(label_span) * BAR_SECONDS
     # NOTE: with an expanding window (train strictly precedes test) the
     # post-test embargo is a no-op — it only matters for combinatorial CV
     # where training data can follow the test block. embargo_frac is kept
@@ -59,7 +79,13 @@ def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
     for k in range(1, n_splits + 1):
         test_start = k * fold
         test_end = min(test_start + fold, n)
-        train_end = max(test_start - label_span, 0)          # purge
+        if use_time:
+            # keep only rows whose label fully resolves at/before the test
+            # opens: sig[i] + horizon <= sig[test_start]
+            cutoff = sig[test_start] - horizon_sec
+            train_end = int(np.searchsorted(sig, cutoff, side="right"))
+        else:
+            train_end = max(test_start - label_span, 0)      # row-count purge
         train_idx = np.arange(0, train_end)
         test_idx = np.arange(test_start, test_end)
         if len(train_idx) >= 30 and len(test_idx) >= 10:
@@ -94,9 +120,11 @@ def _factories(seed: int, ensemble_k: int) -> dict:
 def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                         n_splits: int = 5, seed: int = 7,
                         sample_weight=None, feature_names=None,
-                        ensemble_k: int = 3) -> dict:
+                        ensemble_k: int = 3, sig=None) -> dict:
     """Walk-forward all candidates; ship the Brier winner (simplicity-
-    biased), fitted on all data."""
+    biased), fitted on all data. When `sig` (per-row signal timestamps) is
+    given the fold purge is TIME-based, not row-count - the deployed model
+    is selected on genuinely leak-free OOF."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
@@ -107,7 +135,8 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     for name in _LADDER:
         factory = factories[name]
         aucs, briers, oof_p, oof_y = [], [], [], []
-        for tr, te in purged_walk_forward(len(X), n_splits, label_span):
+        for tr, te in purged_walk_forward(len(X), n_splits, label_span,
+                                          sig=sig):
             if y[tr].sum() < 5 or (len(y[tr]) - y[tr].sum()) < 5:
                 continue
             model = factory().fit(

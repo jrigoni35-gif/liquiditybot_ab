@@ -137,8 +137,10 @@ class HistoryStore:
 
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4,
-                        manip_discount: float = 0.5):
-        """Returns X, y, w. Sample weights encode three honest priors:
+                        manip_discount: float = 0.5, return_sig: bool = False):
+        """Returns X, y, w (and the sorted signal-time array `sig` when
+        return_sig=True, for the TIME-based walk-forward purge). Sample
+        weights encode three honest priors:
         recent rows matter more (markets are non-stationary; exponential
         recency decay with a config half-life), live-fill rows carry
         real execution costs while candidate rows are barrier
@@ -216,9 +218,12 @@ class HistoryStore:
                      "label; %d rows remain)", dropped_clash, len(X))
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
+        sig = np.array(sig, float)
         if len(sig):
-            order = np.argsort(np.array(sig), kind="mergesort")
-            X, y, w = X[order], y[order], w[order]
+            order = np.argsort(sig, kind="mergesort")
+            X, y, w, sig = X[order], y[order], w[order], sig[order]
+        if return_sig:
+            return X, y, w, sig
         return X, y, w
 
 

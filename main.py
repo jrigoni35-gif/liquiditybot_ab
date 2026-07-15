@@ -1675,18 +1675,21 @@ class LiquidityBot:
             from ml.calibration import (IsotonicCalibrator, brier_score,
                                         feature_deciles)
             sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
-            X, y, w = self.history.load_training_data(
+            X, y, w, sig = self.history.load_training_data(
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
                 candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-                manip_discount=float(sw_cfg.get("manip_discount", 0.5)))
+                manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
+                return_sig=True)
             if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
                 return
             log.warning(f"auto-retrain: {len(X)} rows "
                         f"({rows - self._rows_at_last_train} new)")
+            # sig -> TIME-based fold purge: the deployed champion is selected
+            # on leak-free OOF (row-count purge under-purges bursty signals)
             results = evaluate_and_select(
                 X, y, sample_weight=w, feature_names=FEATURE_NAMES,
                 ensemble_k=int(self.config.get('ml', {})
-                            .get('ensemble_seeds', 3)))
+                            .get('ensemble_seeds', 3)), sig=sig)
             sel = results[results["selected"]]
             cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
             if not cal.fitted:

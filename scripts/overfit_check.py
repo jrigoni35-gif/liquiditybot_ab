@@ -120,13 +120,16 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
     if min_rows is None:
         min_rows = len(FEATURE_NAMES) * 10
     store = HistoryStore()
-    X, y, w = store.load_training_data()
+    X, y, w, sig = store.load_training_data(return_sig=True)
     if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
-        return X, y, w, f"live history ({len(X)} rows)"
+        # live rows: hand the signal-time array down so the OF folds purge
+        # by TIME, exactly like the deployed selector (evaluate_and_select)
+        return X, y, w, sig, f"live history ({len(X)} rows)"
     Xs, ys = synthetic_benchmark()
     reason = "forced" if force_synthetic else f"live rows={len(X)} < {min_rows}"
-    return Xs, ys, None, (f"SYNTHETIC benchmark ({reason}) — validating "
-                          f"machinery, not market")
+    # synthetic benchmark is uniformly spaced -> row-count purge is exact
+    return Xs, ys, None, None, (f"SYNTHETIC benchmark ({reason}) — validating "
+                                f"machinery, not market")
 
 
 # ---------------------------------------------------------------------------
@@ -263,10 +266,10 @@ def main() -> int:
     print("liquiditybot overfit audit\n" + "=" * 42)
 
     # ---- ML layer -----------------------------------------------------
-    X, y, w, source = load_dataset(force_synthetic=args.force_synthetic)
+    X, y, w, sig, source = load_dataset(force_synthetic=args.force_synthetic)
     print(f"[OF-1] train/OOF gap  ({source})")
     gaps = train_test_gap(X, y, sample_weight=w,
-                          n_splits=3 if args.quick else 5)
+                          n_splits=3 if args.quick else 5, sig=sig)
     for name, g in gaps.items():
         if not g.get("folds"):
             info(f"gap[{name}]", "no viable folds")
@@ -277,14 +280,14 @@ def main() -> int:
               f"gap={g['gap_auc']:+.3f}")
 
     print("[OF-2] shuffled-label leakage null")
-    sh = shuffled_label_check(X, y, repeats=2 if args.quick else 3)
+    sh = shuffled_label_check(X, y, repeats=2 if args.quick else 3, sig=sig)
     check("shuffle: destroyed labels learn nothing OOF", sh.get("ok", False),
           f"mean_auc={sh.get('mean_auc', 0):.3f} z={sh.get('z', 99):.1f} "
           f"(limit {sh.get('z_limit')})")
 
     print("[OF-3] model-space PBO (CSCV)")
     pb = model_space_pbo(X, y, n_splits=3 if args.quick else 5,
-                         n_blocks=6 if args.quick else 8)
+                         n_blocks=6 if args.quick else 8, sig=sig)
     if pb.get("pbo") is None:
         info("pbo", pb.get("reason", "n/a"))
     else:
@@ -313,7 +316,7 @@ def main() -> int:
     print("[OF-7] feature degrees-of-freedom")
     from ml.features import FEATURE_NAMES
     dof = feature_dof_report(X, y, FEATURE_NAMES,
-                             label_span=32 if args.quick else 96)
+                             label_span=32 if args.quick else 96, sig=sig)
     check("dof: not starved (>=10 rows per feature)", not dof["starved"],
           f"rows/feature={dof['rows_per_feature']:.1f} "
           f"({dof['n_rows']} rows / {dof['n_features']} features)")
