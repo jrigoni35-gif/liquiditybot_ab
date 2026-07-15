@@ -18,9 +18,12 @@ Configuration is environment-only, no secrets in the repo or argv:
   LB_STATUS        status.json path (default: outputs/status.json)
   GC_PERIOD_SEC    push interval seconds (default: 30)
 
-Grafana Cloud's OTLP translator appends a `_ratio` suffix to unit-"1"
-gauges, so `liquiditybot_equity` is stored as `liquiditybot_equity_ratio`;
-docs/grafana/liquiditybot_dashboard.json queries the stored names.
+Grafana Cloud's OTLP translator appends a `_ratio` suffix ONLY to gauges
+whose unit is "1"; gauge() below deliberately emits an EMPTY unit so the
+stored name equals the exported name (no suffix). `liquiditybot_equity`
+is therefore stored as `liquiditybot_equity` — the base name that
+docs/grafana/liquiditybot_dashboard.json queries. (Do not set a unit here
+without also renaming the dashboard's queried metrics in the same change.)
 """
 import base64
 import json
