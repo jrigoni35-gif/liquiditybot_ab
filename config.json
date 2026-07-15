@@ -488,8 +488,8 @@
     "recording_dir": "outputs/recordings"
   },
   "websockets": {
-    "description": "Push-based Binance.US depth stream (data/ws_feed.py). Fresh cached book feeds the engine when live; REST is the always-on fallback whenever the socket is stale/down. Read-only data only (Binance.US is a data venue; Kraken execution marks stay on REST by design). Requires the 'websockets' package.",
-    "enabled": true,
+    "description": "Push-based Binance.US depth stream (data/ws_feed.py), read-only cross-venue depth for BTC/ETH. OFF by default: Binance.US's ws is geo/proxy-blocked from the Anthropic cloud container (Connection reset by peer, endless reconnects, shows 'disconnected'), and the Kraken v2 ws below already delivers the real-time execution-venue books. Enable this ONLY when running on the always-on PC, where Binance.US ws connects and adds sub-second cross-venue depth; REST is the always-on fallback regardless.",
+    "enabled": false,
     "binanceus_symbols": [
       "BTCUSD",
       "ETHUSD"
