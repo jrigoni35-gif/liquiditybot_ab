@@ -94,6 +94,18 @@ class _AssetState:
         self.streak = 0
 
 
+def _short_gate(k: str) -> str:
+    """Human-readable gate name for the per-asset scan line: strip the
+    'if_N_' / 'v3_' family prefix ('if_1_flow_persistence' -> 'flow_persistence',
+    'v3_evidence' -> 'evidence')."""
+    p = k.split("_")
+    if len(p) > 2 and p[0] == "if" and p[1].isdigit():
+        return "_".join(p[2:])
+    if p and p[0] and p[0][0] == "v" and p[0][1:].isdigit():
+        return "_".join(p[1:])
+    return k
+
+
 class InformedFlowEngine:
     def __init__(self, config: dict):
         cfg = config or {}
@@ -134,6 +146,14 @@ class InformedFlowEngine:
         self._k_imb_s = 2.0 / (self.persistence_evals * 4 + 1.0)
         self._log_thresh = math.log(self.min_imbalance_ratio)
         self._st: dict = {}     # asset -> _AssetState
+        # OBSERVABILITY ONLY (default off): when on, emit a uniform
+        # "IF3 scan" line for EVERY asset every cycle — confirmed, unconfirmed,
+        # or data-short alike — so the operator sees each asset's evidence,
+        # agreement and failing gates, not just the ones that confirm. It has
+        # ZERO influence on the decision path (asserted in tests): the same
+        # global thresholds are applied to every asset, and this flag only
+        # controls whether that per-asset evaluation is logged.
+        self.debug_all_signals = bool(cfg.get("debug_all_signals", False))
 
     # ------------------------------------------------------------------
     def _state(self, asset: str) -> _AssetState:
@@ -294,6 +314,10 @@ class InformedFlowEngine:
         # ---- V3 data sufficiency ------------------------------------
         min_bars = max(self.slow_period + 2, self.ad_lookback_bars + 1, 14)
         if len(candles) < min_bars:
+            if self.debug_all_signals:
+                log.info("IF3 scan %-4s: WARMUP insufficient data "
+                         "(bars=%d < %d) — not yet evaluated",
+                         asset, len(candles), min_bars)
             return SignalResult(symbol=symbol, direction=None,
                                 confidence=0.0, size=0.0,
                                 all_confirmed=False,
@@ -357,6 +381,20 @@ class InformedFlowEngine:
 
         confidence = 1.0 if all_confirmed else \
             round(min(strength / self.evidence_threshold, 0.99), 3)
+
+        if self.debug_all_signals:
+            # uniform per-asset telemetry: SAME fields for every asset so no
+            # name is privileged. Confirmed -> no FAIL suffix; otherwise the
+            # exact gate(s) blocking it. Pure logging; the decision above is
+            # already fully computed and unaffected.
+            failed = [_short_gate(k) for k, v in gates.items() if not v]
+            log.info("IF3 scan %-4s %-5s: E=%+.2f agree=%d/5 flow=%+.2f "
+                     "delta=%+.2f accum=%+.2f burst=%+.2f trend=%+.2f "
+                     "conf=%.2f gates=%d/%d%s",
+                     asset, direction, evidence, agree, s_flow, s_delta,
+                     s_accum, s_burst, s_trend, confidence,
+                     sum(1 for v in gates.values() if v), len(gates),
+                     "" if not failed else " FAIL:" + ",".join(failed))
 
         urgency = 0.0
         if all_confirmed:
