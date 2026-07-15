@@ -219,6 +219,25 @@ def test_kraken_book_is_sorted_and_depth_capped():
     assert [lvl[0] for lvl in book["asks"]] == [101.0, 102.0]  # asc, top-2
 
 
+def test_kraken_state_trimmed_to_depth_no_phantom_levels():
+    # a depth-N channel need not send a qty=0 remove for a level merely
+    # pushed OUT of the window by a better price; without trimming, _state
+    # grows and the stale level could later resurface as a phantom touch.
+    cache = LiveMarketCache(now=_Clock())
+    s = _kstream(cache, depth=2)
+    s.handle(_snap("BTC/USD", [(100.0, 1), (99.0, 1)], [(101.0, 1), (102.0, 1)]))
+    # better bid + better ask arrive; the old worst levels are NOT removed
+    s.handle(_upd("BTC/USD", [(100.5, 1)], [(100.8, 1)]))
+    st = s._state["BTC/USD"]
+    assert len(st["bids"]) == 2 and len(st["asks"]) == 2   # bounded to depth
+    assert set(st["bids"]) == {100.5, 100.0}               # top-2 kept
+    assert set(st["asks"]) == {100.8, 101.0}               # 99/102 dropped
+    # published book reflects the trimmed top-of-book, no phantom 99/102
+    book = cache.get_book("kraken", "BTCUSD", 5.0)
+    assert book["bids"][0] == [100.5, 1.0]
+    assert book["asks"][0] == [100.8, 1.0]
+
+
 def test_kraken_resnapshot_resets_state():
     # a reconnect re-subscribes -> Kraken resends a snapshot; stale levels
     # from the prior connection must not survive (no drift across reconnects)

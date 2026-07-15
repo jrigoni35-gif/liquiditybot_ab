@@ -298,6 +298,12 @@ class CandidateLabeler:
         # maker round-trip (2 x 25bps = 0.5%) so labels reflect REALIZED net
         # profitability, not an optimistic ~0 - a 6bps default here taught the
         # model that near-breakeven trades were wins. Config-driven + guarded.
+        # INTENTIONALLY distinct from the sizer's rt_cost (maker+taker, worst
+        # case for Kelly): the labeler models the EXPECTED realized cost (maker
+        # entry OM-011 + maker-first exit, which fills maker most of the time)
+        # PLUS the asset's own spread below - accurate per-trade outcome. The
+        # sizer's worst-case exit is the conservative sizing margin on top. Do
+        # NOT collapse the two: label realistically, size defensively.
         self.rt_cost_pct = float(cfg.get("label_round_trip_cost_pct", 0.5))
         # per-asset accuracy: add the asset's own execution spread on top of
         # the fee floor so a wide-spread small cap's scalps are labeled at

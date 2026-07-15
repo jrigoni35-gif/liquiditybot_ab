@@ -448,6 +448,14 @@ class LiquidityBot:
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
         self._rows_at_last_train = self.history.row_count()
+        # Whether the FIRST-champion train has been attempted this process.
+        # In-memory by design: a cold container (bundle-restored rows, no
+        # state.json) defaults _rows_at_last_train to the full count, which
+        # would make the min-NEW-rows gate block the very first train forever.
+        # This lets the first cold-start attempt bypass that gate exactly once
+        # per process; if the challenger fails to deploy, normal new-row
+        # throttling resumes (no retrain storm).
+        self._retrain_attempted = False
         self.xscan = sentiment_scanner or SentimentScanner(
             config.get("sentiment", {}))
         self.narrative = NarrativeFilter(config.get("sentiment", {}).get("filter", {}))
@@ -456,6 +464,12 @@ class LiquidityBot:
         self.symbol_map = {}
         for sym in config["exchanges"]["kraken"].get("trading_pairs", []):
             self.symbol_map[sym.split("/")[0]] = sym
+        # asset -> Kraken REST pair, precomputed: kraken_pair is pure and the
+        # universe is fixed, so rebuilding this every fast_cycle was wasted
+        # work + allocation on the hot path.
+        self._pair_of = {a: self.kraken.kraken_pair(s)
+                         for a, s in self.symbol_map.items()}
+        self._pair_list = list(self._pair_of.values())
         self.hedger = HedgeEngine(config.get("hedging", {}), self.symbol_map)
 
         # Kraken v2 public book stream (execution venue, READ-ONLY public
@@ -904,9 +918,8 @@ class LiquidityBot:
         # Marks fetch in ONE batched Ticker call (6 pairs -> 1 request)
         # rather than per-pair, cutting fast-cycle Kraken round-trips; the
         # per-pair book (Depth is single-pair only) still loops below.
-        pair_of = {a: self.kraken.kraken_pair(s)
-                   for a, s in self.symbol_map.items()}
-        marks = self.kraken.get_tickers(list(pair_of.values()))
+        pair_of = self._pair_of                  # precomputed in __init__
+        marks = self.kraken.get_tickers(self._pair_list)
         # Books stay a SERIAL loop: measured live, parallelizing the 6 fetches
         # saved ~0ms (serial 2004ms vs parallel 2014ms) because the Kraken 3/s
         # rate limit is the binding constraint - concurrency can't beat a wall
@@ -1715,6 +1728,42 @@ class LiquidityBot:
                 f"Manual trades, missed fills, or a config error. New "
                 f"entries blocked; reconcile before re-arming.")
 
+    def _retrain_gate(self, rows: int) -> bool:
+        """Decide whether to ATTEMPT an auto-retrain this cycle (side effect:
+        logs a cold-start request, marks the first cold attempt).
+
+        COLD START (no champion + enough rows) drives the attempt DIRECTLY,
+        never via the flag file: that flag lives in gitignored outputs/ and is
+        wiped by a container rollback, while the durable retrain cooldown then
+        refuses to rewrite it - so a flag-gated cold start stalls for a full
+        cooldown after every restart and the first champion never trains
+        (observed: trained=false at 240+ rows). Degradation/drift retrains
+        still route through the monitor level / flag.
+
+        The min-NEW-rows throttle governs RE-trains of a live champion; the
+        first cold-start attempt bypasses it once (a cold container's
+        _rows_at_last_train == full restored count would otherwise zero the
+        delta and block the first train outright), then normal throttling
+        resumes so a non-deploying challenger can't retrain every cycle."""
+        cold_start = (not self.meta.trained
+                      and rows >= self.monitor.retrain_min_rows)
+        if cold_start:
+            self.monitor.request_retrain(
+                f"cold start: {rows} labeled rows and no champion")
+        want = (cold_start or self.monitor.level >= 2
+                or self.monitor.flag_path.exists())
+        if not want:
+            return False
+        first_cold_attempt = cold_start and not self._retrain_attempted
+        if (not first_cold_attempt
+                and rows - self._rows_at_last_train
+                < self.monitor.retrain_min_new_rows):
+            return False
+        if rows < self.monitor.retrain_min_rows:
+            return False
+        self._retrain_attempted = True
+        return True
+
     def _maybe_auto_retrain(self):
         """Self-improvement loop: when the monitor requests a retrain (level
         2, or the flag file exists) and enough NEW labeled rows have accrued,
@@ -1722,19 +1771,7 @@ class LiquidityBot:
         deploys if its out-of-fold Brier beats the champion's - the bot
         never swaps in a worse model just to feel busy."""
         rows = self.history.row_count()
-        # COLD START has no other trigger: degradation needs a model and
-        # drift needs a trained model's deciles, so without this the
-        # first champion never trains no matter how many rows accrue -
-        # the bot would run on the prior forever. request_retrain owns
-        # the cooldown/flag hygiene; note_deployed clears it on success.
-        if not self.meta.trained and rows >= self.monitor.retrain_min_rows:
-            self.monitor.request_retrain(
-                f"cold start: {rows} labeled rows and no champion")
-        want = self.monitor.level >= 2 or self.monitor.flag_path.exists()
-        if not want:
-            return
-        if rows - self._rows_at_last_train < self.monitor.retrain_min_new_rows \
-                or rows < self.monitor.retrain_min_rows:
+        if not self._retrain_gate(rows):
             return
         try:
             from ml.walkforward import evaluate_and_select

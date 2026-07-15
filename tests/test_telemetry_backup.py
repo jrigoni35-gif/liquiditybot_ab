@@ -120,3 +120,24 @@ def test_missing_history_raises(repos, tmp_path):
     empty.mkdir()
     with pytest.raises(RuntimeError):
         tb.push_bundle(_cfg(), empty, root=root)
+
+
+def test_bootstraps_missing_durable_branch(tmp_path):
+    # fresh remote with NO paper-telemetry branch: the first backup must
+    # self-seed the branch, not raise forever.
+    bare = tmp_path / "origin.git"
+    _git("init", "--bare", "-b", "main", str(bare), cwd=tmp_path)
+    root = tmp_path / "work"
+    root.mkdir()
+    _git("init", "-b", "main", str(root), cwd=tmp_path)
+    _git("config", "user.email", "t@t.t", cwd=root)
+    _git("config", "user.name", "t", cwd=root)
+    _git("config", "commit.gpgsign", "false", cwd=root)
+    (root / "code.txt").write_text("x", encoding="utf-8")
+    _git("add", "-A", cwd=root)
+    _git("commit", "-m", "init", cwd=root)
+    _git("remote", "add", "origin", str(bare), cwd=root)
+    # no paper-telemetry branch on origin yet
+    assert "pushed 5 rows" in tb.push_bundle(
+        _cfg(), _make_bundle(tmp_path / "bundle", rows=5), root=root)
+    assert "sessions/nightshift/signal_history.csv" in _branch_files(bare)

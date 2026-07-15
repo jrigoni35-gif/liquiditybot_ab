@@ -73,12 +73,28 @@ else
     TDIR="$(mktemp -d)"
     trap 'rm -rf "$TDIR"' EXIT
     git archive origin/paper-telemetry | tar -x -C "$TDIR"
-    shopt -s nullglob
-    for bundle in "$TDIR"/sessions/*/; do
+    # Import NEWEST bundle FIRST (by manifest created_at_utc). Row merge is
+    # order-independent (append-only union, dedup by position_id), but the
+    # trained model is adopted copy-if-absent - so without newest-first order
+    # a stale older bundle's meta_model.json would win over a fresher one.
+    for bundle in $("$PY" - "$TDIR/sessions" <<'PYSORT'
+import glob, json, os, sys
+base = sys.argv[1]
+def ts(d):
+    try:
+        with open(os.path.join(d, "manifest.json"), encoding="utf-8") as fh:
+            return json.load(fh).get("created_at_utc", "")
+    except Exception:
+        return ""
+for d in sorted((g for g in glob.glob(os.path.join(base, "*/"))),
+                key=ts, reverse=True):
+    print(d)
+PYSORT
+    ); do
       "$PY" scripts/session_import.py --src "$bundle" --apply \
         || log "bundle $(basename "$bundle") refused (integrity/schema) - skipped"
     done
-    log "learning continuity restored into outputs/"
+    log "learning continuity restored into outputs/ (newest bundle first)"
   else
     log "no paper-telemetry branch yet - cold start"
   fi

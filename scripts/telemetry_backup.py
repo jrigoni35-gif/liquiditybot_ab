@@ -82,6 +82,17 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
     if not (bundle / "signal_history.csv").exists():
         raise RuntimeError("bundle has no signal_history.csv")
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root)
+    # bootstrap the durable branch on a fresh remote: without this the very
+    # first backup would fetch a non-existent branch and raise forever. Seed
+    # an empty orphan root (git's canonical empty-tree SHA) so the worktree
+    # flow below has a ref; subsequent backups just fetch it.
+    if not _run(["git", "ls-remote", "--heads", cfg["remote"], cfg["branch"]],
+                cwd=root, check=False):
+        empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        root_commit = _run(["git", "commit-tree", empty_tree, "-m",
+                            f"telemetry: bootstrap {cfg['branch']}"], cwd=root)
+        _run(["git", "push", cfg["remote"],
+              f"{root_commit}:refs/heads/{cfg['branch']}"], cwd=root)
     _run(["git", "fetch", cfg["remote"], cfg["branch"]], cwd=root)
     remote_ref = f"{cfg['remote']}/{cfg['branch']}"
     with tempfile.TemporaryDirectory(prefix="lb_backup_wt_") as wtd:

@@ -28,6 +28,7 @@ The websocket transport runs its own asyncio loop on a daemon thread;
 the engine never awaits. Cache reads are plain locked dict lookups.
 """
 
+import json
 import logging
 import threading
 import time
@@ -282,7 +283,6 @@ class BinanceUSDepthStream:
         """Parse one combined-stream frame into a book update. Never
         raises: a malformed frame is dropped, the cache keeps its last
         good snapshot until staleness expires it."""
-        import json
         try:
             msg = json.loads(text)
         except (ValueError, TypeError):
@@ -339,11 +339,23 @@ class KrakenV2BookStream:
         return _KRAKEN_WS_V2
 
     def subscribe_msg(self) -> Optional[str]:
-        import json
         if not self._symbols:
             return None
         return json.dumps({"method": "subscribe", "params": {
             "channel": "book", "symbol": self._symbols, "depth": self.depth}})
+
+    def _trim(self, st: dict) -> None:
+        """Bound each side to the top-`depth` levels (bids highest, asks
+        lowest). A depth-N channel need not send a qty=0 remove for a level
+        merely PUSHED OUT of the window by a better price, so without this
+        the state would grow unbounded AND a stale out-of-window level could
+        later resurface as a phantom best bid/ask. Trimming to depth after
+        every frame makes local state == Kraken's canonical top-N book."""
+        for side, best_first in (("bids", True), ("asks", False)):
+            book = st[side]
+            if len(book) > self.depth:
+                keep = sorted(book, reverse=best_first)[:self.depth]
+                st[side] = {p: book[p] for p in keep}
 
     def _publish(self, sym: str):
         st = self._state.get(sym)
@@ -362,7 +374,6 @@ class KrakenV2BookStream:
     def handle(self, text: str):
         """Apply one book frame. Never raises: a malformed frame is dropped
         and the cache keeps its last good snapshot until staleness expires."""
-        import json
         try:
             msg = json.loads(text)
         except (ValueError, TypeError):
@@ -387,6 +398,10 @@ class KrakenV2BookStream:
                 book_side = st[side]
                 for lvl in d.get(side) or []:
                     try:
+                        # price is the dict key: Kraken echoes each level's
+                        # price string identically between set and its later
+                        # qty=0 delete, so the float round-trip matches for
+                        # pop(); staleness + reconnect-snapshot bound any drift
                         px = float(lvl["price"])
                         qty = float(lvl["qty"])
                     except (KeyError, TypeError, ValueError):
@@ -395,6 +410,7 @@ class KrakenV2BookStream:
                         book_side.pop(px, None)   # qty 0 removes the level
                     else:
                         book_side[px] = qty
+            self._trim(st)                        # bound to top-N (no phantoms)
             self._publish(sym)
 
 
