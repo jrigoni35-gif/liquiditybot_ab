@@ -128,6 +128,44 @@ in THALES. The rest (dead code, type gaps, schema-loss, the sanitize
 fixes themselves) are boundary/code faults fixed at their own layer — not
 forced into a market-behaviour model.
 
+### TH-016 `observation_lapse` — the Rip-van-Winkle insecurity
+
+**Archetype:** a bot that sleeps through a gap and wakes believing no
+time has passed. We LIVED this one from the inside on 2026-07-14: a
+container restart restored a day-old snapshot, proxy outages punched
+hours-long holes in the observation stream, processes died with nothing
+to relaunch them — and every layer that survived kept treating its
+pre-gap memory as current. State built before the hole advised after
+the hole at full confidence; nothing self-reported the degradation.
+Every lazily-operated bot has this failure mode; ours did too. The
+first, most honest integration is **detector-of-self**: make THALES
+aware of its OWN observation gaps before hunting anyone else's.
+**Detection (self):** per-asset timestamp of the last clean fast
+observation (the engine only observes when a clean book actually
+arrived, so call cadence IS data arrival). A gap above
+`lapse.fast_gap_sec` — or a clock regression beyond
+`clock_skew_tol_sec`, the counter-rollback we also lived — is a lapse.
+On the candle stream, a hole above `bar_gap_bars` × the observed bar
+spacing (venue halt/maintenance) fences swing/sweep context the same
+way. Clockwork buckets survive fences: time-of-day statistics are keyed
+by bucket and gap-immune by construction.
+**Response — hygiene only:** reset every piece of continuity-dependent
+memory (metronome event deque and score, grid/barclose prev-snapshots,
+pending sweep, marks) so no detector ever compares a post-gap snapshot
+against pre-gap memory; then mute the advice channel — neutral in BOTH
+modes, gates and exits untouched — for `warmup_sec` while the bank
+re-accumulates live footprints, and report `lapses` +
+`lapse_warmup_sec` per asset in status so the dashboard shows the
+degradation instead of hiding it.
+**Failure mode:** an over-eager gap threshold turns routine flaps into
+permanent warmup — a silent self-disable. Bounded by the config guard
+(FATAL at `fast_gap_sec<=0`, warn below 60s) and by the mute being
+purely conservative: a muted THALES is exactly the pre-THALES bot.
+**v2 candidate (evidence first):** the same lapse signature in OTHERS —
+mass same-instant level revivals after a frozen book, re-quotes at
+stale price levels after shared-infra events. Deferred until we can
+measure those footprints without fooling ourselves (TH-017, not built).
+
 ## Activation ladder (build the concept over time)
 
 1. **shadow** *(default, ships now)* — detectors run, scores land in

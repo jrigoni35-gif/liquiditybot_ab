@@ -17,6 +17,9 @@ Detectors (reason codes in core/codes.py, evidence in docs/THALES.md):
                           beats a significance gate (anti-overfit)
   TH-013 stop_herding   — stop clusters at round numbers / swing
                           extremes; sweep-and-revert events
+  TH-016 observation_lapse — gaps in OUR OWN observation stream break
+                          evidence continuity: reset + advice warmup
+                          (detector-of-self; lived 2026-07-14)
 
 Influence modes (config "thales.influence"):
   off     engine dormant
@@ -88,6 +91,14 @@ class _AssetState:
         self.last_sweep: dict = {}               # {"dir": +1/-1, "ts": t}
         self.zone_degenerate = False             # tick grid >= tol band
         self.marks: deque = deque(maxlen=8)
+        # TH-016 observation-lapse hygiene (docs/THALES.md). Continuity
+        # bookkeeping so a gap in OUR OWN observation stream is treated as
+        # broken evidence, never as adjacent snapshots.
+        self.last_fast_ts = 0.0                  # newest fast observation
+        self.lapse_until = 0.0                   # advice muted until here
+        self.lapse_count = 0                     # lifetime lapses (telemetry)
+        self.last_bar_ts = 0.0                   # newest ingested candle ts
+        self.bar_spacing = 0.0                   # EWMA of candle spacing
         # feed-integrity window: 1 = clean book this cycle, 0 = missing or
         # sanitize-rejected. A sustained low clean-rate means a hostile or
         # unreliable venue for THIS asset -> shade its confidence down.
@@ -111,6 +122,7 @@ class ThalesEngine:
         self._c = cfg.get("clockwork", {})
         self._s = cfg.get("stops", {})
         self._fi = cfg.get("feed_integrity", {})
+        self._lp = cfg.get("lapse", {})
         self._assets: dict = {}
         self._counterfactuals: deque = deque(maxlen=200)
 
@@ -128,12 +140,47 @@ class ThalesEngine:
     # ------------------------------------------------------------------
     # FAST-cycle observation (order book, ~5s cadence). O(levels).
     # ------------------------------------------------------------------
+    def _check_lapse(self, st: _AssetState, asset: str, now: float):
+        """TH-016 observation-lapse hygiene. The caller only observes when
+        a clean book actually arrived, so a large gap between consecutive
+        observations means OUR OWN stream broke (proxy outage, pause,
+        feed severance, restart with surviving state — all lived on
+        2026-07-14). Detectors that compare this snapshot against pre-gap
+        memory would manufacture evidence from a discontinuity, and the
+        advice channel would act on stale footprints at full confidence:
+        reset the continuity state and mute advice through a warmup.
+        Clock regression (now jumping backwards) breaks continuity the
+        same way and is treated identically."""
+        gap = float(self._lp.get("fast_gap_sec", 600.0))
+        skew = float(self._lp.get("clock_skew_tol_sec", 1.0))
+        last = st.last_fast_ts
+        st.last_fast_ts = now
+        if last <= 0:
+            return                    # first observation: cold start, no gap
+        if (now - last) <= gap and now >= last - skew:
+            return
+        st.lapse_count += 1
+        st.lapse_until = now + float(self._lp.get("warmup_sec", 900.0))
+        # continuity-dependent memory is fiction across the gap
+        st.prev_top = None
+        st.prev_levels = set()
+        st.metro_events.clear()
+        st.metro_score = 0.0          # its evidence deque just vanished
+        st.bc_prev_top = None
+        st.last_sweep = {}            # a pre-gap sweep must not advise now
+        st.marks.clear()
+        log.warning("%s", tag(Code.TH_LAPSE,
+                    f"{asset}: observation gap {now - last:.0f}s (lapse "
+                    f"#{st.lapse_count}) - continuity state reset, advice "
+                    f"muted {float(self._lp.get('warmup_sec', 900.0)):.0f}s"))
+
     def observe_fast(self, asset: str, book: dict | None, mark: float,
                      now: float):
         if not self.active:
             return
         try:
             st = self._st(asset)
+            self._check_lapse(st, asset, now)
             if mark and math.isfinite(mark) and mark > EPS:
                 st.marks.append((now, float(mark)))
             bids = (book or {}).get("bids") or []
@@ -237,6 +284,32 @@ class ThalesEngine:
                     st.seen_bar_set.discard(st.seen_bars[0])
                 st.seen_bars.append(ts)
                 st.seen_bar_set.add(ts)
+                # TH-016 bar-gap fence: venue-side candle holes (halts,
+                # maintenance, delist windows) make pre-gap swing extremes
+                # and sweeps fiction for post-gap bars. Fence by clearing
+                # the candle context; it re-warms over the next bars
+                # (swing_high_low stays None below its MIN_BARS floor).
+                # Clockwork buckets survive: time-of-day stats are keyed
+                # by bucket and are gap-immune by construction.
+                if st.last_bar_ts > 0:
+                    d = ts - st.last_bar_ts
+                    if (st.bar_spacing > 0 and d > float(self._lp.get(
+                            "bar_gap_bars", 3.0)) * st.bar_spacing):
+                        st.candle_hist.clear()
+                        st.last_sweep = {}
+                        st.lapse_count += 1
+                        log.warning("%s", tag(Code.TH_LAPSE,
+                                    f"{asset}: candle hole {d:.0f}s "
+                                    f"(~{d / st.bar_spacing:.0f} bars) - "
+                                    f"swing/sweep context fenced"))
+                        # the hole itself must not feed the spacing EWMA:
+                        # one 3h gap at 0.1 weight would inflate a 5m
+                        # estimate ~4x and mask the next hole
+                    elif d > 0:
+                        st.bar_spacing = d if st.bar_spacing <= 0 else (
+                            0.9 * st.bar_spacing + 0.1 * d)
+                if ts > st.last_bar_ts:
+                    st.last_bar_ts = ts
                 st.candle_hist.append((ts, o, hi, lo, c))
                 ret = (c / o - 1.0) * 100.0
                 bmin = int(self._c.get("bucket_minutes", 60))
@@ -350,6 +423,15 @@ class ThalesEngine:
             return out
         try:
             st = self._st(asset)
+            # TH-016: after an observation lapse every detector is running
+            # on freshly-reset or gap-straddling evidence; advice is muted
+            # (neutral both modes, exits and gates untouched) until the
+            # warmup elapses and the bank re-accumulates live footprints.
+            if now < st.lapse_until:
+                out.notes.append(tag(Code.TH_LAPSE,
+                                     f"post-lapse warmup: advice muted "
+                                     f"{st.lapse_until - now:.0f}s"))
+                return out
             mark = st.marks[-1][1] if st.marks else 0.0
             d = 1 if direction == "long" else -1
             trending = str(macro_label or "").lower() in (
@@ -494,7 +576,9 @@ class ThalesEngine:
                 "clockwork": round(c_score, 3), "clockwork_dir": c_dir,
                 "stop_zone": round(prox, 3),
                 "barclose": round(self._barclose_score(st), 3),
-                "feed_dirty": round(self._feed_integrity(st), 3)}
+                "feed_dirty": round(self._feed_integrity(st), 3),
+                "lapses": st.lapse_count,
+                "lapse_warmup_sec": max(0, int(st.lapse_until - now))}
 
     def feature_scores(self, asset: str, now: float) -> dict:
         """Bounded [0,1] detector scores for the meta-model feature
@@ -510,6 +594,8 @@ class ThalesEngine:
         if st is None:
             return zeros
         try:
+            if now < st.lapse_until:
+                return zeros          # TH-016: no gap-straddling evidence
             s = self._scores(st, now)
             return {k: float(min(max(float(s.get(k, 0.0)), 0.0), 1.0))
                     for k in zeros}

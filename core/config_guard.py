@@ -566,6 +566,32 @@ def validate(config: dict) -> list:
         fatal(f"thales.feed_integrity.min_obs={fi_min} must be in "
               f"[1, window={fi_win}] - beyond the window the detector can "
               f"never accumulate enough samples to ever judge")
+    # TH-016 lapse hygiene: a non-positive gap threshold makes EVERY cycle
+    # a lapse (permanent warmup = the engine silently disabled); negative
+    # durations are nonsense; a bar fence below 2 spacings fires on ordinary
+    # venue jitter and erases healthy swing context.
+    lp_gap = float(_f(config, "thales.lapse.fast_gap_sec", 600.0))
+    if lp_gap <= 0:
+        fatal(f"thales.lapse.fast_gap_sec={lp_gap} must be > 0 - at zero "
+              f"every observation counts as a lapse and THALES mutes itself "
+              f"forever (a silent disable disguised as hygiene)")
+    elif lp_gap < 60:
+        warn(f"thales.lapse.fast_gap_sec={lp_gap} below 60s: fast cadence "
+             f"is ~5s and ordinary proxy flaps last seconds - this would "
+             f"spend most of its life in warmup")
+    lp_wu = float(_f(config, "thales.lapse.warmup_sec", 900.0))
+    if lp_wu < 0:
+        fatal(f"thales.lapse.warmup_sec={lp_wu} negative - a lapse cannot "
+              f"end before it is detected")
+    lp_bg = float(_f(config, "thales.lapse.bar_gap_bars", 3.0))
+    if lp_bg < 2:
+        fatal(f"thales.lapse.bar_gap_bars={lp_bg} must be >= 2 - one "
+              f"missing bar is venue jitter, not a hole; fencing on it "
+              f"erases healthy swing/sweep context daily")
+    lp_skew = float(_f(config, "thales.lapse.clock_skew_tol_sec", 1.0))
+    if lp_skew < 0:
+        fatal(f"thales.lapse.clock_skew_tol_sec={lp_skew} negative - "
+              f"tolerance is a magnitude")
 
     # --- Smart Money Concepts features (docs/SMC.md) ----------------------
     smc_enabled = bool(_f(config, "smc.enabled", True))

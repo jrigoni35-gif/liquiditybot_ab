@@ -219,6 +219,107 @@ def test_coarse_tick_market_has_no_stop_zone_signal():
 
 
 # ---------------------------------------------------------------------
+# TH-016 observation-lapse hygiene
+# ---------------------------------------------------------------------
+def test_fast_lapse_resets_continuity_and_mutes_advice():
+    """2026-07-14 incident, distilled: proxy outages and a container
+    restart left hours-long holes in our own observation stream, while
+    detector state built pre-gap kept advising post-gap at full
+    confidence. A gap above fast_gap_sec must reset continuity memory
+    and mute the advice channel through a warmup."""
+    eng = ThalesEngine(_cfg(influence="advise",
+                            grid={"gain": 10.0}, metronome={"gain": 10.0}))
+    for k in range(14):
+        eng.observe_fast("BTC", _ladder_book(), 100.33, 1000.0 + 5 * k)
+    st = eng._st("BTC")
+    st.metro_score = 1.0
+    hot = eng.shade_confidence("BTC", "long", 1.0, 0.5, "trend", 1070.0)
+    assert abs(hot.mult - 1.0) > 1e-6            # detectors are advising
+    assert st.lapse_count == 0                   # steady cadence: no lapse
+    # 2h hole, then observation resumes
+    eng.observe_fast("BTC", _ladder_book(), 100.33, 1070.0 + 7200.0)
+    assert st.lapse_count == 1
+    # continuity memory was reset, then legitimately RE-SEEDED from the
+    # post-gap snapshot alone: no event/mark/sweep from before survives
+    assert len(st.metro_events) == 0 and st.metro_score == 0.0
+    assert st.last_sweep == {} and len(st.marks) == 1  # post-gap mark only
+    muted = eng.shade_confidence("BTC", "long", 1.0, 0.5,
+                                 "trend", 1070.0 + 7201.0)
+    assert muted.mult == 1.0 and muted.confidence == 0.5
+    assert any("TH-016" in n for n in muted.notes)
+    # after warmup the channel reopens (re-heat one detector to prove it)
+    later = 1070.0 + 7200.0 + 901.0
+    st.metro_score = 1.0
+    resumed = eng.shade_confidence("BTC", "long", 1.0, 0.5, "trend", later)
+    assert abs(resumed.mult - 1.0) > 1e-6
+
+
+def test_cold_start_and_clock_regression():
+    eng = ThalesEngine(_cfg())
+    eng.observe_fast("ETH", _ladder_book(), 100.0, 5000.0)
+    assert eng._st("ETH").lapse_count == 0       # first obs is not a lapse
+    eng.observe_fast("ETH", _ladder_book(), 100.0, 4000.0)  # clock ran back
+    assert eng._st("ETH").lapse_count == 1       # regression = broken continuity
+    eng.observe_fast("ETH", _ladder_book(), 100.0, 4005.0)
+    assert eng._st("ETH").lapse_count == 1       # new base accepted
+
+
+def test_bar_hole_fences_swing_and_sweep_context():
+    """A venue-side candle hole (halt/maintenance) makes pre-gap swing
+    extremes and sweeps fiction: the fence clears them and the window
+    re-warms on post-gap bars only."""
+    eng = ThalesEngine(_cfg())
+    bars = [{"ts": 1000.0 + 300 * i, "open": 100.0, "close": 100.0,
+             "high": 100.5, "low": 99.5} for i in range(10)]
+    eng.observe_candles("BTC", bars, 5000.0)
+    st = eng._st("BTC")
+    assert len(st.candle_hist) == 10
+    hole = [{"ts": 1000.0 + 300 * 9 + 10800.0, "open": 100.0,
+             "close": 100.0, "high": 100.2, "low": 99.8}]
+    eng.observe_candles("BTC", hole, 20000.0)
+    assert len(st.candle_hist) == 1              # fenced: post-gap bar only
+    assert st.last_sweep == {}
+    from strategies.swing_points import swing_high_low
+    assert swing_high_low(st.candle_hist, 48) == (None, None)
+    # the hole must NOT inflate the spacing EWMA and mask the next hole
+    assert st.bar_spacing < 600.0
+
+
+def test_feature_scores_zero_during_lapse_warmup():
+    """The meta-model must never consume gap-straddling detector
+    evidence: during warmup the THALES feature block reads all-zero,
+    exactly like an unwarmed asset."""
+    eng = ThalesEngine(_cfg())
+    for k in range(14):
+        eng.observe_fast("BTC", _ladder_book(), 100.0, 1000.0 + 5 * k)
+    st = eng._st("BTC")
+    assert eng.feature_scores("BTC", 1070.0)["grid"] > 0.0
+    st.lapse_until = 2000.0
+    assert all(v == 0.0 for v in eng.feature_scores("BTC", 1500.0).values())
+    assert eng.feature_scores("BTC", 2001.0)["grid"] > 0.0
+
+
+def test_lapse_visible_in_status_and_shadow_neutrality_kept():
+    eng = ThalesEngine(_cfg(influence="shadow"))
+    eng.observe_fast("SUI", _ladder_book(), 100.0, 1000.0)
+    eng.observe_fast("SUI", _ladder_book(), 100.0, 9000.0)   # lapse
+    s = eng.status(9001.0)["assets"]["SUI"]
+    assert s["lapses"] == 1 and s["lapse_warmup_sec"] > 0
+    out = eng.shade_confidence("SUI", "long", 1.0, 0.7, "trend", 9001.0)
+    assert out.confidence == 0.7 and out.mult == 1.0          # shadow echoes
+    assert any("TH-016" in n for n in out.notes)
+
+
+def test_config_guard_rejects_incoherent_lapse_knobs():
+    assert any("fast_gap_sec" in m for m in _fatals(
+        {"thales": {"enabled": True, "lapse": {"fast_gap_sec": 0}}}))
+    assert any("warmup_sec" in m for m in _fatals(
+        {"thales": {"enabled": True, "lapse": {"warmup_sec": -5}}}))
+    assert any("bar_gap_bars" in m for m in _fatals(
+        {"thales": {"enabled": True, "lapse": {"bar_gap_bars": 1}}}))
+
+
+# ---------------------------------------------------------------------
 # advice channel: clamps, shadow, off, garbage
 # ---------------------------------------------------------------------
 def _hot_engine(influence="advise", **over):

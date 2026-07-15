@@ -549,6 +549,13 @@
       "min_obs": 20,
       "dirty_frac_thr": 0.25,
       "gain": 0.5
+    },
+    "lapse": {
+      "_doc": "TH-016: observation-lapse hygiene, distilled from the 2026-07-14 incident (container restart + proxy outages: hours-long gaps in our own observation stream were treated as continuous, and advice ran on stale evidence at full confidence). fast_gap_sec=gap between clean book observations above which continuity state resets and advice mutes; warmup_sec=mute duration while the detector bank re-warms; bar_gap_bars=candle hole (in units of observed bar spacing) that fences swing/sweep context; clock_skew_tol_sec=backwards-clock tolerance before a time regression counts as a lapse.",
+      "fast_gap_sec": 600.0,
+      "warmup_sec": 900.0,
+      "bar_gap_bars": 3.0,
+      "clock_skew_tol_sec": 1.0
     }
   },
   "smc": {

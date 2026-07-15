@@ -135,6 +135,7 @@ class Code(str, Enum):
     TH_STOP_SWEEP = "TH-013"         # stop-cluster sweep-and-revert event
     TH_FEED_INTEGRITY = "TH-014"     # sustained missing/rejected feed data (hostile/unreliable venue)
     TH_BARCLOSE_HERD = "TH-015"      # activity herding in the first seconds after bar boundaries
+    TH_LAPSE = "TH-016"              # observation gap: continuity reset, advice muted through warmup
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
 
