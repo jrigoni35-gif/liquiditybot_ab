@@ -69,6 +69,7 @@ class Code(str, Enum):
     OM_ILLEGAL_TRANSITION = "OM-030" # order state machine violation
     OM_TIMEOUT_CANCEL = "OM-040"
     OM_DEADMAN_FAIL = "OM-050"
+    OM_EXIT_PREEMPT = "OM-060"       # risk-off exit cancelled a resting maker take
 
     # ---- sizer (SZ) ---------------------------------------------------
     SZ_INVALID_INPUT = "SZ-010"

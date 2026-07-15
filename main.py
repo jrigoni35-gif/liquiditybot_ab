@@ -39,7 +39,7 @@ from typing import Optional
 import numpy as np
 
 from core.audit import get_audit
-from core.codes import Code
+from core.codes import Code, tag
 from core.sanitize import safe_float
 from core.precision import fmt_price, price_decimals as _price_decimals
 from core.state import PortfolioState, Position
@@ -827,9 +827,27 @@ class LiquidityBot:
         beats being trapped at a good one."""
         now = now if now is not None else time.time()
         asset = self._asset_of(pos.symbol)
-        if any(o.position_id == pos.position_id
-            for o in self.orders.open_orders() if o.purpose == "exit"):
-            return                      # one live exit per position
+        live = [o for o in self.orders.open_orders()
+                if o.purpose == "exit" and o.position_id == pos.position_id]
+        if live:
+            # One live exit per position — EXCEPT a risk-off exit (hard stop,
+            # fault, derisk, hedge unwind, protective floor/trail/BE) must
+            # PREEMPT a non-urgent resting maker PROFIT-take. That maker rests
+            # post-only on the passive side (sell at the ask / buy at the bid);
+            # in a fast adverse move it will not fill, and silently dropping the
+            # escape left the position unprotected for a whole order timeout
+            # (~25s). Cancel the maker and fall through to the marketable exit.
+            # Every other pairing keeps the dedup: a marketable risk-off exit is
+            # already an escape in flight (the ladder re-attempts on expiry), and
+            # a profit-take never preempts anything.
+            preemptable = [o for o in live if o.post_only]
+            if profit_take or not preemptable:
+                return
+            for o in preemptable:
+                self.orders.cancel_order(o, reason=f"preempted by {reason}")
+            log.warning(tag(Code.OM_EXIT_PREEMPT,
+                            f"{pos.symbol} risk-off '{reason}' cancelled a "
+                            f"resting maker profit-take to clear the escape"))
         pair = self.kraken.kraken_pair(pos.symbol)
         omin = self.orders._ordermin(pair)
 

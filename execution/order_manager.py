@@ -216,6 +216,25 @@ class OrderManager:
                                          or o.purpose == purpose)
                    for o in self.open_orders())
 
+    def cancel_order(self, order: ManagedOrder, reason: str = "cancelled") -> bool:
+        """Cancel ONE resting order (venue + local state), emitting no fill.
+        Used to PREEMPT a non-urgent resting maker exit so a risk-off exit can
+        take its place. Live-safe: a failed venue cancel still forces the local
+        terminal transition — leaving the escape blocked is the worse failure,
+        and the deadman switch + order timeout are the venue-side backstop. Any
+        already-filled portion stands (it was booked on prior polls); only the
+        resting remainder is cancelled. Returns True when the order was open and
+        is now terminal."""
+        if order.status not in ("pending", "partial"):
+            return False
+        if not self.dry_run and getattr(order, "txid", None):
+            try:
+                self._timed_private("CancelOrder", {"txid": order.txid})
+            except Exception:                       # noqa: BLE001
+                log.exception("CancelOrder failed for %s — forcing local "
+                              "cancel (%s)", order.txid, reason)
+        return self._transition(order, "cancelled", reason)
+
     def status(self) -> dict:
         return {"open": len(self.open_orders()),
                 "tracked": len(self._orders),
