@@ -1597,8 +1597,12 @@ class LiquidityBot:
                 price=entry_price, size=decision.size_units, purpose="entry",
                 position_id=position_id, post_only=plan.post_only,
                 leverage=lev_decision.allowed_leverage,
-                ref_price=self.marks.get(symbol)
-                    or fv_state.fair_value or entry_price,
+                # mark, else fair value — both INDEPENDENT of the order price.
+                # Never fall back to entry_price (the order's own price): that
+                # self-reference zeroes the collar deviation and defeats the
+                # firewall's fail-closed entry refusal. No independent reference
+                # -> pass None and let the firewall refuse this blind entry.
+                ref_price=self.marks.get(symbol) or fv_state.fair_value,
                 equity=equity,
                 book=self.kraken_books.get(asset) or {},
                 sigma_bar_pct=vol_state.sigma_bar_pct,

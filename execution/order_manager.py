@@ -284,9 +284,16 @@ class OrderManager:
 
         # ---- risk firewall: independent last line on EVERY order --------
         if self.firewall is not None:
+            # Pass ref_price THROUGH untouched — never `ref_price or price`.
+            # Substituting the order's OWN price as the reference makes the
+            # collar deviation identically zero (|price-price|=0), silently
+            # DEFEATING both the price collar AND the firewall's fail-closed
+            # entry/hedge refusal on a missing mark (FW-060). A genuinely
+            # absent reference must reach the firewall as absent so it can
+            # decide: refuse new risk (fail closed) / let an exit pass uncollared.
             verdict = self.firewall.check(
                 pair=pair, side=side, purpose=purpose, price=price,
-                size=size, ref_price=ref_price or price, equity=equity)
+                size=size, ref_price=ref_price, equity=equity)
             if not verdict.allowed:
                 log.error(tag(Code.OM_FIREWALL_REJECT,
                               f"{side} {size:.6f} {pair} @ {price!r} "
