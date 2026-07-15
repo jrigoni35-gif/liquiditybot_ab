@@ -294,6 +294,8 @@ class BotRunner:
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "ws": bot.ws_manager.health()
             if getattr(bot, "ws_manager", None) is not None else {},
+            "ws_kraken": bot.kraken_ws.health()
+            if getattr(bot, "kraken_ws", None) is not None else {},
             "sim": bot.sim.describe(),
         }
 
@@ -382,6 +384,9 @@ class BotRunner:
             ws = getattr(bot, "ws_manager", None)
             if ws is not None:
                 ws.stop()               # join the daemon stream thread
+            kws = getattr(bot, "kraken_ws", None)
+            if kws is not None:
+                kws.stop()              # join the Kraken stream thread
             if not bot.dry_run:
                 # nothing may rest unmanaged while the bot is offline:
                 # cancel every venue order, then disarm the dead-man timer

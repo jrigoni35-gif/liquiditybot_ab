@@ -106,6 +106,16 @@ def collect(status_path: str) -> list:
         v = mm.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_moomoo_{k}", v, ts=ts))
+    # Kraken v2 ws feed health: connected (1/0) and live cached books. A
+    # dropping feed shows up as connected->0 / books falling while the bot
+    # silently keeps trading on the REST fallback.
+    kws = s.get("ws_kraken") or {}
+    m.append(gauge("liquiditybot_ws_kraken_connected",
+                   1.0 if kws.get("connected") else 0.0, ts=ts))
+    for k in ("books", "reconnects"):
+        v = kws.get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_ws_kraken_{k}", v, ts=ts))
     return m
 
 
