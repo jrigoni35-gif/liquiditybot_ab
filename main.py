@@ -625,7 +625,14 @@ class LiquidityBot:
         plan = self.tactics.plan_entry(parent.direction, quote,
                                        self.kraken_books.get(asset) or {},
                                        parent.urgency, liq_state.label)
-        position_id = str(uuid.uuid4())
+        # ONE position per parent, not one per child. A fresh uuid per slice
+        # fragmented a single sliced order into up to max_children separate
+        # positions — each with its own stop/tiers/high_water and each eating a
+        # max_concurrent_positions slot (so one algo parent could block every
+        # other entry). Deriving the id from parent_id makes every child fill
+        # COALESCE into one position (size-weighted entry via _handle_fill), and
+        # it's deterministic so it survives a mid-execution restart.
+        position_id = f"algo-{parent.parent_id}"
         order = self.orders.submit(
             asset=asset, symbol=parent.symbol,
             pair=self.kraken.kraken_pair(parent.symbol), side=parent.side,
