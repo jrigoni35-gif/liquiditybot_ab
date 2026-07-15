@@ -160,6 +160,12 @@ class LiquidityModel:
                 "order_book": combined_book,
                 "liquidity_pool_usd": self._order_book_depth_usd(combined_book),
                 "imbalance_ratio": self._combined_imbalance(entry["order_books"]),
+                # per-venue external books (OKX/Binance.US; Kraken is added
+                # separately by the engine). The manip divergence term needs a
+                # COHERENT cross-venue imbalance to compare against Kraken -
+                # computed per book so its scale matches, never on the merged
+                # book whose mixed size units make any cross-book ratio garbage.
+                "venue_books": list(entry["order_books"]),
                 "candles": entry["candles"],
                 "funding_rate": avg_funding,
                 "volume_24h": entry["volume_24h_total"],

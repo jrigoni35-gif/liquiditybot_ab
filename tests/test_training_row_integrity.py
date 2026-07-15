@@ -73,3 +73,49 @@ def test_load_training_data_stays_aligned_past_a_bad_label_cell(tmp_path):
     assert y[0] == 0.0                                            # row B's label
     assert np.allclose(X[0], feats_b), \
         "surviving row's features must still pair with ITS label"
+
+
+def test_synthetic_candidate_never_clashes_with_its_real_live_twin(tmp_path):
+    """A taken trade is written twice - a live row (realized label) and the
+    candidate it was registered as (barrier counterfactual), IDENTICAL
+    features. Training on both double-counts the signal and can teach a
+    coin-flip when the two labels disagree. load_training_data must drop the
+    synthetic twin (real label wins) while keeping every UNTAKEN candidate
+    fully usable."""
+    store = HistoryStore(str(tmp_path / "h.csv"))
+    taken = np.arange(len(FEATURE_NAMES), dtype=float)           # signal that
+    # ...was TAKEN: live realized loss (0) AND its candidate barrier win (1)
+    store._append_row("live1", "BTC", "long", taken, 0, -4.0, "live",
+                      signal_ts=1000.0)
+    store._append_row("cand-x", "BTC", "long", taken, 1, 0.0, "candidate",
+                      signal_ts=1000.0)                          # the CLASH
+    # an UNTAKEN signal: candidate only, distinct features - must survive
+    untaken = taken + 500.0
+    store._append_row("cand-y", "ETH", "short", untaken, 1, 0.0, "candidate",
+                      signal_ts=2000.0)
+
+    X, y, w = store.load_training_data(candidate_weight=0.4)
+    assert len(X) == 2, "the synthetic twin of the live trade must be dropped"
+    # the taken signal survives exactly ONCE, with the REAL (realized) label
+    taken_rows = [i for i in range(len(X)) if np.allclose(X[i], taken)]
+    assert len(taken_rows) == 1
+    assert y[taken_rows[0]] == 0.0, "realized label wins over the barrier"
+    # the untaken candidate is still there, still usable (candidate weight)
+    untaken_rows = [i for i in range(len(X)) if np.allclose(X[i], untaken)]
+    assert len(untaken_rows) == 1
+    assert y[untaken_rows[0]] == 1.0
+    assert w[untaken_rows[0]] < w[taken_rows[0]], \
+        "surviving synthetic row keeps its down-weight; real row full weight"
+
+
+def test_untaken_candidates_are_fully_kept_when_no_live_rows_exist(tmp_path):
+    """Pure-shadow phase (no trades taken yet): every candidate must load -
+    the clash guard must not eat synthetic data when there's nothing real to
+    clash with."""
+    store = HistoryStore(str(tmp_path / "h.csv"))
+    for i in range(6):
+        f = np.full(len(FEATURE_NAMES), float(i))
+        store._append_row(f"cand-{i}", "BTC", "long", f, i % 2, 0.0,
+                          "candidate", signal_ts=1000.0 + i)
+    X, y, w = store.load_training_data()
+    assert len(X) == 6, "all synthetic rows kept when no real twin exists"

@@ -135,16 +135,27 @@ class LiquidityRegimeEngine:
         med = float(np.median(trk.depth_hist)) if trk.depth_hist else 0.0
         st.depth_ratio = st.depth_top10_usd / (med + EPS) if med > 0 else 1.0
 
-        imb = _imbalance(combined_book)
+        # imbalance / whiplash / mid-track / spoof all read the EXECUTION book
+        # (Kraken), NOT the combined book. combined_book price-sorts OKX-USDT
+        # perp levels together with Binance.US-USD spot levels (different quote
+        # currency + perp/spot basis); a few-bps offset that flips sign around
+        # zero flips which venue owns the merged touch, so its imbalance
+        # square-waves between the two venues' depths - artificial whiplash
+        # that tripped a false 'spoofy' size-veto on BTC/ETH (SD-003; ~15% of
+        # the majors' manip_suspect rows). The whiplash/spoof thresholds were
+        # calibrated on single-venue books anyway, so the coherent exec book
+        # is both correct and on-distribution. Depth (a USD sum, USDT~USD) and
+        # combined_spread_bps stay on the combined book as informational.
+        imb = _imbalance(exec_book)
         trk.imb_hist.append(imb)
         st.imbalance_whiplash = float(np.std(trk.imb_hist)) if len(trk.imb_hist) >= 5 else 0.0
 
-        bids = (combined_book.get("bids") or [])
-        asks = (combined_book.get("asks") or [])
+        bids = (exec_book.get("bids") or [])
+        asks = (exec_book.get("asks") or [])
         if bids and asks:
             trk.mid_hist.append(0.5 * (bids[0][0] + asks[0][0]))
 
-        spoof_events = self._detect_spoof_events(trk, combined_book, now)
+        spoof_events = self._detect_spoof_events(trk, exec_book, now)
         trk.spoof_ewma = (1 - self.ewma_alpha) * trk.spoof_ewma + self.ewma_alpha * spoof_events
         trk.events += spoof_events
         st.spoof_score = float(1.0 - np.exp(-3.0 * trk.spoof_ewma))

@@ -150,10 +150,40 @@ class HistoryStore:
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         if not self.path.exists():
             return empty
-        X, y, w, sig = [], [], [], []
-        now = time.time()
+        # SYNTHETIC-vs-REAL clash guard. A taken trade is written TWICE: once
+        # as a live row (realized close = REAL label, full weight) and once as
+        # the candidate it was registered as at signal time (triple-barrier
+        # counterfactual = SYNTHETIC label, candidate_weight). Identical
+        # features (same feats object flows to both), possibly CONTRADICTORY
+        # labels (a stop-out realizes 0 while the barrier said 1). Training on
+        # both double-counts the taken signal and teaches the model a
+        # coin-flip at that exact X. Ground truth wins: drop the synthetic
+        # twin of any real row. Untaken-signal candidates (no live twin) stay
+        # fully usable - the model still learns from all the shadow data, it
+        # just never CLASHES with what actually happened.
+        live_keys = set()
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                if row.get("source") == "candidate":
+                    continue
+                try:
+                    live_keys.add((row["asset"], row["side"],
+                                   tuple(row[n] for n in FEATURE_NAMES)))
+                except KeyError:
+                    continue
+        X, y, w, sig = [], [], [], []
+        now = time.time()
+        dropped_clash = 0
+        with open(self.path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row.get("source") == "candidate" and live_keys:
+                    try:
+                        if (row["asset"], row["side"],
+                                tuple(row[n] for n in FEATURE_NAMES)) in live_keys:
+                            dropped_clash += 1
+                            continue     # synthetic twin of a real trade
+                    except KeyError:
+                        pass
                 # ATOMIC per row: build every column into a local first, and
                 # only extend the four parallel lists once ALL parse. A bare
                 # X.append() before a later ValueError (e.g. an empty label
@@ -180,6 +210,10 @@ class HistoryStore:
                 y.append(yr)
                 sig.append(sr)
                 w.append(wr)
+        if dropped_clash:
+            log.info("training load: dropped %d synthetic candidate row(s) "
+                     "that duplicated a real live trade (kept the realized "
+                     "label; %d rows remain)", dropped_clash, len(X))
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         if len(sig):

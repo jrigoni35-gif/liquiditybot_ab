@@ -197,6 +197,22 @@ def _book_imbalance(book: dict) -> float:
     return 0.0
 
 
+def _composite_imbalance(venue_books: list):
+    """Mean of PER-VENUE log-imbalances for the manip divergence term.
+    NEVER the price-merged combined book: OKX (perp, contract-unit sizes)
+    and Binance.US (spot, coin-unit sizes) don't share size units, so
+    _book_imbalance over their concatenation is a garbage ratio - it
+    square-waved a false cross-venue divergence (and a false 'spoofy'
+    manip flag) on BTC/ETH (SD-003). A log-ratio is unit-consistent only
+    WITHIN one book, so average per-venue log-imbalances instead; same
+    log-space as kraken_imb so manip_suspect_score compares like with
+    like. Returns None when no coherent external book exists this cycle -
+    the caller then makes divergence 0 (unmeasurable, not 'manipulated')."""
+    vals = [_book_imbalance(b) for b in (venue_books or [])
+            if b and b.get("bids") and b.get("asks")]
+    return float(sum(vals) / len(vals)) if vals else None
+
+
 def _book_mid(book: dict) -> float:
     """Top-of-book mid, 0.0 when either side is missing/malformed."""
     try:
@@ -1152,12 +1168,19 @@ class LiquidityBot:
             # signals are evaluated, and a defense gauge that freezes on
             # its last value is blind exactly when the operator watches it
             ls = self.liq.state(asset)
+            # cross-venue divergence: Kraken (exec) vs the COHERENT per-venue
+            # composite, not the mixed-unit merged book (SD-003). No external
+            # book this cycle -> composite is unmeasurable, so mirror
+            # kraken_imb to make divergence exactly 0 (never flag Kraken's own
+            # natural imbalance as manipulation).
+            kimb = _book_imbalance(kbook)
+            comp = _composite_imbalance(v.get("venue_books") or [])
             self._manip_scores[asset] = round(manip_suspect_score(
                 ls.spoof_score,
                 whiplash_suspicion(ls.imbalance_whiplash,
                                    self._wl_p95, self._wl_thr),
-                _book_imbalance(kbook),
-                _book_imbalance(v.get("order_book") or {})), 3)
+                kimb,
+                comp if comp is not None else kimb), 3)
             # regime age: when did the macro label last change? Feeds the
             # regime_age feature - a 2-bar-old "range" and a 3-day-old
             # "range" are different animals the one-hots cannot separate.
@@ -1495,13 +1518,18 @@ class LiquidityBot:
             disloc_bps = (km - vm) / vm * 1e4
         since = self._regime_since.get(asset)
         liq_state = self.liq.state(asset)
+        # manip_suspect FEATURE (trains the model): the divergence term
+        # compares Kraken to the COHERENT per-venue composite, never the
+        # mixed-unit merged book (SD-003 - the incoherent path poisoned this
+        # feature with false 'divergence' on the majors). No external book ->
+        # mirror kraken_imb so divergence is 0, not a phantom manip flag.
         kb_imb = _book_imbalance(self.kraken_books.get(asset) or {})
-        vb_imb = _book_imbalance(v.get("order_book") or {})
+        comp_imb = _composite_imbalance(v.get("venue_books") or [])
         suspect = manip_suspect_score(
             liq_state.spoof_score,
             whiplash_suspicion(liq_state.imbalance_whiplash,
                                self._wl_p95, self._wl_thr),
-            kb_imb, vb_imb)
+            kb_imb, comp_imb if comp_imb is not None else kb_imb)
         self._manip_scores[asset] = round(suspect, 3)
         return {"fear_greed": web.fear_greed,
                 "dominance_delta": web.dominance_delta,
