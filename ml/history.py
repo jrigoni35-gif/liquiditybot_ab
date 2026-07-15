@@ -567,16 +567,25 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         def setf(name, val, _feats=feats):
             _feats[name_idx[name]] = val
 
-        for name, k in (("ret_1", 1), ("ret_6", 6), ("ret_12", 12), ("ret_48", 48)):
+        # *_dir features are SIDE-RELATIVE (features.py): the market-absolute
+        # signed value times side, so "positive = with my trade". The bootstrap
+        # wrote RAW returns under the pre-v2 names ret_1/6/12/48 & mom_score,
+        # which (a) KeyError'd - those names no longer exist in FEATURE_NAMES,
+        # crashing the whole cold-start bootstrap on the first EMA cross - and
+        # (b) even renamed would carry a LONG-biased sign, so every short-side
+        # bootstrap row disagreed with how live rows encode the same drift.
+        for name, k in (("ret_1_dir", 1), ("ret_6_dir", 6),
+                        ("ret_12_dir", 12), ("ret_48_dir", 48)):
             if i - k >= 0 and closes[i - k] > 0:
                 r = np.log(closes[i] / closes[i - k])
-                setf(name, float(np.clip(r / (sigma_bar * np.sqrt(k) + 1e-9), -6, 6)))
+                z = float(np.clip(r / (sigma_bar * np.sqrt(k) + 1e-9), -6, 6))
+                setf(name, side * z)             # side-relative, matches live
         setf("sigma_bar_pct", float(np.clip(sigma_bar * 100, 0, 5)))
         vwin = vols[max(i - 48, 0):i]
         if len(vwin) > 2:
             setf("volume_z", float(np.clip((vols[i] - vwin.mean()) / (vwin.std() + 1e-9), -5, 5)))
         mom = np.sign(closes[i] - closes[max(i - 288, 0)])
-        setf("mom_score", float(mom))
+        setf("mom_dir", float(side * mom))       # side-relative, matches live
         setf("regime_range", 1.0)
         setf("turbulence_pct", 0.5)
         setf("direction", float(side))
