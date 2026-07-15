@@ -120,3 +120,17 @@ if [ -n "${GC_TOKEN_FILE:-}" ] && [ -s "${GC_TOKEN_FILE:-/nonexistent}" ] \
     log "log pusher relaunched"
   fi
 fi
+
+# --- 6. learning DURABILITY: checkpoint training rows to paper-telemetry ---
+# The restore in step 3 only recovers rows as fresh as the last PUSH. This
+# sidecar (scripts/telemetry_backup.py) exports + pushes the growing bundle on
+# an interval, tied to the bot's lifecycle so it can't stall the way an
+# external scheduled trigger does when the session dies. Default ON in cloud;
+# set LB_BACKUP_DISABLED=1 to opt out, LB_BACKUP_DRYRUN=1 to bundle without
+# pushing. Working-tree-safe (isolated worktree) and fail-safe by design.
+if [ "${LB_BACKUP_DISABLED:-}" != "1" ] \
+   && ! pgrep -f "[t]elemetry_backup\.py" >/dev/null 2>&1; then
+  setsid nohup "$PY" scripts/telemetry_backup.py \
+    >> outputs/telemetry_backup.log 2>&1 < /dev/null &
+  log "learning-durability backup sidecar relaunched"
+fi
