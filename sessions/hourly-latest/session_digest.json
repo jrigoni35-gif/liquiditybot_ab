@@ -1,36 +1,36 @@
 {
-  "generated_at": 1784239345.5754454,
+  "generated_at": 1784241446.9901779,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784239341.198,
-    "duration_h": 83.49
+    "end": 1784241445.544,
+    "duration_h": 84.07
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 5000.03,
+    "equity_end": 5000.07,
     "equity_min": 798.74,
     "equity_max": 5000.09,
     "equity_range": 4201.35,
     "realized_pnl_total": 0.0,
     "fees_paid_total": 0.0,
     "open_positions": 5,
-    "samples": 8881
+    "samples": 8918
   },
   "activity": {
-    "signal_rows_total": 373,
+    "signal_rows_total": 378,
     "live_labeled_trades": 19,
-    "candidate_rows": 354
+    "candidate_rows": 359
   },
   "audit": {
-    "records": 517,
-    "signal_records": 153,
+    "records": 519,
+    "signal_records": 155,
     "by_src": {
       "exploration": 364,
       "startup": 69,
-      "order_manager": 61,
-      "fault": 13,
+      "order_manager": 62,
+      "fault": 14,
       "ml_governor": 9,
       "engine": 1
     },
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        13
+        14
       ],
       [
         "ML-032",
@@ -74,31 +74,35 @@
       [
         "ML-031",
         1
+      ],
+      [
+        "OM-040",
+        1
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.451,
+    "dominant_frac": 0.445,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 3815,
+    "records": 3932,
     "by_level": {
-      "INFO": 3778,
-      "WARNING": 25,
-      "ERROR": 11,
+      "INFO": 3892,
+      "WARNING": 26,
+      "ERROR": 13,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        13
+        14
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        9
+        11
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -134,12 +138,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1384,
-      "thin": 626
+      "spoofy": 1409,
+      "thin": 651
     },
-    "spoofy_frac": 0.689,
-    "cycles_estimate": 796,
-    "feed_error_events": 11
+    "spoofy_frac": 0.684,
+    "cycles_estimate": 814,
+    "feed_error_events": 13
   },
   "model": {
     "monitor_level": 0,
@@ -183,13 +187,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 69% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 68% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 45% of 153 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 44% of 155 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
