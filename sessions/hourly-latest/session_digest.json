@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784160739.4722748,
+  "generated_at": 1784164311.2475646,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784160737.95,
-    "duration_h": 61.65
+    "end": 1784164309.613,
+    "duration_h": 62.65
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,27 +16,27 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 6829
+    "samples": 6892
   },
   "activity": {
-    "signal_rows_total": 283,
+    "signal_rows_total": 286,
     "live_labeled_trades": 19,
-    "candidate_rows": 264
+    "candidate_rows": 267
   },
   "audit": {
-    "records": 385,
-    "signal_records": 108,
+    "records": 390,
+    "signal_records": 109,
     "by_src": {
-      "exploration": 277,
+      "exploration": 281,
       "order_manager": 56,
-      "startup": 42,
+      "startup": 43,
       "ml_governor": 9,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        277
+        281
       ],
       [
         "OM-000",
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        42
+        43
       ],
       [
         "ML-032",
@@ -72,18 +72,18 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.519,
+    "dominant_frac": 0.514,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 18452,
+    "records": 18616,
     "by_level": {
-      "INFO": 16111,
+      "INFO": 16273,
       "ERROR": 1866,
-      "WARNING": 472,
+      "WARNING": 474,
       "CRITICAL": 3
     },
     "top_warnings": [
@@ -121,7 +121,7 @@
       ],
       [
         "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        31
+        32
       ],
       [
         "OKX: skipping ETH-USDT-SWAP, order book unavailable",
@@ -129,11 +129,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6666,
-      "thin": 2020
+      "spoofy": 6716,
+      "thin": 2059
     },
-    "spoofy_frac": 0.767,
-    "cycles_estimate": 3377,
+    "spoofy_frac": 0.765,
+    "cycles_estimate": 3408,
     "feed_error_events": 1957
   },
   "model": {
@@ -178,13 +178,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 77% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 76% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 52% of 108 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 51% of 109 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
