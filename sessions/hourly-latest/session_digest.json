@@ -1,55 +1,55 @@
 {
-  "generated_at": 1784245226.6984644,
+  "generated_at": 1784246089.8287182,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784245225.706,
-    "duration_h": 85.12
+    "end": 1784245976.347,
+    "duration_h": 85.33
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 4999.71,
+    "equity_end": 4999.68,
     "equity_min": 798.74,
     "equity_max": 5000.09,
     "equity_range": 4201.35,
-    "realized_pnl_total": 0.0,
-    "fees_paid_total": 0.0,
-    "open_positions": 5,
-    "samples": 8953
+    "realized_pnl_total": 0.03,
+    "fees_paid_total": 0.0656,
+    "open_positions": 4,
+    "samples": 9002
   },
   "activity": {
-    "signal_rows_total": 393,
-    "live_labeled_trades": 19,
-    "candidate_rows": 374
+    "signal_rows_total": 399,
+    "live_labeled_trades": 20,
+    "candidate_rows": 379
   },
   "audit": {
-    "records": 523,
-    "signal_records": 159,
+    "records": 532,
+    "signal_records": 163,
     "by_src": {
-      "exploration": 364,
-      "startup": 71,
-      "order_manager": 62,
-      "fault": 16,
+      "exploration": 369,
+      "startup": 72,
+      "order_manager": 64,
+      "fault": 17,
       "ml_governor": 9,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        364
+        369
       ],
       [
         "CG-000",
-        71
+        72
       ],
       [
         "OM-000",
-        61
+        63
       ],
       [
         "FT-020",
-        16
+        17
       ],
       [
         "ML-032",
@@ -81,28 +81,32 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.447,
+    "dominant_frac": 0.442,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 4100,
+    "records": 4265,
     "by_level": {
-      "INFO": 4057,
-      "WARNING": 28,
-      "ERROR": 14,
+      "INFO": 4217,
+      "WARNING": 30,
+      "ERROR": 17,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        16
+        17
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
         12
+      ],
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
+        4
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -114,10 +118,6 @@
       ],
       [
         "ws disconnect (no close frame received or sent); reconnecting in 1.6s (attempt 1)",
-        2
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
         2
       ],
       [
@@ -138,12 +138,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1432,
-      "thin": 676
+      "spoofy": 1474,
+      "thin": 703
     },
-    "spoofy_frac": 0.679,
-    "cycles_estimate": 832,
-    "feed_error_events": 14
+    "spoofy_frac": 0.677,
+    "cycles_estimate": 856,
+    "feed_error_events": 17
   },
   "model": {
     "monitor_level": 0,
@@ -151,7 +151,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.18867418679534387,
     "brier": "n/a",
-    "history_rows": 19,
+    "history_rows": 20,
     "cold": true
   },
   "postmortems": {
@@ -193,7 +193,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 45% of 159 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 44% of 163 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
