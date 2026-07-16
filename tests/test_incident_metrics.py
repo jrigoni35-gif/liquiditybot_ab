@@ -66,6 +66,20 @@ def test_collect_emits_fault_and_health_metrics(tmp_path):
     assert {"SZ", "PT", "FW"} <= prefixes
 
 
+def test_collect_emits_hardening_guard_counters(tmp_path):
+    # the exit-isolation + wedge-guard counters feed the incidents dashboard
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({
+        "written_at": 1_700_000_000.0,
+        "exit_eval_failures": 3, "cycle_consecutive_failures": 2}),
+        encoding="utf-8")
+    metrics = gp.collect(str(p))
+    assert _by_name(metrics, "liquiditybot_exit_eval_failures")[0][
+        "gauge"]["dataPoints"][0]["asDouble"] == 3.0
+    assert _by_name(metrics, "liquiditybot_cycle_consecutive_failures")[0][
+        "gauge"]["dataPoints"][0]["asDouble"] == 2.0
+
+
 def test_collect_handles_missing_fault_blocks(tmp_path):
     # a minimal/old status.json must never crash the pusher
     p = tmp_path / "status.json"
@@ -74,3 +88,5 @@ def test_collect_handles_missing_fault_blocks(tmp_path):
     names = _names(gp.collect(str(p)))
     assert "liquiditybot_halted" in names
     assert "liquiditybot_firewall_fault" in names       # graceful default
+    # the new counters are absent-safe (None -> not emitted, no crash)
+    assert "liquiditybot_exit_eval_failures" not in names

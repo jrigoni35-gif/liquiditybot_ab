@@ -74,7 +74,11 @@ def collect(status_path: str) -> list:
                    max(0.0, time.time() - ts), ts=time.time()))
     for key in ("equity", "daily_pnl", "drawdown_pct", "cycle",
                 "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
-                "fees_total", "realized_total", "equity_drift_pct"):
+                "fees_total", "realized_total", "equity_drift_pct",
+                # hardening guards (rising = a book position or the whole
+                # cycle is wedging its own escape path — see the incidents
+                # dashboard). Emitted as gauges; 0 in steady state.
+                "exit_eval_failures", "cycle_consecutive_failures"):
         v = s.get(key)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_{key}", v, ts=ts))

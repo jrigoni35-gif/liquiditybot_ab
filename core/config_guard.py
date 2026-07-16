@@ -90,6 +90,11 @@ def validate(config: dict) -> list:
               "slices must pace slower than the budget refills.")
 
     warn = lambda m: findings.append(("WARN", m))         # noqa: E731
+    # ADVISORY: a config-coherence/hygiene note where the bot still trades
+    # correctly (e.g. a phantom knob whose effective value differs). Logged at
+    # INFO by enforce(), so it stays OFF the WARNING+ incidents stream - a
+    # WARN there should mean a real operational concern, not a cosmetic note.
+    advisory = lambda m: findings.append(("ADVISORY", m))  # noqa: E731
 
     dry_run = bool(_f(config, "system.dry_run", True))
 
@@ -828,11 +833,12 @@ def validate(config: dict) -> list:
     except Exception:
         be = None
     if be is not None and mpw < be - 1e-6:
-        warn(f"position_sizer.min_p_win={mpw:.3f} is below the net-Kelly "
-             f"breakeven {be:.3f}, so the EFFECTIVE entry bar is {be:.3f} (the "
-             f"sizer floors Kelly at 0 below it, SZ-030) - the configured "
-             f"min_p_win is not the real minimum. Raise it to >= the breakeven "
-             f"to make the bar honest, or keep it as an intentional soft floor.")
+        advisory(
+            f"position_sizer.min_p_win={mpw:.3f} is below the net-Kelly "
+            f"breakeven {be:.3f}, so the EFFECTIVE entry bar is {be:.3f} (the "
+            f"sizer floors Kelly at 0 below it, SZ-030) - the configured "
+            f"min_p_win is not the real minimum. Raise it to >= the breakeven "
+            f"to make the bar honest, or keep it as an intentional soft floor.")
 
     return findings
 
@@ -844,8 +850,10 @@ def enforce(config: dict, alerts=None) -> list:
     findings = validate(config)
     dry_run = bool(_f(config, "system.dry_run", True))
     fatals = [m for s, m in findings if s == "FATAL"]
+    _levels = {"FATAL": log.critical, "WARN": log.warning,
+               "ADVISORY": log.info}
     for sev, msg in findings:
-        (log.critical if sev == "FATAL" else log.warning)(f"config: {msg}")
+        _levels.get(sev, log.warning)(f"config: {msg}")
     if fatals and alerts is not None:
         alerts.fire("config_fatal", f"{len(fatals)} fatal config finding(s); "
                     f"first: {fatals[0]}")

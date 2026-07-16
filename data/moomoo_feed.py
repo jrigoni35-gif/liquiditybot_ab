@@ -131,7 +131,7 @@ class MoomooFeed:
             return True
         if not self._probe_port():
             if not self._warned:
-                log.warning(f"moomoo OpenD unreachable at {self.host}:"
+                log.info(f"moomoo OpenD unreachable at {self.host}:"
                             f"{self.port} - running without it")
                 self._warned = True
             return False
@@ -168,7 +168,7 @@ class MoomooFeed:
                     # release our reference so background threads exit
                     pass
                 if not self._warned:
-                    log.warning(f"moomoo OpenD unreachable at {self.host}:"
+                    log.info(f"moomoo OpenD unreachable at {self.host}:"
                                 f"{self.port} - running without it")
                     self._warned = True
                 return False
@@ -181,12 +181,12 @@ class MoomooFeed:
             return True
         except ImportError:
             if not self._warned:
-                log.warning("moomoo feed enabled but moomoo-api not installed "
-                            "(pip install moomoo-api) - running without it")
+                log.info("moomoo feed enabled but moomoo-api not installed "
+                         "(pip install moomoo-api) - running without it")
                 self._warned = True
         except Exception as e:
             if not self._warned:
-                log.warning(f"moomoo OpenD unreachable at {self.host}:"
+                log.info(f"moomoo OpenD unreachable at {self.host}:"
                             f"{self.port} ({e}) - running without it")
                 self._warned = True
         return False

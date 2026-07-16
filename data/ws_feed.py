@@ -226,8 +226,14 @@ class ResilientWebSocket:
                 delay = _backoff_delay(attempt, self.backoff_base,
                                        self.backoff_cap, self._rng())
                 attempt += 1
-                log.warning("ws disconnect (%s); reconnecting in %.1fs "
-                            "(attempt %d)", e, delay, attempt)
+                # a single reconnect is transient and self-healing (attempt
+                # resets to 0 on a clean connect); only a SUSTAINED outage that
+                # is not recovering (>=3 consecutive failures) is an incident
+                # worth WARNING - below that it stays INFO, off the incidents
+                # stream, so a momentary blip does not read as a fault.
+                lvl = logging.WARNING if attempt >= 3 else logging.INFO
+                log.log(lvl, "ws disconnect (%s); reconnecting in %.1fs "
+                        "(attempt %d)", e, delay, attempt)
                 try:
                     await asyncio.wait_for(
                         _stoppable_sleep(self._stop, delay), timeout=delay + 1)

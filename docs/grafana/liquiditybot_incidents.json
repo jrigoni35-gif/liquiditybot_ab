@@ -1848,6 +1848,128 @@
         ]
       },
       {
+        "id": 33,
+        "type": "stat",
+        "title": "Exit-eval failures",
+        "description": "Cumulative per-position stop/tier evaluations that RAISED and were isolated (fast_cycle). >0 = a book position is wedging its own escape path \u2014 investigate that position.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 0,
+          "y": 46
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "textMode": "auto",
+          "wideLayout": true,
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
+            },
+            "expr": "max(liquiditybot_exit_eval_failures{job=\"liquiditybot\"})",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 34,
+        "type": "stat",
+        "title": "Cycle failures (streak)",
+        "description": "Consecutive whole-cycle (cycle_once) failures. At cycle_fail_halt (10) the runner latches a new-risk halt and alerts. Nonzero = the loop is degraded right now.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 8,
+          "y": 46
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "",
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "textMode": "auto",
+          "wideLayout": true,
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
+            },
+            "expr": "max(liquiditybot_cycle_consecutive_failures{job=\"liquiditybot\"})",
+            "instant": true
+          }
+        ]
+      },
+      {
         "id": 31,
         "type": "row",
         "title": "Live error log",
@@ -1856,7 +1978,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 46
+          "y": 50
         },
         "panels": []
       },
@@ -1872,7 +1994,7 @@
           "h": 10,
           "w": 24,
           "x": 0,
-          "y": 47
+          "y": 51
         },
         "options": {
           "showTime": true,
