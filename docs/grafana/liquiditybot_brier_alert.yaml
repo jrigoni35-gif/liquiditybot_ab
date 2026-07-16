@@ -1,0 +1,72 @@
+# Grafana alert rule — "model predictions have gone bad" (OUTCOME side).
+#
+# Companion to liquiditybot_drift_alert.yaml. Those two cover the two INDEPENDENT
+# ways the model can fail:
+#
+#   * drift alert  — the INPUTS shifted (feature drift) while the governor degraded
+#   * THIS alert   — the OUTPUTS rotted: the deployed model's rolling Brier score
+#                    rose ABOVE its base-rate baseline by the governor's kill margin
+#
+# Predictions can rot with perfectly stable inputs (concept drift, regime the
+# model mis-reads), and inputs can drift while predictions still hold — so neither
+# alert subsumes the other.
+#
+# Fires when, continuously for 15 minutes:
+#
+#     liquiditybot_ml_brier - liquiditybot_ml_baseline_brier  > 0.03
+#
+# 0.03 = 3 x brier_margin (config default 0.01), which is the governor's "failing"
+# line in ml/monitor.py — the point where it kills the model (level -> 2). Below
+# that it only shrinks Kelly (self-correcting), which is not worth a ping. Both
+# metrics exist ONLY once >=15 trades are judgeable, so before then the query
+# returns no data and the alert stays OK — it never fires on an unjudgeable model.
+#
+# Apply + contact point: same as the drift alert (see liquiditybot_drift_alert.yaml
+# header). This file defines the RULE; attach a contact point via a notification
+# policy matching severity=warning.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: liquiditybot-ml
+    folder: liquiditybot
+    interval: 1m
+    rules:
+      - uid: lb-brier-degraded
+        title: Model Brier worse than baseline (predictions degraded)
+        condition: C
+        for: 15m                       # rolling-window Brier is already smoothed; 15m rejects a lone bad scrape
+        noDataState: OK                # too few judgeable trades = not this alert's job
+        execErrState: OK
+        labels:
+          severity: warning
+          service: liquiditybot
+        annotations:
+          summary: >-
+            The deployed model's rolling Brier has stayed more than 0.03 above its
+            base-rate baseline for 15m — its probability estimates are now worse
+            than a naive base-rate guess and the governor has moved to kill it.
+            Check the retrain history and whether a fresh champion is deploying.
+        data:
+          - refId: A                   # deployed-model rolling Brier
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: false
+              expr: max(liquiditybot_ml_brier{job="liquiditybot"})
+          - refId: B                   # base-rate baseline Brier
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: B
+              instant: false
+              expr: max(liquiditybot_ml_baseline_brier{job="liquiditybot"})
+          - refId: RA
+            datasourceUid: __expr__
+            model: {refId: RA, type: reduce, reducer: last, expression: A}
+          - refId: RB
+            datasourceUid: __expr__
+            model: {refId: RB, type: reduce, reducer: last, expression: B}
+          - refId: C                   # fire when brier exceeds baseline by the kill margin
+            datasourceUid: __expr__
+            model: {refId: C, type: math, expression: "$RA - $RB > 0.03"}

@@ -136,6 +136,18 @@ def collect(status_path: str) -> list:
     # WHILE monitor_level rises is the real signal (see the incidents alert rule).
     if isinstance(mon.get("drift_share"), (int, float)):
         m.append(gauge("liquiditybot_ml_drift_share", mon["drift_share"], ts=ts))
+    # outcome-side model health — present ONLY when the judge window is full
+    # (>= min_trades_to_judge closed trades on the DEPLOYED model). The rolling
+    # Brier vs its base-rate baseline is the "are the predictions any good"
+    # signal: brier - baseline_brier > 3*brier_margin is the governor's failing
+    # (kill) line, which the outcome alert rule keys on. Absent = not yet
+    # judgeable (too few outcomes) -> no metric -> alert stays OK, never a false
+    # ping. This is INDEPENDENT of input drift: predictions can rot with stable
+    # inputs, and inputs can drift while predictions still hold.
+    for k in ("brier", "baseline_brier", "calibration_gap", "window_trades"):
+        v = mon.get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
     # ML fault counters (fallbacks/inference faults/contract breaches/SMC
     # degrades/retrain failures) — rising = a subsystem quietly dying
     for k in ("model_fallbacks", "infer_faults", "contract_failed",

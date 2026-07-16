@@ -1506,6 +1506,121 @@
       ]
     },
     {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Model Brier vs baseline",
+      "description": "OUTCOME side: the DEPLOYED model's rolling Brier (lower=better) vs the base-rate baseline, on the last window of closed trades. brier ABOVE baseline = predictions worse than a naive base-rate guess. Only present once >=15 trades are judgeable. The alert fires when brier - baseline > 0.03 (the governor's kill line) holds for 15m. Independent of input drift.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 4,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "showPoints": "auto",
+            "pointSize": 5,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baseline (base-rate)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "model brier"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_brier{job=\"liquiditybot\"})",
+          "legendFormat": "model brier"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_baseline_brier{job=\"liquiditybot\"})",
+          "legendFormat": "baseline (base-rate)"
+        }
+      ]
+    },
+    {
       "id": 19,
       "type": "row",
       "title": "Execution & risk rejects",
@@ -1514,7 +1629,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 30
       },
       "panels": []
     },
@@ -1531,7 +1646,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 25
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1595,7 +1710,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 25
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1668,7 +1783,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 25
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1729,7 +1844,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 39
       },
       "panels": []
     },
@@ -1746,7 +1861,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -1810,7 +1925,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -1853,7 +1968,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 48
       },
       "panels": []
     },
@@ -1870,7 +1985,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 43
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -1943,7 +2058,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 43
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -2043,7 +2158,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 43
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -2104,7 +2219,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 47
+        "y": 53
       },
       "fieldConfig": {
         "defaults": {
@@ -2165,7 +2280,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 51
+        "y": 57
       },
       "fieldConfig": {
         "defaults": {
@@ -2226,7 +2341,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 51
+        "y": 57
       },
       "fieldConfig": {
         "defaults": {
@@ -2283,7 +2398,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 61
       },
       "panels": []
     },
@@ -2299,7 +2414,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 56
+        "y": 62
       },
       "options": {
         "showTime": true,

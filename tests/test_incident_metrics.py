@@ -23,7 +23,9 @@ def test_collect_emits_fault_and_health_metrics(tmp_path):
     status = {
         "written_at": 1_700_000_000.0,
         "halted": False, "entries_enabled": True, "audit_dropped_writes": 0,
-        "monitor": {"level": 1, "drift_share": 0.42},
+        "monitor": {"level": 1, "drift_share": 0.42, "brier": 0.31,
+                    "baseline_brier": 0.24, "calibration_gap": 0.09,
+                    "window_trades": 22},
         "ml": {"model_fallbacks": 7, "infer_faults": 2, "contract_failed": 0,
                "smc_faults": 1, "retrain_failures": 3, "history_rows": 268},
         "moomoo": {"options_available": True, "available": True},
@@ -42,6 +44,8 @@ def test_collect_emits_fault_and_health_metrics(tmp_path):
     for expect in ("liquiditybot_halted", "liquiditybot_entries_enabled",
                    "liquiditybot_monitor_level",
                    "liquiditybot_ml_drift_share",
+                   "liquiditybot_ml_brier",
+                   "liquiditybot_ml_baseline_brier",
                    "liquiditybot_ml_model_fallbacks",
                    "liquiditybot_ml_retrain_failures",
                    "liquiditybot_audit_dropped_writes",
@@ -58,6 +62,13 @@ def test_collect_emits_fault_and_health_metrics(tmp_path):
 
     drift = _by_name(metrics, "liquiditybot_ml_drift_share")[0]
     assert drift["gauge"]["dataPoints"][0]["asDouble"] == 0.42
+
+    # outcome side: brier + baseline both present when the window is full, so
+    # the alert can compute brier - baseline (predictions worse than base rate)
+    brier = _by_name(metrics, "liquiditybot_ml_brier")[0]
+    assert brier["gauge"]["dataPoints"][0]["asDouble"] == 0.31
+    base = _by_name(metrics, "liquiditybot_ml_baseline_brier")[0]
+    assert base["gauge"]["dataPoints"][0]["asDouble"] == 0.24
 
     codes = {dp["attributes"][0]["value"]["stringValue"]
              for m in _by_name(metrics, "liquiditybot_firewall_count")
@@ -94,3 +105,6 @@ def test_collect_handles_missing_fault_blocks(tmp_path):
     assert "liquiditybot_firewall_fault" in names       # graceful default
     # the new counters are absent-safe (None -> not emitted, no crash)
     assert "liquiditybot_exit_eval_failures" not in names
+    # brier is only pushed when the judge window is full; a status with no
+    # monitor block must NOT emit it (so the outcome alert stays OK, not firing)
+    assert "liquiditybot_ml_brier" not in names
