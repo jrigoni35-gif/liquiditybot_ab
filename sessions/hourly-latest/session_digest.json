@@ -1,22 +1,22 @@
 {
-  "generated_at": 1784234769.1472788,
+  "generated_at": 1784236571.3555248,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784234739.542,
-    "duration_h": 82.21
+    "end": 1784236563.0,
+    "duration_h": 82.72
   },
   "pnl": {
-    "starting_capital": 800.0,
+    "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 800.56,
+    "equity_end": 4999.98,
     "equity_min": 798.74,
-    "equity_max": 800.99,
-    "equity_range": 2.25,
-    "realized_pnl_total": 0.66,
-    "fees_paid_total": 2.3333,
+    "equity_max": 5000.01,
+    "equity_range": 4201.27,
+    "realized_pnl_total": 0.0,
+    "fees_paid_total": 0.0,
     "open_positions": 5,
-    "samples": 8656
+    "samples": 8772
   },
   "activity": {
     "signal_rows_total": 370,
@@ -24,14 +24,14 @@
     "candidate_rows": 351
   },
   "audit": {
-    "records": 508,
-    "signal_records": 144,
+    "records": 512,
+    "signal_records": 148,
     "by_src": {
       "exploration": 364,
-      "startup": 64,
+      "startup": 66,
       "order_manager": 61,
+      "fault": 11,
       "ml_governor": 9,
-      "fault": 9,
       "engine": 1
     },
     "top_codes": [
@@ -41,7 +41,7 @@
       ],
       [
         "CG-000",
-        64
+        66
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        9
+        11
       ],
       [
         "ML-032",
@@ -77,24 +77,24 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.444,
+    "dominant_frac": 0.446,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 3223,
+    "records": 3518,
     "by_level": {
-      "INFO": 3194,
-      "WARNING": 20,
+      "INFO": 3486,
+      "WARNING": 23,
       "ERROR": 8,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        9
+        11
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
@@ -127,14 +127,18 @@
       [
         "another runner is already driving outputs/ (pid=1467, heartbeat 20s ago) - refusing to start a duplicate. Stop it first (stop.bat) or wait f",
         1
+      ],
+      [
+        "control: stop  -> ok (runner=RUNNING)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1213,
-      "thin": 525
+      "spoofy": 1317,
+      "thin": 557
     },
-    "spoofy_frac": 0.698,
-    "cycles_estimate": 685,
+    "spoofy_frac": 0.703,
+    "cycles_estimate": 742,
     "feed_error_events": 8
   },
   "model": {
@@ -185,7 +189,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 44% of 144 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 45% of 148 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
