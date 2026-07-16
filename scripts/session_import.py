@@ -111,11 +111,33 @@ def run(src: str, outputs: str, apply: bool) -> int:
     if hist_src.exists():
         b_header, b_lines = _read_rows(hist_src)
         if b_header != expected:
-            print(f"SCHEMA MISMATCH: bundle history has "
-                  f"{len(b_header)} cols, this checkout expects "
-                  f"{len(expected)}. Route it through "
-                  f"scripts/migrate_history.py first.")
-            return 3
+            # Features are only ever ADDED to the schema over time, so an OLDER
+            # bundle is strictly NARROWER. Migrate those UP (pad new features
+            # with documented neutrals, derive side-relative from absolute)
+            # instead of stranding the whole bundle's learning — the same
+            # transform migrate_history.py applies to the local file, run inline
+            # to close the leak where every feature-schema bump orphaned the
+            # entire backup chain. A same-width-different or WIDER header is a
+            # newer/unknown schema whose column MEANINGS may have drifted; we
+            # can't safely reconcile that, so it still refuses (never silently
+            # drop columns). A narrower-but-unmappable file (missing meta
+            # columns) also refuses — migrate_rows raises SystemExit for those.
+            if len(b_header) >= len(expected):
+                print(f"SCHEMA MISMATCH: bundle history has {len(b_header)} "
+                      f"cols vs {len(expected)} (not an older schema) - "
+                      f"refusing, cannot safely down-migrate a newer schema")
+                return 3
+            try:
+                from scripts.migrate_history import migrate_rows
+                migrated, padded = migrate_rows(str(hist_src))
+            except SystemExit as e:
+                print(f"SCHEMA MISMATCH: bundle history not migratable "
+                      f"({e}) - refusing")
+                return 3
+            print(f"  migrated bundle history {len(b_header)} -> "
+                  f"{len(expected)} cols (padded {len(padded)} new feature(s))")
+            b_header = list(expected)
+            b_lines = [",".join(str(c) for c in row) for row in migrated]
         dest_hist = out / "signal_history.csv"
         seen = set()
         if dest_hist.exists():

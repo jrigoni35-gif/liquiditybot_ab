@@ -82,8 +82,13 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                 feats.append(f"{float(r[DIR_DERIVED[n]]) * sign:.6f}")
             else:
                 feats.append(f"{float(KNOWN_NEUTRAL.get(n, 0.0)):.6f}")
+        # signal_ts joined the schema after this script was written; emit it so
+        # migrated rows are the FULL current width (else they land one column
+        # short and the purged walk-forward's time ordering falls back to ts).
+        # Pre-signal_ts bundles have no such column -> fall back to ts.
         out.append([r["position_id"], r["asset"], r["side"], *feats,
-                    r["label"], r["net_pnl_usd"], r["source"], r["ts"]])
+                    r["label"], r["net_pnl_usd"], r["source"], r["ts"],
+                    r.get("signal_ts") or r["ts"]])
     return out, padded
 
 
