@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784215812.7054398,
+  "generated_at": 1784217614.8700483,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784214102.987,
-    "duration_h": 76.48
+    "end": 1784217601.117,
+    "duration_h": 77.45
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7805
+    "samples": 7923
   },
   "activity": {
     "signal_rows_total": 358,
@@ -24,27 +24,28 @@
     "candidate_rows": 339
   },
   "audit": {
-    "records": 447,
-    "signal_records": 121,
+    "records": 455,
+    "signal_records": 123,
     "by_src": {
-      "exploration": 326,
+      "exploration": 332,
+      "startup": 56,
       "order_manager": 56,
-      "startup": 55,
       "ml_governor": 9,
-      "engine": 1
+      "engine": 1,
+      "fault": 1
     },
     "top_codes": [
       [
         "ML-070",
-        326
+        332
+      ],
+      [
+        "CG-000",
+        56
       ],
       [
         "OM-000",
         56
-      ],
-      [
-        "CG-000",
-        55
       ],
       [
         "ML-032",
@@ -69,20 +70,24 @@
       [
         "ML-031",
         1
+      ],
+      [
+        "FT-020",
+        1
       ]
     ],
-    "dominant_code": "OM-000",
-    "dominant_frac": 0.463,
+    "dominant_code": "CG-000",
+    "dominant_frac": 0.455,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 1178,
+    "records": 1421,
     "by_level": {
-      "INFO": 1165,
-      "WARNING": 11,
+      "INFO": 1407,
+      "WARNING": 12,
       "ERROR": 2
     },
     "top_warnings": [
@@ -113,14 +118,18 @@
       [
         "ws disconnect ([Errno 111] Connect call failed ('127.0.0.1', 44903)); reconnecting in 2.5s (attempt 2)",
         1
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 497,
-      "thin": 172
+      "spoofy": 594,
+      "thin": 216
     },
-    "spoofy_frac": 0.743,
-    "cycles_estimate": 261,
+    "spoofy_frac": 0.733,
+    "cycles_estimate": 320,
     "feed_error_events": 2
   },
   "model": {
@@ -165,13 +174,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 74% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 73% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 46% of 121 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 46% of 123 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
