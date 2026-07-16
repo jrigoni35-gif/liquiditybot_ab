@@ -50,6 +50,11 @@ def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
     tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, default=str)
+        # fsync the tmp before the rename publishes it: without this a power
+        # loss can leave the destination (status.json, or runner.lock) torn or
+        # zero-length, and a restart then reads runner.lock as "no owner".
+        f.flush()
+        os.fsync(f.fileno())
     # Windows: os.replace raises PermissionError (WinError 5) when a READER
     # (the dashboard or a monitor) has the destination open - the file lock is
     # transient (readers hold it for microseconds), so retry with a short
@@ -86,10 +91,21 @@ class JsonlLogHandler(logging.Handler):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.max_bytes = max_bytes
 
-    def emit(self, record: logging.LogRecord):
+    def _maybe_rotate(self):
+        # rotation is check-then-rename and NOT cross-process atomic; if a
+        # reader or a second writer races the rename it can raise. Isolate it
+        # in its own guard so a rotation race can never lose the LOG LINE the
+        # emit() below is about to write (the old inline rename put the whole
+        # emit into handleError on any rotation error).
         try:
             if self.path.exists() and self.path.stat().st_size > self.max_bytes:
                 self.path.replace(self.path.with_suffix(".jsonl.1"))
+        except OSError:
+            pass
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            self._maybe_rotate()
             payload = {
                 "ts": round(record.created, 3),
                 "level": record.levelname,

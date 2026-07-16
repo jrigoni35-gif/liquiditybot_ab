@@ -231,8 +231,12 @@ class StateStore:
         # integrity seal: checksum over the payload, so a torn or
         # bit-rotted file is DETECTED at load instead of silently
         # restoring a corrupt book
+        # seal a COPY, never the caller's dict: mutating `data` in place (the
+        # old `data["_sha256"] = ...`) leaves a stale seal on any dict a caller
+        # reuses across calls, which then fails its own checksum. snapshot()
+        # builds a fresh dict today, but the copy makes that a non-hazard.
         body = json.dumps(data, sort_keys=True)
-        data["_sha256"] = hashlib.sha256(body.encode()).hexdigest()
+        data = {**data, "_sha256": hashlib.sha256(body.encode()).hexdigest()}
         # PID-scoped tmp: a fixed shared "state.tmp" lets two runners (the
         # single-instance-lock convergence window) truncate/rename the SAME
         # tmp and clobber each other's snapshot — the torn write that
@@ -252,6 +256,19 @@ class StateStore:
                 except OSError:
                     log.debug("bak rotation failed - continuing")
             os.replace(tmp, self.path)
+            # fsync the DIRECTORY so the rename itself is durable: a power loss
+            # right after os.replace can otherwise lose the directory entry and
+            # leave no primary (the .bak + checksum fallback covers it, but the
+            # dir fsync closes the window). Best-effort - a dir fd fsync is not
+            # supported on every platform (e.g. Windows), so never fatal.
+            try:
+                dfd = os.open(str(self.path.parent), os.O_RDONLY)
+                try:
+                    os.fsync(dfd)
+                finally:
+                    os.close(dfd)
+            except (OSError, ValueError):
+                pass
             return True
         finally:
             Path(tmp).unlink(missing_ok=True)   # no-op on success (renamed away)
