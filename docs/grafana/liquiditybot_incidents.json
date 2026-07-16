@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-incidents",
-  "title": "liquiditybot \u2014 incidents",
-  "description": "Faults, rejects and self-heal signals for the liquiditybot paper-trading engine. Complementary to 'liquiditybot \u2014 control'.",
+  "title": "liquiditybot — incidents",
+  "description": "Faults, rejects and self-heal signals for the liquiditybot paper-trading engine. Complementary to 'liquiditybot — control'.",
   "tags": [
     "liquiditybot",
     "faults",
@@ -41,7 +41,7 @@
       "id": 36,
       "type": "stat",
       "title": "Op-state",
-      "description": "Central fault authority (core/fault.py). 0 ARMED nominal \u00b7 1 DEGRADED no-new-risk \u00b7 2 HALTED flatten-and-stop. -1 UNKNOWN = the field is absent (old runner). Exits ALWAYS run regardless.",
+      "description": "Central fault authority (core/fault.py). 0 ARMED nominal · 1 DEGRADED no-new-risk · 2 HALTED flatten-and-stop. -1 UNKNOWN = the field is absent (old runner). Exits ALWAYS run regardless.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1185,7 +1185,7 @@
     {
       "id": 15,
       "type": "row",
-      "title": "ML faults (cumulative \u2014 rising = a subsystem dying)",
+      "title": "ML faults (cumulative — rising = a subsystem dying)",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1426,6 +1426,86 @@
       ]
     },
     {
+      "id": 39,
+      "type": "timeseries",
+      "title": "Feature drift share",
+      "description": "Fraction of MARKET features past PSI 0.25 (clock/counter features excluded). Transient blips self-heal via auto-retrain; the alert rule only pings when this stays >0.30 for 30m WHILE the governor kill-switch (monitor_level) is degraded/killed. The 0.30 line is the retrain-vote threshold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "pointSize": 5,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_drift_share{job=\"liquiditybot\"})",
+          "legendFormat": "drift share"
+        }
+      ]
+    },
+    {
       "id": 19,
       "type": "row",
       "title": "Execution & risk rejects",
@@ -1657,7 +1737,7 @@
       "id": 24,
       "type": "timeseries",
       "title": "Code emissions by family",
-      "description": "cumulative count of every reason code by prefix \u2014 SZ sizer, PT pre-trade, RP risk-protocol, FW firewall, OM orders, ML, VN, TH. A jump in RP = budget/heat exhaustion stopping entries.",
+      "description": "cumulative count of every reason code by prefix — SZ sizer, PT pre-trade, RP risk-protocol, FW firewall, OM orders, ML, VN, TH. A jump in RP = budget/heat exhaustion stopping entries.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2076,7 +2156,7 @@
       "id": 33,
       "type": "stat",
       "title": "Exit-eval failures",
-      "description": "Cumulative per-position stop/tier evaluations that RAISED and were isolated (fast_cycle). >0 = a book position is wedging its own escape path \u2014 investigate that position.",
+      "description": "Cumulative per-position stop/tier evaluations that RAISED and were isolated (fast_cycle). >0 = a book position is wedging its own escape path — investigate that position.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"

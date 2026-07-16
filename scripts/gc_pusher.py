@@ -131,6 +131,11 @@ def collect(status_path: str) -> list:
     mon = s.get("monitor") or {}
     if isinstance(mon.get("level"), (int, float)):
         m.append(gauge("liquiditybot_monitor_level", mon["level"], ts=ts))
+    # input feature-drift share (0..1): fraction of MARKET features past the PSI
+    # threshold. Transient blips self-heal via auto-retrain; a value pinned high
+    # WHILE monitor_level rises is the real signal (see the incidents alert rule).
+    if isinstance(mon.get("drift_share"), (int, float)):
+        m.append(gauge("liquiditybot_ml_drift_share", mon["drift_share"], ts=ts))
     # ML fault counters (fallbacks/inference faults/contract breaches/SMC
     # degrades/retrain failures) — rising = a subsystem quietly dying
     for k in ("model_fallbacks", "infer_faults", "contract_failed",

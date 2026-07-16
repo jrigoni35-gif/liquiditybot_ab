@@ -1,0 +1,69 @@
+# Grafana alert rule — "ML drift stuck high while the governor is degraded".
+#
+# Purpose: a TRANSIENT feature-drift blip (like ML-031 firing then clearing in
+# minutes) must stay SILENT — the auto-retrain absorbs it. This rule pings ONLY
+# when both hold together, continuously, for 30 minutes:
+#
+#     liquiditybot_ml_drift_share  > 0.30      (drift stays past the retrain-vote bar)
+#   AND liquiditybot_monitor_level  > 0         (the ML kill-switch has actually degraded)
+#
+# i.e. the model is stuck on a regime it can't refit AND outcomes are hurting —
+# not a passing regime shift. Both metrics are exported by scripts/gc_pusher.py.
+#
+# ── How to apply (Grafana Cloud) ────────────────────────────────────────────
+# Option A (phone/UI, easiest): Alerting → Alert rules → New alert rule, and
+#   reproduce the queries/expressions/threshold/duration below (steps in
+#   docs/grafana/README or the chat message that shipped this).
+# Option B (API/IaC): POST each rule to the alerting provisioning API, or import
+#   this file via grafana/grizzly / Terraform. datasourceUid grafanacloud-prom
+#   is the built-in Grafana Cloud Prometheus (confirmed live).
+#
+# The CONTACT POINT (where the ping goes — email / mobile push / etc.) is your
+# choice; attach it via a notification policy matching label severity=warning,
+# or set it as this rule's contact point in the UI. This file defines the RULE,
+# not where it notifies.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: liquiditybot-ml
+    folder: liquiditybot
+    interval: 1m                       # evaluate every minute
+    rules:
+      - uid: lb-drift-stuck
+        title: ML feature-drift stuck high while governor degraded
+        condition: C
+        for: 30m                       # must hold continuously for 30 min before firing
+        noDataState: OK                # no samples (bot/pusher down) is NOT this alert's job
+        execErrState: OK
+        labels:
+          severity: warning
+          service: liquiditybot
+        annotations:
+          summary: >-
+            Feature drift has stayed above 30% for 30m while the ML governor is
+            degraded/killed. The model may be stuck on a regime it cannot refit —
+            check Brier trend and retrain history on the incidents dashboard.
+        data:
+          - refId: A                   # drift share, last 10 min
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: false
+              expr: max(liquiditybot_ml_drift_share{job="liquiditybot"})
+          - refId: B                   # governor kill-switch level, last 10 min
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: B
+              instant: false
+              expr: max(liquiditybot_monitor_level{job="liquiditybot"})
+          - refId: RA                  # reduce drift to its latest value
+            datasourceUid: __expr__
+            model: {refId: RA, type: reduce, reducer: last, expression: A}
+          - refId: RB                  # reduce level to its latest value
+            datasourceUid: __expr__
+            model: {refId: RB, type: reduce, reducer: last, expression: B}
+          - refId: C                   # fire when BOTH conditions hold (1) else 0
+            datasourceUid: __expr__
+            model: {refId: C, type: math, expression: "$RA > 0.3 && $RB > 0"}
