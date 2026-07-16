@@ -29,6 +29,7 @@ create, veto, or flip a trade.
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import time
@@ -186,6 +187,13 @@ def manip_entry_scale(score: float, downsize_at: float, veto_at: float,
     less liquidity we post into it). >= veto_at: None — refuse the entry, so
     a bigger fish can't spoof us into adding liquidity it then scalps. Pure
     and parameter-free beyond the configured band; EXITS never call this."""
+    # a non-finite score (a NaN leaking up from spoof/whiplash) must not
+    # propagate: NaN>=veto and NaN<downsize are both False, so it would fall
+    # into the taper and return NaN, which the sizer's _fin guard then
+    # substitutes with 1.0 — silently discarding kelly_mult/explore_scale and
+    # UP-sizing the entry (review A1-F3). Treat unknown suspicion as none.
+    if not math.isfinite(score):
+        return 1.0
     if score >= veto_at:
         return None
     if score < downsize_at:
@@ -1183,17 +1191,28 @@ class LiquidityBot:
         # price that never held or has gone dark. Skip that asset until its mark
         # is trusted again; a real breach re-fires on the confirmed fresh tick.
         # Isolated from the stop loop AND the hedge block: a derisk failure
-        # must not skip hedging or wedge the cycle.
+        # must not skip hedging or wedge the cycle. The action LIST is built
+        # under a guard (a bad generator can't skip hedging), and EACH action
+        # is isolated too (review A1-F4) so one position erroring on its forced
+        # reduction can't starve the OTHER positions' derisk this cycle — the
+        # same per-position isolation the protective-stop loop already has.
         try:
-            for act in self.inventory.derisk_actions(
-                    self.state, self.marks, equity, macro_states, now):
+            derisk_actions = list(self.inventory.derisk_actions(
+                self.state, self.marks, equity, macro_states, now))
+        except Exception:
+            derisk_actions = []
+            self._exit_eval_failures += 1
+            log.exception("inventory derisk_actions() raised - hedging still runs")
+        for act in derisk_actions:
+            try:
                 pos = self.state.get_position(act.position_id)
                 if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
                         and self._mark_fresh(pos.symbol, now):
                     self._submit_exit(pos, act.close_pct, act.reason, now=now)
-        except Exception:
-            self._exit_eval_failures += 1
-            log.exception("inventory derisk pass raised - hedging still runs")
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("derisk action raised - other positions still "
+                              "derisked this cycle")
 
         # 4) hedging
         self._run_hedge_pass(now, equity)

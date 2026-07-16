@@ -26,6 +26,8 @@ def _wedge_runner(halt_at, with_fault=True):
     r._cycle_fail_streak = 0
     r._cycle_fail_halt = halt_at
     r._wedge_alerted = False
+    r._wedge_latched = False
+    r._recover_streak = 0
     fm = None
     if with_fault:
         fm = FaultManager()
@@ -42,17 +44,17 @@ def test_wedge_latches_fault_to_halted_but_never_blocks_exits():
     r._note_cycle_failure()
     r._note_cycle_failure()                     # crosses the wedge threshold
     assert fm.state is OpState.HALTED
-    assert fm.allow_new_risk() is False         # NEW risk refused
+    assert fm.allow_new_risk() is False         # NEW risk refused via the FM
     assert fm.allow_exits() is True             # exits ALWAYS allowed
     assert "cycle_wedged" in fm.status()["faults"]
-    assert r.bot._halted is True
+    assert r.bot._halted is False               # wedge uses the FM, not _halted
 
 
-def test_wedge_on_a_bot_without_a_fault_manager_still_halts():
+def test_wedge_on_a_bot_without_a_fault_manager_does_not_crash():
     # an older/duck-typed bot without .fault must not crash the wedge path
     r, fm = _wedge_runner(halt_at=1, with_fault=False)
     r._note_cycle_failure()
-    assert fm is None and r.bot._halted is True
+    assert fm is None and r.bot._halted is False   # never touches _halted
 
 
 # --- engine constructs + arms a fault manager -------------------------------

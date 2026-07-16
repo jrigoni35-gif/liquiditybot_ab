@@ -69,6 +69,14 @@ def test_scale_never_leaves_min_scale_to_one():
             assert _M <= s <= 1.0
 
 
+def test_nan_score_returns_full_size_not_nan():
+    # a NaN score (leaking up from spoof/whiplash) must NOT propagate a NaN
+    # scale that the sizer then substitutes with 1.0, silently up-sizing the
+    # entry (review A1-F3). Treat unknown suspicion as no downsize.
+    s = manip_entry_scale(float("nan"), _D, _V, _M)
+    assert s == 1.0
+
+
 def test_degenerate_span_never_divides_by_zero():
     # veto == downsize: no linear region; any score in-band saturates but the
     # 1e-9 span floor keeps it finite (config_guard FATALs this combo anyway)

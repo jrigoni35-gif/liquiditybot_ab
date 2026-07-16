@@ -116,3 +116,23 @@ def test_all_positions_managed_when_none_raise():
     b._submit_exit = lambda pos, pct, reason, **k: exits.append(pos.position_id)
     b.fast_cycle(1000.0)
     assert sorted(exits) == ["p1", "p2"] and b._exit_eval_failures == 0
+
+
+def test_one_raising_derisk_action_does_not_starve_the_others():
+    # review A1-F4: each inventory-derisk action is isolated too, so one
+    # position erroring on its forced reduction can't skip the rest.
+    b = _bot()
+    _add_pos(b, "d1", 1600.0)                 # stops well below mark 1900 (won't fire)
+    _add_pos(b, "d2", 1600.0)
+    b.inventory.derisk_actions = lambda *a, **k: [
+        types.SimpleNamespace(position_id="d1", close_pct=50.0, reason="derisk"),
+        types.SimpleNamespace(position_id="d2", close_pct=50.0, reason="derisk")]
+    exits = []
+
+    def submit(pos, pct, reason, **k):
+        if pos.position_id == "d1":
+            raise RuntimeError("derisk blow-up")
+        exits.append(pos.position_id)
+    b._submit_exit = submit
+    b.fast_cycle(1000.0)
+    assert exits == ["d2"] and b._exit_eval_failures >= 1

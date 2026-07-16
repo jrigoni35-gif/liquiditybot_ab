@@ -98,6 +98,8 @@ class BotRunner:
         self._cycle_fail_halt = int(
             config.get("system", {}).get("cycle_fail_halt", 10))
         self._wedge_alerted = False
+        self._wedge_latched = False     # cycle_wedged fault currently latched
+        self._recover_streak = 0        # consecutive healthy cycles since a wedge
 
     # ------------------------------------------------------------------
     def handle_command(self, c: dict):
@@ -130,6 +132,24 @@ class BotRunner:
         elif cmd == "disarm_live":
             bot.live_armed = False
             note = "live trading disarmed (exits still allowed)"
+        elif cmd == "clear_fault":
+            # operator override for the fault authority: name the fault to
+            # clear (FaultManager requires an explicit key — "clear everything"
+            # is deliberately not offered). Re-enables new risk if it was the
+            # last fault. The wedge also auto-recovers on a healthy streak.
+            fm = getattr(bot, "fault", None)
+            key = args.get("key", "")
+            if fm is None:
+                note = "no fault authority"
+            elif not key:
+                note = f"REFUSED: name the fault to clear ({fm.status()['faults']})"
+            else:
+                cleared = fm.clear_fault(key, operator="control")
+                if key == "cycle_wedged":
+                    self._wedge_latched = False
+                    self._recover_streak = 0
+                note = (f"fault {key} cleared -> op-state {fm.status()['state']}"
+                        if cleared else f"no such fault {key!r}")
         elif cmd == "force_dry":
             # one-way, safe-direction only: LIVE -> DRY. There is no
             # command that sets dry_run False; returning to live requires
@@ -361,40 +381,60 @@ class BotRunner:
 
     # ------------------------------------------------------------------
     def _note_cycle_ok(self):
-        """A clean cycle pass clears the wedge streak and re-arms the alert.
-        The new-risk halt itself is a LATCH — cleared by an operator resume,
-        never silently by one lucky cycle."""
+        """A clean cycle_once clears the failure streak. If a wedge was latched,
+        require a SUSTAINED healthy streak (cycle_fail_halt successes) before
+        auto-clearing it — enough to ride out a flapping feed without resuming
+        risk on one lucky cycle. (review A1-F1: the wedge must be RECOVERABLE,
+        not a permanent strand.)"""
         self._cycle_fail_streak = 0
         self._wedge_alerted = False
+        if self._wedge_latched:
+            self._recover_streak += 1
+            if self._recover_streak >= self._cycle_fail_halt:
+                self._wedge_latched = False
+                self._recover_streak = 0
+                fm = getattr(self.bot, "fault", None)
+                if fm is not None:
+                    try:
+                        fm.clear_fault("cycle_wedged", operator="auto-recover")
+                    except Exception:
+                        log.exception("wedge fault-clear failed")
+                log.warning("cycle wedge cleared after %d healthy cycles - "
+                            "new risk re-enabled", self._cycle_fail_halt)
 
     def _note_cycle_failure(self) -> int:
-        """One whole-cycle failure. At cycle_fail_halt consecutive failures,
-        latch a NEW-RISK halt (exits still run every cycle — invariant #5) and
-        fire ONE loud alert. Never auto-flatten (a transient feed outage must
-        not dump the book) nor self-terminate (a deterministic fault would
-        relaunch-storm). Returns the current streak for the caller's log."""
+        """One cycle_once failure. At cycle_fail_halt consecutive failures,
+        latch a CRITICAL fault ('cycle_wedged') in the fault authority — which
+        refuses NEW risk (op-state HALTED) while exits keep running every cycle
+        (invariant #5) — and fire ONE loud alert. We DON'T touch bot._halted:
+        that flag is the persisted CATASTROPHE latch; the wedge uses the
+        process-scoped, RECOVERABLE fault instead, so a transient feed blip
+        self-heals (healthy streak, or a restart re-arms the FM) rather than
+        stranding the bot after a restart. Never auto-flatten / self-terminate.
+        Returns the streak for the caller's log."""
         self._cycle_fail_streak += 1
+        self._recover_streak = 0
         if self._cycle_fail_streak >= self._cycle_fail_halt \
                 and not self._wedge_alerted:
             self._wedge_alerted = True
-            self.bot._halted = True
+            self._wedge_latched = True
             fm = getattr(self.bot, "fault", None)
             if fm is not None:
                 try:
                     from core.fault import Severity
                     fm.latch("cycle_wedged", Severity.CRITICAL,
                              f"cycle_once raised {self._cycle_fail_streak}x "
-                             f"consecutively - flatten-and-stop posture")
+                             f"consecutively - new risk refused until it recovers")
                 except Exception:
-                    log.exception("wedge fault-latch failed - halt still set")
+                    log.exception("wedge fault-latch failed")
             try:
                 self.bot.alerts.fire(
                     "runner_wedged",
                     f"cycle_once raised {self._cycle_fail_streak} times in a "
-                    f"row - halting NEW risk, needs an operator. Exits still "
+                    f"row - refusing NEW risk until it recovers. Exits still "
                     f"managed each cycle.")
             except Exception:
-                log.exception("wedge alert failed - halt still set")
+                log.exception("wedge alert failed - fault still latched")
         return self._cycle_fail_streak
 
     # ------------------------------------------------------------------
@@ -468,26 +508,42 @@ class BotRunner:
                                           if isinstance(c, dict) else c)
                     if self._stop:
                         break
+                    # ONLY cycle_once feeds the wedge counter (review A1-F2): a
+                    # telemetry/snapshot/status-write failure must NEVER escalate
+                    # to a trading halt or be misattributed to "cycle_once
+                    # raised". A paused runner counts as healthy (clears the
+                    # streak) — it isn't wedged.
                     if self.state == "RUNNING" or self._step_requested:
                         stepped = self._step_requested
                         self._step_requested = False
-                        bot.cycle_once(now)
-                        if stepped:
-                            log.info(f"stepped one cycle -> {bot._cycle}")
-                    if now - bot._last_snapshot >= bot.snapshot_sec:
-                        bot.store.snapshot(bot)
-                        bot._last_snapshot = now
-                    snap = self.build_status(now)
-                    self._last_status = snap
-                    self.status.write(snap, now)
-                    self._note_cycle_ok()
+                        try:
+                            bot.cycle_once(now)
+                        except Exception:
+                            n = self._note_cycle_failure()
+                            log.exception("cycle_once raised (%d in a row) - "
+                                          "continuing", n)
+                        else:
+                            self._note_cycle_ok()
+                            if stepped:
+                                log.info(f"stepped one cycle -> {bot._cycle}")
+                    else:
+                        self._note_cycle_ok()
+                    # telemetry: isolated, never counts toward the wedge streak
+                    try:
+                        if now - bot._last_snapshot >= bot.snapshot_sec:
+                            bot.store.snapshot(bot)
+                            bot._last_snapshot = now
+                        snap = self.build_status(now)
+                        self._last_status = snap
+                        self.status.write(snap, now)
+                    except Exception:
+                        log.exception("status/snapshot write failed - "
+                                      "continuing (does not halt trading)")
                 except KeyboardInterrupt:
                     log.info("shutdown requested")
                     break
                 except Exception:
-                    n = self._note_cycle_failure()
-                    log.exception("runner cycle error (%d in a row) - "
-                                  "continuing", n)
+                    log.exception("runner loop error - continuing")
                 elapsed = time.time() - now
                 time.sleep(max(self.poll_sec - elapsed, 0.25))
         finally:
