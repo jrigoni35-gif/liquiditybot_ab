@@ -22,6 +22,50 @@ def test_second_acquire_is_refused_while_holder_is_fresh(tmp_path):
     assert held is not None and held["pid"] == a.pid  # refused, names the holder
 
 
+def test_cold_start_claim_is_atomic_and_durable(tmp_path):
+    # the winner's record is written AND fsync'd into the file before acquire()
+    # returns None, so a racing second launch that reads the file sees a real
+    # holder (not an empty file) and refuses.
+    p = tmp_path / "runner.lock"
+    a = SingleInstanceLock(str(p), stale_after_sec=30.0)
+    a.pid = 111
+    assert a.acquire() is None
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    assert rec["pid"] == 111 and rec["heartbeat"] > 0
+    b = SingleInstanceLock(str(p), stale_after_sec=30.0)
+    b.pid = 222
+    assert b.acquire()["pid"] == 111               # O_EXCL create fails -> refuse
+
+
+def test_cold_start_race_does_not_let_every_racer_win(tmp_path):
+    # the OLD read-then-write let EVERY simultaneous launch win (both wrote
+    # their pid and returned None, then drove cycle_once for up to LOST_LIMIT
+    # cycles). The atomic O_CREAT|O_EXCL claim must let far fewer than N win.
+    # Threaded to actually exercise the syscall-level race, with a barrier so
+    # all racers hit acquire() together.
+    import threading
+    p = str(tmp_path / "runner.lock")
+    barrier = threading.Barrier(8)
+    results, guard = [], threading.Lock()
+
+    def worker(i):
+        lk = SingleInstanceLock(p, stale_after_sec=30.0)
+        lk.pid = 1000 + i
+        barrier.wait()
+        r = lk.acquire()
+        with guard:
+            results.append(r)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    winners = [r for r in results if r is None]
+    assert 1 <= len(winners) < 8, \
+        f"atomic claim must not let every racer win (won: {len(winners)}/8)"
+
+
 def test_stale_lock_is_taken_over(tmp_path):
     p = tmp_path / "runner.lock"
     # a crashed holder: fresh pid, but heartbeat long past the stale window

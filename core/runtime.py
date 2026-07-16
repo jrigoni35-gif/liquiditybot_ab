@@ -155,15 +155,53 @@ class SingleInstanceLock:
         self.lost_count = 0
 
     def acquire(self) -> Optional[dict]:
-        """Return None on success, or the holder's record if a LIVE runner
-        already owns this outputs/ dir."""
+        """Atomically claim the lock. Returns None on success, or the LIVE
+        holder's record if another runner already owns this outputs/ dir.
+
+        The old body read-then-wrote with no atomicity: two runners launched
+        together BOTH saw no/stale lock, both wrote their pid, both returned
+        None, and both drove cycle_once for up to LOST_LIMIT cycles (double
+        control-command execution, audit interleave, live-order dup). An
+        exclusive create (O_CREAT|O_EXCL — atomic and portable to Windows) lets
+        exactly ONE win the cold-start race; the loser reads the winner's fresh
+        record and refuses. A stale/leftover foreign lock is dropped and the
+        create retried; the residual live-peer window (create-before-write) is
+        still caught by refresh()'s ownership check + forfeit."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for _attempt in range(3):
+            try:
+                fd = os.open(str(self.path),
+                             os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                cur = read_json(self.path)
+                if isinstance(cur, dict) and cur.get("pid") == self.pid:
+                    self.refresh()              # our own lock: reclaim
+                    return None
+                if isinstance(cur, dict):
+                    age = time.time() - float(cur.get("heartbeat", 0) or 0)
+                    if age < self.stale_after:
+                        return cur              # a live peer owns it
+                # stale or unreadable foreign lock: drop it and retry the create
+                try:
+                    self.path.unlink()
+                except OSError:
+                    pass
+                continue
+            except OSError:
+                # can't create exclusively (fs error): fall back to the old
+                # best-effort write so a single runner still starts
+                self.refresh()
+                return None
+            else:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump({"pid": self.pid, "heartbeat": time.time()}, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                self.lost_count = 0
+                return None
+        # lost the create race repeatedly to a peer that keeps recreating it
         cur = read_json(self.path)
-        if isinstance(cur, dict) and cur.get("pid") != self.pid:
-            age = time.time() - float(cur.get("heartbeat", 0) or 0)
-            if age < self.stale_after:
-                return cur                      # another runner is alive
-        self.refresh()
-        return None
+        return cur if isinstance(cur, dict) else {"pid": "contended"}
 
     def refresh(self) -> bool:
         """Heartbeat, OWNERSHIP-AWARE. The original rewrote {pid, heartbeat}
