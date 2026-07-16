@@ -50,6 +50,7 @@ def _bot_with_long(high_water=2100.0, stop=2080.0, tier_closed=4):
     b._pair_list = [PAIR]
     b.marks, b._mark_ts, b._stop_ok, b.book_ts, b.kraken_books = {}, {}, {}, {}, {}
     b.last_signals = {}
+    b._mark_stale_sec = 20.0
 
     st = PortfolioState(starting_capital=10_000.0)
     pos = Position("eth1", "ETH/USD", "long", 2000.0, 1.0, 1.0,

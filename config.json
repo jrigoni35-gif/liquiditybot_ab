@@ -157,6 +157,8 @@
     "_stop_round_doc": "Osler round-number hygiene: a stop resting within this many bps of a magnitude-relative round level (00/50 endings) is nudged to the safe side of the level (long above, short below) so it exits BEFORE stop-cascade zones, never inside them. 0 disables.",
     "stop_vol_mult": 4.0,
     "max_slippage_pct": 0.5,
+    "mark_stale_sec": 20.0,
+    "_mark_stale_sec_doc": "a mark not refreshed (ticker OR book mid) within this many seconds is STALE: profit tiers, inventory derisk and the equity-peak/hard-stop use only a trusted (fresh + jump-confirmed) mark; the per-position protective stop (an escape) never defers. Generous vs the ~5s fast cycle so a healthy feed never trips it.",
     "exit_escalation": {
       "description": "Each unfilled exit attempt widens the slippage cap by widen_mult (capped at max_slippage_cap_pct); after market_after_attempts failed attempts the exit goes MARKET. Being out at a bad price beats being trapped at a good one. maker_first_profit_exits: a PROFIT-tier close rests post-only on our own side (sell at ask / buy at bid) on its FIRST attempt to capture the spread instead of paying it, then escalates into this marketable ladder if unfilled; risk exits are always marketable-first.",
       "widen_mult": 2.0,

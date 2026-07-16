@@ -512,6 +512,13 @@ class LiquidityBot:
         self.base_stop_pct = float(risk_cfg.get("stop_loss_pct", 2.0))
         self.stop_vol_mult = float(risk_cfg.get("stop_vol_mult", 4.0))
         self.max_slip_pct = float(risk_cfg.get("max_slippage_pct", 0.5))
+        # a mark older than this (both the ticker AND the book mid failed to
+        # refresh it for that long) is STALE: non-escape risk actions (profit
+        # tiers, inventory derisk, equity-peak ratchet) defer on it rather than
+        # fabricate a give-back/liquidation off a frozen price. Escapes (the
+        # protective stop) never defer. Generous vs the ~5s cycle so a healthy
+        # feed never trips it; only a genuinely dead per-symbol feed does.
+        self._mark_stale_sec = float(risk_cfg.get("mark_stale_sec", 20.0))
         esc = risk_cfg.get("exit_escalation", {}) or {}
         self.esc_widen_mult = float(esc.get("widen_mult", 2.0))
         self.esc_max_slip_pct = float(esc.get("max_slippage_cap_pct", 3.0))
@@ -685,6 +692,12 @@ class LiquidityBot:
 
     def _asset_of(self, symbol: str) -> str:
         return symbol.split("/")[0]
+
+    def _mark_fresh(self, symbol: str, now: float) -> bool:
+        """True when `symbol`'s mark was refreshed (ticker or book mid) within
+        mark_stale_sec. A missing stamp reads as stale. Non-escape risk actions
+        gate on this so they never fire off a frozen price; escapes never do."""
+        return (now - self._mark_ts.get(symbol, 0.0)) <= self._mark_stale_sec
 
     def _px(self, symbol: str, price) -> str:
         """Format a price at its venue precision for human output, so a
@@ -990,6 +1003,23 @@ class LiquidityBot:
                 self.book_ts[asset] = now
                 self.thales.observe_fast(asset, book,
                                          self.marks.get(symbol, 0.0), now)
+                # MARK FRESHNESS: the batched Ticker can silently stop returning
+                # a price for one pair while its Depth book stays live (the two
+                # are separate calls). Without this the mark FREEZES at its last
+                # value while book_ts still reads fresh — so every stop/exit runs
+                # on a stale price and the watchdog (which only inspects book_ts)
+                # never sees it. When the ticker didn't refresh the mark this
+                # cycle, derive it from the FRESH book mid so the hot path always
+                # runs on a current price whenever ANY venue source is live.
+                if not px:
+                    bids, asks = book.get("bids") or [], book.get("asks") or []
+                    if bids and asks:
+                        mid = 0.5 * (bids[0][0] + asks[0][0])
+                        if mid > 0:
+                            m, ok = self.watchdog.filter_mark(asset, mid)
+                            self.marks[symbol] = m
+                            self._mark_ts[symbol] = now
+                            self._stop_ok[asset] = ok
 
         # execution algos: release due child slices (paced, guarded)
         self._step_exec_algos(now)
@@ -1006,16 +1036,18 @@ class LiquidityBot:
 
         self.state.maybe_reset_daily_pnl()
         equity = self._equity()
-        # A quarantined (unconfirmed, anomalous >tick_jump_pct) print on a HELD
-        # asset poisons mark-to-market equity for exactly one cycle. While it is
-        # unconfirmed, don't let it (a) ratchet the peak equity high-water — a
-        # fat-finger spike would persist a fake peak that then reads as a huge
-        # fabricated drawdown once the outlier is discarded — or (b) trip the
-        # catastrophe hard-stop into a full-book liquidation at a price that
-        # never held. Both defer ONE cycle; a real move confirms next tick and
-        # fires, exactly like the per-position protective stop's quarantine.
+        # A held mark is TRUSTED for equity/liquidation math only when it is
+        # both (a) jump-CONFIRMED — not a quarantined >tick_jump_pct fat-finger
+        # print — and (b) FRESH — refreshed by the ticker or the book mid within
+        # mark_stale_sec. An untrusted mark must not ratchet the peak equity
+        # high-water (a spike would persist a fake peak that reads as a huge
+        # fabricated drawdown) nor trip the catastrophe hard-stop into a
+        # full-book liquidation off a price that never held or has gone dark.
+        # Both defer until the mark is trusted again; the per-position protective
+        # stop below (an ESCAPE) never defers — it runs on the best mark there is.
         marks_confirmed = all(
             self._stop_ok.get(self._asset_of(p.symbol), True)
+            and self._mark_fresh(p.symbol, now)
             for p in self.state.open_positions())
         if marks_confirmed:
             self.state.note_equity(equity)  # ratchet peak MTM equity for drawdown
@@ -1069,13 +1101,15 @@ class LiquidityBot:
                                   now=now)
                 continue
 
-            # 2) profit tiers, scaled by regime + inventory pressure. Gated on
-            # the SAME tick quarantine as the hard stop above: the tier engine
-            # ratchets pos.high_water and the give-back/chandelier stop from
-            # `px`, so consuming a fat-finger mark would (a) corrupt persisted
-            # high_water and (b) fabricate a give-back/trail exit. A quarantined
-            # asset skips one cycle; the confirmed move fires the tier next tick.
-            if not pos.is_hedge and self._stop_ok.get(asset, True):
+            # 2) profit tiers, scaled by regime + inventory pressure. Gated on a
+            # TRUSTED mark — jump-confirmed AND fresh: the tier engine ratchets
+            # pos.high_water and the give-back/chandelier stop from `px`, so a
+            # fat-finger OR a stale/frozen mark would (a) corrupt persisted
+            # high_water and (b) fabricate a give-back/trail exit off a price
+            # that never held or has gone dark. Deferring a profit-take (never
+            # an escape) until the mark is trusted is always safe.
+            if not pos.is_hedge and self._stop_ok.get(asset, True) \
+                    and self._mark_fresh(symbol, now):
                 scale = macro_states[asset].playbook.get("tier_scale", 1.0)
                 inv_ratio = abs(self.inventory.inventory_ratio(
                     self.state, asset, self.marks, equity))
@@ -1100,14 +1134,16 @@ class LiquidityBot:
                                     tier_fired=action.tier_fired, now=now,
                                     profit_take=action.is_profit_take)
 
-        # 3) inventory derisk (hard caps, stale losers). Same quarantine gate:
-        # a fat-finger mark can push inventory_ratio over a hard cap or trip a
-        # stale-loser threshold, fabricating a forced reduction. Skip the asset
-        # for one cycle; a real breach re-fires on the confirmed next tick.
+        # 3) inventory derisk (hard caps, stale losers). Same trusted-mark gate:
+        # a fat-finger OR stale mark can push inventory_ratio over a hard cap or
+        # trip a stale-loser threshold, fabricating a forced reduction off a
+        # price that never held or has gone dark. Skip that asset until its mark
+        # is trusted again; a real breach re-fires on the confirmed fresh tick.
         for act in self.inventory.derisk_actions(self.state, self.marks, equity,
                                                 macro_states, now):
             pos = self.state.get_position(act.position_id)
-            if pos and self._stop_ok.get(self._asset_of(pos.symbol), True):
+            if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
+                    and self._mark_fresh(pos.symbol, now):
                 self._submit_exit(pos, act.close_pct, act.reason, now=now)
 
         # 4) hedging
