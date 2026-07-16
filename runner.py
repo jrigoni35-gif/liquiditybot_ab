@@ -320,6 +320,9 @@ class BotRunner:
                    "retrain_failures": getattr(bot, "_retrain_failures", 0),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
+            # torn final lines recovered on adoption (unclean stops). Rising ->
+            # the process is being killed mid-write repeatedly.
+            "audit_tail_truncations": getattr(get_audit(), "tail_truncations", 0),
             # per-position exit/stop evaluations that RAISED and were isolated
             # (one bad position no longer starves the rest of the book's
             # stops). Rising -> a position is wedging its own escape path.

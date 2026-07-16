@@ -140,6 +140,8 @@ def collect(status_path: str) -> list:
             m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
     m.append(gauge("liquiditybot_audit_dropped_writes",
                    float(s.get("audit_dropped_writes") or 0), ts=ts))
+    m.append(gauge("liquiditybot_audit_tail_truncations",
+                   float(s.get("audit_tail_truncations") or 0), ts=ts))
     # moomoo up/down (options + basket feed) — was dark
     m.append(gauge("liquiditybot_moomoo_options_available",
                    1.0 if mm.get("options_available") else 0.0, ts=ts))

@@ -29,6 +29,7 @@ Module-level singleton via get_audit(); modules call
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -50,6 +51,7 @@ class AuditTrail:
         self._prev = _GENESIS
         self._synced = False     # tail re-adopted at first write, see log()
         self.dropped = 0
+        self.tail_truncations = 0    # torn final lines recovered (unclean stops)
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._adopt_tail()
@@ -58,21 +60,44 @@ class AuditTrail:
                       "from genesis (verify() will show the seam)")
 
     def _adopt_tail(self):
-        """Resume the chain from the last record on disk. seq never
-        regresses: a process that read the tail early must not reuse
-        sequence numbers another writer appended in the meantime."""
+        """Resume the chain from the last COMPLETE record on disk. seq never
+        regresses: a process that read the tail early must not reuse sequence
+        numbers another writer appended in the meantime.
+
+        A crash mid-append leaves a TORN (unparseable) final line. The old code
+        did json.loads on it, raised, was swallowed, and the chain restarted
+        from genesis (seq=1, prev=GENESIS) — colliding seqs AND a permanent
+        mid-file break once the next record appended. Instead we TRUNCATE the
+        torn final line (an incomplete write was never a committed record) so
+        the next append chains cleanly onto the last good record. Only an
+        UNPARSEABLE final line is truncated; a complete-but-altered record is
+        tamper evidence and is left for verify() to surface."""
         if not self.path.exists():
             return
-        last = None
-        with open(self.path, "rb") as f:
-            for raw in f:
-                raw = raw.strip()
-                if raw:
-                    last = raw
-        if last:
-            rec = json.loads(last)
+        while True:
+            last_off, last = None, None
+            with open(self.path, "rb") as f:
+                off = 0
+                for raw in f:
+                    if raw.strip():
+                        last_off, last = off, raw.strip()
+                    off += len(raw)
+            if last is None:
+                return                       # empty file: stay at genesis
+            try:
+                rec = json.loads(last)
+            except ValueError:
+                # torn final line: drop it and re-examine the new tail
+                with open(self.path, "r+b") as f:
+                    f.truncate(last_off)
+                self.tail_truncations += 1
+                log.warning("audit: truncated a torn final line at byte %d "
+                            "(crash mid-append) so the chain resumes cleanly",
+                            last_off)
+                continue
             self._seq = max(self._seq, int(rec.get("seq", 0)))
             self._prev = str(rec.get("h", _GENESIS))
+            return
 
     # ------------------------------------------------------------------
     def log(self, src: str, code, msg: str, data: dict | None = None) -> int:
@@ -107,6 +132,11 @@ class AuditTrail:
                 with open(self.path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
                     f.flush()
+                    # fsync so a record that returned a seq is durable across a
+                    # power loss - flush alone leaves it in the OS page cache.
+                    # This is the regulated trail of record; the audit write
+                    # rate (per disposition, not per tick) makes the cost fine.
+                    os.fsync(f.fileno())
                 self._prev = rec["h"]
                 return self._seq
             except (OSError, TypeError, ValueError):

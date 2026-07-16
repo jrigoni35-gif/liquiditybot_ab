@@ -41,12 +41,46 @@ def test_clean_chain_verifies(tmp_path):
     assert r["ok"] and r["records"] == 5 and r["torn_tail"] is False
 
 
-def test_torn_final_line_is_benign_not_tamper(tmp_path):
+def test_adopt_truncates_torn_tail_and_resumes_cleanly(tmp_path):
+    # a crash mid-append leaves an unparseable final line. Adopting the trail
+    # must TRUNCATE it (not restart from genesis) so the next write chains onto
+    # the last good record and the whole file re-verifies.
     p = tmp_path / "a.jsonl"
-    lines = _seed_trail(p, 5)
+    _seed_trail(p, 3)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write('{"seq": 4, "ts": 1.0, "prev": "abc", "msg": "torn')  # no newline, truncated
+    a = AuditTrail(str(p))                    # __init__ -> _adopt_tail truncates
+    assert a.tail_truncations == 1
+    seq = a.log("qa", Code.FW_FAULT_DEGRADED, "after recovery", {})
+    assert seq == 4                            # resumed at 3+1, no genesis reset
+    r = a.verify()
+    assert r["ok"] is True and r["records"] == 4    # clean, contiguous chain
+
+
+def test_adopt_does_not_truncate_a_complete_but_tampered_record(tmp_path):
+    # a COMPLETE final line that parses is never truncated - even if its hash
+    # is wrong, that is tamper evidence verify() must keep, not silent recovery.
+    p = tmp_path / "a.jsonl"
+    lines = _seed_trail(p, 3)
+    lines[-1] = lines[-1].replace("record 2", "record TAMPERED")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    a = AuditTrail(str(p))
+    assert a.tail_truncations == 0             # parseable -> left in place
+    assert a.verify()["ok"] is False           # tamper still visible
+
+
+def test_torn_final_line_is_benign_not_tamper(tmp_path):
+    # verify() is probed on the SAME instance (no re-construction) so the
+    # heal-on-adopt truncation does not run first - this pins verify()'s own
+    # torn-tail detection. (Heal-on-construct is covered separately below.)
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(5):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"record {i}", {"i": i})
+    lines = p.read_text(encoding="utf-8").splitlines()
     lines[-1] = lines[-1][:20]                       # crash mid-append
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    r = AuditTrail(str(p)).verify()
+    r = a.verify()
     assert r["ok"] is False                          # the file has a bad line
     assert r["torn_tail"] is True                    # ...but it's a crash tail
     assert r["records"] == 4 and r["first_break"] == 5
