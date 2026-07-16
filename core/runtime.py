@@ -197,7 +197,23 @@ class SingleInstanceLock:
                     age = time.time() - float(cur.get("heartbeat", 0) or 0)
                     if age < self.stale_after:
                         return cur              # a live peer owns it
-                # stale or unreadable foreign lock: drop it and retry the create
+                    # a stale, READABLE foreign lock -> safe to reclaim below
+                else:
+                    # exists but UNREADABLE/EMPTY: this is the create-before-
+                    # write window of the peer that just WON the O_EXCL race (a
+                    # genuine mid-create is milliseconds old). The old code
+                    # unlinked it here — which destroyed the winner's fresh lock
+                    # so BOTH racers returned None (the double-acquire this whole
+                    # thing exists to prevent). Back off instead: only an empty
+                    # lock that has sat unwritten past a short grace is a
+                    # crashed-mid-create leftover worth reclaiming.
+                    try:
+                        empty_age = time.time() - self.path.stat().st_mtime
+                    except OSError:
+                        empty_age = self.stale_after + 1.0   # vanished: retry
+                    if empty_age < min(self.stale_after, 5.0):
+                        return {"pid": "initializing"}       # a peer is mid-claim
+                # stale-readable or crashed-empty foreign lock: drop it and retry
                 try:
                     self.path.unlink()
                 except OSError:

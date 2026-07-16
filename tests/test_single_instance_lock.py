@@ -62,8 +62,36 @@ def test_cold_start_race_does_not_let_every_racer_win(tmp_path):
     for t in threads:
         t.join()
     winners = [r for r in results if r is None]
-    assert 1 <= len(winners) < 8, \
-        f"atomic claim must not let every racer win (won: {len(winners)}/8)"
+    assert len(winners) == 1, \
+        f"exactly one racer may win the cold-start claim (won: {len(winners)}/8)"
+
+
+def test_fresh_empty_lock_is_not_destroyed(tmp_path):
+    # a racer that reads the winner's just-created, still-EMPTY lock must NOT
+    # unlink it (the double-acquire bug); it backs off and refuses.
+    import os
+    p = tmp_path / "runner.lock"
+    p.write_bytes(b"")                              # winner mid-create: 0 bytes
+    os.utime(p, None)                               # fresh mtime = now
+    b = SingleInstanceLock(str(p), stale_after_sec=30.0)
+    b.pid = 222
+    held = b.acquire()
+    assert held is not None                         # refused, did not claim
+    assert p.exists() and p.read_bytes() == b""     # winner's lock left intact
+
+
+def test_stale_empty_lock_is_reclaimed(tmp_path):
+    # an empty lock that has sat unwritten past the short grace is a crashed
+    # mid-create leftover -> reclaimable.
+    import os
+    p = tmp_path / "runner.lock"
+    p.write_bytes(b"")
+    old = time.time() - 120
+    os.utime(p, (old, old))                         # long-stale empty lock
+    b = SingleInstanceLock(str(p), stale_after_sec=30.0)
+    b.pid = 222
+    assert b.acquire() is None                      # reclaimed
+    assert json.loads(p.read_text(encoding="utf-8"))["pid"] == 222
 
 
 def test_stale_lock_is_taken_over(tmp_path):
