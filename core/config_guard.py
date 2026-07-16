@@ -307,6 +307,24 @@ def validate(config: dict) -> list:
     if mult < 1.0:
         fatal("risk.exit_escalation.widen_mult must be >= 1")
 
+    # --- anti-scalp manip gate (new-entry downsize/veto band) --------------
+    mg = _f(config, "risk.manip_gate", {}) or {}
+    if bool(mg.get("enabled", True)):
+        d_at = float(mg.get("downsize_at", 0.6))
+        v_at = float(mg.get("veto_at", 0.9))
+        m_sc = float(mg.get("min_scale", 0.25))
+        if not (0.0 <= d_at <= 1.0) or not (0.0 <= v_at <= 1.0):
+            fatal("risk.manip_gate.downsize_at/veto_at must be in [0, 1] - "
+                  "manip_suspect_score is a [0, 1] suspicion level")
+        if v_at <= d_at:
+            fatal(f"risk.manip_gate.veto_at ({v_at}) must be strictly above "
+                  f"downsize_at ({d_at}) - the downsize band collapses "
+                  f"otherwise and entries jump straight from full size to a "
+                  f"hard veto")
+        if not (0.0 <= m_sc <= 1.0):
+            fatal("risk.manip_gate.min_scale must be in [0, 1] - it is the "
+                  "floor of a multiplicative size scale (1.0 = no downsize)")
+
     # --- risk protocol stack (rev 4 sizing overlay) ------------------------
     sf = float(_f(config, "risk_protocols.stack_floor_mult", 0.10))
     if not (0.0 < sf <= 1.0):

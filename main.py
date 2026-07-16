@@ -162,13 +162,35 @@ def manip_suspect_score(spoof: float, whiplash: float,
       divergence - the EXECUTION venue's book disagreeing with the
                    composite street book: painting every venue at once,
                    including the one we trade on, is expensive
-    Feeds three places, none a new gate: the manip_suspect FEATURE (the
-    model learns what fear of manipulation is worth), a training-weight
-    DISCOUNT (lessons learned under suspect data count less), and the
-    status panel (the operator sees who is being leaned on)."""
+    Feeds four places: the manip_suspect FEATURE (the model learns what
+    fear of manipulation is worth), a training-weight DISCOUNT (lessons
+    learned under suspect data count less), the status panel (the operator
+    sees who is being leaned on), and — since the anti-scalp gate — a LIVE
+    downsize/veto on NEW entries only (risk.manip_gate; exits untouched):
+    don't post fresh liquidity into a book a bigger fish is painting to
+    scalp. Conservative by default so only a clearly manipulated book bites.
+    """
     divergence = min(abs(float(kraken_imb) - float(composite_imb)) / 4.0,
                      1.0)                      # imb is clipped to [-2, 2]
     return float(min(max(spoof, whiplash, divergence), 1.0))
+
+
+def manip_entry_scale(score: float, downsize_at: float, veto_at: float,
+                      min_scale: float):
+    """Anti-scalp entry sizing under manipulation suspicion. Returns a
+    multiplicative size scale in [min_scale, 1.0] for a NEW entry, or None
+    to VETO it. Below downsize_at: 1.0 (untouched). downsize_at..veto_at:
+    linear taper from 1.0 down to min_scale (the more painted the book, the
+    less liquidity we post into it). >= veto_at: None — refuse the entry, so
+    a bigger fish can't spoof us into adding liquidity it then scalps. Pure
+    and parameter-free beyond the configured band; EXITS never call this."""
+    if score >= veto_at:
+        return None
+    if score < downsize_at:
+        return 1.0
+    span = max(veto_at - downsize_at, 1e-9)
+    frac = (score - downsize_at) / span
+    return 1.0 - frac * (1.0 - min_scale)
 
 
 def whiplash_suspicion(whiplash_std: float, healthy_p95: float,
@@ -519,6 +541,19 @@ class LiquidityBot:
         # protective stop) never defer. Generous vs the ~5s cycle so a healthy
         # feed never trips it; only a genuinely dead per-symbol feed does.
         self._mark_stale_sec = float(risk_cfg.get("mark_stale_sec", 20.0))
+        # anti-scalp gate: manip_suspect_score (MAX of spoof / imbalance-
+        # whiplash / cross-venue book divergence, [0,1]) becomes a LIVE risk
+        # action on NEW entries only — exits are never touched. Below
+        # downsize_at the entry is unchanged; downsize_at..veto_at shrinks it
+        # linearly toward min_scale (folded into the sizer's risk_scale);
+        # >= veto_at the entry is vetoed (SZ-045). Conservative by default so
+        # only clear painted-flow / venue-divergence bites — the spoofy
+        # liquidity label still hard-vetoes on its own path.
+        _mg = risk_cfg.get("manip_gate", {}) or {}
+        self._manip_gate_enabled = bool(_mg.get("enabled", True))
+        self._manip_downsize_at = float(_mg.get("downsize_at", 0.6))
+        self._manip_veto_at = float(_mg.get("veto_at", 0.9))
+        self._manip_min_scale = float(_mg.get("min_scale", 0.25))
         esc = risk_cfg.get("exit_escalation", {}) or {}
         self.esc_widen_mult = float(esc.get("widen_mult", 2.0))
         self.esc_max_slip_pct = float(esc.get("max_slippage_cap_pct", 3.0))
@@ -1540,13 +1575,36 @@ class LiquidityBot:
                 macro_state.playbook.get("leverage_cap", 1.0),
                 self.margin_level_pct)
 
+            # anti-scalp: fold manipulation suspicion into the NEW entry.
+            # manip_suspect_score (MAX of spoof / imbalance-whiplash / cross-
+            # venue book divergence) is the operator's read on whether this
+            # book is being painted. This is a new-risk-only action — exits
+            # are never touched. At/above veto_at the entry is refused
+            # (SZ-045: don't add liquidity a bigger fish is spoofing to
+            # scalp); between downsize_at and veto_at the entry shrinks
+            # linearly toward min_scale, folded into the sizer's multiplicative
+            # risk_scale (clamped [0,1] there). Below downsize_at: untouched.
+            manip_scale = 1.0
+            if self._manip_gate_enabled:
+                ms = float(self._manip_scores.get(asset, 0.0))
+                scale = manip_entry_scale(ms, self._manip_downsize_at,
+                                          self._manip_veto_at,
+                                          self._manip_min_scale)
+                if scale is None:
+                    self._log_sizer_veto(asset, [tag(
+                        Code.SZ_MANIP_SUSPECT,
+                        f"manip suspect {ms:.2f} >= veto "
+                        f"{self._manip_veto_at:.2f}")], explored)
+                    continue
+                manip_scale = scale
+
             sized = self.sizer.size(
                 asset, signal.direction,
                 self.marks.get(symbol) or fv_state.kraken_mid or 0.0,
                 p_win, equity, self.state, macro_state, vol_state, liq_state,
                 verdict.risk_multiplier, self.inventory, lev_decision,
                 self.marks, now,
-                risk_scale=self.monitor.kelly_mult * explore_scale,
+                risk_scale=self.monitor.kelly_mult * explore_scale * manip_scale,
                 symbol=symbol, floor_to_min=explored)
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
