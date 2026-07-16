@@ -45,6 +45,7 @@ import numpy as np
 from core.audit import get_audit
 from core.codes import Code
 from ml.calibration import brier_score, calibration_gap, psi
+from ml.features import DRIFT_EXCLUDED_FEATURES
 
 log = logging.getLogger("liquiditybot.ml.monitor")
 
@@ -87,7 +88,12 @@ class ModelMonitor:
 
         self.drift_psi_threshold = float(cfg.get("drift_psi_threshold",
                                                  0.25))
-        self.drift_min_rows = int(cfg.get("drift_min_rows", 40))
+        # 10-decile PSI needs ~10 samples/bin to be stable; a 40-row window
+        # (4/bin) fabricates 19% mean / 28% p95 "drift" from an IN-DISTRIBUTION
+        # sample (null-tested), nearly tripping the 30% retrain vote on pure
+        # sampling noise. 100 rows drops that noise floor below 5%, so a fired
+        # ML-031 means a real shift, not a small-window artifact.
+        self.drift_min_rows = int(cfg.get("drift_min_rows", 100))
         self.drift_frac_features = float(cfg.get("drift_frac_features",
                                                  0.30))
         self._feat_buffer: deque = deque(maxlen=300)
@@ -280,17 +286,24 @@ class ModelMonitor:
         X = np.array(self._feat_buffer, float)
         if X.shape[1] != len(train_deciles):
             return
-        drifting = []
+        # only MARKET features vote: clock/counter features (hour_sin/cos,
+        # funding_dist, regime_age) drift on any finite window by construction
+        # (their PSI reads window phase, not market state), so counting them
+        # kept the share pinned above the retrain trigger on clean data.
+        drifting, n_voting = [], 0
         for j, edges in enumerate(train_deciles):
+            name = feature_names[j] if j < len(feature_names) else f"f{j}"
+            if name in DRIFT_EXCLUDED_FEATURES:
+                continue
+            n_voting += 1
             if psi(edges, X[:, j]) >= self.drift_psi_threshold:
-                drifting.append(feature_names[j] if j < len(feature_names)
-                                else f"f{j}")
+                drifting.append(name)
         self.drifting = drifting
-        self.drift_share = len(drifting) / max(len(train_deciles), 1)
+        self.drift_share = len(drifting) / max(n_voting, 1)
         if self.drift_share >= self.drift_frac_features:
             log.warning("ML-031: feature drift %d/%d shifted "
                         "(PSI>=%.2f): %s", len(drifting),
-                        len(train_deciles), self.drift_psi_threshold,
+                        n_voting, self.drift_psi_threshold,
                         drifting[:6])
             get_audit().log("ml_governor", Code.ML_DRIFT,
                             f"{self.drift_share:.0%} of features drifted",

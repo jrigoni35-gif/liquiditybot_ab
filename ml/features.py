@@ -98,6 +98,23 @@ FEATURE_NAMES = [
     "direction", "gate_confidence",
 ]
 
+# Features EXCLUDED from the input-drift vote (ml.monitor.check_drift). These
+# are legitimate MODEL INPUTS but deterministic functions of the CLOCK or a
+# monotone counter, not of market state: their decile-PSI on any finite live
+# window measures WHERE the window sits in time/phase, not a distributional
+# shift the model must relearn. A short overnight window has hour_sin/cos and
+# funding_dist clustered at one phase, and regime_age sits low right after a
+# label change — each reads as a big PSI vs the all-phases training set while
+# nothing about the market has drifted. This is the same reason the PSI kernel
+# already returns 0 for degenerate (binary/one-hot) deciles; here the tell is
+# semantic (clock/counter) rather than structural (tied edges), so it is named
+# explicitly. Market features (vol, spread, returns, imbalance, ...) still vote.
+DRIFT_EXCLUDED_FEATURES = frozenset({
+    "hour_sin", "hour_cos",   # time-of-day cyclical (pure clock)
+    "funding_dist",           # fraction of the 8h funding cycle (pure clock)
+    "regime_age",             # hours since macro label change /24 (counter)
+})
+
 FUNDING_PERIOD_SEC = 8 * 3600.0
 
 

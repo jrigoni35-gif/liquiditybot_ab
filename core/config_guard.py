@@ -325,6 +325,18 @@ def validate(config: dict) -> list:
             fatal("risk.manip_gate.min_scale must be in [0, 1] - it is the "
                   "floor of a multiplicative size scale (1.0 = no downsize)")
 
+    # --- input-drift window vs PSI stability ------------------------------
+    # decile-PSI on too small a live window fabricates drift from pure
+    # sampling noise (null-tested: a 40-row window reads ~19% mean / 28% p95
+    # "drift" on an in-distribution sample, nearly tripping the retrain vote).
+    # WARN (never fatal - the bot trades correctly, it just retrains on noise).
+    dmr = int(_f(config, "ml.monitor.drift_min_rows", 100))
+    if dmr < 80:
+        warn(f"ml.monitor.drift_min_rows={dmr} is below ~80: a 10-bin PSI at "
+             f"that window fabricates false drift from in-distribution noise "
+             f"(null p95 ~28% at 40 rows vs the {float(_f(config, 'ml.monitor.drift_frac_features', 0.30)):.0%} "
+             f"retrain trigger). Raise it so a fired ML-031 means a real shift.")
+
     # --- risk protocol stack (rev 4 sizing overlay) ------------------------
     sf = float(_f(config, "risk_protocols.stack_floor_mult", 0.10))
     if not (0.0 < sf <= 1.0):
