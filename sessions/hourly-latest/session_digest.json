@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784199081.8837695,
+  "generated_at": 1784200883.9677193,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784198877.672,
-    "duration_h": 72.25
+    "end": 1784200874.0,
+    "duration_h": 72.8
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7140
+    "samples": 7259
   },
   "activity": {
     "signal_rows_total": 357,
@@ -24,12 +24,12 @@
     "candidate_rows": 338
   },
   "audit": {
-    "records": 406,
-    "signal_records": 117,
+    "records": 407,
+    "signal_records": 118,
     "by_src": {
       "exploration": 289,
       "order_manager": 56,
-      "startup": 51,
+      "startup": 52,
       "ml_governor": 9,
       "engine": 1
     },
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        51
+        52
       ],
       [
         "ML-032",
@@ -72,18 +72,18 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.479,
+    "dominant_frac": 0.475,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 19316,
+    "records": 19530,
     "by_level": {
-      "INFO": 16950,
+      "INFO": 17163,
       "ERROR": 1872,
-      "WARNING": 491,
+      "WARNING": 492,
       "CRITICAL": 3
     },
     "top_warnings": [
@@ -100,12 +100,12 @@
         121
       ],
       [
-        "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
+        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
         41
       ],
       [
-        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        40
+        "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
+        41
       ],
       [
         "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
@@ -129,11 +129,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6885,
-      "thin": 2187
+      "spoofy": 7000,
+      "thin": 2221
     },
     "spoofy_frac": 0.759,
-    "cycles_estimate": 3530,
+    "cycles_estimate": 3589,
     "feed_error_events": 1963
   },
   "model": {
@@ -184,7 +184,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 48% of 117 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 48% of 118 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
