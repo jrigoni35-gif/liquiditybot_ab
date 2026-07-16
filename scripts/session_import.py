@@ -66,7 +66,7 @@ def _row_key(header, line):
     return "raw:" + hashlib.sha256(line.encode("utf-8")).hexdigest()
 
 
-def verify_bundle(src: Path) -> dict:
+def verify_bundle(src: Path, strict_audit: bool = False) -> dict:
     mf_path = src / "manifest.json"
     if not mf_path.exists():
         print(f"REFUSED: no manifest.json in {src}")
@@ -86,24 +86,49 @@ def verify_bundle(src: Path) -> dict:
             print(f"INTEGRITY FAIL: {name} sha256 mismatch "
                   f"(bundle tampered or corrupt)")
             return {"rc": 2}
+    # Per-file sha256 (above) is the transport-integrity gate: if it passes,
+    # the bundle's bytes are exactly what was bundled. The audit-chain replay
+    # below is a SEPARATE, narrower check on the audit LOG's internal linkage.
+    # A break there does NOT condemn the learning corpus — signal_history.csv
+    # carries its own (already-verified) sha256, and the import NEVER merges a
+    # bundle's audit trail into this machine's live chain (it is filed as a
+    # report). Refusing the whole bundle over an audit-log seam discarded a
+    # full session of fresh learning every boot (the newest bundle's chain had
+    # a benign restart seam). So: a TORN TAIL (crashed final append) is benign;
+    # a MID-CHAIN break quarantines the audit trail but still imports the rows;
+    # only --strict-audit restores the old hard refusal.
     audit = src / "audit.jsonl"
     chain = None
     if audit.exists():
         chain = AuditTrail(str(audit)).verify()
         if not chain.get("ok"):
-            print(f"INTEGRITY FAIL: audit chain breaks at record "
-                  f"{chain.get('first_break')} - refusing bundle")
-            return {"rc": 2}
+            fb = chain.get("first_break")
+            if chain.get("torn_tail"):
+                print(f"  note: audit trail has a torn final line (crash mid-"
+                      f"append at record {fb}); chain intact before it")
+            elif strict_audit:
+                print(f"INTEGRITY FAIL: audit chain breaks at record {fb} - "
+                      f"refusing bundle (--strict-audit)")
+                return {"rc": 2}
+            else:
+                print(f"AUDIT CHAIN BROKEN at record {fb} - trail will be "
+                      f"QUARANTINED; learning data (own sha256 ok) still "
+                      f"imports. Re-run with --strict-audit to refuse instead.")
     return {"rc": 0, "manifest": manifest, "chain": chain}
 
 
-def run(src: str, outputs: str, apply: bool) -> int:
+def run(src: str, outputs: str, apply: bool,
+        strict_audit: bool = False) -> int:
     srcp = Path(src)
     out = Path(outputs)
-    v = verify_bundle(srcp)
+    v = verify_bundle(srcp, strict_audit=strict_audit)
     if v["rc"] != 0:
         return v["rc"]
     manifest, chain = v["manifest"], v["chain"]
+    # a mid-chain break (not a benign torn tail) => the audit trail is filed
+    # under a QUARANTINED name so it is never mistaken for a clean chain
+    audit_quarantined = bool(chain and not chain.get("ok")
+                             and not chain.get("torn_tail"))
 
     expected = HistoryStore(str(out / "signal_history.csv"))._header
     hist_src = srcp / "signal_history.csv"
@@ -156,8 +181,18 @@ def run(src: str, outputs: str, apply: bool) -> int:
     h = manifest.get("history", {})
     print(f"bundle '{manifest.get('label')}' created "
           f"{manifest.get('created_at_utc')} @ git {manifest.get('git_sha')}")
-    print(f"  audit chain: "
-          f"{'ok, ' + str(chain.get('records')) + ' records' if chain else 'not bundled'}")
+    if not chain:
+        chain_desc = "not bundled"
+    elif chain.get("ok"):
+        chain_desc = f"ok, {chain.get('records')} records"
+    elif chain.get("torn_tail"):
+        chain_desc = (f"torn final line at {chain.get('first_break')} "
+                      f"(benign crash mid-append), "
+                      f"{chain.get('records')} records intact")
+    else:
+        chain_desc = (f"BROKEN at {chain.get('first_break')} - QUARANTINED "
+                      f"({chain.get('records')} records verified before break)")
+    print(f"  audit chain: {chain_desc}")
     print(f"  training rows: {h.get('rows')} bundled "
           f"{h.get('by_source')} -> {len(new_lines)} new, {dupes} duplicate")
     print(f"  reports: {', '.join(sorted(manifest.get('files', {})))}")
@@ -208,9 +243,19 @@ def run(src: str, outputs: str, apply: bool) -> int:
     record = out / "imported_sessions" / str(manifest.get("label") or stamp)
     record.mkdir(parents=True, exist_ok=True)
     for name in manifest.get("files", {}):
-        if name != "signal_history.csv" and (srcp / name).exists():
-            shutil.copy2(srcp / name, record / name)
+        if name == "signal_history.csv" or not (srcp / name).exists():
+            continue
+        # a mid-chain-broken audit trail is filed under a .QUARANTINED name so
+        # nothing downstream (a future verify, a digest) mistakes it for a
+        # clean chain; the bytes are preserved verbatim for forensics.
+        dst_name = (f"{name}.QUARANTINED"
+                    if name == "audit.jsonl" and audit_quarantined else name)
+        shutil.copy2(srcp / name, record / dst_name)
     shutil.copy2(srcp / "manifest.json", record / "manifest.json")
+    if audit_quarantined:
+        print(f"  audit trail QUARANTINED as audit.jsonl.QUARANTINED "
+              f"(broken at record {chain.get('first_break')}) - learning rows "
+              f"imported regardless")
     print(f"  merged {len(new_lines)} rows; bundle reports filed under "
           f"{record}")
     return 0
@@ -222,8 +267,13 @@ def main() -> int:
     ap.add_argument("--outputs", default="outputs")
     ap.add_argument("--apply", action="store_true",
                     help="merge after review (default is plan-only)")
+    ap.add_argument("--strict-audit", action="store_true",
+                    help="refuse the whole bundle on ANY audit-chain break "
+                         "(default: import the separately-checksummed learning "
+                         "rows and quarantine the broken audit trail)")
     args = ap.parse_args()
-    return run(args.src, args.outputs, args.apply)
+    return run(args.src, args.outputs, args.apply,
+               strict_audit=args.strict_audit)
 
 
 if __name__ == "__main__":

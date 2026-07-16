@@ -95,32 +95,54 @@ class AuditTrail:
                    "msg": str(msg)[:2000],
                    "data": data or {},
                    "prev": self._prev}
-            body = json.dumps(rec, sort_keys=True, default=str)
-            rec["h"] = _h(body)
             try:
+                # serialization is INSIDE the try: a caller can hand us a data
+                # payload that json.dumps chokes on (sort_keys=True over non-
+                # comparable keys -> TypeError). That must drop the record, not
+                # raise back into the disposition call site (order transition,
+                # firewall reject) and abort the very action being audited.
+                body = json.dumps(rec, sort_keys=True, default=str)
+                rec["h"] = _h(body)
+                line = json.dumps(rec, sort_keys=True, default=str)
                 with open(self.path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec, sort_keys=True, default=str)
-                            + "\n")
+                    f.write(line + "\n")
                     f.flush()
                 self._prev = rec["h"]
                 return self._seq
-            except OSError:
+            except (OSError, TypeError, ValueError):
                 self.dropped += 1
                 self._seq -= 1
-                log.error("AUDIT WRITE FAILED (dropped=%d) - trail has a "
-                          "hole; investigate disk", self.dropped)
+                log.error("AUDIT WRITE FAILED (dropped=%d) - trail has a hole; "
+                          "investigate disk or payload", self.dropped)
                 return 0
 
     # ------------------------------------------------------------------
     def verify(self) -> dict:
-        """Replay the chain; report integrity. Bounded by file size."""
-        ok, n, prev = True, 0, _GENESIS
+        """Replay the chain; report integrity. Bounded by file size.
+
+        Distinguishes two break kinds — they mean very different things:
+          * TORN TAIL: the FINAL line is incomplete/corrupt (a crash during
+            the last append) and every complete record before it chains
+            cleanly. Benign and expected on an unclean shutdown — the trail is
+            intact through `records`. Reported torn_tail=True.
+          * MID-CHAIN break: a record was edited, removed, or reordered and
+            valid content still follows. This is the tamper signal
+            (torn_tail=False).
+        Either way ok=False (the file has a bad line); a caller that only
+        cares about TAMPER consults torn_tail to forgive a crashed final
+        write. Continues scanning past the first break (rather than stopping)
+        purely to learn whether real content follows it."""
+        n, prev = 0, _GENESIS
         first_break = None
+        tail_after_break = 0
         try:
             with open(self.path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
+                        continue
+                    if first_break is not None:
+                        tail_after_break += 1     # real content past the break
                         continue
                     try:
                         rec = json.loads(line)
@@ -131,13 +153,12 @@ class AuditTrail:
                         prev = h
                         n += 1
                     except (ValueError, KeyError):
-                        ok = False
-                        if first_break is None:
-                            first_break = n + 1
-                        break
+                        first_break = n + 1
         except OSError:
             return {"ok": False, "records": 0, "error": "unreadable"}
-        return {"ok": ok, "records": n, "first_break": first_break,
+        return {"ok": first_break is None, "records": n,
+                "first_break": first_break,
+                "torn_tail": first_break is not None and tail_after_break == 0,
                 "dropped_writes": self.dropped}
 
 
