@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784200883.9677193,
+  "generated_at": 1784201832.7568915,
   "outputs_dir": "outputs",
   "window": {
-    "start": 1783938784.182,
-    "end": 1784200874.0,
-    "duration_h": 72.8
+    "start": 1783938784.183,
+    "end": 1784201685.453,
+    "duration_h": 73.03
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7259
+    "samples": 7312
   },
   "activity": {
     "signal_rows_total": 357,
@@ -24,10 +24,10 @@
     "candidate_rows": 338
   },
   "audit": {
-    "records": 407,
+    "records": 411,
     "signal_records": 118,
     "by_src": {
-      "exploration": 289,
+      "exploration": 293,
       "order_manager": 56,
       "startup": 52,
       "ml_governor": 9,
@@ -36,7 +36,7 @@
     "top_codes": [
       [
         "ML-070",
-        289
+        293
       ],
       [
         "OM-000",
@@ -79,62 +79,29 @@
     "chain_first_break": 199
   },
   "events": {
-    "records": 19530,
+    "records": 46,
     "by_level": {
-      "INFO": 17163,
-      "ERROR": 1872,
-      "WARNING": 492,
-      "CRITICAL": 3
+      "INFO": 44,
+      "WARNING": 1,
+      "ERROR": 1
     },
     "top_warnings": [
       [
+        "ws disconnect (no close frame received or sent); reconnecting in 1.6s (attempt 1)",
+        1
+      ],
+      [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        831
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
-        717
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        121
-      ],
-      [
-        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        41
-      ],
-      [
-        "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
-        41
-      ],
-      [
-        "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
-        40
-      ],
-      [
-        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-        39
-      ],
-      [
-        "OKX request failed for https://www.okx.com/api/v5/public/funding-rate: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceed",
-        39
-      ],
-      [
-        "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
-        38
-      ],
-      [
-        "OKX: skipping ETH-USDT-SWAP, order book unavailable",
-        21
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 7000,
-      "thin": 2221
+      "spoofy": 30,
+      "thin": 1
     },
-    "spoofy_frac": 0.759,
-    "cycles_estimate": 3589,
-    "feed_error_events": 1963
+    "spoofy_frac": 0.968,
+    "cycles_estimate": 15,
+    "feed_error_events": 1
   },
   "model": {
     "monitor_level": 0,
@@ -178,7 +145,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 76% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 97% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
