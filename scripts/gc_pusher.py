@@ -150,6 +150,13 @@ def collect(status_path: str) -> list:
     m.append(gauge("liquiditybot_op_state", _op, ts=ts))
     m.append(gauge("liquiditybot_fault_count",
                    float(len(_fault.get("faults") or {})), ts=ts))
+    # post-fill mark-out (bps) per asset+horizon — negative = adverse selection
+    for asset, hs in (s.get("markout") or {}).get("by_asset", {}).items():
+        for hz, rec in (hs or {}).items():
+            v = (rec or {}).get("markout_bps")
+            if isinstance(v, (int, float)):
+                m.append(gauge("liquiditybot_markout_bps", v,
+                               {"asset": asset, "horizon_sec": str(hz)}, ts))
     # moomoo up/down (options + basket feed) — was dark
     m.append(gauge("liquiditybot_moomoo_options_available",
                    1.0 if mm.get("options_available") else 0.0, ts=ts))

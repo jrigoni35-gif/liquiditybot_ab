@@ -74,6 +74,7 @@ from execution.inventory import InventoryManager
 from execution.pretrade import PreTradeGate, PreTradeContext
 from execution.order_manager import OrderManager
 from execution.hedging import HedgeEngine
+from execution.markout import MarkoutTracker
 from execution.tactics import ExecutionPlanner
 from ml.features import FEATURE_NAMES, build_features
 from ml.meta_model import MetaModelService
@@ -426,6 +427,9 @@ class LiquidityBot:
             if mh_cfg.get("enabled", False) else None
         self.monitor = ModelMonitor(config.get("ml", {}).get("monitor", {}))
         self.postmortem = PostmortemEngine(config.get("ml", {}).get("postmortem", {}))
+        # empirical adverse-selection meter: measures whether our entry fills
+        # were picked off (the ground truth the manip anti-scalp gate pre-empts)
+        self.markout = MarkoutTracker(config.get("markout", {}))
         # per-gate predictive power learned from labeled candidates; the
         # labeler feeds it as triple-barrier outcomes land (engine-agnostic
         # over gates_passed dicts, so informed-flow gates learn too)
@@ -852,6 +856,15 @@ class LiquidityBot:
                                    event.fill_price * event.fill_size) / total
                 pos.size = total
                 pos.original_size = max(pos.original_size, total)
+            # empirical adverse-selection: record every NEW-risk fill so its
+            # post-fill mark move is measured against the trusted mark. Entries
+            # are limit orders (OM-011) — the classic maker adverse-selection
+            # target; a persistently negative mark-out here is the bot being
+            # scalped, the ground truth the manip gate tries to pre-empt.
+            _mk = getattr(self, "markout", None)
+            if _mk is not None:
+                _mk.record_fill(order.symbol, self._asset_of(order.symbol),
+                                order.side, event.fill_price, now)
             pos.fees_paid_usd += order.fees_usd - order.meta.get("_fees_seen", 0.0)
             if order.meta.get("algo_parent"):
                 self.algo.note_fill(order.meta["algo_parent"],
@@ -1139,6 +1152,11 @@ class LiquidityBot:
 
         # postmortem plumbing: mark trails + finalize elapsed observations
         self.postmortem.record_marks(self.marks, now)
+        # post-fill mark-out resolves due horizons against the TRUSTED mark
+        # (jump-confirmed + fresh); a stale/dark feed defers, never fabricates.
+        _mk = getattr(self, "markout", None)
+        if _mk is not None:
+            _mk.poll(self.marks, now, is_fresh=self._mark_fresh)
         self.risk_protocols.observe(equity, self.marks, now)
         for cause, thesis in self.postmortem.poll(now):
             self.monitor.record_close(self._thesis_scored_p(thesis),

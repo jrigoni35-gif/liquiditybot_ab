@@ -97,6 +97,8 @@ def _bot_with_long(high_water=2100.0, stop=2080.0, tier_closed=4):
     b.hedger = types.SimpleNamespace(evaluate=lambda *a, **k: [])
     b.corr = types.SimpleNamespace(state=None)
     b.postmortem = types.SimpleNamespace(record_marks=_noop, poll=lambda now: [])
+    b.markout = types.SimpleNamespace(poll=_noop, record_fill=_noop,
+                                      snapshot=lambda: {})
     b.risk_protocols = types.SimpleNamespace(observe=_noop)
     b.monitor = types.SimpleNamespace(record_close=_noop)
     b.capital = types.SimpleNamespace(hard_stop_triggered=lambda *a, **k: False)

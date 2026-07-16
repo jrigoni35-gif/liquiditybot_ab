@@ -112,6 +112,8 @@ def _fast_bot(hard_stop):
     b.hedger = types.SimpleNamespace(evaluate=lambda *a, **k: [])
     b.corr = types.SimpleNamespace(state=None)
     b.postmortem = types.SimpleNamespace(record_marks=_noop, poll=lambda now: [])
+    b.markout = types.SimpleNamespace(poll=_noop, record_fill=_noop,
+                                      snapshot=lambda: {})
     b.risk_protocols = types.SimpleNamespace(observe=_noop)
     b.monitor = types.SimpleNamespace(record_close=_noop)
     b.capital = types.SimpleNamespace(

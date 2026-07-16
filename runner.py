@@ -341,6 +341,10 @@ class BotRunner:
             # failures (OM-050); and the central reason-code frequency ledger
             # (every PT-/SZ-/RP-/FW-/… emission). Surfaced for the incidents
             # dashboard so nothing keeps failing invisibly.
+            # post-fill mark-out: empirical adverse selection per asset+horizon
+            # (negative bps = our entries are being scalped)
+            "markout": bot.markout.snapshot()
+            if getattr(bot, "markout", None) is not None else {},
             "firewall": bot.firewall.status()
             if getattr(bot, "firewall", None) is not None else {},
             "order_manager": bot.orders.status()

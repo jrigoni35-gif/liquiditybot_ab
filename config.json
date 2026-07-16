@@ -163,7 +163,7 @@
       "downsize_at": 0.6,
       "veto_at": 0.9,
       "min_scale": 0.25,
-      "_doc": "anti-scalp: manip_suspect_score (MAX of spoof / imbalance-whiplash / cross-venue book divergence, [0,1]) becomes a LIVE risk action on NEW entries — no effect on exits. Below downsize_at: unchanged. downsize_at..veto_at: shrink the entry linearly from 1.0x to min_scale. >= veto_at: veto the entry (SZ-045). Conservative defaults so only CLEAR painted-flow/venue-divergence bites; the spoofy liquidity label still hard-vetoes separately."
+      "_doc": "anti-scalp: manip_suspect_score (MAX of spoof / imbalance-whiplash / cross-venue book divergence, [0,1]) becomes a LIVE risk action on NEW entries \u2014 no effect on exits. Below downsize_at: unchanged. downsize_at..veto_at: shrink the entry linearly from 1.0x to min_scale. >= veto_at: veto the entry (SZ-045). Conservative defaults so only CLEAR painted-flow/venue-divergence bites; the spoofy liquidity label still hard-vetoes separately."
     },
     "_mark_stale_sec_doc": "a mark not refreshed (ticker OR book mid) within this many seconds is STALE: profit tiers, inventory derisk and the equity-peak/hard-stop use only a trusted (fresh + jump-confirmed) mark; the per-position protective stop (an escape) never defers. Generous vs the ~5s fast cycle so a healthy feed never trips it.",
     "exit_escalation": {
@@ -310,6 +310,17 @@
     "beta_floor": 0.1,
     "max_equity_frac": 0.5
   },
+  "markout": {
+    "enabled": true,
+    "horizons_sec": [
+      5,
+      30,
+      60
+    ],
+    "window": 200,
+    "grace_sec": 15,
+    "_doc": "post-fill mark-out: the empirical adverse-selection meter (execution/markout.py). For each NEW-risk fill, at each horizon the signed post-fill move vs the trusted mark is markout_bps = side_sign*(mark-fill)/fill*1e4. NEGATIVE = the price moved against us right after we filled = we were scalped (the ground truth the risk.manip_gate pre-empts). Measurement only - takes no trading decision. window = rolling obs per asset+horizon; grace_sec = extra time to find a fresh mark before dropping an unmeasured fill."
+  },
   "leverage": {
     "description": "use_margin=false keeps everything spot (1x). Region cap: Kraken allows max 10x here; pair-level caps may be lower.",
     "use_margin": true,
@@ -392,7 +403,7 @@
       "drift_psi_threshold": 0.25,
       "drift_min_rows": 100,
       "drift_frac_features": 0.3,
-      "_drift_doc": "input-drift (ML-031/032) via decile-PSI vs the model's stored training deciles. drift_min_rows=100: a 10-bin PSI needs ~10 samples/bin; a 40-row window fabricated 19% mean / 28% p95 drift from an IN-DISTRIBUTION sample (null-tested), nearly firing the 30% retrain vote on pure noise — 100 rows drops that floor below 5%. Clock/counter features (hour_sin/cos, funding_dist, regime_age) are excluded from the vote in code (ml.features.DRIFT_EXCLUDED_FEATURES): their PSI reads window phase, not market state. drift_frac_features=0.30: retrain only when >=30% of the MARKET features shift beyond drift_psi_threshold=0.25.",
+      "_drift_doc": "input-drift (ML-031/032) via decile-PSI vs the model's stored training deciles. drift_min_rows=100: a 10-bin PSI needs ~10 samples/bin; a 40-row window fabricated 19% mean / 28% p95 drift from an IN-DISTRIBUTION sample (null-tested), nearly firing the 30% retrain vote on pure noise \u2014 100 rows drops that floor below 5%. Clock/counter features (hour_sin/cos, funding_dist, regime_age) are excluded from the vote in code (ml.features.DRIFT_EXCLUDED_FEATURES): their PSI reads window phase, not market state. drift_frac_features=0.30: retrain only when >=30% of the MARKET features shift beyond drift_psi_threshold=0.25.",
       "hit_shortfall_max": 0.08,
       "retrain_min_rows": 60,
       "cause_stale_hours": 4.0,
