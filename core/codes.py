@@ -123,6 +123,8 @@ class Code(str, Enum):
     ML_REGISTERED = "ML-060"         # artifact registered
     ML_EXPLORATION = "ML-070"        # dry-run paper exploration entry (active learning)
     ML_UNTEACHABLE_UNWIND = "ML-071"  # learning-phase unwind: full book, zero pending labels
+    ML_EXPLORE_AGGRESSIVE = "ML-072"  # conviction-scaled full-size exploration
+                                      # (confident model + clean book, dry-run)
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

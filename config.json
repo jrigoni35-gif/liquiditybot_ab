@@ -385,7 +385,15 @@
       "size_scale": 1.0,
       "max_asset_share": 0.5,
       "share_min_rows": 10,
-      "bypass_pretrade_ev": true
+      "bypass_pretrade_ev": true,
+      "aggressive": {
+        "enabled": true,
+        "frac": 0.15,
+        "min_conviction": 0.55,
+        "max_manip": 0.6,
+        "sizing_p": 0.72,
+        "_doc": "conviction-scaled aggressive exploration (dry-run only). Normal exploration always min-sizes, so the model only sees fill outcomes on timid marginal trades. With probability frac, when the model conviction (real model_p) >= min_conviction AND manip_suspect <= max_manip AND the regime is not crisis, take a FULL-conviction ticket (size on sizing_p, no size shrink, no min-ticket floor) so the model learns from confident calls at real size. Still bounded by every risk-stack veto (CVaR/heat/budget/inventory/leverage), the manip gate, and kelly_cap. Labels stay honest (real fill + real outcome)."
+      }
     },
     "monitor": {
       "window_trades": 30,

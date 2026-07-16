@@ -480,6 +480,20 @@ class LiquidityBot:
         # labels — otherwise the cost stack vetoes every exploration entry and
         # the model only ever learns from shadow candidates, never fills.
         self.explore_bypass_ev = bool(_ex.get("bypass_pretrade_ev", True))
+        # CONVICTION-SCALED aggressive exploration: normal exploration always
+        # min-sizes, so the model only ever sees fill outcomes on timid marginal
+        # trades. Occasionally, when the model is reasonably confident AND the
+        # book is clean, take a FULL-conviction ticket instead — the model then
+        # learns from confident calls at real size. Bounded by every risk-stack
+        # veto + the manip gate + kelly_cap; dry-run only (exploration is).
+        _ag = _ex.get("aggressive", {}) or {}
+        self._explore_aggr_enabled = bool(_ag.get("enabled", True))
+        self._explore_aggr_frac = min(max(float(_ag.get("frac", 0.15)),
+                                          0.0), 1.0)
+        self._explore_aggr_min_p = float(_ag.get("min_conviction", 0.55))
+        self._explore_aggr_max_manip = float(_ag.get("max_manip", 0.6))
+        self._explore_aggr_p = min(max(float(_ag.get("sizing_p", 0.72)),
+                                       0.0), 0.95)
         # variety: stop exploration-bumping an asset once it holds this
         # share of the labeled history (the active pair otherwise hogs
         # every learning slot and quiet pairs never accrue fill labels)
@@ -1333,6 +1347,18 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline
     # ------------------------------------------------------------------
+    def _explore_aggressive_eligible(self, model_p: float, manip: float,
+                                     regime_label: str) -> bool:
+        """Conditions (excluding the random roll) for a FULL-conviction
+        aggressive exploration trade: the model is reasonably confident, the
+        book is clean (low manip suspicion), and it is not a crisis regime.
+        The caller only reaches this in dry-run exploration, and the trade is
+        still bounded by every risk-stack veto + the manip gate + kelly_cap."""
+        return (self._explore_aggr_enabled
+                and model_p >= self._explore_aggr_min_p
+                and manip <= self._explore_aggr_max_manip
+                and regime_label != "crisis")
+
     def _exploration_active(self, now: float,
                             asset: Optional[str] = None) -> bool:
         """True only when it is safe and useful to take a paper exploration
@@ -1656,21 +1682,35 @@ class LiquidityBot:
             # sizing belief just past net breakeven and shrink the size; the
             # logged FEATURES and the win/loss LABEL stay real (honest data).
             model_p, explore_scale = p_win, 1.0
-            explored = False
+            explored = aggressive = False
             if can_enter and self._exploration_active(now, asset):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale
-                get_audit().log("exploration", Code.ML_EXPLORATION,
-                                f"paper exploration entry {asset} "
-                                f"{signal.direction}",
+                # conviction-scaled AGGRESSIVE roll: the model is reasonably
+                # confident, the book is clean (low manip, non-crisis), and the
+                # dice say so -> size on real conviction, no shrink, no min
+                # floor. The risk stack / manip gate / kelly_cap still bound it.
+                ms = float(self._manip_scores.get(asset, 0.0))
+                if self._explore_aggressive_eligible(
+                        model_p, ms, macro_state.label) \
+                        and self._explore_rng.random() < self._explore_aggr_frac:
+                    aggressive = True
+                    p_win = max(p_win, self._explore_aggr_p)
+                    explore_scale = 1.0
+                code = Code.ML_EXPLORE_AGGRESSIVE if aggressive \
+                    else Code.ML_EXPLORATION
+                get_audit().log("exploration", code,
+                                f"{'aggressive ' if aggressive else ''}paper "
+                                f"exploration entry {asset} {signal.direction}",
                                 {"model_p": round(model_p, 3),
                                  "sized_p": round(p_win, 3),
+                                 "aggressive": aggressive, "manip": round(ms, 3),
                                  "rows": self.history.row_count()})
-                log.info("[%s] EXPLORATION paper entry: model p=%.2f -> sizing "
+                log.info("[%s] %sEXPLORATION paper entry: model p=%.2f -> sizing "
                          "p=%.2f, size x%.2f (learning; %d history rows)",
-                         asset, model_p, p_win, explore_scale,
-                         self.history.row_count())
+                         asset, "AGGRESSIVE " if aggressive else "", model_p,
+                         p_win, explore_scale, self.history.row_count())
 
             # every confirmed signal becomes a training candidate (labeled
             # later via triple-barrier) - taken AND vetoed, so the model
@@ -1720,7 +1760,7 @@ class LiquidityBot:
                 verdict.risk_multiplier, self.inventory, lev_decision,
                 self.marks, now,
                 risk_scale=self.monitor.kelly_mult * explore_scale * manip_scale,
-                symbol=symbol, floor_to_min=explored)
+                symbol=symbol, floor_to_min=(explored and not aggressive))
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
                 continue
