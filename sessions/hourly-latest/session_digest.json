@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784203017.1399045,
+  "generated_at": 1784209212.959302,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784202778.897,
-    "duration_h": 73.33
+    "end": 1784209211.587,
+    "duration_h": 75.12
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7374
+    "samples": 7485
   },
   "activity": {
     "signal_rows_total": 357,
@@ -24,19 +24,19 @@
     "candidate_rows": 338
   },
   "audit": {
-    "records": 420,
-    "signal_records": 119,
+    "records": 425,
+    "signal_records": 120,
     "by_src": {
-      "exploration": 301,
+      "exploration": 305,
       "order_manager": 56,
-      "startup": 53,
+      "startup": 54,
       "ml_governor": 9,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        301
+        305
       ],
       [
         "OM-000",
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        53
+        54
       ],
       [
         "ML-032",
@@ -72,22 +72,30 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.471,
+    "dominant_frac": 0.467,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 218,
+    "records": 445,
     "by_level": {
-      "INFO": 212,
-      "WARNING": 4,
+      "INFO": 435,
+      "WARNING": 8,
       "ERROR": 2
     },
     "top_warnings": [
       [
+        "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
+        3
+      ],
+      [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        2
+      ],
+      [
+        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
         2
       ],
       [
@@ -95,24 +103,20 @@
         1
       ],
       [
-        "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
-        1
-      ],
-      [
-        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        1
-      ],
-      [
         "ws disconnect (no close frame received or sent); reconnecting in 1.2s (attempt 1)",
+        1
+      ],
+      [
+        "ws disconnect (no close frame received or sent); reconnecting in 1.9s (attempt 1)",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 84,
-      "thin": 24
+      "spoofy": 188,
+      "thin": 48
     },
-    "spoofy_frac": 0.778,
-    "cycles_estimate": 46,
+    "spoofy_frac": 0.797,
+    "cycles_estimate": 101,
     "feed_error_events": 2
   },
   "model": {
@@ -157,13 +161,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 78% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 80% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 47% of 119 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 47% of 120 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
