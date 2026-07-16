@@ -250,6 +250,10 @@ class BotRunner:
             "mode": "DRY_RUN" if bot.dry_run else
                     ("LIVE_ARMED" if bot.live_armed else "LIVE_DISARMED"),
             "entries_enabled": bot.entries_enabled, "halted": bot._halted,
+            # central fault authority: op-state (ARMED/DEGRADED/HALTED) + the
+            # latched-fault table. Was dead/dark before it was wired in.
+            "fault": (bot.fault.status() if getattr(bot, "fault", None)
+                      else {"state": "UNKNOWN", "faults": {}}),
             "equity": round(equity, 2),
             "cash": round(bot.state.cash_balance, 2),
             "savings": round(bot.state.savings_balance, 2),
@@ -370,6 +374,15 @@ class BotRunner:
                 and not self._wedge_alerted:
             self._wedge_alerted = True
             self.bot._halted = True
+            fm = getattr(self.bot, "fault", None)
+            if fm is not None:
+                try:
+                    from core.fault import Severity
+                    fm.latch("cycle_wedged", Severity.CRITICAL,
+                             f"cycle_once raised {self._cycle_fail_streak}x "
+                             f"consecutively - flatten-and-stop posture")
+                except Exception:
+                    log.exception("wedge fault-latch failed - halt still set")
             try:
                 self.bot.alerts.fire(
                     "runner_wedged",

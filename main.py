@@ -46,6 +46,7 @@ from core.state import PortfolioState, Position
 from core.persistence import StateStore
 from core.runtime import SimOverrides
 from core.alerts import AlertSink
+from core.fault import FaultManager, Severity
 from core.config_guard import enforce as enforce_config
 from core.watchdog import Watchdog
 from execution.risk_firewall import RiskFirewall
@@ -601,6 +602,16 @@ class LiquidityBot:
             if self._resumed and not self.dry_run:
                 self._reconcile_live_on_resume()
 
+        # central fault authority (op-state ledger + policy). Armed at the END
+        # of a SUCCESSFUL construction: a bot that finished __init__ passed
+        # startup validation (enforce_config above raises on a live FATAL), so
+        # ARMED is correct. Driven by the halt conditions (catastrophe hard-stop
+        # here, the runner wedge in runner.py); allow_new_risk() gates NEW
+        # entries — exits are NEVER gated (invariant #5). Faults are process-
+        # scoped and latch until an operator clears them or restarts.
+        self.fault = FaultManager(alerts=self.alerts)
+        self.fault.arm()
+
     def _reconcile_live_on_resume(self):
         """Live resume: restored resting orders reconcile through the normal
         poll path (QueryOrders reports fills that happened while offline as
@@ -1109,6 +1120,10 @@ class LiquidityBot:
             if not self._halted:
                 log.critical("HARD STOP drawdown breached - flattening, no new risk")
                 self._halted = True
+                fm = getattr(self, "fault", None)
+                if fm is not None:
+                    fm.latch("hard_stop_drawdown", Severity.CRITICAL,
+                             "catastrophe drawdown hard-stop: flatten-and-stop")
             # emergency flatten: isolate per position so one that errors on
             # exit submission cannot leave the REST of the book unflattened
             for pos in list(self.state.open_positions()):
@@ -1474,7 +1489,14 @@ class LiquidityBot:
                 self.thales.observe_candles(asset, v["candles"], now)
         self.candidates.poll()
 
-        if self._halted:
+        # NEW-risk gate: the halt flag OR the central fault authority (DEGRADED/
+        # HALTED refuses new risk; ARMED allows). Behaviour-preserving — the
+        # only conditions that leave ARMED (hard-stop, runner wedge) already
+        # set _halted, so this adds no new blocking today; it makes latch() a
+        # live control so future faults refuse new risk without a code change.
+        # Exits run in fast_cycle and are never gated here (invariant #5).
+        fm = getattr(self, "fault", None)
+        if self._halted or (fm is not None and not fm.allow_new_risk()):
             return
 
         equity = self._equity()
