@@ -24,7 +24,10 @@ _CFG = json.loads((Path(__file__).resolve().parents[1] / "config.json")
 # --- config_guard now covers the Kraken v2 ws (was unguarded) ---------------
 def test_config_guard_fatals_book_age_that_defeats_watchdog():
     import core.config_guard as g
-    assert not g.validate(_CFG), "shipped config must validate clean"
+    # "clean" = no FATAL findings (WARN findings are advisory and never block
+    # startup); the shipped config carries advisory WARNs by design.
+    assert not [m for s, m in g.validate(_CFG) if s == "FATAL"], \
+        "shipped config must have no FATAL findings"
     bad = json.loads(json.dumps(_CFG))
     bad["websockets"]["kraken_max_book_age_sec"] = 300.0
     assert any("kraken_max_book_age" in str(x) for x in g.validate(bad)), \

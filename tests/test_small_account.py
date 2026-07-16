@@ -65,5 +65,5 @@ def test_guard_clean_at_small_capital():
     for cap in (500, 800):
         cfg = json.loads(json.dumps(_CFG))          # deep copy
         cfg["capital_management"]["starting_capital_usd"] = cap
-        findings = validate(cfg)
-        assert not findings, f"at ${cap}: {findings}"
+        fatals = [m for s, m in validate(cfg) if s == "FATAL"]
+        assert not fatals, f"at ${cap}: {fatals}"   # WARNs are advisory

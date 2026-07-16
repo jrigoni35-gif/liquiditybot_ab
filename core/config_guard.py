@@ -771,6 +771,31 @@ def validate(config: dict) -> list:
                   f"every exploration entry SZ-030-vetoes and the DRY-RUN "
                   f"learning lane goes silent. Raise p_win above the breakeven.")
 
+    # --- sizer entry-bar coherence: min_p_win is the EARLY p(win) gate, but the
+    # net-Kelly step floors size at 0 below the breakeven (SZ-030) regardless.
+    # If min_p_win sits BELOW that breakeven it is a PHANTOM bar — the headline
+    # "minimum win prob" is not the effective one (the breakeven is), and every
+    # signal in [min_p_win, breakeven) passes the gate only to die SZ-030 a step
+    # later. WARN (not fatal — the bot trades correctly) so the configured
+    # number is honest. exploration.p_win IS guarded above; min_p_win was not.
+    mpw = float(_f(config, "position_sizer.min_p_win", 0.55))
+    try:
+        from risk.position_sizer import payoff_ratio_from_config
+        pt = config.get("pretrade", {}) or {}
+        rt = (float(pt.get("maker_fee_bps", 25.0))
+              + float(pt.get("taker_fee_bps", 40.0))) / 100.0
+        be = 1.0 / (1.0 + payoff_ratio_from_config(
+            config.get("profit_taking", {}) or {},
+            config.get("risk", {}) or {}, rt_cost_pct=rt))
+    except Exception:
+        be = None
+    if be is not None and mpw < be - 1e-6:
+        warn(f"position_sizer.min_p_win={mpw:.3f} is below the net-Kelly "
+             f"breakeven {be:.3f}, so the EFFECTIVE entry bar is {be:.3f} (the "
+             f"sizer floors Kelly at 0 below it, SZ-030) - the configured "
+             f"min_p_win is not the real minimum. Raise it to >= the breakeven "
+             f"to make the bar honest, or keep it as an intentional soft floor.")
+
     return findings
 
 
