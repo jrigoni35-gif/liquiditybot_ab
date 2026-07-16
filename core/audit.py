@@ -44,8 +44,13 @@ def _h(payload: str) -> str:
 
 
 class AuditTrail:
-    def __init__(self, path: str = "outputs/audit.jsonl"):
+    def __init__(self, path: str = "outputs/audit.jsonl", fsync: bool = True):
         self.path = Path(path)
+        # fsync per write is right for the LIVE trail of record; QA harnesses
+        # that redirect the audit (configure_audit) run the engine over 200x1200
+        # replay/trial cycles where a per-disposition disk-flush dominates
+        # wall-clock and buys nothing (tempdir, thrown away) — they pass False.
+        self._fsync = bool(fsync)
         self._lock = threading.Lock()
         self._seq = 0
         self._prev = _GENESIS
@@ -86,17 +91,33 @@ class AuditTrail:
                 return                       # empty file: stay at genesis
             try:
                 rec = json.loads(last)
-            except ValueError:
-                # torn final line: drop it and re-examine the new tail
+                seq = int(rec.get("seq", 0))    # TypeError on a null/dict seq
+            except (ValueError, TypeError):
+                # torn OR malformed final line (bad bytes, or a non-int seq our
+                # writer never produces): drop it and re-examine the new tail.
+                # int() is INSIDE the guard so a malformed record can't raise
+                # out of log()'s first-write re-adopt (its "never raises"
+                # contract) — it was previously outside and could TypeError.
                 with open(self.path, "r+b") as f:
                     f.truncate(last_off)
                 self.tail_truncations += 1
-                log.warning("audit: truncated a torn final line at byte %d "
-                            "(crash mid-append) so the chain resumes cleanly",
-                            last_off)
+                log.warning("audit: truncated a torn/malformed final line at "
+                            "byte %d so the chain resumes cleanly", last_off)
                 continue
-            self._seq = max(self._seq, int(rec.get("seq", 0)))
+            self._seq = max(self._seq, seq)
             self._prev = str(rec.get("h", _GENESIS))
+            # repair a missing trailing newline: if a crash dropped only the
+            # final '\n' but kept the record bytes, the next append would
+            # concatenate onto it into one line that a LATER _adopt_tail reads
+            # as unparseable and truncates — silently destroying BOTH records.
+            try:
+                with open(self.path, "rb") as f:
+                    f.seek(-1, 2)
+                    if f.read(1) != b"\n":
+                        with open(self.path, "ab") as af:
+                            af.write(b"\n")
+            except OSError:
+                pass
             return
 
     # ------------------------------------------------------------------
@@ -136,7 +157,8 @@ class AuditTrail:
                     # power loss - flush alone leaves it in the OS page cache.
                     # This is the regulated trail of record; the audit write
                     # rate (per disposition, not per tick) makes the cost fine.
-                    os.fsync(f.fileno())
+                    if self._fsync:
+                        os.fsync(f.fileno())
                 self._prev = rec["h"]
                 return self._seq
             except (OSError, TypeError, ValueError):
@@ -160,36 +182,68 @@ class AuditTrail:
             (torn_tail=False).
         Either way ok=False (the file has a bad line); a caller that only
         cares about TAMPER consults torn_tail to forgive a crashed final
-        write. Continues scanning past the first break (rather than stopping)
-        purely to learn whether real content follows it."""
-        n, prev = 0, _GENESIS
-        first_break = None
-        tail_after_break = 0
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if first_break is not None:
-                        tail_after_break += 1     # real content past the break
-                        continue
-                    try:
-                        rec = json.loads(line)
-                        h = rec.pop("h", None)
-                        body = json.dumps(rec, sort_keys=True, default=str)
-                        if rec.get("prev") != prev or _h(body) != h:
-                            raise ValueError("chain break")
-                        prev = h
-                        n += 1
-                    except (ValueError, KeyError):
-                        first_break = n + 1
-        except OSError:
-            return {"ok": False, "records": 0, "error": "unreadable"}
-        return {"ok": first_break is None, "records": n,
-                "first_break": first_break,
-                "torn_tail": first_break is not None and tail_after_break == 0,
-                "dropped_writes": self.dropped}
+        write. Delegates to verify_chain() — a read-only pass that NEVER
+        mutates the file (construction's _adopt_tail is what heals a torn
+        tail; verify itself must not, so external callers can inspect a
+        bundle's trail without truncating it)."""
+        r = verify_chain(self.path)
+        r["dropped_writes"] = self.dropped
+        return r
+
+
+def verify_chain(path) -> dict:
+    """Read-only chain replay of a JSONL audit file. NEVER mutates the file
+    (unlike constructing an AuditTrail, whose _adopt_tail heals a torn tail) —
+    so session_import and operators can inspect a bundle's trail without
+    truncating it. Distinguishes a crashed torn tail (unparseable final line,
+    nothing valid after) from a mid-chain/tamper break (a complete record that
+    fails the hash/prev check)."""
+    n, prev = 0, _GENESIS
+    first_break = None
+    first_break_torn = False          # True iff the breaking line was UNPARSEABLE
+    tail_after_break = 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                # strip trailing whitespace AND NUL padding: some filesystems
+                # leave a run of \x00 after a torn append into a freshly-
+                # extended block, and NUL is not whitespace (a NUL-only line
+                # must read as blank, not as "content after the break").
+                line = line.strip().strip("\x00").strip()
+                if not line:
+                    continue
+                if first_break is not None:
+                    tail_after_break += 1     # real content past the break
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    # incomplete/corrupt BYTES = a crashed append (torn tail
+                    # candidate — only if nothing valid follows it)
+                    first_break, first_break_torn = n + 1, True
+                    continue
+                try:
+                    h = rec.pop("h", None)
+                    body = json.dumps(rec, sort_keys=True, default=str)
+                    if rec.get("prev") != prev or _h(body) != h:
+                        raise ValueError("chain break")
+                    prev = h
+                    n += 1
+                except (ValueError, KeyError, AttributeError, TypeError):
+                    # a COMPLETE record that fails the hash/prev check is TAMPER
+                    # (or genuine corruption of a committed record), NOT a benign
+                    # crash — never mark it torn_tail.
+                    first_break, first_break_torn = n + 1, False
+    except OSError:
+        return {"ok": False, "records": 0, "error": "unreadable",
+                "first_break": None, "torn_tail": False}
+    return {"ok": first_break is None, "records": n,
+            "first_break": first_break,
+            # torn_tail ONLY when the breaking line was an UNPARSEABLE final line
+            # with nothing valid after it (a crashed append). A complete-but-
+            # altered final record is tamper, not a torn tail.
+            "torn_tail": (first_break is not None and tail_after_break == 0
+                          and first_break_torn)}
 
 
 _AUDIT = None
@@ -202,12 +256,15 @@ def get_audit() -> AuditTrail:
     return _AUDIT
 
 
-def configure_audit(path) -> AuditTrail:
+def configure_audit(path, fsync: bool = False) -> AuditTrail:
     """Point the process-wide singleton at `path`. QA harnesses (smoke,
     assurance, trials) MUST call this before constructing any engine
     component: their synthetic order/fault/self-test records once landed
     in the production trail, burying real dispositions and colliding
-    with the live runner's chain (SD-007)."""
+    with the live runner's chain (SD-007). fsync defaults OFF here: a
+    redirected trail is a throwaway tempdir, and per-write fsync over the
+    200x1200 replay/trial cycles is pure wall-clock tax with no durability
+    value. The live singleton (get_audit) keeps fsync ON."""
     global _AUDIT
-    _AUDIT = AuditTrail(path)
+    _AUDIT = AuditTrail(path, fsync=fsync)
     return _AUDIT

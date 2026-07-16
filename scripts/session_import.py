@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.audit import AuditTrail  # noqa: E402
+from core.audit import verify_chain  # noqa: E402
 from ml.history import HistoryStore  # noqa: E402
 
 
@@ -100,16 +100,21 @@ def verify_bundle(src: Path, strict_audit: bool = False) -> dict:
     audit = src / "audit.jsonl"
     chain = None
     if audit.exists():
-        chain = AuditTrail(str(audit)).verify()
+        # verify_chain is READ-ONLY (constructing an AuditTrail would heal a
+        # torn tail by truncating the bundle copy on disk — a side effect that
+        # also defeats --strict-audit's inspection).
+        chain = verify_chain(str(audit))
         if not chain.get("ok"):
             fb = chain.get("first_break")
-            if chain.get("torn_tail"):
-                print(f"  note: audit trail has a torn final line (crash mid-"
-                      f"append at record {fb}); chain intact before it")
-            elif strict_audit:
+            # --strict-audit refuses ANY break (torn OR mid-chain), matching
+            # its contract; checked FIRST so a torn tail can't slip past it.
+            if strict_audit:
                 print(f"INTEGRITY FAIL: audit chain breaks at record {fb} - "
                       f"refusing bundle (--strict-audit)")
                 return {"rc": 2}
+            if chain.get("torn_tail"):
+                print(f"  note: audit trail has a torn final line (crash mid-"
+                      f"append at record {fb}); chain intact before it")
             else:
                 print(f"AUDIT CHAIN BROKEN at record {fb} - trail will be "
                       f"QUARANTINED; learning data (own sha256 ok) still "
@@ -126,9 +131,13 @@ def run(src: str, outputs: str, apply: bool,
         return v["rc"]
     manifest, chain = v["manifest"], v["chain"]
     # a mid-chain break (not a benign torn tail) => the audit trail is filed
-    # under a QUARANTINED name so it is never mistaken for a clean chain
+    # under a QUARANTINED name so it is never mistaken for a clean chain. Gated
+    # on audit.jsonl actually being a MANIFEST file (the copy loop only files
+    # those) so the "QUARANTINED as ..." message can't fire when nothing is
+    # filed (an on-disk-but-unlisted audit.jsonl).
     audit_quarantined = bool(chain and not chain.get("ok")
-                             and not chain.get("torn_tail"))
+                             and not chain.get("torn_tail")
+                             and "audit.jsonl" in manifest.get("files", {}))
 
     expected = HistoryStore(str(out / "signal_history.csv"))._header
     hist_src = srcp / "signal_history.csv"

@@ -18,12 +18,76 @@ Three guarantees:
 """
 import json
 
-from core.audit import AuditTrail
+from core.audit import AuditTrail, verify_chain
 from core.codes import Code
 from ml.history import HistoryStore
 
 import scripts.session_export as sx
 import scripts.session_import as si
+
+
+# ==================== review-hardening (A2-F2/F3/F6, A3-F1) ==================
+def test_tampered_final_record_is_not_laundered_as_torn_tail(tmp_path):
+    # a COMPLETE final record whose hash is wrong is TAMPER, not a crash tail:
+    # verify must report torn_tail=False so session_import quarantines it
+    # instead of forgiving it as benign (review A2-F2).
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(4):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {"i": i})
+    lines = p.read_text(encoding="utf-8").splitlines()
+    lines[-1] = lines[-1].replace("rec 3", "rec HACKED")   # parseable, hash now wrong
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    r = verify_chain(str(p))
+    assert r["ok"] is False and r["torn_tail"] is False    # tamper, not benign
+
+
+def test_verify_chain_is_read_only(tmp_path):
+    # verify_chain must NOT truncate a torn tail (only construction heals);
+    # an external inspector can look without mutating the file.
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(3):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {})
+    with open(p, "a", encoding="utf-8") as f:
+        f.write('{"seq": 4, "torn')                        # torn final line
+    before = p.read_bytes()
+    r = verify_chain(str(p))
+    assert r["ok"] is False and r["torn_tail"] is True
+    assert p.read_bytes() == before                        # untouched
+
+
+def test_adopt_truncates_malformed_seq_without_raising(tmp_path):
+    # a parseable final record with a non-int seq (null) must not TypeError out
+    # of construction (log()'s never-raise contract) — it's truncated (A2-F6).
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(3):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {})
+    with open(p, "a", encoding="utf-8") as f:
+        f.write('{"seq": null, "prev": "x", "h": "y"}\n')  # complete JSON, bad seq
+    b = AuditTrail(str(p))                                  # must not raise
+    assert b.tail_truncations == 1
+    assert b.log("qa", Code.FW_FAULT_DEGRADED, "next", {}) == 4   # resumed clean
+    assert b.verify()["ok"] is True
+
+
+def test_missing_trailing_newline_is_repaired_not_concatenated(tmp_path):
+    # a crash that drops only the final '\n' but keeps the record must be
+    # repaired on adopt, so the next append doesn't concatenate into one line a
+    # later adopt would truncate (destroying BOTH records) (A2-F3).
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(3):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {})
+    body = p.read_text(encoding="utf-8")
+    p.write_text(body.rstrip("\n"), encoding="utf-8")       # drop the last newline
+    b = AuditTrail(str(p))                                   # adopt -> repair newline
+    assert b.log("qa", Code.FW_FAULT_DEGRADED, "next", {}) == 4
+    # a fresh adopt sees 4 clean records, nothing concatenated/truncated
+    c = AuditTrail(str(p))
+    assert c.tail_truncations == 0 and c.verify()["ok"] is True
+    assert c.verify()["records"] == 4
 
 
 # ============================ verify() ======================================
@@ -193,6 +257,16 @@ def test_torn_tail_bundle_imports_without_quarantine(tmp_path):
     # a benign torn tail is filed under its normal name (not quarantined)
     assert (rec_dir / "audit.jsonl").exists()
     assert not (rec_dir / "audit.jsonl.QUARANTINED").exists()
+
+
+def test_strict_audit_refuses_a_torn_tail_too(tmp_path):
+    # --strict-audit contract is "refuse ANY audit-chain break" — a torn tail
+    # is a break, so strict must refuse it (review A3-F1: it used to slip past
+    # because the torn-tail branch short-circuited before the strict check).
+    dst = _bundle_with_broken_audit(
+        tmp_path, lambda ls: ls[:-1] + [ls[-1][:15]])     # torn final line
+    rc = si.run(str(dst), str(_home(tmp_path)), apply=True, strict_audit=True)
+    assert rc == 2, "--strict-audit must refuse a torn-tail break"
 
 
 def test_sha256_tamper_still_hard_refuses(tmp_path):
