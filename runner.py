@@ -144,9 +144,22 @@ class BotRunner:
                         "sealed (venue dead-man will cancel resting "
                         "orders); live again = config + restart + ARM")
         elif cmd == "flatten_all":
-            for pos in bot.state.open_positions():
-                bot._submit_exit(pos, 100.0, "operator flatten_all")
-            note = f"flatten requested for {bot.state.open_position_count()} positions"
+            # per-position isolation: an emergency flatten must not half-
+            # complete silently because one position errors on exit submission
+            # - every OTHER position still gets flattened, and the ack reports
+            # the truth (submitted vs failed) instead of a blanket "requested".
+            submitted, failed = 0, 0
+            for pos in list(bot.state.open_positions()):
+                try:
+                    bot._submit_exit(pos, 100.0, "operator flatten_all")
+                    submitted += 1
+                except Exception:
+                    failed += 1
+                    log.exception("[%s] flatten_all exit submission raised - "
+                                  "flattening the rest", pos.symbol)
+            note = f"flatten submitted for {submitted} position(s)"
+            if failed:
+                note += f"; {failed} FAILED to submit - see log, retry"
         elif cmd.startswith("sim_"):
             if not bot.dry_run:
                 note = "REFUSED: simulations are dry-run only"
