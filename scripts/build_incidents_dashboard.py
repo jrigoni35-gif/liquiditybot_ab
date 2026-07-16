@@ -269,7 +269,12 @@ def build():
         '{service_name="liquiditybot"} | severity_text=~"WARNING|ERROR|CRITICAL"',
         x=0, y=y))
 
-    return {"dashboard": {
+    # UNWRAPPED dashboard model (top-level), NOT {"dashboard": {...}}: Grafana's
+    # UI import ("Import via dashboard JSON model" / file upload) reads
+    # schemaVersion at the TOP level and rejects the API-style wrapper with
+    # "Invalid or unknown dashboard schema". The wrapper is only for the HTTP
+    # API (POST /api/dashboards/db), which we don't use.
+    return {
         "uid": "liquiditybot-incidents",
         "title": "liquiditybot — incidents",
         "description": "Faults, rejects and self-heal signals for the "
@@ -282,12 +287,19 @@ def build():
         "templating": {"list": []},
         "annotations": {"list": []},
         "panels": panels,
-    }}
+    }
 
 
 if __name__ == "__main__":
+    # NOTE: the shipped docs/grafana/liquiditybot_incidents.json has since been
+    # hand-extended (Operating-state row, exit-eval / cycle-failure / audit
+    # torn-tail panels). This generator is the STARTING POINT, not the live
+    # source of truth — re-running it drops those additions. Writes to a
+    # .generated sibling so it can't silently clobber the maintained file;
+    # diff/merge intentionally.
     out = Path(__file__).resolve().parents[1] / "docs" / "grafana" / \
-        "liquiditybot_incidents.json"
+        "liquiditybot_incidents.generated.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(build(), indent=2), encoding="utf-8")
-    print(f"wrote {out}")
+    print(f"wrote {out} (compare against the maintained liquiditybot_"
+          f"incidents.json before replacing it)")
