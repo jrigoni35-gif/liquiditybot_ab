@@ -27,7 +27,7 @@ import numpy as np
 
 from core.codes import Code
 from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
-from ml.labeling import triple_barrier
+from ml.labeling import simulate_exit_policy, triple_barrier
 
 log = logging.getLogger("liquiditybot.ml.history")
 
@@ -283,9 +283,21 @@ class CandidateLabeler:
     """
 
     def __init__(self, store: HistoryStore, ml_cfg: dict, on_label=None,
-                 shadow_store: "HorizonShadowStore | None" = None):
+                 shadow_store: "HorizonShadowStore | None" = None,
+                 exit_policy=None):
         cfg = ml_cfg or {}
         self.store = store
+        # LABEL MODE: "exit_policy" replays the live exit engine (hard stop +
+        # tiered scale-outs + give-back/trailing) so a candidate is labeled by
+        # the SAME question a live trade poses; "triple_barrier" is the legacy
+        # symmetric pt/sl barrier. exit_policy needs a policy object (built from
+        # config by the caller); absent one we fall back to the barrier so this
+        # can never crash for a caller that didn't supply it.
+        self.exit_policy = exit_policy
+        mode = str(cfg.get("label_mode", "exit_policy"))
+        self.label_mode = mode if (mode == "triple_barrier"
+                                   or exit_policy is not None) \
+            else "triple_barrier"
         # optional callback(gates_passed: dict|None, label: int), fired as
         # each candidate labels - feeds per-gate predictive-power stats
         # (strategies.signal_gates.GateStats) without coupling this module
@@ -429,9 +441,8 @@ class CandidateLabeler:
             if avail >= self.horizon:
                 # full window: finish shadows, label if still unlabeled
                 if not cand.get("labeled"):
-                    out = triple_barrier(closes, highs, lows, i, side,
-                                        cand["sigma_bar"], self.pt, self.sl,
-                                        self.horizon, cost_pct=cost)
+                    out = self._label(closes, highs, lows, i, side,
+                                      cand["sigma_bar"], cost)
                     written += self._emit_label(cand, out)
                 self._record_shadow_horizons(cand, closes, highs, lows, i,
                                              side, cost)
@@ -439,15 +450,26 @@ class CandidateLabeler:
                 continue
             if cand.get("labeled"):
                 continue                    # waiting only for shadows now
-            out = triple_barrier(closes, highs, lows, i, side,
-                                cand["sigma_bar"], self.pt, self.sl,
-                                self.horizon, cost_pct=cost)
-            if out.barrier in ("pt", "sl"):
+            out = self._label(closes, highs, lows, i, side,
+                              cand["sigma_bar"], cost)
+            if out.final:                   # resolved inside the window -> final
                 written += self._emit_label(cand, out)
                 cand["labeled"] = True
         if written:
-            log.info(f"labeled {written} candidate signal(s) via triple-barrier")
+            log.info("labeled %d candidate signal(s) via %s",
+                     written, self.label_mode)
         return written
+
+    def _label(self, closes, highs, lows, i, side, sigma_bar, cost):
+        """Dispatch to the configured labeler. exit_policy replays the live
+        exit engine (matches how the signal is actually traded); triple_barrier
+        is the legacy symmetric pt/sl. Same signature, same BarrierOutcome."""
+        if self.label_mode == "exit_policy" and self.exit_policy is not None:
+            return simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
+                                        self.exit_policy, max_bars=self.horizon,
+                                        cost_pct=cost)
+        return triple_barrier(closes, highs, lows, i, side, sigma_bar,
+                              self.pt, self.sl, self.horizon, cost_pct=cost)
 
     def _emit_label(self, cand: dict, out) -> int:
         self.store._append_row(cand["id"], cand["asset"],
@@ -561,13 +583,21 @@ def _ema(closes: np.ndarray, period: int) -> np.ndarray:
 
 def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
                     pt_mult: float = 8.0, sl_mult: float = 6.0,
-                    max_bars: int = 96, cost_pct: float = 0.5):
-    """EMA-cross pseudo-signals -> triple-barrier labels over history.
+                    max_bars: int = 96, cost_pct: float = 0.5,
+                    label_mode: str = "triple_barrier", exit_policy=None):
+    """EMA-cross pseudo-signals -> labels over history.
+
+    label_mode "exit_policy" (with an exit_policy) replays the live exit engine
+    so bootstrap labels match how a signal is actually traded, consistent with
+    the candidate labeler; "triple_barrier" is the legacy symmetric pt/sl.
+    Defaults to triple_barrier so existing callers are behavior-exact until
+    they opt in.
 
     Microstructure/regime/sentiment features are unavailable historically
     and set to neutral; only price/vol/momentum features vary. Good
     enough for a calibrated prior, not a substitute for live history.
     """
+    use_policy = label_mode == "exit_policy" and exit_policy is not None
     closes = np.array([c["close"] for c in candles_5m], float)
     highs = np.array([c["high"] for c in candles_5m], float)
     lows = np.array([c["low"] for c in candles_5m], float)
@@ -586,8 +616,11 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
             continue
         side = 1 if crossed_up else -1
         sigma_bar = float(rets[max(i - 60, 0):i].std() + 1e-6)
-        out = triple_barrier(closes, highs, lows, i, side, sigma_bar,
-                            pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
+        out = simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
+                                   exit_policy, max_bars=max_bars,
+                                   cost_pct=cost_pct) if use_policy \
+            else triple_barrier(closes, highs, lows, i, side, sigma_bar,
+                                pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
         feats = np.zeros(len(FEATURE_NAMES))
 
         def setf(name, val, _feats=feats):

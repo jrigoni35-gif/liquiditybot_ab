@@ -77,6 +77,7 @@ from execution.tactics import ExecutionPlanner
 from ml.features import FEATURE_NAMES, build_features
 from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
+from ml.labeling import ExitPolicy
 from ml.monitor import ModelMonitor
 from ml.postmortem import PostmortemEngine, TradeThesis
 from sentiment.scanner import SentimentScanner
@@ -407,9 +408,14 @@ class LiquidityBot:
         # over gates_passed dicts, so informed-flow gates learn too)
         self.gate_stats = GateStats(config.get("signal_gates", {})
                                     .get("learned_weights", {}))
+        # exit-policy labeler reads the live stop + tier + give-back geometry
+        # from the SAME config the engine trades, so candidate labels answer
+        # "would this signal net positive under OUR exit policy" (default mode)
         self.candidates = CandidateLabeler(self.history, config.get("ml", {}),
                                            on_label=self.gate_stats.note_label,
-                                           shadow_store=self.horizon_shadow)
+                                           shadow_store=self.horizon_shadow,
+                                           exit_policy=ExitPolicy.from_config(
+                                               config))
         # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
         # over public books/candles; shadow by default (telemetry only),
         # bounded confidence shading only when influence=advise

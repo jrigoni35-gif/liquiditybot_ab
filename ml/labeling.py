@@ -30,6 +30,13 @@ class BarrierOutcome:
     ret_pct: float      # signed trade return, %
     bars_held: int
     barrier: str        # pt | sl | time | tier | trail | floor
+    # True when the trade fully RESOLVED before running out of bars (a decisive
+    # exit, not the vertical/time cutoff). The candidate labeler uses this for
+    # EARLY decidability: a resolved outcome inside the available window is
+    # final and can be labeled now; only a "time" outcome must wait for the
+    # full horizon. Generalizes the old `barrier in ("pt","sl")` check across
+    # both the triple-barrier and the exit-policy labelers.
+    final: bool = True
 
 
 @dataclass
@@ -174,11 +181,12 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
             floor = max(floor, peak_gain - policy.trail_frac)  # trailing
         stop_level = max(stop_level, floor)         # ratchet-only
 
-    # vertical barrier: close the remainder at the final bar
+    # vertical barrier: close the remainder at the final bar (NOT final — more
+    # bars could still resolve the still-open remainder)
     if remaining > EPS:
         realized += _favorable_gain(closes[end]) * remaining
     return BarrierOutcome(int(realized * 100.0 - cost_pct > 0),
-                          realized * 100.0, end - i, "time")
+                          realized * 100.0, end - i, "time", final=False)
 
 
 def triple_barrier(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
@@ -221,4 +229,5 @@ def triple_barrier(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
                 return BarrierOutcome(int(ret - cost_pct > 0), ret - cost_pct,
                                     j - i, "pt")
     ret = side * (closes[end] / entry - 1.0) * 100.0
-    return BarrierOutcome(int(ret - cost_pct > 0), ret - cost_pct, end - i, "time")
+    return BarrierOutcome(int(ret - cost_pct > 0), ret - cost_pct, end - i,
+                          "time", final=False)

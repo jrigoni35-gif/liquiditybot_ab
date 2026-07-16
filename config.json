@@ -336,6 +336,8 @@
     "probability_shrinkage": 0.35,
     "min_train_rows": 150,
     "label_max_bars": 96,
+    "label_mode": "exit_policy",
+    "_label_mode_doc": "exit_policy = label candidates/bootstrap by replaying the live exit engine (hard stop max(stop_loss_pct, stop_vol_mult*sigma) + tiered scale-outs + give-back/trailing) so the model trains on the SAME bet it is traded on; set 'triple_barrier' for the legacy symmetric pt/sl barrier (label_pt_vol_mult/label_sl_vol_mult below apply only to that mode).",
     "label_pt_vol_mult": 8,
     "label_sl_vol_mult": 6,
     "label_round_trip_cost_pct": 0.5,

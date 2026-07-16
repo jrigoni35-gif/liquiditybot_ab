@@ -41,6 +41,7 @@ from core.codes import Code  # noqa: E402
 configure_audit(Path(__file__).resolve().parents[1]
                 / "outputs" / "audit_train_meta.jsonl")
 from ml.history import HistoryStore, bootstrap_dataset  # noqa: E402
+from ml.labeling import ExitPolicy  # noqa: E402
 from ml.walkforward import evaluate_and_select  # noqa: E402
 from ml.models import save_model  # noqa: E402
 from ml.calibration import IsotonicCalibrator, brier_score, feature_deciles  # noqa: E402
@@ -136,11 +137,14 @@ def main():
             candles = okx.get_history_candles(sym, bar="5m", total=2880)
             if len(candles) < 300:
                 candles = okx.get_candles(sym, bar="5m", limit=300)
-            xs, ys = bootstrap_dataset(candles,
-                                       pt_mult=float(ml_cfg.get("label_pt_vol_mult", 8)),
-                                       sl_mult=float(ml_cfg.get("label_sl_vol_mult", 6)),
-                                       max_bars=int(ml_cfg.get("label_max_bars", 96)),
-                                       cost_pct=float(ml_cfg.get("label_round_trip_cost_pct", 0.5)))
+            xs, ys = bootstrap_dataset(
+                candles,
+                pt_mult=float(ml_cfg.get("label_pt_vol_mult", 8)),
+                sl_mult=float(ml_cfg.get("label_sl_vol_mult", 6)),
+                max_bars=int(ml_cfg.get("label_max_bars", 96)),
+                cost_pct=float(ml_cfg.get("label_round_trip_cost_pct", 0.5)),
+                label_mode=str(ml_cfg.get("label_mode", "exit_policy")),
+                exit_policy=ExitPolicy.from_config(config))
             if len(xs):
                 Xb.append(xs)
                 yb.append(ys)
