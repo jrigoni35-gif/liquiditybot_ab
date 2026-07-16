@@ -9,16 +9,17 @@ paper account (e.g. 800 -> 5000) run this once so the LIVE equity actually
 follows. Cash is PnL-settled (equity = cash + savings + unrealized), so resetting
 the base is just rewriting the money fields; positions are untouched.
 
-Safe by construction:
+Cross-platform + supervisor-safe:
   * refuses unless system.dry_run is true — never touches a live-money account;
-  * stops the runner first (graceful 'stop', SIGTERM fallback) so its in-memory
-    state can't clobber the write;
-  * rewrites ONLY the portfolio money fields (starting_capital, cash_balance,
-    savings, realized/daily pnl, fees, equity_high_water); positions AND every
-    other section (ML governor, open orders, history) are preserved via the
-    checksummed StateStore.write_raw;
-  * does not relaunch — the supervisor / session-start hook brings the runner
-    back on the reset snapshot (or run `python runner.py`).
+  * stops the runner with the graceful 'stop' control command (a file drop, so
+    it works identically on Windows and Linux — no /proc, no signals) and
+    confirms it stopped by watching status.json's heartbeat go stale, so its
+    in-memory state can't clobber the write;
+  * rewrites ONLY the portfolio money fields via the checksummed
+    StateStore.write_raw; positions AND every other section (ML governor, open
+    orders, history) are preserved;
+  * does NOT relaunch — the pc_supervisor / session hook brings the runner back
+    on the reset snapshot (or run `python runner.py`).
 
 Learning artifacts (signal_history.csv, meta_model.json, imported bundles) live
 in separate files and are never touched.
@@ -30,7 +31,6 @@ in separate files and are never touched.
 import argparse
 import copy
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -42,6 +42,7 @@ from core.persistence import StateStore  # noqa: E402
 
 _MONEY_ZERO = ("savings_balance", "realized_pnl_total", "daily_realized_pnl",
                "fees_paid_total")
+_HEARTBEAT_STALE_SEC = 12.0     # a status.json older than this => runner is gone
 
 
 def reset_portfolio(snapshot: dict, capital: float) -> dict:
@@ -59,43 +60,35 @@ def reset_portfolio(snapshot: dict, capital: float) -> dict:
     return data
 
 
-def _runner_pids() -> list:
-    pids = []
-    for d in os.listdir("/proc"):
-        if not d.isdigit():
-            continue
-        try:
-            cmd = Path(f"/proc/{d}/cmdline").read_bytes().replace(
-                b"\x00", b" ").decode(errors="ignore")
-            if "runner.py" in cmd and "grep" not in cmd:
-                pids.append(int(d))
-        except OSError:
-            pass
-    return pids
+def _runner_alive(status_path: Path) -> bool:
+    """Heartbeat liveness, same signal the supervisor uses: a fresh status.json
+    written_at means the runner loop is turning. Cross-platform, no PID."""
+    try:
+        s = json.loads(status_path.read_text(encoding="utf-8"))
+        return (time.time() - float(s.get("written_at", 0.0))) < _HEARTBEAT_STALE_SEC
+    except (OSError, ValueError, TypeError):
+        return False
 
 
-def _stop_runner(timeout: float = 25.0) -> None:
-    if not _runner_pids():
-        return
+def _stop_runner(status_path: Path, timeout: float = 30.0) -> bool:
+    """Ask the runner to stop and confirm it did (heartbeat goes stale). Returns
+    True if the runner is stopped, False if it's still alive after `timeout`."""
+    if not _runner_alive(status_path):
+        return True
     try:
         from core.runtime import ControlChannel
         ControlChannel().send("stop")
-        print("sent 'stop' to the runner — waiting for graceful exit...")
+        print("sent 'stop' to the runner — waiting for it to halt...")
     except Exception as e:  # noqa: BLE001
-        print(f"could not send stop ({e}); will SIGTERM")
+        print(f"could not send the stop command: {e}")
+        return False
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not _runner_pids():
-            print("runner stopped.")
-            return
         time.sleep(1.0)
-    for pid in _runner_pids():
-        try:
-            os.kill(pid, 15)
-            print(f"SIGTERM {pid}")
-        except OSError:
-            pass
-    time.sleep(2.0)
+        if not _runner_alive(status_path):
+            print("runner stopped.")
+            return True
+    return False
 
 
 def main() -> int:
@@ -119,6 +112,7 @@ def main() -> int:
         return 2
 
     store = StateStore(args.state)
+    status_path = Path(args.state).parent / "status.json"
     snap = store.load_raw()
     if snap is None:
         print(f"no snapshot at {args.state} — nothing to reset (a fresh runner "
@@ -133,10 +127,9 @@ def main() -> int:
         print("\npreview only — re-run with --yes to apply.")
         return 0
 
-    _stop_runner()
-    if _runner_pids():
-        print("REFUSED: runner still alive after stop — aborting to avoid a "
-              "clobbered write. Stop it and retry.")
+    if not _stop_runner(status_path):
+        print("REFUSED: the runner is still alive after the stop request. Stop it "
+              "(and pc_supervisor, so it can't relaunch mid-reset) and retry.")
         return 1
     ok = store.write_raw(reset_portfolio(snap, capital))
     if not ok:
@@ -144,8 +137,8 @@ def main() -> int:
         return 1
     chk = (store.load_raw() or {}).get("portfolio") or {}
     print(f"done: cash=${chk.get('cash_balance', 0):,.2f} "
-          f"positions={len(chk.get('positions') or [])}. "
-          f"Relaunch the runner (supervisor/hook will, or `python runner.py`).")
+          f"positions={len(chk.get('positions') or [])}. Relaunch the runner — "
+          f"the supervisor will within ~2 min, or run `python runner.py`.")
     return 0
 
 
