@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784171541.833955,
+  "generated_at": 1784172365.6771817,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.182,
-    "end": 1784171541.072,
-    "duration_h": 64.65
+    "end": 1784172364.898,
+    "duration_h": 64.88
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,20 +16,20 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7007
+    "samples": 7025
   },
   "activity": {
-    "signal_rows_total": 301,
+    "signal_rows_total": 302,
     "live_labeled_trades": 19,
-    "candidate_rows": 282
+    "candidate_rows": 283
   },
   "audit": {
-    "records": 400,
-    "signal_records": 112,
+    "records": 401,
+    "signal_records": 113,
     "by_src": {
       "exploration": 288,
       "order_manager": 56,
-      "startup": 46,
+      "startup": 47,
       "ml_governor": 9,
       "engine": 1
     },
@@ -44,7 +44,7 @@
       ],
       [
         "CG-000",
-        46
+        47
       ],
       [
         "ML-032",
@@ -72,24 +72,24 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.5,
+    "dominant_frac": 0.496,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 18929,
+    "records": 18992,
     "by_level": {
-      "INFO": 16579,
-      "ERROR": 1866,
-      "WARNING": 481,
+      "INFO": 16639,
+      "ERROR": 1867,
+      "WARNING": 483,
       "CRITICAL": 3
     },
     "top_warnings": [
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        829
+        830
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
@@ -121,7 +121,7 @@
       ],
       [
         "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        35
+        36
       ],
       [
         "OKX: skipping ETH-USDT-SWAP, order book unavailable",
@@ -129,12 +129,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6803,
-      "thin": 2115
+      "spoofy": 6807,
+      "thin": 2133
     },
-    "spoofy_frac": 0.763,
-    "cycles_estimate": 3465,
-    "feed_error_events": 1957
+    "spoofy_frac": 0.761,
+    "cycles_estimate": 3474,
+    "feed_error_events": 1958
   },
   "model": {
     "monitor_level": 0,
@@ -184,7 +184,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 50% of 112 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 50% of 113 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
