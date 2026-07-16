@@ -37,7 +37,8 @@ EQUITY = 800.0
 def _size(floor_to_min, size_mult=1.0, risk_scale=0.4):
     sizer = PositionSizer({"min_p_win": 0.55, "entry_cooldown_min": 0,
                            "min_ticket_usd": 15},
-                          PROFIT_CFG, {"stop_loss_pct": 2.0})
+                          PROFIT_CFG, {"stop_loss_pct": 2.0},
+                          pretrade_cfg={"min_order_usd": 15})
     state = PortfolioState(starting_capital=EQUITY)
     lev = LeverageGovernor({"use_margin": False}).decide(
         state, {}, EQUITY, 60.0, 2.0, 0.0)
@@ -65,7 +66,10 @@ def test_small_equity_exploration_starves_without_floor():
 def test_floor_rescues_exploration_ticket():
     d = _size(floor_to_min=True)
     assert d.approved, d.reasons
-    assert d.usd == 15.0
+    # the floor now clears the pretrade min-order with margin (max(min_ticket,
+    # min_order*1.2) = max(15, 18) = 18): a bare min-ticket floor landed a few
+    # cents under min_order at the maker quote and died PT-031.
+    assert d.usd == 18.0
     assert any("SZ-044" in r for r in d.reasons), d.reasons
 
 

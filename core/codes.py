@@ -51,6 +51,8 @@ class Code(str, Enum):
     PT_BELOW_MIN_ORDER = "PT-031"
     PT_EV_NEGATIVE = "PT-040"        # fill-prob-weighted EV fails the bar
     PT_EDGE_RATIO = "PT-041"         # edge/cost ratio below minimum
+    PT_EXPLORE_BYPASS = "PT-050"     # dry-run exploration bypassed the profit-EV
+                                     # gate to acquire a real-fill label
     PT_APPROVED = "PT-000"
 
     # ---- venue adapters (VN) -----------------------------------------

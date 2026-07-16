@@ -135,7 +135,15 @@ class PreTradeGate:
     def evaluate(self, side: str, size_units: float, ref_price: float,
                  exp_alpha_bps: float, fv_edge_bps: float,
                  ctx: PreTradeContext, taker: bool = False,
-                 extra_edge_ratio: float = 0.0) -> PreTradeDecision:
+                 extra_edge_ratio: float = 0.0,
+                 exploring: bool = False) -> PreTradeDecision:
+        # `exploring` = a DRY-RUN active-learning entry (the caller only sets it
+        # when exploration is active, which is hard-gated to dry_run). It
+        # bypasses the two PROFIT gates (edge/cost ratio PT-041, EV floor
+        # PT-040) so a net-thin signal can still be TAKEN to acquire a real-fill
+        # label — otherwise every exploration entry dies at the cost stack and
+        # the model never learns from fills. Every SAFETY gate (input, stale,
+        # spread, spoofy, participation, min-order, book depth) still applies.
         d = PreTradeDecision(approved=False, size_units=0.0, taker=taker)
 
         # ---- fail-closed input validation (PT-010) ---------------------
@@ -226,7 +234,7 @@ class PreTradeGate:
         d.est_cost_bps, d.est_edge_bps = cost, edge
 
         ratio = self.min_edge_cost_ratio + max(extra_edge_ratio, 0.0)
-        if edge < ratio * cost:
+        if edge < ratio * cost and not exploring:
             d.reasons.append(tag(Code.PT_EDGE_RATIO,
                                  f"edge {edge:.1f}bps < {ratio:.2f}x cost "
                                  f"{cost:.1f}bps"))
@@ -251,11 +259,19 @@ class PreTradeGate:
                          self.p_fill_floor)
             ev = p_fill * (edge - cost) - (1.0 - p_fill) * self.miss_cost_bps
         d.p_fill, d.ev_bps = float(p_fill), float(ev)
-        if ev < self.ev_min_bps:
+        if ev < self.ev_min_bps and not exploring:
             d.reasons.append(tag(Code.PT_EV_NEGATIVE,
                                  f"EV {ev:+.2f}bps @ p_fill {p_fill:.2f} "
                                  f"< {self.ev_min_bps:.2f} floor"))
             return d
+
+        # dry-run exploration that would have failed a profit gate is TAKEN for
+        # the label, but the bypass is recorded so it is auditable and the
+        # operator sees a net-thin learning trade as exactly that.
+        if exploring and (edge < ratio * cost or ev < self.ev_min_bps):
+            d.reasons.append(tag(Code.PT_EXPLORE_BYPASS,
+                                 f"edge {edge:.1f}/cost {cost:.1f} EV {ev:+.2f} "
+                                 f"bypassed for dry-run label acquisition"))
 
         d.approved = True
         d.size_units = size

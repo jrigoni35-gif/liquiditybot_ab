@@ -475,6 +475,11 @@ class LiquidityBot:
         self.explore_p_win = min(max(float(_ex.get("p_win", 0.62)), 0.0), 0.95)
         self.explore_size_scale = min(max(float(_ex.get("size_scale", 0.25)),
                                           0.01), 1.0)
+        # DRY-RUN exploration bypasses the pre-trade PROFIT-EV gate (edge/cost,
+        # EV floor) so net-thin signals still get TAKEN and yield real-fill
+        # labels — otherwise the cost stack vetoes every exploration entry and
+        # the model only ever learns from shadow candidates, never fills.
+        self.explore_bypass_ev = bool(_ex.get("bypass_pretrade_ev", True))
         # variety: stop exploration-bumping an asset once it holds this
         # share of the labeled history (the active pair otherwise hogs
         # every learning slot and quiet pairs never accrue fill labels)
@@ -1749,7 +1754,11 @@ class LiquidityBot:
                 exp_alpha_bps=exp_alpha_bps,
                 fv_edge_bps=fv_state.edge_bps(side),
                 ctx=ctx, taker=plan.taker,
-                extra_edge_ratio=self.monitor.edge_ratio_bump)
+                extra_edge_ratio=self.monitor.edge_ratio_bump,
+                # dry-run exploration takes net-thin signals to gather real-fill
+                # labels; `explored` is only ever True in dry_run, so the
+                # profit-EV bypass can never reach a live order.
+                exploring=(explored and self.explore_bypass_ev))
             if not decision.approved:
                 log.info(f"[{asset}] pre-trade veto: {decision.reasons}")
                 continue

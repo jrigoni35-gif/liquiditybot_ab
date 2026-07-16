@@ -114,6 +114,13 @@ class PositionSizer:
         maker = float(pt.get("maker_fee_bps", 25.0))
         taker = float(pt.get("taker_fee_bps", 40.0))
         self.rt_cost_pct = (maker + taker) / 100.0
+        # exploration label-acquisition floor: the sizer floors at the MARK but
+        # the pre-trade gate recomputes notional at the QUOTE (a maker buy rests
+        # below the mark), so a ticket floored to exactly min_order_usd lands a
+        # few cents under and dies PT-031. Floor exploration a margin above the
+        # pretrade min-order so it clears after the quote gap + lot rounding.
+        self.min_order_usd = float(pt.get("min_order_usd", 25.0))
+        self.explore_floor_mult = float(cfg.get("explore_floor_mult", 1.2))
         # COST DECOMPOSITION (no double counting):
         #   .b       gross payoff ratio — main derives the alpha ESTIMATE
         #            from it, and the pre-trade gate charges execution
@@ -330,11 +337,13 @@ class PositionSizer:
         # cooldown, RP hard vetoes) has already had its say, and the caps
         # below still bound it. Dry-run only by construction: main only sets
         # floor_to_min on exploration entries, which are hard-gated dry_run.
-        if floor_to_min and EPS < usd < self.min_ticket_usd:
+        explore_floor = max(self.min_ticket_usd,
+                            self.min_order_usd * self.explore_floor_mult)
+        if floor_to_min and EPS < usd < explore_floor:
             d.reasons.append(tag(Code.SZ_EXPLORE_FLOOR,
-                                 f"${usd:,.2f} -> ${self.min_ticket_usd:,.2f}"
+                                 f"${usd:,.2f} -> ${explore_floor:,.2f}"
                                  f" exploration label-acquisition floor"))
-            usd = self.min_ticket_usd
+            usd = explore_floor
 
         # ---- caps -------------------------------------------------------------
         usd = min(usd, equity * self.max_position_pct / 100.0)
