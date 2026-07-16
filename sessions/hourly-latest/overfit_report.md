@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-16 14:36 UTC
+# Overfit audit — 2026-07-16 14:56 UTC
 
 Dataset: SYNTHETIC benchmark (live rows=350 < 580) — validating machinery, not market
 
@@ -18,4 +18,4 @@ Dataset: SYNTHETIC benchmark (live rows=350 < 580) — validating machinery, not
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — DEFERRED — 19 live labeled trades < 30; rerun after live history accrues
 
-7 passed, 0 failed (31s)
+7 passed, 0 failed (30s)

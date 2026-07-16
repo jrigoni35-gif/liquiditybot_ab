@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784212818.1713827,
+  "generated_at": 1784215812.7054398,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784212808.0,
-    "duration_h": 76.12
+    "end": 1784214102.987,
+    "duration_h": 76.48
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,18 +16,18 @@
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.1021,
     "open_positions": 0,
-    "samples": 7722
+    "samples": 7805
   },
   "activity": {
-    "signal_rows_total": 357,
+    "signal_rows_total": 358,
     "live_labeled_trades": 19,
-    "candidate_rows": 338
+    "candidate_rows": 339
   },
   "audit": {
-    "records": 441,
+    "records": 447,
     "signal_records": 121,
     "by_src": {
-      "exploration": 320,
+      "exploration": 326,
       "order_manager": 56,
       "startup": 55,
       "ml_governor": 9,
@@ -36,7 +36,7 @@
     "top_codes": [
       [
         "ML-070",
-        320
+        326
       ],
       [
         "OM-000",
@@ -79,10 +79,10 @@
     "chain_first_break": 199
   },
   "events": {
-    "records": 988,
+    "records": 1178,
     "by_level": {
-      "INFO": 977,
-      "WARNING": 9,
+      "INFO": 1165,
+      "WARNING": 11,
       "ERROR": 2
     },
     "top_warnings": [
@@ -95,12 +95,12 @@
         3
       ],
       [
-        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        "ws disconnect (no close frame received or sent); reconnecting in 1.6s (attempt 1)",
         2
       ],
       [
-        "ws disconnect (no close frame received or sent); reconnecting in 1.6s (attempt 1)",
-        1
+        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        2
       ],
       [
         "ws disconnect (no close frame received or sent); reconnecting in 1.2s (attempt 1)",
@@ -109,14 +109,18 @@
       [
         "ws disconnect (no close frame received or sent); reconnecting in 1.9s (attempt 1)",
         1
+      ],
+      [
+        "ws disconnect ([Errno 111] Connect call failed ('127.0.0.1', 44903)); reconnecting in 2.5s (attempt 2)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 413,
-      "thin": 155
+      "spoofy": 497,
+      "thin": 172
     },
-    "spoofy_frac": 0.727,
-    "cycles_estimate": 219,
+    "spoofy_frac": 0.743,
+    "cycles_estimate": 261,
     "feed_error_events": 2
   },
   "model": {
@@ -161,7 +165,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 73% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 74% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
