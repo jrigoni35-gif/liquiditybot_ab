@@ -26,6 +26,232 @@
     },
     "panels": [
       {
+        "id": 35,
+        "type": "row",
+        "title": "Operating state",
+        "collapsed": false,
+        "gridPos": {
+          "h": 1,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "panels": []
+      },
+      {
+        "id": 36,
+        "type": "stat",
+        "title": "Op-state",
+        "description": "Central fault authority (core/fault.py). 0 ARMED nominal \u00b7 1 DEGRADED no-new-risk \u00b7 2 HALTED flatten-and-stop. -1 UNKNOWN = the field is absent (old runner). Exits ALWAYS run regardless.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 0,
+          "y": 1
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                },
+                {
+                  "color": "red",
+                  "value": 2
+                }
+              ]
+            },
+            "mappings": [
+              {
+                "type": "value",
+                "options": {
+                  "-1": {
+                    "text": "UNKNOWN",
+                    "color": "text",
+                    "index": 0
+                  },
+                  "0": {
+                    "text": "ARMED",
+                    "color": "green",
+                    "index": 1
+                  },
+                  "1": {
+                    "text": "DEGRADED",
+                    "color": "orange",
+                    "index": 2
+                  },
+                  "2": {
+                    "text": "HALTED",
+                    "color": "red",
+                    "index": 3
+                  }
+                }
+              }
+            ]
+          },
+          "overrides": []
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "textMode": "auto",
+          "wideLayout": true,
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
+            },
+            "expr": "max(liquiditybot_op_state{job=\"liquiditybot\"})",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 37,
+        "type": "stat",
+        "title": "Latched faults",
+        "description": "Number of faults currently latched in the fault authority. >0 means the op-state is DEGRADED/HALTED until an operator clears them or restarts.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 8,
+          "y": 1
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            },
+            "mappings": []
+          },
+          "overrides": []
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "textMode": "auto",
+          "wideLayout": true,
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
+            },
+            "expr": "max(liquiditybot_fault_count{job=\"liquiditybot\"})",
+            "instant": true
+          }
+        ]
+      },
+      {
+        "id": 38,
+        "type": "stat",
+        "title": "Audit torn-tails",
+        "description": "Torn final audit lines recovered on startup (crash mid-append). Rising = the process is being killed mid-write repeatedly (unclean stops).",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "grafanacloud-prom"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 16,
+          "y": 1
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "orange",
+                  "value": 1
+                }
+              ]
+            },
+            "mappings": []
+          },
+          "overrides": []
+        },
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "textMode": "auto",
+          "wideLayout": true,
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          }
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "grafanacloud-prom"
+            },
+            "expr": "max(liquiditybot_audit_tail_truncations{job=\"liquiditybot\"})",
+            "instant": true
+          }
+        ]
+      },
+      {
         "id": 1,
         "type": "row",
         "title": "Health at a glance",
@@ -34,7 +260,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 0
+          "y": 5
         },
         "panels": []
       },
@@ -51,7 +277,7 @@
           "h": 4,
           "w": 4,
           "x": 0,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -134,7 +360,7 @@
           "h": 4,
           "w": 4,
           "x": 4,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -199,7 +425,7 @@
           "h": 4,
           "w": 4,
           "x": 8,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -282,7 +508,7 @@
           "h": 4,
           "w": 4,
           "x": 12,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -365,7 +591,7 @@
           "h": 4,
           "w": 4,
           "x": 16,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -448,7 +674,7 @@
           "h": 4,
           "w": 4,
           "x": 20,
-          "y": 1
+          "y": 6
         },
         "fieldConfig": {
           "defaults": {
@@ -509,7 +735,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 5
+          "y": 10
         },
         "panels": []
       },
@@ -526,7 +752,7 @@
           "h": 4,
           "w": 4,
           "x": 0,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -609,7 +835,7 @@
           "h": 4,
           "w": 4,
           "x": 4,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -674,7 +900,7 @@
           "h": 4,
           "w": 4,
           "x": 8,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -757,7 +983,7 @@
           "h": 4,
           "w": 4,
           "x": 12,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -840,7 +1066,7 @@
           "h": 4,
           "w": 4,
           "x": 16,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -905,7 +1131,7 @@
           "h": 4,
           "w": 4,
           "x": 20,
-          "y": 6
+          "y": 11
         },
         "fieldConfig": {
           "defaults": {
@@ -966,7 +1192,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 10
+          "y": 15
         },
         "panels": []
       },
@@ -983,7 +1209,7 @@
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 11
+          "y": 16
         },
         "fieldConfig": {
           "defaults": {
@@ -1083,7 +1309,7 @@
           "h": 4,
           "w": 6,
           "x": 12,
-          "y": 11
+          "y": 16
         },
         "fieldConfig": {
           "defaults": {
@@ -1148,7 +1374,7 @@
           "h": 4,
           "w": 6,
           "x": 18,
-          "y": 11
+          "y": 16
         },
         "fieldConfig": {
           "defaults": {
@@ -1209,7 +1435,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 19
+          "y": 24
         },
         "panels": []
       },
@@ -1226,7 +1452,7 @@
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 20
+          "y": 25
         },
         "fieldConfig": {
           "defaults": {
@@ -1290,7 +1516,7 @@
           "h": 8,
           "w": 6,
           "x": 12,
-          "y": 20
+          "y": 25
         },
         "fieldConfig": {
           "defaults": {
@@ -1363,7 +1589,7 @@
           "h": 4,
           "w": 6,
           "x": 18,
-          "y": 20
+          "y": 25
         },
         "fieldConfig": {
           "defaults": {
@@ -1424,7 +1650,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 28
+          "y": 33
         },
         "panels": []
       },
@@ -1441,7 +1667,7 @@
           "h": 8,
           "w": 12,
           "x": 0,
-          "y": 29
+          "y": 34
         },
         "fieldConfig": {
           "defaults": {
@@ -1505,7 +1731,7 @@
           "h": 8,
           "w": 12,
           "x": 12,
-          "y": 29
+          "y": 34
         },
         "fieldConfig": {
           "defaults": {
@@ -1548,7 +1774,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 37
+          "y": 42
         },
         "panels": []
       },
@@ -1565,7 +1791,7 @@
           "h": 8,
           "w": 8,
           "x": 0,
-          "y": 38
+          "y": 43
         },
         "fieldConfig": {
           "defaults": {
@@ -1638,7 +1864,7 @@
           "h": 8,
           "w": 8,
           "x": 8,
-          "y": 38
+          "y": 43
         },
         "fieldConfig": {
           "defaults": {
@@ -1738,7 +1964,7 @@
           "h": 4,
           "w": 8,
           "x": 16,
-          "y": 38
+          "y": 43
         },
         "fieldConfig": {
           "defaults": {
@@ -1799,7 +2025,7 @@
           "h": 4,
           "w": 8,
           "x": 16,
-          "y": 42
+          "y": 47
         },
         "fieldConfig": {
           "defaults": {
@@ -1860,7 +2086,7 @@
           "h": 4,
           "w": 8,
           "x": 0,
-          "y": 46
+          "y": 51
         },
         "fieldConfig": {
           "defaults": {
@@ -1921,7 +2147,7 @@
           "h": 4,
           "w": 8,
           "x": 8,
-          "y": 46
+          "y": 51
         },
         "fieldConfig": {
           "defaults": {
@@ -1978,7 +2204,7 @@
           "h": 1,
           "w": 24,
           "x": 0,
-          "y": 50
+          "y": 55
         },
         "panels": []
       },
@@ -1994,7 +2220,7 @@
           "h": 10,
           "w": 24,
           "x": 0,
-          "y": 51
+          "y": 56
         },
         "options": {
           "showTime": true,
