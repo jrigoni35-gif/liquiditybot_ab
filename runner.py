@@ -295,6 +295,10 @@ class BotRunner:
                    "retrain_failures": getattr(bot, "_retrain_failures", 0),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
+            # per-position exit/stop evaluations that RAISED and were isolated
+            # (one bad position no longer starves the rest of the book's
+            # stops). Rising -> a position is wedging its own escape path.
+            "exit_eval_failures": getattr(bot, "_exit_eval_failures", 0),
             # previously-dark fault ledgers — status() methods the runner never
             # called. Firewall's latched fault + per-code reject tallies; the
             # order manager's venue rejects (OM-021) and dead-man refresh

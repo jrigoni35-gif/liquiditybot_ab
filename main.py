@@ -475,6 +475,12 @@ class LiquidityBot:
         self._last_imb: dict = {}           # asset -> last log-imbalance
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
+        # cumulative count of per-position exit/stop evaluations that RAISED
+        # and were isolated (surfaced in status). One position that
+        # deterministically errors must never starve the OTHER positions'
+        # hard stops — a non-zero, climbing value means a book position is
+        # wedging its own escape path and needs an operator's eye.
+        self._exit_eval_failures = 0
         self._rows_at_last_train = self.history.row_count()
         # Whether the FIRST-champion train has been attempted this process.
         # In-memory by design: a cold container (bundle-restored rows, no
@@ -1103,8 +1109,15 @@ class LiquidityBot:
             if not self._halted:
                 log.critical("HARD STOP drawdown breached - flattening, no new risk")
                 self._halted = True
-            for pos in self.state.open_positions():
-                self._submit_exit(pos, 100.0, "hard stop", now=now)
+            # emergency flatten: isolate per position so one that errors on
+            # exit submission cannot leave the REST of the book unflattened
+            for pos in list(self.state.open_positions()):
+                try:
+                    self._submit_exit(pos, 100.0, "hard stop", now=now)
+                except Exception:
+                    self._exit_eval_failures += 1
+                    log.exception("[%s] hard-stop flatten raised - flattening "
+                                  "the rest of the book", pos.symbol)
             return
 
         macro_states = {a: self.macro.state(a) for a in self.symbol_map}
@@ -1117,71 +1130,51 @@ class LiquidityBot:
                                     int(thesis.realized_net_usd > 0),
                                     thesis.model_scored, cause)
 
+        # Each position's stop/tier evaluation is ISOLATED: one position whose
+        # state deterministically raises (a corrupt stop_price, a bad
+        # vol.state, a tier-engine edge) must never abort the loop and leave
+        # every LATER position's hard stop unevaluated — that is exactly the
+        # "exits silently blocked" condition invariant #5 forbids. A raise is
+        # counted, logged loudly, and the next position is still managed.
         for pos in list(self.state.open_positions()):
-            symbol = pos.symbol
-            px = self.marks.get(symbol)
-            if not px:
-                continue
-            asset = self._asset_of(symbol)
-
-            # 1) hard protective stop (v2: enforced every cycle).
-            # A quarantined tick (single anomalous print) holds stop
-            # evaluation for exactly one cycle; confirmation fires it.
-            if pos.stop_price and self._stop_ok.get(asset, True) and (
-                    (pos.direction == "long" and px <= pos.stop_price) or
-                    (pos.direction == "short" and px >= pos.stop_price)):
-                self._stop_hit[pos.position_id] = True
-                self._submit_exit(pos, 100.0,
-                                  f"stop {self._px(pos.symbol, pos.stop_price)} hit",
-                                  now=now)
-                continue
-
-            # 2) profit tiers, scaled by regime + inventory pressure. Gated on a
-            # TRUSTED mark — jump-confirmed AND fresh: the tier engine ratchets
-            # pos.high_water and the give-back/chandelier stop from `px`, so a
-            # fat-finger OR a stale/frozen mark would (a) corrupt persisted
-            # high_water and (b) fabricate a give-back/trail exit off a price
-            # that never held or has gone dark. Deferring a profit-take (never
-            # an escape) until the mark is trusted is always safe.
-            if not pos.is_hedge and self._stop_ok.get(asset, True) \
-                    and self._mark_fresh(symbol, now):
-                scale = macro_states[asset].playbook.get("tier_scale", 1.0)
-                inv_ratio = abs(self.inventory.inventory_ratio(
-                    self.state, asset, self.marks, equity))
-                if inv_ratio >= self.inventory.soft_cap_pct / self.inventory.hard_cap_pct:
-                    scale *= 0.75          # bleed inventory down sooner
-                # is the ENTRY signal still confirmed in this direction?
-                # None (no fresh evaluation) must stay None - only a
-                # definitive "not confirmed" may tighten the runner leash
-                sig_snap = self.last_signals.get(asset)
-                signal_alive = None
-                if sig_snap and (now - float(sig_snap.get("ts", 0.0))) < 180.0:
-                    signal_alive = bool(sig_snap.get("confirmed")) and \
-                        sig_snap.get("direction") == pos.direction
-                action = self._tier_engine(scale).evaluate(
-                    pos, px,
-                    sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
-                    signal_alive=signal_alive,
-                    inventory_pressure=min(inv_ratio, 1.0))
-                if action.should_close_partial and action.close_pct > 0:
-                    self._submit_exit(pos, action.close_pct,
-                                    f"tier {action.tier_fired or 'trail'}",
-                                    tier_fired=action.tier_fired, now=now,
-                                    profit_take=action.is_profit_take)
+            try:
+                self._manage_open_position(pos, now, equity, macro_states)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("[%s] stop/tier evaluation raised - other "
+                              "positions still managed this cycle", pos.symbol)
 
         # 3) inventory derisk (hard caps, stale losers). Same trusted-mark gate:
         # a fat-finger OR stale mark can push inventory_ratio over a hard cap or
         # trip a stale-loser threshold, fabricating a forced reduction off a
         # price that never held or has gone dark. Skip that asset until its mark
         # is trusted again; a real breach re-fires on the confirmed fresh tick.
-        for act in self.inventory.derisk_actions(self.state, self.marks, equity,
-                                                macro_states, now):
-            pos = self.state.get_position(act.position_id)
-            if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
-                    and self._mark_fresh(pos.symbol, now):
-                self._submit_exit(pos, act.close_pct, act.reason, now=now)
+        # Isolated from the stop loop AND the hedge block: a derisk failure
+        # must not skip hedging or wedge the cycle.
+        try:
+            for act in self.inventory.derisk_actions(
+                    self.state, self.marks, equity, macro_states, now):
+                pos = self.state.get_position(act.position_id)
+                if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
+                        and self._mark_fresh(pos.symbol, now):
+                    self._submit_exit(pos, act.close_pct, act.reason, now=now)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("inventory derisk pass raised - hedging still runs")
 
         # 4) hedging
+        self._run_hedge_pass(now, equity)
+
+    def _run_hedge_pass(self, now: float, equity: float):
+        """Hedge/unwind/trim actions, isolated so a hedge-engine error cannot
+        wedge fast_cycle (the stop loop already ran above)."""
+        try:
+            self._hedge_actions(now, equity)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("hedge pass raised - isolated, cycle continues")
+
+    def _hedge_actions(self, now: float, equity: float):
         for act in self.hedger.evaluate(self.state, self.marks, equity,
                                         self.corr.state):
             if act.kind == "unwind":
@@ -1221,6 +1214,64 @@ class LiquidityBot:
                 )
                 log.info(f"HEDGE {act.direction} ${act.usd:,.0f} {act.symbol}: "
                         f"{act.reason}")
+
+    def _manage_open_position(self, pos, now: float, equity: float,
+                              macro_states: dict):
+        """Stop + profit-tier management for ONE open position. Called inside a
+        per-position guard in fast_cycle so a single position that errors can
+        never starve the OTHER positions' hard stops (invariant #5). Behaviour
+        is identical to the former inline loop body; `continue` became `return`
+        (single-position scope)."""
+        symbol = pos.symbol
+        px = self.marks.get(symbol)
+        if not px:
+            return
+        asset = self._asset_of(symbol)
+
+        # 1) hard protective stop (v2: enforced every cycle).
+        # A quarantined tick (single anomalous print) holds stop
+        # evaluation for exactly one cycle; confirmation fires it.
+        if pos.stop_price and self._stop_ok.get(asset, True) and (
+                (pos.direction == "long" and px <= pos.stop_price) or
+                (pos.direction == "short" and px >= pos.stop_price)):
+            self._stop_hit[pos.position_id] = True
+            self._submit_exit(pos, 100.0,
+                              f"stop {self._px(pos.symbol, pos.stop_price)} hit",
+                              now=now)
+            return
+
+        # 2) profit tiers, scaled by regime + inventory pressure. Gated on a
+        # TRUSTED mark — jump-confirmed AND fresh: the tier engine ratchets
+        # pos.high_water and the give-back/chandelier stop from `px`, so a
+        # fat-finger OR a stale/frozen mark would (a) corrupt persisted
+        # high_water and (b) fabricate a give-back/trail exit off a price
+        # that never held or has gone dark. Deferring a profit-take (never
+        # an escape) until the mark is trusted is always safe.
+        if not pos.is_hedge and self._stop_ok.get(asset, True) \
+                and self._mark_fresh(symbol, now):
+            scale = macro_states[asset].playbook.get("tier_scale", 1.0)
+            inv_ratio = abs(self.inventory.inventory_ratio(
+                self.state, asset, self.marks, equity))
+            if inv_ratio >= self.inventory.soft_cap_pct / self.inventory.hard_cap_pct:
+                scale *= 0.75          # bleed inventory down sooner
+            # is the ENTRY signal still confirmed in this direction?
+            # None (no fresh evaluation) must stay None - only a
+            # definitive "not confirmed" may tighten the runner leash
+            sig_snap = self.last_signals.get(asset)
+            signal_alive = None
+            if sig_snap and (now - float(sig_snap.get("ts", 0.0))) < 180.0:
+                signal_alive = bool(sig_snap.get("confirmed")) and \
+                    sig_snap.get("direction") == pos.direction
+            action = self._tier_engine(scale).evaluate(
+                pos, px,
+                sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                signal_alive=signal_alive,
+                inventory_pressure=min(inv_ratio, 1.0))
+            if action.should_close_partial and action.close_pct > 0:
+                self._submit_exit(pos, action.close_pct,
+                                f"tier {action.tier_fired or 'trail'}",
+                                tier_fired=action.tier_fired, now=now,
+                                profit_take=action.is_profit_take)
 
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline
