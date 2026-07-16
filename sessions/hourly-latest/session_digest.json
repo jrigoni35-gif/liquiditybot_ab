@@ -1,22 +1,22 @@
 {
-  "generated_at": 1784224995.19234,
+  "generated_at": 1784226797.8872852,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784224934.013,
-    "duration_h": 79.49
+    "end": 1784226791.0,
+    "duration_h": 80.0
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 800.59,
+    "equity_end": 800.63,
     "equity_min": 798.74,
     "equity_max": 800.99,
     "equity_range": 2.25,
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.2407,
     "open_positions": 3,
-    "samples": 8258
+    "samples": 8377
   },
   "activity": {
     "signal_rows_total": 364,
@@ -24,24 +24,24 @@
     "candidate_rows": 345
   },
   "audit": {
-    "records": 481,
-    "signal_records": 132,
+    "records": 492,
+    "signal_records": 134,
     "by_src": {
-      "exploration": 349,
-      "startup": 59,
+      "exploration": 358,
+      "startup": 60,
       "order_manager": 59,
       "ml_governor": 9,
-      "fault": 4,
+      "fault": 5,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        349
+        358
       ],
       [
         "CG-000",
-        59
+        60
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        4
+        5
       ],
       [
         "ML-032",
@@ -77,24 +77,24 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.447,
+    "dominant_frac": 0.448,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 2207,
+    "records": 2474,
     "by_level": {
-      "INFO": 2189,
-      "WARNING": 15,
+      "INFO": 2455,
+      "WARNING": 16,
       "ERROR": 2,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        4
+        5
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -130,11 +130,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 881,
-      "thin": 363
+      "spoofy": 968,
+      "thin": 422
     },
-    "spoofy_frac": 0.708,
-    "cycles_estimate": 487,
+    "spoofy_frac": 0.696,
+    "cycles_estimate": 546,
     "feed_error_events": 2
   },
   "model": {
@@ -179,13 +179,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 71% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 70% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 45% of 132 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 45% of 134 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
