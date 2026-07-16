@@ -1785,6 +1785,22 @@ class LiquidityBot:
         if not self.dry_run:
             self._check_equity_truth()
 
+        # adopt an EXTERNALLY-retrained model (scripts/train_meta.py run
+        # against a LIVE bot writes outputs/meta_model.json + a champion_brier
+        # into state.json that the bot's next snapshot then clobbers). Detect
+        # the changed artifact, reload it, and realign the champion baseline to
+        # ITS OWN OOF brier — so an offline retrain actually reaches the running
+        # engine and the baseline can't be clobbered back to a stale value.
+        if self.meta.reload_if_changed():
+            if self.meta.trained and self.meta.oof_brier is not None:
+                self.monitor.note_deployed(float(self.meta.oof_brier))
+                log.warning("adopted externally-retrained meta-model %s "
+                            "(oof brier %.4f) - champion baseline realigned",
+                            self.meta.model_id or "?", self.meta.oof_brier)
+            else:
+                log.warning("external meta-model change detected but the "
+                            "artifact was rejected (schema/integrity) - staying "
+                            "on the cold-start prior")
         self._maybe_auto_retrain()
         self.monitor.check_drift(self.meta.feature_deciles, FEATURE_NAMES)
 

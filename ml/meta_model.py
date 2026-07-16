@@ -50,19 +50,32 @@ class MetaModelService:
         self.contract = get_contract()
         self.fallbacks = 0            # ML-020 count: prior served instead
         self.infer_faults = 0
+        # mtime of the artifact last loaded + its own OOF brier, so a LIVE bot
+        # can pick up an EXTERNAL retrain (scripts/train_meta.py) and realign
+        # the champion baseline to the deployed model instead of ignoring it.
+        self._loaded_mtime = 0.0
+        self.oof_brier = None
         self.reload()
 
     # ------------------------------------------------------------------
     def reload(self):
         self.model = None
         self.model_id = ""
+        self.oof_brier = None
         self.calibrator = IsotonicCalibrator()
         self.feature_deciles = []
         p = Path(self.model_path)
         if not p.exists():
+            self._loaded_mtime = 0.0
             log.info("no trained meta-model found — cold-start prior in "
                      "effect")
             return
+        # stamp the mtime BEFORE accept/reject: a rejected artifact must not
+        # re-trigger reload_if_changed every cycle (the file didn't change).
+        try:
+            self._loaded_mtime = p.stat().st_mtime
+        except OSError:
+            self._loaded_mtime = 0.0
         # integrity gate BEFORE the artifact touches the interpreter state
         v = get_registry().verify(str(p))
         if v.get("ok") is False:
@@ -93,11 +106,30 @@ class MetaModelService:
         self.model_id = v.get("model_id", "")
         self.calibrator = IsotonicCalibrator.from_dict(d.get("calibration"))
         self.feature_deciles = d.get("feature_deciles") or []
+        try:
+            self.oof_brier = float(d["oof_brier"])
+        except (KeyError, TypeError, ValueError):
+            self.oof_brier = None
         log.info("meta-model %s loaded from %s (%s, calibrated=%s, "
                  "provenance=%s)", self.model_id or "?", self.model_path,
                  self.model.kind, self.calibrator.fitted,
                  {True: "verified", None: "unregistered"}.get(v.get("ok"),
                                                               "FAILED"))
+
+    def reload_if_changed(self) -> bool:
+        """Reload IFF the artifact changed on disk since the last load — i.e.
+        an EXTERNAL retrain (scripts/train_meta.py run against a live bot).
+        The bot's OWN in-process retrain calls reload() directly, which
+        re-stamps the mtime, so this never double-fires for it. Returns True
+        when a change was detected and a reload ran (whatever its outcome)."""
+        try:
+            mt = Path(self.model_path).stat().st_mtime
+        except OSError:
+            return False
+        if mt <= self._loaded_mtime:
+            return False
+        self.reload()
+        return True
 
     def _schema_mismatch(self, model, d: dict) -> str:
         """Non-empty reason if `model` does not match the current feature
