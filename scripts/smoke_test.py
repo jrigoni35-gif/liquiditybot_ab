@@ -1608,9 +1608,12 @@ def test_hardening_layer():
               for sev, m in validate(c) if sev == "FATAL"))
 
     c = copy.deepcopy(base)
-    c["capital_management"]["starting_capital_usd"] = 100
-    check("guard: $100 capital with 10% cap flagged untradeable "
-          "(below min ticket)",
+    # capital so small the max-position ticket (capital * position cap) can never
+    # reach min_ticket_usd: $50 * 25% = $12.50 < $15. (Kept below the cap so the
+    # check tracks the live position cap rather than a hardcoded percentage.)
+    c["capital_management"]["starting_capital_usd"] = 50
+    check("guard: sub-min-ticket capital flagged untradeable "
+          "(max position ticket below min ticket)",
           any("NO entry can ever be approved" in m
               for sev, m in validate(c) if sev == "WARN"))
 

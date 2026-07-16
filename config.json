@@ -140,13 +140,20 @@
       "_doc": "crowded book: fired tiers retire up to (1+max_boost)x the configured close_pct at full inventory pressure",
       "enabled": true,
       "max_boost": 0.5
+    },
+    "conviction_runner": {
+      "_doc": "entry-conviction (Position.confidence = meta p(win) at entry) scales the RUNNER leash: a LOW-conviction winner banks sooner (tighter chandelier trail), a HIGH-conviction winner keeps the full leash to run. One-sided by construction — only tightens, never loosens — so it composes with the ratchet and can only bring exits SOONER (invariant 5 safe). confidence >= neutral_conf, or <= 0 (unknown/restored/synthetic), keeps the FULL leash unchanged; between min_conf and neutral_conf the trail distance scales linearly down to min_trail_mult. This is how the desk lets a high-conviction winner run and cuts a marginal one short — the model's own p(win) decides.",
+      "enabled": true,
+      "neutral_conf": 0.70,
+      "min_conf": 0.55,
+      "min_trail_mult": 0.6
     }
   },
   "capital_management": {
     "starting_capital_usd": 800,
     "savings_pct_of_profit": 20,
     "reinvestment_pct_of_profit": 80,
-    "max_position_size_pct_of_capital": 10,
+    "max_position_size_pct_of_capital": 25,
     "max_concurrent_positions": 5,
     "daily_loss_limit_pct": 5,
     "hard_stop_drawdown_pct": 15
@@ -332,9 +339,9 @@
   },
   "position_sizer": {
     "kelly_fraction": 0.25,
-    "kelly_cap": 0.12,
+    "kelly_cap": 0.25,
     "min_p_win": 0.55,
-    "max_position_size_pct_of_capital": 10,
+    "max_position_size_pct_of_capital": 25,
     "min_ticket_usd": 15,
     "entry_cooldown_min": 20,
     "dd_throttle_power": 1.5,

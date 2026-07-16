@@ -425,6 +425,38 @@ def validate(config: dict) -> list:
         if tgn > 0 and tgn <= arm:
             fatal("profit_taking.give_back.tighten_gain_pct must exceed "
                   "arm_gain_pct (or be 0 to disable the second rung)")
+
+    # --- conviction runner (rev 6 entry-conviction leash) -------------------
+    if bool(_f(config, "profit_taking.conviction_runner.enabled", False)):
+        ncf = float(_f(config, "profit_taking.conviction_runner.neutral_conf",
+                       0.70))
+        mcf = float(_f(config, "profit_taking.conviction_runner.min_conf",
+                       0.55))
+        tml = float(_f(config, "profit_taking.conviction_runner.min_trail_mult",
+                       0.60))
+        if not (0.0 < mcf < ncf <= 1.0):
+            fatal("profit_taking.conviction_runner needs 0 < min_conf < "
+                  "neutral_conf <= 1 (the leash tightens BELOW neutral)")
+        if not (0.1 <= tml <= 1.0):
+            fatal("profit_taking.conviction_runner.min_trail_mult must be in "
+                  "[0.1, 1.0] - it can only tighten the runner, never loosen it")
+
+    # --- entry cap vs the outer rails (coherence, not a hard stop) ----------
+    # the position cap should sit at/under the per-order firewall cap and the
+    # portfolio heat cap; if it pokes above, those rails still bind, but the
+    # position cap is then dead config that reads as bigger than it can act.
+    pos_cap = float(_f(config, "position_sizer.max_position_size_pct_of_capital",
+                       10.0))
+    fw_cap = float(_f(config, "risk_firewall.max_order_pct_equity", 30.0))
+    heat_cap = 100.0 * float(_f(config,
+                                "risk_protocols.heat.max_portfolio_heat_frac",
+                                0.35))
+    if pos_cap > fw_cap:
+        advisory(f"position cap {pos_cap:.0f}% exceeds the firewall order cap "
+                 f"{fw_cap:.0f}% - the firewall will clamp entries first")
+    if pos_cap > heat_cap:
+        advisory(f"position cap {pos_cap:.0f}% exceeds the portfolio heat cap "
+                 f"{heat_cap:.0f}% - a single max position can't fit under heat")
         be_buf_bps = float(_f(config, "profit_taking.be_buffer_bps", 6.0)) \
             + 2.0 * float(_f(config, "profit_taking.est_fee_bps", 0.0))
         if arm * 100.0 <= be_buf_bps:

@@ -129,6 +129,7 @@ class Code(str, Enum):
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
     TP_INV_COUPLING = "TP-011"       # tier close boosted by inventory pressure
+    TP_CONVICTION_LEASH = "TP-012"   # runner leash tightened: low entry conviction
 
     # ---- system fault manager (FT) -------------------------------------
     FT_LATCHED = "FT-010"

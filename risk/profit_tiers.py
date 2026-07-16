@@ -117,6 +117,23 @@ class ProfitTierEngine:
         self.ic_enabled = bool(ic.get("enabled", False))
         self.ic_max_boost = min(max(
             _f(ic.get("max_boost", 0.5), 0.5), 0.0), 1.0)
+        # CONVICTION RUNNER (rev 6): the entry conviction (Position.confidence =
+        # meta p(win) at entry) scales the runner's trail leash. A LOW-conviction
+        # winner gets a TIGHTER chandelier (banks sooner); a HIGH-conviction one
+        # keeps the full leash to run. One-sided by construction (mult <= 1.0), so
+        # it only ever brings the exit SOONER — it composes with the ratchet and
+        # never loosens a stop. confidence >= neutral_conf, or <= 0 (unknown /
+        # restored / synthetic e.g. quant-trial Positions), is a full-leash no-op,
+        # so deployed behavior is byte-identical wherever conviction is unknown.
+        cr = cfg.get("conviction_runner", {}) or {}
+        self.cr_enabled = bool(cr.get("enabled", False))
+        self.cr_neutral_conf = min(max(
+            _f(cr.get("neutral_conf", 0.70), 0.70), 0.5), 1.0)
+        self.cr_min_conf = min(max(
+            _f(cr.get("min_conf", 0.55), 0.55), 0.0), self.cr_neutral_conf)
+        self.cr_min_trail_mult = min(max(
+            _f(cr.get("min_trail_mult", 0.60), 0.60), 0.1), 1.0)
+        self._cr_logged = set()
         gb = cfg.get("give_back", {}) or {}
         self.gb_enabled = bool(gb.get("enabled", False))
         self.gb_arm_gain_pct = max(_f(gb.get("arm_gain_pct", 1.5), 1.5), 0.05)
@@ -193,6 +210,29 @@ class ProfitTierEngine:
             dist *= max(decay, self.tighten_floor)
         return dist * min(max(decay_mult, 0.1), 1.0)
 
+    def _conviction_trail_mult(self, position) -> float:
+        """Entry-conviction runner leash. Returns a trail-distance multiplier in
+        (0, 1]: 1.0 (full leash) for high conviction (>= neutral_conf) or unknown
+        conviction (<= 0, e.g. a restored/synthetic Position), shrinking linearly
+        to min_trail_mult as conviction falls to min_conf. Tighten-only, so a
+        low-conviction winner banks sooner while a high-conviction one runs."""
+        if not self.cr_enabled:
+            return 1.0
+        conf = _f(getattr(position, "confidence", 0.0))
+        if conf <= 0.0 or conf >= self.cr_neutral_conf:
+            return 1.0
+        span = max(self.cr_neutral_conf - self.cr_min_conf, 1e-9)
+        t = min(max((self.cr_neutral_conf - conf) / span, 0.0), 1.0)
+        mult = 1.0 - (1.0 - self.cr_min_trail_mult) * t
+        pid = getattr(position, "position_id", position.symbol)
+        if pid not in self._cr_logged:
+            self._cr_logged.add(pid)
+            log.info(tag(Code.TP_CONVICTION_LEASH,
+                         f"{position.symbol} low entry-conviction {conf:.2f} "
+                         f"(< {self.cr_neutral_conf:.2f}) — runner trail "
+                         f"tightened x{mult:.2f}"))
+        return mult
+
     def _ratchet_stop(self, position, candidate: float) -> None:
         cur = position.trailing_stop_price
         if position.direction == "long":
@@ -262,6 +302,9 @@ class ProfitTierEngine:
                 # ratchet still never loosens an already-tight stop)
                 self._sd_logged.discard(
                     getattr(position, "position_id", position.symbol))
+            # entry-conviction leash composes multiplicatively with signal
+            # decay: both are tighten-only factors <= 1.0.
+            decay_mult *= self._conviction_trail_mult(position)
             dist = self._trail_distance_frac(position, sigma_bar_pct,
                                              decay_mult)
             anchor = _f(getattr(position, "high_water", None),
