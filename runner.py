@@ -86,6 +86,18 @@ class BotRunner:
         self._step_requested = False
         self._stop = False
         self.poll_sec = self.bot.poll_sec
+        # wedge guard: a cycle_once that raises EVERY iteration used to spin
+        # forever logging "continuing" while no stops/entries ran and the
+        # dashboard showed nothing wrong. Count consecutive failures; after
+        # cycle_fail_halt of them, latch new-risk halt (exits still run each
+        # cycle - invariant #5) and fire ONE loud alert. We never auto-flatten
+        # (a transient feed outage must not dump the book) and never self-
+        # terminate (a deterministic fault would just relaunch-storm); the
+        # operator sees the alert + status and intervenes.
+        self._cycle_fail_streak = 0
+        self._cycle_fail_halt = int(
+            config.get("system", {}).get("cycle_fail_halt", 10))
+        self._wedge_alerted = False
 
     # ------------------------------------------------------------------
     def handle_command(self, c: dict):
@@ -299,6 +311,10 @@ class BotRunner:
             # (one bad position no longer starves the rest of the book's
             # stops). Rising -> a position is wedging its own escape path.
             "exit_eval_failures": getattr(bot, "_exit_eval_failures", 0),
+            # consecutive whole-cycle failures; at cycle_fail_halt the runner
+            # latches a new-risk halt and alerts. Nonzero -> cycle_once is
+            # raising and the loop is degraded (was invisible before).
+            "cycle_consecutive_failures": self._cycle_fail_streak,
             # previously-dark fault ledgers — status() methods the runner never
             # called. Firewall's latched fault + per-code reject tallies; the
             # order manager's venue rejects (OM-021) and dead-man refresh
@@ -318,6 +334,35 @@ class BotRunner:
             if getattr(bot, "kraken_ws", None) is not None else {},
             "sim": bot.sim.describe(),
         }
+
+    # ------------------------------------------------------------------
+    def _note_cycle_ok(self):
+        """A clean cycle pass clears the wedge streak and re-arms the alert.
+        The new-risk halt itself is a LATCH — cleared by an operator resume,
+        never silently by one lucky cycle."""
+        self._cycle_fail_streak = 0
+        self._wedge_alerted = False
+
+    def _note_cycle_failure(self) -> int:
+        """One whole-cycle failure. At cycle_fail_halt consecutive failures,
+        latch a NEW-RISK halt (exits still run every cycle — invariant #5) and
+        fire ONE loud alert. Never auto-flatten (a transient feed outage must
+        not dump the book) nor self-terminate (a deterministic fault would
+        relaunch-storm). Returns the current streak for the caller's log."""
+        self._cycle_fail_streak += 1
+        if self._cycle_fail_streak >= self._cycle_fail_halt \
+                and not self._wedge_alerted:
+            self._wedge_alerted = True
+            self.bot._halted = True
+            try:
+                self.bot.alerts.fire(
+                    "runner_wedged",
+                    f"cycle_once raised {self._cycle_fail_streak} times in a "
+                    f"row - halting NEW risk, needs an operator. Exits still "
+                    f"managed each cycle.")
+            except Exception:
+                log.exception("wedge alert failed - halt still set")
+        return self._cycle_fail_streak
 
     # ------------------------------------------------------------------
     def run(self):
@@ -402,11 +447,14 @@ class BotRunner:
                     snap = self.build_status(now)
                     self._last_status = snap
                     self.status.write(snap, now)
+                    self._note_cycle_ok()
                 except KeyboardInterrupt:
                     log.info("shutdown requested")
                     break
                 except Exception:
-                    log.exception("runner cycle error - continuing")
+                    n = self._note_cycle_failure()
+                    log.exception("runner cycle error (%d in a row) - "
+                                  "continuing", n)
                 elapsed = time.time() - now
                 time.sleep(max(self.poll_sec - elapsed, 0.25))
         finally:

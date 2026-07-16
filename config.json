@@ -496,6 +496,8 @@
     "timezone": "UTC",
     "state_path": "outputs/state.json",
     "snapshot_interval_sec": 30,
+    "cycle_fail_halt": 10,
+    "_cycle_fail_halt_doc": "consecutive whole-cycle (cycle_once) failures the runner tolerates before it latches a NEW-RISK halt and fires one loud alert. Exits still run every cycle (invariant #5); the runner never auto-flattens on a wedge (a transient feed outage must not dump the book) nor self-terminates (a deterministic fault would relaunch-storm). At ~5s polling, 10 = ~50s of a wedged loop before halting new entries. Cleared by an operator resume, not by a lucky cycle.",
     "record_feeds": false,
     "recording_dir": "outputs/recordings"
   },

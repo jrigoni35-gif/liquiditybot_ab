@@ -282,6 +282,14 @@ def validate(config: dict) -> list:
         warn(f"polling_interval_sec={poll:.0f}s: stops are only enforced "
              f"once per cycle - this is a long time to be blind")
 
+    cfh = int(_f(config, "system.cycle_fail_halt", 10))
+    if cfh < 1:
+        fatal("system.cycle_fail_halt must be >= 1 - the runner halts new "
+              "risk after this many consecutive cycle failures")
+    elif cfh < 3:
+        warn(f"system.cycle_fail_halt={cfh}: halting new risk after so few "
+             f"consecutive failures will trip on a transient feed blip")
+
     lev = float(_f(config, "leverage.region_max_leverage", 10))
     if lev < 1:
         fatal("leverage.region_max_leverage below 1")
