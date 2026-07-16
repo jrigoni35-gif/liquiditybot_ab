@@ -633,6 +633,8 @@
     "enabled": true,
     "opend_host": "127.0.0.1",
     "opend_port": 11111,
+    "opend_path": "",
+    "_opend_path_doc": "full path to OpenD.exe on THIS PC (e.g. C:/moomoo OpenD/OpenD/OpenD.exe). When set AND moomoo.enabled, pc_supervisor launches OpenD if opend_host:opend_port isn't listening and keeps it alive with the bot. Leave empty to manage OpenD yourself. OpenD must be set up for headless/auto-login (its own config) to serve the port without a manual GUI login. Env LB_OPEND_PATH overrides this.",
     "poll_minutes": 5,
     "connect_timeout_sec": 5.0,
     "z_lookback_polls": 60,

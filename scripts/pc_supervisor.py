@@ -24,7 +24,9 @@ cloud hook — so the pushers find it without a token ever entering git.
 Run it directly to test (Ctrl+C to stop); Task Scheduler runs it via
 scripts/run_hidden.vbs at logon.
 """
+import json
 import os
+import socket
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import time
@@ -42,6 +44,14 @@ try:
 except ValueError:
     UPDATE_SEC = 86400.0
 _UPDATE_STAMP = OUT / ".auto_update_stamp"
+# moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
+# its port must NOT be relaunched every tick (that stacks login windows), so a
+# launch attempt is spaced at least this far apart regardless of outcome.
+try:
+    OPEND_RELAUNCH_SEC = float(os.environ.get("LB_OPEND_RELAUNCH_SEC", "300"))
+except ValueError:
+    OPEND_RELAUNCH_SEC = 300.0
+_OPEND_STAMP = OUT / ".opend_launch_stamp"
 IS_WIN = os.name == "nt"
 PY = sys.executable        # the venv's python (pythonw.exe when run hidden)
 
@@ -133,6 +143,83 @@ def _telemetry_ready() -> bool:
             and Path(tf).is_file() and Path(tf).stat().st_size > 0)
 
 
+def _opend_cfg():
+    """(enabled, exe_path, host, port) for the moomoo OpenD gateway, read from
+    config.json's moomoo block. The exe path also honours the LB_OPEND_PATH env
+    var (takes precedence) so it can be set without editing config."""
+    path = os.environ.get("LB_OPEND_PATH", "")
+    enabled, host, port = False, "127.0.0.1", 11111
+    try:
+        c = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+        m = c.get("moomoo", {}) or {}
+        enabled = bool(m.get("enabled", False))
+        path = path or str(m.get("opend_path", "") or "")
+        host = str(m.get("opend_host", host))
+        port = int(m.get("opend_port", port))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return enabled, path, host, port
+
+
+def _port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _opend_relaunch_due() -> bool:
+    try:
+        return (time.time() - _OPEND_STAMP.stat().st_mtime) >= OPEND_RELAUNCH_SEC
+    except OSError:
+        return True          # never launched -> due
+
+
+def _launch_opend(path: str) -> None:
+    """Launch OpenD detached, from its OWN directory (it reads OpenD.xml there
+    for headless login). GUI-login OpenD without a headless config will open a
+    window and not serve the port — that is a moomoo-side setup, not ours."""
+    p = Path(path)
+    kwargs: dict = {"cwd": str(p.parent)}
+    if IS_WIN:
+        kwargs["creationflags"] = 0x00000008 | 0x08000000 | 0x00000200
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        with open(OUT / "opend.log", "a", encoding="utf-8") as out:
+            subprocess.Popen([str(p)], stdout=out,        # nosec B603
+                             stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, **kwargs)
+    except OSError as e:
+        log(f"OpenD launch failed: {e}")
+
+
+def _maybe_launch_opend() -> str:
+    """Ensure a LOCAL moomoo OpenD is running (optional). Returns an outcome
+    string (also handy for tests). Only a local OpenD can be launched from here;
+    a remote one lives on another machine. Throttled (OPEND_RELAUNCH_SEC) so a
+    GUI-login OpenD that never opens its port isn't relaunched every tick."""
+    en, opend, host, port = _opend_cfg()
+    if not (en and opend):
+        return "disabled"                    # off, or no path set -> nothing to do
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return "remote"                      # can't manage OpenD on another host
+    if _port_open(host, port):
+        return "up"
+    if not _opend_relaunch_due():
+        return "throttled"
+    _OPEND_STAMP.parent.mkdir(exist_ok=True)
+    _OPEND_STAMP.touch()                      # throttle regardless of outcome
+    if not Path(opend).exists():
+        log(f"OpenD enabled but exe not found at {opend!r} - set "
+            f"moomoo.opend_path (or LB_OPEND_PATH)")
+        return "missing"
+    log(f"OpenD not listening on {host}:{port} -> launching {opend}")
+    _launch_opend(opend)
+    return "launched"
+
+
 def tick() -> None:
     # 1) runner — the bot itself
     if not _fresh(OUT / "status.json", key="written_at"):
@@ -146,7 +233,12 @@ def tick() -> None:
         if not _fresh(OUT / "gc_log_pusher.log"):
             log("log pusher stale/absent -> relaunching")
             _spawn([PY, "scripts/gc_log_pusher.py"])
-    # 3) test-gated self-update (opt-in cadence; disabled by LB_NO_AUTO_UPDATE).
+    # 3) moomoo OpenD data gateway (optional): start it with the bot and keep it
+    # alive. moomoo is a read-only optional feed — a failure here never affects
+    # trading.
+    _maybe_launch_opend()
+
+    # 4) test-gated self-update (opt-in cadence; disabled by LB_NO_AUTO_UPDATE).
     # auto_update.py tests origin/main in an isolated worktree and only fast-
     # forwards if the battery is green, then signals a stop so we relaunch on the
     # new code. Detached: a 20-min battery must never block liveness checks.
