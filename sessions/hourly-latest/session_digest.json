@@ -1,37 +1,37 @@
 {
-  "generated_at": 1784233273.4473417,
+  "generated_at": 1784234769.1472788,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784233272.238,
-    "duration_h": 81.8
+    "end": 1784234739.542,
+    "duration_h": 82.21
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 800.6,
+    "equity_end": 800.56,
     "equity_min": 798.74,
     "equity_max": 800.99,
     "equity_range": 2.25,
     "realized_pnl_total": 0.66,
     "fees_paid_total": 2.3333,
     "open_positions": 5,
-    "samples": 8560
+    "samples": 8656
   },
   "activity": {
-    "signal_rows_total": 369,
+    "signal_rows_total": 370,
     "live_labeled_trades": 19,
-    "candidate_rows": 350
+    "candidate_rows": 351
   },
   "audit": {
-    "records": 506,
-    "signal_records": 142,
+    "records": 508,
+    "signal_records": 144,
     "by_src": {
       "exploration": 364,
-      "startup": 63,
+      "startup": 64,
       "order_manager": 61,
       "ml_governor": 9,
-      "fault": 8,
+      "fault": 9,
       "engine": 1
     },
     "top_codes": [
@@ -41,7 +41,7 @@
       ],
       [
         "CG-000",
-        63
+        64
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        8
+        9
       ],
       [
         "ML-032",
@@ -84,21 +84,21 @@
     "chain_first_break": 199
   },
   "events": {
-    "records": 2984,
+    "records": 3223,
     "by_level": {
-      "INFO": 2958,
-      "WARNING": 19,
-      "ERROR": 6,
+      "INFO": 3194,
+      "WARNING": 20,
+      "ERROR": 8,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        8
+        9
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        6
+        8
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -130,12 +130,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1129,
-      "thin": 496
+      "spoofy": 1213,
+      "thin": 525
     },
-    "spoofy_frac": 0.695,
-    "cycles_estimate": 637,
-    "feed_error_events": 6
+    "spoofy_frac": 0.698,
+    "cycles_estimate": 685,
+    "feed_error_events": 8
   },
   "model": {
     "monitor_level": 0,
@@ -185,7 +185,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 44% of 142 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 44% of 144 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
