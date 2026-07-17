@@ -1,55 +1,55 @@
 {
-  "generated_at": 1784293054.4334133,
+  "generated_at": 1784295417.8479297,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784292756.362,
-    "duration_h": 98.33
+    "end": 1784295416.285,
+    "duration_h": 99.06
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 4998.07,
+    "equity_end": 4997.49,
     "equity_min": 798.74,
     "equity_max": 5000.09,
     "equity_range": 4201.35,
-    "realized_pnl_total": -1.57,
-    "fees_paid_total": 1.3646,
-    "open_positions": 4,
-    "samples": 10181
+    "realized_pnl_total": -2.01,
+    "fees_paid_total": 1.5835,
+    "open_positions": 5,
+    "samples": 10256
   },
   "activity": {
-    "signal_rows_total": 495,
-    "live_labeled_trades": 29,
-    "candidate_rows": 466
+    "signal_rows_total": 497,
+    "live_labeled_trades": 30,
+    "candidate_rows": 467
   },
   "audit": {
-    "records": 644,
-    "signal_records": 227,
+    "records": 651,
+    "signal_records": 232,
     "by_src": {
-      "exploration": 417,
-      "startup": 92,
-      "order_manager": 88,
-      "fault": 37,
+      "exploration": 419,
+      "startup": 93,
+      "order_manager": 91,
+      "fault": 38,
       "ml_governor": 9,
       "engine": 1
     },
     "top_codes": [
       [
         "ML-070",
-        417
+        419
       ],
       [
         "CG-000",
-        92
+        93
       ],
       [
         "OM-000",
-        87
+        90
       ],
       [
         "FT-020",
-        37
+        38
       ],
       [
         "ML-032",
@@ -81,44 +81,44 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.405,
+    "dominant_frac": 0.401,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 9601,
+    "records": 10048,
     "by_level": {
-      "INFO": 9460,
-      "WARNING": 71,
-      "ERROR": 38,
-      "CRITICAL": 32
+      "INFO": 9896,
+      "WARNING": 74,
+      "ERROR": 42,
+      "CRITICAL": 36
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        37
+        38
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
         20
       ],
       [
+        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
+        17
+      ],
+      [
         "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        15
+        17
       ],
       [
         "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        15
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        13
+        17
       ],
       [
         "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        11
+        13
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -138,12 +138,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2612,
-      "thin": 2297
+      "spoofy": 2698,
+      "thin": 2494
     },
-    "spoofy_frac": 0.532,
-    "cycles_estimate": 1441,
-    "feed_error_events": 39
+    "spoofy_frac": 0.52,
+    "cycles_estimate": 1478,
+    "feed_error_events": 43
   },
   "model": {
     "monitor_level": 0,
@@ -151,7 +151,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.18867418679534387,
     "brier": "n/a",
-    "history_rows": 29,
+    "history_rows": 30,
     "cold": true
   },
   "postmortems": {
@@ -188,13 +188,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 53% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 52% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 40% of 227 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 40% of 232 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
