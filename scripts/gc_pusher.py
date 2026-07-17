@@ -362,6 +362,21 @@ def collect(status_path: str) -> list:
         v = om.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
+    # ---- asset skimmer (§7): candidate rankings + promotions -----------------
+    sk = s.get("skimmer") or {}
+    for pair, rec in (sk.get("scores") or {}).items():
+        v = (rec or {}).get("score")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            m.append(gauge("liquiditybot_skimmer_score", v,
+                           {"pair": str(pair)}, ts))
+    if sk:
+        m.append(gauge("liquiditybot_skimmer_promoted_count",
+                       float(len(sk.get("promoted") or [])), ts=ts))
+        m.append(gauge("liquiditybot_skimmer_candidates",
+                       float(sk.get("candidates") or 0), ts=ts))
+        for pair in (sk.get("promoted") or []):
+            m.append(gauge("liquiditybot_skimmer_promoted_info", 1.0,
+                           {"pair": str(pair)}, ts))
     # ---- risk-protocol posture (§6) ------------------------------------------
     rp = s.get("risk_protocols") or {}
     for k in ("daily_budget_used_frac", "weekly_budget_used_frac",

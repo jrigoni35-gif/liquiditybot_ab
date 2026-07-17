@@ -39,6 +39,34 @@ from main import LiquidityBot, load_config
 log = logging.getLogger("liquiditybot.runner")
 
 
+def merge_skimmer_universe(config: dict,
+                           active_path: str = "outputs/skimmer_active.json"
+                           ) -> list:
+    """Widen trading_pairs with the skimmer's persisted promotions — called
+    ONLY from the live entrypoint (main). Replay/smoke/overfit construct
+    LiquidityBot(cfg) directly and never pass through here, so the quant
+    battery stays pinned to its recorded universe. Promotions apply in
+    dry-run always; in live only with skimmer.apply_in_live. Bounded by the
+    skimmer's max_extra and the config-guard 12-pair fallback envelope.
+    Returns the pairs that were merged (for logs/tests)."""
+    sk_cfg = (config or {}).get("skimmer", {}) or {}
+    if not bool(sk_cfg.get("enabled")):
+        return []
+    if not (bool(config.get("system", {}).get("dry_run", True))
+            or bool(sk_cfg.get("apply_in_live", False))):
+        return []
+    from core.skimmer import AssetSkimmer
+    core = list(config.get("exchanges", {}).get("kraken", {})
+                .get("trading_pairs", []))
+    extra = AssetSkimmer.load_active(active_path, core,
+                                     int(sk_cfg.get("max_extra", 6)))
+    if extra:
+        config["exchanges"]["kraken"]["trading_pairs"] = core + extra
+        log.warning("skimmer: universe widened for this boot: %d core + "
+                    "promoted %s", len(core), extra)
+    return extra
+
+
 class BotRunner:
     def __init__(self, config: dict, bot: LiquidityBot | None = None,
                  start_paused: bool = False, resume: bool = True,
@@ -56,6 +84,24 @@ class BotRunner:
                         FeedRecorder(getattr(self.bot, name), name, sink))
             log.warning(f"feed recording ON -> {sink} (replay it with "
                         f"scripts/replay.py)")
+        # asset skimmer: watches the candidate pool (<=2 REST calls per loop
+        # pass, self-throttled) and persists promotions for the NEXT boot's
+        # universe merge in main(). Core = booted pairs minus persisted
+        # promotions, so a promoted pair keeps being scored (else it could
+        # never be demoted). Telemetry+file only — never trades.
+        try:
+            from core.skimmer import AssetSkimmer
+            _booted = list(config.get("exchanges", {}).get("kraken", {})
+                           .get("trading_pairs", []))
+            _promoted = AssetSkimmer.load_active(
+                "outputs/skimmer_active.json", [], 99)
+            self.skimmer = AssetSkimmer(
+                config.get("skimmer", {}),
+                getattr(self.bot, "kraken", None),
+                core_pairs=[p for p in _booted if p not in _promoted])
+        except Exception:                    # telemetry must never block boot
+            log.exception("skimmer init failed - running without it")
+            self.skimmer = None
         self.control = ControlChannel()
         # purge STALE commands queued before this runner existed: a leftover
         # "stop" from a previous life otherwise executes at boot and kills the
@@ -409,6 +455,10 @@ class BotRunner:
             # multipliers, computed from the stack's/sizer's OWN attributes and
             # formulas — no constants duplicated into telemetry
             "risk_protocols": self._rp_status(bot, equity),
+            # asset skimmer: candidate rankings + the promoted set that will
+            # join the universe at the next restart
+            "skimmer": self.skimmer.snapshot()
+            if getattr(self, "skimmer", None) is not None else {},
             "firewall": bot.firewall.status()
             if getattr(bot, "firewall", None) is not None else {},
             "order_manager": bot.orders.status()
@@ -584,6 +634,11 @@ class BotRunner:
                         if now - bot._last_snapshot >= bot.snapshot_sec:
                             bot.store.snapshot(bot)
                             bot._last_snapshot = now
+                        # skimmer watch tick: self-throttled (round-robin, one
+                        # candidate per eval interval); isolated with the rest
+                        # of telemetry — a skimmer fault never touches trading
+                        if getattr(self, "skimmer", None) is not None:
+                            self.skimmer.evaluate(now)
                         snap = self.build_status(now)
                         self._last_status = snap
                         self.status.write(snap, now)
@@ -679,6 +734,8 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger().addHandler(JsonlLogHandler())
     Path("outputs").mkdir(exist_ok=True)
+
+    merge_skimmer_universe(config)
 
     # single-instance guard: a second runner on the same outputs/ dir clobbers
     # status/state, races the control queue, and corrupts the audit chain -

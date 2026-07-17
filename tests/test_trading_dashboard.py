@@ -78,6 +78,10 @@ _SYNTH_STATUS = {
                        "heat_frac": 0.04, "heat_cap_frac": 0.35,
                        "dd_throttle_mult": 1.0},
     "firewall": {"fault": None, "counters": {"FW-040": 2}},
+    "skimmer": {"enabled": True, "candidates": 8,
+                "promoted": ["SOL/USD"], "max_extra": 6,
+                "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,
+                                       "depth_usd": 60000, "ts": 1.7e9}}},
 }
 
 

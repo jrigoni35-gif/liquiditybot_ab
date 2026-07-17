@@ -533,6 +533,47 @@ ts_multi(124, "Firewall rejects/clamps by code",
               "clamp tallies. Entries reject on breach; exits are clamped, "
               "never blocked.")
 
+# ---------------- §7 · Asset Skimmer ----------------
+row(7, "§7 · Asset Skimmer", 130)
+bargauge(130, "Candidate tradability scores",
+         f"max by (pair) (liquiditybot_skimmer_score{JOB})",
+         0, 131, 10, 8, "{{pair}}", unit="none", mx=1,
+         desc="Skimmer ranking of the candidate pool (spread cost 40% / book "
+              "depth 35% / bar activity 25%; thresholds in config). At or "
+              "above promote_score (0.55) a candidate is eligible for the "
+              "active universe.",
+         steps=[{"color": "red", "value": None},
+                {"color": "yellow", "value": 0.35},
+                {"color": "green", "value": 0.55}])
+stat(131, "Promoted (next boot)",
+     M("liquiditybot_skimmer_promoted_count"), 10, 131, 4, 4, decimals=0,
+     desc="Candidates promoted into the universe — active at the next runner "
+          "restart. Core pairs are permanent; cap keeps the total inside the "
+          "12-pair REST-fallback envelope.",
+     steps=[{"color": "text", "value": None}])
+stat(132, "Candidate pool",
+     M("liquiditybot_skimmer_candidates"), 10, 135, 4, 4, decimals=0,
+     desc="Pairs the skimmer is watching (<=2 REST calls per evaluation, one "
+          "candidate per interval — watching is nearly free).",
+     steps=[{"color": "text", "value": None}])
+panels.append({
+    "id": 133, "type": "table", "title": "Promoted pairs",
+    "description": "The skimmer's current promotion set (joins trading at the "
+                   "next restart; demotion only stops NEW entries — exits are "
+                   "never touched).",
+    "datasource": DS, "gridPos": {"h": 8, "w": 10, "x": 14, "y": 131},
+    "fieldConfig": {"defaults": {"custom": {"align": "auto",
+                                            "filterable": False}},
+                    "overrides": []},
+    "options": {"showHeader": True, "cellHeight": "sm",
+                "sortBy": [{"displayName": "pair", "desc": False}]},
+    "targets": [_t(f"liquiditybot_skimmer_promoted_info{JOB}", fmt="table")],
+    "transformations": [
+        {"id": "organize", "options": {
+            "excludeByName": {"Time": True, "job": True, "instance": True,
+                              "__name__": True, "Value": True},
+            "renameByName": {}, "indexByName": {"pair": 0}}}]})
+
 dash = {
     "uid": "liquiditybot-trading",
     "title": "liquiditybot — trading",

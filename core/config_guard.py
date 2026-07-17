@@ -441,6 +441,37 @@ def validate(config: dict) -> list:
             fatal("profit_taking.conviction_runner.min_trail_mult must be in "
                   "[0.1, 1.0] - it can only tighten the runner, never loosen it")
 
+    # --- asset skimmer (scan wide, trade narrow) -----------------------------
+    if bool(_f(config, "skimmer.enabled", False)):
+        core = _f(config, "exchanges.kraken.trading_pairs", []) or []
+        cands = _f(config, "skimmer.candidates", []) or []
+        max_extra = int(_f(config, "skimmer.max_extra", 6))
+        # the REST-fallback envelope: with the WS down, N pairs cost
+        # ~N*6 book calls + tickers + candles per 30s against 3 req/s (=90).
+        # Past ~12 active pairs the fallback falls behind exactly when the
+        # primary feed is already degraded.
+        if len(core) + max_extra > 12:
+            fatal(f"skimmer: core ({len(core)}) + max_extra ({max_extra}) "
+                  f"exceeds the 12-pair REST-fallback envelope - a WS outage "
+                  f"would starve the book poll at 3 req/s")
+        pscore = float(_f(config, "skimmer.promote_score", 0.55))
+        dscore = float(_f(config, "skimmer.demote_score", 0.35))
+        if not (0.0 < dscore < pscore <= 1.0):
+            fatal("skimmer: needs 0 < demote_score < promote_score <= 1 "
+                  "(equal or inverted bands churn the universe)")
+        if float(_f(config, "skimmer.eval_every_min", 60)) < 5:
+            fatal("skimmer.eval_every_min below 5 min - candidate polling "
+                  "would eat the REST budget the trading path depends on")
+        overlap = [c for c in cands if c in core]
+        if overlap:
+            advisory(f"skimmer: candidates already in trading_pairs are "
+                     f"ignored: {overlap}")
+        bad = [c for c in cands
+               if not (isinstance(c, str) and c.endswith("/USD"))]
+        if bad:
+            fatal(f"skimmer: candidates must be Kraken 'X/USD' spot pairs "
+                  f"(execution venue + quote-currency invariant): {bad}")
+
     # --- entry cap vs the outer rails (coherence, not a hard stop) ----------
     # the position cap should sit at/under the per-order firewall cap and the
     # portfolio heat cap; if it pokes above, those rails still bind, but the

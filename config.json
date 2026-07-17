@@ -635,6 +635,21 @@
       "poc_dist_cap_pct": 5.0
     }
   },
+  "skimmer": {
+    "_doc": "asset skimmer: scan a candidate pool beyond the core trading_pairs, rank tradability (spread cost / book depth / bar activity), and PROMOTE the best into the active universe at the NEXT RESTART (runner.main merges outputs/skimmer_active.json into trading_pairs on the live path only - replay/overfit stay pinned to the recorded universe). Core pairs are permanent; at most max_extra promotions, keeping the worst-case REST-fallback budget (3 req/s with WS down) inside the ~12-pair envelope. Watching costs <=2 REST calls per evaluation, one candidate round-robin per loop pass, each at most once per eval_every_min. Promoted assets face every existing rail (EV gate, sizer, protocols, heat, firewall, manip gate); demotion only removes them from the NEXT boot - open positions keep their exits. apply_in_live=false means promotions apply in dry-run only until explicitly enabled for live.",
+    "enabled": true,
+    "apply_in_live": false,
+    "candidates": ["SOL/USD", "XRP/USD", "ADA/USD", "LINK/USD", "DOGE/USD", "DOT/USD", "AVAX/USD", "LTC/USD"],
+    "max_extra": 6,
+    "eval_every_min": 60,
+    "spread_bps_max": 25.0,
+    "min_depth_usd": 5000,
+    "activity_range_pct": 0.3,
+    "promote_score": 0.55,
+    "demote_score": 0.35,
+    "demote_evals": 3,
+    "replace_margin": 0.1
+  },
   "moomoo": {
     "description": "Read-only cross-asset quotes via moomoo OpenAPI (quote context only - execution impossible). Requires local OpenD gateway + pip install moomoo-api. Disabled by default.",
     "enabled": true,
