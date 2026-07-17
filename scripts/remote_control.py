@@ -1,0 +1,321 @@
+"""
+scripts/remote_control.py — one-bot control plane over git (no open ports).
+
+The operator talks to Claude from anywhere (phone / web / desktop); Claude
+commits command files to the durable telemetry branch; the always-on PC
+polls that branch, validates each command, and forwards it to the runner's
+local ControlChannel — the same queue a console operator uses. The runner
+consumes and acks exactly as it does for local commands. In the other
+direction the PC publishes its full outputs/status.json to the branch so
+the remote console sees the live bot, not just Grafana's metric subset.
+
+SECURITY MODEL
+  * Transport is the operator's own private repo: command authority ==
+    repo write access == the trust level that already ships code the
+    test-gated auto-updater executes. No listening sockets, no new
+    inbound surface on the PC.
+  * HARD INVARIANT (CLAUDE.md #1): REMOTE_SAFE_COMMANDS can NEVER carry
+    arm_live. The only road to live stays config `dry_run:false` +
+    restart + typed ARM LIVE at the PC console. force_dry — the safe
+    direction — IS remotely allowed, as are pause/flatten/etc. (exits
+    and de-risking must never be blocked; new risk must never be
+    remotely armable).
+  * Commands EXPIRE: older than MAX_AGE_SEC, or stamped in the future,
+    are rejected — replaying a stale queue cannot move the bot.
+  * EXACTLY-ONCE: consumed ids persist in outputs/remote_consumed.json;
+    a command id is forwarded at most once, ever. Consumed queue files
+    are deleted from the branch on the next status push (self-cleaning).
+  * FAIL-SAFE: every entry point catches its own errors and returns a
+    disposition string; the supervisor never wedges on this module.
+  * Dispositions log registry codes (RC-010 applied / RC-011 rejected)
+    to outputs/remote_control.log and the pc_status envelope — NOT to
+    audit.jsonl, whose hash chain has exactly one writer (the runner;
+    the runner's own ack covers execution there).
+
+ENV (all optional):
+  LB_BACKUP_REMOTE / LB_BACKUP_BRANCH  transport (defaults origin /
+                                       paper-telemetry — shared with the
+                                       learning-durability sidecar)
+  LB_NO_REMOTE_CMD=1                   disable command polling
+  LB_NO_STATUS_PUSH=1                  disable status publishing
+
+CLI:
+  python scripts/remote_control.py --poll          # PC: apply pending
+  python scripts/remote_control.py --push-status   # PC: publish status
+  python scripts/remote_control.py --send pause    # console: queue a cmd
+"""
+import argparse
+import json
+import os
+import socket
+import subprocess  # nosec B404 - fixed argv git calls, no shell
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.codes import Code                          # noqa: E402
+from core.runtime import VALID_COMMANDS, ControlChannel  # noqa: E402
+
+OUT = ROOT / "outputs"
+QUEUE_DIR = "control/queue"
+STATUS_PATH = "control/pc_status.json"
+MAX_AGE_SEC = 1800.0        # a command older than this is dead on arrival
+MAX_FUTURE_SEC = 300.0      # clock-skew allowance; beyond it = malformed
+CONSUMED_CAP = 500          # ids retained in the exactly-once ledger
+
+# The remote whitelist. arm_live is EXCLUDED BY CONSTRUCTION and must stay
+# so (tests pin it); sim_* shocks are console-only tooling, not remote.
+REMOTE_SAFE_COMMANDS = frozenset({
+    "pause", "start", "stop", "entries_on", "entries_off",
+    "force_dry", "flatten_all", "snapshot", "disarm_live",
+})
+# import-time invariant guard: the whitelist must be real commands and can
+# never grow arm_live — a violation refuses to even import (tests pin this
+# too, but the guard holds when someone edits the set without running them)
+_bad = (REMOTE_SAFE_COMMANDS - VALID_COMMANDS) | (
+    {"arm_live"} & REMOTE_SAFE_COMMANDS)
+if _bad:
+    raise RuntimeError(f"remote whitelist invariant violated: {sorted(_bad)}")
+
+
+def _git(*args, cwd, timeout=120):
+    """Run a git command; return (rc, stdout.strip()). Never raises —
+    every caller degrades to a disposition string on failure."""
+    try:
+        p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
+                           capture_output=True, text=True, timeout=timeout)
+        out = (p.stdout or "").strip() or (p.stderr or "").strip()
+        return p.returncode, out
+    except Exception as e:                       # noqa: BLE001
+        return 1, f"error: {e}"
+
+
+def _log(msg: str) -> None:
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} remote_control: {msg}"
+    print(line, flush=True)
+    try:
+        OUT.mkdir(exist_ok=True)
+        with open(OUT / "remote_control.log", "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass
+
+
+def _cfg() -> dict:
+    return {"remote": os.environ.get("LB_BACKUP_REMOTE", "origin"),
+            "branch": os.environ.get("LB_BACKUP_BRANCH", "paper-telemetry")}
+
+
+# ---------------------------------------------------------------- validation
+def validate_command(payload, fname_id: str, now: float) -> str | None:
+    """Pure validation: None = valid, else a one-line 'RC-011 …' reason."""
+    if not isinstance(payload, dict):
+        return f"{Code.RC_REJECTED.value}: payload is not an object"
+    if payload.get("id") != fname_id:
+        return f"{Code.RC_REJECTED.value}: id/filename mismatch"
+    cmd = payload.get("cmd")
+    if cmd not in REMOTE_SAFE_COMMANDS:
+        return (f"{Code.RC_REJECTED.value}: '{cmd}' not remotely allowed "
+                f"(whitelist: {sorted(REMOTE_SAFE_COMMANDS)})")
+    try:
+        issued = float(payload.get("issued_at"))
+    except (TypeError, ValueError):
+        return f"{Code.RC_REJECTED.value}: missing/invalid issued_at"
+    if now - issued > MAX_AGE_SEC:
+        return (f"{Code.RC_REJECTED.value}: stale "
+                f"({now - issued:.0f}s old > {MAX_AGE_SEC:.0f}s)")
+    if issued - now > MAX_FUTURE_SEC:
+        return f"{Code.RC_REJECTED.value}: issued_at is in the future"
+    args = payload.get("args")
+    if args is not None and not isinstance(args, dict):
+        return f"{Code.RC_REJECTED.value}: args must be an object"
+    if len(json.dumps(payload)) > 4096:
+        return f"{Code.RC_REJECTED.value}: oversized payload"
+    return None
+
+
+# ------------------------------------------------------- exactly-once ledger
+def _consumed_path(root: Path) -> Path:
+    return root / "outputs" / "remote_consumed.json"
+
+
+def _load_consumed(root: Path) -> list:
+    try:
+        v = json.loads(_consumed_path(root).read_text(encoding="utf-8"))
+        return v if isinstance(v, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _save_consumed(root: Path, entries: list) -> None:
+    p = _consumed_path(root)
+    p.parent.mkdir(exist_ok=True)
+    tmp = p.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(entries[-CONSUMED_CAP:], indent=1),
+                   encoding="utf-8")
+    os.replace(tmp, p)
+
+
+# ----------------------------------------------------------- branch plumbing
+def _publish(root: Path, writes: dict, deletes: list) -> str:
+    """Commit {branch-relpath: text} writes and delete `deletes` paths on
+    the durable branch, via an isolated worktree (checkout/index/branch of
+    `root` untouched — same discipline as telemetry_backup.push_bundle)."""
+    cfg = _cfg()
+    rc, err = _git("fetch", cfg["remote"], cfg["branch"], cwd=root)
+    if rc != 0:
+        return f"fetch_failed: {err[:120]}"
+    ref = f"{cfg['remote']}/{cfg['branch']}"
+    with tempfile.TemporaryDirectory(prefix="lb_rc_wt_") as wtd:
+        wt = Path(wtd) / "wt"
+        rc, err = _git("worktree", "add", "--detach", "--force",
+                       str(wt), ref, cwd=root)
+        if rc != 0:
+            return f"worktree_failed: {err[:120]}"
+        try:
+            for rel, text in writes.items():
+                dest = wt / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(text, encoding="utf-8")
+            for rel in deletes:
+                try:
+                    (wt / rel).unlink()
+                except OSError:
+                    pass
+            _git("add", "-A", cwd=wt)
+            rc, porcelain = _git("status", "--porcelain", cwd=wt)
+            if not porcelain.strip():
+                return "no_change"
+            rc, err = _git("commit", "-m",
+                           f"remote-control: {', '.join(writes) or 'gc'}",
+                           cwd=wt)
+            if rc != 0:
+                return f"commit_failed: {err[:120]}"
+            rc, new = _git("rev-parse", "HEAD", cwd=wt)
+            rc, err = _git("push", cfg["remote"],
+                           f"{new}:refs/heads/{cfg['branch']}", cwd=root)
+            return "pushed" if rc == 0 else f"push_failed: {err[:120]}"
+        finally:
+            _git("worktree", "remove", "--force", str(wt), cwd=root)
+            _git("worktree", "prune", cwd=root)
+
+
+# ------------------------------------------------------------- PC: consume
+def poll_once(root: Path = ROOT, now: float | None = None) -> str:
+    """Fetch the branch, validate every unseen queue file, forward valid
+    commands to the local ControlChannel. Returns a disposition summary."""
+    if os.environ.get("LB_NO_REMOTE_CMD"):
+        return "disabled"
+    now = time.time() if now is None else now
+    cfg = _cfg()
+    rc, err = _git("fetch", cfg["remote"], cfg["branch"], cwd=root)
+    if rc != 0:
+        return f"fetch_failed: {err[:120]}"
+    rc, listing = _git("ls-tree", "--name-only",
+                       f"{cfg['remote']}/{cfg['branch']}:{QUEUE_DIR}",
+                       cwd=root)
+    if rc != 0 or not listing.strip():
+        return "queue_empty"
+    consumed = _load_consumed(root)
+    seen = {e.get("id") for e in consumed}
+    applied = rejected = 0
+    for fname in listing.split():
+        if not fname.endswith(".json"):
+            continue
+        fid = fname[:-5]
+        if fid in seen:
+            continue
+        rc, raw = _git("show",
+                       f"{cfg['remote']}/{cfg['branch']}:{QUEUE_DIR}/{fname}",
+                       cwd=root)
+        try:
+            payload = json.loads(raw) if rc == 0 else None
+        except json.JSONDecodeError:
+            payload = None
+        reason = validate_command(payload, fid, now)
+        if reason:
+            rejected += 1
+            _log(f"{reason} (id {fid})")
+            consumed.append({"id": fid, "result": "rejected",
+                             "reason": reason, "at": now})
+        else:
+            cmd, args = payload["cmd"], payload.get("args") or {}
+            ControlChannel(str(root / "outputs" / "control")).send(cmd, args)
+            applied += 1
+            _log(f"{Code.RC_APPLIED.value}: forwarded '{cmd}' to the "
+                 f"runner (id {fid})")
+            consumed.append({"id": fid, "result": "applied",
+                             "cmd": cmd, "at": now})
+    if applied or rejected:
+        _save_consumed(root, consumed)
+    return f"applied={applied} rejected={rejected}"
+
+
+# ------------------------------------------------------------- PC: publish
+def push_pc_status(root: Path = ROOT) -> str:
+    """Publish outputs/status.json (+ the remote-command ledger tail) to the
+    branch, and garbage-collect consumed queue files in the same commit."""
+    if os.environ.get("LB_NO_STATUS_PUSH"):
+        return "disabled"
+    status_p = root / "outputs" / "status.json"
+    try:
+        status = json.loads(status_p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "no_status"
+    consumed = _load_consumed(root)
+    envelope = {"pushed_at": time.time(), "host": socket.gethostname(),
+                "status": status, "remote_commands": consumed[-20:]}
+    deletes = [f"{QUEUE_DIR}/{e['id']}.json" for e in consumed
+               if e.get("id")]
+    return _publish(root, {STATUS_PATH: json.dumps(envelope, indent=1)},
+                    deletes)
+
+
+# --------------------------------------------------------- console: enqueue
+def send_command(cmd: str, args: dict | None = None,
+                 root: Path = ROOT) -> str:
+    """Queue a remote command on the branch. Refuses anything outside the
+    whitelist BEFORE it ever reaches the transport."""
+    if cmd not in REMOTE_SAFE_COMMANDS:
+        raise ValueError(f"'{cmd}' is not remotely allowed "
+                         f"(whitelist: {sorted(REMOTE_SAFE_COMMANDS)})")
+    cid = f"{int(time.time())}-{uuid.uuid4().hex[:10]}"
+    payload = {"id": cid, "cmd": cmd, "args": args or {},
+               "issued_at": time.time(), "issued_by": socket.gethostname()}
+    out = _publish(root, {f"{QUEUE_DIR}/{cid}.json":
+                          json.dumps(payload, indent=1)}, [])
+    if out != "pushed":
+        raise RuntimeError(f"command not queued: {out}")
+    _log(f"queued '{cmd}' as {cid}")
+    return cid
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--poll", action="store_true")
+    g.add_argument("--push-status", action="store_true")
+    g.add_argument("--send", metavar="CMD")
+    ap.add_argument("--args", default="{}",
+                    help="JSON object of command args (with --send)")
+    ns = ap.parse_args()
+    try:
+        if ns.poll:
+            out = poll_once()
+        elif ns.push_status:
+            out = push_pc_status()
+        else:
+            out = send_command(ns.send, json.loads(ns.args))
+        _log(out)
+        return 0
+    except Exception as e:  # noqa: BLE001 - CLI surface: report, exit nonzero
+        _log(f"error: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

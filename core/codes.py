@@ -17,6 +17,7 @@ Prefix map (subsystem of origin):
   FT  core.fault (system-level faults / state transitions)
   TP  risk.profit_tiers (exit-system dispositions)
   TH  strategies.thales (lazy-bot insecurity detectors / advice)
+  RC  scripts.remote_control (git command-bus dispositions)
 """
 
 from enum import Enum
@@ -148,6 +149,8 @@ class Code(str, Enum):
     TH_LAPSE = "TH-016"              # observation gap: continuity reset, advice muted through warmup
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
+    RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue
+    RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)
 
 
 def tag(code: Code, detail: str) -> str:

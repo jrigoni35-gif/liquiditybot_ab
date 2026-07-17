@@ -98,9 +98,16 @@ PYSORT
   else
     log "no paper-telemetry branch yet - cold start"
   fi
-  log "no runner alive - relaunching detached"
-  setsid nohup "$PY" runner.py >> outputs/runner_stdout.log 2>&1 < /dev/null &
-  log "runner relaunched (pid $!)"
+  # ONE-BOT architecture (operator directive 2026-07-17): the PC is THE bot;
+  # this cloud environment is the dev bench + remote console. No cloud runner
+  # is launched by default — set LB_CLOUD_RUNNER=1 for a local test runner.
+  if [ -n "${LB_CLOUD_RUNNER:-}" ]; then
+    log "no runner alive - relaunching detached (LB_CLOUD_RUNNER set)"
+    setsid nohup "$PY" runner.py >> outputs/runner_stdout.log 2>&1 < /dev/null &
+    log "runner relaunched (pid $!)"
+  else
+    log "one-bot mode: cloud runner retired (PC is the bot; LB_CLOUD_RUNNER=1 opts back in)"
+  fi
 fi
 
 # --- 5. process continuity: telemetry pushers (optional, env-gated) -------

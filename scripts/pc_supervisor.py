@@ -47,6 +47,20 @@ try:
 except ValueError:
     UPDATE_SEC = 900.0
 _UPDATE_STAMP = OUT / ".auto_update_stamp"
+# one-bot remote control (scripts/remote_control.py): poll the durable branch
+# for operator commands, and publish the full status.json back, so the bot is
+# drivable from anywhere without an open port. Kill switches mirror the
+# updater's: LB_NO_REMOTE_CMD / LB_NO_STATUS_PUSH disable each direction.
+try:
+    REMOTE_CMD_SEC = float(os.environ.get("LB_REMOTE_CMD_POLL_SEC", "120"))
+except ValueError:
+    REMOTE_CMD_SEC = 120.0
+try:
+    STATUS_PUSH_SEC = float(os.environ.get("LB_STATUS_PUSH_SEC", "600"))
+except ValueError:
+    STATUS_PUSH_SEC = 600.0
+_REMOTE_CMD_STAMP = OUT / ".remote_cmd_stamp"
+_STATUS_PUSH_STAMP = OUT / ".status_push_stamp"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
 # launch attempt is spaced at least this far apart regardless of outcome.
@@ -118,6 +132,23 @@ def _mark_update_checked() -> None:
         _UPDATE_STAMP.touch()
     except OSError:
         pass
+
+
+def _stamp_due(stamp: Path, period_sec: float) -> bool:
+    """True when `stamp` is absent or older than period_sec; touches it on
+    True so each caller runs at most once per period (same contract as the
+    auto-update stamp, generalized)."""
+    try:
+        if (time.time() - stamp.stat().st_mtime) < period_sec:
+            return False
+    except OSError:
+        pass                       # no stamp yet -> due
+    try:
+        OUT.mkdir(exist_ok=True)
+        stamp.touch()
+    except OSError:
+        pass
+    return True
 
 
 def _materialise_token() -> None:
@@ -249,6 +280,18 @@ def tick() -> None:
         log("auto-update check due -> spawning test-gated updater")
         _mark_update_checked()
         _spawn([PY, "scripts/auto_update.py"], own_log=False)
+
+    # 5) one-bot remote control: apply queued operator commands from the
+    # durable branch, and publish the full status back. Both directions are
+    # short-lived detached child processes with their own log
+    # (outputs/remote_control.log) and their own fail-safe error handling.
+    if (not os.environ.get("LB_NO_REMOTE_CMD")
+            and _stamp_due(_REMOTE_CMD_STAMP, REMOTE_CMD_SEC)):
+        _spawn([PY, "scripts/remote_control.py", "--poll"], own_log=False)
+    if (not os.environ.get("LB_NO_STATUS_PUSH")
+            and _stamp_due(_STATUS_PUSH_STAMP, STATUS_PUSH_SEC)):
+        _spawn([PY, "scripts/remote_control.py", "--push-status"],
+               own_log=False)
 
 
 def main() -> None:
