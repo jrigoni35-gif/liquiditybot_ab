@@ -59,10 +59,14 @@ class SizeDecision:
 
 
 def payoff_ratio_from_config(profit_cfg: dict, risk_cfg: dict,
-                             rt_cost_pct: float = 0.0) -> float:
+                             rt_cost_pct: float = 0.0,
+                             reach_decay: float = 0.65) -> float:
     """Average win / average loss implied by the tier + stop structure,
-    NET of round-trip cost. Tiers fire sequentially with decaying reach
-    (each next tier ~65% as likely as the previous)."""
+    NET of round-trip cost. Tiers fire sequentially with decaying reach:
+    each next tier is `reach_decay` times as likely as the previous — a
+    modeling assumption that feeds b/b_net and therefore the Kelly
+    breakeven, so it is a CONFIG knob (position_sizer.tier_reach_decay),
+    not a buried constant. Default preserves the historical 0.65."""
     tiers = [profit_cfg.get(f"tier_{i}", {}) for i in range(1, 5)]
     reach, w_sum, p_sum = 1.0, 0.0, 0.0
     for t in tiers:
@@ -70,7 +74,7 @@ def payoff_ratio_from_config(profit_cfg: dict, risk_cfg: dict,
         frac = float(t.get("close_pct_of_position", 0.0)) / 100.0
         w_sum += reach * trig * frac
         p_sum += reach * frac
-        reach *= 0.65
+        reach *= reach_decay
     avg_win = w_sum / p_sum if p_sum > 0 else 2.0
     avg_loss = float(risk_cfg.get("stop_loss_pct", 2.0))
     win_net = max(avg_win - rt_cost_pct, 0.0)
@@ -129,11 +133,28 @@ class PositionSizer:
         #            realized win/loss distribution actually looks like,
         #            therefore what Kelly must size on. f* > 0 on b_net
         #            IS the net-expectancy condition (p > 1/(1+b_net)).
+        self.tier_reach_decay = min(max(float(
+            cfg.get("tier_reach_decay", 0.65)), 0.05), 1.0)
         self.b = payoff_ratio_from_config(profit_cfg or {}, risk_cfg or {},
-                                          rt_cost_pct=0.0)
+                                          rt_cost_pct=0.0,
+                                          reach_decay=self.tier_reach_decay)
         self.b_net = payoff_ratio_from_config(profit_cfg or {},
                                               risk_cfg or {},
-                                              rt_cost_pct=self.rt_cost_pct)
+                                              rt_cost_pct=self.rt_cost_pct,
+                                              reach_decay=self.tier_reach_decay)
+        # vol scaling of the ticket: LIFTED from a buried
+        # `35.0 / max(sigma, 5.0)` clamped [0.3, 1.5] — an undocumented
+        # SECOND vol-targeting layer living in the sizing path (the explicit
+        # one, risk_protocols.vol_target, ships disabled with a note that it
+        # "overlaps"... this was the overlap). Same defaults, now visible,
+        # guarded, and coherence-checked against the protocol layer.
+        self.vol_target_ann_pct = max(float(
+            cfg.get("vol_target_ann_pct", 35.0)), 1.0)
+        self.vol_sigma_floor_pct = max(float(
+            cfg.get("vol_sigma_floor_pct", 5.0)), 0.1)
+        self.vol_scalar_min = max(float(cfg.get("vol_scalar_min", 0.3)), 0.0)
+        self.vol_scalar_max = max(float(cfg.get("vol_scalar_max", 1.5)),
+                                  self.vol_scalar_min)
         self.avg_loss_pct = float((risk_cfg or {}).get("stop_loss_pct", 2.0))
         # inventory-aware aggression: lean in when the book is light,
         # back off as short-term entry clustering or long-term gross
@@ -201,6 +222,16 @@ class PositionSizer:
         mult = self.ia_light_boost + \
             (self.ia_heavy_cut - self.ia_light_boost) * u
         return mult, u_long, u_short
+
+    def _vol_scalar(self, sigma_annual_pct: float) -> float:
+        """Ticket multiplier from realized vol vs the configured target:
+        full-ish size at/below target vol, shrinking as vol rises, clamped to
+        [vol_scalar_min, vol_scalar_max]. Non-finite sigma degrades to the
+        floor value (treat unknown vol as high vol, never as low)."""
+        sig = sigma_annual_pct if _fin(sigma_annual_pct) else float("inf")
+        return min(max(self.vol_target_ann_pct
+                       / max(sig, self.vol_sigma_floor_pct),
+                       self.vol_scalar_min), self.vol_scalar_max)
 
     def note_entry(self, asset: str, now: Optional[float] = None):
         self._last_entry[asset] = now if now is not None else time.time()
@@ -290,8 +321,7 @@ class PositionSizer:
 
         # ---- multiplier stack ------------------------------------------------
         usd *= macro_state.playbook.get("size_mult", 1.0)
-        vol_scalar = min(max(35.0 / max(vol_state.sigma_annual_pct, 5.0),
-                             0.3), 1.5)
+        vol_scalar = self._vol_scalar(vol_state.sigma_annual_pct)
         usd *= vol_scalar
         usd *= max(min(sent_risk_mult if _fin(sent_risk_mult) else 1.0,
                        1.2), 0.0)

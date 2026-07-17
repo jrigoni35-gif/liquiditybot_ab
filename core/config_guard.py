@@ -441,6 +441,24 @@ def validate(config: dict) -> list:
             fatal("profit_taking.conviction_runner.min_trail_mult must be in "
                   "[0.1, 1.0] - it can only tighten the runner, never loosen it")
 
+    # --- sizer vol scaling + tier reach (lifted literals) --------------------
+    vsmin = float(_f(config, "position_sizer.vol_scalar_min", 0.3))
+    vsmax = float(_f(config, "position_sizer.vol_scalar_max", 1.5))
+    vtgt = float(_f(config, "position_sizer.vol_target_ann_pct", 35.0))
+    if not (0.0 <= vsmin <= vsmax):
+        fatal("position_sizer vol_scalar bounds incoherent: need "
+              "0 <= vol_scalar_min <= vol_scalar_max")
+    if vtgt <= 0:
+        fatal("position_sizer.vol_target_ann_pct must be positive")
+    trd = float(_f(config, "position_sizer.tier_reach_decay", 0.65))
+    if not (0.05 <= trd <= 1.0):
+        fatal("position_sizer.tier_reach_decay must be in [0.05, 1.0] - it "
+              "derives the payoff ratio b/b_net and the Kelly breakeven")
+    if bool(_f(config, "risk_protocols.vol_target.enabled", False)):
+        advisory("risk_protocols.vol_target is enabled ON TOP of the sizer's "
+                 "own vol scaling (position_sizer.vol_target_ann_pct) - two "
+                 "vol-targeting layers compound; confirm that is intended")
+
     # --- per-asset circuit breaker -------------------------------------------
     if bool(_f(config, "circuit_breaker.enabled", True)):
         ls = int(_f(config, "circuit_breaker.loss_streak", 4))
