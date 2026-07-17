@@ -374,7 +374,14 @@ class BotRunner:
             "order_manager": bot.orders.status()
             if getattr(bot, "orders", None) is not None else {},
             "code_stats": {"by_prefix": code_stats.by_prefix(),
-                           "top": code_stats.top(15)},
+                           "top": code_stats.top(15),
+                           # entry-decision families in FULL (§4 signal-edge
+                           # panels): top-N crowding by chatty TH/SZ codes must
+                           # not blank the EV-gate / exploration-rate view.
+                           # Bounded by the code registry (~25 PT/SZ codes).
+                           "entry_codes": {
+                               k: v for k, v in code_stats.snapshot().items()
+                               if k.startswith(("PT-", "SZ-"))}},
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "ws": bot.ws_manager.health()
             if getattr(bot, "ws_manager", None) is not None else {},

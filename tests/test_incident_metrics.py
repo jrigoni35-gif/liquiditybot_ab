@@ -143,6 +143,39 @@ def test_collect_emits_per_instrument_positions(tmp_path):
                 symbol="SUI/USD", side="long") is None
 
 
+def test_collect_emits_exec_quality(tmp_path):
+    status = {
+        "written_at": 1_700_000_000.0,
+        "order_manager": {"venue_rejects": 1, "deadman_failures": 0,
+                          "latency_ms": 42.5, "maker_fills": 7,
+                          "taker_fills": 3, "maker_share": 0.7,
+                          "maker_notional_usd": 500.0,
+                          "taker_notional_usd": 200.0,
+                          "avg_slip_bps": -1.2, "worst_slip_bps": 8.0},
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_order_maker_share") == pytest.approx(0.7)
+    assert _val(m, "liquiditybot_order_avg_slip_bps") == pytest.approx(-1.2)
+    assert _val(m, "liquiditybot_order_worst_slip_bps") == pytest.approx(8.0)
+    assert _val(m, "liquiditybot_order_latency_ms") == pytest.approx(42.5)
+    assert _val(m, "liquiditybot_order_maker_fills") == 7.0
+
+    # cold OM (no fills): None fields must NOT emit
+    p2 = tmp_path / "status2.json"
+    p2.write_text(json.dumps({
+        "written_at": 1_700_000_000.0,
+        "order_manager": {"venue_rejects": 0, "deadman_failures": 0,
+                          "latency_ms": 0.0, "maker_fills": 0,
+                          "taker_fills": 0, "maker_share": None,
+                          "avg_slip_bps": None, "worst_slip_bps": None}}),
+        encoding="utf-8")
+    m2 = gp.collect(str(p2))
+    assert _val(m2, "liquiditybot_order_maker_share") is None
+    assert _val(m2, "liquiditybot_order_avg_slip_bps") is None
+
+
 def test_collect_emits_performance(tmp_path):
     status = {
         "written_at": 1_700_000_000.0, "equity": 5000.0,
@@ -169,6 +202,60 @@ def test_collect_emits_performance(tmp_path):
     # per-asset, labeled — the circuit-breaker's future input
     assert _val(m, "liquiditybot_perf_asset_win_rate", asset="BTC") == pytest.approx(0.5)
     assert _val(m, "liquiditybot_perf_asset_cur_loss_streak", asset="BTC") == 3.0
+
+
+def test_collect_never_emits_non_finite(tmp_path):
+    # json round-trips NaN: a poisoned status field must be dropped at the
+    # choke point — ONE non-finite gauge invalidates the whole OTLP batch
+    import math
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": 1_700_000_000.0,
+                             "equity": float("nan"),
+                             "daily_pnl": float("inf"),
+                             "drawdown_pct": 0.5}), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert all(math.isfinite(x["gauge"]["dataPoints"][0]["asDouble"])
+               for x in m)
+    assert _val(m, "liquiditybot_equity") is None          # dropped, not sent
+    assert _val(m, "liquiditybot_drawdown_pct") == 0.5     # clean ones remain
+
+
+def test_collect_emits_signal_edge(tmp_path):
+    status = {
+        "written_at": 1_700_000_000.0,
+        "signals": {"ETH": {"confirmed": True, "confidence": 0.9,
+                            "urgency": 0.55,
+                            "gates": {"if_1_flow_persistence": True,
+                                      "if_2_accumulation": False}},
+                    "BTC": {"confirmed": False, "confidence": 0.5,
+                            "urgency": 0.0, "gates": {}}},
+        "ml": {"gate_stats": {"enabled": True, "labeled": 281,
+                              "base_rate": 0.21,
+                              "weights": {"if_1_flow_persistence": 0.913}}},
+        "regimes": {"ETH": {"macro": "range", "momentum": -0.33, "vol": "low",
+                            "vol_pct": 22.0, "liq": "thin", "spread_bps": 0.1,
+                            "spoof": 0.0, "basis_bps": -1.1}},
+        "code_stats": {"by_prefix": {"PT": 9},
+                       "entry_codes": {"PT-041": 6, "PT-050": 2, "SZ-045": 1}},
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_signal_confirmed", asset="ETH") == 1.0
+    assert _val(m, "liquiditybot_signal_confirmed", asset="BTC") == 0.0
+    assert _val(m, "liquiditybot_signal_gate_passed", asset="ETH",
+                gate="if_1_flow_persistence") == 1.0
+    assert _val(m, "liquiditybot_signal_gate_passed", asset="ETH",
+                gate="if_2_accumulation") == 0.0
+    assert _val(m, "liquiditybot_gate_weight",
+                gate="if_1_flow_persistence") == pytest.approx(0.913)
+    assert _val(m, "liquiditybot_gate_labeled") == 281.0
+    assert _val(m, "liquiditybot_regime_momentum", asset="ETH") == pytest.approx(-0.33)
+    assert _val(m, "liquiditybot_regime_vol_pct", asset="ETH") == 22.0
+    assert _val(m, "liquiditybot_regime_info", asset="ETH", macro="range",
+                vol="low", liq="thin") == 1.0
+    assert _val(m, "liquiditybot_code_count_detail", code="PT-041") == 6.0
+    assert _val(m, "liquiditybot_code_count_detail", code="PT-050") == 2.0
 
 
 def test_collect_positions_absent_safe(tmp_path):

@@ -34,6 +34,7 @@ import logging
 import math
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -118,6 +119,16 @@ class OrderManager:
         self.pair_meta = pair_meta or {}
         self.latency_ms: float = 0.0
         self.venue_rejects: int = 0
+        # execution-quality ledger (§3 telemetry): every fill increments a
+        # maker/taker counter + notional, and books signed slippage vs the
+        # price we ASKED for (positive bps = adverse: paid more on a buy /
+        # received less on a sell; negative = price improvement). Rolling
+        # window, session-scoped like venue_rejects. Telemetry only.
+        self.maker_fills: int = 0
+        self.taker_fills: int = 0
+        self.maker_notional_usd: float = 0.0
+        self.taker_notional_usd: float = 0.0
+        self._slip_bps: deque = deque(maxlen=200)
         self._orders: dict = {}
         self._terminal_seq: list = []          # bounded eviction order
         self._deadman_refreshed = 0.0
@@ -235,12 +246,48 @@ class OrderManager:
                               "cancel (%s)", order.txid, reason)
         return self._transition(order, "cancelled", reason)
 
+    def _note_exec(self, maker: bool, notional_usd: float,
+                   fill_price: float, ref_price: float, side: str) -> None:
+        """Book one fill into the execution-quality ledger. Slippage is signed
+        vs the price we asked for: positive bps = adverse. Never raises."""
+        try:
+            n = float(notional_usd)
+            # max() does NOT sanitize NaN (max(nan, 0) is nan): one bad
+            # notional would poison the accumulator forever and a NaN gauge
+            # invalidates the entire OTLP push batch. Finite-or-zero only.
+            n = n if (math.isfinite(n) and n > 0.0) else 0.0
+            if maker:
+                self.maker_fills += 1
+                self.maker_notional_usd += n
+            else:
+                self.taker_fills += 1
+                self.taker_notional_usd += n
+            fill, ref = float(fill_price), float(ref_price)
+            if math.isfinite(fill) and math.isfinite(ref) and ref > 0 \
+                    and fill > 0:
+                sgn = 1.0 if side == "buy" else -1.0
+                self._slip_bps.append(sgn * (fill - ref) / ref * 1e4)
+        except (TypeError, ValueError):
+            pass
+
     def status(self) -> dict:
+        fills = self.maker_fills + self.taker_fills
+        slips = list(self._slip_bps)
         return {"open": len(self.open_orders()),
                 "tracked": len(self._orders),
                 "latency_ms": round(self.latency_ms, 1),
                 "venue_rejects": self.venue_rejects,
-                "deadman_failures": self._deadman_failures}
+                "deadman_failures": self._deadman_failures,
+                # execution quality (§3): maker/taker split + rolling slippage
+                "maker_fills": self.maker_fills,
+                "taker_fills": self.taker_fills,
+                "maker_share": round(self.maker_fills / fills, 4)
+                if fills else None,
+                "maker_notional_usd": round(self.maker_notional_usd, 2),
+                "taker_notional_usd": round(self.taker_notional_usd, 2),
+                "avg_slip_bps": round(sum(slips) / len(slips), 2)
+                if slips else None,
+                "worst_slip_bps": round(max(slips), 2) if slips else None}
 
     def _timed_private(self, endpoint: str, data: dict):
         t0 = time.monotonic()
@@ -409,11 +456,24 @@ class OrderManager:
             status = info.get("status", "open")
             new_fill = vol_exec - order.filled
             if new_fill > EPS:
+                # Kraken's `price` is the CUMULATIVE average across all fills
+                # of the order; recover THIS segment's own execution price
+                # from the average delta BEFORE overwriting, else every later
+                # segment is booked at the blend of earlier ones (smeared
+                # slippage, diluted worst_slip, wrong notional split).
+                prev_avg, prev_filled = order.avg_price, order.filled
                 order.avg_price = avg if avg > 0 else order.price
                 order.filled = vol_exec
+                seg_px = order.avg_price
+                if avg > 0 and prev_filled > EPS:
+                    cand = (vol_exec * avg - prev_filled * prev_avg) / new_fill
+                    if math.isfinite(cand) and cand > 0:
+                        seg_px = cand
                 order.fees_usd += new_fill * order.avg_price * \
                     (self.maker_fee_bps if order.post_only
                      else self.taker_fee_bps) / 1e4
+                self._note_exec(order.post_only, new_fill * seg_px,
+                                seg_px, order.price, order.side)
                 self._transition(order, "partial", "venue fill")
                 events.append(FillEvent(order, new_fill, order.avg_price,
                                         final=False))
@@ -473,6 +533,9 @@ class OrderManager:
             order.avg_price = (order.avg_price * pre_filled + new_cost) \
                 / order.filled
             order.fees_usd += new_cost * self.taker_fee_bps / 1e4
+            # slippage on THIS crossed segment's average vs the asked price
+            self._note_exec(False, new_cost, new_cost / new_cross,
+                            order.price, order.side)
             self._transition(order,
                              "partial" if order.remaining > EPS
                              else "filled", "sim cross")
@@ -507,6 +570,11 @@ class OrderManager:
                             order.avg_price = cost / order.filled
                             order.fees_usd += fill * order.price * \
                                 self.maker_fee_bps / 1e4
+                            # passive fill AT our price: slippage 0 by
+                            # construction
+                            self._note_exec(True, fill * order.price,
+                                            order.price, order.price,
+                                            order.side)
                             self._transition(
                                 order, "partial" if order.remaining > EPS
                                 else "filled", "sim passive")

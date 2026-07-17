@@ -27,6 +27,7 @@ without also renaming the dashboard's queried metrics in the same change.)
 """
 import base64
 import json
+import math
 import os
 import time
 import urllib.request
@@ -96,6 +97,7 @@ def collect(status_path: str) -> list:
                    len(s.get("positions") or []), ts=ts))
     m.append(gauge("liquiditybot_running",
                    1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
+    ml = s.get("ml") or {}          # bound once; §4 + ML blocks below read it
     # ---- live positions (§2): net per instrument (symbol,side) --------------
     # Aggregated per (symbol, side), NOT per ephemeral lot-id: putting the
     # per-position id in a label would churn Prometheus cardinality unbounded
@@ -178,7 +180,51 @@ def collect(status_path: str) -> list:
             if isinstance(v, (int, float)):
                 m.append(gauge(f"liquiditybot_perf_asset_{k}", v,
                                {"asset": str(asset)}, ts))
-    ml = s.get("ml") or {}
+    # ---- signal & edge (§4) --------------------------------------------------
+    # confirmed + per-gate pass as 1/0 gauges: avg_over_time() in Grafana turns
+    # them into confirmed-rate / gate pass-rate, so "which gate blocks most" is
+    # answerable without a new counter. Bounded: assets x 8 gates.
+    for asset, sig in (s.get("signals") or {}).items():
+        if not isinstance(sig, dict):
+            continue
+        m.append(gauge("liquiditybot_signal_confirmed",
+                       1.0 if sig.get("confirmed") else 0.0,
+                       {"asset": asset}, ts))
+        for gname, passed in (sig.get("gates") or {}).items():
+            m.append(gauge("liquiditybot_signal_gate_passed",
+                           1.0 if passed else 0.0,
+                           {"asset": asset, "gate": str(gname)}, ts))
+    gs = ml.get("gate_stats") or {}
+    for gname, w in (gs.get("weights") or {}).items():
+        if isinstance(w, (int, float)):
+            m.append(gauge("liquiditybot_gate_weight", w,
+                           {"gate": str(gname)}, ts))
+    for k in ("labeled", "base_rate"):
+        v = gs.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            m.append(gauge(f"liquiditybot_gate_{k}", v, ts=ts))
+    # per-asset regime context: numerics as plain gauges; the label strings ride
+    # an info-style gauge (value 1, labels macro/vol/liq — the standard *_info
+    # pattern; a superseded label-set goes stale and drops out of instant views)
+    for asset, r in (s.get("regimes") or {}).items():
+        if not isinstance(r, dict):
+            continue
+        for k in ("momentum", "vol_pct", "spread_bps", "basis_bps", "spoof"):
+            v = r.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_regime_{k}", v,
+                               {"asset": asset}, ts))
+        m.append(gauge("liquiditybot_regime_info", 1.0,
+                       {"asset": asset, "macro": str(r.get("macro", "?")),
+                        "vol": str(r.get("vol", "?")),
+                        "liq": str(r.get("liq", "?"))}, ts))
+    # entry-decision reason codes in FULL (PT/SZ families): EV-gate rejects,
+    # exploration bypasses (PT-050), sizing vetoes — the per-code trend view
+    for code, cnt in ((s.get("code_stats") or {}).get("entry_codes")
+                      or {}).items():
+        if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+            m.append(gauge("liquiditybot_code_count_detail", cnt,
+                           {"code": str(code)}, ts))
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)
         if isinstance(v, (int, float)):
@@ -289,8 +335,13 @@ def collect(status_path: str) -> list:
             m.append(gauge("liquiditybot_firewall_count", cnt,
                            {"code": str(code)}, ts))
     # order manager: venue rejects (OM-021) + dead-man refresh failures (OM-050)
+    # + execution quality (§3): maker/taker split, rolling slippage, venue RTT.
+    # None-valued fields (no fills yet) fail the numeric guard -> not emitted.
     om = s.get("order_manager") or {}
-    for k in ("venue_rejects", "deadman_failures"):
+    for k in ("venue_rejects", "deadman_failures", "latency_ms",
+              "maker_fills", "taker_fills", "maker_share",
+              "maker_notional_usd", "taker_notional_usd",
+              "avg_slip_bps", "worst_slip_bps"):
         v = om.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
@@ -299,7 +350,11 @@ def collect(status_path: str) -> list:
         if isinstance(cnt, (int, float)):
             m.append(gauge("liquiditybot_code_count", cnt,
                            {"prefix": str(prefix)}, ts))
-    return m
+    # single choke point: a NaN/inf that slipped through any guard above (json
+    # round-trips NaN happily) must not reach the wire — ONE non-finite gauge
+    # invalidates the whole OTLP JSON batch and blacks out EVERY metric.
+    return [x for x in m
+            if math.isfinite(x["gauge"]["dataPoints"][0]["asDouble"])]
 
 
 def push(cfg: dict, metrics: list) -> int:
