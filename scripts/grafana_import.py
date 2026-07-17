@@ -1,0 +1,96 @@
+"""scripts/grafana_import.py — push the repo's dashboards into Grafana Cloud
+via the HTTP API (no manual JSON pasting).
+
+Auth: a Grafana SERVICE ACCOUNT token (glsa_...) with Editor role, supplied
+via the GRAFANA_SA_TOKEN environment variable — never argv, never committed.
+The OTLP access-policy token cannot do this (metrics-write realm only).
+
+Imports every docs/grafana/*.json dashboard (they are stored UNWRAPPED; the
+API wants {"dashboard": {...}}, so this wraps at POST time), into the target
+folder (created if missing), overwrite=true — stable uids mean re-runs update
+in place, never duplicate.
+
+    GRAFANA_SA_TOKEN=glsa_... python scripts/grafana_import.py \
+        [--url https://goldsavanna1216.grafana.net] [--folder liquiditybot-ops]
+"""
+import argparse
+import json
+import os
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DASHBOARDS = [
+    "liquiditybot_trading.json",
+    "liquiditybot_execution.json",
+    "liquiditybot_signals.json",
+    "liquiditybot_model_risk.json",
+    "liquiditybot_dashboard.json",      # control
+    "liquiditybot_incidents.json",
+]
+
+
+def _req(url: str, token: str, payload: dict | None = None):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers={"Authorization": f"Bearer {token}",
+                 "Content-Type": "application/json"},
+        method="POST" if payload is not None else "GET")
+    with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310 - https
+        return json.load(r)
+
+
+def ensure_folder(base: str, token: str, folder_uid: str) -> str:
+    """Return the folder uid, creating the folder when absent."""
+    try:
+        got = _req(f"{base}/api/folders/{folder_uid}", token)
+        return got["uid"]
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    made = _req(f"{base}/api/folders", token,
+                {"uid": folder_uid, "title": folder_uid})
+    print(f"  created folder {made['uid']}")
+    return made["uid"]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default="https://goldsavanna1216.grafana.net")
+    ap.add_argument("--folder", default="liquiditybot-ops")
+    args = ap.parse_args()
+    token = os.environ.get("GRAFANA_SA_TOKEN", "").strip()
+    if not token.startswith("glsa_"):
+        print("set GRAFANA_SA_TOKEN to a Grafana service-account token "
+              "(glsa_...) with Editor role — see module docstring")
+        return 2
+    base = args.url.rstrip("/")
+    if not base.startswith("https://"):
+        print("refusing non-https Grafana URL")
+        return 2
+    folder_uid = ensure_folder(base, token, args.folder)
+    failures = 0
+    for name in DASHBOARDS:
+        path = ROOT / "docs" / "grafana" / name
+        if not path.exists():
+            print(f"  SKIP {name}: not in repo")
+            continue
+        model = json.loads(path.read_text(encoding="utf-8"))
+        model.pop("id", None)               # instance-local, never portable
+        try:
+            out = _req(f"{base}/api/dashboards/db", token,
+                       {"dashboard": model, "folderUid": folder_uid,
+                        "overwrite": True, "message": "import via "
+                        "scripts/grafana_import.py"})
+            print(f"  OK   {name} -> {out.get('url')} "
+                  f"(v{out.get('version')})")
+        except urllib.error.HTTPError as e:
+            failures += 1
+            print(f"  FAIL {name}: HTTP {e.code} {e.read()[:200]!r}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
