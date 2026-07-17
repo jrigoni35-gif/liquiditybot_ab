@@ -38,18 +38,21 @@ def row(pid, title, y):
 
 
 def stat(pid, title, expr, x, y, w, h, unit="", decimals=2, desc="",
-         steps=None, mode="value"):
+         steps=None, mode="value", mappings=None, text_mode="auto",
+         legend=None):
+    fld = {"unit": unit, "decimals": decimals,
+           "thresholds": {"mode": "absolute",
+                          "steps": steps or [{"color": "text", "value": None}]}}
+    if mappings:
+        fld["mappings"] = mappings
     panels.append({
         "id": pid, "type": "stat", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "decimals": decimals,
-            "thresholds": {"mode": "absolute",
-                           "steps": steps or [{"color": "text", "value": None}]}},
-            "overrides": []},
+        "fieldConfig": {"defaults": fld, "overrides": []},
         "options": {"colorMode": mode, "graphMode": "area", "justifyMode": "auto",
-                    "textMode": "auto", "wideLayout": True,
+                    "textMode": text_mode, "wideLayout": True,
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}},
-        "targets": [_t(expr)]})
+        "targets": [_t(expr, legend=legend) if legend else _t(expr)]})
 
 
 def gauge(pid, title, expr, x, y, w, h, mx=35.0, steps=None, desc=""):
@@ -277,8 +280,9 @@ stat(70, "Fees vs gross profit",
 
 # ---------------- §4 · Signal & Edge ----------------
 def ts_multi(pid, title, expr, x, y, w, h, legend, unit="", desc="",
-             mn=None, mx=None):
-    """Multi-series timeseries with a visible right-hand legend table."""
+             mn=None, mx=None, extra=None):
+    """Multi-series timeseries with a visible right-hand legend table.
+    `extra`: optional [(expr, legend), ...] additional targets."""
     fld = {"unit": unit, "decimals": 2, "custom": {
         "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1,
         "fillOpacity": 6, "gradientMode": "opacity", "showPoints": "never",
@@ -296,7 +300,9 @@ def ts_multi(pid, title, expr, x, y, w, h, legend, unit="", desc="",
         "options": {"legend": {"displayMode": "table", "placement": "right",
                                "calcs": ["lastNotNull"]},
                     "tooltip": {"mode": "multi", "sort": "desc"}},
-        "targets": [_t(expr, instant=False, legend=legend)]})
+        "targets": [_t(expr, instant=False, legend=legend)] +
+                   [_t(e, instant=False, legend=lg, ref=chr(66 + i))
+                    for i, (e, lg) in enumerate(extra or [])]})
 
 
 def bargauge(pid, title, expr, x, y, w, h, legend, unit="percent", mx=100,
@@ -385,6 +391,108 @@ ts_multi(90, "Spread (per asset, bps)",
          f"max by (asset) (liquiditybot_regime_spread_bps{JOB})",
          16, 80, 8, 8, "{{asset}}", unit="none",
          desc="Live spread cost per asset — the floor every edge must clear.")
+
+# ---------------- §5 · Model Health & Learning ----------------
+row(5, "§5 · Model Health & Learning", 88)
+ts_multi(100, "Model Brier vs baseline",
+         f"max(liquiditybot_ml_brier{JOB})", 0, 89, 12, 8, "model brier",
+         desc="OUTCOME health: rolling Brier of the DEPLOYED model vs the "
+              "base-rate baseline on the last judged trades (lower=better). "
+              "Model ABOVE baseline = worse than a naive guess; the governor "
+              "kills at baseline+0.03. Absent until >=15 trades judgeable.",
+         extra=[(f"max(liquiditybot_ml_baseline_brier{JOB})",
+                 "baseline (base-rate)"),
+                (f"max(liquiditybot_ml_champion_brier{JOB})",
+                 "champion (deploy bar)")])
+ts_multi(101, "Promised vs delivered win-rate",
+         f"max(liquiditybot_ml_avg_p{JOB})", 12, 89, 12, 8,
+         "promised (avg p)", mn=0, mx=1,
+         desc="Calibration in one picture: the model's average promised "
+              "p(win) vs the realized hit rate and its Wilson lower bound on "
+              "the same judged trades. Promised far above the LCB = the model "
+              "is overselling its edge.",
+         extra=[(f"max(liquiditybot_ml_hit_rate{JOB})", "delivered (hit rate)"),
+                (f"max(liquiditybot_ml_hit_rate_lcb{JOB})",
+                 "delivered floor (Wilson LCB)")])
+stat(102, "Governor", M("liquiditybot_monitor_level"), 0, 97, 4, 4,
+     decimals=0, mode="background",
+     desc="ML governor kill-switch: OK / DEGRADED (shrunk sizing) / KILLED "
+          "(prior only). Level 2 auto-requests a retrain.",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2}],
+     mappings=[{"type": "value", "options": {
+         "0": {"text": "OK", "index": 0},
+         "1": {"text": "DEGRADED", "index": 1},
+         "2": {"text": "KILLED", "index": 2}}}])
+stat(103, "Model in use", M("liquiditybot_ml_use_model"), 4, 97, 4, 4,
+     decimals=0, mode="background",
+     desc="Whether inference uses the trained model (vs the cold-start prior).",
+     steps=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
+     mappings=[{"type": "value", "options": {
+         "0": {"text": "PRIOR", "index": 0},
+         "1": {"text": "MODEL", "index": 1}}}])
+stat(104, "Kelly multiplier", M("liquiditybot_ml_kelly_mult"), 8, 97, 4, 4,
+     decimals=2, desc="Governor sizing throttle applied to Kelly (1.0 = full).",
+     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 0.5},
+            {"color": "green", "value": 0.99}])
+stat(105, "Prob shrinkage", M("liquiditybot_ml_shrinkage"), 12, 97, 4, 4,
+     decimals=2, desc="How hard p(win) is pulled toward 0.5 before sizing "
+     "(higher = less trust in the model).",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.5},
+            {"color": "red", "value": 0.7}])
+stat(106, "Stop widen", M("liquiditybot_ml_stop_widen"), 16, 97, 4, 4,
+     decimals=2, desc="Whipsaw governor: stops widened by this factor when "
+     "stop-outs keep recovering past entry.",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1.2}])
+stat(107, "Calibration gap", M("liquiditybot_ml_calibration_gap"), 20, 97, 4, 4,
+     decimals=3, desc="Mean |promised p - realized rate| across probability "
+     "bins; the governor degrades past 0.15.",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.10},
+            {"color": "red", "value": 0.15}])
+ts_multi(108, "Feature drift share",
+         f"max(liquiditybot_ml_drift_share{JOB})", 0, 101, 8, 8, "drift share",
+         mn=0, mx=1,
+         desc="Fraction of MARKET features past PSI 0.25 (clock features "
+              "excluded). 0.30 = the retrain-vote line; transient blips "
+              "self-heal via auto-retrain.")
+ts_multi(109, "Learning velocity (labels/24h)",
+         f"max(liquiditybot_ml_history_rows{JOB}) - "
+         f"max(liquiditybot_ml_history_rows{JOB} offset 24h)",
+         8, 101, 8, 8, "labels gained, 24h", unit="none",
+         desc="Training rows added in the last 24h — the model's food supply. "
+              "Zero for a sustained stretch = learning starved (check "
+              "exploration + min-ticket flow).")
+ts_multi(110, "Labels by source",
+         f"max by (source) (liquiditybot_ml_labels{JOB})", 16, 101, 8, 8,
+         "{{source}}", unit="none",
+         desc="Cumulative labels: LIVE = real fills (ground truth), "
+              "CANDIDATE = triple-barrier proxy labels. Live is scarce and "
+              "precious; candidates keep the model fed between fills.")
+stat(111, "Retrain requested", M("liquiditybot_ml_retrain_flag"), 0, 109, 4, 4,
+     decimals=0, mode="background",
+     desc="Retrain flag currently raised (drift/decay asked for a refit; "
+          "auto-retrain services it next slow cycle).",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1}],
+     mappings=[{"type": "value", "options": {
+         "0": {"text": "no", "index": 0},
+         "1": {"text": "REQUESTED", "index": 1}}}])
+stat(112, "Retrain failures", M("liquiditybot_ml_retrain_failures"),
+     4, 109, 4, 4, decimals=0,
+     desc="Auto-retrain attempts that threw. Rising = stale champion kept.",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
+            {"color": "red", "value": 5}])
+stat(113, "Open candidates", M("liquiditybot_ml_open_candidates"), 8, 109, 4, 4,
+     decimals=0, desc="Shadow entries awaiting a triple-barrier label.",
+     steps=[{"color": "text", "value": None}])
+stat(114, "Pending labels", M("liquiditybot_ml_pending_labels"), 12, 109, 4, 4,
+     decimals=0, desc="Real positions open, feature rows awaiting their "
+     "close label.", steps=[{"color": "text", "value": None}])
+stat(115, "Deployed model",
+     f"max by (kind) (liquiditybot_ml_model_info{JOB})", 16, 109, 8, 4,
+     decimals=0, text_mode="name", legend="{{kind}}",
+     desc="Current rung on the simplicity ladder (logreg -> gbt -> blend -> "
+          "mlp). The walk-forward selector must EARN each step up.",
+     steps=[{"color": "blue", "value": None}])
 
 dash = {
     "uid": "liquiditybot-trading",

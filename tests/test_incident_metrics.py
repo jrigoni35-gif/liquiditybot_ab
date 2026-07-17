@@ -204,6 +204,44 @@ def test_collect_emits_performance(tmp_path):
     assert _val(m, "liquiditybot_perf_asset_cur_loss_streak", asset="BTC") == 3.0
 
 
+def test_collect_emits_model_health(tmp_path):
+    status = {
+        "written_at": 1_700_000_000.0,
+        "monitor": {"level": 0, "drift_share": 0.1, "shrinkage": 0.35,
+                    "kelly_mult": 0.8, "stop_widen": 1.1,
+                    "edge_ratio_bump": 0.05, "champion_brier": 0.1887,
+                    "use_model": True, "hit_rate": 0.6, "hit_rate_lcb": 0.41,
+                    "avg_p": 0.66, "brier": 0.19, "baseline_brier": 0.24,
+                    "calibration_gap": 0.07, "window_trades": 18},
+        "ml": {"retrain_flag": True, "model_kind": "blend",
+               "labels_by_source": {"live": 21, "candidate": 400}},
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_ml_champion_brier") == pytest.approx(0.1887)
+    assert _val(m, "liquiditybot_ml_hit_rate") == pytest.approx(0.6)
+    assert _val(m, "liquiditybot_ml_hit_rate_lcb") == pytest.approx(0.41)
+    assert _val(m, "liquiditybot_ml_avg_p") == pytest.approx(0.66)
+    assert _val(m, "liquiditybot_ml_kelly_mult") == pytest.approx(0.8)
+    assert _val(m, "liquiditybot_ml_shrinkage") == pytest.approx(0.35)
+    assert _val(m, "liquiditybot_ml_use_model") == 1.0
+    assert _val(m, "liquiditybot_ml_retrain_flag") == 1.0
+    assert _val(m, "liquiditybot_ml_labels", source="live") == 21.0
+    assert _val(m, "liquiditybot_ml_labels", source="candidate") == 400.0
+    assert _val(m, "liquiditybot_ml_model_info", kind="blend") == 1.0
+
+    # cold bot: no monitor window, no model, flag off -> booleans still emit
+    p2 = tmp_path / "s2.json"
+    p2.write_text(json.dumps({"written_at": 1_700_000_000.0,
+                              "ml": {"model_kind": None}}), encoding="utf-8")
+    m2 = gp.collect(str(p2))
+    assert _val(m2, "liquiditybot_ml_use_model") == 0.0
+    assert _val(m2, "liquiditybot_ml_retrain_flag") == 0.0
+    assert _val(m2, "liquiditybot_ml_hit_rate") is None
+    assert not [x for x in m2 if x["name"] == "liquiditybot_ml_model_info"]
+
+
 def test_collect_never_emits_non_finite(tmp_path):
     # json round-trips NaN: a poisoned status field must be dropped at the
     # choke point — ONE non-finite gauge invalidates the whole OTLP batch

@@ -329,6 +329,9 @@ class BotRunner:
                    "drifting": bot.monitor.drifting[:5],
                    "model_kind": getattr(bot.meta.model, "kind", None),
                    "history_rows": bot.history.row_count(),
+                   # learning-velocity split (§5): live = ground truth,
+                   # candidate = triple-barrier proxy
+                   "labels_by_source": bot.history.source_counts(),
                    "pending_labels": len(bot.history._pending),
                    "open_candidates": len(bot.candidates._cands),
                    "retrain_flag": bot.monitor.flag_path.exists(),

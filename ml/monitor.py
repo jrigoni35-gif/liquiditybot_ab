@@ -402,6 +402,7 @@ class ModelMonitor:
                "kelly_mult": self.kelly_mult, "use_model": self.use_model,
                "edge_ratio_bump": self.edge_ratio_bump,
                "stop_widen": self.stop_widen,
+               "champion_brier": round(self.champion_brier, 4),
                "causes": dict(self._cause_tally)}
         if w is not None:
             p, y = w

@@ -120,6 +120,41 @@ class HistoryStore:
         with open(self.path, encoding="utf-8") as f:
             return max(sum(1 for _ in f) - 1, 0)
 
+    def source_counts(self) -> dict:
+        """Labeled rows per source ('live' vs 'candidate') — the learning-
+        velocity split: live labels are ground truth, candidate labels are
+        the triple-barrier proxy.
+
+        Called from the runner's per-loop status build (~2s), so the scan is
+        CACHED on (mtime, size) and only re-runs when the file actually
+        changed — labels land hours apart, not per cycle. The column index
+        comes from the FILE'S OWN header (never a hardcoded position), so a
+        future schema change can't silently count the wrong column; a header
+        without 'source' returns {} rather than a fabricated split."""
+        try:
+            st = self.path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return {}
+        if getattr(self, "_src_cache_key", None) == key:
+            return dict(self._src_cache)
+        counts: dict = {}
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                rdr = csv.reader(f)
+                hdr = next(rdr, None) or []
+                if "source" not in hdr:
+                    return {}
+                idx = hdr.index("source")
+                for r in rdr:
+                    if len(r) > idx:
+                        src = r[idx] or "unknown"
+                        counts[src] = counts.get(src, 0) + 1
+        except (OSError, csv.Error):
+            return {}
+        self._src_cache_key, self._src_cache = key, counts
+        return dict(counts)
+
     def asset_counts(self) -> dict:
         """Labeled rows per asset (row layout: position_id, asset, ...).
         Full-file scan, but callers only hit it on the rare exploration

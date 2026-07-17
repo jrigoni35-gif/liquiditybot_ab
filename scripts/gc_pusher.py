@@ -282,10 +282,27 @@ def collect(status_path: str) -> list:
     # judgeable (too few outcomes) -> no metric -> alert stays OK, never a false
     # ping. This is INDEPENDENT of input drift: predictions can rot with stable
     # inputs, and inputs can drift while predictions still hold.
-    for k in ("brier", "baseline_brier", "calibration_gap", "window_trades"):
+    for k in ("brier", "baseline_brier", "calibration_gap", "window_trades",
+              # §5 model health: promised (avg_p) vs delivered (hit_rate,
+              # Wilson LCB) + governor throttles + the deployed champion's bar
+              "hit_rate", "hit_rate_lcb", "avg_p", "shrinkage", "kelly_mult",
+              "stop_widen", "edge_ratio_bump", "champion_brier"):
         v = mon.get(k)
-        if isinstance(v, (int, float)):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
             m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+    m.append(gauge("liquiditybot_ml_use_model",
+                   1.0 if mon.get("use_model") else 0.0, ts=ts))
+    m.append(gauge("liquiditybot_ml_retrain_flag",
+                   1.0 if ml.get("retrain_flag") else 0.0, ts=ts))
+    # labels by source: live = ground truth, candidate = triple-barrier proxy
+    for src, cnt in (ml.get("labels_by_source") or {}).items():
+        if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+            m.append(gauge("liquiditybot_ml_labels", cnt,
+                           {"source": str(src)}, ts))
+    # deployed model rung on the simplicity ladder (info-style label gauge)
+    if ml.get("model_kind"):
+        m.append(gauge("liquiditybot_ml_model_info", 1.0,
+                       {"kind": str(ml["model_kind"])}, ts))
     # ML fault counters (fallbacks/inference faults/contract breaches/SMC
     # degrades/retrain failures) — rising = a subsystem quietly dying
     for k in ("model_fallbacks", "infer_faults", "contract_failed",
