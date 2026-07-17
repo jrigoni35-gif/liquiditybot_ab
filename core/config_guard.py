@@ -441,6 +441,26 @@ def validate(config: dict) -> list:
             fatal("profit_taking.conviction_runner.min_trail_mult must be in "
                   "[0.1, 1.0] - it can only tighten the runner, never loosen it")
 
+    # --- urgency composition vs the execution ladder --------------------------
+    ub = float(_f(config, "informed_flow.urgency.base", 0.30))
+    uw = (float(_f(config, "informed_flow.urgency.w_burst", 0.40))
+          + float(_f(config, "informed_flow.urgency.w_fresh", 0.20))
+          + float(_f(config, "informed_flow.urgency.w_delta", 0.10)))
+    u_max = ub + uw
+    taker_at = float(_f(config, "execution_tactics.taker_at_urgency", 0.88))
+    join_at = float(_f(config, "execution_tactics.join_at_urgency", 0.40))
+    if not (0.0 <= ub <= 1.0) or uw < 0:
+        fatal("informed_flow.urgency: base must be in [0,1] and weights "
+              "non-negative")
+    if u_max < taker_at:
+        advisory(f"informed_flow.urgency: max reachable urgency "
+                 f"{u_max:.2f} is below execution_tactics.taker_at_urgency "
+                 f"{taker_at:.2f} - the taker rung can never fire")
+    if ub >= join_at:
+        advisory(f"informed_flow.urgency.base {ub:.2f} >= join_at_urgency "
+                 f"{join_at:.2f} - EVERY confirmed signal at least joins the "
+                 f"touch (no pure spread-capture rung)")
+
     # --- sizer vol scaling + tier reach (lifted literals) --------------------
     vsmin = float(_f(config, "position_sizer.vol_scalar_min", 0.3))
     vsmax = float(_f(config, "position_sizer.vol_scalar_max", 1.5))

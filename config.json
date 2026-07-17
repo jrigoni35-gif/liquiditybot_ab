@@ -739,6 +739,15 @@
     "absorption_ad_min": 0.15,
     "absorption_move_sigmas": 1.0,
     "material_threshold": 0.1,
+    "opp_flow_tol_frac": 0.25,
+    "urgency": {
+      "_doc": "urgency = base + w_burst*burst + w_fresh*fresh + w_delta*delta, clamped [0,1] (lifted literals, identical defaults). Drives the execution ladder: join/improve/taker thresholds live in execution_tactics. fresh_decay_evals = streak span over which edge freshness decays to zero.",
+      "base": 0.3,
+      "w_burst": 0.4,
+      "w_fresh": 0.2,
+      "w_delta": 0.1,
+      "fresh_decay_evals": 6.0
+    },
     "debug_all_signals": false,
     "weights": {
       "flow": 1.0,

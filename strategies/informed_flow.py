@@ -148,7 +148,23 @@ class InformedFlowEngine:
             "burst": _f(w.get("burst", 0.80), 0.80),
             "trend": _f(w.get("trend", 0.70), 0.70),
         }
-        # EWMA spans: fast = persistence window, slow = 4x
+        # urgency composition (lifted literals, identical defaults): urgency =
+        # base + w_burst*burst + w_fresh*fresh + w_delta*delta, clamped [0,1].
+        # These drive the execution ladder (join/improve/taker in tactics), so
+        # they are config knobs, not buried constants. fresh_decay_evals is the
+        # streak span over which edge freshness decays to zero.
+        u = cfg.get("urgency") or {}
+        self.u_base = min(max(_f(u.get("base", 0.30), 0.30), 0.0), 1.0)
+        self.u_w_burst = max(_f(u.get("w_burst", 0.40), 0.40), 0.0)
+        self.u_w_fresh = max(_f(u.get("w_fresh", 0.20), 0.20), 0.0)
+        self.u_w_delta = max(_f(u.get("w_delta", 0.10), 0.10), 0.0)
+        self.u_fresh_decay = max(_f(u.get("fresh_decay_evals", 6.0), 6.0), 1.0)
+        # opposing-flow tolerance: an opposing imbalance only counts against
+        # confirmation past this fraction of the log-threshold
+        self.opp_tol_frac = min(max(
+            _f(cfg.get("opp_flow_tol_frac", 0.25), 0.25), 0.0), 1.0)
+        # EWMA spans: fast = persistence window, slow = 4x (EMA definition —
+        # structural, not fitted)
         self._k_imb_f = 2.0 / (self.persistence_evals + 1.0)
         self._k_imb_s = 2.0 / (self.persistence_evals * 4 + 1.0)
         self._log_thresh = math.log(self.min_imbalance_ratio)
@@ -212,8 +228,8 @@ class InformedFlowEngine:
         s_flow = _tanh(ef / self._log_thresh)
         s_delta = _tanh((ef - es) / (0.5 * self._log_thresh))
         # freshness: shorter streak beyond minimum = fresher edge
-        fresh = 1.0 - min(max((st.streak - self.persistence_evals) / 6.0,
-                              0.0), 1.0)
+        fresh = 1.0 - min(max((st.streak - self.persistence_evals)
+                              / self.u_fresh_decay, 0.0), 1.0)
         return s_flow, s_delta, fresh
 
     def _s_accum(self, candles: list) -> tuple:
@@ -368,7 +384,7 @@ class InformedFlowEngine:
         # persistence window disqualifies the flow gate outright, however
         # strong the final print leaves the average. Sub-material flutter
         # around 1.0 stays neutral and does not count against.
-        opp_tol = 0.25 * self._log_thresh
+        opp_tol = self.opp_tol_frac * self._log_thresh
         window = list(st.imb_hist)[-self.persistence_evals:]
         opposing = any(li * s_flow < 0 and abs(li) >= opp_tol
                        for li in window) if s_flow != 0.0 else False
@@ -413,8 +429,9 @@ class InformedFlowEngine:
         if all_confirmed:
             burst_pos = max(min(s_burst * sgn, 1.0), 0.0)
             delta_pos = max(min(s_delta * sgn, 1.0), 0.0)
-            urgency = min(max(0.30 + 0.40 * burst_pos + 0.20 * fresh +
-                              0.10 * delta_pos, 0.0), 1.0)
+            urgency = min(max(self.u_base + self.u_w_burst * burst_pos
+                              + self.u_w_fresh * fresh
+                              + self.u_w_delta * delta_pos, 0.0), 1.0)
             log.info("IF3 signal %s %s: E=%+.2f agree=%d/5 flow=%+.2f "
                      "delta=%+.2f accum=%+.2f burst=%+.2f trend=%+.2f "
                      "vol_z=%.1f urgency=%.2f", asset, direction, evidence,
