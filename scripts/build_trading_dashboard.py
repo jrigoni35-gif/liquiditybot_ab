@@ -494,6 +494,45 @@ stat(115, "Deployed model",
           "mlp). The walk-forward selector must EARN each step up.",
      steps=[{"color": "blue", "value": None}])
 
+# ---------------- §6 · Risk & Protocols ----------------
+row(6, "§6 · Risk & Protocols", 113)
+ts_multi(120, "Loss-budget consumption",
+         f"max(liquiditybot_rp_daily_budget_used_frac{JOB})", 0, 114, 8, 8,
+         "daily (of 2.5%)", unit="percentunit", mn=0, mx=1.2,
+         desc="Fraction of the daily/weekly loss budget consumed. Sizing "
+              "tapers past 50% spent; 100% = hard zero for new risk (exits "
+              "always run). Anchored to day/week equity marks.",
+         extra=[(f"max(liquiditybot_rp_weekly_budget_used_frac{JOB})",
+                 "weekly (of 6%)")])
+ts_multi(121, "Sizing throttles",
+         f"max(liquiditybot_rp_taper_mult{JOB})", 8, 114, 8, 8,
+         "budget taper", unit="none", mn=0, mx=1.05,
+         desc="Current entry-size multipliers: the loss-budget taper and the "
+              "drawdown throttle (decelerate toward the 15% hard stop). 1.0 = "
+              "no restriction; falling lines = the rails are actively "
+              "shrinking new risk.",
+         extra=[(f"max(liquiditybot_rp_dd_throttle_mult{JOB})",
+                 "drawdown throttle")])
+ts_multi(122, "Portfolio heat vs cap",
+         f"max(liquiditybot_rp_heat_frac{JOB})", 16, 114, 8, 8,
+         "open heat (gross/equity)", unit="percentunit", mn=0, mx=0.5,
+         desc="Gross open notional as a fraction of equity, vs the heat cap. "
+              "At the cap, new entries are vetoed (RP-051) — exits are never "
+              "blocked.",
+         extra=[(f"max(liquiditybot_rp_heat_cap_frac{JOB})", "cap")])
+ts_multi(123, "Reason codes by family",
+         f"max by (prefix) (liquiditybot_code_count{JOB})", 0, 122, 12, 8,
+         "{{prefix}}", unit="none",
+         desc="Cumulative reason-code emissions by family — SZ sizer, PT "
+              "pre-trade, RP risk-protocol, FW firewall, OM orders, ML, TH. "
+              "A jump in RP = budget/heat exhaustion stopping entries.")
+ts_multi(124, "Firewall rejects/clamps by code",
+         f"max by (code) (liquiditybot_firewall_count{JOB})", 12, 122, 12, 8,
+         "{{code}}", unit="none",
+         desc="Independent last-line screen (15c3-5 style): per-code reject/"
+              "clamp tallies. Entries reject on breach; exits are clamped, "
+              "never blocked.")
+
 dash = {
     "uid": "liquiditybot-trading",
     "title": "liquiditybot — trading",

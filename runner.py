@@ -201,6 +201,39 @@ class BotRunner:
                     f"{note or 'ok'} (runner={self.state})")
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _rp_status(bot, equity: float) -> dict:
+        """Risk-protocol posture for the trading dashboard's §6. Every number
+        comes from the stack's/sizer's OWN attributes and module formulas —
+        telemetry duplicates no thresholds. Never raises; on any fault the
+        section is simply {} (a blank panel, never a wedged status write)."""
+        try:
+            rp = getattr(bot, "risk_protocols", None)
+            sizer = getattr(bot, "sizer", None)
+            if rp is None or sizer is None:
+                return {}
+            from risk.protocols import budget_taper_mult
+            d_frac, w_frac = rp.spent_fracs(equity)
+            heat = sizer._open_heat_frac(bot.state, bot.marks, equity)
+            dd = max(float(bot.state.drawdown_mtm_pct(equity)), 0.0)
+            throttle = 1.0
+            if sizer.hard_stop_dd_pct > 1e-9 and dd > 0:
+                frac = min(dd / sizer.hard_stop_dd_pct, 1.0)
+                throttle = max((1.0 - frac) ** sizer.dd_throttle_power,
+                               sizer.dd_throttle_floor)
+            return {
+                "daily_budget_used_frac": round(float(d_frac), 4),
+                "weekly_budget_used_frac": round(float(w_frac), 4),
+                "taper_mult": round(float(budget_taper_mult(
+                    max(d_frac, w_frac), rp.bd_taper_start, rp.bd_floor)), 4),
+                "heat_frac": round(float(heat), 4),
+                "heat_cap_frac": rp.ht_max,
+                "dd_throttle_mult": round(float(throttle), 4),
+            }
+        except Exception:
+            log.exception("risk-protocol status failed - section omitted")
+            return {}
+
     def build_status(self, now: float) -> dict:
         bot = self.bot
         marks = bot.marks
@@ -372,6 +405,10 @@ class BotRunner:
             # portfolio + per asset) — the trading dashboard's §1
             "performance": bot.perf.snapshot()
             if getattr(bot, "perf", None) is not None else {},
+            # risk-protocol posture (§6): budget consumption + the CURRENT
+            # multipliers, computed from the stack's/sizer's OWN attributes and
+            # formulas — no constants duplicated into telemetry
+            "risk_protocols": self._rp_status(bot, equity),
             "firewall": bot.firewall.status()
             if getattr(bot, "firewall", None) is not None else {},
             "order_manager": bot.orders.status()

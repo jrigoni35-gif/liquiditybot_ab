@@ -362,6 +362,13 @@ def collect(status_path: str) -> list:
         v = om.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
+    # ---- risk-protocol posture (§6) ------------------------------------------
+    rp = s.get("risk_protocols") or {}
+    for k in ("daily_budget_used_frac", "weekly_budget_used_frac",
+              "taper_mult", "heat_frac", "heat_cap_frac", "dd_throttle_mult"):
+        v = rp.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            m.append(gauge(f"liquiditybot_rp_{k}", v, ts=ts))
     # central reason-code frequency ledger, aggregated by prefix (SZ/PT/RP/FW/…)
     for prefix, cnt in ((s.get("code_stats") or {}).get("by_prefix") or {}).items():
         if isinstance(cnt, (int, float)):

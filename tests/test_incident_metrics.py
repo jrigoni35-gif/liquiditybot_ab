@@ -204,6 +204,26 @@ def test_collect_emits_performance(tmp_path):
     assert _val(m, "liquiditybot_perf_asset_cur_loss_streak", asset="BTC") == 3.0
 
 
+def test_collect_emits_risk_protocols(tmp_path):
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({
+        "written_at": 1_700_000_000.0,
+        "risk_protocols": {"daily_budget_used_frac": 0.3,
+                           "weekly_budget_used_frac": 0.12,
+                           "taper_mult": 1.0, "heat_frac": 0.05,
+                           "heat_cap_frac": 0.35,
+                           "dd_throttle_mult": 0.92}}), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_rp_daily_budget_used_frac") == pytest.approx(0.3)
+    assert _val(m, "liquiditybot_rp_heat_frac") == pytest.approx(0.05)
+    assert _val(m, "liquiditybot_rp_heat_cap_frac") == pytest.approx(0.35)
+    assert _val(m, "liquiditybot_rp_dd_throttle_mult") == pytest.approx(0.92)
+    # absent block -> nothing emitted, no crash
+    p2 = tmp_path / "s2.json"
+    p2.write_text(json.dumps({"written_at": 1_700_000_000.0}), encoding="utf-8")
+    assert _val(gp.collect(str(p2)), "liquiditybot_rp_heat_frac") is None
+
+
 def test_collect_emits_model_health(tmp_path):
     status = {
         "written_at": 1_700_000_000.0,

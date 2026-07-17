@@ -73,6 +73,11 @@ _SYNTH_STATUS = {
                         "spoof": 0.0, "basis_bps": -1.0}},
     "code_stats": {"by_prefix": {"PT": 9},
                    "entry_codes": {"PT-041": 6, "PT-050": 2}},
+    "risk_protocols": {"daily_budget_used_frac": 0.1,
+                       "weekly_budget_used_frac": 0.05, "taper_mult": 1.0,
+                       "heat_frac": 0.04, "heat_cap_frac": 0.35,
+                       "dd_throttle_mult": 1.0},
+    "firewall": {"fault": None, "counters": {"FW-040": 2}},
 }
 
 
