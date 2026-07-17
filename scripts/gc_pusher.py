@@ -63,6 +63,16 @@ def gauge(name: str, value: float, attrs: dict | None = None,
     return {"name": name, "unit": "", "gauge": {"dataPoints": [dp]}}
 
 
+def _num(x, default: float = 0.0) -> float:
+    """Safe float: None / non-numeric / NaN -> default. status.json can carry a
+    null upnl (bad_entry) or mark, which must not poison an aggregate sum."""
+    try:
+        v = float(x)
+        return v if v == v else default          # NaN guard
+    except (TypeError, ValueError):
+        return default
+
+
 def collect(status_path: str) -> list:
     with open(status_path, encoding="utf-8") as fh:
         s = json.load(fh)
@@ -86,6 +96,67 @@ def collect(status_path: str) -> list:
                    len(s.get("positions") or []), ts=ts))
     m.append(gauge("liquiditybot_running",
                    1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
+    # ---- live positions (§2): net per instrument (symbol,side) --------------
+    # Aggregated per (symbol, side), NOT per ephemeral lot-id: putting the
+    # per-position id in a label would churn Prometheus cardinality unbounded
+    # (a Grafana footgun). This is the desk view — net exposure/uPnL/risk per
+    # instrument. mark/upnl are already computed by the runner at venue
+    # precision; hedges are excluded (they carry no tiers/stops of their own).
+    # Also the risk-on banner: total unrealized, gross exposure, $-at-risk if
+    # every stop filled. Instant queries on these show only OPEN positions
+    # (a closed one stops updating and drops out of the lookback).
+    agg: dict = {}
+    for p in (s.get("positions") or []):
+        if not isinstance(p, dict) or p.get("hedge"):
+            continue
+        sym, side = str(p.get("symbol") or "?"), str(p.get("direction") or "?")
+        entry, mark = _num(p.get("entry")), _num(p.get("mark"))
+        size, stop = abs(_num(p.get("size"))), _num(p.get("stop"))
+        a = agg.setdefault((sym, side), {
+            "notional": 0.0, "upnl": 0.0, "cost": 0.0, "risk": 0.0,
+            "lots": 0, "tier": 0, "age": 0.0, "conv_w": 0.0, "stop_dist": None})
+        notional = size * mark
+        a["notional"] += notional
+        a["upnl"] += _num(p.get("upnl_usd"))
+        a["cost"] += size * entry
+        a["lots"] += 1
+        a["tier"] = max(a["tier"], int(_num(p.get("tiers_fired"))))
+        a["age"] = max(a["age"], _num(p.get("age_h")))
+        a["conv_w"] += _num(p.get("p_win")) * notional
+        if stop > 0 and entry > 0:
+            a["risk"] += abs(entry - stop) * size
+            sd = abs(entry - stop) / entry * 100.0
+            a["stop_dist"] = sd if a["stop_dist"] is None \
+                else min(a["stop_dist"], sd)          # tightest (nearest) stop
+    tot_upnl = tot_notional = tot_risk = 0.0
+    for (sym, side), a in agg.items():
+        lab = {"symbol": sym, "side": side}
+        m.append(gauge("liquiditybot_position_notional_usd", a["notional"], lab, ts))
+        m.append(gauge("liquiditybot_position_upnl_usd", a["upnl"], lab, ts))
+        m.append(gauge("liquiditybot_position_lots", float(a["lots"]), lab, ts))
+        m.append(gauge("liquiditybot_position_tiers_fired", float(a["tier"]), lab, ts))
+        m.append(gauge("liquiditybot_position_age_hours", a["age"], lab, ts))
+        if a["cost"] > 0:
+            m.append(gauge("liquiditybot_position_upnl_pct",
+                           a["upnl"] / a["cost"] * 100.0, lab, ts))
+            m.append(gauge("liquiditybot_position_conviction",
+                           a["conv_w"] / a["notional"], lab, ts))
+        if a["risk"] > 0:
+            m.append(gauge("liquiditybot_position_r_multiple",
+                           a["upnl"] / a["risk"], lab, ts))
+        if a["stop_dist"] is not None:
+            m.append(gauge("liquiditybot_position_stop_dist_pct",
+                           a["stop_dist"], lab, ts))
+        tot_upnl += a["upnl"]
+        tot_notional += a["notional"]
+        tot_risk += a["risk"]
+    m.append(gauge("liquiditybot_open_upnl_usd", tot_upnl, ts=ts))
+    m.append(gauge("liquiditybot_gross_exposure_usd", tot_notional, ts=ts))
+    m.append(gauge("liquiditybot_open_risk_usd", tot_risk, ts=ts))
+    _eq = _num(s.get("equity"))
+    if _eq > 0:
+        m.append(gauge("liquiditybot_gross_exposure_pct",
+                       tot_notional / _eq * 100.0, ts=ts))
     ml = s.get("ml") or {}
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)

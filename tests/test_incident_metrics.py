@@ -8,6 +8,8 @@ but never pushed to Grafana.
 """
 import json
 
+import pytest
+
 import scripts.gc_pusher as gp
 
 
@@ -79,6 +81,79 @@ def test_collect_emits_fault_and_health_metrics(tmp_path):
                 for m in _by_name(metrics, "liquiditybot_code_count")
                 for dp in m["gauge"]["dataPoints"]}
     assert {"SZ", "PT", "FW"} <= prefixes
+
+
+def _val(metrics, name, **labels):
+    """Return the single gauge value for name with the given label set."""
+    for mtr in metrics:
+        if mtr["name"] != name:
+            continue
+        dp = mtr["gauge"]["dataPoints"][0]
+        got = {a["key"]: a["value"]["stringValue"] for a in dp.get("attributes", [])}
+        if all(got.get(k) == v for k, v in labels.items()):
+            return dp["asDouble"]
+    return None
+
+
+def test_collect_emits_per_instrument_positions(tmp_path):
+    # 2 ETH long lots + 1 BTC short + a hedge that must NOT be counted
+    status = {
+        "written_at": 1_700_000_000.0, "equity": 5000.0,
+        "positions": [
+            {"symbol": "ETH/USD", "direction": "long", "entry": 2000.0,
+             "mark": 2020.0, "size": 0.01, "stop": 1960.0, "upnl_usd": 0.20,
+             "tiers_fired": 1, "age_h": 2.0, "p_win": 0.70},
+            {"symbol": "ETH/USD", "direction": "long", "entry": 2010.0,
+             "mark": 2020.0, "size": 0.01, "stop": 1970.0, "upnl_usd": 0.10,
+             "tiers_fired": 0, "age_h": 5.0, "p_win": 0.60},
+            {"symbol": "BTC/USD", "direction": "short", "entry": 60000.0,
+             "mark": 59000.0, "size": 0.001, "stop": 61000.0, "upnl_usd": 1.0,
+             "tiers_fired": 2, "age_h": 1.0, "p_win": 0.80},
+            {"symbol": "SUI/USD", "direction": "long", "entry": 1.0,
+             "mark": 1.0, "size": 100.0, "stop": 0.95, "upnl_usd": 0.0,
+             "hedge": True},           # hedge: excluded
+        ],
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+
+    # ETH long is the NET of its two lots
+    assert _val(m, "liquiditybot_position_notional_usd",
+                symbol="ETH/USD", side="long") == pytest.approx(40.4)
+    assert _val(m, "liquiditybot_position_upnl_usd",
+                symbol="ETH/USD", side="long") == pytest.approx(0.30)
+    assert _val(m, "liquiditybot_position_lots",
+                symbol="ETH/USD", side="long") == 2.0
+    assert _val(m, "liquiditybot_position_tiers_fired",
+                symbol="ETH/USD", side="long") == 1.0     # max of the lots
+    assert _val(m, "liquiditybot_position_age_hours",
+                symbol="ETH/USD", side="long") == 5.0      # oldest lot
+    # BTC short R-multiple = upnl 1.0 / risk (|60000-61000|*0.001 = 1.0)
+    assert _val(m, "liquiditybot_position_r_multiple",
+                symbol="BTC/USD", side="short") == pytest.approx(1.0)
+
+    # risk-on banner nets everything (hedge excluded)
+    assert _val(m, "liquiditybot_open_upnl_usd") == pytest.approx(1.30)
+    assert _val(m, "liquiditybot_gross_exposure_usd") == pytest.approx(99.4)
+    assert _val(m, "liquiditybot_open_risk_usd") == pytest.approx(1.8)
+    assert _val(m, "liquiditybot_gross_exposure_pct") == pytest.approx(99.4 / 5000 * 100)
+    # the hedge contributed nothing
+    assert _val(m, "liquiditybot_position_notional_usd",
+                symbol="SUI/USD", side="long") is None
+
+
+def test_collect_positions_absent_safe(tmp_path):
+    # no positions -> risk-on banner is all zeros, no per-instrument series
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": 1_700_000_000.0, "equity": 5000.0}),
+                 encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_open_upnl_usd") == 0.0
+    assert _val(m, "liquiditybot_gross_exposure_usd") == 0.0
+    assert _val(m, "liquiditybot_open_risk_usd") == 0.0
+    assert _val(m, "liquiditybot_position_notional_usd", symbol="ETH/USD",
+                side="long") is None
 
 
 def test_collect_emits_hardening_guard_counters(tmp_path):
