@@ -4,7 +4,9 @@ scripts/auto_update.py — test-gated self-update for the always-on PC bot.
 The operator can't always git-pull the PC by hand (away from home). This pulls
 origin/main and redeploys — but ONLY if the INCOMING code passes the full test
 battery first, so a bad commit can never reach the live trading bot. Run by
-pc_supervisor.py on a slow cadence (default daily), or by hand:
+pc_supervisor.py every LB_AUTO_UPDATE_SEC (default 15 min — the check is a
+bare fetch+compare; the heavy battery only runs when main actually moved, so
+a push lands on the PC within minutes), or by hand:
     python scripts/auto_update.py
 
 Safety rules (why this is safe to run unattended against a live paper bot):
@@ -25,8 +27,17 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.runtime import SingleInstanceLock  # noqa: E402
+
 OUT = ROOT / "outputs"
 BRANCH = "main"
+# One updater at a time: the supervisor's fast cadence plus a manual run could
+# otherwise stack two 20-min batteries and race the fast-forward. Staleness
+# must outlive the worst case (1200s battery + worktree/git ops) with margin.
+LOCK_STALE_SEC = 2700.0
+# Outcomes that exit 0 ("nothing wrong"), vs real failures that exit 1.
+OK_OUTCOMES = ("updated", "current", "dirty", "disabled", "busy")
 
 
 def log(msg: str) -> None:
@@ -90,7 +101,6 @@ def battery_passes(worktree: Path) -> bool:
 def _signal_restart() -> None:
     """Graceful stop so the supervisor relaunches the runner on the new code."""
     try:
-        sys.path.insert(0, str(ROOT))
         from core.runtime import ControlChannel
         ControlChannel(str(OUT / "control")).send("stop")
         log("sent stop - supervisor will relaunch on the new code")
@@ -102,6 +112,21 @@ def update_once() -> str:
     """One update attempt. Returns the outcome string."""
     if os.environ.get("LB_NO_AUTO_UPDATE"):
         return "disabled"
+    lock = SingleInstanceLock(str(OUT / "auto_update.lock"),
+                              stale_after_sec=LOCK_STALE_SEC)
+    holder = lock.acquire()
+    if holder is not None:
+        log(f"another updater already running (pid {holder.get('pid')}) - "
+            f"skipping this check")
+        return "busy"
+    try:
+        return _update_locked()
+    finally:
+        lock.release()
+
+
+def _update_locked() -> str:
+    """The update body; caller holds the single-updater lock."""
     rc, _ = _git("fetch", "origin", BRANCH, timeout=120)
     if rc != 0:
         log("git fetch failed - skipping (offline?)")
@@ -143,5 +168,4 @@ def update_once() -> str:
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if update_once() in
-                     ("updated", "current", "dirty", "disabled") else 1)
+    raise SystemExit(0 if update_once() in OK_OUTCOMES else 1)

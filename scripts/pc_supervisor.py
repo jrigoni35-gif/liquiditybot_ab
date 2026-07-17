@@ -37,12 +37,15 @@ OUT = ROOT / "outputs"
 CHECK_SEC = 30.0
 STALE_SEC = 120.0          # a heartbeat older than this = process is gone
 # test-gated self-update cadence: how often to check origin/main for new code.
-# Default daily; LB_NO_AUTO_UPDATE=1 disables it entirely (checked here AND in
-# auto_update.py, so either gate turns it fully off).
+# Default 15 min — the check is a bare `git fetch` + rev compare (auto_update
+# only runs the heavy battery when main actually MOVED, and its single-updater
+# lock refuses overlap), so a push self-deploys within minutes instead of the
+# old daily wait. LB_NO_AUTO_UPDATE=1 disables it entirely (checked here AND
+# in auto_update.py, so either gate turns it fully off).
 try:
-    UPDATE_SEC = float(os.environ.get("LB_AUTO_UPDATE_SEC", "86400"))
+    UPDATE_SEC = float(os.environ.get("LB_AUTO_UPDATE_SEC", "900"))
 except ValueError:
-    UPDATE_SEC = 86400.0
+    UPDATE_SEC = 900.0
 _UPDATE_STAMP = OUT / ".auto_update_stamp"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
