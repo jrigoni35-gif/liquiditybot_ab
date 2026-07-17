@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784310424.57512,
+  "generated_at": 1784317013.5599391,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784310423.376,
-    "duration_h": 103.23
+    "end": 1784317012.186,
+    "duration_h": 105.06
   },
   "pnl": {
     "starting_capital": 5000.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": -3.42,
     "fees_paid_total": 2.0681,
     "open_positions": 0,
-    "samples": 10442
+    "samples": 10498
   },
   "activity": {
     "signal_rows_total": 521,
@@ -24,14 +24,14 @@
     "candidate_rows": 486
   },
   "audit": {
-    "records": 682,
-    "signal_records": 263,
+    "records": 687,
+    "signal_records": 268,
     "by_src": {
       "exploration": 419,
-      "startup": 105,
+      "startup": 107,
       "order_manager": 98,
-      "fault": 50,
-      "ml_governor": 9,
+      "fault": 52,
+      "ml_governor": 10,
       "engine": 1
     },
     "top_codes": [
@@ -41,7 +41,7 @@
       ],
       [
         "CG-000",
-        105
+        107
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        50
+        52
       ],
       [
         "ML-032",
@@ -60,15 +60,15 @@
         2
       ],
       [
+        "ML-030",
+        2
+      ],
+      [
         "ML-040",
         2
       ],
       [
         "ML-071",
-        1
-      ],
-      [
-        "ML-030",
         1
       ],
       [
@@ -88,17 +88,17 @@
     "chain_first_break": 199
   },
   "events": {
-    "records": 11810,
+    "records": 12172,
     "by_level": {
-      "INFO": 11580,
-      "WARNING": 104,
+      "INFO": 11931,
+      "WARNING": 111,
       "ERROR": 66,
-      "CRITICAL": 60
+      "CRITICAL": 64
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        50
+        52
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
@@ -106,19 +106,19 @@
       ],
       [
         "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        29
+        31
       ],
       [
         "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        29
+        31
+      ],
+      [
+        "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
+        23
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
         22
-      ],
-      [
-        "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        21
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -138,27 +138,27 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 3066,
-      "spoofy": 2814
+      "thin": 3245,
+      "spoofy": 2844
     },
-    "spoofy_frac": 0.479,
-    "cycles_estimate": 1569,
+    "spoofy_frac": 0.467,
+    "cycles_estimate": 1597,
     "feed_error_events": 70
   },
   "model": {
-    "monitor_level": 0,
+    "monitor_level": 1,
     "use_model": true,
-    "kelly_mult": 1.0,
+    "kelly_mult": 0.7,
     "champion_brier": 0.18867418679534387,
     "brier": "n/a",
     "history_rows": 35,
     "cold": true
   },
   "postmortems": {
-    "count": 15,
+    "count": 17,
     "causes": {
-      "cost_overrun": 8,
-      "alpha_wrong": 7
+      "alpha_wrong": 9,
+      "cost_overrun": 8
     },
     "worst_realized_pct": -6.909,
     "impossible_count": 1
@@ -182,13 +182,13 @@
       "id": "SD-005",
       "severity": "error",
       "title": "postmortem realized% contradicts its own excursions",
-      "detail": "1 of 15 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
+      "detail": "1 of 17 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 40% of 263 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 40% of 268 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
