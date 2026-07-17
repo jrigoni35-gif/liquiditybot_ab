@@ -77,6 +77,10 @@ class SmartOrderRouter:
         self.w_fee = _f(w.get("fee", 1.0), 1.0)
         self.w_spread = _f(w.get("spread", 1.0), 1.0)
         self.w_depth = _f(w.get("depth", 0.6), 0.6)
+        # penalty (bps) charged at ZERO depth cover, decaying linearly to 0 at
+        # full cover — the book-walk cost proxy (lifted literal, same default)
+        self.depth_penalty_bps = max(
+            _f(cfg.get("depth_penalty_bps", 25.0), 25.0), 0.0)
         bad = [v for v in self.eligible if v != EXECUTION_INVARIANT_VENUE]
         if bad:
             # config_guard makes this FATAL in live; here we scream too
@@ -98,7 +102,8 @@ class SmartOrderRouter:
         # expected cost of an aggressive child: taker fee + half spread;
         # depth shortfall adds a convex penalty (walking the book)
         cover = q.depth_usd / max(notional_usd, 1.0)
-        depth_pen = 0.0 if cover >= 1.0 else (1.0 - cover) * 25.0
+        depth_pen = 0.0 if cover >= 1.0 \
+            else (1.0 - cover) * self.depth_penalty_bps
         score = (self.w_fee * q.taker_fee_bps +
                  self.w_spread * 0.5 * spread_bps +
                  self.w_depth * depth_pen)

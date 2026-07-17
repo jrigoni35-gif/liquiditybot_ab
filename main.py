@@ -375,6 +375,15 @@ class LiquidityBot:
         self.quoter = AvellanedaStoikovQuoter(config.get("market_maker", {}))
         self.inventory = InventoryManager(config.get("inventory", {}))
         self.pretrade = PreTradeGate(config.get("pretrade", {}))
+        # ADV haircut/floor for the impact model (lifted literals): 24h venue
+        # volume is haircutted to a Kraken-share proxy and floored, feeding
+        # the participation clamp (PT-030). Same defaults as the old
+        # constants (0.10, $1M).
+        _pt_cfg = config.get("pretrade", {}) or {}
+        self._adv_haircut = min(max(
+            float(_pt_cfg.get("adv_haircut", 0.10)), 0.01), 1.0)
+        self._adv_floor_usd = max(
+            float(_pt_cfg.get("adv_floor_usd", 1e6)), 1.0)
         self.firewall = RiskFirewall(config.get("risk_firewall", {}),
                                      self.alerts)
         self.watchdog = Watchdog(config.get("watchdog", {}), self.alerts)
@@ -810,15 +819,16 @@ class LiquidityBot:
         """Conservative ADV estimate for the impact model.
 
         Venue 24h volume units differ across feeds, so this normalizes to
-        USD if the number looks like base units, then haircuts to ~10% as
-        a Kraken-share proxy and floors at $1M. Impact is a secondary
-        term at this ticket size; conservatism is the point.
+        USD if the number looks like base units, then haircuts by
+        pretrade.adv_haircut (Kraken-share proxy; lifted literal, default
+        0.10) and floors at adv_floor_usd. Impact is a secondary term at
+        this ticket size; conservatism is the point.
         """
         v = float((self.view.get(asset) or {}).get("volume_24h") or 0.0)
         if v <= 0:
-            return 1e6
+            return self._adv_floor_usd
         usd = v * price if v * price < 1e13 and v < 1e8 else v
-        return max(usd * 0.10, 1e6)
+        return max(usd * self._adv_haircut, self._adv_floor_usd)
 
     def _stop_price_for(self, direction: str, entry: float, asset: str) -> float:
         vol_state = self.vol.state(asset)
