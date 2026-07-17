@@ -635,6 +635,12 @@
       "poc_dist_cap_pct": 5.0
     }
   },
+  "circuit_breaker": {
+    "_doc": "per-asset consecutive-loss circuit breaker: after loss_streak FULL-trade losses in a row on one asset, NEW entries on that asset are vetoed (SZ-046) for cooldown_hours, then it auto-resets (a win resets the streak any time). Early, local protection the portfolio-level budgets react to late; exits are never touched (invariant 5).",
+    "enabled": true,
+    "loss_streak": 4,
+    "cooldown_hours": 6
+  },
   "skimmer": {
     "_doc": "asset skimmer: scan a candidate pool beyond the core trading_pairs, rank tradability (spread cost / book depth / bar activity), and PROMOTE the best into the active universe at the NEXT RESTART (runner.main merges outputs/skimmer_active.json into trading_pairs on the live path only - replay/overfit stay pinned to the recorded universe). Core pairs are permanent; at most max_extra promotions, keeping the worst-case REST-fallback budget (3 req/s with WS down) inside the ~12-pair envelope. Watching costs <=2 REST calls per evaluation, one candidate round-robin per loop pass, each at most once per eval_every_min. Promoted assets face every existing rail (EV gate, sizer, protocols, heat, firewall, manip gate); demotion only removes them from the NEXT boot - open positions keep their exits. apply_in_live=false means promotions apply in dry-run only until explicitly enabled for live.",
     "enabled": true,

@@ -210,6 +210,9 @@ class StateStore:
                 "postmortem": bot.postmortem.to_dict(),
                 "performance": bot.perf.to_dict()
                 if getattr(bot, "perf", None) is not None else {},
+                # a restart must not launder an active per-asset trip
+                "circuit_breaker": bot.breaker.to_dict()
+                if getattr(bot, "breaker", None) is not None else {},
                 "candidates": bot.candidates.to_dict(),
                 "gate_stats": bot.gate_stats.to_dict(),
                 "stop_hit": dict(bot._stop_hit),
@@ -426,6 +429,8 @@ class StateStore:
             bot.postmortem.restore(data.get("postmortem"))
             if getattr(bot, "perf", None) is not None:
                 bot.perf.restore(data.get("performance"))
+            if getattr(bot, "breaker", None) is not None:
+                bot.breaker.restore(data.get("circuit_breaker"))
             bot.candidates.restore(data.get("candidates"))
             bot.gate_stats.restore(data.get("gate_stats"))
             bot._stop_hit.update(data.get("stop_hit", {}))

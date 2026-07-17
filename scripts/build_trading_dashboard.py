@@ -1,15 +1,21 @@
-"""scripts/build_trading_dashboard.py — generator for the professional trading
-dashboard (docs/grafana/liquiditybot_trading.json).
+"""scripts/build_trading_dashboard.py — generator for the trading dashboards.
 
-THIS GENERATOR IS THE SOURCE OF TRUTH for that dashboard: edit sections here and
-regenerate — never hand-edit the JSON (unlike the incidents dashboard, which is
-hand-maintained). Same output file + stable uid 'liquiditybot-trading' means git
-replaces and a Grafana re-import overwrites in place — no duplicates.
+THIS GENERATOR IS THE SOURCE OF TRUTH: edit sections here and regenerate —
+never hand-edit the JSONs (unlike the incidents dashboard, which is
+hand-maintained). Sections are authored once in a single linear pass, then
+PARTITIONED into four focused dashboards (one 80-panel page is unreadable):
 
-Sections: §1 Account & Performance · §2 Live Positions · §3 Execution Quality.
-Every target must reference a metric scripts/gc_pusher.py actually emits;
+  liquiditybot_trading.json     — trading desk (§1 performance, §2 positions)
+  liquiditybot_execution.json   — execution & skimmer (§3, §7)
+  liquiditybot_signals.json     — signals & edge (§4)
+  liquiditybot_model_risk.json  — model & risk (§5, §6 incl. circuit breakers)
+
+Stable uids mean a Grafana re-import overwrites in place; the desk board keeps
+uid 'liquiditybot-trading', so importing it REPLACES the old monolith. Every
+target must reference a metric scripts/gc_pusher.py actually emits;
 tests/test_trading_dashboard.py enforces that (no dead panels).
 """
+import copy as _copy
 import json
 from pathlib import Path
 
@@ -533,11 +539,33 @@ ts_multi(124, "Firewall rejects/clamps by code",
               "clamp tallies. Entries reject on breach; exits are clamped, "
               "never blocked.")
 
+bargauge(125, "Circuit breaker — loss streaks",
+         f"max by (asset) (liquiditybot_cb_loss_streak{JOB})",
+         0, 130, 9, 6, "{{asset}}", unit="none", mx=6,
+         desc="Consecutive full-trade losses per asset. At loss_streak "
+              "(config, default 4) the asset is paused for new entries "
+              "(SZ-046) — the early, local signal the portfolio budgets "
+              "react to late.",
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 2},
+                {"color": "red", "value": 4}])
+stat(126, "Breakers tripped", M("liquiditybot_cb_tripped_count"),
+     9, 130, 6, 6, decimals=0, mode="background",
+     desc="Assets currently paused by the consecutive-loss breaker. "
+          "Auto-resets after cooldown; exits are never touched.",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2}])
+bargauge(127, "Paused — hours to auto-reset",
+         f"max by (asset) (liquiditybot_cb_paused_hours_left{JOB})",
+         15, 130, 9, 6, "{{asset}}", unit="none", mx=6,
+         desc="Cooldown remaining per paused asset (empty = nothing paused).",
+         steps=[{"color": "blue", "value": None}])
+
 # ---------------- §7 · Asset Skimmer ----------------
-row(7, "§7 · Asset Skimmer", 130)
+row(7, "§7 · Asset Skimmer", 137)
 bargauge(130, "Candidate tradability scores",
          f"max by (pair) (liquiditybot_skimmer_score{JOB})",
-         0, 131, 10, 8, "{{pair}}", unit="none", mx=1,
+         0, 138, 10, 8, "{{pair}}", unit="none", mx=1,
          desc="Skimmer ranking of the candidate pool (spread cost 40% / book "
               "depth 35% / bar activity 25%; thresholds in config). At or "
               "above promote_score (0.55) a candidate is eligible for the "
@@ -546,13 +574,13 @@ bargauge(130, "Candidate tradability scores",
                 {"color": "yellow", "value": 0.35},
                 {"color": "green", "value": 0.55}])
 stat(131, "Promoted (next boot)",
-     M("liquiditybot_skimmer_promoted_count"), 10, 131, 4, 4, decimals=0,
+     M("liquiditybot_skimmer_promoted_count"), 10, 138, 4, 4, decimals=0,
      desc="Candidates promoted into the universe — active at the next runner "
           "restart. Core pairs are permanent; cap keeps the total inside the "
           "12-pair REST-fallback envelope.",
      steps=[{"color": "text", "value": None}])
 stat(132, "Candidate pool",
-     M("liquiditybot_skimmer_candidates"), 10, 135, 4, 4, decimals=0,
+     M("liquiditybot_skimmer_candidates"), 10, 142, 4, 4, decimals=0,
      desc="Pairs the skimmer is watching (<=2 REST calls per evaluation, one "
           "candidate per interval — watching is nearly free).",
      steps=[{"color": "text", "value": None}])
@@ -561,7 +589,7 @@ panels.append({
     "description": "The skimmer's current promotion set (joins trading at the "
                    "next restart; demotion only stops NEW entries — exits are "
                    "never touched).",
-    "datasource": DS, "gridPos": {"h": 8, "w": 10, "x": 14, "y": 131},
+    "datasource": DS, "gridPos": {"h": 8, "w": 10, "x": 14, "y": 138},
     "fieldConfig": {"defaults": {"custom": {"align": "auto",
                                             "filterable": False}},
                     "overrides": []},
@@ -574,21 +602,79 @@ panels.append({
                               "__name__": True, "Value": True},
             "renameByName": {}, "indexByName": {"pair": 0}}}]})
 
-dash = {
-    "uid": "liquiditybot-trading",
-    "title": "liquiditybot — trading",
-    "description": "Account performance and live positions for the liquiditybot "
-                   "paper-trading engine. Complementary to 'control' and 'incidents'.",
-    "tags": ["liquiditybot", "trading", "performance", "positions", "paper-trading"],
-    "schemaVersion": 39, "editable": True, "timezone": "browser",
-    "refresh": "30s", "time": {"from": "now-24h", "to": "now"},
-    "templating": {"list": []}, "annotations": {"list": []},
-    "panels": panels,
+# ---------------------------------------------------------------------------
+# Partition the master panel list into FOUR focused dashboards (one page of
+# 80+ panels is unreadable). Sections stay authored above in one linear pass;
+# each output takes whole sections, rebased so every dashboard starts at y=0.
+# uids are stable: re-import overwrites in place. 'liquiditybot-trading' keeps
+# its uid so importing the new desk board REPLACES the old monolith.
+# ---------------------------------------------------------------------------
+
+def _section_block(row_id):
+    """A section = its row panel + everything until the next row (by y)."""
+    row_p = next(p for p in panels
+                 if p["type"] == "row" and p["id"] == row_id)
+    y0 = row_p["gridPos"]["y"]
+    nxt = [p["gridPos"]["y"] for p in panels
+           if p["type"] == "row" and p["gridPos"]["y"] > y0]
+    y1 = min(nxt) if nxt else 10 ** 9
+    block = [p for p in panels if y0 <= p["gridPos"]["y"] < y1]
+    return sorted(block, key=lambda p: (p["gridPos"]["y"], p["gridPos"]["x"]))
+
+
+def _compose(row_ids):
+    """Concatenate sections, rebasing y so each output starts at 0."""
+    out, y_off = [], 0
+    for rid in row_ids:
+        block = _section_block(rid)
+        base = block[0]["gridPos"]["y"]
+        bottom = 0
+        for p in block:
+            q = _copy.deepcopy(p)
+            q["gridPos"]["y"] = p["gridPos"]["y"] - base + y_off
+            bottom = max(bottom, q["gridPos"]["y"] + q["gridPos"]["h"])
+            out.append(q)
+        y_off = bottom
+    return out
+
+
+def _dash(uid, title, desc, row_ids):
+    return {"uid": uid, "title": title, "description": desc,
+            "tags": ["liquiditybot", "trading", "paper-trading"],
+            "schemaVersion": 39, "editable": True, "timezone": "browser",
+            "refresh": "30s", "time": {"from": "now-24h", "to": "now"},
+            "templating": {"list": []}, "annotations": {"list": []},
+            "panels": _compose(row_ids)}
+
+
+DASHBOARDS = {
+    "liquiditybot_trading.json": _dash(
+        "liquiditybot-trading", "liquiditybot — trading desk",
+        "The daily driver: account performance and live positions. "
+        "Companions: execution & skimmer, signals & edge, model & risk.",
+        [1, 2]),
+    "liquiditybot_execution.json": _dash(
+        "liquiditybot-execution", "liquiditybot — execution & skimmer",
+        "Fill quality (mark-out, slippage, maker/taker, fees) and the asset "
+        "skimmer's candidate rankings/promotions.",
+        [3, 7]),
+    "liquiditybot_signals.json": _dash(
+        "liquiditybot-signals", "liquiditybot — signals & edge",
+        "Signal confidence/urgency, gate pass-rates and learned weights, "
+        "manipulation defense, regimes.",
+        [4]),
+    "liquiditybot_model_risk.json": _dash(
+        "liquiditybot-model-risk", "liquiditybot — model & risk",
+        "Model health & learning (Brier, calibration, learning velocity) and "
+        "the risk rails (budgets, throttles, heat, circuit breakers).",
+        [5, 6]),
 }
-OUT = Path(__file__).resolve().parents[1] / "docs" / "grafana" / \
-    "liquiditybot_trading.json"
+
+OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "grafana"
 
 if __name__ == "__main__":
-    OUT.write_text(json.dumps(dash, indent=2, ensure_ascii=False),
-                   encoding="utf-8")
-    print(f"wrote {OUT} — {len(panels)} panels")
+    for fname, d in DASHBOARDS.items():
+        out = OUT_DIR / fname
+        out.write_text(json.dumps(d, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+        print(f"wrote {out} — {len(d['panels'])} panels ({d['title']})")

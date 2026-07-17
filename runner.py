@@ -459,6 +459,9 @@ class BotRunner:
             # join the universe at the next restart
             "skimmer": self.skimmer.snapshot()
             if getattr(self, "skimmer", None) is not None else {},
+            # per-asset consecutive-loss breaker: active pauses + streaks
+            "circuit_breaker": bot.breaker.snapshot(now)
+            if getattr(bot, "breaker", None) is not None else {},
             "firewall": bot.firewall.status()
             if getattr(bot, "firewall", None) is not None else {},
             "order_manager": bot.orders.status()

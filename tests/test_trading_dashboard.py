@@ -78,6 +78,8 @@ _SYNTH_STATUS = {
                        "heat_frac": 0.04, "heat_cap_frac": 0.35,
                        "dd_throttle_mult": 1.0},
     "firewall": {"fault": None, "counters": {"FW-040": 2}},
+    "circuit_breaker": {"enabled": True, "loss_streak": 4,
+                        "streaks": {"BTC": 1}, "tripped": {"ETH": 3.0}},
     "skimmer": {"enabled": True, "candidates": 8,
                 "promoted": ["SOL/USD"], "max_extra": 6,
                 "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,
@@ -85,32 +87,50 @@ _SYNTH_STATUS = {
 }
 
 
-def _shipped() -> dict:
-    return json.loads((ROOT / "docs" / "grafana" /
-                       "liquiditybot_trading.json").read_text(encoding="utf-8"))
+def _shipped(fname: str) -> dict:
+    return json.loads((ROOT / "docs" / "grafana" / fname)
+                      .read_text(encoding="utf-8"))
 
 
-def test_generator_matches_shipped_json():
-    assert gen.dash == _shipped(), \
-        "generator and shipped JSON differ — regenerate with " \
-        "`python scripts/build_trading_dashboard.py` (never hand-edit the JSON)"
+def test_generator_matches_every_shipped_json():
+    for fname, d in gen.DASHBOARDS.items():
+        assert d == _shipped(fname), \
+            f"{fname} differs from the generator — regenerate with " \
+            "`python scripts/build_trading_dashboard.py` (never hand-edit)"
 
 
-def test_importable_shape_and_layout():
-    d = _shipped()
-    assert "dashboard" not in d and d["schemaVersion"] == 39
-    assert d["uid"] == "liquiditybot-trading"     # stable => re-import overwrites
-    ids = [p["id"] for p in d["panels"]]
-    assert len(ids) == len(set(ids)), "duplicate panel ids"
-    rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
-              p["gridPos"]["h"], p["id"]) for p in d["panels"]]
+def test_importable_shape_and_layout_per_dashboard():
+    uids = set()
+    for fname, _ in gen.DASHBOARDS.items():
+        d = _shipped(fname)
+        assert "dashboard" not in d and d["schemaVersion"] == 39, fname
+        assert d["uid"] and d["uid"] not in uids, f"{fname}: uid not unique"
+        uids.add(d["uid"])
+        assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0, \
+            f"{fname}: first panel must start at y=0 after rebase"
+        ids = [p["id"] for p in d["panels"]]
+        assert len(ids) == len(set(ids)), f"{fname}: duplicate panel ids"
+        rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
+                  p["gridPos"]["h"], p["id"]) for p in d["panels"]]
 
-    def ov(a, b):
-        return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
-                    or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
-    bad = [(a[4], b[4]) for i, a in enumerate(rects)
-           for b in rects[i + 1:] if ov(a, b)]
-    assert not bad, f"overlapping panels: {bad}"
+        def ov(a, b):
+            return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
+                        or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
+        bad = [(a[4], b[4]) for i, a in enumerate(rects)
+               for b in rects[i + 1:] if ov(a, b)]
+        assert not bad, f"{fname}: overlapping panels: {bad}"
+    # the desk board keeps the original uid so it REPLACES the old monolith
+    assert _shipped("liquiditybot_trading.json")["uid"] == \
+        "liquiditybot-trading"
+
+
+def test_partition_covers_every_authored_panel_once():
+    seen = []
+    for d in gen.DASHBOARDS.values():
+        seen += [p["id"] for p in d["panels"]]
+    authored = [p["id"] for p in gen.panels]
+    assert sorted(seen) == sorted(authored), \
+        "partition must place every authored panel in exactly one dashboard"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):
@@ -118,8 +138,10 @@ def test_every_query_hits_an_emitted_metric(tmp_path):
     p.write_text(json.dumps(_SYNTH_STATUS), encoding="utf-8")
     emitted = {m["name"] for m in gp.collect(str(p))}
     referenced = set()
-    for panel in _shipped()["panels"]:
-        for t in panel.get("targets", []):
-            referenced |= set(re.findall(r"liquiditybot_[a-z_]+", t["expr"]))
+    for d in gen.DASHBOARDS.values():
+        for panel in d["panels"]:
+            for t in panel.get("targets", []):
+                referenced |= set(re.findall(r"liquiditybot_[a-z_]+",
+                                             t["expr"]))
     missing = referenced - emitted
     assert not missing, f"panels query metrics gc_pusher never emits: {missing}"

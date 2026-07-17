@@ -441,6 +441,20 @@ def validate(config: dict) -> list:
             fatal("profit_taking.conviction_runner.min_trail_mult must be in "
                   "[0.1, 1.0] - it can only tighten the runner, never loosen it")
 
+    # --- per-asset circuit breaker -------------------------------------------
+    if bool(_f(config, "circuit_breaker.enabled", True)):
+        ls = int(_f(config, "circuit_breaker.loss_streak", 4))
+        ch = float(_f(config, "circuit_breaker.cooldown_hours", 6))
+        if ls < 2:
+            fatal("circuit_breaker.loss_streak < 2 would pause an asset on a "
+                  "single loss - that's not a breaker, that's a coin flip")
+        if not (0.25 <= ch <= 168):
+            fatal("circuit_breaker.cooldown_hours must be in [0.25, 168]")
+        if ls > 10:
+            advisory(f"circuit_breaker.loss_streak={ls} is so high the "
+                     f"breaker will likely never fire (portfolio budgets "
+                     f"bind first)")
+
     # --- asset skimmer (scan wide, trade narrow) -----------------------------
     if bool(_f(config, "skimmer.enabled", False)):
         core = _f(config, "exchanges.kraken.trading_pairs", []) or []

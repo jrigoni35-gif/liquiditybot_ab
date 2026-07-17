@@ -84,6 +84,7 @@ from ml.labeling import ExitPolicy
 from ml.monitor import ModelMonitor
 from core.performance import PerformanceTracker
 from ml.postmortem import PostmortemEngine, TradeThesis
+from risk.circuit_breaker import CircuitBreaker
 from sentiment.scanner import SentimentScanner
 from sentiment.fear_filter import NarrativeFilter, StructuralInputs
 
@@ -441,6 +442,11 @@ class LiquidityBot:
         # the full book. Telemetry only — feeds the trading dashboard, no
         # decision reads it.
         self.perf = PerformanceTracker(config.get("performance", {}))
+        # per-asset consecutive-loss circuit breaker: pulls a misbehaving
+        # symbol off the sheet (new entries only — exits never consult it),
+        # auto-resets after cooldown. Deliberately separate from the
+        # telemetry-only perf ledger: this one IS a decision input.
+        self.breaker = CircuitBreaker(config.get("circuit_breaker", {}))
         # empirical adverse-selection meter: measures whether our entry fills
         # were picked off (the ground truth the manip anti-scalp gate pre-empts)
         self.markout = MarkoutTracker(config.get("markout", {}))
@@ -850,6 +856,11 @@ class LiquidityBot:
             self.perf.record_close(
                 asset, total_net, pos.entry_price * pos.original_size,
                 entry_price=pos.entry_price, stop_price=pos.stop_price, now=now)
+            if self.breaker.record_close(asset, total_net > 0, now=now):
+                get_audit().log("circuit_breaker", Code.SZ_CIRCUIT_BREAKER,
+                                f"{asset} paused: "
+                                f"{self.breaker.loss_streak} consecutive "
+                                f"losses", {"asset": asset})
         self.postmortem.on_close(
             pos.position_id, total_net, pos.fees_paid_usd,
             entry_usd=pos.entry_price * pos.original_size,
@@ -1742,6 +1753,17 @@ class LiquidityBot:
                 self.state, self.marks, equity, vol_state.sigma_annual_pct,
                 macro_state.playbook.get("leverage_cap", 1.0),
                 self.margin_level_pct)
+
+            # circuit breaker: a symbol on a losing streak is pulled off the
+            # sheet — new entries only, exits never consult this. Checked
+            # before sizing so a paused asset costs nothing further.
+            if self.breaker.is_tripped(asset, now):
+                left_h = self.breaker.remaining_s(asset, now) / 3600.0
+                self._log_sizer_veto(asset, [tag(
+                    Code.SZ_CIRCUIT_BREAKER,
+                    f"paused {left_h:.1f}h more (consecutive-loss "
+                    f"breaker)")], explored)
+                continue
 
             # anti-scalp: fold manipulation suspicion into the NEW entry.
             # manip_suspect_score (MAX of spoof / imbalance-whiplash / cross-

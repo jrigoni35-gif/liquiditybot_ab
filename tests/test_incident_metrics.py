@@ -204,6 +204,23 @@ def test_collect_emits_performance(tmp_path):
     assert _val(m, "liquiditybot_perf_asset_cur_loss_streak", asset="BTC") == 3.0
 
 
+def test_collect_emits_circuit_breaker(tmp_path):
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({
+        "written_at": 1_700_000_000.0,
+        "circuit_breaker": {"enabled": True, "loss_streak": 4,
+                            "streaks": {"ETH": 2},
+                            "tripped": {"BTC": 4.5}}}), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_cb_tripped_count") == 1.0
+    assert _val(m, "liquiditybot_cb_paused_hours_left", asset="BTC") == pytest.approx(4.5)
+    assert _val(m, "liquiditybot_cb_loss_streak", asset="ETH") == 2.0
+    # absent section -> nothing, no crash
+    p2 = tmp_path / "s2.json"
+    p2.write_text(json.dumps({"written_at": 1_700_000_000.0}), encoding="utf-8")
+    assert _val(gp.collect(str(p2)), "liquiditybot_cb_tripped_count") is None
+
+
 def test_collect_emits_risk_protocols(tmp_path):
     p = tmp_path / "status.json"
     p.write_text(json.dumps({

@@ -377,6 +377,19 @@ def collect(status_path: str) -> list:
         for pair in (sk.get("promoted") or []):
             m.append(gauge("liquiditybot_skimmer_promoted_info", 1.0,
                            {"pair": str(pair)}, ts))
+    # ---- per-asset circuit breaker -------------------------------------------
+    cb = s.get("circuit_breaker") or {}
+    if cb:
+        m.append(gauge("liquiditybot_cb_tripped_count",
+                       float(len(cb.get("tripped") or {})), ts=ts))
+        for asset, hrs in (cb.get("tripped") or {}).items():
+            if isinstance(hrs, (int, float)) and not isinstance(hrs, bool):
+                m.append(gauge("liquiditybot_cb_paused_hours_left", hrs,
+                               {"asset": str(asset)}, ts))
+        for asset, streak in (cb.get("streaks") or {}).items():
+            if isinstance(streak, (int, float)) and not isinstance(streak, bool):
+                m.append(gauge("liquiditybot_cb_loss_streak", streak,
+                               {"asset": str(asset)}, ts))
     # ---- risk-protocol posture (§6) ------------------------------------------
     rp = s.get("risk_protocols") or {}
     for k in ("daily_budget_used_frac", "weekly_budget_used_frac",
