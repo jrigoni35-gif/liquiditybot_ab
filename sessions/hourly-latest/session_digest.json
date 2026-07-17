@@ -1,36 +1,36 @@
 {
-  "generated_at": 1784301548.1318338,
+  "generated_at": 1784303001.543064,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784301547.079,
-    "duration_h": 100.77
+    "end": 1784303000.515,
+    "duration_h": 101.17
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 4997.37,
+    "equity_end": 4997.39,
     "equity_min": 798.74,
     "equity_max": 5000.09,
     "equity_range": 4201.35,
     "realized_pnl_total": -2.41,
     "fees_paid_total": 1.7647,
     "open_positions": 3,
-    "samples": 10348
+    "samples": 10364
   },
   "activity": {
-    "signal_rows_total": 511,
+    "signal_rows_total": 512,
     "live_labeled_trades": 32,
-    "candidate_rows": 479
+    "candidate_rows": 480
   },
   "audit": {
-    "records": 666,
-    "signal_records": 247,
+    "records": 668,
+    "signal_records": 249,
     "by_src": {
       "exploration": 419,
-      "startup": 99,
+      "startup": 100,
       "order_manager": 94,
-      "fault": 44,
+      "fault": 45,
       "ml_governor": 9,
       "engine": 1
     },
@@ -41,7 +41,7 @@
       ],
       [
         "CG-000",
-        99
+        100
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        44
+        45
       ],
       [
         "ML-032",
@@ -81,36 +81,36 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.401,
+    "dominant_frac": 0.402,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 10928,
+    "records": 11076,
     "by_level": {
-      "INFO": 10737,
-      "WARNING": 89,
-      "ERROR": 54,
-      "CRITICAL": 48
+      "INFO": 10880,
+      "WARNING": 91,
+      "ERROR": 55,
+      "CRITICAL": 50
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        44
+        45
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        29
+        30
       ],
       [
         "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        23
+        24
       ],
       [
         "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        23
+        24
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
@@ -118,7 +118,7 @@
       ],
       [
         "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        16
+        17
       ],
       [
         "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
@@ -138,12 +138,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2767,
-      "thin": 2767
+      "thin": 2823,
+      "spoofy": 2775
     },
-    "spoofy_frac": 0.5,
-    "cycles_estimate": 1523,
-    "feed_error_events": 55
+    "spoofy_frac": 0.496,
+    "cycles_estimate": 1531,
+    "feed_error_events": 56
   },
   "model": {
     "monitor_level": 0,
@@ -185,16 +185,10 @@
       "detail": "1 of 15 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
     },
     {
-      "id": "SD-003",
-      "severity": "warn",
-      "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 50% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
-    },
-    {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 40% of 247 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 40% of 249 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
