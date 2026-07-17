@@ -75,6 +75,27 @@ there is no command in the other direction — live again means config
 sim_price_shock {asset,pct,cycles} · sim_force_fear {cycles} ·
 sim_force_regime {asset,label,cycles} · sim_clear (sim_* dry-run only).
 
+### Remote control (one-bot)
+
+The always-on PC is THE bot; any other machine with repo access is a
+console. Commands travel over the `paper-telemetry` branch — no open
+ports on the PC (`scripts/remote_control.py`; supervisor polls every
+`LB_REMOTE_CMD_POLL_SEC`, default 120s, and publishes the full
+status.json back as `control/pc_status.json` every `LB_STATUS_PUSH_SEC`,
+default 600s):
+
+```bash
+python scripts/remote_control.py --send pause          # from any console
+python scripts/remote_control.py --send force_dry
+```
+
+Remote whitelist: pause · start · stop · entries_on · entries_off ·
+force_dry · flatten_all · snapshot · disarm_live. `arm_live` is excluded
+by construction (import-time guard + tests): going live remains config +
+restart + the typed ARM phrase at the PC console, never remote. Commands
+expire after 30 min and apply exactly once; dispositions log RC-010/011.
+Kill switches on the PC: `LB_NO_REMOTE_CMD=1`, `LB_NO_STATUS_PUSH=1`.
+
 ## Live-money safety model
 
 Layered, each independent:

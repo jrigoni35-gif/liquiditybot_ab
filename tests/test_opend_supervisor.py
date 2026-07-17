@@ -77,3 +77,36 @@ def test_env_overrides_config_path(monkeypatch):
     monkeypatch.setenv("LB_OPEND_PATH", "D:/custom/OpenD.exe")
     _, path, _, _ = sup._opend_cfg()
     assert path == "D:/custom/OpenD.exe"
+
+
+# ---------------- supervisor self-restart on source change ----------------
+
+def _fake_self(monkeypatch, tmp_path, content="x"):
+    f = tmp_path / "pc_supervisor.py"
+    f.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(sup, "_SELF", f)
+    monkeypatch.setattr(sup, "_SELF_MTIME", f.stat().st_mtime)
+    return f
+
+
+def test_unchanged_source_does_not_restart(monkeypatch, tmp_path):
+    _fake_self(monkeypatch, tmp_path)
+    assert sup._source_changed() is False
+
+
+def test_changed_source_triggers_restart(monkeypatch, tmp_path):
+    import os
+    f = _fake_self(monkeypatch, tmp_path)
+    os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))
+    assert sup._source_changed() is True
+
+
+def test_empty_or_missing_source_never_hands_over(monkeypatch, tmp_path):
+    # a half-written file (mid-checkout) must not spawn a broken successor
+    import os
+    f = _fake_self(monkeypatch, tmp_path, content="x")
+    f.write_text("", encoding="utf-8")
+    os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))
+    assert sup._source_changed() is False
+    f.unlink()
+    assert sup._source_changed() is False

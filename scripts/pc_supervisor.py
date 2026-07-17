@@ -71,6 +71,11 @@ except ValueError:
 _OPEND_STAMP = OUT / ".opend_launch_stamp"
 IS_WIN = os.name == "nt"
 PY = sys.executable        # the venv's python (pythonw.exe when run hidden)
+_SELF = Path(__file__).resolve()
+try:
+    _SELF_MTIME = _SELF.stat().st_mtime
+except OSError:
+    _SELF_MTIME = 0.0
 
 
 def log(msg: str) -> None:
@@ -292,6 +297,28 @@ def tick() -> None:
             and _stamp_due(_STATUS_PUSH_STAMP, STATUS_PUSH_SEC)):
         _spawn([PY, "scripts/remote_control.py", "--push-status"],
                own_log=False)
+
+    # 6) self-restart on source change: the auto-updater bounces the RUNNER,
+    # but this process would keep the pre-update supervisor in memory until
+    # the next reboot (observed live 2026-07-17: new tick steps sat dormant).
+    # When our own file changes on disk, hand over to a fresh copy and exit —
+    # children are detached and survive; the brief two-supervisor overlap is
+    # harmless (relaunches are heartbeat-gated, the updater holds a lock).
+    if _source_changed():
+        log("pc_supervisor.py changed on disk -> restarting on the new code")
+        _spawn([PY, str(_SELF)])
+        raise SystemExit(0)
+
+
+def _source_changed() -> bool:
+    """True when scripts/pc_supervisor.py's mtime moved since import (and
+    the file still exists non-empty — a half-written file must not trigger
+    a handover to a broken copy)."""
+    try:
+        st = _SELF.stat()
+        return st.st_size > 0 and abs(st.st_mtime - _SELF_MTIME) > 1e-6
+    except OSError:
+        return False
 
 
 def main() -> None:
