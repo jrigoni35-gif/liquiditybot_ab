@@ -208,6 +208,8 @@ class StateStore:
                 # re-create the 2026-07-14 stale-advice hole.
                 "monitor": bot.monitor.to_dict(),
                 "postmortem": bot.postmortem.to_dict(),
+                "performance": bot.perf.to_dict()
+                if getattr(bot, "perf", None) is not None else {},
                 "candidates": bot.candidates.to_dict(),
                 "gate_stats": bot.gate_stats.to_dict(),
                 "stop_hit": dict(bot._stop_hit),
@@ -422,6 +424,8 @@ class StateStore:
         try:
             bot.monitor.restore(data.get("monitor"))
             bot.postmortem.restore(data.get("postmortem"))
+            if getattr(bot, "perf", None) is not None:
+                bot.perf.restore(data.get("performance"))
             bot.candidates.restore(data.get("candidates"))
             bot.gate_stats.restore(data.get("gate_stats"))
             bot._stop_hit.update(data.get("stop_hit", {}))

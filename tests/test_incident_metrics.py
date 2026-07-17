@@ -143,6 +143,34 @@ def test_collect_emits_per_instrument_positions(tmp_path):
                 symbol="SUI/USD", side="long") is None
 
 
+def test_collect_emits_performance(tmp_path):
+    status = {
+        "written_at": 1_700_000_000.0, "equity": 5000.0,
+        "performance": {
+            "overall": {"trades": 20, "win_rate": 0.55, "profit_factor": 1.8,
+                        "expectancy_usd": 2.3, "expectancy_r": 0.4,
+                        "payoff_ratio": None, "sharpe": 0.9,
+                        "cur_loss_streak": 2, "max_loss_streak": 4,
+                        "net_usd": 46.0},
+            "by_asset": {"BTC": {"trades": 8, "win_rate": 0.5,
+                                 "profit_factor": 1.2, "net_usd": 5.0,
+                                 "cur_loss_streak": 3, "max_loss_streak": 3}},
+        },
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_perf_win_rate") == pytest.approx(0.55)
+    assert _val(m, "liquiditybot_perf_profit_factor") == pytest.approx(1.8)
+    assert _val(m, "liquiditybot_perf_max_loss_streak") == 4.0
+    assert _val(m, "liquiditybot_perf_net_usd") == pytest.approx(46.0)
+    # None-valued payoff_ratio must NOT emit
+    assert _val(m, "liquiditybot_perf_payoff_ratio") is None
+    # per-asset, labeled — the circuit-breaker's future input
+    assert _val(m, "liquiditybot_perf_asset_win_rate", asset="BTC") == pytest.approx(0.5)
+    assert _val(m, "liquiditybot_perf_asset_cur_loss_streak", asset="BTC") == 3.0
+
+
 def test_collect_positions_absent_safe(tmp_path):
     # no positions -> risk-on banner is all zeros, no per-instrument series
     p = tmp_path / "status.json"

@@ -82,6 +82,7 @@ from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
 from ml.labeling import ExitPolicy
 from ml.monitor import ModelMonitor
+from core.performance import PerformanceTracker
 from ml.postmortem import PostmortemEngine, TradeThesis
 from sentiment.scanner import SentimentScanner
 from sentiment.fear_filter import NarrativeFilter, StructuralInputs
@@ -435,6 +436,11 @@ class LiquidityBot:
             if mh_cfg.get("enabled", False) else None
         self.monitor = ModelMonitor(config.get("ml", {}).get("monitor", {}))
         self.postmortem = PostmortemEngine(config.get("ml", {}).get("postmortem", {}))
+        # complete rolling P&L ledger (win-rate/PF/expectancy/streak, per asset):
+        # the postmortem engine only records underperformers, so it can't grade
+        # the full book. Telemetry only — feeds the trading dashboard, no
+        # decision reads it.
+        self.perf = PerformanceTracker(config.get("performance", {}))
         # empirical adverse-selection meter: measures whether our entry fills
         # were picked off (the ground truth the manip anti-scalp gate pre-empts)
         self.markout = MarkoutTracker(config.get("markout", {}))
@@ -837,6 +843,13 @@ class LiquidityBot:
         drift apart."""
         asset = self._asset_of(pos.symbol)
         self.history.log_close(pos.position_id, total_net)
+        # rolling performance ledger — every full close, real positions only
+        # (hedges carry no thesis/stop of their own). total_net is the popped
+        # cumulative (all tier closes + final), so this is the whole trade.
+        if not pos.is_hedge:
+            self.perf.record_close(
+                asset, total_net, pos.entry_price * pos.original_size,
+                entry_price=pos.entry_price, stop_price=pos.stop_price, now=now)
         self.postmortem.on_close(
             pos.position_id, total_net, pos.fees_paid_usd,
             entry_usd=pos.entry_price * pos.original_size,

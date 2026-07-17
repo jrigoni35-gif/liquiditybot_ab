@@ -157,6 +157,27 @@ def collect(status_path: str) -> list:
     if _eq > 0:
         m.append(gauge("liquiditybot_gross_exposure_pct",
                        tot_notional / _eq * 100.0, ts=ts))
+    # ---- performance ledger (§1): win-rate / PF / expectancy / streak -------
+    # Portfolio-wide + per asset. None-valued fields (expectancy_r with no
+    # stops, payoff_ratio with no losses) are simply not numeric -> skipped.
+    perf = s.get("performance") or {}
+    for k in ("trades", "win_rate", "win_rate_lcb", "profit_factor",
+              "expectancy_usd", "expectancy_r", "payoff_ratio", "sharpe",
+              "sortino", "cur_loss_streak", "max_loss_streak", "net_usd",
+              "gross_profit_usd", "gross_loss_usd", "avg_win_usd",
+              "avg_loss_usd"):
+        v = (perf.get("overall") or {}).get(k)
+        if isinstance(v, (int, float)):
+            m.append(gauge(f"liquiditybot_perf_{k}", v, ts=ts))
+    for asset, st in (perf.get("by_asset") or {}).items():
+        if not isinstance(st, dict):
+            continue
+        for k in ("trades", "win_rate", "profit_factor", "expectancy_usd",
+                  "net_usd", "cur_loss_streak", "max_loss_streak"):
+            v = st.get(k)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_perf_asset_{k}", v,
+                               {"asset": str(asset)}, ts))
     ml = s.get("ml") or {}
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)

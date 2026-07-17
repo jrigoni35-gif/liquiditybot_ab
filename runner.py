@@ -365,6 +365,10 @@ class BotRunner:
             # (negative bps = our entries are being scalped)
             "markout": bot.markout.snapshot()
             if getattr(bot, "markout", None) is not None else {},
+            # rolling trade-performance ledger (win-rate/PF/expectancy/streak,
+            # portfolio + per asset) — the trading dashboard's §1
+            "performance": bot.perf.snapshot()
+            if getattr(bot, "perf", None) is not None else {},
             "firewall": bot.firewall.status()
             if getattr(bot, "firewall", None) is not None else {},
             "order_manager": bot.orders.status()
