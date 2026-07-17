@@ -30,7 +30,13 @@ def M(metric, suffix=""):
 
 
 def _t(expr, ref="A", instant=True, legend=None, fmt=None):
-    t = {"refId": ref, "datasource": DS, "expr": expr, "instant": instant}
+    # "range" must be EXPLICIT: the frontend Prometheus plugin runs neither
+    # query mode when instant is false and range is merely absent — every
+    # timeseries panel rendered "No data" while the same expr returned 700+
+    # points via /api/ds/query (live 2026-07-17). The working control board
+    # carries the flag; emit it always.
+    t = {"refId": ref, "datasource": DS, "expr": expr,
+         "instant": instant, "range": not instant}
     if legend is not None:
         t["legendFormat"] = legend
     if fmt:

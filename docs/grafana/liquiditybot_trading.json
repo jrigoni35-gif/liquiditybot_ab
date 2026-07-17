@@ -88,7 +88,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_equity{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -149,7 +150,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_daily_pnl{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -210,7 +212,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_realized_total{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -271,7 +274,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_open_upnl_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -336,7 +340,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_drawdown_pct{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -396,6 +401,7 @@
           },
           "expr": "max(liquiditybot_equity{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "equity"
         }
       ]
@@ -461,7 +467,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_win_rate{job=\"liquiditybot\"})*100",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -518,7 +525,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_win_rate_lcb{job=\"liquiditybot\"})*100",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -583,7 +591,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_profit_factor{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -644,7 +653,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_expectancy_r{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -705,7 +715,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_sharpe{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -766,7 +777,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_sortino{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -827,7 +839,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_expectancy_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -884,7 +897,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_payoff_ratio{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -941,7 +955,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_avg_win_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -998,7 +1013,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_avg_loss_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1055,7 +1071,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_trades{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1116,7 +1133,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_net_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1173,7 +1191,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_gross_profit_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1230,7 +1249,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_gross_loss_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1295,7 +1315,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_cur_loss_streak{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1352,7 +1373,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_perf_max_loss_streak{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1422,7 +1444,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_positions_open{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1486,7 +1509,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_gross_exposure_pct{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1543,7 +1567,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_open_risk_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1604,7 +1629,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_open_upnl_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -1796,6 +1822,7 @@
           },
           "expr": "liquiditybot_position_notional_usd{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1806,6 +1833,7 @@
           },
           "expr": "liquiditybot_position_upnl_usd{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1816,6 +1844,7 @@
           },
           "expr": "liquiditybot_position_upnl_pct{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1826,6 +1855,7 @@
           },
           "expr": "liquiditybot_position_r_multiple{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1836,6 +1866,7 @@
           },
           "expr": "liquiditybot_position_stop_dist_pct{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1846,6 +1877,7 @@
           },
           "expr": "liquiditybot_position_tiers_fired{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1856,6 +1888,7 @@
           },
           "expr": "liquiditybot_position_lots{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1866,6 +1899,7 @@
           },
           "expr": "liquiditybot_position_conviction{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -1876,6 +1910,7 @@
           },
           "expr": "liquiditybot_position_age_hours{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         }
       ],
@@ -2077,6 +2112,7 @@
           },
           "expr": "liquiditybot_perf_asset_trades{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2087,6 +2123,7 @@
           },
           "expr": "liquiditybot_perf_asset_win_rate{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2097,6 +2134,7 @@
           },
           "expr": "liquiditybot_perf_asset_profit_factor{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2107,6 +2145,7 @@
           },
           "expr": "liquiditybot_perf_asset_expectancy_usd{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2117,6 +2156,7 @@
           },
           "expr": "liquiditybot_perf_asset_net_usd{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2127,6 +2167,7 @@
           },
           "expr": "liquiditybot_perf_asset_cur_loss_streak{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         },
         {
@@ -2137,6 +2178,7 @@
           },
           "expr": "liquiditybot_perf_asset_max_loss_streak{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         }
       ],

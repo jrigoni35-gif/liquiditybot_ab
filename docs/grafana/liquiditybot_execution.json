@@ -96,6 +96,7 @@
           },
           "expr": "liquiditybot_markout_bps{job=\"liquiditybot\"}",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}} @{{horizon_sec}}s"
         }
       ]
@@ -161,7 +162,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_maker_share{job=\"liquiditybot\"})*100",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -226,7 +228,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_avg_slip_bps{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -291,7 +294,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_worst_slip_bps{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -356,7 +360,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_latency_ms{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -417,7 +422,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_venue_rejects{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -482,7 +488,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_deadman_failures{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -539,7 +546,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_fees_total{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -596,7 +604,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_maker_notional_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -653,7 +662,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_order_taker_notional_usd{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -718,7 +728,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "100 * max(liquiditybot_fees_total{job=\"liquiditybot\"}) / clamp_min(max(liquiditybot_perf_gross_profit_usd{job=\"liquiditybot\"}), 0.001)",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -798,6 +809,7 @@
           },
           "expr": "max by (pair) (liquiditybot_skimmer_score{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{pair}}"
         }
       ]
@@ -855,7 +867,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_skimmer_promoted_count{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     },
@@ -902,6 +915,7 @@
           },
           "expr": "liquiditybot_skimmer_promoted_info{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         }
       ],
@@ -977,7 +991,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_skimmer_candidates{job=\"liquiditybot\"})",
-          "instant": true
+          "instant": true,
+          "range": false
         }
       ]
     }

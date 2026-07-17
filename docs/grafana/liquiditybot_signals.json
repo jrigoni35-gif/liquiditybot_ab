@@ -97,6 +97,7 @@
           },
           "expr": "max by (asset) (liquiditybot_signal_confidence{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -163,6 +164,7 @@
           },
           "expr": "max by (asset) (liquiditybot_signal_urgency{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -230,6 +232,7 @@
           },
           "expr": "100 * avg by (gate) (avg_over_time(liquiditybot_signal_gate_passed{job=\"liquiditybot\"}[24h]))",
           "instant": false,
+          "range": true,
           "legendFormat": "{{gate}}"
         }
       ]
@@ -297,6 +300,7 @@
           },
           "expr": "max by (gate) (liquiditybot_gate_weight{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{gate}}"
         }
       ]
@@ -356,6 +360,7 @@
           },
           "expr": "100 * avg by (asset) (avg_over_time(liquiditybot_signal_confirmed{job=\"liquiditybot\"}[24h]))",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -422,6 +427,7 @@
           },
           "expr": "max by (asset) (liquiditybot_manip_suspect{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -486,6 +492,7 @@
           },
           "expr": "max by (code) (liquiditybot_code_count_detail{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{code}}"
         }
       ]
@@ -533,6 +540,7 @@
           },
           "expr": "liquiditybot_regime_info{job=\"liquiditybot\"}",
           "instant": true,
+          "range": false,
           "format": "table"
         }
       ],
@@ -618,6 +626,7 @@
           },
           "expr": "max by (asset) (liquiditybot_regime_momentum{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -684,6 +693,7 @@
           },
           "expr": "max by (asset) (liquiditybot_regime_vol_pct{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
@@ -748,6 +758,7 @@
           },
           "expr": "max by (asset) (liquiditybot_regime_spread_bps{job=\"liquiditybot\"})",
           "instant": false,
+          "range": true,
           "legendFormat": "{{asset}}"
         }
       ]
