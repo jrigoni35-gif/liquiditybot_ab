@@ -133,7 +133,11 @@ def _update_locked() -> str:
         return "fetch_failed"
     _, local = _git("rev-parse", "HEAD")
     _, remote = _git("rev-parse", f"origin/{BRANCH}")
-    _, porcelain = _git("status", "--porcelain")
+    # --untracked-files=no: only TRACKED modifications are operator edits a
+    # fast-forward could clobber. Untracked files (e.g. a .claude/skills/
+    # dir the desktop app drops) blocked updates forever — and git stash
+    # can't even clear them, so the operator had no way out (live 2026-07-17).
+    _, porcelain = _git("status", "--porcelain", "--untracked-files=no")
     action = decide(local, remote, bool(porcelain.strip()))
     if action == "current":
         log("already up to date")

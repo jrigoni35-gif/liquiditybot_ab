@@ -41,6 +41,28 @@ def test_new_commits_dirty_tree_is_skipped():
     assert decide("abc123", "def456", True) == "dirty"
 
 
+def test_dirty_probe_ignores_untracked_files(tmp_path, monkeypatch):
+    # live 2026-07-17: an untracked .claude/skills/ dir made every update
+    # refuse as 'dirty' — and git stash can't clear untracked, so the
+    # operator was deadlocked. Only TRACKED modifications may block.
+    monkeypatch.setattr(au, "OUT", tmp_path)
+    calls = []
+
+    def fake_git(*args, cwd=None, timeout=120):
+        calls.append(args)
+        if args[0] == "fetch":
+            return 0, ""
+        if args[0] == "rev-parse":
+            return 0, "same"                    # local == remote -> current
+        if args[0] == "status":
+            return 0, ""
+        return 0, ""
+    monkeypatch.setattr(au, "_git", fake_git)
+    assert au.update_once() == "current"
+    status_calls = [c for c in calls if c[0] == "status"]
+    assert status_calls and "--untracked-files=no" in status_calls[0]
+
+
 # ---------------- single-updater lock ----------------
 
 def test_live_peer_lock_means_busy_and_no_git(tmp_path, monkeypatch):
