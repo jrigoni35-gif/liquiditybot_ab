@@ -37,6 +37,8 @@ ENV (all optional):
   LB_BACKUP_REMOTE      git remote (default "origin")
   LB_BACKUP_DRYRUN      set to "1" to export + commit but NOT push
 """
+import hashlib
+import json
 import os
 import shutil
 import subprocess  # nosec B404 - git/venv calls with fixed argv, no shell
@@ -74,6 +76,34 @@ def _cfg() -> dict:
     }
 
 
+def bundle_inconsistency(bundle: Path) -> str | None:
+    """Verify every file the bundle's manifest describes matches its recorded
+    sha256. Returns None when consistent, else a one-line reason.
+
+    WHY: an internally inconsistent bundle (manifest hash != shipped bytes —
+    seen live 2026-07-17 when two container boots' pushes interleaved) is
+    REFUSED WHOLE by the restore hook's session_import, so pushing one
+    replaces the durable tip with a bundle no future cold start can use.
+    Refusing here costs one tick (the next backup retries with a fresh
+    export); pushing it costs the restore. A manifest without a `files` map
+    (foreign/minimal bundles) has nothing to verify and passes."""
+    try:
+        man = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return f"manifest unreadable: {e}"
+    for name, meta in (man.get("files") or {}).items():
+        p = bundle / name
+        if not p.exists():
+            return f"{name}: listed in manifest but missing"
+        h = hashlib.sha256()
+        with open(p, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        if h.hexdigest() != meta.get("sha256"):
+            return f"{name}: sha256 mismatch vs manifest"
+    return None
+
+
 def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
     """Commit `bundle` to sessions/<label>/ on the durable branch and push,
     in an isolated worktree so `root`'s checkout/index/branch are untouched.
@@ -81,6 +111,9 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
     export or network (point `remote` at a local bare repo)."""
     if not (bundle / "signal_history.csv").exists():
         raise RuntimeError("bundle has no signal_history.csv")
+    reason = bundle_inconsistency(bundle)
+    if reason:
+        raise RuntimeError(f"refusing inconsistent bundle: {reason}")
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root)
     # bootstrap the durable branch on a fresh remote: without this the very
     # first backup would fetch a non-existent branch and raise forever. Seed

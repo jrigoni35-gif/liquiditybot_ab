@@ -122,6 +122,57 @@ def test_missing_history_raises(repos, tmp_path):
         tb.push_bundle(_cfg(), empty, root=root)
 
 
+def _real_manifest(d: Path) -> None:
+    """Give the fixture bundle a real-shaped manifest with a files map."""
+    import hashlib
+    import json
+    sha = hashlib.sha256(
+        (d / "signal_history.csv").read_bytes()).hexdigest()
+    (d / "manifest.json").write_text(json.dumps(
+        {"files": {"signal_history.csv": {"sha256": sha}}}), encoding="utf-8")
+
+
+def test_consistent_manifest_pushes(repos, tmp_path):
+    root, bare = repos
+    b = _make_bundle(tmp_path / "b", 5)
+    _real_manifest(b)
+    assert "pushed 5 rows" in tb.push_bundle(_cfg(), b, root=root)
+
+
+def test_inconsistent_bundle_is_refused_and_tip_untouched(repos, tmp_path):
+    # the live 2026-07-17 failure: manifest hash describes an older audit
+    # snapshot than the bytes in the bundle. Such a bundle is refused by the
+    # restore hook, so the push side must never let it become the tip.
+    root, bare = repos
+    good = _make_bundle(tmp_path / "good", 5)
+    _real_manifest(good)
+    tb.push_bundle(_cfg(), good, root=root)
+    tip_before = subprocess.run(
+        ["git", "rev-parse", "paper-telemetry"], cwd=str(bare),
+        check=True, capture_output=True, text=True).stdout.strip()
+    bad = _make_bundle(tmp_path / "bad", 5)
+    _real_manifest(bad)
+    # mutate a manifest-listed file AFTER hashing (the race, distilled)
+    with open(bad / "signal_history.csv", "a", encoding="utf-8") as fh:
+        fh.write("p999,999\n")
+    with pytest.raises(RuntimeError, match="inconsistent bundle"):
+        tb.push_bundle(_cfg(), bad, root=root)
+    tip_after = subprocess.run(
+        ["git", "rev-parse", "paper-telemetry"], cwd=str(bare),
+        check=True, capture_output=True, text=True).stdout.strip()
+    assert tip_before == tip_after
+
+
+def test_manifest_listed_but_missing_file_is_refused(repos, tmp_path):
+    root, _ = repos
+    b = _make_bundle(tmp_path / "b", 3)
+    import json
+    (b / "manifest.json").write_text(json.dumps(
+        {"files": {"audit.jsonl": {"sha256": "0" * 64}}}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="missing"):
+        tb.push_bundle(_cfg(), b, root=root)
+
+
 def test_bootstraps_missing_durable_branch(tmp_path):
     # fresh remote with NO paper-telemetry branch: the first backup must
     # self-seed the branch, not raise forever.

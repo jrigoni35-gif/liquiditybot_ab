@@ -22,7 +22,11 @@ that can overfit, entirely offline, and emits a PASS/FAIL report:
                               plateau (robust) or a spike (curve-fit).
   [OF-5] DEFLATED SHARPE      gate on live results: with < 30 labeled
                               live trades it reports DEFERRED, which is
-                              the honest answer.
+                              the honest answer. While dry-run active
+                              learning is on (ml.exploration.enabled) the
+                              live sample is EV-mixed by design, so DSR
+                              is reported INFORMATIONAL, not gated; it
+                              arms when exploration is disabled.
 
 Usage:
   python scripts/overfit_check.py [--quick] [--recording PATH]
@@ -364,6 +368,19 @@ def main() -> int:
                     rets.append(float(row["net_pnl_usd"]))
     except (OSError, ValueError):
         pass
+    # dry-run active learning deliberately mixes EV-negative probes into the
+    # live population (PT-050 bypasses the profit-EV gate to buy labels), so
+    # DSR on that mixture measures tuition, not the deployed strategy — and
+    # ML-070 records carry no position_id yet, so probes cannot be excluded
+    # per-trade. While exploration is enabled the number is reported but not
+    # gated; the gate re-arms the moment ml.exploration.enabled is false.
+    try:
+        _cfg_p = Path(__file__).resolve().parents[1] / "config.json"
+        _explore_on = bool(((json.loads(_cfg_p.read_text(encoding="utf-8"))
+                             .get("ml") or {}).get("exploration") or {})
+                           .get("enabled", False))
+    except (OSError, json.JSONDecodeError):
+        _explore_on = False                     # unreadable config: full gate
     if len(rets) < 30:
         info("dsr", f"DEFERRED — {len(rets)} live labeled trades < 30; "
                     f"rerun after live history accrues")
@@ -376,9 +393,15 @@ def main() -> int:
                             kurtosis=float(((r - r.mean()) ** 4).mean()
                                            / (r.std() + 1e-12) ** 4),
                             n_trials=7)
-        check("dsr: P(true SR > 0) after trials correction",
-              (d.get("dsr") or 0) >= 0.90,
-              f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}")
+        if _explore_on:
+            info("dsr", f"INFORMATIONAL during exploration phase — "
+                        f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}; "
+                        f"live sample is EV-mixed by design (PT-050 probes); "
+                        f"gate arms when ml.exploration.enabled is false")
+        else:
+            check("dsr: P(true SR > 0) after trials correction",
+                  (d.get("dsr") or 0) >= 0.90,
+                  f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}")
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)
