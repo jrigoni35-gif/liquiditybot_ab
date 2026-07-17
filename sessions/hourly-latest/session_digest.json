@@ -1,36 +1,36 @@
 {
-  "generated_at": 1784295417.8479297,
+  "generated_at": 1784296053.3402212,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784295416.285,
-    "duration_h": 99.06
+    "end": 1784296052.337,
+    "duration_h": 99.24
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 800.0,
-    "equity_end": 4997.49,
+    "equity_end": 4997.29,
     "equity_min": 798.74,
     "equity_max": 5000.09,
     "equity_range": 4201.35,
-    "realized_pnl_total": -2.01,
-    "fees_paid_total": 1.5835,
-    "open_positions": 5,
-    "samples": 10256
+    "realized_pnl_total": -2.43,
+    "fees_paid_total": 1.6579,
+    "open_positions": 4,
+    "samples": 10272
   },
   "activity": {
-    "signal_rows_total": 497,
-    "live_labeled_trades": 30,
-    "candidate_rows": 467
+    "signal_rows_total": 500,
+    "live_labeled_trades": 31,
+    "candidate_rows": 469
   },
   "audit": {
-    "records": 651,
-    "signal_records": 232,
+    "records": 654,
+    "signal_records": 235,
     "by_src": {
       "exploration": 419,
-      "startup": 93,
-      "order_manager": 91,
-      "fault": 38,
+      "startup": 94,
+      "order_manager": 92,
+      "fault": 39,
       "ml_governor": 9,
       "engine": 1
     },
@@ -41,15 +41,15 @@
       ],
       [
         "CG-000",
-        93
+        94
       ],
       [
         "OM-000",
-        90
+        91
       ],
       [
         "FT-020",
-        38
+        39
       ],
       [
         "ML-032",
@@ -81,39 +81,39 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.401,
+    "dominant_frac": 0.4,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 10048,
+    "records": 10204,
     "by_level": {
-      "INFO": 9896,
-      "WARNING": 74,
-      "ERROR": 42,
-      "CRITICAL": 36
+      "INFO": 10046,
+      "WARNING": 76,
+      "ERROR": 44,
+      "CRITICAL": 38
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        38
+        39
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        20
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        17
+        22
       ],
       [
         "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        17
+        18
       ],
       [
         "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
+        18
+      ],
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
         17
       ],
       [
@@ -138,12 +138,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2698,
-      "thin": 2494
+      "spoofy": 2716,
+      "thin": 2540
     },
-    "spoofy_frac": 0.52,
-    "cycles_estimate": 1478,
-    "feed_error_events": 43
+    "spoofy_frac": 0.517,
+    "cycles_estimate": 1486,
+    "feed_error_events": 45
   },
   "model": {
     "monitor_level": 0,
@@ -151,7 +151,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.18867418679534387,
     "brier": "n/a",
-    "history_rows": 30,
+    "history_rows": 31,
     "cold": true
   },
   "postmortems": {
@@ -194,7 +194,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 40% of 232 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 40% of 235 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
