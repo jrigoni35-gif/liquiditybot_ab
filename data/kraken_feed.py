@@ -29,6 +29,35 @@ API_VERSION = "0"
 
 log = logging.getLogger("liquiditybot.data.kraken")
 
+# Offline/altname-mismatch pair metadata. Kraken REJECTS orders whose price
+# has more decimals than pair_decimals, and AssetPairs keys its response by
+# ALTNAME (BTCUSD -> XBTUSD, DOGEUSD -> XDGUSD), so a pair whose altname
+# differs from our compact name resolves from THIS table even online — that
+# is the designed mechanism (see the BTC/XBT dual rows), not an edge case.
+# Every tradable pair (core trading_pairs AND skimmer candidates) must have a
+# row: the generic 2-decimal default silently grids sub-dollar prices
+# (config_guard advises on gaps; tests/test_pair_meta_coverage.py enforces).
+# Values verified against Kraken AssetPairs 2026-07-17. ordermin = BASE units.
+PAIR_META_FALLBACK = {
+    "ETHUSD": {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.002},
+    "XBTUSD": {"price_decimals": 1, "lot_decimals": 8, "ordermin": 0.00005},
+    "BTCUSD": {"price_decimals": 1, "lot_decimals": 8, "ordermin": 0.00005},
+    "SUIUSD": {"price_decimals": 4, "lot_decimals": 5, "ordermin": 5.0},
+    "ARBUSD": {"price_decimals": 4, "lot_decimals": 5, "ordermin": 60.0},
+    "MINAUSD": {"price_decimals": 5, "lot_decimals": 8, "ordermin": 120.0},
+    "FLOWUSD": {"price_decimals": 4, "lot_decimals": 8, "ordermin": 200.0},
+    # skimmer candidate pool (AssetPairs-verified 2026-07-17)
+    "SOLUSD": {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.06},
+    "XRPUSD": {"price_decimals": 5, "lot_decimals": 8, "ordermin": 1.65},
+    "ADAUSD": {"price_decimals": 6, "lot_decimals": 8, "ordermin": 20.0},
+    "LINKUSD": {"price_decimals": 5, "lot_decimals": 8, "ordermin": 0.55},
+    "DOGEUSD": {"price_decimals": 7, "lot_decimals": 8, "ordermin": 50.0},
+    "XDGUSD": {"price_decimals": 7, "lot_decimals": 8, "ordermin": 50.0},
+    "DOTUSD": {"price_decimals": 4, "lot_decimals": 8, "ordermin": 3.9},
+    "AVAXUSD": {"price_decimals": 3, "lot_decimals": 8, "ordermin": 0.5},
+    "LTCUSD": {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.1},
+}
+
 # Hard deny list: no code path in this bot may move funds off-exchange.
 # Defense-in-depth on top of using an API key without withdrawal rights.
 FORBIDDEN_PRIVATE_ENDPOINTS = frozenset({
@@ -323,22 +352,7 @@ class KrakenFeed(ThrottledRestClient):
         # guaranteed AddOrder rejection, so each traded pair needs its own
         # row; the generic default of 2 decimals would reject MINA (5) and
         # ARB/FLOW/SUI (4). ordermin is in BASE units.
-        fallback = {
-            "ETHUSD": {"price_decimals": 2, "lot_decimals": 8,
-                       "ordermin": 0.002},
-            "XBTUSD": {"price_decimals": 1, "lot_decimals": 8,
-                       "ordermin": 0.00005},
-            "BTCUSD": {"price_decimals": 1, "lot_decimals": 8,
-                       "ordermin": 0.00005},
-            "SUIUSD": {"price_decimals": 4, "lot_decimals": 5,
-                       "ordermin": 5.0},
-            "ARBUSD": {"price_decimals": 4, "lot_decimals": 5,
-                       "ordermin": 60.0},
-            "MINAUSD": {"price_decimals": 5, "lot_decimals": 8,
-                        "ordermin": 120.0},
-            "FLOWUSD": {"price_decimals": 4, "lot_decimals": 8,
-                        "ordermin": 200.0},
-        }
+        fallback = dict(PAIR_META_FALLBACK)
         meta = {}
         result = self._public_get("AssetPairs", {"pair": ",".join(pairs)}) \
             if pairs else None

@@ -41,6 +41,11 @@ PORTABLE = [
     "postmortem_summary.csv",
     "overfit_report.md",
     "meta_model.json",
+    # skimmer promotions: without this a fresh container boots the bare core
+    # universe until the skimmer re-scores (~an hour of lost breadth). Safe to
+    # carry: AssetSkimmer.load_active hard-validates on every read, and import
+    # is copy-if-absent (a live machine keeps its own fresher file).
+    "skimmer_active.json",
 ]
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}

@@ -523,6 +523,21 @@ def validate(config: dict) -> list:
         if bad:
             fatal(f"skimmer: candidates must be Kraken 'X/USD' spot pairs "
                   f"(execution venue + quote-currency invariant): {bad}")
+        # every tradable pair needs an offline pair-meta row: the generic
+        # 2-decimal default silently grids sub-dollar prices (and AssetPairs
+        # keys by ALTNAME, so DOGE-style pairs fall back even online)
+        try:
+            from data.kraken_feed import PAIR_META_FALLBACK
+            nometa = [p for p in list(core) + [c for c in cands
+                                               if isinstance(c, str)]
+                      if p.replace("/", "") not in PAIR_META_FALLBACK]
+            if nometa:
+                advisory(f"pairs without an offline pair-meta fallback row "
+                         f"(would run on the generic 2-decimal default): "
+                         f"{nometa} - add them to data/kraken_feed.py "
+                         f"PAIR_META_FALLBACK with AssetPairs-verified values")
+        except ImportError:
+            pass
 
     # --- entry cap vs the outer rails (coherence, not a hard stop) ----------
     # the position cap should sit at/under the per-order firewall cap and the

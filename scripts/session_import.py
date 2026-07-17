@@ -236,6 +236,16 @@ def run(src: str, outputs: str, apply: bool,
             print(f"  meta_model.json adopted + registered locally ({mid})")
         except Exception as e:                       # noqa: BLE001 - never block
             print(f"  meta_model.json adopted (local registration skipped: {e})")
+    # skimmer promotions travel copy-if-absent for the same reason as the
+    # model: a fresh container otherwise boots the bare core universe until
+    # the skimmer re-scores (~an hour of lost breadth + label flow). A live
+    # machine keeps its own (fresher) file; the boot merge hard-validates
+    # whatever it reads, so a stale or garbled copy can only shrink to [].
+    sk_src = srcp / "skimmer_active.json"
+    sk_dst = out / "skimmer_active.json"
+    if sk_src.exists() and not sk_dst.exists():
+        shutil.copy2(sk_src, sk_dst)
+        print("  skimmer_active.json adopted (promotions apply at next boot)")
     dest_hist = out / "signal_history.csv"
     if new_lines:
         if dest_hist.exists():
