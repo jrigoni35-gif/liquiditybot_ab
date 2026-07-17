@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784318914.3676052,
+  "generated_at": 1784321371.1924937,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784318913.347,
-    "duration_h": 105.59
+    "end": 1784321369.913,
+    "duration_h": 106.27
   },
   "pnl": {
     "starting_capital": 5000.0,
@@ -16,21 +16,21 @@
     "realized_pnl_total": -3.42,
     "fees_paid_total": 2.0681,
     "open_positions": 0,
-    "samples": 10597
+    "samples": 10614
   },
   "activity": {
-    "signal_rows_total": 534,
+    "signal_rows_total": 535,
     "live_labeled_trades": 35,
-    "candidate_rows": 499
+    "candidate_rows": 500
   },
   "audit": {
-    "records": 689,
-    "signal_records": 270,
+    "records": 691,
+    "signal_records": 272,
     "by_src": {
       "exploration": 419,
-      "startup": 108,
+      "startup": 109,
       "order_manager": 98,
-      "fault": 53,
+      "fault": 54,
       "ml_governor": 10,
       "engine": 1
     },
@@ -41,7 +41,7 @@
       ],
       [
         "CG-000",
-        108
+        109
       ],
       [
         "OM-000",
@@ -49,7 +49,7 @@
       ],
       [
         "FT-020",
-        53
+        54
       ],
       [
         "ML-032",
@@ -81,40 +81,40 @@
       ]
     ],
     "dominant_code": "CG-000",
-    "dominant_frac": 0.4,
+    "dominant_frac": 0.401,
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 199
   },
   "events": {
-    "records": 12675,
+    "records": 12803,
     "by_level": {
-      "INFO": 12430,
-      "WARNING": 113,
-      "ERROR": 66,
-      "CRITICAL": 66
+      "INFO": 12554,
+      "WARNING": 115,
+      "CRITICAL": 68,
+      "ERROR": 66
     },
     "top_warnings": [
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        53
+        54
+      ],
+      [
+        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
+        33
+      ],
+      [
+        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
+        33
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
         32
       ],
       [
-        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        32
-      ],
-      [
-        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        32
-      ],
-      [
         "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        23
+        24
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
@@ -138,11 +138,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 3516,
-      "spoofy": 2953
+      "thin": 3570,
+      "spoofy": 2958
     },
-    "spoofy_frac": 0.456,
-    "cycles_estimate": 1646,
+    "spoofy_frac": 0.453,
+    "cycles_estimate": 1654,
     "feed_error_events": 70
   },
   "model": {
@@ -188,7 +188,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "CG-000 is 40% of 270 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "CG-000 is 40% of 272 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
