@@ -90,7 +90,12 @@ def timeseries(pid, title, expr, x, y, w, h, unit="", desc="", legend="value"):
             "spanNulls": True, "axisPlacement": "auto",
             "scaleDistribution": {"type": "linear"}},
             "color": {"mode": "palette-classic"}}, "overrides": []},
-        "options": {"legend": {"displayMode": "hidden", "placement": "bottom"},
+        # legend MUST carry showLegend: the deprecated bare
+        # {displayMode: "hidden"} shape blanks the ENTIRE timeseries plugin
+        # (no chart, not even "No data") on current Grafana Cloud — proven
+        # by 4-variant panel bisection, live 2026-07-17.
+        "options": {"legend": {"showLegend": False, "displayMode": "list",
+                               "placement": "bottom"},
                     "tooltip": {"mode": "single", "sort": "none"}},
         "targets": [_t(expr, instant=False, legend=legend)]})
 
@@ -240,8 +245,8 @@ panels.append({
         "spanNulls": True, "axisPlacement": "auto",
         "scaleDistribution": {"type": "linear"}},
         "color": {"mode": "palette-classic"}}, "overrides": []},
-    "options": {"legend": {"displayMode": "table", "placement": "right",
-                           "calcs": ["last", "mean"]},
+    "options": {"legend": {"showLegend": True, "displayMode": "table",
+                           "placement": "right", "calcs": ["last", "mean"]},
                 "tooltip": {"mode": "multi", "sort": "desc"}},
     "targets": [_t('liquiditybot_markout_bps' + JOB, instant=False,
                    legend="{{asset}} @{{horizon_sec}}s")]})
@@ -309,7 +314,8 @@ def ts_multi(pid, title, expr, x, y, w, h, legend, unit="", desc="",
         "id": pid, "type": "timeseries", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "fieldConfig": {"defaults": fld, "overrides": []},
-        "options": {"legend": {"displayMode": "table", "placement": "right",
+        "options": {"legend": {"showLegend": True, "displayMode": "table",
+                               "placement": "right",
                                "calcs": ["lastNotNull"]},
                     "tooltip": {"mode": "multi", "sort": "desc"}},
         "targets": [_t(expr, instant=False, legend=legend)] +
