@@ -2,15 +2,15 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-13 10:33 UTC -> 2026-07-17 02:32 UTC (87.99h, ~1111 cycles)
-- Equity: $800.00 -> $4,999.21 (range $4,201.35) | realized PnL $0.08 | fees $0.30
-- Activity: 5 open | 21 live labeled trades | 411 candidates | 8 postmortems
-- Model: level 0 | use_model=True | brier n/a | history_rows 21 | cold=True
-- Audit: 565 records (176 non-routine) | dominant CG-000 (43% of non-routine) | chain_ok=False | retrain_requests 3
+- Window: 2026-07-13 10:33 UTC -> 2026-07-17 02:51 UTC (88.31h, ~1148 cycles)
+- Equity: $800.00 -> $4,999.01 (range $4,201.35) | realized PnL $-0.31 | fees $0.37
+- Activity: 4 open | 22 live labeled trades | 412 candidates | 8 postmortems
+- Model: level 0 | use_model=True | brier n/a | history_rows 22 | cold=True
+- Audit: 566 records (177 non-routine) | dominant CG-000 (43% of non-routine) | chain_ok=False | retrain_requests 3
 - Liquidity: spoofy 67% of classified cycles | feed errors 20
 
 ## Diagnostics
 - [ERR]  **SD-007 audit chain broken**  -  hash chain first breaks at record 199  -  the trail was truncated, reordered, or corrupted past that point
 - [ERR]  **SD-005 postmortem realized% contradicts its own excursions**  -  1 of 8 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes
 - [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 67% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
-- [WARN] **SD-004 audit trail dominated by one code**  -  CG-000 is 43% of 176 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-004 audit trail dominated by one code**  -  CG-000 is 43% of 177 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
