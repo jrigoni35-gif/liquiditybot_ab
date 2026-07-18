@@ -110,3 +110,53 @@ def test_empty_or_missing_source_never_hands_over(monkeypatch, tmp_path):
     assert sup._source_changed() is False
     f.unlink()
     assert sup._source_changed() is False
+
+
+# ---------------------------------------------------------------------
+# corpus-export lane (telemetry_backup --once under the pc-live label):
+# the PC's live training corpus must have a durable export path of its
+# own — cadence stamp-gated, kill-switchable, label pinned to pc-live so
+# it never shadows the cloud mirror's bundle.
+# ---------------------------------------------------------------------
+def _run_tick_capturing_spawns(monkeypatch, tmp_path, env=()):
+    calls = []
+    monkeypatch.setattr(sup, "_spawn",
+                        lambda argv, own_log=True: calls.append(argv))
+    monkeypatch.setattr(sup, "_fresh", lambda *a, **k: True)  # runner alive
+    monkeypatch.setattr(sup, "_maybe_launch_opend", lambda: None)
+    monkeypatch.setattr(sup, "_auto_update_due", lambda: False)
+    monkeypatch.setattr(sup, "_source_changed", lambda: False)
+    for var in ("LB_NO_REMOTE_CMD", "LB_NO_STATUS_PUSH",
+                "LB_NO_CORPUS_SYNC", "LB_NO_TELEM_BACKUP"):
+        monkeypatch.delenv(var, raising=False)
+    for k, v in env:
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(sup, "OUT", tmp_path)
+    monkeypatch.setattr(sup, "_TELEM_BACKUP_STAMP",
+                        tmp_path / ".telem_backup_stamp")
+    monkeypatch.setattr(sup, "_REMOTE_CMD_STAMP", tmp_path / ".rc_stamp")
+    monkeypatch.setattr(sup, "_STATUS_PUSH_STAMP", tmp_path / ".sp_stamp")
+    monkeypatch.setattr(sup, "_CORPUS_SYNC_STAMP", tmp_path / ".cs_stamp")
+    monkeypatch.setattr(sup, "_UPDATE_STAMP", tmp_path / ".up_stamp")
+    sup.tick()
+    return calls
+
+
+def test_tick_spawns_pc_live_export_when_due(monkeypatch, tmp_path):
+    calls = _run_tick_capturing_spawns(monkeypatch, tmp_path)
+    backup = [c for c in calls if "scripts/telemetry_backup.py" in c]
+    assert len(backup) == 1
+    assert backup[0][-3:] == ["--once", "--label", "pc-live"]
+
+
+def test_tick_backup_respects_stamp_cadence(monkeypatch, tmp_path):
+    calls1 = _run_tick_capturing_spawns(monkeypatch, tmp_path)
+    assert any("scripts/telemetry_backup.py" in c for c in calls1)
+    calls2 = _run_tick_capturing_spawns(monkeypatch, tmp_path)  # stamp fresh
+    assert not any("scripts/telemetry_backup.py" in c for c in calls2)
+
+
+def test_tick_backup_kill_switch(monkeypatch, tmp_path):
+    calls = _run_tick_capturing_spawns(monkeypatch, tmp_path,
+                                       env=(("LB_NO_TELEM_BACKUP", "1"),))
+    assert not any("scripts/telemetry_backup.py" in c for c in calls)

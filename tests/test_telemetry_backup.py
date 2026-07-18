@@ -212,3 +212,34 @@ def test_bootstraps_missing_durable_branch(tmp_path):
     assert "pushed 5 rows" in tb.push_bundle(
         _cfg(), _make_bundle(tmp_path / "bundle", rows=5), root=root)
     assert "sessions/nightshift/signal_history.csv" in _branch_files(bare)
+
+
+# ---------------------------------------------------------------------
+# --once / --label: the PC's supervisor-driven export lane. The PC is THE
+# bot, so its live corpus must reach the durable branch under its own
+# label; found 2026-07-18 that only the cloud MIRROR was pushing bundles
+# (stamped fresh hourly) while the canonical 1177-row file had no export
+# path at all — a 54%-of-corpus single-disk durability hole.
+# ---------------------------------------------------------------------
+def test_once_mode_runs_single_cycle_and_exits(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tb, "backup_once",
+                        lambda cfg: calls.append(cfg) or "ok")
+    assert tb.main(["--once"]) == 0
+    assert len(calls) == 1                       # one cycle, no loop
+
+
+def test_once_mode_label_override_beats_env(monkeypatch):
+    seen = {}
+    monkeypatch.setenv("LB_BACKUP_LABEL", "cloud-mirror")
+    monkeypatch.setattr(tb, "backup_once",
+                        lambda cfg: seen.update(cfg) or "ok")
+    assert tb.main(["--once", "--label", "pc-live"]) == 0
+    assert seen["label"] == "pc-live"
+
+
+def test_once_mode_failure_is_one_line_nonzero(monkeypatch):
+    def boom(cfg):
+        raise RuntimeError("push refused")
+    monkeypatch.setattr(tb, "backup_once", boom)
+    assert tb.main(["--once"]) == 1              # next stamp retries; no raise

@@ -172,9 +172,15 @@ fi
 # external scheduled trigger does when the session dies. Default ON in cloud;
 # set LB_BACKUP_DISABLED=1 to opt out, LB_BACKUP_DRYRUN=1 to bundle without
 # pushing. Working-tree-safe (isolated worktree) and fail-safe by design.
+# Label 'cloud-mirror': this side's outputs/ is a RECONSTRUCTION from
+# imported bundles, not the canonical corpus — the PC pushes the live file
+# under 'pc-live' (pc_supervisor cadence). Found 2026-07-18: the mirror
+# pushing as 'hourly-latest' shadowed the real corpus with a stale copy
+# stamped fresh, hiding a 639-row durability gap.
 if [ "${LB_BACKUP_DISABLED:-}" != "1" ] \
    && ! pgrep -f "[t]elemetry_backup\.py" >/dev/null 2>&1; then
-  setsid nohup "$PY" scripts/telemetry_backup.py \
+  setsid nohup env LB_BACKUP_LABEL="${LB_BACKUP_LABEL:-cloud-mirror}" \
+    "$PY" scripts/telemetry_backup.py \
     >> outputs/telemetry_backup.log 2>&1 < /dev/null &
-  log "learning-durability backup sidecar relaunched"
+  log "learning-durability backup sidecar relaunched (label cloud-mirror)"
 fi

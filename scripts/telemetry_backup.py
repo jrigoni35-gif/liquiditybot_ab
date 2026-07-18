@@ -187,8 +187,27 @@ def backup_once(cfg: dict) -> str:
         return push_bundle(cfg, bundle)
 
 
-def main() -> None:
+def main(argv: list | None = None) -> int:
+    """Loop mode (default, the cloud sidecar) or --once (the PC: its
+    supervisor owns the cadence via a stamp, so each spawn is one
+    export+push and exit). --label overrides LB_BACKUP_LABEL so the PC's
+    live corpus lands under its own bundle name instead of shadowing the
+    cloud mirror's."""
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--label", default=None)
+    args = ap.parse_args(argv)
     cfg = _cfg()
+    if args.label:
+        cfg["label"] = args.label
+    if args.once:
+        try:
+            _log(backup_once(cfg))
+            return 0
+        except Exception as e:      # fail-safe: one line, next stamp retries
+            _log(f"backup failed (next cadence retries): {e}")
+            return 1
     _log(f"start: every {cfg['period']:.0f}s -> {cfg['branch']} "
          f"/sessions/{cfg['label']}{' (DRY-RUN)' if cfg['dry_run'] else ''}")
     while True:
@@ -200,4 +219,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

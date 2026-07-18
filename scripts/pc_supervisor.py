@@ -68,6 +68,16 @@ try:
     CORPUS_SYNC_SEC = float(os.environ.get("LB_CORPUS_SYNC_SEC", "3600"))
 except ValueError:
     CORPUS_SYNC_SEC = 3600.0
+# one-bot corpus EXPORT (scripts/telemetry_backup.py --once): push THIS
+# machine's live training corpus to the durable branch under the pc-live
+# label. Found live 2026-07-18: the PC's corpus (1177 rows) had NO export
+# path at all — only the cloud mirror pushed bundles, so 54% of the
+# learning data existed on exactly one disk. LB_NO_TELEM_BACKUP=1 disables.
+try:
+    TELEM_BACKUP_SEC = float(os.environ.get("LB_TELEM_BACKUP_SEC", "3600"))
+except ValueError:
+    TELEM_BACKUP_SEC = 3600.0
+_TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
@@ -311,6 +321,13 @@ def tick() -> None:
     if (not os.environ.get("LB_NO_CORPUS_SYNC")
             and _stamp_due(_CORPUS_SYNC_STAMP, CORPUS_SYNC_SEC)):
         _spawn([PY, "scripts/corpus_sync.py"], own_log=False)
+    # corpus EXPORT: the PC is THE bot, so ITS file is the canonical
+    # learning corpus — checkpoint it durably under its own label (the
+    # cloud sidecar's mirror bundle must never shadow this one)
+    if (not os.environ.get("LB_NO_TELEM_BACKUP")
+            and _stamp_due(_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC)):
+        _spawn([PY, "scripts/telemetry_backup.py", "--once",
+                "--label", "pc-live"])
 
     # 6) self-restart on source change: the auto-updater bounces the RUNNER,
     # but this process would keep the pre-update supervisor in memory until
