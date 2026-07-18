@@ -809,10 +809,26 @@ def main():
         30.0))
     held = _lock.acquire()
     if held is not None:
-        log.critical("another runner is already driving outputs/ (pid=%s, "
-                     "heartbeat %.0fs ago) - refusing to start a duplicate. "
-                     "Stop it first (stop.bat) or wait for its lock to expire.",
-                     held.get("pid"), time.time() - float(held.get("heartbeat", 0)))
+        hb_age = time.time() - float(held.get("heartbeat", 0))
+        # Two cases, very different urgency:
+        #  * peer HEALTHY (recent heartbeat): this is the benign supervisor/
+        #    updater revive race — a redundant spawn during a restart window
+        #    hit a still-alive runner and the lock did its job. NO action
+        #    needed; this spawn just backs off. (Logging it CRITICAL with
+        #    "stop it first" made routine deploy restarts look like a rogue
+        #    second bot — 2026-07-18.)
+        #  * peer STALE (heartbeat older than the lock's own stale window):
+        #    a genuinely wedged duplicate the operator may need to clear.
+        if hb_age <= _lock.stale_after:
+            log.info("peer runner healthy (pid=%s, heartbeat %.0fs ago) — "
+                     "this redundant spawn is backing off, no action needed "
+                     "(supervisor/updater revive race, lock working)",
+                     held.get("pid"), hb_age)
+        else:
+            log.critical("another runner holds outputs/ but looks STALE "
+                         "(pid=%s, heartbeat %.0fs ago > %.0fs) - refusing to "
+                         "start; clear it (stop.bat) or wait for lock expiry.",
+                         held.get("pid"), hb_age, _lock.stale_after)
         raise SystemExit(3)
 
     if args.fresh:
