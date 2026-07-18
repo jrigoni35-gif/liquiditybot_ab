@@ -187,7 +187,20 @@ def _publish(root: Path, writes: dict, deletes: list) -> str:
                     (wt / rel).unlink()
                 except OSError:
                     pass
-            _git("add", "-A", cwd=wt)
+            # Stage ONLY the paths this publish touches — NEVER `git add -A`.
+            # A blanket add re-stages sibling LEARNING bundles too, and on a
+            # Windows pusher (pc_status is published every ~600s from the PC)
+            # under the branch's `-text` pin their checked-out CRLF bytes get
+            # committed verbatim, rewriting bundle blobs out of sync with
+            # their manifests and breaking every puller's integrity check
+            # (the 2026-07-18 corpus-integrity incident — telemetry_backup
+            # had the identical bug). Keep the -text pin present too.
+            ga = wt / ".gitattributes"
+            if not ga.exists():
+                ga.write_text("* -text\n", encoding="utf-8")
+            pathspecs = sorted(set(list(writes) + list(deletes)
+                                   + [".gitattributes"]))
+            _git("add", "-A", "--", *pathspecs, cwd=wt)
             rc, porcelain = _git("status", "--porcelain", cwd=wt)
             if not porcelain.strip():
                 return "no_change"

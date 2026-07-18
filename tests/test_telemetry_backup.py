@@ -282,3 +282,33 @@ def test_crlf_bundle_survives_autocrlf_pusher_byte_exact(repos, tmp_path):
         + "\r\n").encode("utf-8")               # byte-for-byte identical
     # and the -text pin itself is on the branch
     assert ".gitattributes" in _branch_files(bare)
+
+
+def test_push_only_touches_its_own_label_never_siblings(repos, tmp_path):
+    # regression (2026-07-18): push_bundle used `git add -A`, which re-staged
+    # EVERY sibling bundle. Combined with the -text pin and a Windows
+    # autocrlf checkout, a single push rewrote unrelated bundles' blobs and
+    # broke their integrity. A push must be idempotent w.r.t. bundles it is
+    # not writing. Here: land bundle A, record its committed blob; land a
+    # DIFFERENT bundle B; A's blob must be byte-identical afterward.
+    import subprocess
+    root, bare = repos
+
+    def blob(label, name="signal_history.csv"):
+        return subprocess.run(
+            ["git", "cat-file", "-p",
+             f"paper-telemetry:sessions/{label}/{name}"],
+            cwd=str(bare), check=True, capture_output=True).stdout
+
+    tb.push_bundle(_cfg(label="alpha"), _make_bundle(tmp_path / "a", 5),
+                   root=root)
+    a_before = blob("alpha")
+    tb.push_bundle(_cfg(label="beta"), _make_bundle(tmp_path / "b", 7),
+                   root=root)
+    assert blob("alpha") == a_before          # sibling untouched by beta push
+    # and the beta commit's changed paths never reach into sessions/alpha
+    names = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "paper-telemetry"],
+        cwd=str(bare), check=True, capture_output=True, text=True).stdout
+    assert "sessions/beta/" in names
+    assert "sessions/alpha/" not in names

@@ -166,7 +166,17 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
             # blob equals the on-disk bytes on every machine, autocrlf or
             # not. Written before `git add` so it governs the same add.
             (wt / ".gitattributes").write_text("* -text\n", encoding="utf-8")
-            _run(["git", "add", "-A"], cwd=wt)
+            # Stage ONLY this label's dir + .gitattributes — NEVER `git add
+            # -A`. A blanket add re-stages every SIBLING bundle too, and on
+            # a Windows pusher (autocrlf checkout -> CRLF on disk) at the
+            # transition where the tip did not yet carry the `-text` pin,
+            # those CRLF bytes get committed verbatim, rewriting sibling
+            # blobs out of sync with their manifests and breaking the
+            # integrity check for every puller (lived 2026-07-18: one
+            # pc-live push corrupted hourly-latest/nightshift/dated bundles).
+            # A push must be idempotent w.r.t. bundles it is not writing.
+            _run(["git", "add", "-A", "--", f"sessions/{cfg['label']}",
+                  ".gitattributes"], cwd=wt)
             if not _run(["git", "status", "--porcelain"], cwd=wt):
                 return f"no change ({cfg['label']} already current)"
             rows = sum(1 for _ in open(bundle / "signal_history.csv")) - 1
