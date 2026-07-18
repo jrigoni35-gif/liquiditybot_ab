@@ -344,6 +344,19 @@ def validate(config: dict) -> list:
     if sf_sref <= 0.0:
         fatal(f"order_manager.sim_fill.sigma_ref_bps={sf_sref} must be "
               f"positive - it normalizes the vol-scaled queue turnover")
+    # STARVATION caveat (review finding): with queue_aware on, the geometric
+    # turnover clears at most ~1/(1-drain*sigma/sigma_ref) of the queue per
+    # poll, and only ~order_timeout_sec/poll_cadence polls exist before an
+    # unfilled order expires. At the default drain/sigma_ref a wall more than
+    # a few multiples of the order size never clears in-window, so a book bot
+    # resting behind real depth generates ZERO passive labels. It is off by
+    # default; when enabling, calibrate drain/sigma_ref against the live poll
+    # cadence and confirm fills are not starved (part of the re-baseline).
+    if bool(_f(config, "order_manager.sim_fill.queue_aware", False)):
+        warn("order_manager.sim_fill.queue_aware=true: verify passive fills "
+             "are not starved at your live sigma/poll-cadence before trusting "
+             "the labels — the queue turnover must clear a typical wall inside "
+             "order_timeout_sec or every behind-the-wall entry expires unfilled")
     esc = _f(config, "risk.exit_escalation", {}) or {}
     mult = float(esc.get("widen_mult", 2.0))
     if mult < 1.0:

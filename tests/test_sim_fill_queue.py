@@ -70,6 +70,27 @@ def test_order_behind_persistent_wall_never_fills():
     assert not any(e.fill_size > 0 for e in events)
 
 
+def test_partial_fill_does_not_strand_a_front_of_queue_order():
+    # review finding (HIGH): the eligibility yardstick must be order.SIZE,
+    # not order.remaining. With `remaining`, the first partial fill shrank
+    # the RHS below queue_ahead and flipped an at-the-front order back to
+    # ineligible, stranding it as a never-completing partial. Here: a thin
+    # wall (0.4 < size 1.0) makes the order eligible; once it starts
+    # filling it must KEEP filling to completion, never re-block.
+    # deterministic 30%-of-remaining fills make the stall visible: queue_ahead
+    # is 0.4, so the OLD `remaining` yardstick re-blocks once remaining < 0.4
+    # (i.e. filled > 0.6), capping the order near ~0.66; the `size` yardstick
+    # keeps it eligible all the way to ~full.
+    om = _om(queue_aware=True, passive_base_prob=1.0, queue_drain_frac=0.0,
+             queue_tol_frac=1.0, fill_frac_min=0.3, fill_frac_max=0.3)
+    o = _buy(price=100.0, size=1.0)
+    book = {"bids": [[100.0, 0.4]], "asks": [[100.2, 5.0]]}   # static, no turnover
+    for t in range(30):
+        om._poll_dry(o, book, 5.0, float(t))
+    assert o.filled > 0.9                        # not stranded past filled≈0.66
+    assert o.remaining < 0.1
+
+
 def test_queue_ratchets_down_then_fills_when_wall_clears():
     om = _om(queue_aware=True, passive_base_prob=1.0, queue_tol_frac=1.0)
     o = _buy(price=100.0, size=1.0)

@@ -630,18 +630,25 @@ class OrderManager:
         turnover of the remaining queue (static-snapshot replays, where the
         aggregate depth looks stable but is continuously traded). Eligible
         once the remaining depth ahead is within queue_tol_frac of our own
-        size. Monotone down: new joiners ahead never push us back."""
+        ORDER SIZE. Monotone down: new joiners ahead never push us back.
+
+        The yardstick is `order.size`, NOT `order.remaining`: a price-time-
+        priority order cannot regress in the queue just because its own
+        resting quantity shrank as it filled. Using `remaining` (a review
+        finding) collapsed the threshold on the first partial fill and
+        stranded an at-the-front order as a never-completing partial."""
+        tol = self.sf_queue_tol_frac * order.size
         ahead_now = self._depth_ahead(order, book)
         if order.queue_ahead < 0.0:            # first time resting
             order.queue_ahead = ahead_now
-            return order.queue_ahead <= self.sf_queue_tol_frac * order.remaining
+            return order.queue_ahead <= tol
         observed = max(order.queue_ahead - ahead_now, 0.0)
         sigma_bps = max(sigma_bar_pct * 100.0, 1.0)
         turnover = order.queue_ahead * min(
             self.sf_queue_drain * (sigma_bps / self.sf_sigma_ref_bps), 1.0)
         order.queue_ahead = max(0.0, order.queue_ahead
                                 - max(observed, turnover))
-        return order.queue_ahead <= self.sf_queue_tol_frac * order.remaining
+        return order.queue_ahead <= tol
 
     def _poll_dry(self, order: ManagedOrder, book: Optional[dict],
                   sigma_bar_pct: float, now: float) -> list:
