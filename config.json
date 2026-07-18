@@ -483,7 +483,7 @@
     },
     "adaptive_gbt": {
       "_doc": "OPT-IN top ladder rung (ml/models.py AdaptiveGBT): bagged, warm-updatable boosted trees. Ships DISABLED - like every new learner it enters the DEPLOYED walk-forward selection only when enabled=true, and even then must beat mlp out-of-sample by the Brier margin to ship (the ladder is evidence-gated). Two upgrades over the single gbt rung, both free of any FITTED degree of freedom: (1) bags decorrelated boosted-stump models on different seeds and probability-averages them (pure variance reduction, exactly what ensemble_seeds does for the MLP); (2) warm_update() appends up to warm_rounds boosting rounds per member on freshly labeled rows between full retrains - continuous learning that leans recent by construction, hard-capped at max_total_trees so it can never grow unbounded. Enabling it changes the deployed selection rule: re-run scripts/overfit_check.py to re-baseline (OF-3 PBO reads this flag), and note the champion/challenger Brier gate is then the only thing between an adaptive_gbt champion and the live paper runner.",
-      "enabled": false,
+      "enabled": true,
       "bags": 4,
       "warm_rounds": 25,
       "max_total_trees": 800
