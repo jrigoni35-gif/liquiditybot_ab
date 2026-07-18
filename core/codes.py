@@ -32,6 +32,7 @@ class Code(str, Enum):
     FW_INVALID_SIZE = "FW-012"
     FW_INVALID_EQUITY = "FW-013"
     FW_RATE_LIMIT = "FW-020"
+    FW_RATE_EXIT_OVERRIDE = "FW-021"  # exit past rate budget allowed anyway (escapes never rate-vetoed)
     FW_DUPLICATE = "FW-030"
     FW_NOTIONAL_REJECT = "FW-040"
     FW_NOTIONAL_CLAMP = "FW-041"

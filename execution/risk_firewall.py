@@ -194,11 +194,24 @@ class RiskFirewall:
             self._submits.popleft()
         budget = self.limits.max_orders_per_min * (2 if is_exit else 1)
         if len(self._submits) >= budget:
-            return self._reject(
-                seq, [tag(Code.FW_RATE_LIMIT,
-                          f"{len(self._submits)} accepted orders in 60s "
-                          f">= budget {budget}")],
-                pair, side, purpose, price, size, alert_key="rate_limit")
+            if is_exit:
+                # INVARIANT #5: escapes are never rate-vetoed. A panic
+                # flatten across a wide book plus escalation retries could
+                # exhaust even the 2x budget and starve risk-REDUCING
+                # orders for up to a minute in exactly the dislocated tape
+                # the ladder exists for (audit EX-5 2026-07-17). The
+                # override is loud and audited; entries keep starving
+                # first because exits still consume budget below.
+                notes.append(tag(Code.FW_RATE_EXIT_OVERRIDE,
+                                 f"{len(self._submits)} orders in 60s >= "
+                                 f"budget {budget} - exit allowed anyway"))
+                self._count(Code.FW_RATE_EXIT_OVERRIDE)
+            else:
+                return self._reject(
+                    seq, [tag(Code.FW_RATE_LIMIT,
+                              f"{len(self._submits)} accepted orders in 60s "
+                              f">= budget {budget}")],
+                    pair, side, purpose, price, size, alert_key="rate_limit")
 
         # ---- REQ-FW-04: duplicate suppression ---------------------------
         fp = self._fingerprint(pair, side, purpose, price, size)
