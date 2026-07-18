@@ -80,6 +80,12 @@ def synced_world(tmp_path, monkeypatch):
     dest.parent.mkdir()
     import shutil
     shutil.copytree(bundle, dest)
+    # mirror production push_bundle: pin the bundle branch -text so a peer
+    # with core.autocrlf=true never EOL-normalizes a blob out of sync with
+    # its manifest sha (the Windows-PC deploy blocker). Without this the
+    # fixture only reproduces the byte-exact case a Linux pusher happens to
+    # produce, hiding the real cross-platform hazard.
+    (root / ".gitattributes").write_text("* -text\n", encoding="utf-8")
     _git("add", "-A", cwd=root)
     _git("commit", "-m", "peer bundle", cwd=root)
     _git("push", "origin", "paper-telemetry", cwd=root)

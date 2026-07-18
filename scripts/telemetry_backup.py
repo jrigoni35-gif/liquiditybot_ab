@@ -155,6 +155,17 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
             if dest.exists():
                 shutil.rmtree(dest)
             shutil.copytree(bundle, dest)
+            # BYTE-EXACTNESS under core.autocrlf (the Windows-PC deploy
+            # blocker, 2026-07-18): the manifest sha is computed over the
+            # on-disk bundle bytes, but a pusher with autocrlf=true would
+            # EOL-normalize CSV/text blobs at commit — so a puller reading
+            # the blob (corpus_sync) sees different bytes and refuses the
+            # bundle as "tampered", which also fails test_corpus_sync and
+            # thus the whole auto-update battery on that machine. Pin the
+            # durable branch to -text so git NEVER converts: the committed
+            # blob equals the on-disk bytes on every machine, autocrlf or
+            # not. Written before `git add` so it governs the same add.
+            (wt / ".gitattributes").write_text("* -text\n", encoding="utf-8")
             _run(["git", "add", "-A"], cwd=wt)
             if not _run(["git", "status", "--porcelain"], cwd=wt):
                 return f"no change ({cfg['label']} already current)"

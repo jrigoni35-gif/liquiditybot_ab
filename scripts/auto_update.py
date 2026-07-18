@@ -94,8 +94,18 @@ def battery_passes(worktree: Path) -> bool:
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False
-    tail = (p.stdout or "").strip().splitlines()[-1:] or ["(no output)"]
+    lines = (p.stdout or "").strip().splitlines()
+    tail = lines[-1:] or ["(no output)"]
     log(f"incoming-code battery rc={p.returncode}: {tail[0]}")
+    if p.returncode != 0:
+        # capture the FAILED lines (pytest -x stops at the first) so the
+        # deploy observable can name WHICH test rejected the update off-box
+        # — otherwise a Windows-only failure is invisible from the cloud
+        # (lived 2026-07-18: the PC rejected every update on a CRLF test
+        # and nothing said which). Bounded so the stamp stays small.
+        failed = [ln for ln in lines if ln.startswith("FAILED")][:3]
+        global _BATTERY_DETAIL
+        _BATTERY_DETAIL = " | ".join(failed) or tail[0]
     return p.returncode == 0
 
 
@@ -109,18 +119,25 @@ def _signal_restart() -> None:
         log(f"restart signal failed ({e}) - new code loads on the next restart")
 
 
+_BATTERY_DETAIL = ""            # failing-test detail from the last battery run
+
+
 def _record_outcome(outcome: str) -> None:
     """Persist the last attempt's outcome + revs to a small JSON stamp the
     status push publishes (outputs/auto_update_state.json). Found live
     2026-07-18: the updater silently failed for 6+ hours (outcome unknown
     — dirty? rejected? ff_failed?) and NOTHING observable off-box said
     which; the PC's deploy state was a blind spot. Fail-safe: never let
-    telemetry break the update itself."""
+    telemetry break the update itself. On a 'rejected' outcome the stamp
+    also carries which test(s) failed the battery, so a Windows-only
+    failure is diagnosable from the cloud."""
     try:
         _, head = _git("rev-parse", "--short", "HEAD")
         _, remote = _git("rev-parse", "--short", f"origin/{BRANCH}")
         state = {"ts": time.time(), "outcome": outcome,
                  "head": head.strip(), "remote": remote.strip()}
+        if outcome == "rejected" and _BATTERY_DETAIL:
+            state["battery_detail"] = _BATTERY_DETAIL[:500]
         p = OUT / "auto_update_state.json"
         tmp = p.with_suffix(f".{os.getpid()}.tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")

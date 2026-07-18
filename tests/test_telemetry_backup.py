@@ -243,3 +243,42 @@ def test_once_mode_failure_is_one_line_nonzero(monkeypatch):
         raise RuntimeError("push refused")
     monkeypatch.setattr(tb, "backup_once", boom)
     assert tb.main(["--once"]) == 1              # next stamp retries; no raise
+
+
+# ---------------------------------------------------------------------
+# CRLF byte-exactness (the Windows-PC auto-update deploy blocker,
+# 2026-07-18): a pusher with core.autocrlf=true must NOT let git
+# EOL-normalize bundle blobs, or a puller reading the blob sees
+# different bytes than the manifest sha and refuses the bundle as
+# "tampered" — which fails test_corpus_sync and the whole battery on
+# that machine. push_bundle pins the durable branch `-text`; this proves
+# a CRLF-containing bundle round-trips byte-for-byte even under autocrlf.
+# ---------------------------------------------------------------------
+def _crlf_bundle(d, rows=5):
+    d.mkdir(parents=True, exist_ok=True)
+    lines = ["position_id,feature_a"] + [f"p{i},{i}" for i in range(rows)]
+    # CRLF on disk, exactly what a Windows text-mode write produces
+    (d / "signal_history.csv").write_bytes(
+        ("\r\n".join(lines) + "\r\n").encode("utf-8"))
+    (d / "manifest.json").write_text('{"rows": %d}' % rows, encoding="utf-8")
+    return d
+
+
+def test_crlf_bundle_survives_autocrlf_pusher_byte_exact(repos, tmp_path):
+    import subprocess
+    root, bare = repos
+    # simulate the Windows PC: this repo's git normalizes text on commit
+    _git("config", "core.autocrlf", "true", cwd=root)
+    tb.push_bundle(_cfg(label="crlfcheck"),
+                   _crlf_bundle(tmp_path / "b"), root=root)
+    # read the RAW committed blob (cat-file applies no filters)
+    blob = subprocess.run(
+        ["git", "cat-file", "-p",
+         "paper-telemetry:sessions/crlfcheck/signal_history.csv"],
+        cwd=str(bare), check=True, capture_output=True).stdout
+    assert b"\r\n" in blob                      # CRLF preserved, not normalized
+    assert blob == ("\r\n".join(
+        ["position_id,feature_a"] + [f"p{i},{i}" for i in range(5)])
+        + "\r\n").encode("utf-8")               # byte-for-byte identical
+    # and the -text pin itself is on the branch
+    assert ".gitattributes" in _branch_files(bare)
