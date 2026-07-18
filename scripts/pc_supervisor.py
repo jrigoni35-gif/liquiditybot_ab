@@ -61,6 +61,14 @@ except ValueError:
     STATUS_PUSH_SEC = 600.0
 _REMOTE_CMD_STAMP = OUT / ".remote_cmd_stamp"
 _STATUS_PUSH_STAMP = OUT / ".status_push_stamp"
+# one-bot corpus sync (scripts/corpus_sync.py): pull the durable branch's
+# learning bundles in, so this machine trains on the SAME foundation the
+# rest of the fleet contributes to. LB_NO_CORPUS_SYNC=1 disables.
+try:
+    CORPUS_SYNC_SEC = float(os.environ.get("LB_CORPUS_SYNC_SEC", "3600"))
+except ValueError:
+    CORPUS_SYNC_SEC = 3600.0
+_CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
 # launch attempt is spaced at least this far apart regardless of outcome.
@@ -297,6 +305,9 @@ def tick() -> None:
             and _stamp_due(_STATUS_PUSH_STAMP, STATUS_PUSH_SEC)):
         _spawn([PY, "scripts/remote_control.py", "--push-status"],
                own_log=False)
+    if (not os.environ.get("LB_NO_CORPUS_SYNC")
+            and _stamp_due(_CORPUS_SYNC_STAMP, CORPUS_SYNC_SEC)):
+        _spawn([PY, "scripts/corpus_sync.py"], own_log=False)
 
     # 6) self-restart on source change: the auto-updater bounces the RUNNER,
     # but this process would keep the pre-update supervisor in memory until
