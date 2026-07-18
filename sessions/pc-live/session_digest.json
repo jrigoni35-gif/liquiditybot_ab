@@ -1,43 +1,43 @@
 {
-  "generated_at": 1784414439.6939242,
+  "generated_at": 1784418040.15509,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784414432.0,
-    "duration_h": 206.78
+    "end": 1784418033.0,
+    "duration_h": 207.78
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 5000.0,
+    "equity_end": 4999.69,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": 0.0,
-    "fees_paid_total": 0.0,
-    "open_positions": 0,
-    "samples": 43190
+    "fees_paid_total": 0.2906,
+    "open_positions": 4,
+    "samples": 43412
   },
   "activity": {
-    "signal_rows_total": 1388,
+    "signal_rows_total": 1401,
     "live_labeled_trades": 35,
-    "candidate_rows": 1353
+    "candidate_rows": 1366
   },
   "audit": {
-    "records": 584,
-    "signal_records": 277,
+    "records": 597,
+    "signal_records": 283,
     "by_src": {
-      "exploration": 307,
+      "exploration": 314,
       "ml_governor": 147,
-      "order_manager": 80,
-      "startup": 35,
-      "fault": 14,
+      "order_manager": 84,
+      "startup": 36,
+      "fault": 15,
       "runner": 1
     },
     "top_codes": [
       [
         "ML-070",
-        307
+        314
       ],
       [
         "ML-031",
@@ -45,11 +45,11 @@
       ],
       [
         "OM-000",
-        79
+        83
       ],
       [
         "CG-000",
-        35
+        36
       ],
       [
         "ML-041",
@@ -61,7 +61,7 @@
       ],
       [
         "FT-020",
-        14
+        15
       ],
       [
         "ML-042",
@@ -85,19 +85,19 @@
       ]
     ],
     "dominant_code": "ML-031",
-    "dominant_frac": 0.318,
+    "dominant_frac": 0.311,
     "retrain_requests": 18,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 505
   },
   "events": {
-    "records": 5516,
+    "records": 6510,
     "by_level": {
-      "INFO": 5222,
+      "INFO": 6210,
       "ERROR": 245,
-      "WARNING": 36,
-      "CRITICAL": 13
+      "WARNING": 40,
+      "CRITICAL": 15
     },
     "top_warnings": [
       [
@@ -113,6 +113,22 @@
         24
       ],
       [
+        "control: stop  -> ok (runner=RUNNING)",
+        5
+      ],
+      [
+        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
+        5
+      ],
+      [
+        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
+        5
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
+        5
+      ],
+      [
         "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
         4
       ],
@@ -123,30 +139,14 @@
       [
         "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
         4
-      ],
-      [
-        "control: stop  -> ok (runner=RUNNING)",
-        4
-      ],
-      [
-        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        4
-      ],
-      [
-        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        4
-      ],
-      [
-        "op-state INIT -> ARMED (startup validation passed)",
-        4
       ]
     ],
     "liquidity_tally": {
-      "thin": 2569,
-      "spoofy": 1115
+      "thin": 2964,
+      "spoofy": 1413
     },
-    "spoofy_frac": 0.303,
-    "cycles_estimate": 590,
+    "spoofy_frac": 0.323,
+    "cycles_estimate": 699,
     "feed_error_events": 253
   },
   "model": {
@@ -186,13 +186,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=35, brier=n/a) yet retrain was requested 18x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 32% of the audit trail"
+      "detail": "model is cold (live training rows=35, brier=n/a) yet retrain was requested 18x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 31% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "ML-031 is 32% of 277 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "ML-031 is 31% of 283 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     }
   ],
   "verdict": "SD-007 audit chain broken"
