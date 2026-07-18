@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-18 12:45 UTC
+# Overfit audit — 2026-07-18 18:50 UTC
 
 Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not market
 
