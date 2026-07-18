@@ -5,7 +5,6 @@ ids (restart-safe dedup), and pre-upgrade records skipped cleanly. tick()
 mirrors the log pusher's never-drop offset discipline.
 """
 import json
-import time
 
 import pytest
 
