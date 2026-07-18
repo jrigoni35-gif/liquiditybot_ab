@@ -117,6 +117,7 @@ def order_to_dict(o) -> dict:
         "created_ts": o.created_ts, "reprices": o.reprices,
         "post_only": o.post_only, "leverage": o.leverage,
         "ordertype": o.ordertype,
+        "queue_ahead": o.queue_ahead,
         "meta": _jsonable_meta(o.meta),
     }
 
@@ -143,6 +144,7 @@ def order_from_dict(d: dict):
         post_only=bool(d.get("post_only", True)),
         leverage=float(d.get("leverage", 1.0)),
         ordertype=str(d.get("ordertype", "limit")),
+        queue_ahead=float(d.get("queue_ahead", -1.0)),
         meta=_restore_meta(d.get("meta")),
     )
     return o

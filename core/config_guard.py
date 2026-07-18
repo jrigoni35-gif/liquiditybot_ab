@@ -315,6 +315,35 @@ def validate(config: dict) -> list:
         fatal("order_manager.deadman_timeout_sec must be 0 (off) or in "
               "[15, 3600] - below the poll cadence it flaps, above an hour "
               "it protects nothing")
+    # DRY-RUN sim fill realism (MP-7): probabilities in [0,1], fraction
+    # window ordered, queue tolerance non-negative. A base prob of 0 would
+    # make passive orders NEVER fill in the sim (no candidate labels at
+    # all); flag it loud rather than silently starving the learner.
+    sf_base = float(_f(config, "order_manager.sim_fill.passive_base_prob",
+                       0.45))
+    if not (0.0 < sf_base <= 1.0):
+        fatal(f"order_manager.sim_fill.passive_base_prob={sf_base} must be "
+              f"in (0, 1] - zero starves candidate labels, >1 is not a "
+              f"probability")
+    sf_lo = float(_f(config, "order_manager.sim_fill.fill_frac_min", 0.3))
+    sf_hi = float(_f(config, "order_manager.sim_fill.fill_frac_max", 1.0))
+    if not (0.0 < sf_lo <= sf_hi <= 1.0):
+        fatal(f"order_manager.sim_fill fill_frac window [{sf_lo}, {sf_hi}] "
+              f"must satisfy 0 < min <= max <= 1")
+    sf_tol = float(_f(config, "order_manager.sim_fill.queue_tol_frac", 1.0))
+    if sf_tol < 0.0:
+        fatal(f"order_manager.sim_fill.queue_tol_frac={sf_tol} negative - "
+              f"it is a multiple of order size, the front-of-queue yardstick")
+    sf_drain = float(_f(config, "order_manager.sim_fill.queue_drain_frac",
+                        0.20))
+    if not (0.0 <= sf_drain <= 1.0):
+        fatal(f"order_manager.sim_fill.queue_drain_frac={sf_drain} must be "
+              f"in [0, 1] - it is the per-poll geometric turnover fraction; "
+              f"0 starves fills on static-snapshot replays")
+    sf_sref = float(_f(config, "order_manager.sim_fill.sigma_ref_bps", 30.0))
+    if sf_sref <= 0.0:
+        fatal(f"order_manager.sim_fill.sigma_ref_bps={sf_sref} must be "
+              f"positive - it normalizes the vol-scaled queue turnover")
     esc = _f(config, "risk.exit_escalation", {}) or {}
     mult = float(esc.get("widen_mult", 2.0))
     if mult < 1.0:

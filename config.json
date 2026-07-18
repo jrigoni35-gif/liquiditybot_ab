@@ -301,7 +301,17 @@
     "min_fill_ratio": 0.1,
     "maker_fee_bps": 25,
     "taker_fee_bps": 40,
-    "deadman_timeout_sec": 60
+    "deadman_timeout_sec": 60,
+    "sim_fill": {
+      "_doc": "DRY-RUN passive-fill realism (MP-7). queue_aware gates a resting limit's fill on the depth resting AHEAD of it at its price clearing first (Huang-Lehalle-Rosenbaum queue-reactive / Moallemi-Yuan queue value: state-independent Poisson fills over-credit passive execution and bias candidate labels). Eligible once that depth ratchets down (max of observed shrink and a vol-scaled geometric turnover) to within queue_tol_frac of our own order size; the passive_base_prob*exp(-dist/sigma) draw then applies to the front-of-queue remainder. OFF by default: it changes the DRY-RUN label distribution the model learns from, so enable it consciously and re-baseline the quant gates. Constants lifted from the fill path (overfit discipline). Live path unaffected: the venue owns real queueing.",
+      "queue_aware": false,
+      "queue_tol_frac": 1.0,
+      "queue_drain_frac": 0.20,
+      "sigma_ref_bps": 30.0,
+      "passive_base_prob": 0.45,
+      "fill_frac_min": 0.3,
+      "fill_frac_max": 1.0
+    }
   },
   "inventory": {
     "soft_cap_pct_of_equity": 15,

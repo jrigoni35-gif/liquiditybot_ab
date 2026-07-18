@@ -83,6 +83,11 @@ class ManagedOrder:
     leverage: float = 1.0
     ordertype: str = "limit"
     meta: dict = field(default_factory=dict)
+    # DRY-RUN queue-position model (MP-7): resting depth AHEAD of this
+    # order at its price when it first rested, ratcheted down as that
+    # depth clears. -1.0 = not yet a resting order (crossing/unplaced).
+    # Ignored entirely on the live path (the venue owns real queueing).
+    queue_ahead: float = -1.0
 
     @property
     def remaining(self) -> float:
@@ -115,6 +120,44 @@ class OrderManager:
         self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
         self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
         self.deadman_sec = int(cfg.get("deadman_timeout_sec", 60))
+        # DRY-RUN passive-fill realism (order_manager.sim_fill). The old
+        # model fired a FLAT base probability regardless of how much depth
+        # rested ahead of us (MP-7) — the exact Poisson-fill optimism the
+        # queue-position literature (Huang-Lehalle-Rosenbaum; Moallemi-Yuan)
+        # shows over-credits passive fills, biasing candidate labels toward
+        # entries that would never have filled. queue_aware gates the fill
+        # on the depth ahead at placement clearing first; the base prob then
+        # applies to the front-of-queue remainder. All literals lifted here
+        # from the decision path (overfit discipline).
+        sf = cfg.get("sim_fill", {}) or {}
+        self.sf_base = min(max(float(sf.get("passive_base_prob", 0.45)),
+                               0.0), 1.0)
+        self.sf_frac_min = min(max(float(sf.get("fill_frac_min", 0.3)),
+                                   0.0), 1.0)
+        self.sf_frac_max = min(max(float(sf.get("fill_frac_max", 1.0)),
+                                   self.sf_frac_min), 1.0)
+        # OFF by default: queue-gating changes DRY-RUN fill behavior, which
+        # changes the label distribution the model learns from — a conscious
+        # switch (like inventory_skew's shadow default), not a silent flip.
+        # Enable in config after review; it wants a quant re-baseline.
+        self.sf_queue_aware = bool(sf.get("queue_aware", False))
+        # front-of-queue yardstick: eligible once depth ahead has cleared to
+        # within this multiple of our OWN order size (scale-free). 1.0 = "the
+        # wall ahead is no bigger than us" ~ at the touch.
+        self.sf_queue_tol_frac = max(float(sf.get("queue_tol_frac", 1.0)),
+                                     0.0)
+        # queue drains by the MAX of (observed depth-ahead shrink between
+        # snapshots) and (a volatility-driven baseline turnover) — an
+        # aggregate book that looks static between snapshots is still being
+        # continuously traded and refilled, so a purely observed-shrink
+        # ratchet would starve fills on any static-book replay. Baseline is
+        # a geometric fraction of the remaining queue per poll, scaled by
+        # sigma vs the reference (higher vol -> faster turnover, the
+        # queue-reactive insight).
+        self.sf_queue_drain = min(max(float(sf.get("queue_drain_frac",
+                                                   0.20)), 0.0), 1.0)
+        self.sf_sigma_ref_bps = max(float(sf.get("sigma_ref_bps", 30.0)),
+                                    1.0)
         self.firewall = firewall
         self.pair_meta = pair_meta or {}
         self.latency_ms: float = 0.0
@@ -554,6 +597,52 @@ class OrderManager:
                              "partial" if order.remaining > EPS
                              else "filled", "sim cross")
 
+    @staticmethod
+    def _depth_ahead(order: ManagedOrder, book: dict) -> float:
+        """Resting size AHEAD of a passive limit at order.price: for a buy,
+        the bids priced >= our bid (better or equal fill first); for a sell,
+        the asks priced <= our ask. Since our paper order is not in the book,
+        the entire visible size at those levels sits ahead of us in the
+        queue. Non-finite rows are skipped. Returns 0.0 when we would rest
+        at the very front (order improves the touch)."""
+        levels = (book.get("bids") if order.side == "buy"
+                  else book.get("asks")) or []
+        ahead = 0.0
+        for row in levels:
+            try:
+                px, sz = float(row[0]), float(row[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not (_fin_pos(px) and _fin_pos(sz)):
+                continue
+            better = px >= order.price if order.side == "buy" \
+                else px <= order.price
+            if better:
+                ahead += sz
+        return ahead
+
+    def _queue_eligible(self, order: ManagedOrder, book: dict,
+                        sigma_bar_pct: float) -> bool:
+        """Queue-position gate for a resting passive order (MP-7). Records
+        the depth ahead at first rest, then each poll advances our position
+        by the MAX of: the observed shrink in depth ahead (live books whose
+        snapshots genuinely evolve), and a volatility-scaled geometric
+        turnover of the remaining queue (static-snapshot replays, where the
+        aggregate depth looks stable but is continuously traded). Eligible
+        once the remaining depth ahead is within queue_tol_frac of our own
+        size. Monotone down: new joiners ahead never push us back."""
+        ahead_now = self._depth_ahead(order, book)
+        if order.queue_ahead < 0.0:            # first time resting
+            order.queue_ahead = ahead_now
+            return order.queue_ahead <= self.sf_queue_tol_frac * order.remaining
+        observed = max(order.queue_ahead - ahead_now, 0.0)
+        sigma_bps = max(sigma_bar_pct * 100.0, 1.0)
+        turnover = order.queue_ahead * min(
+            self.sf_queue_drain * (sigma_bps / self.sf_sigma_ref_bps), 1.0)
+        order.queue_ahead = max(0.0, order.queue_ahead
+                                - max(observed, turnover))
+        return order.queue_ahead <= self.sf_queue_tol_frac * order.remaining
+
     def _poll_dry(self, order: ManagedOrder, book: Optional[dict],
                   sigma_bar_pct: float, now: float) -> list:
         events = []
@@ -572,12 +661,19 @@ class OrderManager:
                         mid = 0.5 * (float(bids[0][0]) + float(asks[0][0]))
                     except (TypeError, ValueError, IndexError):
                         mid = 0.0
-                    if _fin_pos(mid):
+                    # queue-position gate (MP-7): a resting order cannot
+                    # fill until the depth ahead of it has cleared. Skipped
+                    # when queue_aware is off (identical to the old model).
+                    queue_ok = (not self.sf_queue_aware
+                                or self._queue_eligible(order, book,
+                                                        sigma_bar_pct))
+                    if _fin_pos(mid) and queue_ok:
                         dist_bps = abs(mid - order.price) / mid * 1e4
                         sigma_bps = max(sigma_bar_pct * 100.0, 1.0)
-                        p = 0.45 * float(np.exp(-dist_bps / sigma_bps))
+                        p = self.sf_base * float(np.exp(-dist_bps / sigma_bps))
                         if self._rng.random() < p:
-                            frac = float(self._rng.uniform(0.3, 1.0))
+                            frac = float(self._rng.uniform(self.sf_frac_min,
+                                                           self.sf_frac_max))
                             fill = order.remaining * frac
                             cost = order.avg_price * order.filled + \
                                 fill * order.price
