@@ -241,6 +241,33 @@ def test_status_push_publishes_and_gc_consumed_queue(repos):
     assert _branch_file(bare, f"control/queue/{cid}.json") is None
 
 
+def test_status_push_survives_already_gcd_consumed_delete(repos):
+    # regression (2026-07-18): _publish staged `git add -A -- <pathspecs>`
+    # including consumed-queue deletes. The consumed LEDGER keeps listing an
+    # id after its queue file was GC'd on a prior push, so the delete
+    # pathspec matched no file -> `git add` aborts (rc=128), nothing stages,
+    # and push_pc_status returned "no_change" forever — the pc_status channel
+    # went silent on the live PC. A push must survive an absent consumed
+    # delete and still publish changed status.
+    root, bare = repos
+    (root / "outputs").mkdir(exist_ok=True)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"equity": 5000.0, "written_at": time.time()}),
+        encoding="utf-8")
+    cid = rc.send_command("snapshot", root=root)
+    assert rc.poll_once(root=root) == "applied=1 rejected=0"
+    assert rc.push_pc_status(root=root) == "pushed"        # GCs the queue file
+    assert _branch_file(bare, f"control/queue/{cid}.json") is None
+    # second push: the consumed ledger STILL lists cid, so its (now-absent)
+    # queue file is in `deletes` — must not wedge the push
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"equity": 5123.0, "written_at": time.time()}),
+        encoding="utf-8")
+    assert rc.push_pc_status(root=root) == "pushed"
+    env = json.loads(_branch_file(bare, "control/pc_status.json"))
+    assert env["status"]["equity"] == 5123.0               # change published
+
+
 def test_status_push_without_status_is_a_noop(repos):
     root, _ = repos
     (root / "outputs" / "status.json").unlink()

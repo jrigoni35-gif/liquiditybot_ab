@@ -182,11 +182,15 @@ def _publish(root: Path, writes: dict, deletes: list) -> str:
                 dest = wt / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(text, encoding="utf-8")
+            removed = []
             for rel in deletes:
-                try:
-                    (wt / rel).unlink()
-                except OSError:
-                    pass
+                p = wt / rel
+                if p.exists():
+                    try:
+                        p.unlink()
+                        removed.append(rel)      # only a tracked, present file
+                    except OSError:
+                        pass
             # Stage ONLY the paths this publish touches — NEVER `git add -A`.
             # A blanket add re-stages sibling LEARNING bundles too, and on a
             # Windows pusher (pc_status is published every ~600s from the PC)
@@ -195,11 +199,16 @@ def _publish(root: Path, writes: dict, deletes: list) -> str:
             # their manifests and breaking every puller's integrity check
             # (the 2026-07-18 corpus-integrity incident — telemetry_backup
             # had the identical bug). Keep the -text pin present too.
+            #
+            # Only pathspecs that EXIST are passed: `git add -A -- <path>`
+            # aborts the WHOLE add (rc=128, nothing staged) if any pathspec
+            # matches no file, and a consumed-queue delete often references
+            # a file already GC'd on the tip — that regressed the status
+            # push into a permanent "no_change" (blind pc_status, 2026-07-18).
             ga = wt / ".gitattributes"
             if not ga.exists():
                 ga.write_text("* -text\n", encoding="utf-8")
-            pathspecs = sorted(set(list(writes) + list(deletes)
-                                   + [".gitattributes"]))
+            pathspecs = sorted(set(list(writes) + removed + [".gitattributes"]))
             _git("add", "-A", "--", *pathspecs, cwd=wt)
             rc, porcelain = _git("status", "--porcelain", cwd=wt)
             if not porcelain.strip():
