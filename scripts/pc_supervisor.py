@@ -280,6 +280,9 @@ def tick() -> None:
         if not _fresh(OUT / "gc_log_pusher.log"):
             log("log pusher stale/absent -> relaunching")
             _spawn([PY, "scripts/gc_log_pusher.py"])
+        if not _fresh(OUT / "gc_trace_pusher.log"):
+            log("trace pusher stale/absent -> relaunching")
+            _spawn([PY, "scripts/gc_trace_pusher.py"])
     # 3) moomoo OpenD data gateway (optional): start it with the bot and keep it
     # alive. moomoo is a read-only optional feed — a failure here never affects
     # trading.

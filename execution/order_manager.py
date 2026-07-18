@@ -163,7 +163,16 @@ class OrderManager:
                             f"{order.fill_ratio:.2f} ({why})",
                             {"purpose": order.purpose,
                              "avg_price": order.avg_price,
-                             "fees_usd": round(order.fees_usd, 4)})
+                             "fees_usd": round(order.fees_usd, 4),
+                             # full lifecycle for the trace pusher: one
+                             # OTLP span per order needs both endpoints
+                             # and enough attributes for RED analysis
+                             "order_id": order.order_id,
+                             "pair": order.pair, "side": order.side,
+                             "terminal": new,
+                             "created_ts": order.created_ts,
+                             "fill_ratio": round(order.fill_ratio, 4),
+                             "reprices": order.reprices})
         return True
 
     def _retire(self, order: ManagedOrder):
