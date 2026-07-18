@@ -562,6 +562,11 @@
     "description": "Lazy-bot insecurity model (docs/THALES.md): detects grid ladders, clock-driven MM quoting, significance-gated scheduled flow, and stop-cluster sweeps from public data. influence=shadow records advice without applying it; advise applies bounded confidence shading only.",
     "enabled": true,
     "influence": "shadow",
+    "reliability": {
+      "_doc": "V2 evidence-weighted gains: every closed advise-mode trade grades the detectors that shaded its entry (up-advice vindicated by a win, down-advice by a loss). Below min_fired grades a detector keeps its full configured gain (the hand-crafted prior rules cold start); after that the gain is scaled by max(0, 2*WilsonLCB90 - 1), so a detector that cannot beat a coin flip out-of-sample loses its voice. Weights ATTENUATE only, never amplify. feed_integrity is exempt (safety shade, not an alpha thesis).",
+      "enabled": true,
+      "min_fired": 20
+    },
     "barclose": {
       "_doc": "TH-015: no-code/indicator bots evaluate on candle close; their activity clusters in the first seconds after bar boundaries (intraday periodicity). Buckets top-of-book change events by phase-of-bar; score = excess share of bucket zero.",
       "buckets": 10,

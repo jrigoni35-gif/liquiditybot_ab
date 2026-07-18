@@ -181,6 +181,58 @@ measure those footprints without fooling ourselves (TH-017, not built).
    pattern). Each promotion requires: shadow hit-rate beats null, OF
    battery green, quant-trial gates G1–G5 green.
 
+## V2 — the vindication loop (evidence-weighted gains)
+
+V1's detectors carried FIXED config gains: hand-crafted priors that
+nothing ever validated. V2 closes the counterfactual loop:
+
+- Every advise-mode entry records which detectors shaded it and in
+  which direction (`ThalesShade.fired`, carried in order meta →
+  position → close).
+- At close, `note_outcome` grades each: "up" advice is vindicated by a
+  win, "down" advice by a loss.
+- Each detector's gain is scaled by `w = max(0, 2·WilsonLCB90 − 1)`:
+  - below `reliability.min_fired` grades → `w = 1.0` (the prior rules
+    cold start; behavior is EXACTLY V1);
+  - a detector that cannot beat a coin flip at the 90% lower bound is
+    muted (`w = 0`), and a muted detector is not re-fired (no ledger
+    churn from a dead voice);
+  - weights ATTENUATE only — a proven detector approaches but never
+    exceeds its configured gain. Amplification is knob-tuning and
+    belongs to the gated tuning pass, not a live feedback loop.
+- `feed_integrity` is EXEMPT: it guards data quality, not an alpha
+  thesis. Grading it by trade outcomes would let a lucky win on dirty
+  data teach the engine to trust dirty feeds.
+- The ledger (and open positions' fired maps) persist across restarts;
+  detector OBSERVATION state still does not (TH-016).
+- Shadow mode still reports `fired` at the engine level, but main.py
+  only stashes it for advise-mode entries: shadow advice never
+  influenced the trade, so it must never train the ledger.
+
+## V3 concept — the certificate hierarchy (design, NOT implemented)
+
+Argued against arXiv 2306.15079 (Wu & Braatz: execution-time-certified
+MPC — iteration count data-independent, exact, dimension-only). Their
+thesis generalizes: an influence on a real-time loop is admissible only
+with a CERTIFICATE — a bound that holds before the data arrives.
+
+1. **Time certificate** (from the paper): advice must fit the cycle's
+   sampling budget by construction (bounded windows/deques — already
+   true), or abstain. A late answer in a real-time loop is a wrong
+   answer.
+2. **Evidence certificate** (V2, shipped): an alpha claim keeps its
+   voice only while its Wilson-bounded vindication beats a coin.
+3. **Significance certificate** (clockwork z-gate, generalized): any
+   calendar/seasonal context — session-of-day, day-of-week, yearly
+   cycles — enters only past a shuffle-null significance test (OF-2
+   discipline), never as a raw belief.
+4. **Asymmetry law** (psychology of loss): context layers whose natural
+   cadence is too slow to ever earn an evidence certificate inside the
+   book's lifetime (yearly trends, geopolitical regimes) may only shade
+   DOWN (risk-off), never boost. A false shade costs opportunity; a
+   false boost costs money. Slow layers get veto rights, not alpha
+   rights.
+
 ## Hard boundaries
 
 - **Detect and react only.** No spoofing, no layering, no orders placed

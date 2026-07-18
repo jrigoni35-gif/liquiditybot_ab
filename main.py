@@ -525,6 +525,8 @@ class LiquidityBot:
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
         self._stop_hit: dict = {}           # position_id -> bool
+        self._thales_fired: dict = {}       # asset -> fired detectors (V2)
+        self._pos_thales: dict = {}         # position_id -> fired at entry
         self._last_imb: dict = {}           # asset -> last log-imbalance
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
@@ -871,6 +873,11 @@ class LiquidityBot:
                                 f"{asset} paused: "
                                 f"{self.breaker.loss_streak} consecutive "
                                 f"losses", {"asset": asset})
+            # THALES V2 vindication: grade the detectors that shaded this
+            # trade's entry against its realized outcome
+            fired = self._pos_thales.pop(pos.position_id, None)
+            if fired:
+                self.thales.note_outcome(fired, total_net > 0)
         self.postmortem.on_close(
             pos.position_id, total_net, pos.fees_paid_usd,
             entry_usd=pos.entry_price * pos.original_size,
@@ -903,6 +910,9 @@ class LiquidityBot:
                     pos.direction, pos.entry_price, self._asset_of(pos.symbol))
                 order.position_id = position_id
                 self.state.add_position(pos)
+                fired = order.meta.get("thales_fired")
+                if fired and not pos.is_hedge:
+                    self._pos_thales[position_id] = list(fired)
                 self.postmortem.note_fill(position_id, event.fill_price)
                 if not pos.is_hedge and "features" in order.meta:
                     self.history.log_entry(position_id, self._asset_of(pos.symbol),
@@ -1702,6 +1712,11 @@ class LiquidityBot:
                 confidence=signal.confidence,
                 macro_label=self.macro.state(asset).label, now=now)
             signal.confidence = th.confidence
+            # V2 vindication loop: remember which detectors shaded THIS
+            # signal so a resulting position's close can grade them
+            # (advise mode only — shadow advice never influenced the trade)
+            self._thales_fired[asset] = (
+                list(th.fired) if self.thales.influence == "advise" else [])
             if th.notes and abs(th.would_mult - 1.0) > 1e-6:
                 log.info(f"thales {asset}: {'; '.join(th.notes)}")
             self.last_signals[asset] = {
@@ -1918,7 +1933,8 @@ class LiquidityBot:
                     "p_win": p_win, "edge_bps": decision.est_edge_bps,
                     "features": feats, "leverage":
                         lev_decision.allowed_leverage,
-                    "post_only": plan.post_only}
+                    "post_only": plan.post_only,
+                    "thales_fired": self._thales_fired.get(asset) or []}
                 self._submit_algo_child(parent, now)   # first slice now
                 log.info(
                     f"ENTRY-ALGO {signal.direction} {symbol} "
@@ -1945,7 +1961,8 @@ class LiquidityBot:
                 book=self.kraken_books.get(asset) or {},
                 sigma_bar_pct=vol_state.sigma_bar_pct,
                 meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
-                    "features": feats},
+                    "features": feats,
+                    "thales_fired": self._thales_fired.get(asset) or []},
             )
             if order:
                 self.sizer.note_entry(asset, now)

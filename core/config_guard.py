@@ -734,6 +734,19 @@ def validate(config: dict) -> list:
         if gv < 0.0:
             fatal(f"thales.{knob}={gv} negative - inverted advice; flip "
                   f"the detector's exploit thesis in code, not via sign")
+    # V2 reliability: min_fired is the cold-start fence. Below ~5 grades a
+    # Wilson LCB is pure noise and weights would flap trade-to-trade; a
+    # huge value silently disables the vindication loop (weights pinned at
+    # the prior forever while claiming to be evidence-based).
+    th_mf = int(_f(config, "thales.reliability.min_fired", 20))
+    if th_mf < 5:
+        fatal(f"thales.reliability.min_fired={th_mf} below 5 grades a "
+              f"detector on a sample where the Wilson bound is noise - "
+              f"weights would flap on every trade")
+    elif th_mf > 500:
+        warn(f"thales.reliability.min_fired={th_mf} over 500: at this "
+             f"corpus's trade rate the vindication loop would never "
+             f"activate - evidence-weighting in name only")
     # TH-014 feed_integrity bounds: a threshold outside [0,1] or a min_obs
     # not inside [1, window] makes the detector either never fire or fire on
     # noise. Fail loud rather than shade on a nonsense config.

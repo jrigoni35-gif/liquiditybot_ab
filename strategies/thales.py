@@ -60,6 +60,10 @@ class ThalesShade:
     mult: float = 1.0            # multiplier actually applied
     would_mult: float = 1.0      # multiplier advise mode WOULD apply
     notes: list = field(default_factory=list)
+    # V2 vindication loop: which detectors influenced this shade and in
+    # which direction ("up" boosted confidence / "down" shaded it). The
+    # engine's note_outcome() grades each against the trade's result.
+    fired: list = field(default_factory=list)
 
 
 class _AssetState:
@@ -127,11 +131,84 @@ class ThalesEngine:
         self._lp = cfg.get("lapse", {})
         self._assets: dict = {}
         self._counterfactuals: deque = deque(maxlen=200)
+        # ---- V2 reliability ledger (evidence-weighted gains) ------------
+        # V1 composed detectors with FIXED config gains — hand-crafted
+        # priors that nothing ever validated. V2 closes the loop: every
+        # closed trade grades the detectors that shaded its entry
+        # (note_outcome), and each detector's gain is scaled by an
+        # evidence weight w = max(0, 2*WilsonLCB(vindication) - 1):
+        # cold start (< min_fired grades) -> w = 1.0, EXACT V1 behavior;
+        # a detector that cannot beat a coin flip out-of-sample loses its
+        # voice (w -> 0); weights only ATTENUATE, never amplify beyond
+        # the configured gain (amplification is knob-tuning and belongs
+        # to the gated tuning pass, not a live feedback loop).
+        rel = cfg.get("reliability", {})
+        self.rel_enabled = bool(rel.get("enabled", True))
+        self.rel_min_fired = int(rel.get("min_fired", 20))
+        self._rel: dict = {}     # detector -> {"fired": n, "vindicated": k}
 
     # ------------------------------------------------------------------
     @property
     def active(self) -> bool:
         return self.enabled and self.influence != "off"
+
+    # ---- V2 reliability -------------------------------------------------
+    @staticmethod
+    def _wilson_lcb(k: int, n: int, z: float = 1.28) -> float:
+        """Lower confidence bound on a proportion (z=1.28 ~ 90%): honest
+        with small samples — 3/3 is not 'always right'."""
+        if n <= 0:
+            return 0.0
+        p = k / n
+        z2 = z * z
+        denom = 1.0 + z2 / n
+        centre = p + z2 / (2 * n)
+        margin = z * ((p * (1 - p) + z2 / (4 * n)) / n) ** 0.5
+        return max(0.0, (centre - margin) / denom)
+
+    def _rel_weight(self, key: str) -> float:
+        """Evidence weight for a detector's gain. 1.0 until min_fired
+        grades exist (the hand-crafted prior rules cold start), then
+        max(0, 2*LCB - 1): a coin-flip detector is muted, a proven one
+        keeps its full configured gain. Never exceeds 1."""
+        if not self.rel_enabled:
+            return 1.0
+        r = self._rel.get(key)
+        if not r or r.get("fired", 0) < self.rel_min_fired:
+            return 1.0
+        lcb = self._wilson_lcb(int(r.get("vindicated", 0)),
+                               int(r["fired"]))
+        return min(1.0, max(0.0, 2.0 * lcb - 1.0))
+
+    def note_outcome(self, fired: list, won: bool) -> None:
+        """Grade every detector that shaded a now-closed trade's entry.
+        'up' advice is vindicated by a WIN, 'down' advice by a LOSS.
+        Fail-safe: junk entries are ignored, never raised."""
+        try:
+            for item in fired or []:
+                if not (isinstance(item, (list, tuple)) and len(item) == 2):
+                    continue
+                key, advice = str(item[0]), str(item[1])
+                if advice not in ("up", "down"):
+                    continue
+                r = self._rel.setdefault(key, {"fired": 0, "vindicated": 0})
+                r["fired"] += 1
+                if (advice == "up") == bool(won):
+                    r["vindicated"] += 1
+        except Exception:
+            log.debug("thales note_outcome degraded", exc_info=True)
+
+    def reliability_to_dict(self) -> dict:
+        return {k: dict(v) for k, v in self._rel.items()}
+
+    def reliability_restore(self, d: dict) -> None:
+        try:
+            for k, v in (d or {}).items():
+                self._rel[str(k)] = {"fired": int(v.get("fired", 0)),
+                                     "vindicated": int(v.get("vindicated",
+                                                             0))}
+        except (AttributeError, TypeError, ValueError):
+            log.warning("thales reliability restore skipped (malformed)")
 
     def _st(self, asset: str) -> _AssetState:
         st = self._assets.get(asset)
@@ -466,44 +543,65 @@ class ThalesEngine:
 
             g_thr = float(self._g.get("score_thr", 0.55))
             if st.grid_score > g_thr and trending:
-                mult *= 1.0 + float(self._g.get("gain", 0.5)) * (
+                w = self._rel_weight("grid")
+                mult *= 1.0 + w * float(self._g.get("gain", 0.5)) * (
                     st.grid_score - g_thr)
+                if w > 0:
+                    out.fired.append(("grid", "up"))
                 out.notes.append(tag(Code.TH_GRID_LADDER,
-                                     f"grid={st.grid_score:.2f} vs trend"))
+                                     f"grid={st.grid_score:.2f} vs trend"
+                                     + (f" (w={w:.2f})" if w < 1 else "")))
 
             m_thr = float(self._m.get("score_thr", 0.6))
             if (st.metro_score > m_thr
                     and urgency >= float(self._m.get("urgency_min", 0.5))):
-                mult *= 1.0 + float(self._m.get("gain", 0.4)) * (
+                w = self._rel_weight("metronome")
+                mult *= 1.0 + w * float(self._m.get("gain", 0.4)) * (
                     st.metro_score - m_thr)
+                if w > 0:
+                    out.fired.append(("metronome", "up"))
                 out.notes.append(tag(Code.TH_METRONOME_MM,
-                                     f"metro={st.metro_score:.2f} stale-quote edge"))
+                                     f"metro={st.metro_score:.2f} stale-quote edge"
+                                     + (f" (w={w:.2f})" if w < 1 else "")))
 
             c_score, c_dir = self._clockwork(st, now)
             if c_score > 0 and c_dir == d:
-                mult *= 1.0 + float(self._c.get("gain", 0.06)) * c_score
+                w = self._rel_weight("clockwork")
+                mult *= 1.0 + w * float(self._c.get("gain", 0.06)) * c_score
+                if w > 0:
+                    out.fired.append(("clockwork", "up"))
                 out.notes.append(tag(Code.TH_CLOCKWORK_FLOW,
-                                     f"bucket flow z-gated score={c_score:.2f}"))
+                                     f"bucket flow z-gated score={c_score:.2f}"
+                                     + (f" (w={w:.2f})" if w < 1 else "")))
 
             prox, _ = self._stop_zones(st, mark)
             if prox > 0.5:
                 # shade DOWN: our stop would join the herd's cluster
-                mult *= 1.0 - float(self._s.get("pre_gain", 0.1)) * (
+                w = self._rel_weight("stop_prox")
+                mult *= 1.0 - w * float(self._s.get("pre_gain", 0.1)) * (
                     prox - 0.5) * 2.0
+                if w > 0:
+                    out.fired.append(("stop_prox", "down"))
                 out.notes.append(tag(Code.TH_STOP_SWEEP,
                                      f"stop-cluster proximity {prox:.2f}: "
-                                     f"not the lemming"))
+                                     f"not the lemming"
+                                     + (f" (w={w:.2f})" if w < 1 else "")))
             sweep = st.last_sweep
             decay = float(self._s.get("revert_decay_sec", 1800))
             if sweep and (now - float(sweep.get("ts", 0))) < decay:
                 if int(sweep.get("dir", 0)) == -d:
                     # cluster consumed; fade the overshoot while fresh
                     age = (now - float(sweep["ts"])) / decay
-                    mult *= 1.0 + float(self._s.get("post_gain", 0.1)) * (
-                        1.0 - age)
+                    w = self._rel_weight("stop_revert")
+                    mult *= 1.0 + w * float(self._s.get("post_gain", 0.1)) \
+                        * (1.0 - age)
+                    if w > 0:
+                        out.fired.append(("stop_revert", "up"))
                     out.notes.append(tag(Code.TH_STOP_SWEEP,
                                          f"post-sweep revert window "
-                                         f"({1 - age:.0%} left)"))
+                                         f"({1 - age:.0%} left)"
+                                         + (f" (w={w:.2f})" if w < 1
+                                            else "")))
 
             # feed integrity: a venue that keeps feeding this asset missing
             # or sanitize-rejected books is hostile-or-unreliable; shade DOWN
@@ -512,6 +610,10 @@ class ThalesEngine:
             dirty = self._feed_integrity(st)
             fi_thr = float(self._fi.get("dirty_frac_thr", 0.25))
             if dirty > fi_thr:
+                # feed integrity stays UNWEIGHTED: it guards against data
+                # quality, not bot behavior — grading it by trade outcomes
+                # would let a lucky win on dirty data teach V2 to trust
+                # dirty feeds. Safety shades are not up for reinterview.
                 mult *= 1.0 - float(self._fi.get("gain", 0.5)) * (
                     dirty - fi_thr)
                 out.notes.append(tag(Code.TH_FEED_INTEGRITY,
@@ -636,7 +738,10 @@ class ThalesEngine:
             return {"influence": self.influence,
                     "assets": {a: self._scores(st, now)
                                for a, st in self._assets.items()},
-                    "recent_advice": list(self._counterfactuals)[-5:]}
+                    "recent_advice": list(self._counterfactuals)[-5:],
+                    "reliability": {
+                        k: {**v, "weight": round(self._rel_weight(k), 3)}
+                        for k, v in self._rel.items()}}
         except Exception:
             log.debug("thales status degraded", exc_info=True)
             return {"influence": self.influence, "assets": {}}

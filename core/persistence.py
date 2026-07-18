@@ -202,6 +202,15 @@ class StateStore:
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
                 "pos_realized": dict(bot._pos_realized),
+                # V2 vindication continuity: fired-detector maps for OPEN
+                # positions and the graded reliability ledger. Detector
+                # OBSERVATION state stays un-snapshotted (see NOTE below);
+                # the ledger is outcome bookkeeping, not observations, so
+                # persisting it carries no stale-advice hazard.
+                "pos_thales": {k: list(v) for k, v in
+                               getattr(bot, "_pos_thales", {}).items()},
+                "thales_reliability": bot.thales.reliability_to_dict()
+                if getattr(bot, "thales", None) is not None else {},
                 "halted": bot._halted,
                 # NOTE: THALES detector state is deliberately NOT
                 # snapshotted - TH-016's restart safety relies on
@@ -410,6 +419,16 @@ class StateStore:
 
         bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
         bot._pos_realized.update(data.get("pos_realized", {}))
+        try:
+            if hasattr(bot, "_pos_thales"):
+                bot._pos_thales.update(
+                    {str(k): [tuple(x) for x in v] for k, v in
+                     (data.get("pos_thales") or {}).items()})
+            if getattr(bot, "thales", None) is not None:
+                bot.thales.reliability_restore(
+                    data.get("thales_reliability") or {})
+        except (TypeError, ValueError):
+            log.warning("thales V2 sections malformed - skipped")
         bot._halted = bool(data.get("halted", False))
         # absent in pre-upgrade snapshots -> starts counting from now
         bot._cycle_lifetime = int(data.get("cycle_lifetime", 0) or 0)
