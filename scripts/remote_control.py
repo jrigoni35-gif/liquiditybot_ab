@@ -311,8 +311,22 @@ def push_pc_status(root: Path = ROOT) -> str:
     except (OSError, json.JSONDecodeError):
         return "no_status"
     consumed = _load_consumed(root)
+    # deploy observable: which code THIS box runs and how its last
+    # self-update attempt ended. Found live 2026-07-18: the updater
+    # failed silently for 6+ hours and no off-box channel said why.
+    deploy: dict = {}
+    try:
+        rc, head = _git("rev-parse", "--short", "HEAD", cwd=root)
+        if rc == 0:
+            deploy["head"] = head.strip()
+        au = root / "outputs" / "auto_update_state.json"
+        if au.exists():
+            deploy["auto_update"] = json.loads(au.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
     envelope = {"pushed_at": time.time(), "host": socket.gethostname(),
-                "status": status, "remote_commands": consumed[-20:]}
+                "status": status, "deploy": deploy,
+                "remote_commands": consumed[-20:]}
     deletes = [f"{QUEUE_DIR}/{e['id']}.json" for e in consumed
                if e.get("id")]
     return _publish(root, {STATUS_PATH: json.dumps(envelope, indent=1)},

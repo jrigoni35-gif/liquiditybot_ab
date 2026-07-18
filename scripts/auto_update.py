@@ -20,6 +20,7 @@ Safety rules (why this is safe to run unattended against a live paper bot):
   * Every decision logs one line; any error is caught and the bot is left
     exactly as it was. Disable entirely with LB_NO_AUTO_UPDATE=1.
 """
+import json
 import os
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
@@ -108,6 +109,26 @@ def _signal_restart() -> None:
         log(f"restart signal failed ({e}) - new code loads on the next restart")
 
 
+def _record_outcome(outcome: str) -> None:
+    """Persist the last attempt's outcome + revs to a small JSON stamp the
+    status push publishes (outputs/auto_update_state.json). Found live
+    2026-07-18: the updater silently failed for 6+ hours (outcome unknown
+    — dirty? rejected? ff_failed?) and NOTHING observable off-box said
+    which; the PC's deploy state was a blind spot. Fail-safe: never let
+    telemetry break the update itself."""
+    try:
+        _, head = _git("rev-parse", "--short", "HEAD")
+        _, remote = _git("rev-parse", "--short", f"origin/{BRANCH}")
+        state = {"ts": time.time(), "outcome": outcome,
+                 "head": head.strip(), "remote": remote.strip()}
+        p = OUT / "auto_update_state.json"
+        tmp = p.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        os.replace(tmp, p)
+    except Exception as e:                        # noqa: BLE001
+        log(f"outcome stamp failed ({e}) - update itself unaffected")
+
+
 def update_once() -> str:
     """One update attempt. Returns the outcome string."""
     if os.environ.get("LB_NO_AUTO_UPDATE"):
@@ -120,9 +141,11 @@ def update_once() -> str:
             f"skipping this check")
         return "busy"
     try:
-        return _update_locked()
+        out = _update_locked()
     finally:
         lock.release()
+    _record_outcome(out)
+    return out
 
 
 def _update_locked() -> str:

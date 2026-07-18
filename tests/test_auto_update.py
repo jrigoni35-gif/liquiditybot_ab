@@ -116,3 +116,21 @@ def test_supervisor_default_cadence_is_fast(monkeypatch):
     monkeypatch.delenv("LB_AUTO_UPDATE_SEC", raising=False)
     sup = importlib.reload(sup)
     assert sup.UPDATE_SEC == 900.0
+
+
+def test_outcome_stamp_written_and_fail_safe(monkeypatch, tmp_path):
+    """2026-07-18: the updater failed silently for 6+ hours with no
+    off-box observable saying WHICH outcome it kept hitting. Every
+    attempt must stamp outputs/auto_update_state.json; a stamp failure
+    must never break the update itself."""
+    import scripts.auto_update as au
+    monkeypatch.setattr(au, "OUT", tmp_path)
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "abc1234"))
+    au._record_outcome("rejected")
+    import json
+    st = json.loads((tmp_path / "auto_update_state.json").read_text())
+    assert st["outcome"] == "rejected" and st["head"] == "abc1234"
+    assert st["ts"] > 0
+    # stamp failure is swallowed (update result still returned by caller)
+    monkeypatch.setattr(au, "OUT", tmp_path / "nope" / "deeper")
+    au._record_outcome("current")            # must not raise

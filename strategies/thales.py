@@ -105,6 +105,14 @@ class _AssetState:
         self.last_bar_ts = 0.0                   # ts of last accepted candle
         self.bar_spacing = 0.0                   # EWMA of candle spacing
         self.bar_hole_count = 0                  # venue-side candle holes fenced
+        # TH-017 spoof-flicker: previous snapshot's large top-of-book
+        # levels per side ({price: size}) and a bounded EWMA of vanish-
+        # without-trade events. Spoofers operate through top-of-book
+        # imbalance (Cartea-Jaimungal-Wang); their footprint in snapshot
+        # data is a LARGE level that appears then vanishes while the mid
+        # never crossed it (nothing consumed it - it was pulled).
+        self.spoof_prev: dict = {"bids": {}, "asks": {}}
+        self.spoof_ewma: dict = {"bids": 0.0, "asks": 0.0}
         # feed-integrity window: 1 = clean book this cycle, 0 = missing or
         # sanitize-rejected. A sustained low clean-rate means a hostile or
         # unreliable venue for THIS asset -> shade its confidence down.
@@ -128,6 +136,7 @@ class ThalesEngine:
         self._c = cfg.get("clockwork", {})
         self._s = cfg.get("stops", {})
         self._fi = cfg.get("feed_integrity", {})
+        self._sp = cfg.get("spoof", {})
         self._lp = cfg.get("lapse", {})
         self._assets: dict = {}
         self._counterfactuals: deque = deque(maxlen=200)
@@ -249,6 +258,8 @@ class ThalesEngine:
         st.last_sweep = {}            # a pre-gap sweep must not advise now
         st.sweep_fence_ts = now       # ...nor re-latch from surviving
         st.marks.clear()              # pre-gap candle_hist via _stop_zones
+        st.spoof_prev = {"bids": {}, "asks": {}}   # TH-017: gap-straddling
+        st.spoof_ewma = {"bids": 0.0, "asks": 0.0}  # vanish events are fiction
         log.warning("%s", tag(Code.TH_LAPSE,
                     f"{asset}: observation gap {now - last:.0f}s (lapse "
                     f"#{st.lapse_count}) - continuity state reset, advice "
@@ -268,8 +279,55 @@ class ThalesEngine:
             self._update_grid(st, bids, asks, mark)
             self._update_metronome(st, bids, asks, now)
             self._update_barclose(st, bids, asks, now)
+            self._update_spoof(st, bids, asks, mark)
         except Exception:
             log.debug("thales observe_fast degraded", exc_info=True)
+
+    def _update_spoof(self, st: _AssetState, bids: list, asks: list,
+                      mark: float):
+        """TH-017 spoof/layering flicker (Cartea-Jaimungal-Wang: spoofing
+        operates through top-of-book imbalance; Korea Exchange evidence:
+        imbalance-followers are the victims, thin/volatile books the
+        venue). Snapshot-data footprint: a level much larger than its
+        neighbors that appears near the top and then VANISHES while the
+        mid never crossed its price — pulled, not consumed. Each such
+        event bumps a per-side EWMA; the shade path distrusts entries
+        whose direction the flickering side would bait."""
+        if not bids or not asks or not mark:
+            return
+        top_n = int(self._sp.get("top_levels", 5))
+        big = float(self._sp.get("big_ratio", 3.0))
+        drop = float(self._sp.get("drop_frac", 0.8))
+        decay = float(self._sp.get("decay", 0.85))
+        for side, rows in (("bids", bids), ("asks", asks)):
+            cur = {}
+            sizes = []
+            for r in rows[:top_n]:
+                try:
+                    px, sz = float(r[0]), float(r[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if math.isfinite(px) and math.isfinite(sz) and sz > 0:
+                    cur[px] = sz
+                    sizes.append(sz)
+            med = sorted(sizes)[len(sizes) // 2] if sizes else 0.0
+            event = 0.0
+            if med > 0:
+                for px, was in st.spoof_prev.get(side, {}).items():
+                    if was < big * med:
+                        continue              # was never suspiciously large
+                    now_sz = cur.get(px, 0.0)
+                    if now_sz > (1.0 - drop) * was:
+                        continue              # still resting: not a flicker
+                    # consumed-vs-pulled: if the mid moved THROUGH the
+                    # level's price, trades plausibly ate it — innocent.
+                    consumed = (mark <= px) if side == "bids" else \
+                        (mark >= px)
+                    if not consumed:
+                        event = max(event, min(1.0, was / (big * med) - 1.0))
+            st.spoof_ewma[side] = decay * st.spoof_ewma.get(side, 0.0) \
+                + (1.0 - decay) * event
+            st.spoof_prev[side] = cur
 
     def _update_grid(self, st: _AssetState, bids: list, asks: list,
                      mark: float):
@@ -603,6 +661,20 @@ class ThalesEngine:
                                          + (f" (w={w:.2f})" if w < 1
                                             else "")))
 
+            # TH-017 spoof flicker: entries in the direction a flickering
+            # side would bait get shaded DOWN. UNWEIGHTED like feed
+            # integrity: a spoof-detection shade graded by trade outcomes
+            # would let a spoofer who fails to move price teach V2 to
+            # ignore spoofing. Safety shades are not up for reinterview.
+            sp = st.spoof_ewma.get("bids" if d == 1 else "asks", 0.0)
+            sp_thr = float(self._sp.get("score_thr", 0.35))
+            if sp > sp_thr:
+                mult *= 1.0 - float(self._sp.get("gain", 0.4)) * min(
+                    1.0, (sp - sp_thr) / max(1.0 - sp_thr, 1e-9))
+                out.notes.append(tag(Code.TH_SPOOF_FLICKER,
+                                     f"flicker {sp:.2f} on entry side: "
+                                     f"book imbalance untrusted"))
+
             # feed integrity: a venue that keeps feeding this asset missing
             # or sanitize-rejected books is hostile-or-unreliable; shade DOWN
             # (never up). Complementary to the watchdog's hard staleness
@@ -703,6 +775,8 @@ class ThalesEngine:
                 "clockwork": round(c_score, 3), "clockwork_dir": c_dir,
                 "stop_zone": round(prox, 3),
                 "barclose": round(self._barclose_score(st), 3),
+                "spoof_bid": round(st.spoof_ewma.get("bids", 0.0), 3),
+                "spoof_ask": round(st.spoof_ewma.get("asks", 0.0), 3),
                 "feed_dirty": round(self._feed_integrity(st), 3),
                 "lapses": st.lapse_count,
                 "bar_holes": st.bar_hole_count,

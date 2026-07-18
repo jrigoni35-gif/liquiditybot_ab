@@ -92,6 +92,7 @@ class Code(str, Enum):
     SZ_CIRCUIT_BREAKER = "SZ-046"    # asset paused: consecutive-loss circuit breaker
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
+    SZ_INV_SKEW = "SZ-061"           # A-S reservation skew: signed-inventory-increasing entry scaled
     SZ_APPROVED = "SZ-000"
 
     # ---- risk protocol stack (advanced overlay) --------------------------
@@ -149,6 +150,7 @@ class Code(str, Enum):
     TH_FEED_INTEGRITY = "TH-014"     # sustained missing/rejected feed data (hostile/unreliable venue)
     TH_BARCLOSE_HERD = "TH-015"      # activity herding in the first seconds after bar boundaries
     TH_LAPSE = "TH-016"              # observation gap: continuity reset, advice muted through warmup
+    TH_SPOOF_FLICKER = "TH-017"      # large top-of-book level pulled untraded: imbalance untrusted
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
     RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue

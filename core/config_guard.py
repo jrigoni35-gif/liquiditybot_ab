@@ -758,11 +758,63 @@ def validate(config: dict) -> list:
               f"seasonality is exactly the lazy-bot sin this model hunts")
     for knob in ("grid.gain", "metronome.gain", "clockwork.gain",
                  "stops.pre_gain", "stops.post_gain",
-                 "feed_integrity.gain"):
+                 "feed_integrity.gain", "spoof.gain"):
         gv = float(_f(config, f"thales.{knob}", 0.0))
         if gv < 0.0:
             fatal(f"thales.{knob}={gv} negative - inverted advice; flip "
                   f"the detector's exploit thesis in code, not via sign")
+    # A-S inventory skew (position_sizer.inventory_skew): an unknown mode
+    # silently disables a risk overlay the operator believes is on; a
+    # gamma above ~2 can floor EVERY same-direction entry (the floor then
+    # hides the misconfiguration); sigma_ref at/below zero divides by it.
+    sk_mode = str(_f(config, "position_sizer.inventory_skew.mode",
+                     "shadow")).lower()
+    if sk_mode not in ("off", "shadow", "active"):
+        fatal(f"position_sizer.inventory_skew.mode='{sk_mode}' unknown - "
+              f"must be off, shadow, or active")
+    sk_g = float(_f(config, "position_sizer.inventory_skew.gamma", 0.5))
+    if sk_g < 0.0:
+        fatal(f"position_sizer.inventory_skew.gamma={sk_g} negative - "
+              f"inverted skew would REWARD piling onto inventory")
+    elif sk_g > 2.0:
+        warn(f"position_sizer.inventory_skew.gamma={sk_g} above 2: most "
+             f"same-direction entries will sit at floor_mult - the skew "
+             f"becomes a step function, not a gradient")
+    sk_ref = float(_f(config, "position_sizer.inventory_skew.sigma_ref_pct",
+                      60.0))
+    if sk_ref <= 0.0:
+        fatal(f"position_sizer.inventory_skew.sigma_ref_pct={sk_ref} must "
+              f"be positive - it normalizes the sigma^2 amplifier")
+    sk_fl = float(_f(config, "position_sizer.inventory_skew.floor_mult",
+                     0.25))
+    if not (0.05 <= sk_fl <= 1.0):
+        fatal(f"position_sizer.inventory_skew.floor_mult={sk_fl} must be "
+              f"in [0.05, 1.0] - zero would silently veto entries (that "
+              f"is the inventory MANAGER's job, with its own code)")
+
+    # TH-017 spoof-flicker coherence: a big_ratio near 1 calls ordinary
+    # depth churn a spoof (every MM reprice flickers); drop/decay/thr
+    # outside their unit ranges make the EWMA either never fire or latch.
+    sp_br = float(_f(config, "thales.spoof.big_ratio", 3.0))
+    if sp_br < 1.5:
+        fatal(f"thales.spoof.big_ratio={sp_br} below 1.5 - a level barely "
+              f"above median depth is ordinary MM churn, not layering; "
+              f"this would shade on every reprice")
+    sp_df = float(_f(config, "thales.spoof.drop_frac", 0.8))
+    if not (0.0 < sp_df <= 1.0):
+        fatal(f"thales.spoof.drop_frac={sp_df} must be in (0, 1] - the "
+              f"fraction of a level that must vanish to count as pulled")
+    sp_dc = float(_f(config, "thales.spoof.decay", 0.85))
+    if not (0.0 < sp_dc < 1.0):
+        fatal(f"thales.spoof.decay={sp_dc} must be in (0, 1) - at 0 the "
+              f"EWMA has no memory, at 1 it never forgets a flicker")
+    sp_st = float(_f(config, "thales.spoof.score_thr", 0.35))
+    if not (0.0 < sp_st < 1.0):
+        fatal(f"thales.spoof.score_thr={sp_st} must be in (0, 1)")
+    if int(_f(config, "thales.spoof.top_levels", 5)) < 2:
+        fatal("thales.spoof.top_levels below 2 cannot compute a median "
+              "depth to compare against")
+
     # V2 reliability: min_fired is the cold-start fence. Below ~5 grades a
     # Wilson LCB is pure noise and weights would flap trade-to-trade; a
     # huge value silently disables the vindication loop (weights pinned at

@@ -171,6 +171,24 @@ class PositionSizer:
         self.ia_max_recent = max(int(ia.get("max_recent_entries", 3)), 1)
         self.ia_full_heat = min(max(
             float(ia.get("full_book_heat_frac", 0.35)), 0.05), 1.0)
+        # Avellaneda-Stoikov reservation skew, taker transplant: the A-S
+        # reservation price r = s - q*gamma*sigma^2*(T-t) prices the NEXT
+        # trade against current SIGNED inventory. For a taker that means:
+        # an entry that INCREASES |net exposure| is scaled down linearly
+        # in q (and quadratically in vol, per the sigma^2 term); an entry
+        # that REDUCES it is never penalized - it IS the liquidation the
+        # reservation price asks for. Empirical basis (A-S Table 1): the
+        # skewed strategy gives up ~6% expected profit for >2x lower P&L
+        # variance. Modes: off / shadow (log would-be multiplier, apply
+        # nothing) / active. Distinct from inventory_aggression, which is
+        # UNSIGNED (gross load + entry clustering) and direction-blind.
+        sk = cfg.get("inventory_skew", {}) or {}
+        self.sk_mode = str(sk.get("mode", "shadow")).lower()
+        self.sk_gamma = max(float(sk.get("gamma", 0.5)), 0.0)
+        self.sk_sigma_ref = max(float(sk.get("sigma_ref_pct", 60.0)), 1.0)
+        self.sk_amp_min = max(float(sk.get("amp_min", 0.25)), 0.0)
+        self.sk_amp_max = max(float(sk.get("amp_max", 4.0)), self.sk_amp_min)
+        self.sk_floor = min(max(float(sk.get("floor_mult", 0.25)), 0.05), 1.0)
         self._last_entry: dict = {}
         log.info("sizer payoff b=%.2f gross / %.2f net of %.2f%% rt cost "
                  "(net p(win) breakeven %.3f), kelly_fraction=%s, "
@@ -194,6 +212,45 @@ class PositionSizer:
             return heat / equity if equity > EPS else 0.0
         except Exception:
             return 0.0
+
+    @staticmethod
+    def _signed_heat_frac(state, marks, equity) -> float:
+        """NET signed exposure (long +, short -) as a fraction of equity.
+        Hedges count signed too - they exist to pull this toward zero.
+        Never raises."""
+        net = 0.0
+        try:
+            for p in getattr(state, "positions", {}).values():
+                px = (marks or {}).get(getattr(p, "symbol", ""), 0.0) or \
+                    getattr(p, "entry_price", 0.0)
+                notional = abs(float(getattr(p, "size", 0.0) or 0.0)) * \
+                    max(float(px or 0.0), 0.0)
+                sign = 1.0 if getattr(p, "direction", "long") == "long" \
+                    else -1.0
+                net += sign * notional
+            return net / equity if equity > EPS else 0.0
+        except Exception:
+            return 0.0
+
+    def _inventory_skew(self, state, marks, equity, direction: str,
+                        sigma_annual_pct: float) -> tuple:
+        """(multiplier, q) - A-S reservation skew. q = signed net heat
+        normalized by the full-book fraction, clipped to [-1, 1]; only an
+        entry in the SAME direction as q is penalized:
+        mult = max(floor, 1 - gamma * (q . d) * (sigma/sigma_ref)^2-amp).
+        Inventory-reducing entries and an empty book are neutral (1.0)."""
+        q = self._signed_heat_frac(state, marks, equity) \
+            / max(self.ia_full_heat, EPS)
+        q = max(-1.0, min(1.0, q))
+        d_sign = 1.0 if direction == "long" else -1.0
+        same = q * d_sign
+        if same <= EPS:
+            return 1.0, q
+        s = sigma_annual_pct if _fin(sigma_annual_pct) \
+            and sigma_annual_pct > 0.0 else self.sk_sigma_ref
+        amp = min(max((s / self.sk_sigma_ref) ** 2, self.sk_amp_min),
+                  self.sk_amp_max)
+        return max(self.sk_floor, 1.0 - self.sk_gamma * same * amp), q
 
     def _inventory_aggression(self, state, marks, equity,
                               now: float) -> tuple:
@@ -339,6 +396,19 @@ class PositionSizer:
                 d.reasons.append(tag(Code.SZ_INV_AGGRO,
                                      f"x{ia_mult:.2f} (book u_long={u_l:.2f}"
                                      f" u_short={u_s:.2f})"))
+        if self.sk_mode in ("shadow", "active"):
+            sk_mult, sk_q = self._inventory_skew(
+                state, marks, equity, direction, vol_state.sigma_annual_pct)
+            if abs(sk_mult - 1.0) > 0.01:
+                if self.sk_mode == "active":
+                    usd *= sk_mult
+                    d.reasons.append(tag(Code.SZ_INV_SKEW,
+                                         f"x{sk_mult:.2f} (q={sk_q:+.2f} "
+                                         f"A-S reservation skew)"))
+                else:
+                    d.reasons.append(tag(Code.SZ_INV_SKEW,
+                                         f"shadow: would x{sk_mult:.2f} "
+                                         f"(q={sk_q:+.2f})"))
         usd *= max(min(risk_scale if _fin(risk_scale) else 1.0, 1.0), 0.0)
         if usd <= EPS:
             d.reasons.append(tag(Code.SZ_MULT_ZERO,

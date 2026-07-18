@@ -257,3 +257,21 @@ def test_publish_leaves_caller_checkout_untouched(repos):
     wl = subprocess.run(["git", "worktree", "list"], cwd=str(root),
                         check=True, capture_output=True, text=True).stdout
     assert wl.count("\n") == 1
+
+
+def test_status_push_carries_deploy_observable(repos):
+    """2026-07-18: the PC's updater failed silently for 6+ hours and no
+    off-box channel said which outcome it kept hitting. The envelope now
+    carries the box's HEAD and the last auto-update outcome stamp."""
+    root, bare = repos
+    (root / "outputs").mkdir(exist_ok=True)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"equity": 5000.0, "written_at": time.time()}),
+        encoding="utf-8")
+    (root / "outputs" / "auto_update_state.json").write_text(
+        json.dumps({"ts": 123.0, "outcome": "dirty", "head": "aaa",
+                    "remote": "bbb"}), encoding="utf-8")
+    assert rc.push_pc_status(root=root) == "pushed"
+    env = json.loads(_branch_file(bare, "control/pc_status.json"))
+    assert env["deploy"]["auto_update"]["outcome"] == "dirty"
+    assert env["deploy"]["head"]                  # real rev-parse of root
