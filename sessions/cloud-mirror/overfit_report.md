@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-18 19:53 UTC
+# Overfit audit — 2026-07-18 20:25 UTC
 
 Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not market
 
@@ -6,8 +6,9 @@ Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.689 oof_auc=0.616 gap=+0.073
 - **PASS** gap[mlp]: OOF gap within memorization band — train_auc=0.684 oof_auc=0.619 gap=+0.065
 - **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.501 z=0.2 (limit 3.0)
-- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.16 over 7 configs / 70 splits (mean winner: logistic)
-- **INFO** pbo argmax stress — raw argmax selection pbo=0.21 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
+- **INFO** pbo space — ml.adaptive_gbt.enabled=true — the adaptive rung is IN the measured selection space
+- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.14 over 8 configs / 70 splits (mean winner: logistic)
+- **INFO** pbo argmax stress — raw argmax selection pbo=0.26 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
 - **PASS** purge: never manufactures out-of-sample edge — unpurged=0.486 purged=0.492 leak_closed=-0.006
 - **INFO** purge note — expanding-window design keeps boundary leak ~0 by construction; shuffle-null [OF-2] is the leak gate
 - **PASS** dof: not starved (>=10 rows per feature) — rows/feature=40.0 (2320 rows / 58 features)
@@ -18,4 +19,4 @@ Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — INFORMATIONAL during exploration phase — dsr=0.000 sr=-0.58 n=35; live sample is EV-mixed by design (PT-050 probes); gate arms when ml.exploration.enabled is false
 
-7 passed, 0 failed (17s)
+7 passed, 0 failed (21s)
