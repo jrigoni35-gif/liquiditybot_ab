@@ -172,10 +172,16 @@ def main():
                  "row-count purge this run; TIME purge resumes on pure-live "
                  "history", len(X))
         sig = None
+    # opt-in top rung: only enters the deployed selection when the operator
+    # turns it on (ml.adaptive_gbt.enabled). Disabled -> extra_models=() ->
+    # the historical ladder, byte-for-byte.
+    ag_cfg = ml_cfg.get("adaptive_gbt", {}) or {}
+    extra_models = ("adaptive_gbt",) if ag_cfg.get("enabled") else ()
     results = evaluate_and_select(
         X, y, label_span=int(ml_cfg.get("label_max_bars", 96)),
         sample_weight=w, feature_names=FEATURE_NAMES,
-        ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)), sig=sig)
+        ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)), sig=sig,
+        extra_models=extra_models, adaptive_cfg=ag_cfg)
     sel = results[results["selected"]]
     cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
     if not cal.fitted:
@@ -194,11 +200,10 @@ def main():
     if results.get("importance"):
         log.info("feature importance (OOS AUC drop): " +
                  ", ".join(f"{n}={v:+.3f}" for n, v in results["importance"]))
-    log.info(f"selected={results['selected']} "
-             f"logistic brier={results['logistic']['mean_brier']:.4f} "
-             f"gbt brier={results['gbt']['mean_brier']:.4f} "
-             f"blend brier={results['blend']['mean_brier']:.4f} "
-             f"mlp brier={results['mlp']['mean_brier']:.4f}")
+    briers = " ".join(f"{k} brier={results[k]['mean_brier']:.4f}"
+                      for k in ("logistic", "gbt", "blend", "mlp",
+                                "adaptive_gbt") if k in results)
+    log.info(f"selected={results['selected']} {briers}")
     log.info("NOTE: walk-forward AUC on bootstrap data is a weak prior, not "
              "proof of edge. The model improves as live labeled trades accrue.")
     from ml.interpret import background_sample

@@ -165,6 +165,28 @@ def validate(config: dict) -> list:
                 fatal(f"ml.multi_horizon horizon {int(h)} > label_max_bars "
                       f"{max_bars} - would never be labeled")
 
+    # adaptive_gbt (opt-in top ladder rung): bounds so an enabled config
+    # can't degrade the learner. max_total_trees must sit comfortably above
+    # a base GBT fit (~n_estimators, default 300) or warm_update would find
+    # no room and continuous learning would silently never fire.
+    ag = config.get("ml", {}).get("adaptive_gbt", {}) or {}
+    if ag.get("enabled", False):
+        bags = int(_f(config, "ml.adaptive_gbt.bags", 4))
+        if not (1 <= bags <= 16):
+            fatal(f"ml.adaptive_gbt.bags ({bags}) must be in [1, 16] - one "
+                  f"bag is a plain gbt with overhead; >16 just burns train "
+                  f"time for vanishing variance reduction")
+        warm = int(_f(config, "ml.adaptive_gbt.warm_rounds", 25))
+        if not (1 <= warm <= 200):
+            fatal(f"ml.adaptive_gbt.warm_rounds ({warm}) must be in [1, 200] "
+                  f"- <1 disables continuous learning, >200 lets one warm "
+                  f"batch dominate the trained ensemble")
+        cap = int(_f(config, "ml.adaptive_gbt.max_total_trees", 800))
+        if cap < 400:
+            fatal(f"ml.adaptive_gbt.max_total_trees ({cap}) must be >= 400 - "
+                  f"below a base fit's ~300 trees, warm_update never has room "
+                  f"and continuous learning silently never fires")
+
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
     if start_cap <= 0 and not dry_run:

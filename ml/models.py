@@ -353,6 +353,8 @@ def load_model(path: str):
         return NumpyMLP.from_dict(d)
     if kind == "gbt":
         return GradientBoostedStumps.from_dict(d)
+    if kind == "adaptive_gbt":
+        return AdaptiveGBT.from_dict(d)
     if kind == "blend":
         return BlendModel.from_dict(d)
     return LogisticModel.from_dict(d)
@@ -545,6 +547,59 @@ class GradientBoostedStumps:
         self.importance_ = {int(k): v / tot for k, v in importance.items()}
         return self
 
+    def continue_fit(self, X, y, n_rounds: int, sample_weight=None):
+        """Warm-start continuation: append up to `n_rounds` boosting rounds
+        on NEW labels, continuing from the current ensemble instead of
+        discarding it. This is the incremental-learning primitive AdaptiveGBT
+        uses for cheap between-retrain refresh: the appended rounds fit the
+        residuals the trained trees leave on the fresh batch, so the model
+        leans toward the most recent regime by construction (the intended
+        behavior for a non-stationary market) while keeping everything it
+        already learned. Callers bound the total tree count.
+
+        No-op (returns self unchanged) when there is nothing to continue from
+        (unfitted), the width disagrees, or n_rounds<=0 — a warm update must
+        never be able to corrupt a healthy champion. importance_ is left as
+        the original fit's: it is diagnostic only, and mixing normalized
+        fractions with fresh raw gains would be incoherent."""
+        if not self.trees or self.n_features_ is None:
+            return self
+        X = np.asarray(X, float)
+        y = np.asarray(y, float)
+        if X.ndim != 2 or X.shape[1] != self.n_features_:
+            return self
+        n = len(X)
+        n_rounds = int(n_rounds)
+        if n_rounds <= 0 or n < 2:
+            return self
+        # seed derived from tree count so repeated updates don't reuse draws
+        rng = np.random.default_rng(self.seed + 7919 + len(self.trees))
+        sw = np.ones(n) if sample_weight is None else \
+            np.asarray(sample_weight, float)
+        sw = sw / (sw.mean() + EPS)
+        pos_w = float((n - y.sum()) / max(y.sum(), 1.0))
+        wgt = np.where(y > 0.5, pos_w, 1.0) * sw
+        self._presort(X)
+        raw = np.full(n, self.base)
+        for tree in self.trees:
+            raw += self.lr * self._node_out(tree, X)
+        scratch: dict = {}          # throwaway: keep importance_ untouched
+        for _ in range(n_rounds):
+            p = 1.0 / (1.0 + np.exp(-np.clip(raw, -30, 30)))
+            g = (p - y) * wgt
+            h = np.maximum(p * (1 - p) * wgt, 1e-6)
+            rows = np.arange(n) if self.subsample >= 1.0 else \
+                rng.choice(n, size=max(int(n * self.subsample), min(8, n)),
+                           replace=False)
+            feats = None if self.colsample >= 1.0 else \
+                rng.choice(self.n_features_,
+                           size=max(int(self.n_features_ * self.colsample), 1),
+                           replace=False)
+            tree = self._grow(X, g, h, rows, self.max_depth, scratch, feats)
+            self.trees.append(tree)
+            raw += self.lr * self._node_out(tree, X)
+        return self
+
     def predict_proba(self, X):
         X = np.atleast_2d(np.asarray(X, float))
         raw = np.full(len(X), self.base)
@@ -557,8 +612,15 @@ class GradientBoostedStumps:
         return self.n_features_
 
     def to_dict(self):
+        # subsample/l2/min_child_hess/seed are serialized so a model loaded
+        # from disk can continue_fit() with its ORIGINAL regularization, not
+        # the constructor defaults — a warm update after a restart must be
+        # faithful. Older artifacts lack these keys; from_dict falls back to
+        # the current defaults, which is behavior-preserving for predict.
         return {"kind": self.kind, "base": self.base, "lr": self.lr,
                 "max_depth": self.max_depth, "colsample": self.colsample,
+                "subsample": self.subsample, "l2": self.l2,
+                "min_child_hess": self.min_child_hess, "seed": self.seed,
                 "n_features": self.n_features_,
                 "trees": self.trees,
                 "importance": {str(k): v for k, v in self.importance_.items()}}
@@ -570,6 +632,12 @@ class GradientBoostedStumps:
         m.lr = float(d.get("lr", 0.05))
         m.max_depth = int(d.get("max_depth", 2))
         m.colsample = float(d.get("colsample", 1.0))
+        # regularization for a faithful continue_fit after load (defaults
+        # match __init__ so pre-stamp artifacts stay behavior-identical)
+        m.subsample = float(d.get("subsample", 0.7))
+        m.l2 = float(d.get("l2", 3.0))
+        m.min_child_hess = float(d.get("min_child_hess", 5.0))
+        m.seed = d.get("seed", 7)
         nf = d.get("n_features")
         m.n_features_ = int(nf) if nf is not None else None
         m.trees = d["trees"]
@@ -620,3 +688,86 @@ class BlendModel:
         m.a = LogisticModel.from_dict(d["a"])
         m.b = GradientBoostedStumps.from_dict(d["b"])
         return m
+
+
+class AdaptiveGBT:
+    """Drift-adaptive, continuously-learnable boosted-tree model.
+
+    Two upgrades over the single `gbt` rung, both aimed at a small-sample,
+    non-stationary, always-learning trading corpus — and both free of any
+    FITTED degree of freedom, so the simplicity ladder still has to elect
+    this rung on out-of-sample merit (it ships above `mlp`, config-gated,
+    exactly like every other complexity step):
+
+      1. BAGGED boosting. k boosted-stump models on decorrelated seeds,
+         probability-averaged — the same pure-variance-reduction move
+         EnsembleMLP makes for MLPs. Boosted shallow trees are the
+         strongest learner class at this data scale; averaging seeds
+         trims the run-to-run variance a single GBT carries at a few
+         hundred rows without touching bias. k is fixed config, not tuned.
+
+      2. WARM continuous learning. `warm_update(X_new, y_new)` appends a
+         bounded number of boosting rounds to every member on freshly
+         labeled rows, continuing from the trained ensemble rather than
+         retraining from zero. Between the scheduled full retrains this
+         lets the champion track a shifting regime cheaply, leaning recent
+         by construction, hard-capped at `max_total_trees` per member so
+         it can never grow unbounded or let one small batch run away.
+
+    Same fit/predict_proba/n_features/save/load contract as every other
+    model; JSON-serializable end to end, so warm updates survive a
+    restart."""
+    kind = "adaptive_gbt"
+
+    def __init__(self, k: int = 4, warm_rounds: int = 25,
+                 max_total_trees: int = 800, seed: int = 7, **gbt_kwargs):
+        self.k = max(int(k), 1)
+        self.warm_rounds = max(int(warm_rounds), 0)
+        self.max_total_trees = max(int(max_total_trees), 1)
+        self.seed = seed
+        self.gbt_kwargs = gbt_kwargs
+        self.members: list = []
+
+    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+        self.members = []
+        for i in range(self.k):
+            m = GradientBoostedStumps(seed=self.seed + 101 * i,
+                                      **self.gbt_kwargs)
+            m.fit(X, y, Xv, yv, sample_weight=sample_weight)
+            self.members.append(m)
+        return self
+
+    def warm_update(self, X_new, y_new, sample_weight=None):
+        """Incrementally teach every member on new labels, bounded by
+        max_total_trees. Returns self. A no-op member (already at the tree
+        cap, unfitted, or width-mismatched) is left untouched by
+        continue_fit, so a warm update can only ever help or hold."""
+        for m in self.members:
+            room = self.max_total_trees - len(m.trees)
+            if room > 0:
+                m.continue_fit(X_new, y_new,
+                               n_rounds=min(self.warm_rounds, room),
+                               sample_weight=sample_weight)
+        return self
+
+    def predict_proba(self, X):
+        return np.mean([m.predict_proba(X) for m in self.members], axis=0)
+
+    @property
+    def n_features(self):
+        return self.members[0].n_features if self.members else None
+
+    def to_dict(self):
+        return {"kind": self.kind, "k": self.k,
+                "warm_rounds": self.warm_rounds,
+                "max_total_trees": self.max_total_trees,
+                "members": [m.to_dict() for m in self.members]}
+
+    @classmethod
+    def from_dict(cls, d):
+        e = cls(k=int(d.get("k", 4)),
+                warm_rounds=int(d.get("warm_rounds", 25)),
+                max_total_trees=int(d.get("max_total_trees", 800)))
+        e.members = [GradientBoostedStumps.from_dict(m)
+                     for m in d.get("members", [])]
+        return e

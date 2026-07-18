@@ -2211,12 +2211,18 @@ class LiquidityBot:
             # on leak-free OOF (row-count purge under-purges bursty signals).
             # label_span MUST match the labeler's actual horizon (config
             # label_max_bars) or the purge window and the label window drift.
+            # opt-in adaptive rung: only enters the deployed selection when
+            # ml.adaptive_gbt.enabled (disabled -> extra_models=() -> the
+            # historical in-process ladder, unchanged).
+            _ag = self.config.get('ml', {}).get('adaptive_gbt', {}) or {}
+            _extra = ("adaptive_gbt",) if _ag.get("enabled") else ()
             results = evaluate_and_select(
                 X, y, sample_weight=w, feature_names=FEATURE_NAMES,
                 label_span=int(self.config.get('ml', {})
                             .get('label_max_bars', 96)),
                 ensemble_k=int(self.config.get('ml', {})
-                            .get('ensemble_seeds', 3)), sig=sig)
+                            .get('ensemble_seeds', 3)), sig=sig,
+                extra_models=_extra, adaptive_cfg=_ag)
             sel = results[results["selected"]]
             cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
             if not cal.fitted:

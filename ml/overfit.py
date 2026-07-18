@@ -38,8 +38,8 @@ import math
 import numpy as np
 
 from ml.calibration import brier_score
-from ml.models import (GradientBoostedStumps, LogisticModel, NumpyMLP,
-                       auc_score)
+from ml.models import (AdaptiveGBT, GradientBoostedStumps, LogisticModel,
+                       NumpyMLP, auc_score)
 from ml.walkforward import BRIER_MARGIN, purged_walk_forward
 
 log = logging.getLogger("liquiditybot.ml.overfit")
@@ -189,14 +189,24 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
 
 
 def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
-                    seed: int = 7, n_blocks: int = 8, sig=None) -> dict:
+                    seed: int = 7, n_blocks: int = 8, sig=None,
+                    include_adaptive: bool = False,
+                    adaptive_cfg: dict | None = None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
     walkforward selection maximizes, so the PBO measures the real
-    selection step."""
+    selection step.
+
+    include_adaptive mirrors ml.adaptive_gbt.enabled: when the opt-in
+    rung is live in the deployed ladder it MUST be in the measured space
+    too, or OF-3 certifies a selection rule the bot no longer runs (the
+    'PBO measures the DEPLOYED rule' invariant). It is appended LAST —
+    the most complex step — so the simplicity ladder only elects it when
+    it out-earns every simpler config by the Brier margin."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
+    ac = adaptive_cfg or {}
     space = {
         "logistic": lambda: LogisticModel(seed=seed),
         "gbt_d2_lr05": lambda: GradientBoostedStumps(max_depth=2, lr=0.05,
@@ -211,6 +221,12 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                                                      seed=seed),
         "mlp_small": lambda: NumpyMLP(hidden=(16, 8), seed=seed),
     }
+    if include_adaptive:
+        space["adaptive_gbt"] = lambda: AdaptiveGBT(
+            k=int(ac.get("bags", 4)),
+            warm_rounds=int(ac.get("warm_rounds", 25)),
+            max_total_trees=int(ac.get("max_total_trees", 800)),
+            seed=seed)
     folds = [f for f in purged_walk_forward(len(X), n_splits, label_span,
                                             sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
@@ -237,7 +253,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # Brier, so cand wins iff perf[cand] > perf[inc] + margin).
     order = [names.index(k) for k in (
         "logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
-        "gbt_d3_lr10", "gbt_d4_lr05", "mlp_small") if k in names]
+        "gbt_d3_lr10", "gbt_d4_lr05", "mlp_small", "adaptive_gbt")
+        if k in names]
 
     def ladder(is_perf):
         inc = order[0]

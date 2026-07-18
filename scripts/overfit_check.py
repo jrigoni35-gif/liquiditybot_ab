@@ -290,8 +290,27 @@ def main() -> int:
           f"(limit {sh.get('z_limit')})")
 
     print("[OF-3] model-space PBO (CSCV)")
+    # OF-3 must measure the DEPLOYED selection space. When the opt-in
+    # adaptive_gbt rung is enabled in config it is live in walkforward's
+    # ladder, so it enters the PBO space too; otherwise the space is the
+    # historical default. Config unreadable -> default space (fail safe).
+    inc_adaptive, adaptive_cfg = False, None
+    try:
+        from main import load_config
+        _ml = load_config(str(Path(__file__).resolve().parents[1]
+                              / "config.json")).get("ml", {})
+        _ag = _ml.get("adaptive_gbt", {}) or {}
+        inc_adaptive = bool(_ag.get("enabled", False))
+        adaptive_cfg = _ag if inc_adaptive else None
+    except Exception:                                    # noqa: BLE001
+        inc_adaptive, adaptive_cfg = False, None         # fail safe: default space
+    if inc_adaptive:
+        info("pbo space", "ml.adaptive_gbt.enabled=true — the adaptive "
+                          "rung is IN the measured selection space")
     pb = model_space_pbo(X, y, n_splits=3 if args.quick else 5,
-                         n_blocks=6 if args.quick else 8, sig=sig)
+                         n_blocks=6 if args.quick else 8, sig=sig,
+                         include_adaptive=inc_adaptive,
+                         adaptive_cfg=adaptive_cfg)
     if pb.get("pbo") is None:
         info("pbo", pb.get("reason", "n/a"))
     else:

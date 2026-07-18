@@ -32,8 +32,8 @@ import logging
 import numpy as np
 
 from ml.calibration import brier_score
-from ml.models import (BlendModel, EnsembleMLP, GradientBoostedStumps,
-                       LogisticModel, auc_score)
+from ml.models import (AdaptiveGBT, BlendModel, EnsembleMLP,
+                       GradientBoostedStumps, LogisticModel, auc_score)
 
 log = logging.getLogger("liquiditybot.ml.walkforward")
 
@@ -43,6 +43,17 @@ log = logging.getLogger("liquiditybot.ml.walkforward")
 # the margin to ship — the "stronger model" transition is evidence-
 # gated, never assumed.
 _LADDER = ("logistic", "gbt", "blend", "mlp")
+# adaptive_gbt (bagged, warm-updatable boosted trees) is the next rung
+# UP from mlp, but it is NOT in the default ladder: like every new
+# capability in this repo it ships opt-in, entering the deployed
+# selection only when the operator passes it as an extra_model (driven
+# by ml.adaptive_gbt.enabled in config). So the default selection rule —
+# the one overfit_check's PBO measures — is byte-for-byte unchanged.
+# _COMPLEXITY is the canonical complexity order for ANY candidate the
+# ladder may include, so an appended extra rung is placed by merit-
+# earned complexity, not by call order. Names absent here fall to the
+# end (treated as most complex).
+_COMPLEXITY = ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
 BRIER_MARGIN = 0.002
 # canonical bar interval for the triple-barrier horizon (5-minute candles);
 # time-based purge converts label_span (bars) -> seconds with this.
@@ -108,27 +119,43 @@ def permutation_importance(model, X_te, y_te, names, n_top: int = 10,
     return drops[:n_top]
 
 
-def _factories(seed: int, ensemble_k: int) -> dict:
+def _factories(seed: int, ensemble_k: int,
+               adaptive_cfg: dict | None = None) -> dict:
+    ac = adaptive_cfg or {}
     return {
         "logistic": lambda: LogisticModel(seed=seed),
         "gbt": lambda: GradientBoostedStumps(seed=seed),
         "blend": lambda: BlendModel(seed=seed),
         "mlp": lambda: EnsembleMLP(k=ensemble_k, seed=seed),
+        "adaptive_gbt": lambda: AdaptiveGBT(
+            k=int(ac.get("bags", 4)),
+            warm_rounds=int(ac.get("warm_rounds", 25)),
+            max_total_trees=int(ac.get("max_total_trees", 800)),
+            seed=seed),
     }
 
 
 def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                         n_splits: int = 5, seed: int = 7,
                         sample_weight=None, feature_names=None,
-                        ensemble_k: int = 3, sig=None) -> dict:
+                        ensemble_k: int = 3, sig=None,
+                        extra_models=(), adaptive_cfg=None) -> dict:
     """Walk-forward all candidates; ship the Brier winner (simplicity-
     biased), fitted on all data. When `sig` (per-row signal timestamps) is
     given the fold purge is TIME-based, not row-count - the deployed model
-    is selected on genuinely leak-free OOF."""
+    is selected on genuinely leak-free OOF.
+
+    extra_models appends opt-in rungs (e.g. "adaptive_gbt") ABOVE the
+    default ladder; the effective ladder is re-sorted into canonical
+    complexity order so a step right always costs the model the Brier
+    margin. Default extra_models=() reproduces the historical selection
+    exactly."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
-    factories = _factories(seed, ensemble_k)
+    factories = _factories(seed, ensemble_k, adaptive_cfg)
+    ladder = tuple(name for name in _COMPLEXITY
+                   if name in _LADDER or name in tuple(extra_models))
     results = {}
     last_fold_model: dict = {}
     # folds are identical for every ladder candidate (the class-balance skip
@@ -141,7 +168,7 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     results["oof_idx"] = (np.concatenate([te for _, te in folds])
                           if folds else np.empty(0, int))
 
-    for name in _LADDER:
+    for name in ladder:
         factory = factories[name]
         aucs, briers, oof_p, oof_y = [], [], [], []
         for tr, te in folds:
@@ -165,8 +192,8 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                  results[name]["mean_auc"], results[name]["mean_brier"])
 
     # simplicity-biased Brier selection: climb the ladder only on merit
-    winner = _LADDER[0]
-    for cand in _LADDER[1:]:
+    winner = ladder[0]
+    for cand in ladder[1:]:
         if results[cand]["mean_brier"] < \
                 results[winner]["mean_brier"] - BRIER_MARGIN:
             winner = cand
@@ -182,5 +209,5 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
             log.info("top features (OOS AUC drop): %s",
                      results["importance"][:5])
     log.info("selected model: %s (brier %s)", winner,
-             {k: round(results[k]["mean_brier"], 4) for k in _LADDER})
+             {k: round(results[k]["mean_brier"], 4) for k in ladder})
     return results
