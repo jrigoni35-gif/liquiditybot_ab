@@ -553,6 +553,13 @@ def validate(config: dict) -> list:
         advisory(f"informed_flow.urgency.base {ub:.2f} >= join_at_urgency "
                  f"{join_at:.2f} - EVERY confirmed signal at least joins the "
                  f"touch (no pure spread-capture rung)")
+    # thin-book precision: the improve fraction must stay strictly inside
+    # the spread (a full-spread rest is a cross, which defeats maker-only).
+    tif = float(_f(config, "execution_tactics.thin_improve_spread_frac", 0.4))
+    if not (0.0 <= tif < 0.5):
+        fatal(f"execution_tactics.thin_improve_spread_frac={tif} must be in "
+              f"[0, 0.5) - at 0.5+ the resting price reaches/crosses the "
+              f"opposite touch, which is a taker fill, not maker precision")
 
     # --- sizer vol scaling + tier reach (lifted literals) --------------------
     vsmin = float(_f(config, "position_sizer.vol_scalar_min", 0.3))

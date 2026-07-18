@@ -60,6 +60,19 @@ class ExecutionPlanner:
         self.taker_at = float(cfg.get("taker_at_urgency", 0.88))
         self.improve_frac = min(max(float(
             cfg.get("improve_spread_frac", 0.25)), 0.0), 0.49)
+        # THIN-BOOK PRECISION (adverse-selection defense): a thin book is a
+        # toxic book — crossing it pays the full spread to an informed
+        # counterparty exactly when depth is scarce. When enabled, entries
+        # into a "thin" liquidity regime are forced MAKER-only (never the
+        # taker cross), and their resting price is improved deeper into the
+        # spread (thin_improve_frac) so the fill, if it comes, is precise
+        # rather than chased. Off by default: it changes live entry
+        # placement, so it ships as a conscious switch (like every other
+        # money-path behavior). "Leniency" toward thin books is what makes
+        # taking them safe — the precision is what keeps them cheap.
+        self.thin_maker_only = bool(cfg.get("thin_book_maker_only", False))
+        self.thin_improve_frac = min(max(float(
+            cfg.get("thin_improve_spread_frac", 0.40)), 0.0), 0.49)
         if not (self.join_at <= self.improve_at <= self.taker_at):
             raise ValueError("execution_tactics: urgency ladder must be "
                              "non-decreasing (join <= improve <= taker)")
@@ -86,15 +99,25 @@ class ExecutionPlanner:
                 return fallback
             spread = best_ask - best_bid
 
+            thin_precise = self.thin_maker_only and liq_label == "thin"
+
             if urgency >= self.taker_at and self.allow_taker \
-                    and liq_label != "spoofy":
+                    and liq_label != "spoofy" and not thin_precise:
                 # cross at the opposite touch; pretrade must approve the
-                # full taker cost stack or this plan dies there
+                # full taker cost stack or this plan dies there. Suppressed
+                # in a thin book under precision mode: never pay the full
+                # spread to an informed counterparty when depth is scarce —
+                # fall through to a precise maker rest instead.
                 price = best_ask if long else best_bid
                 return EntryPlan("taker", price, True, False)
 
-            if urgency >= self.improve_at:
-                step = spread * self.improve_frac
+            if thin_precise or urgency >= self.improve_at:
+                # precision rest: improve deeper into the spread in a thin
+                # book (thin_improve_frac) so a fill is captured at a better
+                # price than the touch, never chased.
+                frac = self.thin_improve_frac if thin_precise else \
+                    self.improve_frac
+                step = spread * frac
                 price = min(best_bid + step, best_ask - 1e-12) if long \
                     else max(best_ask - step, best_bid + 1e-12)
                 return EntryPlan("improve", price, False, True)

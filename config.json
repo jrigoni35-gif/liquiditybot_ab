@@ -817,7 +817,10 @@
     "join_at_urgency": 0.4,
     "improve_at_urgency": 0.7,
     "taker_at_urgency": 0.88,
-    "improve_spread_frac": 0.25
+    "improve_spread_frac": 0.25,
+    "_thin_doc": "thin-book precision entries (adverse-selection defense): when thin_book_maker_only is true, an entry into a 'thin' liquidity regime is forced maker-only (never crosses the spread) and rests improved thin_improve_spread_frac into the spread for a precise fill. Ships false = current behavior; enable to trade thinner weekend books safely without paying the toxic-book spread.",
+    "thin_book_maker_only": false,
+    "thin_improve_spread_frac": 0.4
   },
   "execution": {
     "description": "rev-4 institutional execution layer: parent/child algo scheduling, venue routing, transport groundwork",
