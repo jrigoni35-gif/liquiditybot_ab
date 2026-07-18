@@ -57,6 +57,19 @@ def _git(*args, cwd, timeout=120):
         return 1, f"error: {e}"
 
 
+def _git_bytes(*args, cwd, timeout=60):
+    """Raw-bytes git (for `show`): session_import sha-verifies every bundle
+    file, so extraction must be BYTE-EXACT — text mode + newline guessing
+    altered files with no trailing newline (session_digest.json) by one
+    byte and every real bundle was refused (self-audit 2026-07-18)."""
+    try:
+        p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
+                           capture_output=True, timeout=timeout)
+        return p.returncode, p.stdout or b""
+    except Exception:                            # noqa: BLE001
+        return 1, b""
+
+
 def _cfg() -> dict:
     return {"remote": os.environ.get("LB_BACKUP_REMOTE", "origin"),
             "branch": os.environ.get("LB_BACKUP_BRANCH", "paper-telemetry")}
@@ -86,14 +99,12 @@ def sync_once(root: Path = ROOT) -> str:
     with tempfile.TemporaryDirectory(prefix="lb_corpus_") as td:
         base = Path(td)
         for rel in listing.splitlines():
-            rc, content = _git("show", f"{ref}:{rel}", cwd=root, timeout=60)
+            rc, raw = _git_bytes("show", f"{ref}:{rel}", cwd=root)
             if rc != 0:
                 continue
             dest = base / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content + ("\n" if content
-                                       and not content.endswith("\n")
-                                       else ""), encoding="utf-8")
+            dest.write_bytes(raw)
         bundles = sorted((p for p in (base / "sessions").iterdir()
                           if p.is_dir()),
                          key=_bundle_order_key, reverse=True)

@@ -952,10 +952,16 @@ class LiquidityBot:
             # labels/perf/breaker additionally carries this slice's pro-rata
             # share of the entry fees, so decisions are graded fully net.
             net = gross - fee_delta
+            # entry fees drain as a POOL proportional to the slice of the
+            # CURRENT size being closed: shares vs original_size could sum
+            # past 100% when an entry order keeps filling after a partial
+            # exit (self-audit 2026-07-18); a pool can never over-allocate,
+            # a full close drains it, later entry fills refill it.
             entry_share = 0.0
-            if pos.original_size > EPS and pos.entry_fees_usd > 0.0:
+            if pos.size > EPS and pos.entry_fees_usd > 0.0:
                 entry_share = pos.entry_fees_usd * min(
-                    event.fill_size / pos.original_size, 1.0)
+                    event.fill_size / pos.size, 1.0)
+                pos.entry_fees_usd -= entry_share
             trade_net = net - entry_share
             pos.size = max(pos.size - event.fill_size, 0.0)
             # advance the profit-tier ladder ON FILL (Assurance Build fix:

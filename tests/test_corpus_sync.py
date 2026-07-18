@@ -64,8 +64,15 @@ def synced_world(tmp_path, monkeypatch):
     remote_out = tmp_path / "remote_outputs"
     remote_out.mkdir()
     _write_history(remote_out / "signal_history.csv", ["r1", "r2", "r3"])
+    # a manifest-verified file WITHOUT a trailing newline: real bundles carry
+    # session_digest.json exactly like this, and a sync that alters even one
+    # byte in transit fails its sha and refuses the whole bundle
+    import json as _json
+    (remote_out / "session_digest.json").write_text(
+        _json.dumps({"verdict": "ok"}, indent=2), encoding="utf-8")
     bundle = tmp_path / "bundle"
     export(str(remote_out), str(bundle), label="peer")
+    assert not (bundle / "session_digest.json").read_bytes().endswith(b"\n")
     _git("checkout", "--orphan", "paper-telemetry", cwd=root)
     _git("rm", "-rf", "--cached", ".", cwd=root)
     (root / "code.txt").unlink()
