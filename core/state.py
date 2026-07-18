@@ -28,6 +28,7 @@ class Position:
     confidence: float = 0.0           # meta-model p(win) at entry
     edge_bps: float = 0.0             # pre-trade estimated edge at entry
     fees_paid_usd: float = 0.0        # cumulative fees attributed to this position
+    entry_fees_usd: float = 0.0       # entry-leg fees only (pro-rated into exit nets)
     leverage: float = 1.0             # leverage used at entry (1 = spot)
     high_water: Optional[float] = None  # best favorable price since entry (chandelier anchor)
 
@@ -93,6 +94,14 @@ class PortfolioState:
 
     def record_fees(self, amount: float):
         self.fees_paid_total += amount
+
+    def record_entry_fee(self, amount: float):
+        """Entry-leg fees are REAL CASH out the door at fill time. Cash is
+        PnL-settled (no debit at open for the position itself), but without
+        this debit every round trip overstated equity by the entry fee leg —
+        the sizer priced 65bps RT while the ledger charged only the exit leg
+        (audit MP-2 2026-07-17). Exit fees stay netted inside realized PnL."""
+        self.cash_balance -= amount
 
     # --- Capital tracking ------------------------------------------------------
     def total_equity(self, mark_prices: Optional[Dict[str, float]] = None) -> float:

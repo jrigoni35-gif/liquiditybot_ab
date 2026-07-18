@@ -141,6 +141,11 @@ def collect(status_path: str) -> list:
         if a["cost"] > 0:
             m.append(gauge("liquiditybot_position_upnl_pct",
                            a["upnl"] / a["cost"] * 100.0, lab, ts))
+        # conviction divides by NOTIONAL, which is 0 when the mark is null
+        # while cost>0 — that ZeroDivisionError aborted collect() and blacked
+        # out the ENTIRE metric batch (audit DL-1 2026-07-17); guard its own
+        # denominator, never a proxy's
+        if a["notional"] > 0:
             m.append(gauge("liquiditybot_position_conviction",
                            a["conv_w"] / a["notional"], lab, ts))
         if a["risk"] > 0:

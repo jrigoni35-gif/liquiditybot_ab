@@ -128,9 +128,26 @@ class BotRunner:
             control_send=self.control.send)
         self.rest_api.start()
         self.grpc_api.start()
-        self.state = "PAUSED" if start_paused else "RUNNING"
+        # DURABLE risk-off: pause and entries_off survive every restart via
+        # sentinel files. Without them, ANY relaunch — supervisor revive,
+        # keepalive, the 15-min auto-updater — silently reverted an
+        # operator's risk-off back to full-risk-on (audit F2 2026-07-17).
+        # start/entries_on delete the sentinels; nothing else does.
+        self._paused_sentinel = Path("outputs") / "paused.on"
+        self._entries_off_sentinel = Path("outputs") / "entries_off.on"
+        self.state = ("PAUSED" if (start_paused
+                                   or self._paused_sentinel.exists())
+                      else "RUNNING")
+        if self.state == "PAUSED" and self._paused_sentinel.exists():
+            log.warning("boot PAUSED: outputs/paused.on present (operator "
+                        "risk-off survives restarts; send 'start' to resume)")
+        if self._entries_off_sentinel.exists():
+            self.bot.entries_enabled = False
+            log.warning("boot with entries DISABLED: outputs/entries_off.on "
+                        "present (send 'entries_on' to re-enable)")
         self._step_requested = False
         self._stop = False
+        self._forfeited = False   # duplicate-runner exit: peer owns the book
         self.poll_sec = self.bot.poll_sec
         # wedge guard: a cycle_once that raises EVERY iteration used to spin
         # forever logging "continuing" while no stops/entries ran and the
@@ -148,14 +165,33 @@ class BotRunner:
         self._recover_streak = 0        # consecutive healthy cycles since a wedge
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _set_sentinel(p: Path) -> None:
+        try:
+            p.parent.mkdir(exist_ok=True)
+            p.touch()
+        except OSError:
+            log.warning("could not write sentinel %s - the risk-off will "
+                        "NOT survive a restart", p)
+
+    @staticmethod
+    def _clear_sentinel(p: Path) -> None:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
     def handle_command(self, c: dict):
         cmd, args = c["cmd"], c.get("args", {})
         bot = self.bot
         note = ""
         if cmd == "start":
             self.state = "RUNNING"
+            self._clear_sentinel(self._paused_sentinel)
         elif cmd == "pause":
             self.state = "PAUSED"
+            self._set_sentinel(self._paused_sentinel)
         elif cmd == "stop":
             self._stop = True
         elif cmd == "step":
@@ -165,8 +201,10 @@ class BotRunner:
             note = f"snapshot {'saved' if ok else 'FAILED'}"
         elif cmd == "entries_on":
             bot.entries_enabled = True
+            self._clear_sentinel(self._entries_off_sentinel)
         elif cmd == "entries_off":
             bot.entries_enabled = False
+            self._set_sentinel(self._entries_off_sentinel)
         elif cmd == "arm_live":
             if bot.dry_run:
                 note = "REFUSED: config is dry_run - arming is meaningless"
@@ -595,6 +633,7 @@ class BotRunner:
                             "instance lock to live peer)",
                             {"pid": self._lock.pid,
                              "lost_count": self._lock.lost_count})
+                        self._forfeited = True
                         self._stop = True
                         break
                 try:
@@ -643,8 +682,13 @@ class BotRunner:
                         if getattr(self, "skimmer", None) is not None:
                             self.skimmer.evaluate(now)
                         snap = self.build_status(now)
-                        self._last_status = snap
+                        # write BEFORE publishing to the API threads: write()
+                        # mutates snap (adds written_at), and a REST poll
+                        # serializing a dict that grows mid-iteration raises
+                        # (audit F9 2026-07-17). After write() the dict is
+                        # stable, so sharing it is safe.
                         self.status.write(snap, now)
+                        self._last_status = snap
                     except Exception:
                         log.exception("status/snapshot write failed - "
                                       "continuing (does not halt trading)")
@@ -663,46 +707,62 @@ class BotRunner:
             kws = getattr(bot, "kraken_ws", None)
             if kws is not None:
                 kws.stop()              # join the Kraken stream thread
-            if not bot.dry_run:
-                # nothing may rest unmanaged while the bot is offline:
-                # cancel every venue order, then disarm the dead-man timer
+            if self._forfeited:
+                # a LIVE PEER owns this outputs/ dir: the book, the venue
+                # orders, the snapshot and status.json are ITS to manage.
+                # Running the normal shutdown here clobbered the peer's good
+                # snapshot with this duplicate's stale state, flipped its
+                # status to STOPPED, and in live mode would have cancelled
+                # the peer's resting stops account-wide (audit C-F1
+                # 2026-07-17). Stop our own servers and leave.
                 try:
-                    if bot.kraken.cancel_all_orders():
-                        log.warning("shutdown: all venue orders cancelled")
-                    bot.kraken.cancel_all_orders_after(0)
+                    self.rest_api.stop()
+                    self.grpc_api.stop()
                 except Exception:
-                    log.exception("shutdown venue cleanup failed - VERIFY "
-                                  "open orders on Kraken manually")
-                if bot.state.open_position_count() > 0:
-                    bot.alerts.fire(
-                        "shutdown_with_positions",
-                        f"bot stopped with "
-                        f"{bot.state.open_position_count()} open "
-                        f"position(s) and no working orders. The book is "
-                        f"UNMANAGED until restart.", level="WARNING")
-            ok = bot.store.snapshot(bot)
-            try:
-                final = self.build_status(time.time())
-                final["runner_state"] = "STOPPED"
-                self.status.write(final)
-                self.rest_api.stop()
-                self.grpc_api.stop()
-            except Exception:
-                log.debug("final status write failed during shutdown")
-            log.info(f"final snapshot {'saved' if ok else 'FAILED'} -> "
-                     f"{bot.store.path}. Restart with `python runner.py`.")
-            # leave a reconciled, machine-readable digest of the run so the
-            # next session (operator or agent) can pick up from an accurate
-            # summary instead of cross-joining six raw streams. Read-only and
-            # best-effort: a digest failure must never mar a clean shutdown.
-            try:
-                d = write_digest("outputs", self.config)
-                log.info(f"session digest: {d['verdict']} -> "
-                         f"outputs/session_digest.md")
-            except Exception:
-                log.debug("session digest write failed during shutdown")
+                    log.debug("api server stop failed during forfeit exit")
+                log.warning("duplicate-runner exit: venue orders, snapshot "
+                            "and status left to the live peer")
+            else:
+                if not bot.dry_run:
+                    # nothing may rest unmanaged while the bot is offline:
+                    # cancel every venue order, then disarm the dead-man timer
+                    try:
+                        if bot.kraken.cancel_all_orders():
+                            log.warning("shutdown: all venue orders cancelled")
+                        bot.kraken.cancel_all_orders_after(0)
+                    except Exception:
+                        log.exception("shutdown venue cleanup failed - VERIFY "
+                                      "open orders on Kraken manually")
+                    if bot.state.open_position_count() > 0:
+                        bot.alerts.fire(
+                            "shutdown_with_positions",
+                            f"bot stopped with "
+                            f"{bot.state.open_position_count()} open "
+                            f"position(s) and no working orders. The book is "
+                            f"UNMANAGED until restart.", level="WARNING")
+                ok = bot.store.snapshot(bot)
+                try:
+                    final = self.build_status(time.time())
+                    final["runner_state"] = "STOPPED"
+                    self.status.write(final)
+                    self.rest_api.stop()
+                    self.grpc_api.stop()
+                except Exception:
+                    log.debug("final status write failed during shutdown")
+                log.info(f"final snapshot {'saved' if ok else 'FAILED'} -> "
+                         f"{bot.store.path}. Restart with `python runner.py`.")
+                # leave a reconciled, machine-readable digest of the run so
+                # the next session (operator or agent) can pick up from an
+                # accurate summary instead of cross-joining six raw streams.
+                # Best-effort: a digest failure never mars a clean shutdown.
+                try:
+                    d = write_digest("outputs", self.config)
+                    log.info(f"session digest: {d['verdict']} -> "
+                             f"outputs/session_digest.md")
+                except Exception:
+                    log.debug("session digest write failed during shutdown")
             if self._lock is not None:
-                self._lock.release()              # free the lock for a restart
+                self._lock.release()   # ownership-aware: no-op when forfeited
 
 
 def main():

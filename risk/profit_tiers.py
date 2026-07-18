@@ -285,7 +285,17 @@ class ProfitTierEngine:
             be_px = position.entry_price * (1.0 + buf) \
                 if position.direction == "long" \
                 else position.entry_price * (1.0 - buf)
-            self._ratchet_stop(position, be_px)
+            # arm the floor only once price has actually CLEARED it. When
+            # the tier-1 trigger sits below the fee buffer (vol-scaled
+            # triggers or tier_scale<0.86 regimes), ratcheting be_px in
+            # unconditionally installed a floor ABOVE the market — an
+            # instant exit BELOW breakeven, with tiers 2-4/chandelier as
+            # dead code (audit EX-1 2026-07-17). Once armed while clear,
+            # the ratchet holds if price falls back — tighten-only intact.
+            cleared = (px > be_px) if position.direction == "long" \
+                else (px < be_px)
+            if cleared:
+                self._ratchet_stop(position, be_px)
 
         if trail_on:
             decay_mult = 1.0

@@ -149,8 +149,13 @@ def _update_locked() -> str:
 
     _, behind = _git("rev-list", "--count", f"HEAD..origin/{BRANCH}")
     log(f"{behind} new commit(s) on {BRANCH} - testing the incoming code first")
+    # reclaim EVERY stale _update_wt_* (any pid): a crashed updater's full
+    # checkout otherwise sat under outputs/ forever — `worktree prune` skips
+    # it because the directory exists (audit C-F11). Concurrent updaters are
+    # excluded by the single-updater lock, so anything here is dead.
+    for stale_wt in OUT.glob("_update_wt_*"):
+        _git("worktree", "remove", "--force", str(stale_wt))
     wt = OUT / f"_update_wt_{os.getpid()}"
-    _git("worktree", "remove", "--force", str(wt))     # clean any stale one
     rc, err = _git("worktree", "add", "--detach", str(wt), f"origin/{BRANCH}")
     if rc != 0:
         log(f"could not create test worktree ({err}) - skipping")

@@ -926,12 +926,16 @@ class LiquidityBot:
             if _mk is not None:
                 _mk.record_fill(order.symbol, self._asset_of(order.symbol),
                                 order.side, event.fill_price, now)
-            pos.fees_paid_usd += order.fees_usd - order.meta.get("_fees_seen", 0.0)
+            fee_seen_delta = order.fees_usd - order.meta.get("_fees_seen", 0.0)
+            pos.fees_paid_usd += fee_seen_delta
+            pos.entry_fees_usd += fee_seen_delta
             if order.meta.get("algo_parent"):
                 self.algo.note_fill(order.meta["algo_parent"],
                                     event.fill_size, event.fill_price)
             order.meta["_fees_seen"] = order.fees_usd
-            self.state.record_fees(order.fees_usd - order.meta.get("_fees_booked", 0.0))
+            fee_booked_delta = order.fees_usd - order.meta.get("_fees_booked", 0.0)
+            self.state.record_fees(fee_booked_delta)
+            self.state.record_entry_fee(fee_booked_delta)
             order.meta["_fees_booked"] = order.fees_usd
 
         elif event.fill_size > EPS and order.purpose == "exit":
@@ -943,7 +947,16 @@ class LiquidityBot:
             fee_delta = order.fees_usd - order.meta.get("_fees_seen", 0.0)
             order.meta["_fees_seen"] = order.fees_usd
             gross = sgn * (event.fill_price - pos.entry_price) * event.fill_size
+            # cash settlement nets ONLY the exit leg (entry fees already left
+            # cash at fill time via record_entry_fee); the TRADE net used for
+            # labels/perf/breaker additionally carries this slice's pro-rata
+            # share of the entry fees, so decisions are graded fully net.
             net = gross - fee_delta
+            entry_share = 0.0
+            if pos.original_size > EPS and pos.entry_fees_usd > 0.0:
+                entry_share = pos.entry_fees_usd * min(
+                    event.fill_size / pos.original_size, 1.0)
+            trade_net = net - entry_share
             pos.size = max(pos.size - event.fill_size, 0.0)
             # advance the profit-tier ladder ON FILL (Assurance Build fix:
             # tier_closed was never written, so tier 1 re-fired forever and
@@ -955,12 +968,12 @@ class LiquidityBot:
             self.state.record_fees(fee_delta)
             self.capital.record_realized_profit(net, self.state)
             self._pos_realized[pos.position_id] = \
-                self._pos_realized.get(pos.position_id, 0.0) + net
+                self._pos_realized.get(pos.position_id, 0.0) + trade_net
             log.info(f"CLOSE {event.fill_size:.6f} {pos.symbol} @ "
                     f"{self._px(pos.symbol, event.fill_price)} "
-                    f"net ${net:+,.2f} (remaining {pos.size:.6f})")
+                    f"net ${trade_net:+,.2f} (remaining {pos.size:.6f})")
             if pos.size <= pos.original_size * 1e-4 or pos.size <= EPS:
-                total_net = self._pos_realized.pop(pos.position_id, net)
+                total_net = self._pos_realized.pop(pos.position_id, trade_net)
                 self._finalize_position(pos, total_net, now)
                 log.info(f"FLAT {pos.symbol} position {pos.position_id[:8]}: "
                         f"total net ${total_net:+,.2f}")
@@ -1094,6 +1107,14 @@ class LiquidityBot:
         # rather than per-pair, cutting fast-cycle Kraken round-trips; the
         # per-pair book (Depth is single-pair only) still loops below.
         pair_of = self._pair_of                  # precomputed in __init__
+        # tick quarantine holds stops for EXACTLY one cycle (the watchdog's
+        # documented contract). Without this reset the False flag LATCHED
+        # when the feed died right after a quarantined tick — the hard stop
+        # never re-evaluated through the whole outage (audit EX-2
+        # 2026-07-17). Mark FRESHNESS separately gates decisions whenever
+        # no new data arrives, so the reset never runs stops on stale data.
+        if self._stop_ok:
+            self._stop_ok = dict.fromkeys(self._stop_ok, True)
         marks = self.kraken.get_tickers(self._pair_list)
         # Books stay a SERIAL loop: measured live, parallelizing the 6 fetches
         # saved ~0ms (serial 2004ms vs parallel 2014ms) because the Kraken 3/s

@@ -228,9 +228,14 @@ class PositionSizer:
         full-ish size at/below target vol, shrinking as vol rises, clamped to
         [vol_scalar_min, vol_scalar_max]. Non-finite sigma degrades to the
         floor value (treat unknown vol as high vol, never as low)."""
-        sig = sigma_annual_pct if _fin(sigma_annual_pct) else float("inf")
+        # sigma <= 0 is as uninformative as NaN — a degenerate flat-candle
+        # window must get the MIN scalar, not sail through the floor into the
+        # MAX boost (0 -> floored to 5% -> 35/5=7 -> clamped to max was the
+        # largest size on the least information; audit MP-9 2026-07-17)
+        if not _fin(sigma_annual_pct) or sigma_annual_pct <= 0.0:
+            return self.vol_scalar_min
         return min(max(self.vol_target_ann_pct
-                       / max(sig, self.vol_sigma_floor_pct),
+                       / max(sigma_annual_pct, self.vol_sigma_floor_pct),
                        self.vol_scalar_min), self.vol_scalar_max)
 
     def note_entry(self, asset: str, now: Optional[float] = None):

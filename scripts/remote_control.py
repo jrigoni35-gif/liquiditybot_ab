@@ -58,7 +58,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from core.codes import Code                          # noqa: E402
-from core.runtime import VALID_COMMANDS, ControlChannel  # noqa: E402
+from core.runtime import (SingleInstanceLock, VALID_COMMANDS,  # noqa: E402
+                          ControlChannel)
 
 OUT = ROOT / "outputs"
 QUEUE_DIR = "control/queue"
@@ -205,12 +206,46 @@ def _publish(root: Path, writes: dict, deletes: list) -> str:
 
 
 # ------------------------------------------------------------- PC: consume
+def _runner_alive(root: Path, now: float) -> bool:
+    """The runner purges its whole local control queue at boot as stale, so
+    a command forwarded while it is DOWN would be ledgered 'applied' and
+    then silently discarded by the next boot (audit C-F3 2026-07-17). Only
+    forward into a live runner; otherwise the branch queue is retained and
+    retried next poll (commands still expire on their own 30-min clock)."""
+    try:
+        s = json.loads((root / "outputs" / "status.json")
+                       .read_text(encoding="utf-8"))
+        if now - float(s.get("written_at", 0) or 0) < 120.0:
+            return True
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        lk = json.loads((root / "outputs" / "runner.lock")
+                        .read_text(encoding="utf-8"))
+        return now - float(lk.get("heartbeat", 0) or 0) < 60.0
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def poll_once(root: Path = ROOT, now: float | None = None) -> str:
     """Fetch the branch, validate every unseen queue file, forward valid
-    commands to the local ControlChannel. Returns a disposition summary."""
+    commands to the local ControlChannel. Returns a disposition summary.
+    Single-instance locked: two overlapping pollers would both read the
+    ledger before either saved it and double-forward (audit C-F6)."""
     if os.environ.get("LB_NO_REMOTE_CMD"):
         return "disabled"
     now = time.time() if now is None else now
+    lock = SingleInstanceLock(str(root / "outputs" / "remote_poll.lock"),
+                              stale_after_sec=300.0)
+    if lock.acquire() is not None:
+        return "busy"
+    try:
+        return _poll_locked(root, now)
+    finally:
+        lock.release()
+
+
+def _poll_locked(root: Path, now: float) -> str:
     cfg = _cfg()
     rc, err = _git("fetch", cfg["remote"], cfg["branch"], cwd=root)
     if rc != 0:
@@ -222,13 +257,15 @@ def poll_once(root: Path = ROOT, now: float | None = None) -> str:
         return "queue_empty"
     consumed = _load_consumed(root)
     seen = {e.get("id") for e in consumed}
+    fresh = [f for f in listing.split()
+             if f.endswith(".json") and f[:-5] not in seen]
+    if fresh and not _runner_alive(root, now):
+        _log(f"runner down - retaining {len(fresh)} queued command(s) for "
+             f"the next poll (forwarding now would be purged at boot)")
+        return f"runner_down retained={len(fresh)}"
     applied = rejected = 0
-    for fname in listing.split():
-        if not fname.endswith(".json"):
-            continue
+    for fname in fresh:
         fid = fname[:-5]
-        if fid in seen:
-            continue
         rc, raw = _git("show",
                        f"{cfg['remote']}/{cfg['branch']}:{QUEUE_DIR}/{fname}",
                        cwd=root)
@@ -242,15 +279,22 @@ def poll_once(root: Path = ROOT, now: float | None = None) -> str:
             _log(f"{reason} (id {fid})")
             consumed.append({"id": fid, "result": "rejected",
                              "reason": reason, "at": now})
-        else:
-            cmd, args = payload["cmd"], payload.get("args") or {}
-            ControlChannel(str(root / "outputs" / "control")).send(cmd, args)
-            applied += 1
-            _log(f"{Code.RC_APPLIED.value}: forwarded '{cmd}' to the "
-                 f"runner (id {fid})")
-            consumed.append({"id": fid, "result": "applied",
-                             "cmd": cmd, "at": now})
-    if applied or rejected:
+            _save_consumed(root, consumed)
+            continue
+        cmd, args = payload["cmd"], payload.get("args") or {}
+        # AT-MOST-ONCE: ledger the id BEFORE forwarding. A crash between
+        # the two leaves an honest 'forwarding' entry (visible in the
+        # pc_status acks) and the command is never re-forwarded — a
+        # replayed flatten_all after a fill-and-reopen gap would flatten
+        # positions the operator never asked about (audit C-F5).
+        consumed.append({"id": fid, "result": "forwarding",
+                         "cmd": cmd, "at": now})
+        _save_consumed(root, consumed)
+        ControlChannel(str(root / "outputs" / "control")).send(cmd, args)
+        applied += 1
+        _log(f"{Code.RC_APPLIED.value}: forwarded '{cmd}' to the "
+             f"runner (id {fid})")
+        consumed[-1]["result"] = "applied"
         _save_consumed(root, consumed)
     return f"applied={applied} rejected={rejected}"
 

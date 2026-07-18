@@ -56,7 +56,7 @@ fi
 # a clean no-op, a cold/crashed container is fully rebuilt. import is dedup-
 # safe, so re-running it after a mere runner crash is harmless.
 mkdir -p outputs
-if pgrep -f "python.*runner\.py$" >/dev/null 2>&1; then
+if pgrep -f "python.*runner\.py( |$)" >/dev/null 2>&1; then
   log "runner already alive - healthy session, skipping data restore"
 else
   # A rolled-back snapshot can leave outputs/signal_history.csv on an OLDER

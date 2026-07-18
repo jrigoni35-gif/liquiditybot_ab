@@ -52,8 +52,12 @@ def test_reach_decay_knob_steers_breakeven():
 
 
 def test_default_vol_scalar_identical_to_old_formula():
+    # identity holds for every INFORMATIVE sigma. sigma<=0 deliberately
+    # diverged 2026-07-17 (audit MP-9): the old formula floored 0 to 5% and
+    # granted the MAX boost on the least-informative reading — degenerate
+    # vol now gets the MIN scalar, pinned in test_audit_fixes_20260717.
     s = PositionSizer({}, profit_cfg=_PROFIT, risk_cfg=_RISK)
-    for sigma in (0.0, 3.0, 5.0, 20.0, 35.0, 60.0, 200.0):
+    for sigma in (3.0, 5.0, 20.0, 35.0, 60.0, 200.0):
         old = min(max(35.0 / max(sigma, 5.0), 0.3), 1.5)
         assert s._vol_scalar(sigma) == pytest.approx(old, rel=1e-12), sigma
 

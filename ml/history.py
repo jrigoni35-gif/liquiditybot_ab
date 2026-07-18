@@ -88,7 +88,7 @@ class HistoryStore:
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 7} - stale pre-rotation "
+                f"schema {len(self._header) - 8} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         with open(self.path, "a", newline="", encoding="utf-8") as f:

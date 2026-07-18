@@ -469,13 +469,18 @@ class OrderManager:
                     cand = (vol_exec * avg - prev_filled * prev_avg) / new_fill
                     if math.isfinite(cand) and cand > 0:
                         seg_px = cand
-                order.fees_usd += new_fill * order.avg_price * \
+                # fees and the FILL EVENT both use the SEGMENT price: booking
+                # the cumulative average smears the basis toward the earliest
+                # fill (buy 1@100 then 1@110 booked as entry 102.50 instead of
+                # 105.00 — audit MP-1/MP-3 2026-07-17), corrupting stops,
+                # tiers, realized PnL, and every label downstream.
+                order.fees_usd += new_fill * seg_px * \
                     (self.maker_fee_bps if order.post_only
                      else self.taker_fee_bps) / 1e4
                 self._note_exec(order.post_only, new_fill * seg_px,
                                 seg_px, order.price, order.side)
                 self._transition(order, "partial", "venue fill")
-                events.append(FillEvent(order, new_fill, order.avg_price,
+                events.append(FillEvent(order, new_fill, seg_px,
                                         final=False))
             if status == "closed" or order.remaining <= EPS:
                 self._transition(order, "filled", "venue closed")
@@ -544,6 +549,7 @@ class OrderManager:
                   sigma_bar_pct: float, now: float) -> list:
         events = []
         pre_filled = order.filled
+        pre_avg = order.avg_price
         if order.status == "filled":
             events.append(FillEvent(order, 0.0, order.avg_price, final=True))
             return events
@@ -580,7 +586,16 @@ class OrderManager:
                                 else "filled", "sim passive")
         new_fill = order.filled - pre_filled
         if new_fill > EPS:
-            events.append(FillEvent(order, new_fill, order.avg_price,
+            # segment price for THIS poll's fills, not the cumulative blend —
+            # same recovery as the live path (audit MP-1): a sweep + passive
+            # mix in one poll otherwise books at a price no fill ever traded.
+            seg_px = order.avg_price
+            if pre_filled > EPS and order.avg_price > 0:
+                cand = (order.avg_price * order.filled
+                        - pre_avg * pre_filled) / new_fill
+                if math.isfinite(cand) and cand > 0:
+                    seg_px = cand
+            events.append(FillEvent(order, new_fill, seg_px,
                                     final=False))
         if order.remaining <= EPS:
             if order.status != "filled":

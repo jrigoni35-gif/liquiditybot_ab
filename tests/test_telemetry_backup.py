@@ -163,6 +163,26 @@ def test_inconsistent_bundle_is_refused_and_tip_untouched(repos, tmp_path):
     assert tip_before == tip_after
 
 
+def test_shrinking_bundle_is_refused(repos, tmp_path, monkeypatch):
+    # a failed-restore boot exporting near-empty outputs must never replace
+    # the durable tip's larger bundle (the restore hook reads only the tip)
+    monkeypatch.delenv("LB_BACKUP_ALLOW_SHRINK", raising=False)
+    root, bare = repos
+    tb.push_bundle(_cfg(), _make_bundle(tmp_path / "big", 9), root=root)
+    out = tb.push_bundle(_cfg(), _make_bundle(tmp_path / "small", 3),
+                         root=root)
+    assert "refusing shrink" in out
+    tip = subprocess.run(
+        ["git", "show", "paper-telemetry:sessions/nightshift/"
+         "signal_history.csv"], cwd=str(bare), check=True,
+        capture_output=True, text=True).stdout
+    assert tip.count("\n") == 10                     # header + 9 rows intact
+    # deliberate override still works
+    monkeypatch.setenv("LB_BACKUP_ALLOW_SHRINK", "1")
+    assert "pushed 3 rows" in tb.push_bundle(
+        _cfg(), _make_bundle(tmp_path / "small2", 3), root=root)
+
+
 def test_manifest_listed_but_missing_file_is_refused(repos, tmp_path):
     root, _ = repos
     b = _make_bundle(tmp_path / "b", 3)

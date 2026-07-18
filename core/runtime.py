@@ -220,10 +220,14 @@ class SingleInstanceLock:
                     pass
                 continue
             except OSError:
-                # can't create exclusively (fs error): fall back to the old
-                # best-effort write so a single runner still starts
-                self.refresh()
-                return None
+                # can't create exclusively (fs error, e.g. a Windows scanner
+                # holding the file): best-effort claim, but HONOR refresh()'s
+                # verdict — the old unconditional `return None` let BOTH
+                # racers "acquire" past a live peer (audit C-F14 2026-07-17)
+                if self.refresh():
+                    return None
+                cur = read_json(self.path)
+                return cur if isinstance(cur, dict) else {"pid": "contended"}
             else:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump({"pid": self.pid, "heartbeat": time.time()}, f)

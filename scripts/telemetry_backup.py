@@ -135,6 +135,23 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
               str(wt), remote_ref], cwd=root)
         try:
             dest = wt / "sessions" / cfg["label"]
+            # SHRINK GUARD: a bad boot (failed restore -> near-empty outputs)
+            # or a second live session exporting less history must not
+            # replace the durable tip's bundle with a smaller one — the
+            # restore hook reads ONLY the tip (audit C-F4 2026-07-17).
+            # Rows are append-only+dedup, so a legitimate export never
+            # shrinks; LB_BACKUP_ALLOW_SHRINK=1 overrides deliberately.
+            old_hist = dest / "signal_history.csv"
+            if (old_hist.exists()
+                    and not os.environ.get("LB_BACKUP_ALLOW_SHRINK")):
+                old_rows = sum(1 for _ in open(old_hist,
+                                               encoding="utf-8")) - 1
+                new_rows = sum(1 for _ in open(bundle / "signal_history.csv",
+                                               encoding="utf-8")) - 1
+                if new_rows < old_rows:
+                    return (f"refusing shrink: bundle has {new_rows} rows < "
+                            f"tip's {old_rows} (LB_BACKUP_ALLOW_SHRINK=1 "
+                            f"overrides)")
             if dest.exists():
                 shutil.rmtree(dest)
             shutil.copytree(bundle, dest)

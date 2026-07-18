@@ -49,7 +49,17 @@ def repos(tmp_path, monkeypatch):
     _git("checkout", "main", cwd=root)
     monkeypatch.delenv("LB_NO_REMOTE_CMD", raising=False)
     monkeypatch.delenv("LB_NO_STATUS_PUSH", raising=False)
+    # a LIVE runner heartbeat: without it the liveness gate (correctly)
+    # retains every queued command instead of forwarding
+    (root / "outputs").mkdir(exist_ok=True)
+    _fresh_runner(root)
     return root, bare
+
+
+def _fresh_runner(root: Path) -> None:
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"written_at": time.time(), "runner_state": "RUNNING"}),
+        encoding="utf-8")
 
 
 def _branch_file(bare: Path, rel: str) -> str | None:
@@ -134,12 +144,77 @@ def test_command_round_trip_exactly_once(repos):
 def test_stale_command_is_rejected_not_forwarded(repos, monkeypatch):
     root, bare = repos
     cid = rc.send_command("pause", root=root)
-    out = rc.poll_once(root=root, now=time.time() + rc.MAX_AGE_SEC + 60)
+    future = time.time() + rc.MAX_AGE_SEC + 60
+    # keep the runner heartbeat fresh relative to the simulated clock so the
+    # liveness gate doesn't mask the expiry path under test
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"written_at": future}), encoding="utf-8")
+    out = rc.poll_once(root=root, now=future)
     assert out == "applied=0 rejected=1"
     assert not list((root / "outputs" / "control").glob("cmd_*.json"))
     ledger = json.loads(
         (root / "outputs" / "remote_consumed.json").read_text("utf-8"))
     assert ledger[0]["id"] == cid and ledger[0]["result"] == "rejected"
+
+
+def test_runner_down_retains_queue_for_retry(repos):
+    # forwarding into a dead runner would be ledgered 'applied' and then
+    # purged by the next boot — the gate must retain the queue instead
+    root, _ = repos
+    rc.send_command("pause", root=root)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"written_at": time.time() - 900}), encoding="utf-8")
+    out = rc.poll_once(root=root)
+    assert out.startswith("runner_down")
+    assert not list((root / "outputs" / "control").glob("cmd_*.json"))
+    assert not (root / "outputs" / "remote_consumed.json").exists()
+    # runner comes back -> the same command forwards on the next poll
+    _fresh_runner(root)
+    assert rc.poll_once(root=root) == "applied=1 rejected=0"
+    assert len(list((root / "outputs" / "control").glob("cmd_*.json"))) == 1
+
+
+def test_ledger_written_before_forwarding(repos, monkeypatch):
+    # at-most-once: the id must be in the ledger BEFORE ControlChannel.send
+    # runs, so a crash inside send can never lead to a double-forward
+    root, _ = repos
+    rc.send_command("pause", root=root)
+    real_send = rc.ControlChannel.send
+
+    def crashing_send(self, cmd, args=None):
+        ledger = json.loads(
+            (root / "outputs" / "remote_consumed.json").read_text("utf-8"))
+        assert ledger and ledger[-1]["result"] == "forwarding"
+        raise RuntimeError("simulated crash mid-send")
+    monkeypatch.setattr(rc.ControlChannel, "send", crashing_send)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        rc.poll_once(root=root)
+    monkeypatch.setattr(rc.ControlChannel, "send", real_send)
+    # the id is consumed: the command is NOT retried (at-most-once), and
+    # the honest 'forwarding' state survives for the pc_status acks
+    assert rc.poll_once(root=root) in ("queue_empty", "applied=0 rejected=0")
+    ledger = json.loads(
+        (root / "outputs" / "remote_consumed.json").read_text("utf-8"))
+    assert ledger[-1]["result"] == "forwarding"
+
+
+def test_concurrent_poller_is_refused(repos):
+    root, _ = repos
+    lock = rc.SingleInstanceLock(
+        str(root / "outputs" / "remote_poll.lock"), stale_after_sec=300.0)
+    assert lock.acquire() is None            # peer holds the poll lock
+    try:
+        import os
+        # a DIFFERENT pid must be refused; same-pid reclaim is by design,
+        # so fake the peer's pid in the lockfile
+        raw = json.loads(
+            (root / "outputs" / "remote_poll.lock").read_text("utf-8"))
+        raw["pid"] = os.getpid() + 1
+        (root / "outputs" / "remote_poll.lock").write_text(
+            json.dumps(raw), encoding="utf-8")
+        assert rc.poll_once(root=root) == "busy"
+    finally:
+        (root / "outputs" / "remote_poll.lock").unlink()
 
 
 def test_kill_switch_disables_polling(repos, monkeypatch):
@@ -168,6 +243,7 @@ def test_status_push_publishes_and_gc_consumed_queue(repos):
 
 def test_status_push_without_status_is_a_noop(repos):
     root, _ = repos
+    (root / "outputs" / "status.json").unlink()
     assert rc.push_pc_status(root=root) == "no_status"
 
 

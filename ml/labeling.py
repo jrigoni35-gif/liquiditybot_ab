@@ -84,7 +84,12 @@ class ExitPolicy:
             base_stop_frac=float(risk.get("stop_loss_pct", 2.0)) / 100.0,
             stop_vol_mult=float(risk.get("stop_vol_mult", 4.0)),
             tiers=tiers or ExitPolicy().tiers,
-            vol_scaled=bool(pt.get("vol_scaled_triggers", True)),
+            # SAME key and SAME default as the live engine reads
+            # (risk/profit_tiers.py: cfg.get("vol_scaled", False)) — the old
+            # "vol_scaled_triggers" key does not exist in any config, so the
+            # labeler could never see the knob it exists to mirror and the
+            # defaults disagreed (audit LP-2 2026-07-17)
+            vol_scaled=bool(pt.get("vol_scaled", False)),
             be_after_tier=int(pt.get("be_after_tier", 1)),
             be_buffer_frac=float(pt.get("be_buffer_bps", 6)) / 1e4,
             trail_after_tier=int(tr.get("activate_after_tier", 2)),

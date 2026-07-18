@@ -200,6 +200,14 @@ class KrakenFeed(ThrottledRestClient):
             v.add(pair.replace("XBT", "BTC"))
         if "BTC" in pair:
             v.add(pair.replace("BTC", "XBT"))
+        # Doge has the same split personality: config says DOGE, Kraken's
+        # batched Ticker keys the response XDGUSD. Without both spellings a
+        # promoted DOGE/USD paid a redundant per-cycle fallback fetch through
+        # the throttled execution client (audit DL-4 2026-07-17).
+        if "XDG" in pair:
+            v.add(pair.replace("XDG", "DOGE"))
+        if "DOGE" in pair:
+            v.add(pair.replace("DOGE", "XDG"))
         return v
 
     def get_tickers(self, pairs: list) -> dict:

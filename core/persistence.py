@@ -58,6 +58,7 @@ def position_to_dict(pos) -> dict:
         "confidence": pos.confidence,
         "edge_bps": pos.edge_bps,
         "fees_paid_usd": pos.fees_paid_usd,
+        "entry_fees_usd": pos.entry_fees_usd,
         "leverage": pos.leverage,
         "high_water": pos.high_water,
     }
@@ -77,6 +78,7 @@ def position_from_dict(d: dict):
         confidence=float(d.get("confidence", 0.0)),
         edge_bps=float(d.get("edge_bps", 0.0)),
         fees_paid_usd=float(d.get("fees_paid_usd", 0.0)),
+        entry_fees_usd=float(d.get("entry_fees_usd", 0.0)),
         leverage=float(d.get("leverage", 1.0)),
         high_water=(None if d.get("high_water") is None else float(d["high_water"])),
     )
