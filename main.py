@@ -1443,8 +1443,18 @@ class LiquidityBot:
             return False                        # never in live - hard-gated
         if not self.explore_enabled:
             return False
-        if self.history.row_count() >= self.explore_until_rows:
-            return False                        # enough data: trust the model
+        # Graduate on REAL closed-trade (LIVE) rows, not total. The corpus is
+        # dominated by candidate (triple-barrier PROXY) labels, so counting
+        # all rows retired exploration at 1370 total while only ~35 real fill
+        # outcomes existed — silently starving the model of the live-outcome
+        # data it actually needs for OOS edge (2026-07-18: OF-1 gap 0.44,
+        # exploration off). Honors the config key's own name (until_LIVE_rows).
+        # Falls back to total rows only when the source split is unavailable.
+        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc = _sc_fn() if callable(_sc_fn) else {}
+        _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
+        if _grad_rows >= self.explore_until_rows:
+            return False                        # enough REAL data: trust the model
         if self._explore_rng.random() >= self.explore_epsilon:
             return False
         if asset is not None and self.explore_max_asset_share < 1.0:
@@ -2037,9 +2047,17 @@ class LiquidityBot:
             return
         positions = self.state.open_positions()
         cap = self.capital.max_concurrent_positions
+        # graduate on LIVE (real closed-trade) rows, not total — same reason
+        # as _exploration_active: a proxy-inflated total count would retire
+        # the teaching-slot unwind while real fill outcomes are still scarce,
+        # letting non-teaching positions squat every slot and starving the
+        # learning loop of meaningful data.
+        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc = _sc_fn() if callable(_sc_fn) else {}
+        _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
         pos = pick_unteachable_unwind(
             positions, set(self.history._pending), len(positions) >= cap,
-            self.history.row_count(),
+            _grad_rows,
             int(cfg.get("until_live_rows", 240)), now,
             float(cfg.get("unteachable_min_age_h", 1.0)))
         if pos is None:
