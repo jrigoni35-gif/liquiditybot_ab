@@ -350,6 +350,35 @@ def validate(config: dict) -> list:
              f"(null p95 ~28% at 40 rows vs the {float(_f(config, 'ml.monitor.drift_frac_features', 0.30)):.0%} "
              f"retrain trigger). Raise it so a fired ML-031 means a real shift.")
 
+    # --- post-hoc interpretability report (ml/interpret.py) ---------------
+    # analysis knobs, not decision-path tunables — but nonsense values make
+    # the report LIE (a background too thin makes interventional SHAP noise;
+    # a cluster threshold at the extremes silently degenerates clustered
+    # permutation into the exact Hooker/de-Prado failure modes it exists
+    # to fix). Fail loud rather than emit a confident wrong report.
+    it_bg = int(_f(config, "ml.interpret.background_rows", 64))
+    if it_bg < 16:
+        fatal(f"ml.interpret.background_rows={it_bg} below 16: the "
+              f"interventional value function is an average over the "
+              f"background - this few rows makes exact SHAP precisely "
+              f"wrong about a noisy expectation")
+    it_ct = float(_f(config, "ml.interpret.corr_cluster_thr", 0.7))
+    if not (0.3 <= it_ct <= 0.99):
+        fatal(f"ml.interpret.corr_cluster_thr={it_ct} outside [0.3, 0.99]: "
+              f"near 1.0 nothing clusters (substitution effects return), "
+              f"below 0.3 everything clusters (importance of one blob)")
+    it_ef = float(_f(config, "ml.interpret.eval_frac", 0.3))
+    if not (0.1 <= it_ef <= 0.5):
+        fatal(f"ml.interpret.eval_frac={it_ef} outside [0.1, 0.5]: the "
+              f"held-out tail must exist AND leave a training majority")
+    if int(_f(config, "ml.interpret.n_repeats", 5)) < 3:
+        fatal("ml.interpret.n_repeats below 3: one permutation draw is an "
+              "anecdote, not an importance estimate")
+    it_dc = float(_f(config, "ml.interpret.drift_cos_warn", 0.8))
+    if not (0.0 < it_dc <= 1.0):
+        fatal(f"ml.interpret.drift_cos_warn={it_dc} must be in (0, 1] - "
+              f"it is a cosine similarity floor")
+
     # --- risk protocol stack (rev 4 sizing overlay) ------------------------
     sf = float(_f(config, "risk_protocols.stack_floor_mult", 0.10))
     if not (0.0 < sf <= 1.0):

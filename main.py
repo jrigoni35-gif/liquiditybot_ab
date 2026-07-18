@@ -2268,11 +2268,19 @@ class LiquidityBot:
             if not self.monitor.should_deploy(challenger_brier,
                                               n_oof=len(oof_cal)):
                 return
+            from ml.interpret import background_sample
             from ml.registry import sha256_array
             save_model(results["model"], self.meta.model_path,
                     extra={"calibration": cal.to_dict(),
                             "oof_brier": challenger_brier,
                             "feature_deciles": feature_deciles(X),
+                            # history-spanning background so interventional
+                            # SHAP (scripts/interpret_report.py) is defined
+                            # for THIS artifact without the training corpus
+                            "background": background_sample(
+                                X, int(self.config.get("ml", {})
+                                       .get("interpret", {})
+                                       .get("background_rows", 64))),
                             # walk-forward importance under its OWN key:
                             # "importance" would overwrite the gbt model's
                             # internal {idx: gain} dict in save_model's

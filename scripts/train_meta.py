@@ -201,12 +201,18 @@ def main():
              f"mlp brier={results['mlp']['mean_brier']:.4f}")
     log.info("NOTE: walk-forward AUC on bootstrap data is a weak prior, not "
              "proof of edge. The model improves as live labeled trades accrue.")
+    from ml.interpret import background_sample
     extra = {"calibration": cal.to_dict(), "oof_brier": oof_brier,
              "feature_deciles": feature_deciles(X),
              # walk-forward importance under its OWN key: "importance"
              # would overwrite the gbt model's internal per-feature dict
              # and crash from_dict on the next load
-             "wf_importance": results.get("importance", [])}
+             "wf_importance": results.get("importance", []),
+             # history-spanning background so interventional SHAP
+             # (scripts/interpret_report.py) is defined for this artifact
+             "background": background_sample(
+                 X, int(ml_cfg.get("interpret", {})
+                        .get("background_rows", 64)))}
     if not _deploy_challenger(config, results["model"], oof_brier, extra,
                               model_path):
         return 1

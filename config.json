@@ -450,7 +450,18 @@
       "half_life_days": 30,
       "candidate_weight": 0.4
     },
-    "ensemble_seeds": 3
+    "ensemble_seeds": 3,
+    "interpret": {
+      "_doc": "Post-hoc interpretability (scripts/interpret_report.py, ml/interpret.py). REPORT-ONLY analysis knobs, not decision-path tunables: background_rows = history-spanning rows stashed in the model artifact for exact interventional SHAP; corr_cluster_thr = |pearson| union threshold for clustered (Hooker/de-Prado) permutation importance; eval_frac + purge_rows = time-ordered held-out tail; n_repeats = permutation repeats; profile_rows = rows in the attribution fingerprint; drift_cos_warn = fingerprint-rotation cosine below which the report flags attribution drift.",
+      "background_rows": 64,
+      "corr_cluster_thr": 0.7,
+      "eval_frac": 0.3,
+      "purge_rows": 24,
+      "n_repeats": 5,
+      "topk": 15,
+      "profile_rows": 200,
+      "drift_cos_warn": 0.8
+    }
   },
   "sentiment": {
     "description": "Free multi-source sentiment (Google News RSS per figure, crypto news RSS, Hacker News crowd via Algolia public API). FILTER ONLY - shades risk/confidence within clamps, never triggers trades. No API keys.",
