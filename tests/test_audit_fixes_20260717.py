@@ -158,6 +158,62 @@ def test_pause_and_entries_sentinels_written_and_cleared(tmp_path,
     assert not r._entries_off_sentinel.exists()
 
 
+# ---------------- #52: stale champion badge rescored on fresh OOF -------
+
+class _ConstModel:
+    def __init__(self, p):
+        self.p = p
+
+    def predict_proba(self, X):
+        import numpy as np
+        return np.full(len(X), self.p)
+
+
+def test_frozen_champion_rescored_on_unseen_rows_only():
+    import numpy as np
+
+    from ml.monitor import ModelMonitor
+    X = np.zeros((100, 3))
+    y = np.array([0.0] * 50 + [1.0] * 50)      # unseen half is all wins
+    oof_idx = np.arange(40, 100)
+    # champion trained on first 60 rows; predicts 0.2 always
+    b = ModelMonitor.rescore_frozen(_ConstModel(0.2), None, X, y,
+                                    oof_idx, seen_rows=60, min_n=20)
+    # fresh rows = idx 60..99, all label 1 -> brier = (0.2-1)^2 = 0.64
+    assert b == pytest.approx(0.64, abs=1e-9)
+
+
+def test_rescore_returns_none_without_enough_fresh_evidence():
+    import numpy as np
+
+    from ml.monitor import ModelMonitor
+    X = np.zeros((100, 3))
+    y = np.zeros(100)
+    assert ModelMonitor.rescore_frozen(_ConstModel(0.5), None, X, y,
+                                       np.arange(40, 100), seen_rows=95,
+                                       min_n=30) is None
+    assert ModelMonitor.rescore_frozen(None, None, X, y,
+                                       np.arange(100), 0, 10) is None
+
+
+def test_rescore_applies_calibrator():
+    import numpy as np
+
+    from ml.monitor import ModelMonitor
+
+    class _Cal:
+        fitted = True
+
+        def transform(self, p):
+            return np.full(len(p), 1.0)        # calibrates to certainty
+    y = np.ones(50)
+    b = ModelMonitor.rescore_frozen(_ConstModel(0.5), _Cal(),
+                                    np.zeros((50, 2)), y, np.arange(50),
+                                    seen_rows=0, min_n=10)
+    # calibrated p ~= 1.0 (clipped) on all-win labels -> ~0 brier
+    assert b == pytest.approx(0.0, abs=1e-6)
+
+
 # ---------------- C-F14: lock OSError fallback honors a live peer -------
 
 def test_lock_fs_error_fallback_refuses_live_peer(tmp_path, monkeypatch):

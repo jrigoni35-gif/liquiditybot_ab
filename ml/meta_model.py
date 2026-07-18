@@ -55,6 +55,7 @@ class MetaModelService:
         # the champion baseline to the deployed model instead of ignoring it.
         self._loaded_mtime = 0.0
         self.oof_brier = None
+        self.trained_rows = 0    # corpus size at the champion's training
         self.reload()
 
     # ------------------------------------------------------------------
@@ -62,6 +63,7 @@ class MetaModelService:
         self.model = None
         self.model_id = ""
         self.oof_brier = None
+        self.trained_rows = 0
         self.calibrator = IsotonicCalibrator()
         self.feature_deciles = []
         p = Path(self.model_path)
@@ -110,6 +112,10 @@ class MetaModelService:
             self.oof_brier = float(d["oof_brier"])
         except (KeyError, TypeError, ValueError):
             self.oof_brier = None
+        try:
+            self.trained_rows = int(d.get("rows", 0) or 0)
+        except (TypeError, ValueError):
+            self.trained_rows = 0
         log.info("meta-model %s loaded from %s (%s, calibrated=%s, "
                  "provenance=%s)", self.model_id or "?", self.model_path,
                  self.model.kind, self.calibrator.fitted,

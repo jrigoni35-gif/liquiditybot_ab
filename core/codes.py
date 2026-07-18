@@ -122,6 +122,7 @@ class Code(str, Enum):
     ML_RETRAIN_REQUEST = "ML-032"
     ML_DEPLOY = "ML-040"
     ML_DEPLOY_REJECT = "ML-041"
+    ML_CHAMP_RESCORED = "ML-042"     # incumbent rescored on fresh OOF; badge realigned before gating
     ML_KILL_SWITCH = "ML-050"        # model output disabled (level 2+)
     ML_REGISTERED = "ML-060"         # artifact registered
     ML_EXPLORATION = "ML-070"        # dry-run paper exploration entry (active learning)

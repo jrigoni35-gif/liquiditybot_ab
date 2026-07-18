@@ -131,14 +131,20 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     factories = _factories(seed, ensemble_k)
     results = {}
     last_fold_model: dict = {}
+    # folds are identical for every ladder candidate (the class-balance skip
+    # depends only on y[tr]); materialize once so the caller can also know
+    # WHICH rows were scored out-of-fold (results["oof_idx"] — needed to
+    # rescore a frozen incumbent champion on the same fresh evidence)
+    folds = [(tr, te) for tr, te in
+             purged_walk_forward(len(X), n_splits, label_span, sig=sig)
+             if y[tr].sum() >= 5 and (len(y[tr]) - y[tr].sum()) >= 5]
+    results["oof_idx"] = (np.concatenate([te for _, te in folds])
+                          if folds else np.empty(0, int))
 
     for name in _LADDER:
         factory = factories[name]
         aucs, briers, oof_p, oof_y = [], [], [], []
-        for tr, te in purged_walk_forward(len(X), n_splits, label_span,
-                                          sig=sig):
-            if y[tr].sum() < 5 or (len(y[tr]) - y[tr].sum()) < 5:
-                continue
+        for tr, te in folds:
             model = factory().fit(
                 X[tr], y[tr], sample_weight=None if w is None else w[tr])
             p_te = model.predict_proba(X[te])

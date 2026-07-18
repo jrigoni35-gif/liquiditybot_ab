@@ -347,6 +347,43 @@ class ModelMonitor:
                      "`python scripts/train_meta.py` (or let auto-retrain "
                      "pick it up next slow cycle)", reason)
 
+    @staticmethod
+    def rescore_frozen(model, calibrator, X, y, oof_idx,
+                       seen_rows: int, min_n: int):
+        """Brier of a FROZEN incumbent on the fresh OOF rows it never
+        trained on. None = not enough fresh evidence (keep the stored
+        badge). PURE and fail-safe: any error returns None.
+
+        WHY: the champion's stored oof_brier is its birth certificate
+        from an OLDER corpus era. Gating challengers against it lets an
+        aging champion squat forever — measured live 2026-07-18: badge
+        0.1887 vs 0.27-0.33 for every honestly-scored candidate on the
+        current corpus, so no future challenger could ever win.
+        `seen_rows` (corpus size at the champion's training, on the
+        sig-sorted ordering) approximates its training horizon; only
+        rows past it count as unseen — merged peer rows can interleave
+        below that index, so this is a conservative approximation, never
+        an in-sample flatter of more than the interleave."""
+        try:
+            import numpy as _np
+            if model is None:
+                return None
+            idx = _np.asarray(oof_idx, int)
+            fresh = idx[idx >= int(seen_rows)]
+            if len(fresh) < int(min_n):
+                return None
+            p = _np.asarray(model.predict_proba(X[fresh]),
+                            float).reshape(-1)
+            if calibrator is not None and getattr(calibrator, "fitted",
+                                                  False):
+                p = _np.asarray(calibrator.transform(p), float).reshape(-1)
+            p = _np.clip(p, 1e-6, 1 - 1e-6)
+            if not _np.all(_np.isfinite(p)):
+                return None
+            return float(_np.mean((p - _np.asarray(y, float)[fresh]) ** 2))
+        except Exception:                        # noqa: BLE001 - fail-safe
+            return None
+
     def should_deploy(self, challenger_brier: float,
                       n_oof: int | None = None) -> bool:
         """Champion/challenger deployment gate."""

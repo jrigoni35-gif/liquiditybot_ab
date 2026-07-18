@@ -2225,6 +2225,29 @@ class LiquidityBot:
                 return
             challenger_brier = brier_score(sel["oof_y"], oof_cal)
             self._rows_at_last_train = rows
+            # STALE-BADGE GUARD (ML-042): rescore the FROZEN incumbent on
+            # the same fresh OOF rows before gating — its stored brier is
+            # a birth certificate from an older corpus era, and comparing
+            # challengers against it lets an aging champion squat forever
+            # (measured live: badge 0.1887 vs 0.27+ for every honestly-
+            # scored candidate on the current corpus).
+            champ_fresh = self.monitor.rescore_frozen(
+                self.meta.model, self.meta.calibrator, X, y,
+                results.get("oof_idx", []), self.meta.trained_rows,
+                self.monitor.deploy_min_oof)
+            if champ_fresh is not None and \
+                    abs(champ_fresh - self.monitor.champion_brier) > 1e-9:
+                get_audit().log(
+                    "ml_governor", Code.ML_CHAMP_RESCORED,
+                    f"champion rescored on fresh OOF: "
+                    f"{self.monitor.champion_brier:.4f} -> "
+                    f"{champ_fresh:.4f}",
+                    {"old": round(self.monitor.champion_brier, 4),
+                     "new": round(champ_fresh, 4)})
+                log.info("champion badge realigned: %.4f -> %.4f (fresh "
+                         "OOF, rows beyond its training horizon)",
+                         self.monitor.champion_brier, champ_fresh)
+                self.monitor.champion_brier = champ_fresh
             if not self.monitor.should_deploy(challenger_brier,
                                               n_oof=len(oof_cal)):
                 return
