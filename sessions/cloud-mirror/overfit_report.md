@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-18 06:18 UTC
+# Overfit audit — 2026-07-18 12:45 UTC
 
 Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not market
 
@@ -18,4 +18,4 @@ Dataset: SYNTHETIC benchmark (live rows=526 < 580) — validating machinery, not
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — INFORMATIONAL during exploration phase — dsr=0.000 sr=-0.58 n=35; live sample is EV-mixed by design (PT-050 probes); gate arms when ml.exploration.enabled is false
 
-7 passed, 0 failed (18s)
+7 passed, 0 failed (17s)
