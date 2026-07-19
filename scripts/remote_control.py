@@ -83,12 +83,20 @@ if _bad:
     raise RuntimeError(f"remote whitelist invariant violated: {sorted(_bad)}")
 
 
+# Windows: a child of a WINDOWLESS parent (pc_supervisor spawns these
+# sidecars with CREATE_NO_WINDOW) otherwise gets a brand-new console window
+# on EVERY subprocess call — the "popping command centers" (this script's
+# 120s git poll was the worst offender). CREATE_NO_WINDOW keeps them silent.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+
 def _git(*args, cwd, timeout=120):
     """Run a git command; return (rc, stdout.strip()). Never raises —
     every caller degrades to a disposition string on failure."""
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           **_NOWIN)
         out = (p.stdout or "").strip() or (p.stderr or "").strip()
         return p.returncode, out
     except Exception as e:                       # noqa: BLE001

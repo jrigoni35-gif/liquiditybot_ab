@@ -52,11 +52,18 @@ def log(msg: str) -> None:
         pass
 
 
+# Windows: children of the WINDOWLESS supervisor spawn otherwise pop a new
+# console window per call ("command centers") — for this script that meant a
+# git window every poll AND a lingering pytest window per battery run.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+
 def _git(*args, cwd=None, timeout=120):
     """Run a git command; return (rc, stdout.strip()). Never raises."""
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd or ROOT),  # nosec B603 B607
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           **_NOWIN)
         return p.returncode, (p.stdout or "").strip()
     except Exception as e:                       # noqa: BLE001
         return 1, f"error: {e}"
@@ -90,7 +97,7 @@ def battery_passes(worktree: Path) -> bool:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
                             "-x", "--no-header"],
                            cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200)
+                           timeout=1200, **_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False

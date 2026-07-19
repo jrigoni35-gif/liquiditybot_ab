@@ -330,6 +330,18 @@ def collect(status_path: str) -> list:
         v = ml.get(k)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+    # AFML corpus-quality stats from the last training load: clean live
+    # count (what the evidence gate actually sees), mean average-uniqueness
+    # (label-overlap redundancy, AFML ch.4), ML-074 one-sided-batch flag
+    ls = ml.get("load_stats") or {}
+    for k in ("live_clean", "mean_uniqueness", "dropped_dirty",
+              "dropped_clash"):
+        v = ls.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+    if "prior_skew" in ls:
+        m.append(gauge("liquiditybot_ml_prior_skew",
+                       1.0 if ls.get("prior_skew") else 0.0, ts=ts))
     m.append(gauge("liquiditybot_audit_dropped_writes",
                    float(s.get("audit_dropped_writes") or 0), ts=ts))
     m.append(gauge("liquiditybot_audit_tail_truncations",

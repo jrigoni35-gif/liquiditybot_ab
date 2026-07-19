@@ -48,10 +48,16 @@ def _log(msg: str) -> None:
         pass
 
 
+# Windows: children of the WINDOWLESS supervisor spawn otherwise pop a new
+# console window per call ("command centers"). CREATE_NO_WINDOW = silent.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+
 def _git(*args, cwd, timeout=120):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           **_NOWIN)
         return p.returncode, (p.stdout or "").strip()
     except Exception as e:                       # noqa: BLE001
         return 1, f"error: {e}"
@@ -64,7 +70,7 @@ def _git_bytes(*args, cwd, timeout=60):
     byte and every real bundle was refused (self-audit 2026-07-18)."""
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
-                           capture_output=True, timeout=timeout)
+                           capture_output=True, timeout=timeout, **_NOWIN)
         return p.returncode, p.stdout or b""
     except Exception:                            # noqa: BLE001
         return 1, b""
@@ -118,7 +124,8 @@ def sync_once(root: Path = ROOT) -> str:
             p = subprocess.run(                          # nosec B603
                 [sys.executable, str(ROOT / "scripts" / "session_import.py"),
                  "--src", str(b), "--apply"],
-                cwd=str(root), capture_output=True, text=True, timeout=300)
+                cwd=str(root), capture_output=True, text=True, timeout=300,
+                **_NOWIN)
             if p.returncode == 0:
                 merged += 1
             else:

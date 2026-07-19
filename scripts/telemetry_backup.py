@@ -54,10 +54,15 @@ def _log(msg: str) -> None:
     print(f"{time.strftime('%H:%M:%S')} telemetry_backup: {msg}", flush=True)
 
 
+# Windows: children of the WINDOWLESS supervisor spawn otherwise pop a new
+# console window per call ("command centers"). CREATE_NO_WINDOW = silent.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
+
 def _run(argv: list, cwd: Path | None = None, check: bool = True) -> str:
     """Run a fixed-argv command (no shell), returning stripped stdout."""
     p = subprocess.run(argv, cwd=str(cwd or ROOT), capture_output=True,  # nosec B603
-                       text=True)
+                       text=True, **_NOWIN)
     if check and p.returncode != 0:
         raise RuntimeError(
             f"{' '.join(argv[:3])}… exit {p.returncode}: "

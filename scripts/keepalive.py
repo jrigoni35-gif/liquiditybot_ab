@@ -58,6 +58,7 @@ def main() -> int:
     # the revived runner. Same detach contract, both platforms.
     detach: dict[str, Any] = (
         {"creationflags": (subprocess.DETACHED_PROCESS
+                           | subprocess.CREATE_NO_WINDOW
                            | subprocess.CREATE_NEW_PROCESS_GROUP)}
         if os.name == "nt" else {"start_new_session": True})
     subprocess.Popen(  # nosec B603 - fixed argv, repo-local interpreter

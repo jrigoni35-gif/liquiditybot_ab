@@ -465,6 +465,10 @@ class BotRunner:
                    # rising -> retrain silently failing every cycle, stale
                    # champion kept forever (was invisible before)
                    "retrain_failures": getattr(bot, "_retrain_failures", 0),
+                   # AFML corpus-quality stats from the last training load:
+                   # clean live count (evidence gate), mean average-uniqueness
+                   # (overlap redundancy), ML-074 prior-skew flag
+                   "load_stats": getattr(bot.history, "last_load_stats", {}),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
             # torn final lines recovered on adoption (unclean stops). Rising ->
