@@ -88,6 +88,13 @@ class ManagedOrder:
     # depth clears. -1.0 = not yet a resting order (crossing/unplaced).
     # Ignored entirely on the live path (the venue owns real queueing).
     queue_ahead: float = -1.0
+    # arrival reference (implementation-shortfall benchmark): the trusted
+    # mark at submit time. The slippage ledger books each fill vs THIS, not
+    # vs the order's own limit — measuring vs the limit is tautological
+    # (a marketable limit fills at/inside its limit, so it can never look
+    # adverse; a passive limit fills AT its limit, so it is always 0). 0.0 =
+    # no arrival mark recorded -> the ledger falls back to the limit price.
+    arrival_ref: float = 0.0
 
     @property
     def remaining(self) -> float:
@@ -163,10 +170,13 @@ class OrderManager:
         self.latency_ms: float = 0.0
         self.venue_rejects: int = 0
         # execution-quality ledger (§3 telemetry): every fill increments a
-        # maker/taker counter + notional, and books signed slippage vs the
-        # price we ASKED for (positive bps = adverse: paid more on a buy /
-        # received less on a sell; negative = price improvement). Rolling
-        # window, session-scoped like venue_rejects. Telemetry only.
+        # maker/taker counter + notional, and books signed slippage as the
+        # implementation shortfall vs the ARRIVAL mark (positive bps = adverse:
+        # paid above arrival on a buy / sold below it on a sell; negative =
+        # price improvement). Referencing arrival — not the order's own limit —
+        # is what makes this a real slippage meter (a limit reference is
+        # tautologically non-adverse). Rolling window, session-scoped like
+        # venue_rejects. Telemetry only (no decision reads it).
         self.maker_fills: int = 0
         self.taker_fills: int = 0
         self.maker_notional_usd: float = 0.0
@@ -300,8 +310,13 @@ class OrderManager:
 
     def _note_exec(self, maker: bool, notional_usd: float,
                    fill_price: float, ref_price: float, side: str) -> None:
-        """Book one fill into the execution-quality ledger. Slippage is signed
-        vs the price we asked for: positive bps = adverse. Never raises."""
+        """Book one fill into the execution-quality ledger. Slippage is the
+        signed implementation shortfall vs `ref_price` — the ARRIVAL mark at
+        submit (callers pass `order.arrival_ref or order.price`): positive bps
+        = adverse (paid above / sold below arrival), negative = price
+        improvement. Referencing the order's own limit instead is tautological
+        (a marketable limit fills inside its limit; a passive one fills at it),
+        which is why this books vs arrival. Never raises."""
         try:
             n = float(notional_usd)
             # max() does NOT sanitize NaN (max(nan, 0) is nan): one bad
@@ -426,6 +441,10 @@ class OrderManager:
             close_pct=close_pct,
             post_only=post_only and ordertype == "limit",
             leverage=leverage, ordertype=ordertype, meta=meta or {},
+            # implementation-shortfall benchmark: the trusted mark at submit
+            # (same arrival price the algo layer books IS against). Firewall
+            # may collar `price`; the arrival reference is NEVER collared.
+            arrival_ref=float(ref_price) if _fin_pos(ref_price) else 0.0,
         )
         if self.dry_run:
             order.txid = f"DRY-{order.order_id}"
@@ -530,7 +549,8 @@ class OrderManager:
                     (self.maker_fee_bps if order.post_only
                      else self.taker_fee_bps) / 1e4
                 self._note_exec(order.post_only, new_fill * seg_px,
-                                seg_px, order.price, order.side)
+                                seg_px, order.arrival_ref or order.price,
+                                order.side)
                 self._transition(order, "partial", "venue fill")
                 events.append(FillEvent(order, new_fill, seg_px,
                                         final=False))
@@ -590,9 +610,10 @@ class OrderManager:
             order.avg_price = (order.avg_price * pre_filled + new_cost) \
                 / order.filled
             order.fees_usd += new_cost * self.taker_fee_bps / 1e4
-            # slippage on THIS crossed segment's average vs the asked price
+            # implementation shortfall on THIS crossed segment vs the arrival
+            # mark (falls back to the limit only when no arrival was recorded)
             self._note_exec(False, new_cost, new_cost / new_cross,
-                            order.price, order.side)
+                            order.arrival_ref or order.price, order.side)
             self._transition(order,
                              "partial" if order.remaining > EPS
                              else "filled", "sim cross")
@@ -688,10 +709,12 @@ class OrderManager:
                             order.avg_price = cost / order.filled
                             order.fees_usd += fill * order.price * \
                                 self.maker_fee_bps / 1e4
-                            # passive fill AT our price: slippage 0 by
-                            # construction
+                            # passive fill AT our limit: booked vs the arrival
+                            # mark, so a maker fill below/above mid shows its
+                            # true (usually favourable) capture, not a hard 0
                             self._note_exec(True, fill * order.price,
-                                            order.price, order.price,
+                                            order.price,
+                                            order.arrival_ref or order.price,
                                             order.side)
                             self._transition(
                                 order, "partial" if order.remaining > EPS

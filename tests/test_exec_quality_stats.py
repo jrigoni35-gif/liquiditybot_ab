@@ -104,6 +104,52 @@ def test_note_exec_garbage_safe():
     assert om.status()["maker_notional_usd"] == 100.0   # still accumulates
 
 
+def test_arrival_ref_makes_crossing_buy_show_true_cost():
+    """The correction: with an arrival mark recorded, a marketable buy that
+    fills BELOW its (aggressive) limit no longer looks like 'improvement' — it
+    books the real implementation shortfall vs the arrival mid."""
+    om, o = _om(), _order()                       # buy limit 2000
+    o.arrival_ref = 1998.0                         # mark when we decided
+    om._sim_cross(o, {"asks": [[1999.0, 1.0]]})   # crossed up to 1999
+    # (1999-1998)/1998 = +5.0 bps ADVERSE (paid above arrival), not -5 vs limit
+    assert om.status()["avg_slip_bps"] == pytest.approx(5.0, abs=0.02)
+
+
+def test_arrival_ref_passive_maker_shows_capture_not_zero():
+    """A passive buy resting below the arrival mid is price improvement, not a
+    tautological zero — the ledger must show the favourable capture."""
+    om = _om()
+    o = _order(price=1990.0, post_only=True)       # rest 1990, mark 2000
+    o.arrival_ref = 2000.0
+    om._rng = _Rng()
+    om._orders[o.order_id] = o
+    om._poll_dry(o, {"bids": [[1990.0, 5.0]], "asks": [[2010.0, 5.0]]},
+                 sigma_bar_pct=0.5, now=o.created_ts + 1.0)
+    # (1990-2000)/2000 = -50 bps -> favourable maker capture vs mid
+    assert om.status()["avg_slip_bps"] == pytest.approx(-50.0, abs=0.02)
+    assert om.maker_fills == 1
+
+
+def test_submit_records_arrival_ref_from_ref_price():
+    """submit() stamps the arrival mark onto the order so the ledger books IS
+    against it (not the collarable limit)."""
+    om = _om()
+    o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+                  price=2000.0, size=1.0, purpose="entry", ref_price=1998.0,
+                  book={"bids": [[1997.0, 5.0]], "asks": [[2001.0, 5.0]]})
+    assert o is not None and o.arrival_ref == pytest.approx(1998.0)
+
+
+def test_missing_arrival_ref_falls_back_to_limit():
+    """Backward-compatible: an order with no arrival mark (arrival_ref 0) books
+    vs its own limit exactly as before — no regression for direct construction
+    or legacy persisted orders."""
+    om, o = _om(), _order()                       # arrival_ref defaults 0.0
+    assert o.arrival_ref == 0.0
+    om._sim_cross(o, {"asks": [[1999.0, 1.0]]})
+    assert om.status()["avg_slip_bps"] == pytest.approx(-5.0)   # vs limit 2000
+
+
 def test_live_multi_segment_slippage_uses_segment_price():
     """Kraken reports the CUMULATIVE average; the ledger must book each
     segment at its OWN recovered price, not the blend (review finding F1:
