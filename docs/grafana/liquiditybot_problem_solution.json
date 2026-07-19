@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-problem-solution",
   "title": "liquiditybot — problem / solution",
-  "description": "Every failure mode as a PROBLEM whose panel shows the live detector and names the SOLUTION mechanism already handling it.",
+  "description": "Every failure mode as a PROBLEM whose panel shows the live detector and names the SOLUTION mechanism handling it.",
   "tags": [
     "liquiditybot",
     "trading",
@@ -12,10 +12,61 @@
   "editable": true,
   "timezone": "browser",
   "refresh": "30s",
+  "style": "dark",
   "time": {
     "from": "now-24h",
     "to": "now"
   },
+  "links": [
+    {
+      "title": "⌘ Command",
+      "type": "link",
+      "url": "/d/liquiditybot-trading",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "⚙ Models·Inv·Exec",
+      "type": "link",
+      "url": "/d/liquiditybot-exec",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "🩹 Problem/Solution",
+      "type": "link",
+      "url": "/d/liquiditybot-problem-solution",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "🔎 Screening",
+      "type": "link",
+      "url": "/d/liquiditybot-screening",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    }
+  ],
   "templating": {
     "list": []
   },
@@ -26,7 +77,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "§A · Feed & data integrity",
+      "title": "📡 Feed & data integrity",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -39,15 +90,15 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "PROBLEM: stale status",
-      "description": "Detector: seconds since last status write. SOLUTION: runner wedge-guard escalates a persistently-failing cycle; supervisor revives a dead runner.",
+      "title": "Stale status",
+      "description": "PROBLEM: runner frozen. SOLUTION: wedge-guard escalates; supervisor revives a dead runner.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 4,
         "x": 0,
         "y": 1
       },
@@ -71,6 +122,9 @@
                 "value": 300
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -98,23 +152,24 @@
           },
           "expr": "max(liquiditybot_status_age_sec{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "SOLUTION: Kraken WS",
-      "description": "Push-book stream. When it drops, the SOLUTION is automatic: the engine falls back to the REST book — trading continues.",
+      "title": "Kraken WS",
+      "description": "SOLUTION: on drop the engine falls back to REST — trading continues.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
+        "w": 4,
+        "x": 4,
         "y": 1
       },
       "fieldConfig": {
@@ -130,6 +185,9 @@
               }
             ]
           },
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [
             {
               "type": "value",
@@ -140,7 +198,7 @@
                   "index": 0
                 },
                 "0": {
-                  "text": "REST-fallback",
+                  "text": "REST",
                   "color": "yellow",
                   "index": 1
                 }
@@ -173,23 +231,24 @@
           },
           "expr": "max(liquiditybot_ws_kraken_connected{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "PROBLEM: stale marks",
-      "description": "Detector: oldest live mark age. SOLUTION: mark-freshness gate holds non-escape risk actions on stale data; stops still run.",
+      "title": "Stale marks",
+      "description": "PROBLEM: old prices. SOLUTION: mark-freshness gate holds non-escape risk; stops still run.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
+        "w": 4,
+        "x": 8,
         "y": 1
       },
       "fieldConfig": {
@@ -212,6 +271,9 @@
                 "value": 90
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -239,23 +301,24 @@
           },
           "expr": "max(liquiditybot_marks_age_sec{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "SOLUTION: stale assets held",
-      "description": "Watchdog count of assets quarantined for stale/divergent feeds — entries blocked on them until the feed heals.",
+      "title": "Stale assets held",
+      "description": "Watchdog quarantined assets — entries blocked until feed heals.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 12,
         "y": 1
       },
       "fieldConfig": {
@@ -274,6 +337,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -301,24 +367,25 @@
           },
           "expr": "max(liquiditybot_watchdog_stale_assets{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 6,
       "type": "stat",
-      "title": "watchdog: entries blocked",
-      "description": "Feed watchdog is blocking new entries (a SOLUTION firing).",
+      "title": "Entries blocked",
+      "description": "Feed watchdog blocking new entries (a solution firing).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 6
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
@@ -336,6 +403,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -363,86 +433,25 @@
           },
           "expr": "max(liquiditybot_watchdog_entries_blocked{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 7,
       "type": "stat",
-      "title": "watchdog: critical stale",
-      "description": "Critical staleness latch.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_watchdog_critical_stale{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "stat",
-      "title": "watchdog: divergent feeds",
+      "title": "Divergent feeds",
       "description": "Cross-venue book divergence count.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 6
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
@@ -460,6 +469,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -487,136 +499,72 @@
           },
           "expr": "max(liquiditybot_watchdog_divergent{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 9,
-      "type": "stat",
-      "title": "watchdog: velocity trip",
-      "description": "Tick-velocity quarantine (fat-finger guard).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_watchdog_velocity_tripped{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 10,
+      "id": 8,
       "type": "row",
-      "title": "§B · Model health",
+      "title": "🧠 Model health",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 10
+        "y": 6
       },
       "panels": []
     },
     {
-      "id": 11,
-      "type": "stat",
-      "title": "PROBLEM: model Brier",
-      "description": "Detector: rolling outcome Brier. SOLUTION: the ML governor kill-switch (below) disables the model and requests a retrain when Brier drifts past baseline.",
+      "id": 9,
+      "type": "timeseries",
+      "title": "PROBLEM: Brier drifting vs baseline",
+      "description": "Detector. SOLUTION: governor kills the model + queues a retrain when Brier crosses baseline.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
+        "h": 6,
+        "w": 12,
         "x": 0,
-        "y": 11
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
-          "decimals": 4,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.24
-              },
-              {
-                "color": "red",
-                "value": 0.25
-              }
-            ]
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
       "targets": [
@@ -627,71 +575,14 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_brier{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": "brier"
         }
       ]
     },
     {
-      "id": 12,
-      "type": "stat",
-      "title": "vs baseline",
-      "description": "The bar Brier must stay under.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 5,
-        "y": 11
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 4,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_ml_baseline_brier{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 13,
+      "id": 10,
       "type": "stat",
       "title": "SOLUTION: governor",
       "description": "0 OK / 1 shrink+throttle / 2 model killed to the prior.",
@@ -700,10 +591,10 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 9,
-        "y": 11
+        "h": 6,
+        "w": 4,
+        "x": 12,
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -717,6 +608,9 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           },
           "mappings": [
             {
@@ -766,12 +660,13 @@
           },
           "expr": "max(liquiditybot_monitor_level{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 14,
+      "id": 11,
       "type": "stat",
       "title": "SOLUTION: retrain",
       "description": "Auto-retrain queued to replace a degrading champion.",
@@ -780,10 +675,10 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 4,
-        "x": 14,
-        "y": 11
+        "x": 16,
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -797,6 +692,9 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           },
           "mappings": [
             {
@@ -841,29 +739,32 @@
           },
           "expr": "max(liquiditybot_ml_retrain_flag{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 15,
-      "type": "stat",
-      "title": "calibration gap",
-      "description": "Miscalibration; ECE.",
+      "id": 12,
+      "type": "gauge",
+      "title": "Drift share",
+      "description": "PROBLEM: input drift. SOLUTION: retrain re-fits.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 18,
-        "y": 11
+        "h": 6,
+        "w": 4,
+        "x": 20,
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
-          "decimals": 3,
+          "unit": "percent",
+          "min": 0,
+          "max": 100.0,
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -873,11 +774,11 @@
               },
               {
                 "color": "yellow",
-                "value": 0.1
+                "value": 30
               },
               {
                 "color": "red",
-                "value": 0.15
+                "value": 50
               }
             ]
           }
@@ -885,11 +786,8 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -905,83 +803,17 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_ml_calibration_gap{job=\"liquiditybot\"})",
+          "expr": "max(liquiditybot_ml_drift_share{job=\"liquiditybot\"})*100",
           "instant": true,
           "range": false
         }
       ]
     },
     {
-      "id": 16,
+      "id": 13,
       "type": "stat",
-      "title": "drift share",
-      "description": "PROBLEM: input drift. SOLUTION: retrain re-fits on fresh data.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 21,
-        "y": 11
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.3
-              },
-              {
-                "color": "red",
-                "value": 0.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_ml_drift_share{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 17,
-      "type": "stat",
-      "title": "SOLUTION: kelly throttle",
-      "description": "Governor shrinks size as confidence falls.",
+      "title": "Kelly throttle",
+      "description": "SOLUTION: size shrinks as confidence falls.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -990,7 +822,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 16
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -1004,13 +836,16 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1030,16 +865,17 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_kelly_mult{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 18,
+      "id": 14,
       "type": "stat",
-      "title": "model fallbacks",
-      "description": "Inference fell to the cold-start prior (fail-safe firing).",
+      "title": "Model fallbacks",
+      "description": "Inference fell to the prior (fail-safe firing).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1048,7 +884,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 16
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -1070,6 +906,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1097,14 +936,15 @@
           },
           "expr": "max(liquiditybot_ml_model_fallbacks{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 19,
+      "id": 15,
       "type": "stat",
-      "title": "infer faults",
+      "title": "Infer faults",
       "description": "Inference errors.",
       "datasource": {
         "type": "prometheus",
@@ -1114,7 +954,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 16
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -1136,6 +976,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1163,14 +1006,15 @@
           },
           "expr": "max(liquiditybot_ml_infer_faults{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 20,
+      "id": 16,
       "type": "stat",
-      "title": "contract fails",
+      "title": "Contract fails",
       "description": "Input outside contract.",
       "datasource": {
         "type": "prometheus",
@@ -1180,7 +1024,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 16
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -1202,6 +1046,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1229,14 +1076,15 @@
           },
           "expr": "max(liquiditybot_ml_contract_failed{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 21,
+      "id": 17,
       "type": "stat",
-      "title": "retrain failures",
+      "title": "Retrain failures",
       "description": "Auto-retrain crashed.",
       "datasource": {
         "type": "prometheus",
@@ -1246,7 +1094,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 16
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
@@ -1268,6 +1116,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1295,42 +1146,30 @@
           },
           "expr": "max(liquiditybot_ml_retrain_failures{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 22,
-      "type": "row",
-      "title": "§C · Capital & drawdown",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 20
-      },
-      "panels": []
-    },
-    {
-      "id": 23,
+      "id": 18,
       "type": "stat",
-      "title": "PROBLEM: drawdown",
-      "description": "Detector: peak-to-now. SOLUTION: drawdown throttle + the 15% hard-stop flatten.",
+      "title": "Calibration gap",
+      "description": "Miscalibration; ECE.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 0,
-        "y": 21
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 13
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "decimals": 2,
+          "unit": "",
+          "decimals": 3,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1340,13 +1179,16 @@
               },
               {
                 "color": "yellow",
-                "value": 8
+                "value": 0.1
               },
               {
                 "color": "red",
-                "value": 12
+                "value": 0.15
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1372,6 +1214,85 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
+          "expr": "max(liquiditybot_ml_calibration_gap{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "💰 Capital & drawdown",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "gauge",
+      "title": "PROBLEM: drawdown",
+      "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 5,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 15.0,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 8
+              },
+              {
+                "color": "red",
+                "value": 12
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
           "expr": "max(liquiditybot_drawdown_pct{job=\"liquiditybot\"})",
           "instant": true,
           "range": false
@@ -1379,19 +1300,19 @@
       ]
     },
     {
-      "id": 24,
+      "id": 21,
       "type": "stat",
-      "title": "PROBLEM: loss streak",
-      "description": "Detector: consecutive losers. SOLUTION: the per-asset circuit breaker pauses that asset.",
+      "title": "Loss streak",
+      "description": "PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
+        "h": 6,
+        "w": 4,
         "x": 5,
-        "y": 21
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -1413,6 +1334,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1440,24 +1364,25 @@
           },
           "expr": "max(liquiditybot_perf_cur_loss_streak{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 25,
+      "id": 22,
       "type": "stat",
-      "title": "SOLUTION: breakers tripped",
-      "description": "Assets currently paused by the circuit breaker.",
+      "title": "Breakers tripped",
+      "description": "Assets currently paused.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 10,
-        "y": 21
+        "h": 6,
+        "w": 3,
+        "x": 9,
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -1475,6 +1400,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1502,24 +1430,25 @@
           },
           "expr": "max(liquiditybot_cb_tripped_count{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 26,
+      "id": 23,
       "type": "gauge",
-      "title": "SOLUTION: heat vs cap",
-      "description": "Portfolio heat throttled under the CVaR cap.",
+      "title": "Heat vs cap",
+      "description": "SOLUTION: heat throttled under the CVaR cap.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 14,
-        "y": 21
+        "h": 6,
+        "w": 4,
+        "x": 12,
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -1572,19 +1501,19 @@
       ]
     },
     {
-      "id": 27,
+      "id": 24,
       "type": "stat",
-      "title": "SOLUTION: taper mult",
-      "description": "Loss-budget taper shrinks size as the daily budget is consumed.",
+      "title": "Taper mult",
+      "description": "SOLUTION: loss-budget taper shrinks size.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 19,
-        "y": 21
+        "h": 6,
+        "w": 4,
+        "x": 16,
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
@@ -1598,13 +1527,16 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1624,30 +1556,33 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_rp_taper_mult{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 28,
-      "type": "stat",
-      "title": "daily budget used",
+      "id": 25,
+      "type": "gauge",
+      "title": "Daily budget used",
       "description": "Daily loss budget consumed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 0,
-        "y": 26
+        "y": 24
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 0,
+          "min": 0,
+          "max": 100.0,
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1669,11 +1604,8 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1696,24 +1628,26 @@
       ]
     },
     {
-      "id": 29,
-      "type": "stat",
-      "title": "weekly budget used",
+      "id": 26,
+      "type": "gauge",
+      "title": "Weekly budget used",
       "description": "Weekly loss budget consumed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 6,
         "x": 6,
-        "y": 26
+        "y": 24
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 0,
+          "min": 0,
+          "max": 100.0,
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1735,11 +1669,8 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1762,123 +1693,7 @@
       ]
     },
     {
-      "id": 30,
-      "type": "stat",
-      "title": "dd throttle mult",
-      "description": "Drawdown size throttle.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 26
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_rp_dd_throttle_mult{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 31,
-      "type": "stat",
-      "title": "SOLUTION: model kelly",
-      "description": "Kelly size throttle (compounds with taper).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 26
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_ml_kelly_mult{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 32,
+      "id": 27,
       "type": "table",
       "title": "Circuit breaker — paused assets",
       "description": "Per-asset breaker state; hours-left counts the cool-off.",
@@ -1887,16 +1702,20 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 7,
+        "h": 5,
         "w": 12,
-        "x": 0,
-        "y": 30
+        "x": 12,
+        "y": 24
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
           }
         },
         "overrides": [
@@ -1913,6 +1732,39 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -1929,6 +1781,31 @@
               {
                 "id": "decimals",
                 "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           }
@@ -1937,6 +1814,9 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
             "displayName": "Loss streak",
@@ -1996,32 +1876,32 @@
       ]
     },
     {
-      "id": 33,
+      "id": 28,
       "type": "row",
-      "title": "§D · Manipulation, venue & integrity",
+      "title": "🕵️ Manipulation, venue & integrity",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 29
       },
       "panels": []
     },
     {
-      "id": 34,
+      "id": 29,
       "type": "stat",
-      "title": "PROBLEM/SOLUTION: op-state",
-      "description": "Central fault authority: ARMED nominal / DEGRADED no-new-risk / HALTED flatten-and-stop.",
+      "title": "op-state",
+      "description": "Central fault authority: ARMED / DEGRADED / HALTED.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
+        "w": 4,
         "x": 0,
-        "y": 38
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2035,6 +1915,9 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           },
           "mappings": [
             {
@@ -2089,14 +1972,15 @@
           },
           "expr": "max(liquiditybot_op_state{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 35,
+      "id": 30,
       "type": "stat",
-      "title": "latched faults",
+      "title": "Latched faults",
       "description": "Active latched faults.",
       "datasource": {
         "type": "prometheus",
@@ -2105,8 +1989,8 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 5,
-        "y": 38
+        "x": 4,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2124,6 +2008,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -2151,14 +2038,15 @@
           },
           "expr": "max(liquiditybot_fault_count{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 36,
+      "id": 31,
       "type": "stat",
-      "title": "firewall fault",
+      "title": "Firewall fault",
       "description": "Risk-firewall latched fault (blocks new risk).",
       "datasource": {
         "type": "prometheus",
@@ -2166,9 +2054,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 9,
-        "y": 38
+        "w": 4,
+        "x": 8,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2182,6 +2070,9 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           },
           "mappings": [
             {
@@ -2226,24 +2117,25 @@
           },
           "expr": "max(liquiditybot_firewall_fault{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 37,
+      "id": 32,
       "type": "stat",
-      "title": "PROBLEM: cycle wedge",
-      "description": "Detector: consecutive failing cycles. SOLUTION: runner wedge escalation.",
+      "title": "Cycle wedge",
+      "description": "PROBLEM: failing cycles. SOLUTION: runner wedge escalation.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 14,
-        "y": 38
+        "w": 4,
+        "x": 12,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2265,6 +2157,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -2292,14 +2187,15 @@
           },
           "expr": "max(liquiditybot_cycle_consecutive_failures{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 38,
+      "id": 33,
       "type": "stat",
-      "title": "exit-eval failures",
+      "title": "Exit-eval failures",
       "description": "A position wedging its own exit path.",
       "datasource": {
         "type": "prometheus",
@@ -2307,9 +2203,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 19,
-        "y": 38
+        "w": 4,
+        "x": 16,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2327,6 +2223,9 @@
                 "value": 1
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -2354,24 +2253,25 @@
           },
           "expr": "max(liquiditybot_exit_eval_failures{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 39,
+      "id": 34,
       "type": "stat",
-      "title": "venue rejects",
+      "title": "Venue rejects",
       "description": "OM-021 AddOrder rejects.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
-        "x": 0,
-        "y": 43
+        "x": 20,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2393,6 +2293,9 @@
                 "value": 5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -2420,216 +2323,106 @@
           },
           "expr": "max(liquiditybot_order_venue_rejects{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
-      "id": 40,
-      "type": "stat",
-      "title": "dead-man failures",
-      "description": "OM-050 — resting orders would be unguarded.",
+      "id": 35,
+      "type": "bargauge",
+      "title": "Manipulation suspicion by asset",
+      "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size + down-weights those training rows.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 4,
-        "y": 43
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_order_deadman_failures{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 41,
-      "type": "stat",
-      "title": "audit dropped writes",
-      "description": "Audit-trail write drops.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 43
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_audit_dropped_writes{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 42,
-      "type": "stat",
-      "title": "audit tail truncations",
-      "description": "Audit tail truncations.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 12,
-        "y": 43
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_audit_tail_truncations{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        }
-      ]
-    },
-    {
-      "id": 43,
-      "type": "table",
-      "title": "Firewall — clamps/rejects by code",
-      "description": "Which firewall rule (FW-*) is clamping/rejecting most.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 7,
+        "h": 6,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.4
+              },
+              {
+                "color": "red",
+                "value": 0.7
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_manip_suspect{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "table",
+      "title": "Firewall clamps/rejects by code",
+      "description": "Which firewall rule (FW-*) is clamping most.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
           }
         },
         "overrides": [
@@ -2646,6 +2439,39 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           }
@@ -2654,6 +2480,9 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
             "displayName": "Count",
@@ -2694,124 +2523,6 @@
             "indexByName": {
               "code": 0,
               "Count": 1
-            }
-          }
-        }
-      ]
-    },
-    {
-      "id": 44,
-      "type": "table",
-      "title": "Manipulation suspicion by asset",
-      "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size and down-weights those training rows.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 47
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Manip"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Spoof"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Manip",
-            "desc": true
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "liquiditybot_manip_suspect{job=\"liquiditybot\"}",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "liquiditybot_regime_spoof{job=\"liquiditybot\"}",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true
-            },
-            "renameByName": {
-              "Value #A": "Manip",
-              "Value #B": "Spoof"
-            },
-            "indexByName": {
-              "asset": 0,
-              "Manip": 1,
-              "Spoof": 2
             }
           }
         }

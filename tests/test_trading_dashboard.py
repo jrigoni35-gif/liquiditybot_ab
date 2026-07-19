@@ -136,13 +136,14 @@ def test_importable_shape_and_layout_per_board():
     assert _shipped("liquiditybot_command.json")["uid"] == "liquiditybot-trading"
 
 
-def test_all_boards_are_logistical_no_graphs():
+def test_all_boards_use_supported_panel_types():
+    # professional mix: stat (sparkline) / gauge / bargauge / timeseries /
+    # color-coded table. The deprecated "graph" plugin is never allowed.
+    allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge"}
     for fname in gen.DASHBOARDS:
         kinds = {p["type"] for p in _shipped(fname)["panels"]}
-        assert "timeseries" not in kinds and "graph" not in kinds, \
-            f"{fname}: logistical board must have no graphs; found {kinds}"
-        assert kinds <= {"row", "stat", "table", "gauge"}, \
-            f"{fname}: unexpected panel type {kinds}"
+        assert "graph" not in kinds, f"{fname}: deprecated graph panel"
+        assert kinds <= allowed, f"{fname}: unexpected panel type {kinds}"
 
 
 def test_has_per_asset_comparison_table():

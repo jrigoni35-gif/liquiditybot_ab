@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-screening",
   "title": "liquiditybot — asset screening",
-  "description": "Asset screening: skimmer candidate ranks + a per-asset tradeability scorecard (book, regime, signal quality, result).",
+  "description": "Asset screening: skimmer ranks + a per-asset tradeability scorecard (book, regime, signal quality, result).",
   "tags": [
     "liquiditybot",
     "trading",
@@ -12,10 +12,61 @@
   "editable": true,
   "timezone": "browser",
   "refresh": "30s",
+  "style": "dark",
   "time": {
     "from": "now-24h",
     "to": "now"
   },
+  "links": [
+    {
+      "title": "⌘ Command",
+      "type": "link",
+      "url": "/d/liquiditybot-trading",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "⚙ Models·Inv·Exec",
+      "type": "link",
+      "url": "/d/liquiditybot-exec",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "🩹 Problem/Solution",
+      "type": "link",
+      "url": "/d/liquiditybot-problem-solution",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    },
+    {
+      "title": "🔎 Screening",
+      "type": "link",
+      "url": "/d/liquiditybot-screening",
+      "icon": "dashboard",
+      "tooltip": "",
+      "targetBlank": false,
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": []
+    }
+  ],
   "templating": {
     "list": []
   },
@@ -26,7 +77,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "§1 · Skimmer — candidate universe",
+      "title": "🔎 Skimmer — candidate universe",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -40,14 +91,14 @@
       "id": 2,
       "type": "stat",
       "title": "Candidates scanned",
-      "description": "Off-universe pairs the skimmer ranked.",
+      "description": "Off-universe pairs ranked.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 5,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -59,17 +110,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "blue",
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -89,8 +143,9 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_skimmer_candidates{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
         }
       ]
     },
@@ -98,15 +153,15 @@
       "id": 3,
       "type": "stat",
       "title": "Promoted",
-      "description": "Pairs promoted into the tradeable set this cycle.",
+      "description": "Pairs promoted into the tradeable set.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
+        "h": 5,
+        "w": 5,
+        "x": 5,
         "y": 1
       },
       "fieldConfig": {
@@ -121,13 +176,16 @@
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -147,24 +205,25 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_skimmer_promoted_count{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Open positions",
+      "title": "Open slots",
       "description": "Slots in use (max 5).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
+        "h": 5,
+        "w": 4,
+        "x": 10,
         "y": 1
       },
       "fieldConfig": {
@@ -175,17 +234,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "blue",
                 "value": null
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -205,24 +267,25 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_positions_open{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 5,
       "type": "gauge",
-      "title": "Gross exposure",
+      "title": "Exposure headroom",
       "description": "Room left under the heat cap for a new name.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
+        "h": 5,
+        "w": 5,
+        "x": 14,
         "y": 1
       },
       "fieldConfig": {
@@ -277,8 +340,87 @@
     },
     {
       "id": 6,
-      "type": "table",
-      "title": "Skimmer ranking (higher = better book)",
+      "type": "stat",
+      "title": "Model in use",
+      "description": "Is the model sizing yet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "YES",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "prior",
+                  "color": "yellow",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_use_model{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Skimmer score (higher = better book)",
       "description": "Composite liquidity/spread/depth score per candidate pair.",
       "datasource": {
         "type": "prometheus",
@@ -288,43 +430,47 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Score"
-            },
-            "properties": [
+          "unit": "",
+          "decimals": 3,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
               {
-                "id": "unit",
-                "value": "short"
+                "color": "red",
+                "value": null
               },
               {
-                "id": "decimals",
-                "value": 3
+                "color": "yellow",
+                "value": 0.4
+              },
+              {
+                "color": "green",
+                "value": 0.7
               }
             ]
           }
-        ]
+        },
+        "overrides": []
       },
       "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Score",
-            "desc": true
-          }
-        ]
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
@@ -336,36 +482,12 @@
           "expr": "liquiditybot_skimmer_score{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true
-            },
-            "renameByName": {
-              "Value #A": "Score"
-            },
-            "indexByName": {
-              "pair": 0,
-              "Score": 1
-            }
-          }
+          "legendFormat": "{{pair}}"
         }
       ]
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "table",
       "title": "Promoted pairs",
       "description": "Pairs currently promoted into the tradeable universe.",
@@ -377,13 +499,17 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 6
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
           }
         },
         "overrides": [
@@ -400,6 +526,31 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           }
@@ -408,6 +559,9 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
             "displayName": "Promoted",
@@ -454,38 +608,42 @@
       ]
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "row",
-      "title": "§2 · Per-asset tradeability scorecard",
+      "title": "📋 Tradeability scorecard",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 14
       },
       "panels": []
     },
     {
-      "id": 9,
+      "id": 10,
       "type": "table",
       "title": "Screen — book & regime vs signal & result",
-      "description": "Screen an asset in one row: a tight spread + low spoof/manip + high concentration + positive net is a tradeable edge; wide spread + high spoof + diffuse signal is a book to avoid.",
+      "description": "Screen an asset in one row: tight spread + low spoof/manip + high concentration + positive net = a tradeable edge; the color coding makes a good book jump out.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 10,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 15
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
           }
         },
         "overrides": [
@@ -502,6 +660,39 @@
               {
                 "id": "decimals",
                 "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 8
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -534,6 +725,39 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -550,6 +774,39 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -566,6 +823,39 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -582,6 +872,39 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -614,6 +937,39 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.45
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.55
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -630,6 +986,35 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           },
@@ -654,6 +1039,9 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
             "displayName": "Net $",
@@ -817,9 +1205,9 @@
       ]
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "row",
-      "title": "§3 · Regime context & adverse selection",
+      "title": "🌡️ Regime context & adverse selection",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -830,103 +1218,59 @@
       "panels": []
     },
     {
-      "id": 11,
-      "type": "table",
-      "title": "Live regime label",
-      "description": "Per-asset regime numerics driving liquidity/vol classification.",
+      "id": 12,
+      "type": "bargauge",
+      "title": "Spread by asset (bps, lower = tighter book)",
+      "description": "Cost of crossing; the screen's first filter.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 25
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Momentum"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
+          "unit": "",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Vol %"
-            },
-            "properties": [
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
               {
-                "id": "unit",
-                "value": "percent"
+                "color": "green",
+                "value": null
               },
               {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Spread bps"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
+                "color": "yellow",
+                "value": 3
               },
               {
-                "id": "decimals",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Basis bps"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "short"
-              },
-              {
-                "id": "decimals",
-                "value": 1
+                "color": "red",
+                "value": 8
               }
             ]
           }
-        ]
+        },
+        "overrides": []
       },
       "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Vol %",
-            "desc": true
-          }
-        ]
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
@@ -935,13 +1279,63 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_regime_momentum{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_regime_spread_bps{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "format": "table"
+          "legendFormat": "{{asset}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "bargauge",
+      "title": "Volatility by asset (%)",
+      "description": "Realized vol regime per asset.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
         {
-          "refId": "B",
+          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -949,82 +1343,34 @@
           "expr": "liquiditybot_regime_vol_pct{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "liquiditybot_regime_spread_bps{job=\"liquiditybot\"}",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "liquiditybot_regime_basis_bps{job=\"liquiditybot\"}",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true
-            },
-            "renameByName": {
-              "Value #A": "Momentum",
-              "Value #B": "Vol %",
-              "Value #C": "Spread bps",
-              "Value #D": "Basis bps"
-            },
-            "indexByName": {
-              "asset": 0,
-              "Momentum": 1,
-              "Vol %": 2,
-              "Spread bps": 3,
-              "Basis bps": 4
-            }
-          }
+          "legendFormat": "{{asset}}"
         }
       ]
     },
     {
-      "id": 12,
+      "id": 14,
       "type": "table",
       "title": "Adverse selection (mark-out)",
-      "description": "Post-fill drift; persistently negative on an asset = its book picks us off — screen it down.",
+      "description": "Post-fill drift; persistently negative = the book picks us off — screen it down.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 25
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
           }
         },
         "overrides": [
@@ -1041,6 +1387,35 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
               }
             ]
           }
@@ -1049,6 +1424,9 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
             "displayName": "Mark-out bps",
