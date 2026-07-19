@@ -2234,13 +2234,28 @@ class LiquidityBot:
             # historical in-process ladder, unchanged).
             _ag = self.config.get('ml', {}).get('adaptive_gbt', {}) or {}
             _extra = ("adaptive_gbt",) if _ag.get("enabled") else ()
+            # EVIDENCE GATE: admit a higher-capacity family only when the
+            # LIVE (ground-truth) label count can support it - don't train
+            # every model when the data gives the complex ones no chance.
+            _sc_fn = getattr(self.history, "source_counts", None)
+            _n_live = (_sc_fn() or {}).get("live", 0) if callable(_sc_fn) else 0
+            _sel_cfg = self.config.get('ml', {}).get('model_selection') or None
             results = evaluate_and_select(
                 X, y, sample_weight=w, feature_names=FEATURE_NAMES,
                 label_span=int(self.config.get('ml', {})
                             .get('label_max_bars', 96)),
                 ensemble_k=int(self.config.get('ml', {})
                             .get('ensemble_seeds', 3)), sig=sig,
-                extra_models=_extra, adaptive_cfg=_ag)
+                extra_models=_extra, adaptive_cfg=_ag,
+                n_live=int(_n_live), select_cfg=_sel_cfg)
+            if results.get("gated"):
+                get_audit().log(
+                    "ml_governor", Code.ML_LADDER_GATED,
+                    f"selection gated to {results.get('admitted')} "
+                    f"(skipped {results['gated']}): {_n_live} live labels",
+                    {"admitted": results.get("admitted"),
+                     "gated": results["gated"], "live": int(_n_live),
+                     "total": int(len(X))})
             sel = results[results["selected"]]
             cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
             if not cal.fitted:

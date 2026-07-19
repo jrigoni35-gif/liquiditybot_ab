@@ -177,11 +177,22 @@ def main():
     # the historical ladder, byte-for-byte.
     ag_cfg = ml_cfg.get("adaptive_gbt", {}) or {}
     extra_models = ("adaptive_gbt",) if ag_cfg.get("enabled") else ()
+    # EVIDENCE GATE: complexity is earned on LIVE (real closed-trade) labels,
+    # never on bootstrap/candidate proxies - a bootstrap-padded X can be large
+    # yet carry almost no ground truth, so count the store's live split, not
+    # len(X). Below the floor the complex families are not trained at all.
+    n_live = int(store.source_counts().get("live", 0))
+    select_cfg = ml_cfg.get("model_selection") or None
     results = evaluate_and_select(
         X, y, label_span=int(ml_cfg.get("label_max_bars", 96)),
         sample_weight=w, feature_names=FEATURE_NAMES,
         ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)), sig=sig,
-        extra_models=extra_models, adaptive_cfg=ag_cfg)
+        extra_models=extra_models, adaptive_cfg=ag_cfg,
+        n_live=n_live, select_cfg=select_cfg)
+    if results.get("gated"):
+        log.info("selection evidence-gated: trained %s, skipped %s "
+                 "(%d live labels, %d total rows)", results.get("admitted"),
+                 results["gated"], n_live, len(X))
     sel = results[results["selected"]]
     cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
     if not cal.fitted:

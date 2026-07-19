@@ -187,6 +187,40 @@ def validate(config: dict) -> list:
                   f"below a base fit's ~300 trees, warm_update never has room "
                   f"and continuous learning silently never fires")
 
+    # model-selection evidence gate: floors must be coherent or the ladder
+    # admits complexity out of order (train adaptive_gbt but not gbt) or a
+    # family enters selection on fewer TOTAL rows than the LIVE floor it just
+    # cleared. Complexity order fixed: gbt <= blend <= mlp <= adaptive_gbt.
+    ms = config.get("ml", {}).get("model_selection", {}) or {}
+    if ms.get("enabled", False):
+        _order = ("gbt", "blend", "mlp", "adaptive_gbt")
+        for _key in ("min_live_rows", "min_total_rows"):
+            floors = ms.get(_key, {}) or {}
+            prev, prev_fam = -1, None
+            for fam in _order:
+                if fam not in floors:
+                    continue
+                val = int(floors[fam])
+                if val < 0:
+                    fatal(f"ml.model_selection.{_key}.{fam} ({val}) must be "
+                          f">= 0")
+                if val < prev:
+                    fatal(f"ml.model_selection.{_key} non-monotonic: {fam}="
+                          f"{val} < {prev_fam}={prev} - a more complex family "
+                          f"would be admitted on LESS evidence than a simpler "
+                          f"one, so the ladder could train {fam} but not "
+                          f"{prev_fam}")
+                prev, prev_fam = val, fam
+        live_f = ms.get("min_live_rows", {}) or {}
+        total_f = ms.get("min_total_rows", {}) or {}
+        for fam in _order:
+            if fam in live_f and fam in total_f and \
+                    int(total_f[fam]) < int(live_f[fam]):
+                fatal(f"ml.model_selection floors incoherent for {fam}: "
+                      f"min_total_rows ({total_f[fam]}) < min_live_rows "
+                      f"({live_f[fam]}) - total includes live, so the total "
+                      f"floor can never bind and is a config typo")
+
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
     if start_cap <= 0 and not dry_run:

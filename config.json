@@ -487,6 +487,12 @@
       "bags": 4,
       "warm_rounds": 25,
       "max_total_trees": 800
+    },
+    "model_selection": {
+      "_doc": "EVIDENCE GATE on the walk-forward selection ladder (ml/walkforward.admissible_families). Model capacity needs a minimum sample-per-effective-parameter to generalize instead of memorize (events-per-variable floor, Peduzzi 1996); a boosted-tree / MLP / bagged ensemble fit on a handful of real outcomes can only overfit, and entering it into selection just manufactures a lucky winner (inflating PBO). So a higher-capacity family is TRAINED and entered into selection only when BOTH floors clear: min_live_rows (real closed-trade labels - complexity is earned on ground truth, not triple-barrier proxies) AND min_total_rows (enough labeled rows to fit non-degenerate purged folds). logistic (the linear baseline) is always admissible and defines the simplicity floor. Floors escalate with capacity; they are order-of-magnitude sample-size floors, NOT tuned to any backtest peak. overfit_check mirrors this gate so OF-3 PBO measures the space the bot actually selects from. enabled=false -> no gating (historical behavior).",
+      "enabled": true,
+      "min_live_rows": {"gbt": 60, "blend": 60, "mlp": 150, "adaptive_gbt": 250},
+      "min_total_rows": {"gbt": 150, "blend": 150, "mlp": 400, "adaptive_gbt": 600}
     }
   },
   "sentiment": {

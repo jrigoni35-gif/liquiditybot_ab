@@ -91,6 +91,22 @@ class HistoryStore:
                 f"schema {len(self._header) - 8} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
+        # finiteness invariant: a NaN/inf slips through float() silently
+        # (float('nan') never raises) and poisons the corpus - one non-finite
+        # feature NaNs an entire gradient/AUC/Brier downstream, and a NaN label
+        # trains on garbage truth. Refuse at the store boundary so the
+        # ground-truth dataset is clean BY CONSTRUCTION, not cleaned later. The
+        # engine should never emit one; if it does, dropping the label is far
+        # cheaper than silently corrupting every retrain that reads it.
+        fa = np.asarray(feats, dtype=float)
+        if not np.all(np.isfinite(fa)) or not np.isfinite(float(pnl_usd)):
+            bad = [FEATURE_NAMES[i] for i in np.flatnonzero(~np.isfinite(fa))
+                   if i < len(FEATURE_NAMES)]
+            log.warning(
+                f"{Code.ML_DIRTY_LABEL.value}: refusing non-finite {source} "
+                f"row {position_id[:12]} ({asset}): "
+                f"{bad or 'pnl'} not finite - label dropped, corpus kept clean")
+            return
         with open(self.path, "a", newline="", encoding="utf-8") as f:
             now = time.time()
             csv.writer(f).writerow([position_id, asset, direction,
@@ -214,6 +230,7 @@ class HistoryStore:
         X, y, w, sig = [], [], [], []
         now = time.time()
         dropped_clash = 0
+        dropped_dirty = 0
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 if row.get("source") == "candidate" and live_keys:
@@ -246,6 +263,15 @@ class HistoryStore:
                     wr *= 1.0 - min(max(manip_discount, 0.0), 1.0) * suspect
                 except (KeyError, ValueError):
                     continue
+                # LOAD-PATH BACKSTOP: float('nan')/float('inf') parse cleanly,
+                # so the try above never catches a dirty cell. The write guard
+                # (ML-015) keeps NEW rows clean, but a bundle imported from an
+                # older build, a hand edit, or a legacy pre-guard row can still
+                # carry a non-finite feature/label. One NaN row NaNs the whole
+                # fit; drop it here rather than train on poison.
+                if not all(map(np.isfinite, xr)) or not np.isfinite(yr):
+                    dropped_dirty += 1
+                    continue
                 X.append(xr)
                 y.append(yr)
                 sig.append(sr)
@@ -254,6 +280,11 @@ class HistoryStore:
             log.info("training load: dropped %d synthetic candidate row(s) "
                      "that duplicated a real live trade (kept the realized "
                      "label; %d rows remain)", dropped_clash, len(X))
+        if dropped_dirty:
+            log.warning("%s: training load skipped %d row(s) with non-finite "
+                        "features/label (legacy/imported dirty data) - %d "
+                        "clean rows remain", Code.ML_DIRTY_LABEL.value,
+                        dropped_dirty, len(X))
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)

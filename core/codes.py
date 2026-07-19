@@ -117,6 +117,10 @@ class Code(str, Enum):
     ML_SCHEMA_MISMATCH = "ML-013"
     ML_CALIBRATION_SKIPPED = "ML-014"  # isotonic PAV had <20 OOF points to
                                         # fit; artifact ships uncalibrated
+    ML_DIRTY_LABEL = "ML-015"        # non-finite (NaN/inf) feature or label
+                                      # refused at the store boundary
+    ML_LADDER_GATED = "ML-016"       # selection rung skipped: label evidence
+                                      # can't support that model complexity
     ML_FAILSAFE_PRIOR = "ML-020"     # inference bypassed -> cold-start prior
     ML_LEVEL_CHANGE = "ML-030"
     ML_DRIFT = "ML-031"

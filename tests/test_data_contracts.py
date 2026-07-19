@@ -1,0 +1,100 @@
+"""Integration / data-contract tests: the serialized contracts that cross a
+process or restart boundary must round-trip byte-faithfully, and the loaders
+must fail SAFE (never crash the engine) on a missing or malformed artifact.
+
+These are the "contracts between services" for a single-process, file-state
+bot: the model artifact (trainer -> runner/inference), the calibrator inside
+it (Kelly reads it literally), and the history CSV schema (engine -> trainer).
+"""
+import json
+
+import numpy as np
+
+from ml.calibration import IsotonicCalibrator
+from ml.features import FEATURE_NAMES
+from ml.history import HistoryStore
+from ml.models import GradientBoostedStumps, LogisticModel, load_model, save_model
+
+
+def _xy(n=400, seed=2):
+    rng = np.random.default_rng(seed)
+    X = rng.normal(0, 1, (n, len(FEATURE_NAMES)))
+    y = (X[:, 0] + rng.normal(0, 1, n) > 0).astype(float)
+    return X, y
+
+
+# --- model artifact round-trip (trainer -> inference) ----------------------
+def test_logistic_artifact_round_trips_predictions(tmp_path):
+    X, y = _xy()
+    m = LogisticModel(seed=1).fit(X, y)
+    p = tmp_path / "m.json"
+    save_model(m, str(p))
+    back = load_model(str(p))
+    assert back is not None
+    assert np.allclose(back.predict_proba(X), m.predict_proba(X))
+
+
+def test_gbt_artifact_round_trips_predictions(tmp_path):
+    X, y = _xy()
+    m = GradientBoostedStumps(seed=1).fit(X, y)
+    p = tmp_path / "g.json"
+    save_model(m, str(p))
+    back = load_model(str(p))
+    assert back is not None
+    assert np.allclose(back.predict_proba(X), m.predict_proba(X))
+
+
+def test_artifact_stamps_self_describing_schema_and_extras(tmp_path):
+    X, y = _xy()
+    m = LogisticModel(seed=1).fit(X, y)
+    p = tmp_path / "m.json"
+    save_model(m, str(p), extra={"oof_brier": 0.19, "rows": len(X),
+                                 "calibration": {"x": [0.1, 0.9],
+                                                 "y": [0.2, 0.8]}})
+    d = json.loads(p.read_text())
+    assert "feature_schema_version" in d and d["kind"] == "logistic"
+    assert d["oof_brier"] == 0.19 and d["rows"] == len(X)
+    assert d["calibration"]["x"] == [0.1, 0.9]
+
+
+def test_missing_artifact_loads_none_not_crash(tmp_path):
+    assert load_model(str(tmp_path / "nope.json")) is None
+
+
+# --- calibrator contract (Kelly consumes this literally) -------------------
+def test_isotonic_calibrator_serialization_round_trips_transform():
+    rng = np.random.default_rng(4)
+    p_raw = rng.random(200)
+    y = (rng.random(200) < p_raw).astype(float)
+    cal = IsotonicCalibrator().fit(p_raw, y)
+    assert cal.fitted
+    back = IsotonicCalibrator.from_dict(cal.to_dict())
+    grid = np.linspace(0, 1, 50)
+    assert np.allclose(cal.transform(grid), back.transform(grid))
+
+
+def test_unfitted_calibrator_is_identity_and_serializes_to_none():
+    cal = IsotonicCalibrator()                    # <20 pts never fitted
+    cal.fit(np.array([0.4, 0.6]), np.array([0.0, 1.0]))
+    assert not cal.fitted
+    assert cal.to_dict() is None
+    grid = np.linspace(0, 1, 10)
+    assert np.allclose(cal.transform(grid), grid)  # identity
+
+
+# --- history CSV schema contract (engine -> trainer) -----------------------
+def test_history_header_contract_is_stable(tmp_path):
+    hs = HistoryStore(str(tmp_path / "h.csv"))
+    expected = ["position_id", "asset", "side", *FEATURE_NAMES,
+                "label", "net_pnl_usd", "source", "ts", "signal_ts"]
+    assert hs._header == expected
+
+
+def test_written_row_reads_back_through_the_same_contract(tmp_path):
+    hs = HistoryStore(str(tmp_path / "h.csv"))
+    feats = np.arange(len(FEATURE_NAMES), dtype=float)
+    hs._append_row("pid", "BTC", "long", feats, 1, 4.2, "live")
+    X, y, w = hs.load_training_data()
+    assert len(X) == 1 and X.shape[1] == len(FEATURE_NAMES)
+    assert y[0] == 1.0
+    assert hs.source_counts() == {"live": 1}

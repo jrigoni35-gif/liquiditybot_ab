@@ -31,7 +31,8 @@ import logging
 
 import numpy as np
 
-from ml.calibration import brier_score
+from ml.calibration import (IsotonicCalibrator, brier_score,
+                            calibration_gap)
 from ml.models import (AdaptiveGBT, BlendModel, EnsembleMLP,
                        GradientBoostedStumps, LogisticModel, auc_score)
 
@@ -55,6 +56,63 @@ _LADDER = ("logistic", "gbt", "blend", "mlp")
 # end (treated as most complex).
 _COMPLEXITY = ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
 BRIER_MARGIN = 0.002
+
+# Higher-capacity families that must EARN their place with evidence; logistic
+# (the linear baseline) is always admissible and defines the simplicity floor.
+# Ordered simple -> complex, same axis as _COMPLEXITY.
+_GATED_FAMILIES = ("gbt", "blend", "mlp", "adaptive_gbt")
+
+
+def admissible_families(n_live: int, n_total: int,
+                        cfg: dict | None = None) -> set:
+    """Which model families the LABEL evidence can support — the "don't try
+    to learn every way when there's no chance" gate.
+
+    Model capacity needs a minimum sample-per-effective-parameter to
+    generalize rather than memorize (the classic events-per-variable floor;
+    Peduzzi 1996). A boosted-tree / MLP / bagged ensemble fit on a handful of
+    ground-truth outcomes can only overfit — its out-of-fold score is noise
+    and entering it into the selection space just manufactures a lucky winner
+    (inflating PBO). So a higher-capacity family is admitted ONLY when BOTH
+    floors clear:
+
+      * min_live_rows  — enough LIVE (real closed-trade) labels. Complexity
+        is earned on ground truth, not on triple-barrier proxies; this is why
+        the split matters, not the proxy-inflated total.
+      * min_total_rows — enough TOTAL labeled rows to fit non-degenerate
+        purged folds at all.
+
+    logistic is always in the returned set (it is the baseline the ladder
+    falls back to). cfg=None or enabled=False -> every family admissible,
+    preserving the historical selection exactly for callers that opt out
+    (existing tests, replay). Floors live in config.model_selection (guarded
+    in core/config_guard.py) — never hardcoded here."""
+    admitted = {"logistic"}
+    cfg = cfg or {}
+    if not cfg.get("enabled", False):
+        return set(_GATED_FAMILIES) | admitted
+    min_live = cfg.get("min_live_rows", {}) or {}
+    min_total = cfg.get("min_total_rows", {}) or {}
+    for fam in _GATED_FAMILIES:
+        if (n_live >= int(min_live.get(fam, 0))
+                and n_total >= int(min_total.get(fam, 0))):
+            admitted.add(fam)
+    return admitted
+
+
+def pbo_family(name: str) -> str:
+    """Map a PBO-space config name (hyperparameter variant) to its model
+    family, so the evidence gate applies identically to the measured
+    selection space and the deployed ladder."""
+    if name == "logistic":
+        return "logistic"
+    if name.startswith("gbt"):
+        return "gbt"
+    if name.startswith("mlp"):
+        return "mlp"
+    if name == "adaptive_gbt":
+        return "adaptive_gbt"
+    return name
 # canonical bar interval for the triple-barrier horizon (5-minute candles);
 # time-based purge converts label_span (bars) -> seconds with this.
 BAR_SECONDS = 300.0
@@ -139,7 +197,9 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                         n_splits: int = 5, seed: int = 7,
                         sample_weight=None, feature_names=None,
                         ensemble_k: int = 3, sig=None,
-                        extra_models=(), adaptive_cfg=None) -> dict:
+                        extra_models=(), adaptive_cfg=None,
+                        n_live: int | None = None,
+                        select_cfg: dict | None = None) -> dict:
     """Walk-forward all candidates; ship the Brier winner (simplicity-
     biased), fitted on all data. When `sig` (per-row signal timestamps) is
     given the fold purge is TIME-based, not row-count - the deployed model
@@ -149,14 +209,32 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     default ladder; the effective ladder is re-sorted into canonical
     complexity order so a step right always costs the model the Brier
     margin. Default extra_models=() reproduces the historical selection
-    exactly."""
+    exactly.
+
+    n_live / select_cfg drive the EVIDENCE GATE (admissible_families): a
+    higher-capacity family is trained and entered into selection only when
+    the label evidence can support it. n_live is the count of LIVE (real
+    closed-trade) rows; total is len(X). Both default None -> no gating
+    (historical behavior). The admitted set is recorded in
+    results['admitted']/'gated' for the caller to audit."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
     factories = _factories(seed, ensemble_k, adaptive_cfg)
-    ladder = tuple(name for name in _COMPLEXITY
-                   if name in _LADDER or name in tuple(extra_models))
+    full_ladder = tuple(name for name in _COMPLEXITY
+                        if name in _LADDER or name in tuple(extra_models))
+    # evidence gate: n_live unknown -> treat as unlimited so nothing is gated
+    _nl = len(X) if n_live is None else int(n_live)
+    admitted = admissible_families(_nl, len(X), select_cfg)
+    ladder = tuple(name for name in full_ladder if name in admitted)
+    gated = [name for name in full_ladder if name not in admitted]
+    if gated:
+        log.info("selection ladder evidence-gated: training %s, skipping %s "
+                 "(live=%s, total=%d) - too little ground truth to justify "
+                 "the extra capacity", list(ladder), gated, n_live, len(X))
     results = {}
+    results["admitted"] = list(ladder)
+    results["gated"] = gated
     last_fold_model: dict = {}
     # folds are identical for every ladder candidate (the class-balance skip
     # depends only on y[tr]); materialize once so the caller can also know
@@ -180,18 +258,46 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
             oof_p.append(p_te)
             oof_y.append(y[te])
             last_fold_model[name] = (model, te)
+        cat_p = np.concatenate(oof_p) if oof_p else np.empty(0)
+        cat_y = np.concatenate(oof_y) if oof_y else np.empty(0)
+        # Calibration DIAGNOSTIC (not the selection metric): fit the same
+        # isotonic calibrator the artifact ships, and record the calibrated
+        # OOF Brier + residual calibration gap for every candidate so the
+        # operator can see each model's miscalibration ("look into the gap").
+        # Selection stays on RAW Brier on purpose: raw Brier PENALIZES a
+        # model's miscalibration, so it is the stricter, simplicity-preserving
+        # bar. Selecting on calibrated Brier instead let isotonic "rescue" a
+        # complex model's raw miscalibration and elect it in a pure-linear
+        # world (noise-fitting past the margin) - the opposite of the overfit
+        # discipline. The deploy gate (main.py) still checks the calibrated
+        # challenger beats the champion, so calibration governs the final
+        # ship decision; selection just refuses to be rescued into complexity.
+        # <20 OOF points -> calibrator is identity, so cal == raw (graceful).
+        if len(cat_p):
+            cal = IsotonicCalibrator().fit(cat_p, cat_y)
+            cat_p_cal = np.asarray(cal.transform(cat_p), float)
+            brier_cal = brier_score(cat_y, cat_p_cal)
+            gap_cal = calibration_gap(cat_y, cat_p_cal)
+        else:
+            brier_cal, gap_cal = 0.25, 0.0
         results[name] = {
             "aucs": aucs,
             "mean_auc": float(np.mean(aucs)) if aucs else 0.5,
             "mean_brier": float(np.mean(briers)) if briers else 0.25,
-            "oof_p": np.concatenate(oof_p) if oof_p else np.empty(0),
-            "oof_y": np.concatenate(oof_y) if oof_y else np.empty(0),
+            # calibration diagnostics (reported, not selected on)
+            "mean_brier_cal": float(brier_cal),
+            "calib_gap": float(gap_cal),
+            "oof_p": cat_p,
+            "oof_y": cat_y,
         }
-        log.info("%s: fold AUCs=%s mean_auc=%.3f mean_brier=%.4f",
-                 name, [f"{a:.3f}" for a in aucs],
-                 results[name]["mean_auc"], results[name]["mean_brier"])
+        log.info("%s: mean_auc=%.3f brier_raw=%.4f brier_cal=%.4f "
+                 "calib_gap=%.4f", name, results[name]["mean_auc"],
+                 results[name]["mean_brier"], brier_cal, gap_cal)
 
-    # simplicity-biased Brier selection: climb the ladder only on merit
+    # simplicity-biased selection on RAW OOF Brier: climb the ladder only when
+    # a more complex family beats the incumbent by more than the margin. Raw
+    # (not calibrated) so a model must earn complexity on genuine skill, never
+    # on isotonic rescuing its calibration (see the diagnostic note above).
     winner = ladder[0]
     for cand in ladder[1:]:
         if results[cand]["mean_brier"] < \
@@ -208,6 +314,7 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                 model_f, X[te], y[te], feature_names)
             log.info("top features (OOS AUC drop): %s",
                      results["importance"][:5])
-    log.info("selected model: %s (brier %s)", winner,
-             {k: round(results[k]["mean_brier"], 4) for k in ladder})
+    log.info("selected model: %s (raw brier %s | calib_gap %s)", winner,
+             {k: round(results[k]["mean_brier"], 4) for k in ladder},
+             {k: round(results[k]["calib_gap"], 3) for k in ladder})
     return results

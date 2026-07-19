@@ -40,7 +40,8 @@ import numpy as np
 from ml.calibration import brier_score
 from ml.models import (AdaptiveGBT, GradientBoostedStumps, LogisticModel,
                        NumpyMLP, auc_score)
-from ml.walkforward import BRIER_MARGIN, purged_walk_forward
+from ml.walkforward import (BRIER_MARGIN, admissible_families, pbo_family,
+                            purged_walk_forward)
 
 log = logging.getLogger("liquiditybot.ml.overfit")
 
@@ -191,7 +192,9 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
 def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                     seed: int = 7, n_blocks: int = 8, sig=None,
                     include_adaptive: bool = False,
-                    adaptive_cfg: dict | None = None) -> dict:
+                    adaptive_cfg: dict | None = None,
+                    n_live: int | None = None,
+                    select_cfg: dict | None = None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
@@ -203,7 +206,14 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     too, or OF-3 certifies a selection rule the bot no longer runs (the
     'PBO measures the DEPLOYED rule' invariant). It is appended LAST —
     the most complex step — so the simplicity ladder only elects it when
-    it out-earns every simpler config by the Brier margin."""
+    it out-earns every simpler config by the Brier margin.
+
+    n_live / select_cfg apply the SAME evidence gate as evaluate_and_select:
+    a family the label evidence can't support is not in the deployed ladder,
+    so it must not be in the measured space either. When the gate collapses
+    the space to a single family (e.g. logistic-only at low live-row counts),
+    there is NO selection happening — PBO is returned None with an explicit
+    'no selection' reason rather than a fabricated number."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     ac = adaptive_cfg or {}
@@ -227,12 +237,23 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
             warm_rounds=int(ac.get("warm_rounds", 25)),
             max_total_trees=int(ac.get("max_total_trees", 800)),
             seed=seed)
+    # evidence gate mirror: drop hyperparameter variants whose family the
+    # ladder would not admit at this live-row count. logistic always survives.
+    _nl = len(X) if n_live is None else int(n_live)
+    admitted = admissible_families(_nl, len(X), select_cfg)
+    space = {k: v for k, v in space.items() if pbo_family(k) in admitted}
+    if len(space) < 2:
+        return {"pbo": None, "n_configs": len(space),
+                "configs": list(space),
+                "reason": "evidence-gated to a single family (no model "
+                          "selection to overfit at this live-row count)"}
     folds = [f for f in purged_walk_forward(len(X), n_splits, label_span,
                                             sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
     if not folds:
         return {"pbo": None, "reason": "no viable folds"}
     oof_idx = np.concatenate([te for _, te in folds])
+    y_oof = y[oof_idx]
     cols, names = [], []
     for name, factory in space.items():
         preds = np.empty(len(oof_idx))
@@ -241,9 +262,17 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
             m = factory().fit(X[tr], y[tr])
             preds[pos:pos + len(te)] = m.predict_proba(X[te])
             pos += len(te)
-        # per-observation performance: negative squared error (higher
-        # better), blocked later by pbo_cscv
-        cols.append(-(preds - y[oof_idx]) ** 2)
+        # per-observation performance: negative squared error (higher better),
+        # blocked later by pbo_cscv. RAW (uncalibrated) on purpose: isotonic
+        # calibration is a MONOTONE, same-for-all-configs post-transform - it
+        # changes neither which configs exist nor the ladder's margin
+        # structure, which is what PBO measures. Fitting it on the full OOF
+        # here would instead LEAK across the CSCV train/test block split (a
+        # config's test-block score set by a calibrator that saw that block),
+        # deflating OOS variance and corrupting the PBO. Selection still runs
+        # on calibrated Brier (evaluate_and_select); the luck-chasing this
+        # instrument polices lives in the family/margin structure, unchanged.
+        cols.append(-(preds - y_oof) ** 2)
         names.append(name)
     M = np.stack(cols, axis=1)                    # (T_oof, N_configs)
 
