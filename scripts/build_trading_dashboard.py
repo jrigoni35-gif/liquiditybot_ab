@@ -7,7 +7,15 @@ panel queries is emitted by scripts/gc_pusher.py, (4) only supported panel
 types.
 
 DESIGN — professional and readable, information-dense but not a wall of raw
-numbers. A consistent visual language across four focused boards:
+numbers. Grounded in referenced practice: Grafana's dashboard best practices
+(one purpose per board, most-important top-left, no orphan queries), the
+RED/USE methods for the ops rows (rate/errors/duration; utilization/
+saturation/errors), and Tufte's data-ink principle for the analytics panels
+(exact values beside every trend; no decoration that isn't data). A
+consistent visual language across four focused boards:
+  * ACCURACY FIRST: every money panel uses the non-scaling USD unit (see
+    below) so the number displayed IS the number the bot holds — no "$5.00K"
+    for $4,997.92; the equity curve carries a last/min/max legend table;
   * KPI tiles are stat panels with an AREA SPARKLINE (trend at a glance) and
     threshold color;
   * bounded ratios (exposure, heat, win rate, drawdown) are GAUGES;
@@ -15,7 +23,9 @@ numbers. A consistent visual language across four focused boards:
     asset/pair) — the eye ranks them instantly;
   * a couple of real TIME-SERIES carry the trends that matter (equity, Brier);
   * dense detail lives in COLOR-CODED tables (heatmap cells);
-  * live STATE readouts (RUNNING/HALTED, ARMED/KILLED) are colored tiles.
+  * live STATE readouts (RUNNING/HALTED, ARMED/KILLED) are colored tiles;
+  * the Learning row surfaces CORPUS QUALITY (clean live count, AFML mean
+    uniqueness, ML-074 prior-skew) — the bot's evidence accounting, live.
 Every board links to the others (top nav) and uses emoji section headers for
 fast scanning.
 
@@ -30,6 +40,12 @@ from pathlib import Path
 
 DS = {"type": "prometheus", "uid": "grafanacloud-prom"}
 JOB = '{job="liquiditybot"}'
+# NON-SCALING dollars. Grafana's built-in currencyUSD SI-abbreviates at
+# >=$1k, so a $4,997.92 equity renders as "$5.00K" on stats and axes —
+# literally not the actual amount (user-reported). The custom prefix unit
+# renders the raw value with the panel's decimals, no K/M scaling, so every
+# money panel shows true dollars.
+USD = "prefix:$"
 panels: list = []
 
 _cur = {"x": 0, "y": 0, "row_h": 0}
@@ -132,22 +148,30 @@ def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
         "targets": [_t(expr)]})
 
 
-def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18):
+def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
+               calcs=None, decimals=None):
+    """calcs (e.g. ["lastNotNull","min","max"]) upgrades the legend to a
+    table with those reductions — exact numbers beside the trend, so the
+    curve never has to be eyeballed off the axis (Tufte: show the data)."""
     x, y = _place(w, h)
+    fld = {"unit": unit, "custom": {
+        "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
+        "fillOpacity": fill, "gradientMode": "opacity",
+        "showPoints": "never", "spanNulls": True, "pointSize": 5,
+        "axisPlacement": "auto",
+        "scaleDistribution": {"type": "linear"}},
+        "color": {"mode": "palette-classic"}}
+    if decimals is not None:
+        fld["decimals"] = decimals
     panels.append({
         "id": _id(), "type": "timeseries", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "custom": {
-            "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
-            "fillOpacity": fill, "gradientMode": "opacity",
-            "showPoints": "never", "spanNulls": True, "pointSize": 5,
-            "axisPlacement": "auto",
-            "scaleDistribution": {"type": "linear"}},
-            "color": {"mode": "palette-classic"}}, "overrides": []},
+        "fieldConfig": {"defaults": fld, "overrides": []},
         # showLegend MUST be present: the bare {displayMode:"hidden"} shape
         # blanks the whole timeseries plugin on current Grafana Cloud.
-        "options": {"legend": {"showLegend": True, "displayMode": "list",
-                               "placement": "bottom", "calcs": []},
+        "options": {"legend": {"showLegend": True,
+                               "displayMode": "table" if calcs else "list",
+                               "placement": "bottom", "calcs": calcs or []},
                     "tooltip": {"mode": "multi", "sort": "desc"}},
         "targets": [_t(expr, instant=False, legend=legend)]})
 
@@ -307,11 +331,11 @@ def _pa(metric, suffix=""):
 # ========================= board 1 · command ===============================
 def _author_command():
     row("💹 Performance")
-    stat("Equity", M("liquiditybot_equity"), 5, 5, unit="currencyUSD",
+    stat("Equity", M("liquiditybot_equity"), 5, 5, unit=USD,
          decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
-    stat("P&L today", M("liquiditybot_daily_pnl"), 4, 5, unit="currencyUSD",
+    stat("P&L today", M("liquiditybot_daily_pnl"), 4, 5, unit=USD,
          steps=PNL, desc="Realized P&L since UTC midnight.")
-    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit="currencyUSD",
+    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit=USD,
          steps=PNL, desc="Unrealized across open positions.")
     gauge("Drawdown", M("liquiditybot_drawdown_pct"), 4, 5, mx=15.0, steps=DD,
           desc="Peak-to-now; 15% is the hard stop.")
@@ -320,7 +344,10 @@ def _author_command():
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 3, 5, mx=35.0,
           desc="Gross notional %/equity vs the 35% heat cap.")
     timeseries("Equity curve", M("liquiditybot_equity"), 16, 7,
-               unit="currencyUSD", legend="equity", desc="Account equity over time.")
+               unit=USD, legend="equity", decimals=2,
+               calcs=["lastNotNull", "min", "max"],
+               desc="Account equity over time — exact dollars (no K-rounding); "
+                    "the legend table shows last/min/max to the cent.")
     stat("Profit factor", M("liquiditybot_perf_profit_factor"), 4, 7,
          decimals=2, steps=PF, desc="Gross profit / gross loss.")
     stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 7, decimals=2,
@@ -382,10 +409,28 @@ def _author_command():
           desc="Fraction of features past the PSI threshold.")
     stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 3, 5,
          unit="percent", decimals=1, steps=GRN, desc="Wilson lower bound.")
+    # AFML corpus-quality tiles (docs/learning/2026-07-19_weekend_labels.md):
+    # is the corpus counting evidence honestly, not just accumulating rows
+    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 5,
+         decimals=0, steps=[{"color": "red", "value": None},
+         {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
+         desc="Live rows surviving the hygiene pass — the count the evidence "
+              "gate actually admits model complexity on.")
+    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 5,
+         decimals=3, steps=[{"color": "red", "value": None},
+         {"color": "yellow", "value": 0.05}, {"color": "green", "value": 0.15}],
+         desc="Mean average-uniqueness (AFML ch.4): 1 = every label an "
+              "independent fact; near 0 = heavily overlapping horizons "
+              "(weights redistribute so overlap can't double-count).")
+    state("Batch prior skew", M("liquiditybot_ml_prior_skew"), 4, 5,
+          {"0": ("OK", "green"), "1": ("SKEWED", "yellow")},
+          desc="ML-074: trailing-window label prior vs corpus prior — SKEWED "
+               "= a one-sided batch (e.g. all-zero quiet weekend) is moving "
+               "calibration; detection only, weights untouched.")
 
     row("⚖️ Per-asset edge")
     bargauge("Net $ by asset", _pa("liquiditybot_perf_asset_net_usd"), 8, 8,
-             unit="currencyUSD", decimals=2, steps=PNL,
+             unit=USD, decimals=2, steps=PNL,
              desc="Realized net per asset — where P&L actually comes from.")
     bargauge("Signal concentration", _pa("liquiditybot_signal_concentration"),
              8, 8, decimals=2, steps=HIGH_GOOD, mn=0, mx=1,
@@ -395,7 +440,7 @@ def _author_command():
              desc="Model conviction per asset.")
     table("Asset scorecard", 24, 8,
           cols=[("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU),
-                ("liquiditybot_perf_asset_net_usd", "Net $", "currencyUSD", 2, PNL),
+                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0),
                 ("liquiditybot_perf_asset_cur_loss_streak", "Loss streak", "short", 0, STREAK),
                 ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
@@ -442,7 +487,7 @@ def _author_command():
     stat("Loss streak (now)", M("liquiditybot_perf_cur_loss_streak"), 4, 5,
          decimals=0, steps=STREAK, graph="none", mode="background",
          desc="Consecutive losers now — circuit-breaker input.")
-    stat("Open risk", M("liquiditybot_open_risk_usd"), 4, 5, unit="currencyUSD",
+    stat("Open risk", M("liquiditybot_open_risk_usd"), 4, 5, unit=USD,
          steps=GRN, desc="$ lost if every open stop filled now.")
     stat("Trades (window)", M("liquiditybot_perf_trades"), 4, 5, decimals=0,
          steps=BLUE, desc="Closed trades in the window.")
@@ -456,10 +501,10 @@ def _author_command():
 
 def _positions_table():
     table("Open positions (net per instrument)", 12, 5,
-          cols=[("liquiditybot_position_upnl_usd", "uPnL $", "currencyUSD", 2, PNL),
+          cols=[("liquiditybot_position_upnl_usd", "uPnL $", USD, 2, PNL),
                 ("liquiditybot_position_upnl_pct", "uPnL %", "percent", 2, PNL),
                 ("liquiditybot_position_r_multiple", "R", "short", 2, PNL),
-                ("liquiditybot_position_notional_usd", "Notional $", "currencyUSD", 0),
+                ("liquiditybot_position_notional_usd", "Notional $", USD, 0),
                 ("liquiditybot_position_conviction", "p_win", "percentunit", 2, HIGH_GOOD),
                 ("liquiditybot_position_stop_dist_pct", "Stop %", "percent", 2),
                 ("liquiditybot_position_age_hours", "Age h", "short", 1)],
@@ -523,15 +568,15 @@ def _author_execution():
           mx=35.0, desc="CVaR portfolio heat vs cap.")
     stat("Open positions", M("liquiditybot_positions_open"), 3, 5, decimals=0,
          steps=BLUE, desc="Open count (max 5).")
-    stat("Open risk", M("liquiditybot_open_risk_usd"), 3, 5, unit="currencyUSD",
+    stat("Open risk", M("liquiditybot_open_risk_usd"), 3, 5, unit=USD,
          steps=GRN, desc="$ at risk to stops.")
-    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit="currencyUSD",
+    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit=USD,
          steps=PNL, desc="Unrealized across positions.")
     stat("Gross exposure $", M("liquiditybot_gross_exposure_usd"), 4, 5,
-         unit="currencyUSD", decimals=0, steps=GRN, desc="Gross notional $.")
+         unit=USD, decimals=0, steps=GRN, desc="Gross notional $.")
     _positions_table()
     bargauge("uPnL by instrument", _pa("liquiditybot_position_upnl_usd"), 12, 5,
-             unit="currencyUSD", decimals=2, steps=PNL, legend="{{symbol}} {{side}}",
+             unit=USD, decimals=2, steps=PNL, legend="{{symbol}} {{side}}",
              desc="Unrealized P&L ranked across open instruments.")
 
     row("⚡ Execution quality")
@@ -541,10 +586,10 @@ def _author_execution():
           desc="% fills that were maker (cheaper).")
     stat("Avg slippage", M("liquiditybot_order_avg_slip_bps"), 4, 5,
          unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
-         desc="Rolling avg slippage bps (negative = improvement).")
+         desc="Implementation shortfall vs the ARRIVAL mark, rolling avg bps (positive = paid worse than arrival; negative = improvement).")
     stat("Worst slippage", M("liquiditybot_order_worst_slip_bps"), 3, 5,
          unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
-         desc="Worst single slippage in the window.")
+         desc="Worst single implementation shortfall vs arrival in the window.")
     stat("Venue RTT", M("liquiditybot_order_latency_ms"), 4, 5, unit="ms",
          decimals=0, steps=LAT, desc="Private POST RTT (order path).")
     stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 4, 5,
@@ -558,9 +603,9 @@ def _author_execution():
     stat("Taker fills", M("liquiditybot_order_taker_fills"), 3, 4, decimals=0,
          steps=GRN, desc="Taker fills (exit-ladder rung).")
     stat("Maker notional", M("liquiditybot_order_maker_notional_usd"), 4, 4,
-         unit="currencyUSD", decimals=0, steps=GRN, desc="Maker-filled notional.")
+         unit=USD, decimals=0, steps=GRN, desc="Maker-filled notional.")
     stat("Taker notional", M("liquiditybot_order_taker_notional_usd"), 4, 4,
-         unit="currencyUSD", decimals=0, steps=GRN, desc="Taker-filled notional.")
+         unit=USD, decimals=0, steps=GRN, desc="Taker-filled notional.")
     table("Post-fill mark-out (adverse selection)", 12, 6,
           cols=[("liquiditybot_markout_bps", "Mark-out bps", "short", 2, PNL)],
           label_keys=["asset", "horizon_sec"], sort="Mark-out bps",
@@ -568,7 +613,7 @@ def _author_execution():
     bargauge("Slippage by fill quality — avg vs worst (bps)",
              M("liquiditybot_order_avg_slip_bps"), 12, 6, unit="short",
              decimals=1, steps=SLIP, legend="avg slip",
-             desc="Rolling avg slippage bps (negative = price improvement).")
+             desc="Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).")
 
 
 # ==================== board 3 · problem / solution =========================
@@ -629,6 +674,18 @@ def _author_problem():
     stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4,
          decimals=3, mode="background", graph="none", steps=CALIB,
          desc="Miscalibration; ECE.")
+    stat("Dirty rows dropped", M("liquiditybot_ml_dropped_dirty"), 4, 4,
+         decimals=0, mode="background", graph="none",
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 1}, {"color": "red", "value": 10}],
+         desc="PROBLEM: legacy/imported non-finite rows. SOLUTION: the "
+              "ML-015 load backstop drops them before they NaN a fit "
+              "(0 = corpus clean by construction).")
+    stat("Twin rows excluded", M("liquiditybot_ml_dropped_clash"), 4, 4,
+         decimals=0, graph="none", steps=BLUE,
+         desc="Synthetic candidate twins of REAL trades excluded so a taken "
+              "signal is never double-counted (realized label kept). "
+              "Nonzero is healthy — it tracks taken teach-trades.")
 
     row("💰 Capital & drawdown")
     gauge("PROBLEM: drawdown", M("liquiditybot_drawdown_pct"), 5, 6, mx=15.0,
@@ -714,7 +771,7 @@ def _author_screening():
                 ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD),
                 ("liquiditybot_signal_urgency", "Urgency", "short", 2),
                 ("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU),
-                ("liquiditybot_perf_asset_net_usd", "Net $", "currencyUSD", 2, PNL),
+                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0)],
           label_keys=["asset"], sort="Net $",
           desc="Screen an asset in one row: tight spread + low spoof/manip + "

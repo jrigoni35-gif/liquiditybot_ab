@@ -1291,6 +1291,138 @@
     },
     {
       "id": 20,
+      "type": "stat",
+      "title": "Dirty rows dropped",
+      "description": "PROBLEM: legacy/imported non-finite rows. SOLUTION: the ML-015 load backstop drops them before they NaN a fit (0 = corpus clean by construction).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 13
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_dropped_dirty{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Twin rows excluded",
+      "description": "Synthetic candidate twins of REAL trades excluded so a taken signal is never double-counted (realized label kept). Nonzero is healthy — it tracks taken teach-trades.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_dropped_clash{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 22,
       "type": "row",
       "title": "💰 Capital & drawdown",
       "collapsed": false,
@@ -1298,12 +1430,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 21
       },
       "panels": []
     },
     {
-      "id": 21,
+      "id": 23,
       "type": "gauge",
       "title": "PROBLEM: drawdown",
       "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
@@ -1315,7 +1447,7 @@
         "h": 6,
         "w": 5,
         "x": 0,
-        "y": 18
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -1368,7 +1500,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 24,
       "type": "stat",
       "title": "Loss streak",
       "description": "PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.",
@@ -1380,7 +1512,7 @@
         "h": 6,
         "w": 4,
         "x": 5,
-        "y": 18
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -1438,7 +1570,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 25,
       "type": "stat",
       "title": "Breakers tripped",
       "description": "Assets currently paused.",
@@ -1450,7 +1582,7 @@
         "h": 6,
         "w": 3,
         "x": 9,
-        "y": 18
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -1504,7 +1636,7 @@
       ]
     },
     {
-      "id": 24,
+      "id": 26,
       "type": "gauge",
       "title": "Heat vs cap",
       "description": "SOLUTION: heat throttled under the CVaR cap.",
@@ -1516,7 +1648,7 @@
         "h": 6,
         "w": 4,
         "x": 12,
-        "y": 18
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -1569,7 +1701,7 @@
       ]
     },
     {
-      "id": 25,
+      "id": 27,
       "type": "stat",
       "title": "Taper mult",
       "description": "SOLUTION: loss-budget taper shrinks size.",
@@ -1581,7 +1713,7 @@
         "h": 6,
         "w": 4,
         "x": 16,
-        "y": 18
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
@@ -1631,7 +1763,7 @@
       ]
     },
     {
-      "id": 26,
+      "id": 28,
       "type": "gauge",
       "title": "Daily budget used",
       "description": "Daily loss budget consumed.",
@@ -1643,7 +1775,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 24
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1696,7 +1828,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 29,
       "type": "gauge",
       "title": "Weekly budget used",
       "description": "Weekly loss budget consumed.",
@@ -1708,7 +1840,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 24
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1761,7 +1893,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 30,
       "type": "table",
       "title": "Circuit breaker — paused assets",
       "description": "Per-asset breaker state; hours-left counts the cool-off.",
@@ -1773,7 +1905,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1944,7 +2076,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 31,
       "type": "row",
       "title": "🕵️ Manipulation, venue & integrity",
       "collapsed": false,
@@ -1952,12 +2084,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 29
+        "y": 33
       },
       "panels": []
     },
     {
-      "id": 30,
+      "id": 32,
       "type": "stat",
       "title": "op-state",
       "description": "Central fault authority: ARMED / DEGRADED / HALTED.",
@@ -1969,7 +2101,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2046,7 +2178,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 33,
       "type": "stat",
       "title": "Latched faults",
       "description": "Active latched faults.",
@@ -2058,7 +2190,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2112,7 +2244,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 34,
       "type": "stat",
       "title": "Firewall fault",
       "description": "Risk-firewall latched fault (blocks new risk).",
@@ -2124,7 +2256,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2191,7 +2323,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 35,
       "type": "stat",
       "title": "Cycle wedge",
       "description": "PROBLEM: failing cycles. SOLUTION: runner wedge escalation.",
@@ -2203,7 +2335,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2261,7 +2393,7 @@
       ]
     },
     {
-      "id": 34,
+      "id": 36,
       "type": "stat",
       "title": "Exit-eval failures",
       "description": "A position wedging its own exit path.",
@@ -2273,7 +2405,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2327,7 +2459,7 @@
       ]
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "stat",
       "title": "Venue rejects",
       "description": "OM-021 AddOrder rejects.",
@@ -2339,7 +2471,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 30
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -2397,7 +2529,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 38,
       "type": "bargauge",
       "title": "Manipulation suspicion by asset",
       "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size + down-weights those training rows.",
@@ -2409,7 +2541,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -2468,7 +2600,7 @@
       ]
     },
     {
-      "id": 37,
+      "id": 39,
       "type": "table",
       "title": "Firewall clamps/rejects by code",
       "description": "Which firewall rule (FW-*) is clamping most.",
@@ -2480,7 +2612,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {

@@ -65,6 +65,10 @@ _SYNTH_STATUS = {
            "smc_faults": 0, "retrain_failures": 0, "retrain_flag": False,
            "model_kind": "blend",
            "labels_by_source": {"live": 20, "candidate": 80},
+           # AFML corpus-quality stats (history.last_load_stats via runner)
+           "load_stats": {"live_clean": 20, "mean_uniqueness": 0.42,
+                          "dropped_dirty": 0, "dropped_clash": 3,
+                          "prior_skew": False},
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
                           "weights": {"if_1_flow_persistence": 0.9}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,
