@@ -245,6 +245,43 @@ with a CERTIFICATE — a bound that holds before the data arrives.
 - Shadow default: enabling detectors is not enabling influence.
 - Every disposition carries a registered TH-xxx code.
 
+## Evidence concentration (shadow, 2026-07-19)
+
+The fused informed-flow evidence `E = Σ wᵢ·sᵢ` is a weighted **sum**, so a
+diffuse 5-of-weak scores like a 2-of-screaming. That is the "base the
+decision on everything / all averages" failure mode: a signal assembled by
+averaging many small factors is treated the same as a pinpointed,
+accumulating setup where one or two factors dominate.
+
+`SignalResult.evidence_concentration` (0..1, normalized Herfindahl of the
+signed component contributions `|wᵢ·sᵢ|`) measures which it is: 0 = perfectly
+diffuse, 1 = one factor carries the signal. It is **shadow only** — it
+changes no decision today — and is logged on every `IF3 scan`/`IF3 signal`
+line. Promotion path (data-first, never hardcoded): shadow → confidence
+shade that attenuates diffuse-but-marginal signals (the averaging trap) while
+leaving concentrated conviction untouched → optional gate, only if
+`quant_trials` G3/G5 and the out-of-sample simplicity-ladder confirm it pays.
+This is "process of elimination that never loses the bigger picture": the
+`evidence_threshold` still owns the bigger picture (is there enough total
+signal at all); concentration adds *how* that signal is composed.
+
+## Lessons folded in from this session's errors
+
+- **NaN/inf never reaches the corpus** (ML-015): `float('nan')` parses
+  silently, so a single bad feature once NaN'd an entire retrain. Finiteness
+  is now enforced at the store boundary (write) with a load-time backstop —
+  clean ground truth by construction, not by later cleanup.
+- **Complexity is earned on ground truth, not proxies** (ML-016): the
+  walk-forward ladder now admits gbt/blend/mlp/adaptive_gbt only when the
+  LIVE label count clears a floor; below it the brain trains logistic alone.
+  Trying every learner on a proxy-heavy corpus only manufactures an
+  overfit winner (and inflates PBO).
+- **Calibration must not rescue complexity**: selecting on isotonic-calibrated
+  Brier let a complex model win a *pure-linear* world (isotonic hid its
+  miscalibration). Selection stays on raw Brier (the stricter bar that
+  penalizes miscalibration); calibration is reported per candidate and applied
+  as the final deploy check only.
+
 ## Sources
 
 - Aristotle, *Politics* I.11 (Thales and the olive presses)

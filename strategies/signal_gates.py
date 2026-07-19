@@ -34,6 +34,12 @@ class SignalResult:
     all_confirmed: bool
     gates_passed: dict = field(default_factory=dict)
     urgency: float = 0.0         # 0..1 edge-decay estimate for execution tactics
+    # 0..1 evidence CONCENTRATION (normalized Herfindahl of the signed
+    # component contributions): 0 = perfectly diffuse (the signal is an average
+    # of many weak factors), 1 = one factor dominates (a pinpointed setup).
+    # SHADOW diagnostic only - it changes no decision; it exists so the brain
+    # can later tell a concentrated conviction from a blended-average signal.
+    evidence_concentration: float = 0.0
 
 
 class SignalGateEngine:

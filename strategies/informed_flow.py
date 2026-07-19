@@ -360,6 +360,26 @@ class InformedFlowEngine:
         direction = "long" if evidence > 0 else "short"
         sgn = 1 if evidence > 0 else -1
 
+        # EVIDENCE CONCENTRATION (shadow diagnostic, changes no decision):
+        # normalized Herfindahl of the |signed contributions| w_i*s_i. The
+        # fused evidence is a weighted SUM, so a diffuse 5-of-weak scores like
+        # a 2-of-screaming - this measures which it is. 0 = perfectly diffuse
+        # (the signal is an average of many small factors, the "base decision
+        # on everything" case the operator flagged); 1 = a single factor
+        # dominates (a pinpointed, accumulating setup). Exposed so the brain
+        # can later prefer concentrated conviction over blended averages
+        # (promotion path: shadow -> confidence shade -> gate, validated on
+        # data, never hardcoded here).
+        contribs = [abs(self.w[k] * v) for k, v in comps.items()]
+        tot = sum(contribs)
+        k_comp = len(contribs)
+        if tot > 0.0 and k_comp > 1:
+            hhi = sum((c / tot) ** 2 for c in contribs)
+            concentration = max(0.0, min(
+                1.0, (hhi - 1.0 / k_comp) / (1.0 - 1.0 / k_comp)))
+        else:
+            concentration = 0.0
+
         # ---- vetoes ----------------------------------------------------
         # unavailable funding (OKX perp feed down): explicit policy, not the
         # silent _f(None)->0 coincidence. Default passes (see __init__).
@@ -417,11 +437,11 @@ class InformedFlowEngine:
             # exact gate(s) blocking it. Pure logging; the decision above is
             # already fully computed and unaffected.
             failed = [_short_gate(k) for k, v in gates.items() if not v]
-            log.info("IF3 scan %-4s %-5s: E=%+.2f agree=%d/5 flow=%+.2f "
-                     "delta=%+.2f accum=%+.2f burst=%+.2f trend=%+.2f "
-                     "conf=%.2f gates=%d/%d%s",
-                     asset, direction, evidence, agree, s_flow, s_delta,
-                     s_accum, s_burst, s_trend, confidence,
+            log.info("IF3 scan %-4s %-5s: E=%+.2f agree=%d/5 conc=%.2f "
+                     "flow=%+.2f delta=%+.2f accum=%+.2f burst=%+.2f "
+                     "trend=%+.2f conf=%.2f gates=%d/%d%s",
+                     asset, direction, evidence, agree, concentration, s_flow,
+                     s_delta, s_accum, s_burst, s_trend, confidence,
                      sum(1 for v in gates.values() if v), len(gates),
                      "" if not failed else " FAIL:" + ",".join(failed))
 
@@ -432,15 +452,15 @@ class InformedFlowEngine:
             urgency = min(max(self.u_base + self.u_w_burst * burst_pos
                               + self.u_w_fresh * fresh
                               + self.u_w_delta * delta_pos, 0.0), 1.0)
-            log.info("IF3 signal %s %s: E=%+.2f agree=%d/5 flow=%+.2f "
-                     "delta=%+.2f accum=%+.2f burst=%+.2f trend=%+.2f "
-                     "vol_z=%.1f urgency=%.2f", asset, direction, evidence,
-                     agree, s_flow, s_delta, s_accum, s_burst, s_trend,
-                     vol_z, urgency)
+            log.info("IF3 signal %s %s: E=%+.2f agree=%d/5 conc=%.2f "
+                     "flow=%+.2f delta=%+.2f accum=%+.2f burst=%+.2f "
+                     "trend=%+.2f vol_z=%.1f urgency=%.2f", asset, direction,
+                     evidence, agree, concentration, s_flow, s_delta, s_accum,
+                     s_burst, s_trend, vol_z, urgency)
 
         return SignalResult(
             symbol=symbol,
             direction=direction if all_confirmed else None,
             confidence=confidence, size=0.0,
             all_confirmed=all_confirmed, gates_passed=gates,
-            urgency=urgency)
+            urgency=urgency, evidence_concentration=round(concentration, 3))
