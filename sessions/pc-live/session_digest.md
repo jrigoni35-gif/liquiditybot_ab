@@ -2,11 +2,11 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-07-19 20:40 UTC (228.79h, ~981 cycles)
-- Equity: $25,000.00 -> $4,998.27 (range $99,208.70) | realized PnL $-1.04 | fees $1.70
-- Activity: 1 open | 45 live labeled trades | 1696 candidates | 49 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-07-19 21:40 UTC (229.79h, ~1095 cycles)
+- Equity: $25,000.00 -> $4,998.25 (range $99,208.70) | realized PnL $-1.04 | fees $1.70
+- Activity: 1 open | 45 live labeled trades | 1708 candidates | 49 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 45 | cold=True
-- Audit: 784 records (365 non-routine) | dominant OM-000 (29% of non-routine) | chain_ok=False | retrain_requests 21
+- Audit: 796 records (366 non-routine) | dominant OM-000 (29% of non-routine) | chain_ok=False | retrain_requests 21
 - Liquidity: spoofy 43% of classified cycles | feed errors 0
 
 ## Diagnostics
