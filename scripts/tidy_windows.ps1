@@ -1,92 +1,57 @@
-# tidy_windows.ps1 - clear stacked bot console windows WITHOUT dropping the bot.
+# tidy_windows.ps1 - close the DEAD 'liquiditybot-runner' console shells left by
+# repeated start.bat launches, and ONLY those. Never the live bot, never an
+# unrelated window.
 #
-# The stacked cascade is redundant `start.bat` windows: each ran `cmd /k python
-# runner.py`, the SingleInstanceLock refused the duplicate engine, but `cmd /k`
-# left the empty shell open. This script closes them safely by first making sure
-# the bot is running HEADLESS under the LiquidityBot scheduled task (pythonw ->
-# pc_supervisor -> windowless runner), so closing the visible windows can never
-# take the bot down - the hidden supervisor re-spawns the runner windowless
-# within ~30s if a closed window happened to hold the lock.
+# Why this is safe: the runner is single-instance (SingleInstanceLock), so among
+# the stacked 'liquiditybot-runner' windows AT MOST ONE has a live `python
+# runner.py` child - that one IS the bot. Every other window is a dead cmd shell
+# whose runner already exited on the lock (`cmd /k` just kept the empty console
+# open). We identify each by its process tree and close only shells with NO
+# python child; the single live runner (if any) is left running. No heartbeat
+# guessing, no autostart side effects, no chance of dropping the bot.
 #
 # Run:  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tidy_windows.ps1
-#   (or just double-click scripts\tidy_windows.bat)
-$ErrorActionPreference = "Stop"
-$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$py   = Join-Path $root ".venv\Scripts\python.exe"
-$alive = Join-Path $root "scripts\bot_alive.py"
+#   (or double-click scripts\tidy_windows.bat)
+$ErrorActionPreference = "Continue"
+$self = $PID
 
-function Bot-Alive {
-    if (-not (Test-Path $py)) { return $false }
-    & $py $alive | Out-Null
-    return ($LASTEXITCODE -eq 0)
-}
+# EXACT window title start.bat assigns (`start "liquiditybot-runner" ...`).
+# Deliberately NOT '*liquiditybot*': the repo folder is 'liquiditybot_ab', so a
+# broad match would force-kill VS Code ("<file> - liquiditybot_ab - Visual
+# Studio Code"), an Explorer window on the folder, and this script's own
+# console. The substring '-runner' appears in none of those.
+$cands = Get-Process -Name cmd -ErrorAction SilentlyContinue |
+    Where-Object { $_.Id -ne $self -and
+                   $_.MainWindowTitle -like '*liquiditybot-runner*' }
 
-# 1) Ensure the headless supervisor exists and is running, so the bot is safe
-#    once the visible windows go away.
-$haveTask = $false
-schtasks /Query /TN "LiquidityBot" 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) { $haveTask = $true }
-
-if (-not $haveTask) {
-    Write-Host "LiquidityBot autostart task not found - installing it (hidden, at logon)..." -ForegroundColor Yellow
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "install_autostart.ps1")
-}
-Write-Host "Starting the hidden supervisor (idempotent - MultipleInstancesPolicy=IgnoreNew)..."
-schtasks /Run /TN "LiquidityBot" 2>$null | Out-Null
-
-# 2) Wait for a fresh heartbeat so we KNOW the headless bot is holding the fort
-#    before we close anything.
-$ok = $false
-foreach ($i in 1..30) {
-    if (Bot-Alive) { $ok = $true; break }
-    Start-Sleep -Seconds 3
-}
-if (-not $ok) {
-    Write-Host "No fresh heartbeat yet - NOT closing any windows (won't risk the bot)." -ForegroundColor Red
-    Write-Host "Check outputs\pc_supervisor.log and outputs\status.json, then re-run." -ForegroundColor Red
-    exit 1
-}
-
-# 3) Close every visible liquiditybot console. The `start "liquiditybot-runner"`
-#    title makes them findable; also match any cmd/python window whose title
-#    mentions liquiditybot. The hidden supervisor (pythonw, no MainWindowTitle)
-#    and its windowless runner are never matched.
-$mine = @($PID)
-$targets = Get-Process |
-    Where-Object {
-        $_.Id -notin $mine -and
-        $_.MainWindowTitle -and
-        ($_.MainWindowTitle -like "*liquiditybot*")
-    }
-
-if (-not $targets) {
-    Write-Host "No stray liquiditybot windows found - nothing to close. Bot is up." -ForegroundColor Green
+if (-not $cands) {
+    Write-Host "No 'liquiditybot-runner' windows found - nothing to clean." -ForegroundColor Green
     exit 0
 }
 
-Write-Host ("Closing {0} stray window(s):" -f $targets.Count) -ForegroundColor Cyan
-foreach ($p in $targets) {
-    Write-Host ("  pid {0}  [{1}]  {2}" -f $p.Id, $p.ProcessName, $p.MainWindowTitle)
-    try { $null = $p.CloseMainWindow() } catch { }
-}
-Start-Sleep -Seconds 2
-# Force any that ignored the polite close (cmd /k won't honor CloseMainWindow
-# while a child is attached).
-foreach ($p in $targets) {
-    if (-not $p.HasExited) { try { Stop-Process -Id $p.Id -Force } catch { } }
+$closed = 0; $kept = 0
+foreach ($p in $cands) {
+    $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" `
+        -ErrorAction SilentlyContinue
+    $live = @($kids | Where-Object { $_.Name -match '^python(w)?\.exe$' })
+    if ($live.Count -gt 0) {
+        $kept++
+        Write-Host ("KEEP  pid {0}: live runner (python child present) - leaving the bot up." -f $p.Id) -ForegroundColor Yellow
+        continue
+    }
+    Write-Host ("CLOSE pid {0}: dead shell (no runner child)" -f $p.Id) -ForegroundColor Cyan
+    # tree-kill: Stop-Process on cmd would orphan any child; taskkill /T handles
+    # the tree. Harmless here (a dead shell has none) and correct if one lingers.
+    & taskkill /PID $p.Id /T /F 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { $closed++ }
 }
 
-# 4) Confirm the bot is still alive after the sweep (supervisor re-spawns the
-#    windowless runner if one of the closed windows held the lock).
-Start-Sleep -Seconds 3
-$ok = $false
-foreach ($i in 1..30) {
-    if (Bot-Alive) { $ok = $true; break }
-    Start-Sleep -Seconds 3
-}
-if ($ok) {
-    Write-Host "Done. Stray windows closed; bot heartbeat is fresh (running headless)." -ForegroundColor Green
+Write-Host ""
+Write-Host ("Done. Closed {0} dead shell(s); kept {1} live runner window(s)." -f $closed, $kept) -ForegroundColor Green
+if ($kept -eq 0) {
+    Write-Host "No live runner window remains. If the bot should be running, start it:" -ForegroundColor Yellow
+    Write-Host "  headless (recommended): scripts\install_autostart.bat   (then schtasks /Run /TN LiquidityBot)"
+    Write-Host "  windowed:               start.bat"
 } else {
-    Write-Host "Windows closed, but heartbeat went stale. The supervisor should" -ForegroundColor Yellow
-    Write-Host "relaunch within ~30s; watch outputs\pc_supervisor.log." -ForegroundColor Yellow
+    Write-Host "The bot is still running in its window. For a windowless always-on run, use scripts\install_autostart.bat." -ForegroundColor Gray
 }
