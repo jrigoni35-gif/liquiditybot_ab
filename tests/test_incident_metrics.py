@@ -21,6 +21,20 @@ def _by_name(metrics, name):
     return [m for m in metrics if m["name"] == name]
 
 
+def test_collect_thales_excludes_bool_values_and_survives_malformed(tmp_path):
+    # the THALES metric guard must exclude bool VALUES (bool is an int
+    # subclass) and never crash on a malformed (non-dict) asset entry
+    status = {"written_at": 1_700_000_000.0,
+              "thales": {"assets": {"BTC": {"grid": True, "metronome": 0.5},
+                                    "ETH": "garbage"}}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                       # must not raise on ETH='garbage'
+    met = _by_name(m, "liquiditybot_thales_metronome")
+    assert met and met[0]["gauge"]["dataPoints"][0]["asDouble"] == pytest.approx(0.5)
+    assert not _by_name(m, "liquiditybot_thales_grid")   # bool value excluded
+
+
 def test_collect_emits_fault_and_health_metrics(tmp_path):
     status = {
         "written_at": 1_700_000_000.0,

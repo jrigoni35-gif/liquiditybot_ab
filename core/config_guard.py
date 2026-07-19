@@ -519,11 +519,11 @@ def validate(config: dict) -> list:
     if d_b > 0 and w_b > 0 and w_b < d_b:
         fatal("risk_protocols.budget weekly budget below the daily budget "
               "- the weekly gate would bind before a single bad day ends")
-    hard = float(_f(config, "risk.hard_stop_drawdown_pct", 15))
+    hard = float(_f(config, "capital_management.hard_stop_drawdown_pct", 15))
     if d_b > 0 and hard > 0 and d_b >= hard:
         fatal("risk_protocols.budget.daily_loss_budget_pct must sit below "
-              "risk.hard_stop_drawdown_pct - the taper must engage before "
-              "the kill switch")
+              "capital_management.hard_stop_drawdown_pct - the taper must "
+              "engage before the kill switch")
     ht = float(_f(config, "risk_protocols.heat.max_portfolio_heat_frac",
                   0.35))
     if not (0.0 < ht <= 1.0):
@@ -562,6 +562,17 @@ def validate(config: dict) -> list:
         if tgn > 0 and tgn <= arm:
             fatal("profit_taking.give_back.tighten_gain_pct must exceed "
                   "arm_gain_pct (or be 0 to disable the second rung)")
+        # arm-vs-break-even coherence: flag a ratchet that arms inside the
+        # fee/break-even buffer (its locked share would be fee noise). Lives
+        # here — where `arm` is bound — not under the unrelated pos_cap>heat_cap
+        # branch, where `arm` may be undefined (NameError) and the check would
+        # only fire for the wrong reason.
+        be_buf_bps = float(_f(config, "profit_taking.be_buffer_bps", 6.0)) \
+            + 2.0 * float(_f(config, "profit_taking.est_fee_bps", 0.0))
+        if arm * 100.0 <= be_buf_bps:
+            warn(f"give_back.arm_gain_pct={arm}% arms inside the "
+                 f"break-even buffer ({be_buf_bps:.0f}bps) - the locked "
+                 f"share of such small moves is fee noise")
 
     # --- conviction runner (rev 6 entry-conviction leash) -------------------
     if bool(_f(config, "profit_taking.conviction_runner.enabled", False)):
@@ -699,12 +710,6 @@ def validate(config: dict) -> list:
     if pos_cap > heat_cap:
         advisory(f"position cap {pos_cap:.0f}% exceeds the portfolio heat cap "
                  f"{heat_cap:.0f}% - a single max position can't fit under heat")
-        be_buf_bps = float(_f(config, "profit_taking.be_buffer_bps", 6.0)) \
-            + 2.0 * float(_f(config, "profit_taking.est_fee_bps", 0.0))
-        if arm * 100.0 <= be_buf_bps:
-            warn(f"give_back.arm_gain_pct={arm}% arms inside the "
-                 f"break-even buffer ({be_buf_bps:.0f}bps) - the locked "
-                 f"share of such small moves is fee noise")
 
     # --- regime ensemble thresholds -------------------------------------
     mom_bear = float(_f(config, "regime.momentum_bear_max", -0.34))

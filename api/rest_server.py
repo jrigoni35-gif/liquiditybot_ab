@@ -120,6 +120,10 @@ class RestStatusServer:
                     req = json.loads(self.rfile.read(n) or b"{}")
                 except (ValueError, TypeError):
                     return self._deny(400, "malformed JSON body")
+                if not isinstance(req, dict):
+                    # valid JSON but not an object (e.g. [1,2] / 5) -> req.get
+                    # would AttributeError; reject cleanly instead of a 500
+                    return self._deny(400, "body must be a JSON object")
                 cmd = str(req.get("cmd", ""))
                 if cmd not in ALLOWED_CONTROL:
                     # arm_live / sim_* / stop are deliberately absent

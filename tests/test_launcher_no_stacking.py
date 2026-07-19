@@ -109,6 +109,9 @@ def test_tidy_windows_targets_only_dead_runner_shells():
     assert "$_.Id -ne $self" in ps1               # never its own console
     assert "ParentProcessId" in ps1               # keeps windows with a py child
     assert "taskkill" in ps1                      # tree-kill dead shells only
+    # fail SAFE on a CIM enumeration error: never read an error as "no child"
+    assert "-ErrorAction Stop" in ps1 and "catch" in ps1
+    assert "$queryOk" in ps1
     # the cleaner must NOT silently convert a manual user to headless autostart
     assert "install_autostart.ps1" not in ps1
     assert "tidy_windows.ps1" in bat

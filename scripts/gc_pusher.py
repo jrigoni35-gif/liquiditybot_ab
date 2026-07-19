@@ -252,11 +252,16 @@ def collect(status_path: str) -> list:
     # [0,1] except the counters — the dashboard reads them as a manipulation
     # scorecard.
     for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
+        if not isinstance(th, dict):
+            continue                    # malformed asset entry: skip, never crash
         for k in ("grid", "metronome", "clockwork", "stop_zone", "barclose",
                   "spoof_bid", "spoof_ask", "feed_dirty", "lapses",
                   "bar_holes", "lapse_warmup_sec"):
-            if isinstance(th.get(k), (int, float)) and not isinstance(k, bool):
-                m.append(gauge(f"liquiditybot_thales_{k}", th[k],
+            v = th.get(k)
+            # exclude bool VALUES (bool is an int subclass) — the guard must
+            # test the value, not the loop key (always a str, never bool)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_thales_{k}", v,
                                {"asset": asset}, ts))
     mm = s.get("moomoo") or {}
     for k in ("risk_z", "opt_pcr_z", "opt_oi_pcr_z", "opt_iv_skew"):

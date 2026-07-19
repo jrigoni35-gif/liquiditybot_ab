@@ -281,6 +281,11 @@ class PostmortemEngine:
         return min(px for _, px in t.post_marks) <= t.fill_price
 
     def _cost_overrun_bps(self, t: TradeThesis) -> float:
+        # a defensively-floored zero-notional trade (entry_usd==0, set in
+        # record()) has no meaningful cost-in-bps: never divide by zero, and
+        # never let it be blamed as cost_overrun (0.0 fails the line-307 gate).
+        if t.entry_usd <= EPS:
+            return 0.0
         realized_fee_bps = t.fees_usd / t.entry_usd * 1e4
         slip_bps = 0.0
         if t.quote_price > 0 and t.fill_price > 0:

@@ -31,9 +31,22 @@ if (-not $cands) {
 
 $closed = 0; $kept = 0
 foreach ($p in $cands) {
-    $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($p.Id)" `
-        -ErrorAction SilentlyContinue
+    # Fail SAFE: a CIM error must NOT be read as 'no children' (which would
+    # tree-kill the live runner). Only close when the query DEFINITIVELY
+    # succeeded AND found zero python children; on any error, keep the window.
+    $queryOk = $true
+    try {
+        $kids = @(Get-CimInstance Win32_Process `
+            -Filter "ParentProcessId=$($p.Id)" -ErrorAction Stop)
+    } catch {
+        $queryOk = $false; $kids = @()
+    }
     $live = @($kids | Where-Object { $_.Name -match '^python(w)?\.exe$' })
+    if (-not $queryOk) {
+        $kept++
+        Write-Host ("KEEP  pid {0}: could not enumerate children (CIM error) - NOT risking the bot." -f $p.Id) -ForegroundColor Yellow
+        continue
+    }
     if ($live.Count -gt 0) {
         $kept++
         Write-Host ("KEEP  pid {0}: live runner (python child present) - leaving the bot up." -f $p.Id) -ForegroundColor Yellow

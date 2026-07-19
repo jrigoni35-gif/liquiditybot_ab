@@ -436,7 +436,7 @@ def main() -> int:
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)
-    out.parent.mkdir(exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(f"# Overfit audit — {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n\n"
                 f"Dataset: {source}\n\n")

@@ -117,7 +117,7 @@ class CCXTFeed:
         funding = 0.0
         try:
             if getattr(c, "has", {}).get("fetchFundingRate") and \
-                    symbol.endswith(("SWAP", "PERP")) or ":" in symbol:
+                    (symbol.endswith(("SWAP", "PERP")) or ":" in symbol):
                 fr = c.fetch_funding_rate(symbol)
                 funding = _f((fr or {}).get("fundingRate"))
         except Exception:

@@ -22,8 +22,6 @@ from typing import Optional
 import requests
 from requests.adapters import HTTPAdapter
 
-log_mod = logging.getLogger("liquiditybot.data.http")
-
 
 def _keepalive_socket_options() -> list:
     """Latency + connection-warmth socket options for a long-lived polling
