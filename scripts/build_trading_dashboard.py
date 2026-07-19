@@ -345,6 +345,14 @@ def _author_command():
          desc="Fast-cycle counter (advancing = alive).")
 
     row("🧠 Learning brain")
+    timeseries("Learning rows by label (live vs candidate)",
+               'max by (source) (liquiditybot_ml_labels' + JOB + ')', 24, 7,
+               unit="short", legend="{{source}}",
+               desc="Ground-truth LIVE (real closed-trade) labels vs CANDIDATE "
+                    "(triple-barrier proxy) labels accruing over time — the "
+                    "learning loop turning. LIVE climbing past 35 = ML-073 "
+                    "realizing ground truth; a flat LIVE line = the loop is "
+                    "starved. Total training rows = the sum of the two.")
     stat("Live labels", M('liquiditybot_ml_labels{source="live"}'), 4, 5,
          decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
