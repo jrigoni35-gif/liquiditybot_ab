@@ -77,6 +77,21 @@ _SYNTH_STATUS = {
     "code_stats": {"by_prefix": {"PT": 9},
                    "entry_codes": {"PT-041": 6, "PT-050": 2}},
     "ws_kraken": {"connected": True, "books": 6, "reconnects": 0},
+    "fault": {"state": "ARMED", "faults": {}},
+    "watchdog": {"entries_blocked": False, "critical_stale": False,
+                 "velocity_tripped": False, "divergent": [],
+                 "stale_assets": []},
+    "firewall": {"fault": None, "counters": {"FW-040": 2}},
+    "circuit_breaker": {"enabled": True, "loss_streak": 4,
+                        "streaks": {"BTC": 1}, "tripped": {"ETH": 3.0}},
+    "risk_protocols": {"daily_budget_used_frac": 0.1,
+                       "weekly_budget_used_frac": 0.05, "taper_mult": 1.0,
+                       "heat_frac": 0.04, "heat_cap_frac": 0.35,
+                       "dd_throttle_mult": 1.0},
+    "skimmer": {"enabled": True, "candidates": 8, "max_extra": 6,
+                "promoted": ["SOL/USD"],
+                "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,
+                                       "depth_usd": 60000, "ts": 1.7e9}}},
 }
 
 
@@ -92,35 +107,42 @@ def test_generator_matches_shipped_json():
             "`python scripts/build_trading_dashboard.py` (never hand-edit)"
 
 
-def test_single_condensed_board():
-    assert list(gen.DASHBOARDS) == ["liquiditybot_command.json"], \
-        "the condense is ONE board; extra dashboards mean the sprawl returned"
+def test_expected_boards_present():
+    assert set(gen.DASHBOARDS) == {
+        "liquiditybot_command.json", "liquiditybot_execution.json",
+        "liquiditybot_problem_solution.json", "liquiditybot_screening.json"}
 
 
-def test_importable_shape_and_layout():
-    d = _shipped("liquiditybot_command.json")
-    assert "dashboard" not in d and d["schemaVersion"] == 39
-    assert d["uid"] == "liquiditybot-trading"        # replaces old desk board
-    assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0
-    ids = [p["id"] for p in d["panels"]]
-    assert len(ids) == len(set(ids)), "duplicate panel ids"
-    rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
-              p["gridPos"]["h"], p["id"]) for p in d["panels"]]
+def test_importable_shape_and_layout_per_board():
+    uids = set()
+    for fname in gen.DASHBOARDS:
+        d = _shipped(fname)
+        assert "dashboard" not in d and d["schemaVersion"] == 39, fname
+        assert d["uid"] and d["uid"] not in uids, f"{fname}: uid not unique"
+        uids.add(d["uid"])
+        assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0, fname
+        ids = [p["id"] for p in d["panels"]]
+        assert len(ids) == len(set(ids)), f"{fname}: duplicate panel ids"
+        rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
+                  p["gridPos"]["h"], p["id"]) for p in d["panels"]]
 
-    def ov(a, b):
-        return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
-                    or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
-    bad = [(a[4], b[4]) for i, a in enumerate(rects)
-           for b in rects[i + 1:] if ov(a, b)]
-    assert not bad, f"overlapping panels: {bad}"
+        def ov(a, b):
+            return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
+                        or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
+        bad = [(a[4], b[4]) for i, a in enumerate(rects)
+               for b in rects[i + 1:] if ov(a, b)]
+        assert not bad, f"{fname}: overlapping panels: {bad}"
+    # the command board keeps the desk uid so it replaces the old monolith
+    assert _shipped("liquiditybot_command.json")["uid"] == "liquiditybot-trading"
 
 
-def test_is_logistical_no_timeseries_graphs():
-    d = _shipped("liquiditybot_command.json")
-    kinds = {p["type"] for p in d["panels"]}
-    assert "timeseries" not in kinds and "graph" not in kinds, \
-        f"logistical board must have no graphs; found {kinds}"
-    assert kinds <= {"row", "stat", "table", "gauge"}, f"unexpected: {kinds}"
+def test_all_boards_are_logistical_no_graphs():
+    for fname in gen.DASHBOARDS:
+        kinds = {p["type"] for p in _shipped(fname)["panels"]}
+        assert "timeseries" not in kinds and "graph" not in kinds, \
+            f"{fname}: logistical board must have no graphs; found {kinds}"
+        assert kinds <= {"row", "stat", "table", "gauge"}, \
+            f"{fname}: unexpected panel type {kinds}"
 
 
 def test_has_per_asset_comparison_table():

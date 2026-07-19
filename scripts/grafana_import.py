@@ -22,9 +22,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARDS = [
-    # one condensed logistical board (uid liquiditybot-trading) replaces the
-    # old monolith + the four graph partitions + the incidents board.
+    # four condensed LOGISTICAL boards (no graphs). The command board keeps uid
+    # liquiditybot-trading, replacing the old monolith + graph partitions.
     "liquiditybot_command.json",
+    "liquiditybot_execution.json",
+    "liquiditybot_problem_solution.json",
+    "liquiditybot_screening.json",
 ]
 
 
