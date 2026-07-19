@@ -264,6 +264,16 @@ def validate(config: dict) -> list:
               f"labeled row; 1 disables the share check")
     if int(_f(config, "ml.exploration.share_min_rows", 10)) < 1:
         fatal("ml.exploration.share_min_rows must be >= 1")
+    # ML-073 label realization: the maturity horizon must be at least one full
+    # label window (the barrier has to have fired) and not absurdly long, or a
+    # position never matures and the starvation loop never clears.
+    rls = float(_f(config, "ml.exploration.realize_after_label_spans", 1.0))
+    if bool(_f(config, "ml.exploration.realize_mature_labels", True)) and \
+            not (1.0 <= rls <= 6.0):
+        fatal(f"ml.exploration.realize_after_label_spans ({rls}) must be in "
+              f"[1, 6] label spans - below 1 closes positions before the "
+              f"triple-barrier label window even resolves; above 6 they sit so "
+              f"long the SD-002 starvation loop never clears")
 
     max_pos = float(_f(config,
                        "capital_management.max_position_size_pct_of_capital", 10))

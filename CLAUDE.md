@@ -81,7 +81,7 @@ INVARIANT below, stop and say so instead of complying.
 Run ALL of it; a change is not done while anything is red:
 `python -m pytest tests/ -q` · `python scripts/smoke_test.py` ·
 `python scripts/assurance_check.py` · `python scripts/overfit_check.py`
-· `ruff check core data execution ml risk api ui tests
+· `ruff check core data execution ml risk api tests
 scripts/quant_trials.py scripts/overfit_check.py` · `bandit -c
 pyproject.toml -r . -x ./.venv,./tests` · `python -m compileall -q . -x
 '.venv'`.

@@ -131,6 +131,31 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
+def pick_label_mature_unwind(positions, rows: int, until_live_rows: int,
+                             now: float, mature_h: float):
+    """Learning-phase LABEL REALIZATION (ML-073), pure decision logic. The
+    documented SD-002 starvation loop: dry-run exploration opens paper trades
+    that must CLOSE to become live labels, but in a quiet book they hit no
+    tier/stop and sit for days — the book fills to capacity, no new teaching
+    entry can fire, and the model never gets fresh ground truth (0 entries,
+    18x retrain-requested-but-cold).
+
+    A position held past the model's LABEL HORIZON has already resolved its
+    triple-barrier outcome; holding it open teaches nothing more. Return the
+    stalest non-hedge position older than `mature_h` so it closes at market,
+    banking its live label and freeing a slot — one per call, so the book
+    drains gradually, not in a flatten. Auto-off once exploration has
+    graduated (rows >= until_live_rows): past that, exits belong entirely to
+    the tier engine/ratchet. Caller gates on dry_run (never live)."""
+    if rows >= until_live_rows or not positions or mature_h <= 0:
+        return None
+    mature = [p for p in positions if not p.is_hedge and
+              (now - p.opened_at.timestamp()) / 3600.0 >= mature_h]
+    if not mature:
+        return None
+    return max(mature, key=lambda p: now - p.opened_at.timestamp())
+
+
 def nudge_stop_off_round_number(stop: float, direction: str,
                                 buffer_bps: float) -> float:
     """Osler (Stop-Loss Orders and Price Cascades in Currency Markets,
@@ -1617,6 +1642,7 @@ class LiquidityBot:
             self.corr.update_intraday(closes)
 
         self._maybe_unwind_unteachable(now)
+        self._maybe_realize_mature_label(now)
         sentiment = self.xscan.maybe_poll(now)
         web = self.webdata.maybe_poll(now)
         risk = self.moomoo.maybe_poll(now)
@@ -2076,6 +2102,46 @@ class LiquidityBot:
                     f"{pos.symbol} {pos.position_id[:8]} - full book, no "
                     f"open position can produce a training row")
         self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)")
+
+    def _maybe_realize_mature_label(self, now: float):
+        """ML-073 learning-phase label realization (see pick_label_mature_unwind).
+        Dry-run only: live exits stay entirely with the tier engine/operator.
+        A dry-run position held past the model's label horizon has resolved its
+        triple-barrier outcome — close it to bank the live label and keep the
+        learning loop fed with fresh ground truth."""
+        cfg = self.config.get("ml", {}).get("exploration", {})
+        if not self.dry_run or not cfg.get("realize_mature_labels", True):
+            return
+        # horizon = the labeler's own window (label_max_bars * bar seconds),
+        # scaled by realize_after_label_spans — NOT a free literal: once a
+        # position outlives the label window the barrier has already fired, so
+        # its realized outcome is exactly the label the model expects.
+        from ml.walkforward import BAR_SECONDS
+        _ml = self.config.get("ml", {})
+        _bars = int(_ml.get("label_max_bars", 96))
+        _spans = float(cfg.get("realize_after_label_spans", 1.0))
+        mature_h = _spans * _bars * BAR_SECONDS / 3600.0
+        # graduate on LIVE rows (real closed trades), same basis as exploration
+        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc = _sc_fn() if callable(_sc_fn) else {}
+        _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
+        pos = pick_label_mature_unwind(
+            self.state.open_positions(), _grad_rows,
+            int(cfg.get("until_live_rows", 500)), now, mature_h)
+        if pos is None:
+            return
+        age_h = (now - pos.opened_at.timestamp()) / 3600.0
+        get_audit().log("engine", Code.ML_LABEL_REALIZE,
+                        f"label-mature realize {pos.symbol} "
+                        f"{pos.position_id[:8]}: held {age_h:.1f}h past the "
+                        f"{mature_h:.1f}h label horizon - banking the live "
+                        f"label, freeing a teach slot",
+                        {"position_id": pos.position_id,
+                         "age_h": round(age_h, 2)})
+        log.warning(f"{Code.ML_LABEL_REALIZE.value}: realizing {pos.symbol} "
+                    f"{pos.position_id[:8]} - {age_h:.1f}h > {mature_h:.1f}h "
+                    f"label horizon; banking live label")
+        self._submit_exit(pos, 100.0, "label-mature realization (ML-073)")
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence

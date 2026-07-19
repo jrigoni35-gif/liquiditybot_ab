@@ -134,6 +134,10 @@ class Code(str, Enum):
     ML_UNTEACHABLE_UNWIND = "ML-071"  # learning-phase unwind: full book, zero pending labels
     ML_EXPLORE_AGGRESSIVE = "ML-072"  # conviction-scaled full-size exploration
                                       # (confident model + clean book, dry-run)
+    ML_LABEL_REALIZE = "ML-073"       # learning-phase: a dry-run position held
+                                      # past its label horizon has resolved its
+                                      # triple-barrier outcome — close it to
+                                      # bank the live label + free a teach slot
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
