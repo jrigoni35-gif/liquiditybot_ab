@@ -1,34 +1,34 @@
 {
-  "generated_at": 1784464850.817679,
+  "generated_at": 1784468451.196066,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784464842.0,
-    "duration_h": 220.78
+    "end": 1784468450.0,
+    "duration_h": 221.79
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4998.69,
+    "equity_end": 4998.64,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.78,
     "fees_paid_total": 1.301,
     "open_positions": 5,
-    "samples": 46367
+    "samples": 46597
   },
   "activity": {
-    "signal_rows_total": 1621,
+    "signal_rows_total": 1634,
     "live_labeled_trades": 40,
-    "candidate_rows": 1581
+    "candidate_rows": 1594
   },
   "audit": {
-    "records": 658,
-    "signal_records": 332,
+    "records": 662,
+    "signal_records": 336,
     "by_src": {
       "exploration": 326,
-      "ml_governor": 163,
+      "ml_governor": 167,
       "order_manager": 102,
       "startup": 41,
       "fault": 20,
@@ -46,7 +46,7 @@
       ],
       [
         "ML-031",
-        94
+        95
       ],
       [
         "CG-000",
@@ -54,7 +54,7 @@
       ],
       [
         "ML-041",
-        27
+        28
       ],
       [
         "ML-032",
@@ -66,7 +66,7 @@
       ],
       [
         "ML-042",
-        10
+        11
       ],
       [
         "ML-014",
@@ -86,37 +86,41 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.298,
+    "dominant_frac": 0.295,
     "retrain_requests": 20,
     "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": 505
   },
   "events": {
-    "records": 678,
+    "records": 1786,
     "by_level": {
-      "INFO": 677,
-      "WARNING": 1
+      "INFO": 1783,
+      "WARNING": 3
     },
     "top_warnings": [
       [
         "ML-031: feature drift 17/54 shifted (PSI>=0.25): ['ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps', 'basis_dir', 'funding_dir']",
+        2
+      ],
+      [
+        "auto-retrain: 1619 rows (33 new)",
         1
       ]
     ],
     "liquidity_tally": {
-      "thin": 303,
-      "spoofy": 161
+      "thin": 748,
+      "spoofy": 480
     },
-    "spoofy_frac": 0.347,
-    "cycles_estimate": 68,
+    "spoofy_frac": 0.391,
+    "cycles_estimate": 183,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.058201643641628005,
+    "champion_brier": 0.05686503330921902,
     "brier": "n/a",
     "history_rows": 40,
     "cold": true
