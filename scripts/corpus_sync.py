@@ -90,9 +90,70 @@ def _bundle_order_key(bundle_dir: Path) -> str:
         return ""
 
 
+def recover_local_baks(root: Path = ROOT) -> str:
+    """Re-import rows stranded in outputs/signal_history.bak_* rotations.
+
+    A schema bump rotates the live CSV to .bak_<ts>; the durable branch only
+    holds rows up to the LAST hourly backup, so labels banked between that
+    backup and the rotation exist ONLY in the local .bak (observed live
+    2026-07-19: live labels #46/#47 + ~19 candidates stranded when the
+    barrier-column bump landed). Ground truth must never be stranded: run
+    each .bak through the same migrate machinery bundles use, append rows
+    whose position_id is absent (dedup = idempotent), then rename the .bak
+    to .recovered_<name> so this runs once per rotation. The file is
+    renamed, never deleted — nothing is ever lost."""
+    out_dir = root / "outputs"
+    dest = out_dir / "signal_history.csv"
+    baks = sorted(out_dir.glob("signal_history.bak_*"))
+    baks = [b for b in baks if not b.name.endswith(".recovered")]
+    if not baks:
+        return "no_baks"
+    sys.path.insert(0, str(ROOT))
+    from ml.history import HistoryStore
+    from scripts.migrate_history import migrate_rows
+    import csv as _csv
+    total = 0
+    for bak in baks:
+        try:
+            rows, _padded = migrate_rows(str(bak))
+        except SystemExit as e:
+            # newer/unmappable schema: leave the .bak for a manual look
+            _log(f"bak {bak.name} not auto-migratable ({e}) - left in place")
+            continue
+        except (OSError, ValueError, KeyError) as e:
+            _log(f"bak {bak.name} unreadable ({e}) - left in place")
+            continue
+        HistoryStore(str(dest))._ensure_schema()
+        existing = set()
+        if dest.exists():
+            with open(dest, newline="", encoding="utf-8") as f:
+                existing = {r.get("position_id")
+                            for r in _csv.DictReader(f)}
+        written = 0
+        with open(dest, "a", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            for row in rows:
+                if row[0] in existing:
+                    continue
+                w.writerow(row)
+                written += 1
+        total += written
+        try:
+            bak.rename(bak.with_name(bak.name + ".recovered"))
+        except OSError:
+            pass                       # next pass dedups to zero anyway
+        _log(f"bak {bak.name}: recovered {written} stranded row(s)")
+    return f"bak_recovered={total}"
+
+
 def sync_once(root: Path = ROOT) -> str:
     if os.environ.get("LB_NO_CORPUS_SYNC"):
         return "disabled"
+    # local rotations FIRST: their rows may be newer than the durable tip,
+    # and the export sidecar can then durably back them up this same hour
+    bak_note = recover_local_baks(root)
+    if bak_note not in ("no_baks", "bak_recovered=0"):
+        _log(f"local rotation recovery: {bak_note}")
     cfg = _cfg()
     rc, err = _git("fetch", cfg["remote"], cfg["branch"], cwd=root)
     if rc != 0:
