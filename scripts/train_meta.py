@@ -121,7 +121,7 @@ def main():
     X, y, w, sig = store.load_training_data(
         half_life_days=float(sw_cfg.get("half_life_days", 30)),
         candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-        return_sig=True)
+        return_sig=True, weights_cfg=sw_cfg)
     source = "live history"
 
     if args.bootstrap or len(X) < min_rows:

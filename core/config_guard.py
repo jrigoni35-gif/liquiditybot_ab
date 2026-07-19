@@ -221,6 +221,37 @@ def validate(config: dict) -> list:
                       f"({live_f[fam]}) - total includes live, so the total "
                       f"floor can never bind and is a config typo")
 
+    # --- ml.sample_weights: de Prado corrections (AFML ch.4) --------------
+    sw = config.get("ml", {}).get("sample_weights", {}) or {}
+    if sw:
+        gsec = float(sw.get("uniqueness_grid_sec", 300))
+        if not (30.0 <= gsec <= 3600.0):
+            fatal(f"ml.sample_weights.uniqueness_grid_sec ({gsec}) outside "
+                  f"[30, 3600]s - the grid must be near the signal cadence "
+                  f"(finer burns CPU for nothing, coarser blurs concurrency)")
+        ufl = float(sw.get("uniqueness_floor", 0.05))
+        if not (0.0 <= ufl <= 1.0):
+            fatal(f"ml.sample_weights.uniqueness_floor ({ufl}) outside "
+                  f"[0, 1] - it bounds the uniqueness discount")
+        tbw = float(sw.get("time_barrier_zero_weight", 1.0))
+        if not (0.0 < tbw <= 1.0):
+            fatal(f"ml.sample_weights.time_barrier_zero_weight ({tbw}) "
+                  f"outside (0, 1] - 0 would erase every no-touch zero "
+                  f"(discarding evidence); >1 would overweight the weakest "
+                  f"label class")
+        pw = float(sw.get("prior_skew_window_h", 24))
+        if not (1.0 <= pw <= 168.0):
+            fatal(f"ml.sample_weights.prior_skew_window_h ({pw}) outside "
+                  f"[1, 168]h")
+        pt = float(sw.get("prior_skew_threshold", 0.25))
+        if not (0.05 <= pt <= 0.9):
+            fatal(f"ml.sample_weights.prior_skew_threshold ({pt}) outside "
+                  f"[0.05, 0.9] - below is noise, above never fires")
+        pm = int(sw.get("prior_skew_min_rows", 30))
+        if pm < 10:
+            fatal(f"ml.sample_weights.prior_skew_min_rows ({pm}) < 10 - the "
+                  f"window prior is meaningless on fewer rows")
+
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
     if start_cap <= 0 and not dry_run:

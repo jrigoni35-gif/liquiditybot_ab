@@ -470,7 +470,17 @@
       "manip_discount": 0.5,
       "_manip_doc": "training-hygiene: rows labeled under manipulation-suspect data (manip_suspect feature: spoof/whiplash/cross-venue book divergence, parameter-free max) are down-weighted by (1 - manip_discount * suspect). A painted book teaches the painter's lesson.",
       "half_life_days": 30,
-      "candidate_weight": 0.4
+      "candidate_weight": 0.4,
+      "uniqueness_enabled": true,
+      "uniqueness_grid_sec": 300,
+      "uniqueness_floor": 0.05,
+      "_uniqueness_doc": "AFML ch.4 average-uniqueness correction (Lopez de Prado): overlapping labels on the same asset share the same return path and are NOT independent evidence, so each row's weight is scaled by mean(1/concurrency) over its [signal_ts, ts] lifespan on a uniqueness_grid_sec bar grid. 197 overlapping quiet-weekend candidates stop counting as 197 independent facts. uniqueness_floor bounds the discount so a dense cluster is down-weighted, never erased. Not a fitted knob: grid = the 5-min signal cadence; floor = an order-of-magnitude retention bound.",
+      "time_barrier_zero_weight": 0.7,
+      "_tb_zero_doc": "a candidate zero from the VERTICAL barrier (barrier=='time': price touched neither profit nor stop inside the horizon) is 'no move', weaker evidence against the signal than a realized stop-out; it takes this weight. 1.0 = no distinction (legacy rows with barrier unknown always get full weight). Wu et al. 2020 (Entropy 22:1162): pooling no-touch expiries with directional losses mislabels trend structure.",
+      "prior_skew_window_h": 24,
+      "prior_skew_min_rows": 30,
+      "prior_skew_threshold": 0.25,
+      "_prior_skew_doc": "ML-074 one-sided-batch DETECTOR: if the trailing window_h of labels has a class prior deviating from the corpus prior by more than the threshold (the all-zero quiet-weekend batch), log + flag it in last_load_stats so calibration drift is visible. Detection only - never silently reweights."
     },
     "ensemble_seeds": 3,
     "interpret": {

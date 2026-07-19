@@ -124,13 +124,21 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
     if min_rows is None:
         min_rows = len(FEATURE_NAMES) * 10
     store = HistoryStore()
-    X, y, w, sig = store.load_training_data(return_sig=True)
+    # same weighting the deployed trainer uses (uniqueness / barrier / skew),
+    # so every OF instrument measures the process that actually ships
+    try:
+        with open("config.json", encoding="utf-8") as fh:
+            _sw = (json.load(fh).get("ml", {}) or {}).get("sample_weights", {})
+    except (OSError, ValueError):
+        _sw = {}
+    X, y, w, sig = store.load_training_data(return_sig=True, weights_cfg=_sw)
     if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
         # live rows: hand the signal-time array down so the OF folds purge
         # by TIME, exactly like the deployed selector (evaluate_and_select).
-        # n_live = ground-truth split, so OF-3's evidence gate mirrors the
-        # deployed ladder at the real live-row count.
-        n_live = int(store.source_counts().get("live", 0))
+        # n_live = the load's own clean-pass count, so OF-3's evidence gate
+        # mirrors the deployed ladder at the real live-row count.
+        n_live = int((store.last_load_stats or {}).get(
+            "live_clean", store.source_counts().get("live", 0)))
         return X, y, w, sig, f"live history ({len(X)} rows)", n_live
     Xs, ys = synthetic_benchmark()
     reason = "forced" if force_synthetic else f"live rows={len(X)} < {min_rows}"

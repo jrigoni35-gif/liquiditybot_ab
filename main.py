@@ -2304,7 +2304,7 @@ class LiquidityBot:
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
                 candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
                 manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
-                return_sig=True)
+                return_sig=True, weights_cfg=sw_cfg)
             if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
                 return
             log.warning(f"auto-retrain: {len(X)} rows "
@@ -2321,8 +2321,15 @@ class LiquidityBot:
             # EVIDENCE GATE: admit a higher-capacity family only when the
             # LIVE (ground-truth) label count can support it - don't train
             # every model when the data gives the complex ones no chance.
-            _sc_fn = getattr(self.history, "source_counts", None)
-            _n_live = (_sc_fn() or {}).get("live", 0) if callable(_sc_fn) else 0
+            # Count from the load's own CLEAN pass when available: a raw CSV
+            # scan counts dirty live rows the loader just dropped, making the
+            # floor marginally permissive vs the rows actually entering the fit.
+            _stats = getattr(self.history, "last_load_stats", {}) or {}
+            _n_live = _stats.get("live_clean")
+            if _n_live is None:
+                _sc_fn = getattr(self.history, "source_counts", None)
+                _n_live = ((_sc_fn() or {}).get("live", 0)
+                           if callable(_sc_fn) else 0)
             _sel_cfg = self.config.get('ml', {}).get('model_selection') or None
             results = evaluate_and_select(
                 X, y, sample_weight=w, feature_names=FEATURE_NAMES,

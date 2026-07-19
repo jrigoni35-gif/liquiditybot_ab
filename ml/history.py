@@ -37,11 +37,15 @@ class HistoryStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._pending: dict = {}      # position_id -> features
+        # stats of the most recent load_training_data pass (clean live count
+        # for the evidence gate, uniqueness mean, prior-skew flag)
+        self.last_load_stats: dict = {}
         # meta column named "side": FEATURE_NAMES also contains "direction",
         # and a duplicated CSV header made DictReader consumers silently read
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
-                        "label", "net_pnl_usd", "source", "ts", "signal_ts"]
+                        "label", "net_pnl_usd", "source", "ts", "signal_ts",
+                        "barrier"]
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -76,7 +80,8 @@ class HistoryStore:
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
-                    source: str, signal_ts: float | None = None):
+                    source: str, signal_ts: float | None = None,
+                    barrier: str = ""):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -84,7 +89,7 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 5 != len(self._header):
+        if 3 + len(feats) + 6 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
@@ -113,7 +118,8 @@ class HistoryStore:
                                     *[f"{v:.6f}" for v in feats],
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
-                                    f"{signal_ts if signal_ts else now:.0f}"])
+                                    f"{signal_ts if signal_ts else now:.0f}",
+                                    barrier])
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
@@ -126,7 +132,8 @@ class HistoryStore:
             sig_ts = None
         label = int(net_pnl_usd > 0)
         self._append_row(position_id, asset, direction, feats, label,
-                        net_pnl_usd, "live", signal_ts=sig_ts)
+                        net_pnl_usd, "live", signal_ts=sig_ts,
+                        barrier="realized")
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 
@@ -188,10 +195,11 @@ class HistoryStore:
 
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4,
-                        manip_discount: float = 0.5, return_sig: bool = False):
+                        manip_discount: float = 0.5, return_sig: bool = False,
+                        weights_cfg: dict | None = None):
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
-        weights encode three honest priors:
+        weights encode the honest priors:
         recent rows matter more (markets are non-stationary; exponential
         recency decay with a config half-life), live-fill rows carry
         real execution costs while candidate rows are barrier
@@ -199,8 +207,25 @@ class HistoryStore:
         under manipulation-suspect data (manip_suspect feature) are
         discounted in proportion - a lesson learned from a painted book
         may be the manipulator's lesson, not the market's:
-        w *= (1 - manip_discount * manip_suspect)."""
+        w *= (1 - manip_discount * manip_suspect).
+
+        `weights_cfg` (config ml.sample_weights) adds the de Prado
+        corrections (AFML ch.4, "Sample Weights"): overlapping labels on
+        the same asset share the same underlying return path and are NOT
+        independent evidence, so each row is scaled by its AVERAGE
+        UNIQUENESS mean(1/concurrency) over its [signal_ts, ts] lifespan —
+        197 overlapping quiet-weekend candidates stop counting as 197
+        independent facts. A time-barrier zero (barrier=="time": price
+        touched NEITHER profit nor stop inside the horizon) is a "no move",
+        weaker evidence against the signal than a realized stop-out, and
+        takes time_barrier_zero_weight. A trailing window whose label
+        prior skews hard from the corpus prior (the all-zeros weekend
+        batch) is DETECTED and logged (ML-074) so calibration drift is
+        visible - detection only, never silent reweighting. Stats of the
+        last load land in self.last_load_stats (clean live count for the
+        evidence gate, uniqueness mean, prior-skew flag)."""
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
+        self.last_load_stats = {}
         if not self.path.exists():
             # honor return_sig on the empty path too: a fresh checkout has no
             # signal_history.csv (outputs/ is gitignored), and the DoD's
@@ -228,6 +253,7 @@ class HistoryStore:
                 except KeyError:
                     continue
         X, y, w, sig = [], [], [], []
+        meta = []            # (asset, end_ts, source, barrier) per kept row
         now = time.time()
         dropped_clash = 0
         dropped_dirty = 0
@@ -272,10 +298,18 @@ class HistoryStore:
                 if not all(map(np.isfinite, xr)) or not np.isfinite(yr):
                     dropped_dirty += 1
                     continue
+                # weight/order cells sit outside the feature/label finiteness
+                # net: a corrupt ts yields a NaN weight that NaNs the whole
+                # sklearn fit exactly like a NaN feature would. Same drop.
+                if not (np.isfinite(wr) and np.isfinite(sr)):
+                    dropped_dirty += 1
+                    continue
                 X.append(xr)
                 y.append(yr)
                 sig.append(sr)
                 w.append(wr)
+                meta.append((row.get("asset") or "", float(row.get("ts") or now),
+                             row.get("source") or "", row.get("barrier") or ""))
         if dropped_clash:
             log.info("training load: dropped %d synthetic candidate row(s) "
                      "that duplicated a real live trade (kept the realized "
@@ -285,6 +319,84 @@ class HistoryStore:
                         "features/label (legacy/imported dirty data) - %d "
                         "clean rows remain", Code.ML_DIRTY_LABEL.value,
                         dropped_dirty, len(X))
+        # ---- de Prado corrections (config ml.sample_weights; AFML ch.4) ----
+        wc = weights_cfg or {}
+        uniq_mean = 1.0
+        pre_mass = sum(w)          # for mass-preserving rescale below
+        if w and bool(wc.get("uniqueness_enabled", False)):
+            # AVERAGE UNIQUENESS: overlapping labels on the same asset share
+            # the same underlying return path — N concurrent labels are ~one
+            # fact, not N. Count per-(asset, grid-bar) concurrency over each
+            # row's [signal_ts, ts] lifespan; scale w by mean(1/concurrency).
+            grid = max(float(wc.get("uniqueness_grid_sec", 300.0)), 1.0)
+            floor = min(max(float(wc.get("uniqueness_floor", 0.0)), 0.0), 1.0)
+            cap = int(14 * 86400 // grid)   # corrupt far-future ts: bound span
+            conc: dict = {}
+            spans = []
+            for i in range(len(w)):
+                b0 = int(sig[i] // grid)
+                b1 = min(int(max(meta[i][1], sig[i]) // grid), b0 + cap)
+                spans.append((meta[i][0], b0, b1))
+                for b in range(b0, b1 + 1):
+                    conc[(meta[i][0], b)] = conc.get((meta[i][0], b), 0) + 1
+            uniqs = []
+            for i, (a, b0, b1) in enumerate(spans):
+                u = sum(1.0 / conc[(a, b)] for b in range(b0, b1 + 1)) \
+                    / (b1 - b0 + 1)
+                uniqs.append(u)
+                w[i] *= max(u, floor)
+            uniq_mean = sum(uniqs) / len(uniqs)
+        # time-barrier zeros: "price touched NEITHER barrier" is weaker
+        # evidence against the signal than a realized stop-out; do not pool
+        # them at full weight (1.0 = no distinction, legacy rows barrier="")
+        tbw = min(max(float(wc.get("time_barrier_zero_weight", 1.0)), 0.0), 1.0)
+        if w and tbw < 1.0:
+            for i in range(len(w)):
+                if y[i] == 0.0 and meta[i][3] == "time":
+                    w[i] *= tbw
+        # mass-preserving rescale: uniqueness/barrier corrections REDISTRIBUTE
+        # evidence between rows; they must not shrink the total loss weight
+        # (sklearn's fixed-C L2 balances loss against penalty, so a global
+        # 10x weight shrink would silently over-regularize every model).
+        # Scale-invariant quantities (weight ratios, Kish ESS) are untouched.
+        post_mass = sum(w)
+        if w and post_mass > 0.0 and pre_mass > 0.0:
+            scale = pre_mass / post_mass
+            if abs(scale - 1.0) > 1e-12:
+                for i in range(len(w)):
+                    w[i] *= scale
+        # one-sided-batch prior-skew DETECTOR (ML-074): a trailing window
+        # whose label prior diverges hard from the corpus prior (the all-zero
+        # quiet-weekend batch) shifts calibration. Detection only — visible,
+        # never silently reweighted.
+        skew_flag, p_recent, p_all = False, None, None
+        if y and wc:
+            win_h = float(wc.get("prior_skew_window_h", 24.0))
+            min_rows = int(wc.get("prior_skew_min_rows", 30))
+            thresh = float(wc.get("prior_skew_threshold", 0.25))
+            ends = [m[1] for m in meta]
+            tmax = max(ends)
+            recent = [y[i] for i in range(len(y))
+                      if ends[i] >= tmax - win_h * 3600.0]
+            if len(recent) >= min_rows and len(y) > len(recent):
+                p_recent = sum(recent) / len(recent)
+                p_all = sum(y) / len(y)
+                if abs(p_recent - p_all) > thresh:
+                    skew_flag = True
+                    log.warning(
+                        "%s: trailing %.0fh label prior %.2f skews from "
+                        "corpus prior %.2f (>%.2f) — one-sided batch; watch "
+                        "calibration (detection only, weights untouched)",
+                        Code.ML_PRIOR_SKEW.value, win_h, p_recent, p_all,
+                        thresh)
+        self.last_load_stats = {
+            "rows": len(w), "dropped_dirty": dropped_dirty,
+            "dropped_clash": dropped_clash,
+            "live_clean": sum(1 for m in meta if m[2] == "live"),
+            "mean_uniqueness": round(uniq_mean, 4),
+            "prior_recent": p_recent, "prior_overall": p_all,
+            "prior_skew": skew_flag,
+        }
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)
@@ -541,7 +653,8 @@ class CandidateLabeler:
         self.store._append_row(cand["id"], cand["asset"],
                             cand["direction"], cand["features"],
                             out.label, 0.0, "candidate",
-                            signal_ts=float(cand["bar_time"]))
+                            signal_ts=float(cand["bar_time"]),
+                            barrier=str(getattr(out, "barrier", "") or ""))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

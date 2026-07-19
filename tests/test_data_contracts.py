@@ -85,8 +85,12 @@ def test_unfitted_calibrator_is_identity_and_serializes_to_none():
 # --- history CSV schema contract (engine -> trainer) -----------------------
 def test_history_header_contract_is_stable(tmp_path):
     hs = HistoryStore(str(tmp_path / "h.csv"))
+    # barrier joined 2026-07-19 (AFML corrections: time-barrier zeros are
+    # distinguished from stop-hit zeros at load time) — a conscious,
+    # migration-backed schema extension, appended last so meta order is stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
-                "label", "net_pnl_usd", "source", "ts", "signal_ts"]
+                "label", "net_pnl_usd", "source", "ts", "signal_ts",
+                "barrier"]
     assert hs._header == expected
 
 

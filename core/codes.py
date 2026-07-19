@@ -139,6 +139,10 @@ class Code(str, Enum):
                                       # past its label horizon has resolved its
                                       # triple-barrier outcome — close it to
                                       # bank the live label + free a teach slot
+    ML_PRIOR_SKEW = "ML-074"          # trailing-window label prior diverges
+                                      # hard from the corpus prior (one-sided
+                                      # batch, e.g. an all-zero quiet weekend):
+                                      # calibration drift risk — detection only
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
