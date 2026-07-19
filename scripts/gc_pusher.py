@@ -245,10 +245,17 @@ def collect(status_path: str) -> list:
                 if isinstance(sig.get(k), (int, float)):
                     m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
                                    {"asset": asset}, ts))
+    # THALES footprint detectors per asset: periodicity (grid/metronome/
+    # clockwork), round-number stop-hunt proximity (stop_zone), bar-close
+    # clustering (barclose), spoof-flicker EWMA per side (spoof_bid/ask,
+    # TH-017), feed integrity (feed_dirty + lapse/hole counters). All bounded
+    # [0,1] except the counters — the dashboard reads them as a manipulation
+    # scorecard.
     for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
-        for k in ("grid", "metronome", "clockwork", "stop_zone",
-                  "lapses", "bar_holes", "lapse_warmup_sec"):
-            if isinstance(th.get(k), (int, float)):
+        for k in ("grid", "metronome", "clockwork", "stop_zone", "barclose",
+                  "spoof_bid", "spoof_ask", "feed_dirty", "lapses",
+                  "bar_holes", "lapse_warmup_sec"):
+            if isinstance(th.get(k), (int, float)) and not isinstance(k, bool):
                 m.append(gauge(f"liquiditybot_thales_{k}", th[k],
                                {"asset": asset}, ts))
     mm = s.get("moomoo") or {}

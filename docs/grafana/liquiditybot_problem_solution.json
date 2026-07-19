@@ -519,52 +519,58 @@
     },
     {
       "id": 9,
-      "type": "timeseries",
-      "title": "PROBLEM: Brier drifting vs baseline",
-      "description": "Detector. SOLUTION: governor kills the model + queues a retrain when Brier crosses baseline.",
+      "type": "stat",
+      "title": "PROBLEM: model Brier",
+      "description": "Detector. SOLUTION: the governor kills the model + queues a retrain when Brier crosses baseline.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 6,
-        "w": 12,
+        "w": 4,
         "x": 0,
         "y": 7
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 18,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 5,
-            "axisPlacement": "auto",
-            "scaleDistribution": {
-              "type": "linear"
-            }
+          "unit": "",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.24
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
           },
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
@@ -575,14 +581,76 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_brier{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "brier"
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 10,
+      "type": "stat",
+      "title": "vs baseline",
+      "description": "The bar Brier must stay under.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_baseline_brier{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 11,
       "type": "stat",
       "title": "SOLUTION: governor",
       "description": "0 OK / 1 shrink+throttle / 2 model killed to the prior.",
@@ -593,7 +661,7 @@
       "gridPos": {
         "h": 6,
         "w": 4,
-        "x": 12,
+        "x": 8,
         "y": 7
       },
       "fieldConfig": {
@@ -666,7 +734,7 @@
       ]
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "stat",
       "title": "SOLUTION: retrain",
       "description": "Auto-retrain queued to replace a degrading champion.",
@@ -677,7 +745,7 @@
       "gridPos": {
         "h": 6,
         "w": 4,
-        "x": 16,
+        "x": 12,
         "y": 7
       },
       "fieldConfig": {
@@ -745,7 +813,7 @@
       ]
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "gauge",
       "title": "Drift share",
       "description": "PROBLEM: input drift. SOLUTION: retrain re-fits.",
@@ -756,7 +824,7 @@
       "gridPos": {
         "h": 6,
         "w": 4,
-        "x": 20,
+        "x": 16,
         "y": 7
       },
       "fieldConfig": {
@@ -810,19 +878,19 @@
       ]
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "stat",
       "title": "Kelly throttle",
-      "description": "SOLUTION: size shrinks as confidence falls.",
+      "description": "Size shrinks as confidence falls.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 6,
         "w": 4,
-        "x": 0,
-        "y": 13
+        "x": 20,
+        "y": 7
       },
       "fieldConfig": {
         "defaults": {
@@ -845,7 +913,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -865,14 +933,14 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_kelly_mult{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ]
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "stat",
       "title": "Model fallbacks",
       "description": "Inference fell to the prior (fail-safe firing).",
@@ -883,7 +951,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 4,
+        "x": 0,
         "y": 13
       },
       "fieldConfig": {
@@ -942,7 +1010,7 @@
       ]
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "stat",
       "title": "Infer faults",
       "description": "Inference errors.",
@@ -953,7 +1021,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 8,
+        "x": 4,
         "y": 13
       },
       "fieldConfig": {
@@ -1012,7 +1080,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "stat",
       "title": "Contract fails",
       "description": "Input outside contract.",
@@ -1023,7 +1091,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
+        "x": 8,
         "y": 13
       },
       "fieldConfig": {
@@ -1082,7 +1150,7 @@
       ]
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "stat",
       "title": "Retrain failures",
       "description": "Auto-retrain crashed.",
@@ -1093,7 +1161,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
+        "x": 12,
         "y": 13
       },
       "fieldConfig": {
@@ -1152,7 +1220,7 @@
       ]
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "stat",
       "title": "Calibration gap",
       "description": "Miscalibration; ECE.",
@@ -1163,7 +1231,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
+        "x": 16,
         "y": 13
       },
       "fieldConfig": {
@@ -1222,7 +1290,7 @@
       ]
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "row",
       "title": "💰 Capital & drawdown",
       "collapsed": false,
@@ -1235,7 +1303,7 @@
       "panels": []
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "gauge",
       "title": "PROBLEM: drawdown",
       "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
@@ -1300,7 +1368,7 @@
       ]
     },
     {
-      "id": 21,
+      "id": 22,
       "type": "stat",
       "title": "Loss streak",
       "description": "PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.",
@@ -1370,7 +1438,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "stat",
       "title": "Breakers tripped",
       "description": "Assets currently paused.",
@@ -1436,7 +1504,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 24,
       "type": "gauge",
       "title": "Heat vs cap",
       "description": "SOLUTION: heat throttled under the CVaR cap.",
@@ -1501,7 +1569,7 @@
       ]
     },
     {
-      "id": 24,
+      "id": 25,
       "type": "stat",
       "title": "Taper mult",
       "description": "SOLUTION: loss-budget taper shrinks size.",
@@ -1563,7 +1631,7 @@
       ]
     },
     {
-      "id": 25,
+      "id": 26,
       "type": "gauge",
       "title": "Daily budget used",
       "description": "Daily loss budget consumed.",
@@ -1628,7 +1696,7 @@
       ]
     },
     {
-      "id": 26,
+      "id": 27,
       "type": "gauge",
       "title": "Weekly budget used",
       "description": "Weekly loss budget consumed.",
@@ -1693,7 +1761,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 28,
       "type": "table",
       "title": "Circuit breaker — paused assets",
       "description": "Per-asset breaker state; hours-left counts the cool-off.",
@@ -1876,7 +1944,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 29,
       "type": "row",
       "title": "🕵️ Manipulation, venue & integrity",
       "collapsed": false,
@@ -1889,7 +1957,7 @@
       "panels": []
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "stat",
       "title": "op-state",
       "description": "Central fault authority: ARMED / DEGRADED / HALTED.",
@@ -1978,7 +2046,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "stat",
       "title": "Latched faults",
       "description": "Active latched faults.",
@@ -2044,7 +2112,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 32,
       "type": "stat",
       "title": "Firewall fault",
       "description": "Risk-firewall latched fault (blocks new risk).",
@@ -2123,7 +2191,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 33,
       "type": "stat",
       "title": "Cycle wedge",
       "description": "PROBLEM: failing cycles. SOLUTION: runner wedge escalation.",
@@ -2193,7 +2261,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 34,
       "type": "stat",
       "title": "Exit-eval failures",
       "description": "A position wedging its own exit path.",
@@ -2259,7 +2327,7 @@
       ]
     },
     {
-      "id": 34,
+      "id": 35,
       "type": "stat",
       "title": "Venue rejects",
       "description": "OM-021 AddOrder rejects.",
@@ -2329,7 +2397,7 @@
       ]
     },
     {
-      "id": 35,
+      "id": 36,
       "type": "bargauge",
       "title": "Manipulation suspicion by asset",
       "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size + down-weights those training rows.",
@@ -2400,7 +2468,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 37,
       "type": "table",
       "title": "Firewall clamps/rejects by code",
       "description": "Which firewall rule (FW-*) is clamping most.",

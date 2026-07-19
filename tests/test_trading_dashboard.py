@@ -92,6 +92,10 @@ _SYNTH_STATUS = {
                 "promoted": ["SOL/USD"],
                 "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,
                                        "depth_usd": 60000, "ts": 1.7e9}}},
+    "thales": {"assets": {"BTC": {
+        "grid": 0.1, "metronome": 0.2, "clockwork": 0.0, "clockwork_dir": 0,
+        "stop_zone": 0.3, "barclose": 0.1, "spoof_bid": 0.05, "spoof_ask": 0.0,
+        "feed_dirty": 0.0, "lapses": 0, "bar_holes": 0, "lapse_warmup_sec": 0}}},
 }
 
 
@@ -139,7 +143,8 @@ def test_importable_shape_and_layout_per_board():
 def test_all_boards_use_supported_panel_types():
     # professional mix: stat (sparkline) / gauge / bargauge / timeseries /
     # color-coded table. The deprecated "graph" plugin is never allowed.
-    allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge"}
+    allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge",
+               "text"}
     for fname in gen.DASHBOARDS:
         kinds = {p["type"] for p in _shipped(fname)["panels"]}
         assert "graph" not in kinds, f"{fname}: deprecated graph panel"

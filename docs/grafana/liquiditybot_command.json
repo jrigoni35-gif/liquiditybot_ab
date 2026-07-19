@@ -1720,52 +1720,58 @@
     },
     {
       "id": 27,
-      "type": "timeseries",
-      "title": "Model Brier vs baseline",
-      "description": "Rolling outcome Brier (lower better). Below the baseline line = the model adds skill.",
+      "type": "stat",
+      "title": "Brier",
+      "description": "Rolling outcome Brier (lower better; must beat baseline).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
-        "w": 12,
+        "h": 5,
+        "w": 5,
         "x": 0,
         "y": 24
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 18,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 5,
-            "axisPlacement": "auto",
-            "scaleDistribution": {
-              "type": "linear"
-            }
+          "unit": "",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.24
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
           },
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom",
-          "calcs": []
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       },
       "targets": [
@@ -1778,12 +1784,74 @@
           "expr": "max(liquiditybot_ml_brier{job=\"liquiditybot\"})",
           "instant": false,
           "range": true,
-          "legendFormat": "brier"
+          "legendFormat": ""
         }
       ]
     },
     {
       "id": 28,
+      "type": "stat",
+      "title": "Baseline Brier",
+      "description": "Base-rate bar the model must beat.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 5,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_baseline_brier{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 29,
       "type": "stat",
       "title": "Calibration gap",
       "description": "ECE; Kelly reads probs literally.",
@@ -1792,9 +1860,9 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 12,
+        "h": 5,
+        "w": 4,
+        "x": 9,
         "y": 24
       },
       "fieldConfig": {
@@ -1853,7 +1921,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "stat",
       "title": "Champion Brier",
       "description": "Deployed champion badge.",
@@ -1862,9 +1930,9 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 15,
+        "h": 5,
+        "w": 4,
+        "x": 13,
         "y": 24
       },
       "fieldConfig": {
@@ -1915,7 +1983,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "gauge",
       "title": "Drift share",
       "description": "Fraction of features past the PSI threshold.",
@@ -1924,9 +1992,9 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 18,
+        "h": 5,
+        "w": 4,
+        "x": 17,
         "y": 24
       },
       "fieldConfig": {
@@ -1980,7 +2048,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 32,
       "type": "stat",
       "title": "Win rate LCB",
       "description": "Wilson lower bound.",
@@ -1989,7 +2057,7 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 21,
         "y": 24
@@ -2042,7 +2110,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 33,
       "type": "row",
       "title": "⚖️ Per-asset edge",
       "collapsed": false,
@@ -2050,12 +2118,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 29
       },
       "panels": []
     },
     {
-      "id": 33,
+      "id": 34,
       "type": "bargauge",
       "title": "Net $ by asset",
       "description": "Realized net per asset — where P&L actually comes from.",
@@ -2067,7 +2135,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 31
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2120,7 +2188,7 @@
       ]
     },
     {
-      "id": 34,
+      "id": 35,
       "type": "bargauge",
       "title": "Signal concentration",
       "description": "0 diffuse average .. 1 pinpointed setup.",
@@ -2132,7 +2200,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 31
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2191,7 +2259,7 @@
       ]
     },
     {
-      "id": 35,
+      "id": 36,
       "type": "bargauge",
       "title": "Confidence",
       "description": "Model conviction per asset.",
@@ -2203,7 +2271,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 31
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -2262,7 +2330,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 37,
       "type": "table",
       "title": "Asset scorecard",
       "description": "One row per asset; color-coded so a green row (positive net, high concentration, low manip, tight spread) reads instantly.",
@@ -2274,7 +2342,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 38
       },
       "fieldConfig": {
         "defaults": {
@@ -2846,7 +2914,941 @@
       ]
     },
     {
-      "id": 37,
+      "id": 38,
+      "type": "row",
+      "title": "🏛️ THALES — footprint & manipulation defense",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "panels": []
+    },
+    {
+      "id": 39,
+      "type": "text",
+      "title": "What THALES is",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 47
+      },
+      "transparent": false,
+      "options": {
+        "mode": "markdown",
+        "content": "**THALES** is the bot's footprint & manipulation-defense layer — evidence-weighted detectors that shade sizing when a book looks *engineered* rather than organic. Every score is **0–1** (higher = more suspicious) and **reliability-weighted**: a detector only bites once it has proven itself on realized outcomes (Wilson-LCB), so it can't cry wolf.\n\n- **grid / metronome / clockwork** — periodicity footprints: grid-bot ladders, fixed-interval refills, time-of-day algo seasonality.\n- **stop-zone** — proximity to round-number stop clusters (stop-hunt zones).\n- **bar-close** — order-flow clustering at bar closes.\n- **spoof bid / ask** — flicker: large levels that appear then vanish without the mid ever crossing (**TH-017**).\n- **feed dirty / lapses / bar holes** — feed integrity; a dirty feed is quarantined, never traded.\n\nTHALES **never triggers a trade** — it only *attenuates*: shade the size, or down-weight that row in learning (a painted book teaches the painter's lesson, not the market's).",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        }
+      }
+    },
+    {
+      "id": 40,
+      "type": "table",
+      "title": "THALES detector scorecard (higher = more suspicious)",
+      "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 8,
+        "y": 47
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true,
+            "cellOptions": {
+              "type": "auto"
+            },
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Grid"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Metronome"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Clockwork"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stop-zone"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Bar-close"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Spoof bid"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Spoof ask"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Feed dirty"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.4
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.7
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lapses"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Bar holes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Spoof bid",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_grid{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_metronome{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_clockwork{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_stop_zone{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_barclose{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_spoof_bid{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_spoof_ask{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_feed_dirty{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "I",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_lapses{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "J",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_bar_holes{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "job": true,
+              "instance": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "Value #A": "Grid",
+              "Value #B": "Metronome",
+              "Value #C": "Clockwork",
+              "Value #D": "Stop-zone",
+              "Value #E": "Bar-close",
+              "Value #F": "Spoof bid",
+              "Value #G": "Spoof ask",
+              "Value #H": "Feed dirty",
+              "Value #I": "Lapses",
+              "Value #J": "Bar holes"
+            },
+            "indexByName": {
+              "asset": 0,
+              "Grid": 1,
+              "Metronome": 2,
+              "Clockwork": 3,
+              "Stop-zone": 4,
+              "Bar-close": 5,
+              "Spoof bid": 6,
+              "Spoof ask": 7,
+              "Feed dirty": 8,
+              "Lapses": 9,
+              "Bar holes": 10
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "bargauge",
+      "title": "Spoof-flicker pressure (bid)",
+      "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.4
+              },
+              {
+                "color": "red",
+                "value": 0.7
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_spoof_bid{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "bargauge",
+      "title": "Stop-hunt zone proximity",
+      "description": "Proximity to round-number stop clusters per asset.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.4
+              },
+              {
+                "color": "red",
+                "value": 0.7
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_thales_stop_zone{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "bargauge",
+      "title": "Manipulation suspicion",
+      "description": "Parameter-free max of the manipulation footprints per asset.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.4
+              },
+              {
+                "color": "red",
+                "value": 0.7
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_manip_suspect{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ]
+    },
+    {
+      "id": 44,
       "type": "row",
       "title": "🛡️ Positions & risk",
       "collapsed": false,
@@ -2854,12 +3856,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 62
       },
       "panels": []
     },
     {
-      "id": 38,
+      "id": 45,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -2871,7 +3873,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3250,7 +4252,7 @@
       ]
     },
     {
-      "id": 39,
+      "id": 46,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -3262,7 +4264,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 48
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3320,7 +4322,7 @@
       ]
     },
     {
-      "id": 40,
+      "id": 47,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -3332,7 +4334,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 48
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3382,7 +4384,7 @@
       ]
     },
     {
-      "id": 41,
+      "id": 48,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -3394,7 +4396,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 48
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3444,7 +4446,7 @@
       ]
     },
     {
-      "id": 42,
+      "id": 49,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -3456,7 +4458,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 53
+        "y": 68
       },
       "fieldConfig": {
         "defaults": {
@@ -3565,7 +4567,7 @@
       ]
     },
     {
-      "id": 43,
+      "id": 50,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -3577,7 +4579,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 53
+        "y": 68
       },
       "fieldConfig": {
         "defaults": {

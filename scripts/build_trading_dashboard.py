@@ -221,6 +221,17 @@ def table(title, w, h, cols, label_keys, sort=None, desc=""):
                 "renameByName": rename, "indexByName": order}}]})
 
 
+def text(title, md, w, h):
+    """A markdown info panel — used to document THALES inline on the board."""
+    x, y = _place(w, h)
+    panels.append({
+        "id": _id(), "type": "text", "title": title,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y}, "transparent": False,
+        "options": {"mode": "markdown", "content": md,
+                    "code": {"language": "plaintext", "showLineNumbers": False,
+                             "showMiniMap": False}}})
+
+
 # ---- threshold palettes ----------------------------------------------------
 GRN = [{"color": "text", "value": None}]
 BLUE = [{"color": "blue", "value": None}]
@@ -263,6 +274,27 @@ GOV = {"0": ("OK", "green"), "1": ("DEGRADED", "yellow"), "2": ("KILLED", "red")
 OPSTATE = {"0": ("ARMED", "green"), "1": ("DEGRADED", "yellow"),
            "2": ("HALTED", "red"), "-1": ("UNKNOWN", "red")}
 RETRAIN = {"1": ("QUEUED", "yellow"), "0": ("idle", "green")}
+
+# THALES inline documentation (rendered in a markdown text panel)
+_THALES_MD = (
+    "**THALES** is the bot's footprint & manipulation-defense layer — "
+    "evidence-weighted detectors that shade sizing when a book looks "
+    "*engineered* rather than organic. Every score is **0–1** (higher = more "
+    "suspicious) and **reliability-weighted**: a detector only bites once it "
+    "has proven itself on realized outcomes (Wilson-LCB), so it can't cry "
+    "wolf.\n\n"
+    "- **grid / metronome / clockwork** — periodicity footprints: grid-bot "
+    "ladders, fixed-interval refills, time-of-day algo seasonality.\n"
+    "- **stop-zone** — proximity to round-number stop clusters (stop-hunt "
+    "zones).\n"
+    "- **bar-close** — order-flow clustering at bar closes.\n"
+    "- **spoof bid / ask** — flicker: large levels that appear then vanish "
+    "without the mid ever crossing (**TH-017**).\n"
+    "- **feed dirty / lapses / bar holes** — feed integrity; a dirty feed is "
+    "quarantined, never traded.\n\n"
+    "THALES **never triggers a trade** — it only *attenuates*: shade the size, "
+    "or down-weight that row in learning (a painted book teaches the "
+    "painter's lesson, not the market's).")
 
 # per-asset series (label asset) via instant vector, one bar/line each
 A = "{" + 'job="liquiditybot"' + "}"
@@ -328,18 +360,19 @@ def _author_command():
           desc="Auto-retrain queued.")
     stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 5, decimals=2,
          steps=GRN, desc="Governor size throttle.")
-    timeseries("Model Brier vs baseline", M("liquiditybot_ml_brier"), 12, 6,
-               unit="short", legend="brier", desc="Rolling outcome Brier "
-               "(lower better). Below the baseline line = the model adds skill.")
-    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 3, 6,
+    stat("Brier", M("liquiditybot_ml_brier"), 5, 5, decimals=4, steps=BRIER,
+         desc="Rolling outcome Brier (lower better; must beat baseline).")
+    stat("Baseline Brier", M("liquiditybot_ml_baseline_brier"), 4, 5,
+         decimals=4, steps=GRN, desc="Base-rate bar the model must beat.")
+    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
          decimals=3, steps=CALIB, desc="ECE; Kelly reads probs literally.")
-    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 3, 6,
+    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 5,
          decimals=4, steps=GRN, desc="Deployed champion badge.")
-    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 3, 6,
+    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="Fraction of features past the PSI threshold.")
-    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 3, 6,
+    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 3, 5,
          unit="percent", decimals=1, steps=GRN, desc="Wilson lower bound.")
 
     row("⚖️ Per-asset edge")
@@ -366,6 +399,35 @@ def _author_command():
           label_keys=["asset"], sort="Net $",
           desc="One row per asset; color-coded so a green row (positive net, "
                "high concentration, low manip, tight spread) reads instantly.")
+
+    row("🏛️ THALES — footprint & manipulation defense")
+    text("What THALES is", _THALES_MD, 8, 9)
+    table("THALES detector scorecard (higher = more suspicious)", 16, 9,
+          cols=[("liquiditybot_thales_grid", "Grid", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_metronome", "Metronome", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_clockwork", "Clockwork", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_stop_zone", "Stop-zone", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_barclose", "Bar-close", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_spoof_bid", "Spoof bid", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_spoof_ask", "Spoof ask", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_feed_dirty", "Feed dirty", "short", 2, LOW_GOOD),
+                ("liquiditybot_thales_lapses", "Lapses", "short", 0, STREAK),
+                ("liquiditybot_thales_bar_holes", "Bar holes", "short", 0, STREAK)],
+          label_keys=["asset"], sort="Spoof bid",
+          desc="Per-asset footprint scores (0-1) + feed-integrity counters. "
+               "THALES only ATTENUATES (shade size / down-weight the training "
+               "row) — it never triggers a trade.")
+    bargauge("Spoof-flicker pressure (bid)",
+             _pa("liquiditybot_thales_spoof_bid"), 8, 6, decimals=2,
+             steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
+             desc="TH-017 spoof EWMA per asset — higher = a book being painted; "
+             "THALES shades size there.")
+    bargauge("Stop-hunt zone proximity", _pa("liquiditybot_thales_stop_zone"),
+             8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
+             desc="Proximity to round-number stop clusters per asset.")
+    bargauge("Manipulation suspicion", _pa("liquiditybot_manip_suspect"),
+             8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
+             desc="Parameter-free max of the manipulation footprints per asset.")
 
     row("🛡️ Positions & risk")
     _positions_table()
@@ -421,15 +483,15 @@ def _author_execution():
          decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
          desc="Ground truth that earns model complexity.")
-    timeseries("Brier vs baseline", M("liquiditybot_ml_brier"), 12, 6,
-               unit="short", legend="brier", desc="Rolling Brier (lower better).")
-    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 3, 6,
-         decimals=4, steps=GRN, desc="Deployed champion badge.")
-    stat("Baseline", M("liquiditybot_ml_baseline_brier"), 3, 6, decimals=4,
+    stat("Brier", M("liquiditybot_ml_brier"), 6, 5, decimals=4, steps=BRIER,
+         desc="Rolling outcome Brier (lower better; must beat baseline).")
+    stat("Baseline", M("liquiditybot_ml_baseline_brier"), 6, 5, decimals=4,
          steps=GRN, desc="Bar Brier must beat.")
-    stat("Shrinkage", M("liquiditybot_ml_shrinkage"), 3, 6, decimals=2,
+    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 5,
+         decimals=4, steps=GRN, desc="Deployed champion badge.")
+    stat("Shrinkage", M("liquiditybot_ml_shrinkage"), 4, 5, decimals=2,
          steps=GRN, desc="Shrink toward base rate.")
-    stat("Stop widen", M("liquiditybot_ml_stop_widen"), 3, 6, decimals=2,
+    stat("Stop widen", M("liquiditybot_ml_stop_widen"), 4, 5, decimals=2,
          steps=GRN, desc="Governor stop-distance multiplier.")
     bargauge("Promised vs delivered (hit rate)",
              _pa("liquiditybot_ml_hit_rate", "*100"), 8, 5, unit="percent",
@@ -491,10 +553,14 @@ def _author_execution():
          unit="currencyUSD", decimals=0, steps=GRN, desc="Maker-filled notional.")
     stat("Taker notional", M("liquiditybot_order_taker_notional_usd"), 4, 4,
          unit="currencyUSD", decimals=0, steps=GRN, desc="Taker-filled notional.")
-    table("Post-fill mark-out (adverse selection)", 10, 4,
+    table("Post-fill mark-out (adverse selection)", 12, 6,
           cols=[("liquiditybot_markout_bps", "Mark-out bps", "short", 2, PNL)],
           label_keys=["asset", "horizon_sec"], sort="Mark-out bps",
           desc="Price drift after our fill; persistently negative = picked off.")
+    bargauge("Slippage by fill quality — avg vs worst (bps)",
+             M("liquiditybot_order_avg_slip_bps"), 12, 6, unit="short",
+             decimals=1, steps=SLIP, legend="avg slip",
+             desc="Rolling avg slippage bps (negative = price improvement).")
 
 
 # ==================== board 3 · problem / solution =========================
@@ -525,10 +591,12 @@ def _author_problem():
          desc="Cross-venue book divergence count.")
 
     row("🧠 Model health")
-    timeseries("PROBLEM: Brier drifting vs baseline", M("liquiditybot_ml_brier"),
-               12, 6, unit="short", legend="brier",
-               desc="Detector. SOLUTION: governor kills the model + queues a "
-                    "retrain when Brier crosses baseline.")
+    stat("PROBLEM: model Brier", M("liquiditybot_ml_brier"), 4, 6, decimals=4,
+         mode="background", graph="none", steps=BRIER,
+         desc="Detector. SOLUTION: the governor kills the model + queues a "
+              "retrain when Brier crosses baseline.")
+    stat("vs baseline", M("liquiditybot_ml_baseline_brier"), 4, 6, decimals=4,
+         steps=GRN, graph="none", desc="The bar Brier must stay under.")
     state("SOLUTION: governor", M("liquiditybot_monitor_level"), 4, 6, GOV,
           desc="0 OK / 1 shrink+throttle / 2 model killed to the prior.")
     state("SOLUTION: retrain", M("liquiditybot_ml_retrain_flag"), 4, 6, RETRAIN,
@@ -537,8 +605,8 @@ def _author_problem():
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="PROBLEM: input drift. SOLUTION: retrain re-fits.")
-    stat("Kelly throttle", M("liquiditybot_ml_kelly_mult"), 4, 4, decimals=2,
-         steps=GRN, desc="SOLUTION: size shrinks as confidence falls.")
+    stat("Kelly throttle", M("liquiditybot_ml_kelly_mult"), 4, 6, decimals=2,
+         steps=GRN, graph="none", desc="Size shrinks as confidence falls.")
     stat("Model fallbacks", M("liquiditybot_ml_model_fallbacks"), 4, 4,
          decimals=0, mode="background", graph="none", steps=STREAK,
          desc="Inference fell to the prior (fail-safe firing).")
