@@ -13,22 +13,22 @@ else
 fi
 
 . .venv/bin/activate
-echo "[2/3] Installing dependencies (bot + dashboard)..."
+echo "[2/3] Installing dependencies..."
 python -m pip install --upgrade pip -q
 python -m pip install -r requirements.txt -q
 
 echo "[3/3] Verifying installation..."
 python -m compileall -q .
-python -c "import main, runner, ui.dashboard" >/dev/null
+python -c "import main, runner" >/dev/null
 
 cat <<'DONE'
 
 ============================================
  Install complete. Everything you need:
-   ./start.sh  - run the bot AND open the dashboard
+   ./start.sh  - run the bot
    ./stop.sh   - stop the bot cleanly
  The bot starts in DRY RUN (paper trading).
  Going live requires editing config.json AND
- typing the ARM phrase in the dashboard.
+ typing the ARM phrase (ARM LIVE) at the PC console.
 ============================================
 DONE

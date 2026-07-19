@@ -52,9 +52,9 @@ type outputs\pc_supervisor.log      REM watch the supervisor (relaunch decisions
 type outputs\runner.log             REM watch the bot (supervisor writes THIS file)
 scripts\uninstall_autostart.bat     REM remove the autostart task
 ```
-From now on the bot starts hidden at every logon and stays up. To run the local
-Streamlit dashboard too, run `start.bat` by hand (the supervisor stays headless
-by design; you watch the phone dashboard on Grafana).
+From now on the bot starts hidden at every logon and stays up. The supervisor
+stays headless by design; you watch the bot on the Grafana Cloud phone
+dashboard (the legacy Streamlit dashboard has been retired).
 
 ### Caveats
 - Task runs **only while you're logged in** (moomoo OpenD needs your desktop

@@ -35,10 +35,12 @@ INVARIANT below, stop and say so instead of complying.
   ControlChannel commands, StatusWriter). The loop lives here ONLY.
 - `core/runtime.py` = **shared state layer**: atomic `status.json`,
   `events.jsonl` (structured logs), `outputs/control/` command files.
-- `ui/dashboard.py` = **read-only view + command sender**. It reads the
-  shared state files and sends commands. It NEVER constructs a bot,
-  never calls `cycle_once`, never runs the loop inside streamlit, never
-  blocks. Keep it that way.
+- The legacy Streamlit operator UI (`ui/dashboard.py`) has been
+  **RETIRED**. Observability is **Grafana Cloud** (telemetry export reads
+  the shared state files) and control is the **git remote-control plane**
+  (`control/` command files via `scripts/remote_control.py`). Do not
+  reintroduce an in-repo UI process; keep read/telemetry and control
+  out-of-process.
 - Position/inventory is quant-grade and stays that way: entries sized
   through PositionSizer × RiskProtocolStack (CVaR/gap/budget/heat),
   inventory caps + hedger bound exposure, ProfitTierEngine + give-back

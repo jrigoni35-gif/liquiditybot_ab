@@ -1,6 +1,6 @@
 @echo off
 REM install.bat - ONE command to set everything up (Windows).
-REM Creates .venv, installs all dependencies (bot + dashboard), verifies.
+REM Creates .venv, installs all dependencies, verifies.
 setlocal
 set "PYTHONUTF8=1"
 cd /d "%~dp0"
@@ -20,24 +20,24 @@ if not exist .venv (
 )
 
 call .venv\Scripts\activate.bat
-echo [2/3] Installing dependencies (bot + dashboard)...
+echo [2/3] Installing dependencies...
 python -m pip install --upgrade pip -q
 python -m pip install -r requirements.txt -q || exit /b 1
 
 echo [3/3] Verifying installation...
 python -m compileall -q . >nul || exit /b 1
-python -c "import main, runner, ui.dashboard" >nul 2>nul || (
+python -c "import main, runner" >nul 2>nul || (
     echo Import check FAILED - see errors above. & exit /b 1
 )
 
 echo.
 echo ============================================
 echo  Install complete. Everything you need:
-echo    start.bat  - run the bot AND open the dashboard
+echo    start.bat  - run the bot
 echo    stop.bat   - stop the bot cleanly
 echo    test_windows.bat - run the full test matrix
 echo  The bot starts in DRY RUN (paper trading).
 echo  Going live requires editing config.json AND
-echo  typing the ARM phrase in the dashboard.
+echo  typing the ARM phrase (ARM LIVE) at the PC console.
 echo ============================================
 endlocal

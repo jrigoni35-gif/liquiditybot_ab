@@ -5,7 +5,7 @@ The engine (main.LiquidityBot) is loop-free: it exposes cycle_once().
 This runner owns the ONLY loop in the system, and around each cycle it:
 
   1. consumes control commands from outputs/control/ (dropped by the
-     Streamlit UI or by hand: any JSON {"cmd": ...} file works)
+     git remote-control plane or by hand: any JSON {"cmd": ...} file works)
   2. runs one engine cycle if state is RUNNING (or a step was requested)
   3. writes the full UI-facing status to outputs/status.json (atomic)
      and appends the equity curve point

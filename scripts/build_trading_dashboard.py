@@ -1,21 +1,27 @@
-"""scripts/build_trading_dashboard.py — generator for the trading dashboards.
+"""scripts/build_trading_dashboard.py — generator for the ONE condensed
+logistical command dashboard (docs/grafana/liquiditybot_command.json).
 
-THIS GENERATOR IS THE SOURCE OF TRUTH: edit sections here and regenerate —
-never hand-edit the JSONs (unlike the incidents dashboard, which is
-hand-maintained). Sections are authored once in a single linear pass, then
-PARTITIONED into four focused dashboards (one 80-panel page is unreadable):
+THIS GENERATOR IS THE SOURCE OF TRUTH: edit here and regenerate; never
+hand-edit the JSON. tests/test_trading_dashboard.py enforces (1) generator ==
+shipped JSON, (2) importable shape / no overlapping panels, (3) every metric
+a panel queries is actually emitted by scripts/gc_pusher.py.
 
-  liquiditybot_trading.json     — trading desk (§1 performance, §2 positions)
-  liquiditybot_execution.json   — execution & skimmer (§3, §7)
-  liquiditybot_signals.json     — signals & edge (§4)
-  liquiditybot_model_risk.json  — model & risk (§5, §6 incl. circuit breakers)
+DESIGN — a LOGISTICAL framework, not a wall of graphs. Everything is a
+state/number/table you read at a glance, organized for DECISIONS:
 
-Stable uids mean a Grafana re-import overwrites in place; the desk board keeps
-uid 'liquiditybot-trading', so importing it REPLACES the old monolith. Every
-target must reference a metric scripts/gc_pusher.py actually emits;
-tests/test_trading_dashboard.py enforces that (no dead panels).
+  §1 Command & Health   at-a-glance state readouts (UP/DOWN, ARMED, KILLED)
+                        + the load-bearing numbers (equity, drawdown, latency)
+  §2 Learning brain     ground-truth vs proxy labels, model health, calibration
+  §3 Positions          net-per-instrument table (uPnL, R, stop distance, age)
+  §4 Per-asset compare  ONE row per asset — win rate, net, signal quality,
+                        concentration, regime — the side-by-side that answers
+                        "where is the edge accumulating, what do I capitalize on"
+  §5 Risk & incidents   exposure, governor throttles, entry-reason codes, faults
+
+Single board, uid 'liquiditybot-trading' — re-import REPLACES the old desk
+board in place. The four graph-heavy partitions and the old monolith are
+retired (deleted from docs/grafana/).
 """
-import copy as _copy
 import json
 from pathlib import Path
 
@@ -23,18 +29,41 @@ DS = {"type": "prometheus", "uid": "grafanacloud-prom"}
 JOB = '{job="liquiditybot"}'
 panels = []
 
+# ---- auto-layout cursor: no hand-computed gridPos, so no overlaps ----------
+_cur = {"x": 0, "y": 0, "row_h": 0}
+_pid = {"n": 0}
 
+
+def _id() -> int:
+    _pid["n"] += 1
+    return _pid["n"]
+
+
+def _flush() -> None:
+    if _cur["x"] > 0:
+        _cur["y"] += _cur["row_h"]
+        _cur["x"] = 0
+        _cur["row_h"] = 0
+
+
+def _place(w: int, h: int):
+    if _cur["x"] + w > 24:                    # wrap to next line
+        _cur["y"] += _cur["row_h"]
+        _cur["x"] = 0
+        _cur["row_h"] = 0
+    x, y = _cur["x"], _cur["y"]
+    _cur["x"] += w
+    _cur["row_h"] = max(_cur["row_h"], h)
+    return x, y
+
+
+# ---- query + panel helpers -------------------------------------------------
 def M(metric, suffix=""):
-    """Complete PromQL for a single-series stat: max() collapses instance labels."""
+    """Single-series stat PromQL: max() collapses instance labels."""
     return f"max({metric}{JOB}){suffix}"
 
 
 def _t(expr, ref="A", instant=True, legend=None, fmt=None):
-    # "range" must be EXPLICIT: the frontend Prometheus plugin runs neither
-    # query mode when instant is false and range is merely absent — every
-    # timeseries panel rendered "No data" while the same expr returned 700+
-    # points via /api/ds/query (live 2026-07-17). The working control board
-    # carries the flag; emit it always.
     t = {"refId": ref, "datasource": DS, "expr": expr,
          "instant": instant, "range": not instant}
     if legend is not None:
@@ -44,83 +73,90 @@ def _t(expr, ref="A", instant=True, legend=None, fmt=None):
     return t
 
 
-def row(pid, title, y):
-    panels.append({"id": pid, "type": "row", "title": title, "collapsed": False,
-                   "gridPos": {"h": 1, "w": 24, "x": 0, "y": y}, "panels": []})
+def row(title):
+    _flush()
+    panels.append({"id": _id(), "type": "row", "title": title,
+                   "collapsed": False,
+                   "gridPos": {"h": 1, "w": 24, "x": 0, "y": _cur["y"]},
+                   "panels": []})
+    _cur["y"] += 1
+    _cur["x"] = 0
+    _cur["row_h"] = 0
 
 
-def stat(pid, title, expr, x, y, w, h, unit="", decimals=2, desc="",
-         steps=None, mode="value", mappings=None, text_mode="auto",
-         legend=None):
+def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
+         mode="value", mappings=None, text_mode="auto"):
+    x, y = _place(w, h)
     fld = {"unit": unit, "decimals": decimals,
            "thresholds": {"mode": "absolute",
                           "steps": steps or [{"color": "text", "value": None}]}}
     if mappings:
         fld["mappings"] = mappings
     panels.append({
-        "id": pid, "type": "stat", "title": title, "description": desc,
+        "id": _id(), "type": "stat", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "fieldConfig": {"defaults": fld, "overrides": []},
-        "options": {"colorMode": mode, "graphMode": "area", "justifyMode": "auto",
-                    "textMode": text_mode, "wideLayout": True,
-                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}},
-        "targets": [_t(expr, legend=legend) if legend else _t(expr)]})
-
-
-def gauge(pid, title, expr, x, y, w, h, mx=35.0, steps=None, desc=""):
-    panels.append({
-        "id": pid, "type": "gauge", "title": title, "description": desc,
-        "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": mx, "decimals": 1,
-            "thresholds": {"mode": "absolute", "steps": steps or [
-                {"color": "green", "value": None}, {"color": "yellow", "value": mx * 0.7},
-                {"color": "red", "value": mx * 0.9}]}}, "overrides": []},
-        "options": {"showThresholdLabels": False, "showThresholdMarkers": True,
-                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}},
+        "options": {"colorMode": mode, "graphMode": "none",
+                    "justifyMode": "auto", "textMode": text_mode,
+                    "wideLayout": True,
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
+                                      "values": False}},
         "targets": [_t(expr)]})
 
 
-def timeseries(pid, title, expr, x, y, w, h, unit="", desc="", legend="value"):
+def state(title, expr, w, h, mapping, desc=""):
+    """A state readout: value -> colored text (UP/DOWN, ARMED, KILLED).
+    mapping: {value_str: (text, color)}. Background-colored for a glance."""
+    opts = {k: {"text": v[0], "color": v[1], "index": i}
+            for i, (k, v) in enumerate(mapping.items())}
+    stat(title, expr, w, h, desc=desc, mode="background", text_mode="value",
+         mappings=[{"type": "value", "options": opts}],
+         steps=[{"color": "text", "value": None}])
+
+
+def gauge(title, expr, w, h, mx=35.0, desc=""):
+    x, y = _place(w, h)
     panels.append({
-        "id": pid, "type": "timeseries", "title": title, "description": desc,
+        "id": _id(), "type": "gauge", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "custom": {
-            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
-            "fillOpacity": 10, "gradientMode": "opacity", "showPoints": "never",
-            "spanNulls": True, "axisPlacement": "auto",
-            "scaleDistribution": {"type": "linear"}},
-            "color": {"mode": "palette-classic"}}, "overrides": []},
-        # legend MUST carry showLegend: the deprecated bare
-        # {displayMode: "hidden"} shape blanks the ENTIRE timeseries plugin
-        # (no chart, not even "No data") on current Grafana Cloud — proven
-        # by 4-variant panel bisection, live 2026-07-17.
-        "options": {"legend": {"showLegend": False, "displayMode": "list",
-                               "placement": "bottom"},
-                    "tooltip": {"mode": "single", "sort": "none"}},
-        "targets": [_t(expr, instant=False, legend=legend)]})
+        "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": mx,
+            "decimals": 1, "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": mx * 0.7},
+                {"color": "red", "value": mx * 0.9}]}}, "overrides": []},
+        "options": {"showThresholdLabels": False, "showThresholdMarkers": True,
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
+                                      "values": False}},
+        "targets": [_t(expr)]})
 
 
-def table(pid, title, x, y, w, h, cols, label_keys, desc=""):
-    """cols: (metric, display_name, unit, decimals). Joined by label_keys."""
-    refs = "ABCDEFGHIJKLMNOP"
+def table(title, w, h, cols, label_keys, sort=None, desc=""):
+    """Comparison table. cols: (metric_or_expr, name, unit, decimals). Each
+    target is an instant vector; frames MERGE on their shared label(s) in
+    label_keys, giving one row per entity (per symbol/side, or per asset)."""
+    x, y = _place(w, h)
+    refs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     targets, rename, order, overrides = [], {}, {}, []
     for k in label_keys:
         order[k] = len(order)
     for i, (metric, name, unit, dec) in enumerate(cols):
         r = refs[i]
-        targets.append(_t(f"{metric}{JOB}", ref=r, fmt="table"))
+        expr = metric if "(" in metric or "{" in metric else f"{metric}{JOB}"
+        targets.append(_t(expr, ref=r, fmt="table"))
         rename[f"Value #{r}"] = name
         order[name] = len(order)
         overrides.append({"matcher": {"id": "byName", "options": name},
                           "properties": [{"id": "unit", "value": unit},
                                          {"id": "decimals", "value": dec}]})
     panels.append({
-        "id": pid, "type": "table", "title": title, "description": desc,
+        "id": _id(), "type": "table", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"custom": {"align": "auto", "filterable": True}},
+        "fieldConfig": {"defaults": {"custom": {"align": "auto",
+                                                "filterable": True}},
                         "overrides": overrides},
         "options": {"showHeader": True, "cellHeight": "sm",
-                    "sortBy": [{"displayName": label_keys[0], "desc": False}]},
+                    "sortBy": [{"displayName": sort or label_keys[0],
+                                "desc": bool(sort)}]},
         "targets": targets,
         "transformations": [
             {"id": "merge", "options": {}},
@@ -130,558 +166,198 @@ def table(pid, title, x, y, w, h, cols, label_keys, desc=""):
                 "renameByName": rename, "indexByName": order}}]})
 
 
+# threshold palettes
 GRN = [{"color": "text", "value": None}]
 PNL = [{"color": "red", "value": None}, {"color": "green", "value": 0}]
+DD = [{"color": "green", "value": None}, {"color": "yellow", "value": 8},
+      {"color": "red", "value": 12}]
+LAT = [{"color": "green", "value": None}, {"color": "yellow", "value": 250},
+       {"color": "red", "value": 500}]
+AGE = [{"color": "green", "value": None}, {"color": "yellow", "value": 30},
+       {"color": "red", "value": 90}]
+CALIB = [{"color": "green", "value": None}, {"color": "yellow", "value": 0.10},
+         {"color": "red", "value": 0.15}]
+STREAK = [{"color": "green", "value": None}, {"color": "yellow", "value": 3},
+          {"color": "red", "value": 5}]
+WR = [{"color": "red", "value": None}, {"color": "yellow", "value": 45},
+      {"color": "green", "value": 55}]
 
-# ---------------- §1 · Account & Performance ----------------
-row(1, "§1 · Account & Performance", 0)
-stat(10, "Equity", M("liquiditybot_equity"), 0, 1, 5, 4, unit="currencyUSD",
-     desc="Live account equity (cash + open uPnL).", steps=GRN)
-stat(11, "P&L today", M("liquiditybot_daily_pnl"), 5, 1, 5, 4, unit="currencyUSD",
-     steps=PNL, desc="Realized P&L since UTC midnight.")
-stat(12, "Realized (total)", M("liquiditybot_realized_total"), 10, 1, 5, 4,
-     unit="currencyUSD", steps=PNL, desc="Cumulative realized P&L since inception.")
-stat(13, "Open uPnL", M("liquiditybot_open_upnl_usd"), 15, 1, 5, 4,
-     unit="currencyUSD", steps=PNL, desc="Unrealized P&L across open positions.")
-stat(14, "Drawdown", M("liquiditybot_drawdown_pct"), 20, 1, 4, 4, unit="percent",
-     desc="Peak-to-now drawdown; 15% is the hard stop.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 8},
-            {"color": "red", "value": 12}])
+ON_OFF = {"1": ("YES", "green"), "0": ("NO", "red")}
+UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
+WS = {"1": ("LIVE", "green"), "0": ("REST-fallback", "yellow")}
+HALT = {"1": ("HALTED", "red"), "0": ("clear", "green")}
+GOV = {"0": ("OK", "green"), "1": ("DEGRADED", "yellow"),
+       "2": ("KILLED", "red")}
 
-timeseries(20, "Equity curve", M("liquiditybot_equity"), 0, 5, 16, 8,
-           unit="currencyUSD", legend="equity", desc="Account equity over time.")
-PF = [{"color": "red", "value": None}, {"color": "yellow", "value": 1.0},
-      {"color": "green", "value": 1.5}]
-stat(21, "Win rate", M("liquiditybot_perf_win_rate", "*100"), 16, 5, 4, 4,
-     unit="percent", decimals=1, desc="Rolling win rate (closed trades).",
-     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 45},
-            {"color": "green", "value": 55}])
-stat(22, "Win rate (LCB)", M("liquiditybot_perf_win_rate_lcb", "*100"), 20, 5, 4, 4,
-     unit="percent", decimals=1,
-     desc="Wilson lower bound — the honest floor, not a lucky streak.", steps=GRN)
-stat(23, "Profit factor", M("liquiditybot_perf_profit_factor"), 16, 9, 4, 4,
-     steps=PF, desc="Gross profit / gross loss. >1 is net-positive.")
-stat(24, "Expectancy (R)", M("liquiditybot_perf_expectancy_r"), 20, 9, 4, 4,
-     steps=PNL, desc="Average trade in R-multiples (realized ÷ stop-risk).")
 
-stat(30, "Sharpe", M("liquiditybot_perf_sharpe"), 0, 13, 4, 4, steps=PNL,
-     desc="Per-trade Sharpe (mean ÷ stdev of trade returns).")
-stat(31, "Sortino", M("liquiditybot_perf_sortino"), 4, 13, 4, 4, steps=PNL,
-     desc="Per-trade Sortino (downside deviation only).")
-stat(32, "Expectancy ($)", M("liquiditybot_perf_expectancy_usd"), 8, 13, 4, 4,
-     unit="currencyUSD", steps=PNL, desc="Average $ per closed trade.")
-stat(33, "Payoff ratio", M("liquiditybot_perf_payoff_ratio"), 12, 13, 4, 4,
-     steps=GRN, desc="Avg win ÷ avg loss.")
-stat(34, "Avg win", M("liquiditybot_perf_avg_win_usd"), 16, 13, 4, 4,
-     unit="currencyUSD", steps=[{"color": "green", "value": None}], desc="Mean winning trade.")
-stat(35, "Avg loss", M("liquiditybot_perf_avg_loss_usd"), 20, 13, 4, 4,
-     unit="currencyUSD", steps=[{"color": "red", "value": None}], desc="Mean losing trade.")
+# ============================ §1 · Command & Health ========================
+row("§1 · Command & Health")
+state("Bot", M("liquiditybot_running"), 3, 4, UP_DOWN,
+      desc="runner_state == RUNNING.")
+stat("Status age", M("liquiditybot_status_age_sec"), 3, 4, unit="s",
+     decimals=0, mode="background", steps=[{"color": "green", "value": None},
+     {"color": "yellow", "value": 120}, {"color": "red", "value": 300}],
+     desc="Seconds since the last status write; climbs if the runner freezes.")
+stat("Cycle", M("liquiditybot_cycle"), 3, 4, decimals=0, steps=GRN,
+     desc="Fast-cycle counter since last restart (advancing = alive).")
+stat("Equity", M("liquiditybot_equity"), 4, 4, unit="currencyUSD", steps=GRN,
+     desc="Account equity (cash + open uPnL).")
+stat("Drawdown", M("liquiditybot_drawdown_pct"), 3, 4, unit="percent",
+     mode="background", steps=DD, desc="Peak-to-now; 15% is the hard stop.")
+stat("Feed latency", M("liquiditybot_feed_latency_ms"), 4, 4, unit="ms",
+     decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA (physical RTT).")
+stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 4, unit="currencyUSD",
+     steps=PNL, desc="Unrealized P&L across open positions.")
 
-stat(40, "Trades (window)", M("liquiditybot_perf_trades"), 0, 17, 4, 4, decimals=0,
-     steps=GRN, desc="Closed trades in the rolling window.")
-stat(41, "Net P&L (window)", M("liquiditybot_perf_net_usd"), 4, 17, 4, 4,
-     unit="currencyUSD", steps=PNL, desc="Net realized across the window.")
-stat(42, "Gross profit", M("liquiditybot_perf_gross_profit_usd"), 8, 17, 4, 4,
-     unit="currencyUSD", steps=[{"color": "green", "value": None}])
-stat(43, "Gross loss", M("liquiditybot_perf_gross_loss_usd"), 12, 17, 4, 4,
-     unit="currencyUSD", steps=[{"color": "red", "value": None}])
-stat(44, "Loss streak (now)", M("liquiditybot_perf_cur_loss_streak"), 16, 17, 4, 4,
+state("Governor", M("liquiditybot_monitor_level"), 4, 3, GOV,
+      desc="ML kill-switch: 0 OK / 1 degraded / 2 model killed.")
+state("Entries", M("liquiditybot_entries_enabled"), 3, 3, ON_OFF,
+      desc="New-risk entries enabled (exits always allowed).")
+state("Halted", M("liquiditybot_halted"), 3, 3, HALT, desc="Global halt flag.")
+state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 4, 3, WS,
+      desc="v2 book stream live vs REST fallback.")
+state("Model in use", M("liquiditybot_ml_use_model"), 4, 3, ON_OFF,
+      desc="Governor lets the model size trades (vs cold-start prior).")
+stat("Open risk", M("liquiditybot_open_risk_usd"), 3, 3, unit="currencyUSD",
+     steps=GRN, desc="$ lost if every open stop filled now.")
+gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 3, 3, mx=35.0,
+      desc="Gross notional %/equity vs the 35% heat cap.")
+
+# ============================ §2 · Learning brain ==========================
+row("§2 · Learning brain")
+stat("Live labels", M('liquiditybot_ml_labels{source="live"}'), 4, 4,
      decimals=0, mode="background",
-     desc="Consecutive losing trades right now — the per-asset circuit-breaker input.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 3},
-            {"color": "red", "value": 5}])
-stat(45, "Loss streak (max)", M("liquiditybot_perf_max_loss_streak"), 20, 17, 4, 4,
-     decimals=0, steps=GRN, desc="Worst losing streak in the window.")
+     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 30},
+            {"color": "green", "value": 60}],
+     desc="Ground-truth closed-trade labels — the ONLY thing that earns model "
+          "complexity (evidence gate). This is the number to grow.")
+stat("Candidate labels", M('liquiditybot_ml_labels{source="candidate"}'), 4, 4,
+     decimals=0, steps=GRN,
+     desc="Triple-barrier proxy labels (down-weighted, don't earn complexity).")
+stat("History rows", M("liquiditybot_ml_history_rows"), 3, 4, decimals=0,
+     steps=GRN, desc="Total training rows (live + candidate).")
+stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)", 4, 4,
+     desc="Deployed rung on the simplicity ladder.", text_mode="name",
+     steps=GRN)
+stat("Retrain queued", M("liquiditybot_ml_retrain_flag"), 3, 4, decimals=0,
+     mode="background", mappings=[{"type": "value", "options": {
+         "1": {"text": "YES", "color": "yellow", "index": 0},
+         "0": {"text": "no", "color": "green", "index": 1}}}],
+     steps=GRN, desc="Monitor has requested a retrain.")
+stat("Drift share", M("liquiditybot_ml_drift_share"), 3, 4, unit="percentunit",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.3},
+            {"color": "red", "value": 0.5}],
+     desc="Fraction of market features past the PSI threshold.")
 
-# ---------------- §2 · Live Positions ----------------
-row(2, "§2 · Live Positions", 21)
-stat(50, "Open positions", M("liquiditybot_positions_open"), 0, 22, 6, 4, decimals=0,
-     steps=GRN, desc="Open position count (max 5 concurrent).")
-gauge(51, "Gross exposure", M("liquiditybot_gross_exposure_pct"), 6, 22, 6, 4, mx=35.0,
-      desc="Gross notional as % of equity vs the 35% portfolio-heat cap.")
-stat(52, "Open risk (to stops)", M("liquiditybot_open_risk_usd"), 12, 22, 6, 4,
-     unit="currencyUSD", steps=GRN, desc="Total $ lost if every open stop filled now.")
-stat(53, "Open uPnL", M("liquiditybot_open_upnl_usd"), 18, 22, 6, 4,
-     unit="currencyUSD", steps=PNL, desc="Unrealized P&L, all positions.")
+stat("Brier", M("liquiditybot_ml_brier"), 4, 4, decimals=4, mode="background",
+     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.24},
+            {"color": "red", "value": 0.25}],
+     desc="Rolling outcome Brier on the deployed model (lower better).")
+stat("Baseline Brier", M("liquiditybot_ml_baseline_brier"), 4, 4, decimals=4,
+     steps=GRN, desc="Base-rate Brier; model must beat this.")
+stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4, decimals=3,
+     mode="background", steps=CALIB,
+     desc="|predicted - realized| ECE. Kelly consumes probs literally, so this "
+          "must stay small.")
+stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 4, decimals=4,
+     steps=GRN, desc="Deployed champion's OOF Brier badge.")
+stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 4, decimals=2, steps=GRN,
+     desc="Governor size throttle (1.0 = full).")
+stat("Shrinkage", M("liquiditybot_ml_shrinkage"), 4, 4, decimals=2, steps=GRN,
+     desc="Probability shrink toward base rate.")
 
-table(54, "Open positions (net per instrument)", 0, 26, 24, 8,
-      cols=[("liquiditybot_position_notional_usd", "Notional $", "currencyUSD", 2),
-            ("liquiditybot_position_upnl_usd", "uPnL $", "currencyUSD", 2),
+stat("Win rate", M("liquiditybot_perf_win_rate", "*100"), 4, 4, unit="percent",
+     decimals=1, mode="background", steps=WR, desc="Rolling closed-trade win rate.")
+stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 4, 4,
+     unit="percent", decimals=1, steps=GRN,
+     desc="Wilson lower bound — the honest floor.")
+stat("Profit factor", M("liquiditybot_perf_profit_factor"), 4, 4, decimals=2,
+     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 1.0},
+            {"color": "green", "value": 1.5}], desc="Gross profit / gross loss.")
+stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 4, decimals=2,
+     steps=PNL, desc="Avg trade in R-multiples.")
+stat("Net (window)", M("liquiditybot_perf_net_usd"), 4, 4, unit="currencyUSD",
+     steps=PNL, desc="Net realized over the rolling window.")
+stat("Trades", M("liquiditybot_perf_trades"), 4, 4, decimals=0, steps=GRN,
+     desc="Closed trades in the window.")
+
+# ============================ §3 · Positions ===============================
+row("§3 · Positions (net per instrument)")
+table("Open positions", 24, 8,
+      cols=[("liquiditybot_position_upnl_usd", "uPnL $", "currencyUSD", 2),
             ("liquiditybot_position_upnl_pct", "uPnL %", "percent", 2),
-            ("liquiditybot_position_r_multiple", "R", "", 2),
+            ("liquiditybot_position_r_multiple", "R", "short", 2),
+            ("liquiditybot_position_notional_usd", "Notional $", "currencyUSD", 0),
+            ("liquiditybot_position_conviction", "p_win", "percentunit", 2),
             ("liquiditybot_position_stop_dist_pct", "Stop dist %", "percent", 2),
-            ("liquiditybot_position_tiers_fired", "Tiers", "", 0),
-            ("liquiditybot_position_lots", "Lots", "", 0),
-            ("liquiditybot_position_conviction", "Conviction", "", 2),
-            ("liquiditybot_position_age_hours", "Age (h)", "", 1)],
-      label_keys=["symbol", "side"],
-      desc="Live book, netted per instrument. Instant query — closed positions drop out.")
+            ("liquiditybot_position_tiers_fired", "Tiers", "short", 0),
+            ("liquiditybot_position_age_hours", "Age h", "short", 1)],
+      label_keys=["symbol", "side"], sort="uPnL $",
+      desc="One row per open instrument. Sorted by uPnL; watch R and stop "
+           "distance for what to manage next.")
 
-table(55, "Per-asset performance", 0, 34, 24, 8,
-      cols=[("liquiditybot_perf_asset_trades", "Trades", "", 0),
-            ("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2),
-            ("liquiditybot_perf_asset_profit_factor", "Profit factor", "", 2),
-            ("liquiditybot_perf_asset_expectancy_usd", "Expectancy $", "currencyUSD", 3),
+# ============================ §4 · Per-asset comparison ====================
+row("§4 · Per-asset comparison — where is the edge?")
+table("Asset scorecard", 24, 9,
+      cols=[("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2),
             ("liquiditybot_perf_asset_net_usd", "Net $", "currencyUSD", 2),
-            ("liquiditybot_perf_asset_cur_loss_streak", "Streak (now)", "", 0),
-            ("liquiditybot_perf_asset_max_loss_streak", "Streak (max)", "", 0)],
-      label_keys=["asset"],
-      desc="Per-asset edge — the ranking basis for the coming per-asset circuit breaker.")
+            ("liquiditybot_perf_asset_trades", "Trades", "short", 0),
+            ("liquiditybot_perf_asset_cur_loss_streak", "Loss streak", "short", 0),
+            ("liquiditybot_signal_confidence", "Confidence", "short", 2),
+            ("liquiditybot_signal_urgency", "Urgency", "short", 2),
+            ("liquiditybot_signal_concentration", "Concentration", "short", 2),
+            ("liquiditybot_manip_suspect", "Manip", "short", 2),
+            ("liquiditybot_regime_spread_bps", "Spread bps", "short", 1),
+            ("liquiditybot_regime_vol_pct", "Vol %", "percent", 1)],
+      label_keys=["asset"], sort="Net $",
+      desc="Side-by-side, one row per asset. Concentration near 1 = a "
+           "pinpointed setup (few strong factors); near 0 = a diffuse average. "
+           "Compare win rate/net against confidence & concentration to see "
+           "where conviction is actually paying — the input to session/asset "
+           "weighting decisions.")
 
-# ---------------- §3 · Execution Quality ----------------
-row(3, "§3 · Execution Quality", 42)
-# multi-series markout panel needs a visible legend (one series per
-# asset+horizon), so it doesn't use the single-series helper.
-panels.append({
-    "id": 60, "type": "timeseries", "title": "Post-fill mark-out (bps)",
-    "description": ("Mark move vs our fill, per asset and horizon. Negative = "
-                    "adverse selection (we get filled right before price moves "
-                    "against us — 'getting scalped'). Persistent negatives at "
-                    "5s mean entries are being picked off."),
-    "datasource": DS, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 43},
-    "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {
-        "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1,
-        "fillOpacity": 8, "gradientMode": "opacity", "showPoints": "never",
-        "spanNulls": True, "axisPlacement": "auto",
-        "scaleDistribution": {"type": "linear"}},
-        "color": {"mode": "palette-classic"}}, "overrides": []},
-    "options": {"legend": {"showLegend": True, "displayMode": "table",
-                           "placement": "right", "calcs": ["last", "mean"]},
-                "tooltip": {"mode": "multi", "sort": "desc"}},
-    "targets": [_t('liquiditybot_markout_bps' + JOB, instant=False,
-                   legend="{{asset}} @{{horizon_sec}}s")]})
-stat(61, "Maker fill share", M("liquiditybot_order_maker_share", "*100"),
-     12, 43, 4, 4, unit="percent", decimals=0,
-     desc="Share of fills that rested as maker (earned the spread) vs crossed "
-          "as taker (paid it). Higher = cheaper execution.",
-     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 40},
-            {"color": "green", "value": 70}])
-stat(62, "Avg slippage", M("liquiditybot_order_avg_slip_bps"), 16, 43, 4, 4,
-     decimals=1, desc="Rolling mean signed slippage vs the price we asked "
-     "(bps). Positive = adverse, negative = price improvement.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 5},
-            {"color": "red", "value": 15}])
-stat(63, "Worst slippage", M("liquiditybot_order_worst_slip_bps"), 20, 43, 4, 4,
-     decimals=1, desc="Worst single-fill slippage in the rolling window (bps).",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 10},
-            {"color": "red", "value": 30}])
-stat(64, "Venue RTT", M("liquiditybot_order_latency_ms"), 12, 47, 4, 4,
-     unit="ms", decimals=0, desc="Order-path round-trip latency (EWMA).",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 800},
-            {"color": "red", "value": 2000}])
-stat(65, "Venue rejects", M("liquiditybot_order_venue_rejects"), 16, 47, 4, 4,
-     decimals=0, desc="Orders the venue refused (OM-021). Rising = a submit "
-     "path problem.", steps=[{"color": "green", "value": None},
-                             {"color": "red", "value": 1}])
-stat(66, "Dead-man failures", M("liquiditybot_order_deadman_failures"),
-     20, 47, 4, 4, decimals=0,
-     desc="Dead-man refresh failures (OM-050); >=3 escalates.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
-            {"color": "red", "value": 3}])
-stat(67, "Fees paid (total)", M("liquiditybot_fees_total"), 0, 51, 6, 4,
-     unit="currencyUSD", steps=GRN, desc="Cumulative fees since inception.")
-stat(68, "Maker notional", M("liquiditybot_order_maker_notional_usd"),
-     6, 51, 6, 4, unit="currencyUSD", steps=GRN,
-     desc="Notional filled passively (spread earned).")
-stat(69, "Taker notional", M("liquiditybot_order_taker_notional_usd"),
-     12, 51, 6, 4, unit="currencyUSD", steps=GRN,
-     desc="Notional filled crossing (spread paid).")
-stat(70, "Fees vs gross profit",
-     f"100 * max(liquiditybot_fees_total{JOB}) / "
-     f"clamp_min(max(liquiditybot_perf_gross_profit_usd{JOB}), 0.001)",
-     18, 51, 6, 4, unit="percent", decimals=0,
-     desc="Fees as % of gross profit — how much of the edge execution costs "
-          "eat. Above 100% = trading for the venue, not for you.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 50},
-            {"color": "red", "value": 100}])
+# ============================ §5 · Risk & incidents ========================
+row("§5 · Risk & incidents")
+stat("Loss streak (now)", M("liquiditybot_perf_cur_loss_streak"), 4, 4,
+     decimals=0, mode="background", steps=STREAK,
+     desc="Consecutive losers now — the circuit-breaker input.")
+stat("Max loss streak", M("liquiditybot_perf_max_loss_streak"), 4, 4,
+     decimals=0, steps=GRN, desc="Worst streak in the window.")
+stat("Model fallbacks", M("liquiditybot_ml_model_fallbacks"), 4, 4, decimals=0,
+     mode="background", steps=STREAK, desc="Inference fell back to the prior.")
+stat("Infer faults", M("liquiditybot_ml_infer_faults"), 4, 4, decimals=0,
+     mode="background", steps=STREAK, desc="Model inference errors.")
+stat("Contract fails", M("liquiditybot_ml_contract_failed"), 4, 4, decimals=0,
+     mode="background", steps=STREAK, desc="Inference input outside contract.")
+stat("Retrain failures", M("liquiditybot_ml_retrain_failures"), 4, 4,
+     decimals=0, mode="background", steps=STREAK, desc="Auto-retrain crashed.")
 
-# ---------------- §4 · Signal & Edge ----------------
-def ts_multi(pid, title, expr, x, y, w, h, legend, unit="", desc="",
-             mn=None, mx=None, extra=None):
-    """Multi-series timeseries with a visible right-hand legend table.
-    `extra`: optional [(expr, legend), ...] additional targets."""
-    fld = {"unit": unit, "decimals": 2, "custom": {
-        "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1,
-        "fillOpacity": 6, "gradientMode": "opacity", "showPoints": "never",
-        "spanNulls": True, "axisPlacement": "auto",
-        "scaleDistribution": {"type": "linear"}},
-        "color": {"mode": "palette-classic"}}
-    if mn is not None:
-        fld["min"] = mn
-    if mx is not None:
-        fld["max"] = mx
-    panels.append({
-        "id": pid, "type": "timeseries", "title": title, "description": desc,
-        "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": fld, "overrides": []},
-        "options": {"legend": {"showLegend": True, "displayMode": "table",
-                               "placement": "right",
-                               "calcs": ["lastNotNull"]},
-                    "tooltip": {"mode": "multi", "sort": "desc"}},
-        "targets": [_t(expr, instant=False, legend=legend)] +
-                   [_t(e, instant=False, legend=lg, ref=chr(66 + i))
-                    for i, (e, lg) in enumerate(extra or [])]})
+table("Entry-decision reason codes", 12, 8,
+      cols=[("liquiditybot_code_count_detail", "Count", "short", 0)],
+      label_keys=["code"], sort="Count",
+      desc="Why entries were taken/vetoed (SZ/PT/QT families) — the most "
+           "frequent code is what's gating the book right now.")
+table("Gate weights (learned)", 12, 8,
+      cols=[("liquiditybot_gate_weight", "Weight", "short", 3)],
+      label_keys=["gate"], sort="Weight",
+      desc="Evidence-weighted contribution of each signal gate.")
 
 
-def bargauge(pid, title, expr, x, y, w, h, legend, unit="percent", mx=100,
-             desc="", steps=None):
-    panels.append({
-        "id": pid, "type": "bargauge", "title": title, "description": desc,
-        "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "min": 0, "max": mx,
-            "decimals": 1, "thresholds": {"mode": "absolute", "steps": steps or [
-                {"color": "blue", "value": None}]}}, "overrides": []},
-        "options": {"orientation": "horizontal", "displayMode": "gradient",
-                    "showUnfilled": True, "valueMode": "color",
-                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
-                                      "values": False}},
-        "targets": [_t(expr, instant=False, legend=legend)]})
-
-
-row(4, "§4 · Signal & Edge", 55)
-ts_multi(80, "Signal confidence (per asset)",
-         f"max by (asset) (liquiditybot_signal_confidence{JOB})",
-         0, 56, 12, 8, "{{asset}}", mn=0, mx=1,
-         desc="Meta-model p(win) per asset — the continuous conviction line.")
-ts_multi(81, "Signal urgency (per asset)",
-         f"max by (asset) (liquiditybot_signal_urgency{JOB})",
-         12, 56, 12, 8, "{{asset}}", mn=0, mx=1,
-         desc="Gated trigger: EXACTLY 0 unless all confirmations align, then "
-              "0.30-1.00 scaled by burst/freshness. Spiky-to-zero is the "
-              "DESIGN — a smooth line here would mean overtrading.")
-bargauge(82, "Gate pass-rate (24h)",
-         f"100 * avg by (gate) (avg_over_time(liquiditybot_signal_gate_passed{JOB}[24h]))",
-         0, 64, 8, 8, "{{gate}}",
-         desc="Per-gate pass share across assets, last 24h. The LOWEST bar is "
-              "the gate blocking most entries.",
-         steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 40},
-                {"color": "green", "value": 70}])
-bargauge(83, "Learned gate weights",
-         f"max by (gate) (liquiditybot_gate_weight{JOB})",
-         8, 64, 8, 8, "{{gate}}", unit="none", mx=1.3,
-         desc="GateStats Wilson-LCB learned weight per gate (1.0 = neutral). "
-              "Above 1 = predictive of wins, below = drag.",
-         steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 0.9},
-                {"color": "green", "value": 1.0}])
-bargauge(84, "Confirmed-rate (24h)",
-         f"100 * avg by (asset) (avg_over_time(liquiditybot_signal_confirmed{JOB}[24h]))",
-         16, 64, 8, 8, "{{asset}}",
-         desc="Share of time each asset's signal was fully confirmed, last 24h.",
-         steps=[{"color": "blue", "value": None}])
-ts_multi(85, "Manipulation suspicion (per asset)",
-         f"max by (asset) (liquiditybot_manip_suspect{JOB})",
-         0, 72, 8, 8, "{{asset}}", mn=0, mx=1,
-         desc="MAX of spoof / imbalance-whiplash / cross-venue divergence. "
-              "Downsizes entries from 0.6, vetoes at 0.9 (SZ-045).")
-ts_multi(86, "Entry decision codes (PT/SZ)",
-         f"max by (code) (liquiditybot_code_count_detail{JOB})",
-         8, 72, 8, 8, "{{code}}", unit="none",
-         desc="Cumulative entry-decision reason codes: PT-041 edge/cost reject, "
-              "PT-050 exploration bypass, SZ-045 manip veto, SZ-000 approved… "
-              "Rising slope = that disposition is firing.")
-panels.append({
-    "id": 87, "type": "table", "title": "Regime (current)",
-    "description": "Live regime read per asset: macro trend state, volatility "
-                   "band, liquidity band. Instant — stale label-sets drop out.",
-    "datasource": DS, "gridPos": {"h": 8, "w": 8, "x": 16, "y": 72},
-    "fieldConfig": {"defaults": {"custom": {"align": "auto",
-                                            "filterable": True}},
-                    "overrides": []},
-    "options": {"showHeader": True, "cellHeight": "sm",
-                "sortBy": [{"displayName": "asset", "desc": False}]},
-    "targets": [_t(f"liquiditybot_regime_info{JOB}", fmt="table")],
-    "transformations": [
-        {"id": "organize", "options": {
-            "excludeByName": {"Time": True, "job": True, "instance": True,
-                              "__name__": True, "Value": True},
-            "renameByName": {}, "indexByName": {"asset": 0, "macro": 1,
-                                                "vol": 2, "liq": 3}}}]})
-ts_multi(88, "Momentum (per asset)",
-         f"max by (asset) (liquiditybot_regime_momentum{JOB})",
-         0, 80, 8, 8, "{{asset}}", unit="none",
-         desc="Macro momentum score; sign gates counter-trend entries.")
-ts_multi(89, "Volatility percentile (per asset)",
-         f"max by (asset) (liquiditybot_regime_vol_pct{JOB})",
-         8, 80, 8, 8, "{{asset}}", mn=0, mx=100,
-         desc="Where current vol sits vs history — scales tier targets, "
-              "trails and stops.")
-ts_multi(90, "Spread (per asset, bps)",
-         f"max by (asset) (liquiditybot_regime_spread_bps{JOB})",
-         16, 80, 8, 8, "{{asset}}", unit="none",
-         desc="Live spread cost per asset — the floor every edge must clear.")
-
-# ---------------- §5 · Model Health & Learning ----------------
-row(5, "§5 · Model Health & Learning", 88)
-ts_multi(100, "Model Brier vs baseline",
-         f"max(liquiditybot_ml_brier{JOB})", 0, 89, 12, 8, "model brier",
-         desc="OUTCOME health: rolling Brier of the DEPLOYED model vs the "
-              "base-rate baseline on the last judged trades (lower=better). "
-              "Model ABOVE baseline = worse than a naive guess; the governor "
-              "kills at baseline+0.03. Absent until >=15 trades judgeable.",
-         extra=[(f"max(liquiditybot_ml_baseline_brier{JOB})",
-                 "baseline (base-rate)"),
-                (f"max(liquiditybot_ml_champion_brier{JOB})",
-                 "champion (deploy bar)")])
-ts_multi(101, "Promised vs delivered win-rate",
-         f"max(liquiditybot_ml_avg_p{JOB})", 12, 89, 12, 8,
-         "promised (avg p)", mn=0, mx=1,
-         desc="Calibration in one picture: the model's average promised "
-              "p(win) vs the realized hit rate and its Wilson lower bound on "
-              "the same judged trades. Promised far above the LCB = the model "
-              "is overselling its edge.",
-         extra=[(f"max(liquiditybot_ml_hit_rate{JOB})", "delivered (hit rate)"),
-                (f"max(liquiditybot_ml_hit_rate_lcb{JOB})",
-                 "delivered floor (Wilson LCB)")])
-stat(102, "Governor", M("liquiditybot_monitor_level"), 0, 97, 4, 4,
-     decimals=0, mode="background",
-     desc="ML governor kill-switch: OK / DEGRADED (shrunk sizing) / KILLED "
-          "(prior only). Level 2 auto-requests a retrain.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
-            {"color": "red", "value": 2}],
-     mappings=[{"type": "value", "options": {
-         "0": {"text": "OK", "index": 0},
-         "1": {"text": "DEGRADED", "index": 1},
-         "2": {"text": "KILLED", "index": 2}}}])
-stat(103, "Model in use", M("liquiditybot_ml_use_model"), 4, 97, 4, 4,
-     decimals=0, mode="background",
-     desc="Whether inference uses the trained model (vs the cold-start prior).",
-     steps=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
-     mappings=[{"type": "value", "options": {
-         "0": {"text": "PRIOR", "index": 0},
-         "1": {"text": "MODEL", "index": 1}}}])
-stat(104, "Kelly multiplier", M("liquiditybot_ml_kelly_mult"), 8, 97, 4, 4,
-     decimals=2, desc="Governor sizing throttle applied to Kelly (1.0 = full).",
-     steps=[{"color": "red", "value": None}, {"color": "yellow", "value": 0.5},
-            {"color": "green", "value": 0.99}])
-stat(105, "Prob shrinkage", M("liquiditybot_ml_shrinkage"), 12, 97, 4, 4,
-     decimals=2, desc="How hard p(win) is pulled toward 0.5 before sizing "
-     "(higher = less trust in the model).",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.5},
-            {"color": "red", "value": 0.7}])
-stat(106, "Stop widen", M("liquiditybot_ml_stop_widen"), 16, 97, 4, 4,
-     decimals=2, desc="Whipsaw governor: stops widened by this factor when "
-     "stop-outs keep recovering past entry.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1.2}])
-stat(107, "Calibration gap", M("liquiditybot_ml_calibration_gap"), 20, 97, 4, 4,
-     decimals=3, desc="Mean |promised p - realized rate| across probability "
-     "bins; the governor degrades past 0.15.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 0.10},
-            {"color": "red", "value": 0.15}])
-ts_multi(108, "Feature drift share",
-         f"max(liquiditybot_ml_drift_share{JOB})", 0, 101, 8, 8, "drift share",
-         mn=0, mx=1,
-         desc="Fraction of MARKET features past PSI 0.25 (clock features "
-              "excluded). 0.30 = the retrain-vote line; transient blips "
-              "self-heal via auto-retrain.")
-ts_multi(109, "Learning velocity (labels/24h)",
-         f"max(liquiditybot_ml_history_rows{JOB}) - "
-         f"max(liquiditybot_ml_history_rows{JOB} offset 24h)",
-         8, 101, 8, 8, "labels gained, 24h", unit="none",
-         desc="Training rows added in the last 24h — the model's food supply. "
-              "Zero for a sustained stretch = learning starved (check "
-              "exploration + min-ticket flow).")
-ts_multi(110, "Labels by source",
-         f"max by (source) (liquiditybot_ml_labels{JOB})", 16, 101, 8, 8,
-         "{{source}}", unit="none",
-         desc="Cumulative labels: LIVE = real fills (ground truth), "
-              "CANDIDATE = triple-barrier proxy labels. Live is scarce and "
-              "precious; candidates keep the model fed between fills.")
-stat(111, "Retrain requested", M("liquiditybot_ml_retrain_flag"), 0, 109, 4, 4,
-     decimals=0, mode="background",
-     desc="Retrain flag currently raised (drift/decay asked for a refit; "
-          "auto-retrain services it next slow cycle).",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1}],
-     mappings=[{"type": "value", "options": {
-         "0": {"text": "no", "index": 0},
-         "1": {"text": "REQUESTED", "index": 1}}}])
-stat(112, "Retrain failures", M("liquiditybot_ml_retrain_failures"),
-     4, 109, 4, 4, decimals=0,
-     desc="Auto-retrain attempts that threw. Rising = stale champion kept.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
-            {"color": "red", "value": 5}])
-stat(113, "Open candidates", M("liquiditybot_ml_open_candidates"), 8, 109, 4, 4,
-     decimals=0, desc="Shadow entries awaiting a triple-barrier label.",
-     steps=[{"color": "text", "value": None}])
-stat(114, "Pending labels", M("liquiditybot_ml_pending_labels"), 12, 109, 4, 4,
-     decimals=0, desc="Real positions open, feature rows awaiting their "
-     "close label.", steps=[{"color": "text", "value": None}])
-stat(115, "Deployed model",
-     f"max by (kind) (liquiditybot_ml_model_info{JOB})", 16, 109, 8, 4,
-     decimals=0, text_mode="name", legend="{{kind}}",
-     desc="Current rung on the simplicity ladder (logreg -> gbt -> blend -> "
-          "mlp). The walk-forward selector must EARN each step up.",
-     steps=[{"color": "blue", "value": None}])
-
-# ---------------- §6 · Risk & Protocols ----------------
-row(6, "§6 · Risk & Protocols", 113)
-ts_multi(120, "Loss-budget consumption",
-         f"max(liquiditybot_rp_daily_budget_used_frac{JOB})", 0, 114, 8, 8,
-         "daily (of 2.5%)", unit="percentunit", mn=0, mx=1.2,
-         desc="Fraction of the daily/weekly loss budget consumed. Sizing "
-              "tapers past 50% spent; 100% = hard zero for new risk (exits "
-              "always run). Anchored to day/week equity marks.",
-         extra=[(f"max(liquiditybot_rp_weekly_budget_used_frac{JOB})",
-                 "weekly (of 6%)")])
-ts_multi(121, "Sizing throttles",
-         f"max(liquiditybot_rp_taper_mult{JOB})", 8, 114, 8, 8,
-         "budget taper", unit="none", mn=0, mx=1.05,
-         desc="Current entry-size multipliers: the loss-budget taper and the "
-              "drawdown throttle (decelerate toward the 15% hard stop). 1.0 = "
-              "no restriction; falling lines = the rails are actively "
-              "shrinking new risk.",
-         extra=[(f"max(liquiditybot_rp_dd_throttle_mult{JOB})",
-                 "drawdown throttle")])
-ts_multi(122, "Portfolio heat vs cap",
-         f"max(liquiditybot_rp_heat_frac{JOB})", 16, 114, 8, 8,
-         "open heat (gross/equity)", unit="percentunit", mn=0, mx=0.5,
-         desc="Gross open notional as a fraction of equity, vs the heat cap. "
-              "At the cap, new entries are vetoed (RP-051) — exits are never "
-              "blocked.",
-         extra=[(f"max(liquiditybot_rp_heat_cap_frac{JOB})", "cap")])
-ts_multi(123, "Reason codes by family",
-         f"max by (prefix) (liquiditybot_code_count{JOB})", 0, 122, 12, 8,
-         "{{prefix}}", unit="none",
-         desc="Cumulative reason-code emissions by family — SZ sizer, PT "
-              "pre-trade, RP risk-protocol, FW firewall, OM orders, ML, TH. "
-              "A jump in RP = budget/heat exhaustion stopping entries.")
-ts_multi(124, "Firewall rejects/clamps by code",
-         f"max by (code) (liquiditybot_firewall_count{JOB})", 12, 122, 12, 8,
-         "{{code}}", unit="none",
-         desc="Independent last-line screen (15c3-5 style): per-code reject/"
-              "clamp tallies. Entries reject on breach; exits are clamped, "
-              "never blocked.")
-
-bargauge(125, "Circuit breaker — loss streaks",
-         f"max by (asset) (liquiditybot_cb_loss_streak{JOB})",
-         0, 130, 9, 6, "{{asset}}", unit="none", mx=6,
-         desc="Consecutive full-trade losses per asset. At loss_streak "
-              "(config, default 4) the asset is paused for new entries "
-              "(SZ-046) — the early, local signal the portfolio budgets "
-              "react to late.",
-         steps=[{"color": "green", "value": None},
-                {"color": "yellow", "value": 2},
-                {"color": "red", "value": 4}])
-stat(126, "Breakers tripped", M("liquiditybot_cb_tripped_count"),
-     9, 130, 6, 6, decimals=0, mode="background",
-     desc="Assets currently paused by the consecutive-loss breaker. "
-          "Auto-resets after cooldown; exits are never touched.",
-     steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 1},
-            {"color": "red", "value": 2}])
-bargauge(127, "Paused — hours to auto-reset",
-         f"max by (asset) (liquiditybot_cb_paused_hours_left{JOB})",
-         15, 130, 9, 6, "{{asset}}", unit="none", mx=6,
-         desc="Cooldown remaining per paused asset (empty = nothing paused).",
-         steps=[{"color": "blue", "value": None}])
-
-# ---------------- §7 · Asset Skimmer ----------------
-row(7, "§7 · Asset Skimmer", 137)
-bargauge(130, "Candidate tradability scores",
-         f"max by (pair) (liquiditybot_skimmer_score{JOB})",
-         0, 138, 10, 8, "{{pair}}", unit="none", mx=1,
-         desc="Skimmer ranking of the candidate pool (spread cost 40% / book "
-              "depth 35% / bar activity 25%; thresholds in config). At or "
-              "above promote_score (0.55) a candidate is eligible for the "
-              "active universe.",
-         steps=[{"color": "red", "value": None},
-                {"color": "yellow", "value": 0.35},
-                {"color": "green", "value": 0.55}])
-stat(131, "Promoted (next boot)",
-     M("liquiditybot_skimmer_promoted_count"), 10, 138, 4, 4, decimals=0,
-     desc="Candidates promoted into the universe — active at the next runner "
-          "restart. Core pairs are permanent; cap keeps the total inside the "
-          "12-pair REST-fallback envelope.",
-     steps=[{"color": "text", "value": None}])
-stat(132, "Candidate pool",
-     M("liquiditybot_skimmer_candidates"), 10, 142, 4, 4, decimals=0,
-     desc="Pairs the skimmer is watching (<=2 REST calls per evaluation, one "
-          "candidate per interval — watching is nearly free).",
-     steps=[{"color": "text", "value": None}])
-panels.append({
-    "id": 133, "type": "table", "title": "Promoted pairs",
-    "description": "The skimmer's current promotion set (joins trading at the "
-                   "next restart; demotion only stops NEW entries — exits are "
-                   "never touched).",
-    "datasource": DS, "gridPos": {"h": 8, "w": 10, "x": 14, "y": 138},
-    "fieldConfig": {"defaults": {"custom": {"align": "auto",
-                                            "filterable": False}},
-                    "overrides": []},
-    "options": {"showHeader": True, "cellHeight": "sm",
-                "sortBy": [{"displayName": "pair", "desc": False}]},
-    "targets": [_t(f"liquiditybot_skimmer_promoted_info{JOB}", fmt="table")],
-    "transformations": [
-        {"id": "organize", "options": {
-            "excludeByName": {"Time": True, "job": True, "instance": True,
-                              "__name__": True, "Value": True},
-            "renameByName": {}, "indexByName": {"pair": 0}}}]})
-
-# ---------------------------------------------------------------------------
-# Partition the master panel list into FOUR focused dashboards (one page of
-# 80+ panels is unreadable). Sections stay authored above in one linear pass;
-# each output takes whole sections, rebased so every dashboard starts at y=0.
-# uids are stable: re-import overwrites in place. 'liquiditybot-trading' keeps
-# its uid so importing the new desk board REPLACES the old monolith.
-# ---------------------------------------------------------------------------
-
-def _section_block(row_id):
-    """A section = its row panel + everything until the next row (by y)."""
-    row_p = next(p for p in panels
-                 if p["type"] == "row" and p["id"] == row_id)
-    y0 = row_p["gridPos"]["y"]
-    nxt = [p["gridPos"]["y"] for p in panels
-           if p["type"] == "row" and p["gridPos"]["y"] > y0]
-    y1 = min(nxt) if nxt else 10 ** 9
-    block = [p for p in panels if y0 <= p["gridPos"]["y"] < y1]
-    return sorted(block, key=lambda p: (p["gridPos"]["y"], p["gridPos"]["x"]))
-
-
-def _compose(row_ids):
-    """Concatenate sections, rebasing y so each output starts at 0."""
-    out, y_off = [], 0
-    for rid in row_ids:
-        block = _section_block(rid)
-        base = block[0]["gridPos"]["y"]
-        bottom = 0
-        for p in block:
-            q = _copy.deepcopy(p)
-            q["gridPos"]["y"] = p["gridPos"]["y"] - base + y_off
-            bottom = max(bottom, q["gridPos"]["y"] + q["gridPos"]["h"])
-            out.append(q)
-        y_off = bottom
-    return out
-
-
-def _dash(uid, title, desc, row_ids):
-    return {"uid": uid, "title": title, "description": desc,
-            "tags": ["liquiditybot", "trading", "paper-trading"],
+# ============================ assemble =====================================
+def _dash():
+    return {"uid": "liquiditybot-trading",
+            "title": "liquiditybot — command",
+            "description": "Condensed logistical command board: health, "
+                           "learning brain, positions, per-asset comparison, "
+                           "risk. Replaces the old multi-dashboard set.",
+            "tags": ["liquiditybot", "trading", "paper-trading", "command"],
             "schemaVersion": 39, "editable": True, "timezone": "browser",
             "refresh": "30s", "time": {"from": "now-24h", "to": "now"},
             "templating": {"list": []}, "annotations": {"list": []},
-            "panels": _compose(row_ids)}
+            "panels": panels}
 
 
-DASHBOARDS = {
-    "liquiditybot_trading.json": _dash(
-        "liquiditybot-trading", "liquiditybot — trading desk",
-        "The daily driver: account performance and live positions. "
-        "Companions: execution & skimmer, signals & edge, model & risk.",
-        [1, 2]),
-    "liquiditybot_execution.json": _dash(
-        "liquiditybot-execution", "liquiditybot — execution & skimmer",
-        "Fill quality (mark-out, slippage, maker/taker, fees) and the asset "
-        "skimmer's candidate rankings/promotions.",
-        [3, 7]),
-    "liquiditybot_signals.json": _dash(
-        "liquiditybot-signals", "liquiditybot — signals & edge",
-        "Signal confidence/urgency, gate pass-rates and learned weights, "
-        "manipulation defense, regimes.",
-        [4]),
-    "liquiditybot_model_risk.json": _dash(
-        "liquiditybot-model-risk", "liquiditybot — model & risk",
-        "Model health & learning (Brier, calibration, learning velocity) and "
-        "the risk rails (budgets, throttles, heat, circuit breakers).",
-        [5, 6]),
-}
-
+DASHBOARDS = {"liquiditybot_command.json": _dash()}
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "grafana"
 
 if __name__ == "__main__":

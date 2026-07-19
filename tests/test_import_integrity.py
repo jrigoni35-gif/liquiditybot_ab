@@ -10,7 +10,7 @@ became clean_book/clean_candles.
 
 Each module is imported in its OWN interpreter so import-order coupling
 can't hide behind whatever pytest happened to load first. Missing
-third-party packages (streamlit, ccxt, moomoo...) are optional by
+third-party packages (ccxt, moomoo, torch...) are optional by
 design and skip; a NameError/ImportError originating in OUR packages
 fails the suite.
 """
@@ -20,7 +20,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_PACKAGES = ("core", "data", "execution", "ml", "risk", "api", "ui")
+_PACKAGES = ("core", "data", "execution", "ml", "risk", "api")
 
 
 def _modules():

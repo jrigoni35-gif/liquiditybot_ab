@@ -2,17 +2,20 @@
 core/runtime.py
 
 Shared state layer between the engine (main.LiquidityBot), the runner
-(runner.py) and the UI (ui/dashboard.py). The three never share a
-process or import each other's live objects - they communicate through
-files under outputs/, all writes atomic (tmp + os.replace), all
-payloads plain JSON. The UI can therefore never block, slow, or crash
-the trading loop, and the loop can never freeze the UI.
+(runner.py) and the out-of-process observability and control planes -
+Grafana Cloud telemetry export (scripts/gc_pusher.py reads these files)
+and the git remote-control console (scripts/remote_control.py). None of
+them share a process or import each other's live objects - they
+communicate through files under outputs/, all writes atomic (tmp +
+os.replace), all payloads plain JSON. Consumers can therefore never
+block, slow, or crash the trading loop, and the loop never waits on any
+reader.
 
-status.json    - full UI-facing state, rewritten every cycle
+status.json    - full telemetry-facing state, rewritten every cycle
 equity.csv     - append-only equity curve (ts, equity, daily_pnl)
 events.jsonl   - every log record from every module, structured
                 {ts, level, logger, msg}; rotates at 5 MB
-control/       - one JSON file per UI command; runner consumes,
+control/       - one JSON file per control command; runner consumes,
                 deletes, and acks into events.jsonl
 state.json     - the pause/resume snapshot (core/persistence.py)
 

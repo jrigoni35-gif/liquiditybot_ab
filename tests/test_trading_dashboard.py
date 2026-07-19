@@ -1,14 +1,16 @@
-"""tests/test_trading_dashboard.py — the trading dashboard's structural
+"""tests/test_trading_dashboard.py — the command dashboard's structural
 contract, CI-enforced:
 
   1. the generator (scripts/build_trading_dashboard.py — the SOURCE OF TRUTH)
-     and the shipped docs/grafana/liquiditybot_trading.json are identical, so
+     and the shipped docs/grafana/liquiditybot_command.json are identical, so
      hand-edits or a stale regeneration can't drift them apart;
   2. valid UI-importable shape: unwrapped, schemaVersion at top level, stable
      uid, unique panel ids, no overlapping gridPos;
   3. EVERY liquiditybot_* metric referenced by a panel query is actually
      emitted by scripts/gc_pusher.py — a renamed/removed metric breaks the
-     build instead of silently blanking a panel ("code reacts to the panels").
+     build instead of silently blanking a panel ("code reacts to the panels");
+  4. it is a LOGISTICAL board: no time-series graphs (stat/state/table/gauge
+     only), the whole point of the condense.
 """
 import json
 import re
@@ -66,6 +68,7 @@ _SYNTH_STATUS = {
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
                           "weights": {"if_1_flow_persistence": 0.9}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,
+                        "concentration": 0.6,
                         "gates": {"if_1_flow_persistence": True}}},
     "manip_suspect": {"BTC": 0.1},
     "regimes": {"BTC": {"macro": "range", "momentum": 0.1, "vol": "low",
@@ -73,17 +76,7 @@ _SYNTH_STATUS = {
                         "spoof": 0.0, "basis_bps": -1.0}},
     "code_stats": {"by_prefix": {"PT": 9},
                    "entry_codes": {"PT-041": 6, "PT-050": 2}},
-    "risk_protocols": {"daily_budget_used_frac": 0.1,
-                       "weekly_budget_used_frac": 0.05, "taper_mult": 1.0,
-                       "heat_frac": 0.04, "heat_cap_frac": 0.35,
-                       "dd_throttle_mult": 1.0},
-    "firewall": {"fault": None, "counters": {"FW-040": 2}},
-    "circuit_breaker": {"enabled": True, "loss_streak": 4,
-                        "streaks": {"BTC": 1}, "tripped": {"ETH": 3.0}},
-    "skimmer": {"enabled": True, "candidates": 8,
-                "promoted": ["SOL/USD"], "max_extra": 6,
-                "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,
-                                       "depth_usd": 60000, "ts": 1.7e9}}},
+    "ws_kraken": {"connected": True, "books": 6, "reconnects": 0},
 }
 
 
@@ -92,45 +85,52 @@ def _shipped(fname: str) -> dict:
                       .read_text(encoding="utf-8"))
 
 
-def test_generator_matches_every_shipped_json():
+def test_generator_matches_shipped_json():
     for fname, d in gen.DASHBOARDS.items():
         assert d == _shipped(fname), \
             f"{fname} differs from the generator — regenerate with " \
             "`python scripts/build_trading_dashboard.py` (never hand-edit)"
 
 
-def test_importable_shape_and_layout_per_dashboard():
-    uids = set()
-    for fname, _ in gen.DASHBOARDS.items():
-        d = _shipped(fname)
-        assert "dashboard" not in d and d["schemaVersion"] == 39, fname
-        assert d["uid"] and d["uid"] not in uids, f"{fname}: uid not unique"
-        uids.add(d["uid"])
-        assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0, \
-            f"{fname}: first panel must start at y=0 after rebase"
-        ids = [p["id"] for p in d["panels"]]
-        assert len(ids) == len(set(ids)), f"{fname}: duplicate panel ids"
-        rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
-                  p["gridPos"]["h"], p["id"]) for p in d["panels"]]
-
-        def ov(a, b):
-            return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
-                        or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
-        bad = [(a[4], b[4]) for i, a in enumerate(rects)
-               for b in rects[i + 1:] if ov(a, b)]
-        assert not bad, f"{fname}: overlapping panels: {bad}"
-    # the desk board keeps the original uid so it REPLACES the old monolith
-    assert _shipped("liquiditybot_trading.json")["uid"] == \
-        "liquiditybot-trading"
+def test_single_condensed_board():
+    assert list(gen.DASHBOARDS) == ["liquiditybot_command.json"], \
+        "the condense is ONE board; extra dashboards mean the sprawl returned"
 
 
-def test_partition_covers_every_authored_panel_once():
-    seen = []
-    for d in gen.DASHBOARDS.values():
-        seen += [p["id"] for p in d["panels"]]
-    authored = [p["id"] for p in gen.panels]
-    assert sorted(seen) == sorted(authored), \
-        "partition must place every authored panel in exactly one dashboard"
+def test_importable_shape_and_layout():
+    d = _shipped("liquiditybot_command.json")
+    assert "dashboard" not in d and d["schemaVersion"] == 39
+    assert d["uid"] == "liquiditybot-trading"        # replaces old desk board
+    assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0
+    ids = [p["id"] for p in d["panels"]]
+    assert len(ids) == len(set(ids)), "duplicate panel ids"
+    rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
+              p["gridPos"]["h"], p["id"]) for p in d["panels"]]
+
+    def ov(a, b):
+        return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
+                    or a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1])
+    bad = [(a[4], b[4]) for i, a in enumerate(rects)
+           for b in rects[i + 1:] if ov(a, b)]
+    assert not bad, f"overlapping panels: {bad}"
+
+
+def test_is_logistical_no_timeseries_graphs():
+    d = _shipped("liquiditybot_command.json")
+    kinds = {p["type"] for p in d["panels"]}
+    assert "timeseries" not in kinds and "graph" not in kinds, \
+        f"logistical board must have no graphs; found {kinds}"
+    assert kinds <= {"row", "stat", "table", "gauge"}, f"unexpected: {kinds}"
+
+
+def test_has_per_asset_comparison_table():
+    d = _shipped("liquiditybot_command.json")
+    tables = [p for p in d["panels"] if p["type"] == "table"]
+    # a table joined on the `asset` label = the decision-comparison scorecard
+    asset_tbl = [t for t in tables if any(
+        "asset" in str(tr.get("expr", "")) or
+        tr.get("expr", "").find("perf_asset") >= 0 for tr in t["targets"])]
+    assert asset_tbl, "per-asset comparison table is the decision centrepiece"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):

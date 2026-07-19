@@ -10,17 +10,22 @@ liquidity regimes, β-weighted hedging, and a free multi-source sentiment layer
 Fear&Greed/CoinGecko context and optional moomoo equities — all feeding a
 narrative filter that cannot trigger trades. Full design: `docs/ARCHITECTURE_V2.md`.
 
-## Architecture: engine / runner / UI
+## Architecture: engine / runner
 
-Three separate processes, connected only through files in `outputs/`
-(all writes atomic). The UI can never block or crash the trading loop.
+Two separate processes, connected only through files in `outputs/`
+(all writes atomic). Out-of-process consumers can never block or crash
+the trading loop.
 
 ```text
 main.py         engine     loop-free; exposes cycle_once()
 runner.py       runner     the ONLY loop; consumes control commands,
                            writes status.json + equity.csv each cycle
-dashboard       Streamlit  reads files, drops commands
 ```
+
+Observability is **Grafana Cloud** (a telemetry sidecar reads the files
+and pushes metrics + logs); control is the **git remote-control plane**
+(`outputs/control/` command files). The legacy Streamlit operator
+dashboard has been retired.
 
 ## Quickstart — two commands
 
@@ -28,39 +33,38 @@ Windows:
 
 ```bat
 install.bat     REM one-time: venv + all dependencies + verify
-start.bat       REM bot (own window) + dashboard (opens in browser)
+start.bat       REM run the bot (own window)
 ```
 
 macOS / Linux:
 
 ```bash
 ./install.sh    # one-time: venv + all dependencies + verify
-./start.sh      # bot (background) + dashboard (opens in browser)
+./start.sh      # run the bot (background)
 ```
 
 `stop.bat` / `./stop.sh` stops the bot cleanly (snapshot, dead-man
 cancel of resting orders, loop exit between cycles). Everything starts
 in DRY RUN — paper trading; no real orders can be placed until you set
-`dry_run:false` in config.json, restart, AND type the ARM phrase in the
-dashboard.
+`dry_run:false` in config.json, restart, AND type the ARM phrase
+(`ARM LIVE`) at the PC console.
 
 ## Run (manual, equivalent)
 
 ```bash
-pip install -r requirements.txt       # includes streamlit for the dashboard
+pip install -r requirements.txt       # bot dependencies
 python scripts/smoke_test.py          # 205 checks, no network
 
-python runner.py                      # terminal 1 — the bot
-streamlit run ui/dashboard.py         # terminal 2 — the dashboard
+python runner.py                      # the bot
 ```
 
 `python main.py` still works (delegates to the runner). Flags:
 `--config path`, `--fresh` (wipe saved state), `--paused` (start paused,
-control it from the dashboard).
+control it from the git remote-control plane).
 
 ## Control commands
 
-Sent by the dashboard, or by hand — drop JSON into `outputs/control/`:
+Sent by the git remote-control plane, or by hand — drop JSON into `outputs/control/`:
 
 ```bash
 python -c "from core.runtime import ControlChannel; ControlChannel().send('pause')"
@@ -102,8 +106,8 @@ Layered, each independent:
 
 1. `system.dry_run: true` (default) — everything simulated.
 2. In live config, ALL new orders are blocked until the operator arms
-   from the dashboard by typing exactly `ARM LIVE`. Disarm is one
-   click. Exits are never blocked either way.
+   at the PC console by typing exactly `ARM LIVE`. Disarm is one
+   command. Exits are never blocked either way.
 3. Withdrawals are impossible at the code level: Withdraw/WalletTransfer
    and every related endpoint is on a hard deny list in the Kraken
    client, before any network call. Use an API key without withdrawal
@@ -154,8 +158,7 @@ Everything the learning stack consumes, and the knobs that matter:
   small sample sizes. Still must beat the logistic baseline to deploy.
 * **Feature importance** — every training run measures permutation
   importance on a true out-of-sample fold (which features, when
-  shuffled, actually cost AUC) — printed, stored in the model JSON, and
-  shown in the dashboard ML tab.
+  shuffled, actually cost AUC) — printed and stored in the model JSON.
 * **Input drift (leading indicator)** — recent live feature
   distributions are compared to the training deciles via PSI. When
   >30% of features shift past PSI 0.25, a retrain fires *before*
@@ -219,10 +222,6 @@ python scripts/smoke_test.py        # 205 checks, no network needed
 * **requests** (`>=2.31.0`) — HTTP client for public market data and REST calls.
 * **numpy** (`>=1.26`) — every quant path: signals, position sizing, the ML models, and the HMM macro-regime detector.
 * **defusedxml** (`>=0.7`) — hardened XML/RSS parsing for untrusted sentiment feeds (blocks entity-expansion attacks).
-
-**Operator dashboard — optional, but listed in `requirements.txt`:**
-
-* **streamlit** (`>=1.46`) — powers `ui/dashboard.py`. The trading engine runs fully headless without it; install only if you want the live operator view.
 
 **Optional feature dependencies — the bot degrades gracefully (one warning, keeps running) if any are absent:**
 

@@ -12,7 +12,7 @@
             "env": { "PYTHONUTF8": "1" }
         },
         {
-            "name": "Run Bot - start paused (step from dashboard)",
+            "name": "Run Bot - start paused (step from control plane)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/runner.py",
@@ -28,17 +28,6 @@
             "request": "launch",
             "program": "${workspaceFolder}/runner.py",
             "args": ["--fresh"],
-            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
-            "env": { "PYTHONUTF8": "1" }
-        },
-        {
-            "name": "Dashboard (Streamlit, loopback only)",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "streamlit",
-            "args": ["run", "ui/dashboard.py", "--server.address=127.0.0.1"],
             "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",

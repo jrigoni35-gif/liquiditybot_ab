@@ -22,7 +22,7 @@ Grafana Cloud's OTLP translator appends a `_ratio` suffix ONLY to gauges
 whose unit is "1"; gauge() below deliberately emits an EMPTY unit so the
 stored name equals the exported name (no suffix). `liquiditybot_equity`
 is therefore stored as `liquiditybot_equity` — the base name that
-docs/grafana/liquiditybot_dashboard.json queries. (Do not set a unit here
+docs/grafana/liquiditybot_command.json queries. (Do not set a unit here
 without also renaming the dashboard's queried metrics in the same change.)
 """
 import base64
@@ -238,7 +238,10 @@ def collect(status_path: str) -> list:
         m.append(gauge("liquiditybot_manip_suspect", v, {"asset": asset}, ts))
     for asset, sig in (s.get("signals") or {}).items():
         if isinstance(sig, dict):
-            for k in ("confidence", "urgency"):
+            # concentration (0 diffuse .. 1 pinpointed): the per-asset
+            # decision-quality signal - lets the desk compare a concentrated
+            # conviction against a blended-average signal side by side
+            for k in ("confidence", "urgency", "concentration"):
                 if isinstance(sig.get(k), (int, float)):
                     m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
                                    {"asset": asset}, ts))

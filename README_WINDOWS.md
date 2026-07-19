@@ -4,8 +4,11 @@
 
 ```bat
 install.bat              # one-time: creates .venv, installs everything, verifies
-start.bat                # runs the bot AND opens the dashboard in your browser
+start.bat                # runs the bot
 ```
+
+Observability lives in Grafana Cloud (see `docs/PHONE_SESSIONS.md`); the
+legacy Streamlit dashboard has been retired.
 
 `stop.bat` stops the bot cleanly. `test_windows.bat` runs the full
 offline verification matrix before you trust it with anything.
@@ -15,8 +18,7 @@ offline verification matrix before you trust it with anything.
 ```bat
 install.bat                              # creates .venv, installs requirements
 test_windows.bat                         # runs the verification checks (offline)
-python runner.py                         # starts the bot alone (dry_run=true by default)
-python -m streamlit run ui\dashboard.py  # starts the dashboard alone
+python runner.py                         # starts the bot (dry_run=true by default)
 ```
 
 (The former `setup_windows.bat` / `run_windows.bat` / `dashboard_windows.bat`
@@ -84,7 +86,7 @@ The bot ships `dry_run: true` in `config.json`. To arm live:
    `exchanges.kraken.api_secret` (config guard refuses to start live
    without them).
 3. Set `system.dry_run: false`.
-4. In the dashboard, type `ARM LIVE` (the hard gate the runner requires
+4. At the PC console, type `ARM LIVE` (the hard gate the runner requires
    before it will actually route live orders).
 
 Anything short of all four steps keeps you in paper mode.

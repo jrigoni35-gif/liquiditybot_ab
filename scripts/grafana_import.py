@@ -22,12 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARDS = [
-    "liquiditybot_trading.json",
-    "liquiditybot_execution.json",
-    "liquiditybot_signals.json",
-    "liquiditybot_model_risk.json",
-    "liquiditybot_dashboard.json",      # control
-    "liquiditybot_incidents.json",
+    # one condensed logistical board (uid liquiditybot-trading) replaces the
+    # old monolith + the four graph partitions + the incidents board.
+    "liquiditybot_command.json",
 ]
 
 

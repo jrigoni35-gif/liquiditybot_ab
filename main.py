@@ -1734,6 +1734,11 @@ class LiquidityBot:
                 "direction": signal.direction,
                 "confidence": round(float(signal.confidence), 3),
                 "urgency": round(float(getattr(signal, "urgency", 0.0)), 2),
+                # shadow evidence-concentration (0 diffuse .. 1 pinpointed):
+                # exposed to telemetry so the desk can compare concentrated
+                # conviction vs blended-average signals across assets
+                "concentration": round(float(getattr(
+                    signal, "evidence_concentration", 0.0)), 3),
                 "gates": {k: bool(x) for k, x in
                           (signal.gates_passed or {}).items()},
                 "ts": now,
