@@ -104,6 +104,30 @@ def test_note_exec_garbage_safe():
     assert om.status()["maker_notional_usd"] == 100.0   # still accumulates
 
 
+def test_query_orders_chunks_all_txids_over_50():
+    """Live poll must QueryOrders in chunks of 50 and merge, so the 51st+
+    resting order is actually polled (was truncated to the first 50)."""
+    om = OrderManager(feed=None, config={}, dry_run=False)
+    calls = []
+
+    def fake_query(ep, data):
+        ids = data["txid"].split(",")
+        calls.append(ids)
+        return {t: {"vol_exec": "0", "price": "0", "status": "open"}
+                for t in ids}
+    om._timed_private = fake_query
+    om.refresh_deadman = lambda now: None
+    for i in range(51):
+        o = ManagedOrder(order_id=f"o{i}", txid=f"T{i}", asset="ETH",
+                         pair="ETHUSD", symbol="ETH/USD", side="buy",
+                         price=2000.0, size=1.0)
+        om._orders[o.order_id] = o
+    om.poll(books={}, sigma_by_asset={}, now=1000.0)
+    assert len(calls) == 2                       # 50 + 1, not one truncated call
+    flat = [t for chunk in calls for t in chunk]
+    assert set(flat) == {f"T{i}" for i in range(51)} and len(flat) == 51
+
+
 def test_arrival_ref_makes_crossing_buy_show_true_cost():
     """The correction: with an arrival mark recorded, a marketable buy that
     fills BELOW its (aggressive) limit no longer looks like 'improvement' — it

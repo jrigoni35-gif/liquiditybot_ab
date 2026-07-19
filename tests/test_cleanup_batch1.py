@@ -6,7 +6,17 @@ launcher fixes are pinned in their own suites.
 """
 import pytest
 
+from main import LiquidityBot
 from ml.postmortem import PostmortemEngine, TradeThesis
+
+
+def test_symbol_base_disambiguates_eth_from_ethfi():
+    b = LiquidityBot._symbol_base
+    assert b("ETH-USDT") == "ETH" and b("ETH/USDT") == "ETH"
+    assert b("ETHUSDT") == "ETH" and b("BTCUSD") == "BTC"
+    # the bug: startswith('ETH') matched these; base-parse must not collapse them
+    assert b("ETHFI-USDT") == "ETHFI"
+    assert b("ETHFIUSDT") == "ETHFI"
 
 
 def _thesis(entry_usd, fees_usd=5.0):

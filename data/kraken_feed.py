@@ -185,7 +185,10 @@ class KrakenFeed(ThrottledRestClient):
         if not result:
             return None
         key = next(iter(result))  # Kraken echoes back its own internal pair name
-        px = safe_float(result[key]["c"][0], default=0.0)  # 'c' = last trade
+        try:
+            px = safe_float(result[key]["c"][0], default=0.0)  # 'c' = last trade
+        except (KeyError, IndexError, TypeError):
+            return None            # malformed/partial Ticker -> None, not a raise
         return px if px > 0 else None
 
     @staticmethod

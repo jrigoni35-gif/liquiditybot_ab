@@ -210,7 +210,7 @@ class OrderManager:
         if new in _TERMINAL:
             self._retire(order)
             get_audit().log("order_manager", Code.OM_TIMEOUT_CANCEL
-                            if new == "expired" else "OM-000",
+                            if new == "expired" else Code.OM_CLEAN_TERMINAL,
                             f"{order.order_id} {order.side} {order.pair} "
                             f"terminal={new} fill_ratio="
                             f"{order.fill_ratio:.2f} ({why})",
@@ -497,13 +497,20 @@ class OrderManager:
                     order, books.get(order.asset),
                     sigma_by_asset.get(order.asset, 0.05), now))
         else:
-            batch = None
+            # QueryOrders caps at 50 txids/call: chunk ALL open txids into
+            # groups of 50 and merge, else the 51st+ resting order is polled
+            # against a batch that never contained it and never updates/fills.
+            batch: dict = {}
             txids = [o.txid for o in open_now if o.txid]
-            if txids:
-                batch = self._timed_private(
-                    "QueryOrders", {"txid": ",".join(txids[:50])})
+            for i in range(0, len(txids), 50):
+                res = self._timed_private(
+                    "QueryOrders", {"txid": ",".join(txids[i:i + 50])})
+                if isinstance(res, dict):
+                    batch.update(res)
+            # empty -> None so _poll_live falls back to a per-order self-query
+            merged = batch or None
             for order in open_now:
-                events.extend(self._poll_live(order, now, batch))
+                events.extend(self._poll_live(order, now, merged))
             self.refresh_deadman(now)
         return events
 

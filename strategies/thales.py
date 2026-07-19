@@ -745,7 +745,10 @@ class ThalesEngine:
         keeps the window recent (~30 bars at 0.97)."""
         if not bids or not asks:
             return
-        top = (float(bids[0][0]), float(asks[0][0]))
+        try:
+            top = (float(bids[0][0]), float(asks[0][0]))
+        except (TypeError, ValueError, IndexError):
+            return                 # malformed top-of-book row: skip, as siblings do
         bar_idx = int(now // st.bc_bar_sec)
         if bar_idx != st.bc_last_bar:
             st.bc_last_bar = bar_idx

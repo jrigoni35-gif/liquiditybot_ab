@@ -2146,6 +2146,19 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence
     # ------------------------------------------------------------------
+    @staticmethod
+    def _symbol_base(sym: str) -> str:
+        """Base asset of an exchange symbol: 'ETH-USDT'/'ETH/USDT' -> 'ETH',
+        'ETHUSDT' -> 'ETH'. Used so a prefix match for 'ETH' can't grab
+        'ETHFI-*'/'ETHW-*' (startswith bug) and feed the wrong asset's candles."""
+        for sep in ("-", "/"):
+            if sep in sym:
+                return sym.split(sep, 1)[0]
+        for q in ("USDT", "USDC", "USD"):
+            if sym.endswith(q):
+                return sym[:-len(q)]
+        return sym
+
     def hourly_cycle(self, now: float):
         # adaptive-penalty staleness decay: without this a raised entry
         # bar can deadlock (bar blocks trades -> no closes -> the causes
@@ -2156,12 +2169,12 @@ class LiquidityBot:
         for asset in self.symbol_map:
             candles = []
             for s in okx_syms:
-                if s.startswith(asset):
+                if self._symbol_base(s) == asset:
                     candles = self.okx.get_daily_candles(s)
                     break
             if not candles:
                 for s in binanceus_syms:
-                    if s.startswith(asset):
+                    if self._symbol_base(s) == asset:
                         candles = self.binanceus.get_daily_candles(s)
                         break
             if not candles:

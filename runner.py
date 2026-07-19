@@ -61,7 +61,10 @@ def merge_skimmer_universe(config: dict,
     extra = AssetSkimmer.load_active(active_path, core,
                                      int(sk_cfg.get("max_extra", 6)))
     if extra:
-        config["exchanges"]["kraken"]["trading_pairs"] = core + extra
+        # write through setdefault so a config missing exchanges/kraken (the
+        # read above degrades to []) can't KeyError on the write-back
+        config.setdefault("exchanges", {}).setdefault(
+            "kraken", {})["trading_pairs"] = core + extra
         log.warning("skimmer: universe widened for this boot: %d core + "
                     "promoted %s", len(core), extra)
     return extra

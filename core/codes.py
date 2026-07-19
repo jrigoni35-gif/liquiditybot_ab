@@ -65,6 +65,7 @@ class Code(str, Enum):
     VN_CREDENTIAL_MISSING = "VN-030" # enabled adapter without resolved creds
 
     # ---- order manager (OM) ------------------------------------------
+    OM_CLEAN_TERMINAL = "OM-000"     # order reached filled/cancelled cleanly
     OM_INVALID_INPUT = "OM-010"
     OM_MARKET_REFUSED = "OM-011"     # market order outside exit escalation
     OM_BELOW_ORDERMIN = "OM-012"
