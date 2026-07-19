@@ -42,7 +42,7 @@ import numpy as np
 
 from core.audit import get_audit
 from core.codes import Code, tag
-from core.sanitize import safe_float
+from core.sanitize import is_finite_pos as _fin_pos, safe_float
 
 log = logging.getLogger("liquiditybot.execution.order_manager")
 
@@ -54,10 +54,6 @@ _LEGAL = {
     "filled": set(), "cancelled": set(), "expired": set(),
 }
 _HISTORY_CAP = 512          # bounded terminal-order retention
-
-
-def _fin_pos(x) -> bool:
-    return isinstance(x, (int, float)) and math.isfinite(x) and x > 0
 
 
 @dataclass

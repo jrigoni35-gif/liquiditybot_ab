@@ -41,11 +41,12 @@ documented constants rather than in core/codes.py (which governs the chain).
 import csv
 import json
 import logging
-import math
 import re
 import time
 from collections import Counter
 from pathlib import Path
+
+from core.sanitize import safe_float as _f
 
 log = logging.getLogger("liquiditybot.core.session_digest")
 
@@ -111,14 +112,6 @@ def _read_json(path: Path) -> dict:
         return val if isinstance(val, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 # --------------------------------------------------------------------------

@@ -27,21 +27,17 @@ have been using everywhere downstream anyway).
 """
 
 import logging
-import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
 from core.codes import Code, tag
+from core.sanitize import is_finite as _fin
 
 log = logging.getLogger("liquiditybot.risk.position_sizer")
 
 EPS = 1e-9
-
-
-def _fin(x) -> bool:
-    return isinstance(x, (int, float)) and math.isfinite(x)
 
 
 @dataclass

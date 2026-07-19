@@ -22,24 +22,16 @@ Boundaries, enforced in code not prose:
 """
 
 import logging
-import math
 import time
 
 from core.sanitize import clean_book, clean_candles
+from core.sanitize import safe_float as _f
 
 log = logging.getLogger("liquiditybot.data.ccxt")
 
 _CREDENTIAL_KEYS = {"api_key", "apikey", "secret", "api_secret",
                     "password", "token", "uid", "privatekey",
                     "private_key", "walletaddress"}
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 class CCXTFeed:

@@ -35,11 +35,9 @@ import logging
 import math
 from dataclasses import dataclass
 
+from core.sanitize import is_finite_pos as _fin_pos
+
 log = logging.getLogger("liquiditybot.execution.tactics")
-
-
-def _fin_pos(x) -> bool:
-    return isinstance(x, (int, float)) and math.isfinite(x) and x > 0
 
 
 @dataclass

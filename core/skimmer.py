@@ -46,20 +46,13 @@ import time
 from pathlib import Path
 
 from core.runtime import atomic_write_json
+from core.sanitize import safe_float as _f
 
 log = logging.getLogger("liquiditybot.core.skimmer")
 
 EPS = 1e-9
 # structural composition of the three sub-scores (documented above)
 _W_SPREAD, _W_DEPTH, _W_ACTIVITY = 0.40, 0.35, 0.25
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 def score_candidate(spread_bps, depth_usd, bar_range_pct, *,

@@ -50,18 +50,11 @@ from datetime import datetime, timezone
 
 from core.codes import Code, tag
 from risk.protocols import give_back_stop
+from core.sanitize import safe_float as _f
 
 log = logging.getLogger("liquiditybot.risk.profit_tiers")
 
 _BAR_MINUTES = 5.0     # matches the data feeds' candle interval
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 @dataclass

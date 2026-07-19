@@ -33,14 +33,11 @@ from dataclasses import dataclass, field
 
 
 from core.codes import Code, tag
+from core.sanitize import is_finite as _fin
 
 log = logging.getLogger("liquiditybot.execution.pretrade")
 
 EPS = 1e-9
-
-
-def _fin(x) -> bool:
-    return isinstance(x, (int, float)) and math.isfinite(x)
 
 
 @dataclass

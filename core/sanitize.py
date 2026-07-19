@@ -56,6 +56,20 @@ def sanitize_number(value, default: float = 0.0) -> float:
     return safe_float(value, default)
 
 
+def is_finite(x) -> bool:
+    """True iff x is a real, finite number (not bool-excluding — callers that
+    build math on it already treat bool as int). The single home for the
+    `isinstance(x,(int,float)) and math.isfinite(x)` predicate copied across
+    the execution/risk modules."""
+    return isinstance(x, (int, float)) and math.isfinite(x)
+
+
+def is_finite_pos(x) -> bool:
+    """True iff x is a finite, strictly-positive number. Single home for the
+    `_fin_pos`/`_finite_pos` predicate copied across execution modules."""
+    return isinstance(x, (int, float)) and math.isfinite(x) and x > 0
+
+
 def loads_bounded(text: str | None, max_bytes: int = MAX_RESPONSE_BYTES):
     """json.loads that (a) rejects oversized payloads and (b) refuses the
     non-standard NaN/Infinity/-Infinity tokens stdlib json otherwise

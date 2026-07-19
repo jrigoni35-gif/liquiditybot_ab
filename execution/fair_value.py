@@ -29,16 +29,13 @@ Public surface unchanged: FairValueEngine(config).state(asset) /
 """
 
 import logging
-import math
 from dataclasses import dataclass
+
+from core.sanitize import is_finite_pos as _finite_pos
 
 log = logging.getLogger("liquiditybot.execution.fair_value")
 
 EPS = 1e-12
-
-
-def _finite_pos(x) -> bool:
-    return isinstance(x, (int, float)) and math.isfinite(x) and x > 0
 
 
 @dataclass

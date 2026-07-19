@@ -49,16 +49,9 @@ import math
 from collections import deque
 
 from strategies.signal_gates import SignalResult
+from core.sanitize import safe_float as _f
 
 log = logging.getLogger("liquiditybot.strategies.informed_flow")
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 def _clv(candle: dict) -> float:

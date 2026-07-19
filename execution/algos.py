@@ -49,17 +49,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from core.sanitize import safe_float as _f
+
 log = logging.getLogger("liquiditybot.execution.algos")
 
 ALGOS = ("twap", "vwap", "pov", "is")
-
-
-def _f(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except (TypeError, ValueError):
-        return default
 
 
 # ---------------------------------------------------------------------------
