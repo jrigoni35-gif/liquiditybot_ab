@@ -206,7 +206,8 @@ class HistoryStore:
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4,
                         manip_discount: float = 0.5, return_sig: bool = False,
-                        weights_cfg: dict | None = None):
+                        weights_cfg: dict | None = None,
+                        return_label_times: bool = False):
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
         weights encode the honest priors:
@@ -410,9 +411,17 @@ class HistoryStore:
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)
+        # label RESOLUTION times (row append ts): live rows can resolve
+        # far past signal+label_span (full-window holds), so the time
+        # purge must know when each label actually landed, not assume
+        # the fixed horizon (LP-1: under-purged live-label leakage)
+        res = np.array([m[1] for m in meta], float)
         if len(sig):
             order = np.argsort(sig, kind="mergesort")
-            X, y, w, sig = X[order], y[order], w[order], sig[order]
+            X, y, w, sig, res = (X[order], y[order], w[order],
+                                 sig[order], res[order])
+        if return_label_times:
+            return X, y, w, sig, res
         if return_sig:
             return X, y, w, sig
         return X, y, w

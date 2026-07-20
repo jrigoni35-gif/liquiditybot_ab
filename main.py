@@ -2481,11 +2481,19 @@ class LiquidityBot:
             from ml.calibration import (IsotonicCalibrator, brier_score,
                                         feature_deciles)
             sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
-            X, y, w, sig = self.history.load_training_data(
+            X, y, w, sig, res = self.history.load_training_data(
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
                 candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
                 manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
-                return_sig=True, weights_cfg=sw_cfg)
+                return_label_times=True, weights_cfg=sw_cfg)
+            # LP-4: the same feature contract the INFERENCE path enforces
+            # screens the training matrix - a poisoned row must not be
+            # 'fixed' into the weights (rows dropped, never imputed)
+            from ml.contracts import get_contract
+            _keep = get_contract().check_matrix(X)["keep"]
+            if not _keep.all():
+                X, y, w = X[_keep], y[_keep], w[_keep]
+                sig, res = sig[_keep], res[_keep]
             if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
                 return
             log.warning(f"auto-retrain: {len(X)} rows "
@@ -2519,7 +2527,7 @@ class LiquidityBot:
                 ensemble_k=int(self.config.get('ml', {})
                             .get('ensemble_seeds', 3)), sig=sig,
                 extra_models=_extra, adaptive_cfg=_ag,
-                n_live=int(_n_live), select_cfg=_sel_cfg)
+                n_live=int(_n_live), select_cfg=_sel_cfg, res=res)
             if results.get("gated"):
                 get_audit().log(
                     "ml_governor", Code.ML_LADDER_GATED,

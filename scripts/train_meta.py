@@ -118,10 +118,16 @@ def main():
     # amount of time and a dense pre-boundary burst leaks future labels the
     # row-count purge silently keeps (OF-6). overfit_check already measures the
     # TIME-purged process; without this the DEPLOYED selection didn't use it.
-    X, y, w, sig = store.load_training_data(
+    X, y, w, sig, res = store.load_training_data(
         half_life_days=float(sw_cfg.get("half_life_days", 30)),
         candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-        return_sig=True, weights_cfg=sw_cfg)
+        return_label_times=True, weights_cfg=sw_cfg)
+    # LP-4: same training screen as the engine path - see check_matrix
+    from ml.contracts import get_contract
+    _keep = get_contract().check_matrix(X)["keep"]
+    if not _keep.all():
+        X, y, w, sig, res = X[_keep], y[_keep], w[_keep], sig[_keep], \
+            res[_keep]
     source = "live history"
 
     if args.bootstrap or len(X) < min_rows:
@@ -188,7 +194,7 @@ def main():
         sample_weight=w, feature_names=FEATURE_NAMES,
         ensemble_k=int(ml_cfg.get("ensemble_seeds", 3)), sig=sig,
         extra_models=extra_models, adaptive_cfg=ag_cfg,
-        n_live=n_live, select_cfg=select_cfg)
+        n_live=n_live, select_cfg=select_cfg, res=res)
     if results.get("gated"):
         log.info("selection evidence-gated: trained %s, skipped %s "
                  "(%d live labels, %d total rows)", results.get("admitted"),
@@ -205,7 +211,15 @@ def main():
                         f"uncalibrated",
                         {"oof_points": int(len(sel["oof_p"]))})
     oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
-    oof_brier = brier_score(sel["oof_y"], oof_cal) if len(oof_cal) else 0.25
+    if not len(oof_cal):
+        # LP-6: a challenger with ZERO out-of-fold predictions has no
+        # measured skill - the old path fabricated oof_brier=0.25 and
+        # walked it into the champion gate as if observed. Refuse:
+        # unmeasured never deploys.
+        log.error("no OOF predictions (corpus too small for the fold "
+                  "grid) - refusing to deploy an unmeasured challenger")
+        return 1
+    oof_brier = brier_score(sel["oof_y"], oof_cal)
     log.info(f"OOF Brier (calibrated): {oof_brier:.4f} "
              f"(calibrator fitted={cal.fitted})")
     if results.get("importance"):

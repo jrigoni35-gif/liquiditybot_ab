@@ -119,7 +119,7 @@ BAR_SECONDS = 300.0
 
 
 def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
-                        embargo_frac: float = 0.02, sig=None):
+                        embargo_frac: float = 0.02, sig=None, res=None):
     """Yields (train_idx, test_idx) with purge + embargo, expanding window.
 
     Purge mode:
@@ -140,6 +140,14 @@ def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
     if use_time:
         sig = np.asarray(sig, float)
         horizon_sec = float(label_span) * BAR_SECONDS
+        # LP-1: `res` (per-row label RESOLUTION time) supersedes the
+        # fixed horizon when given - a live row held past the label
+        # window resolves at CLOSE, and assuming signal+span leaked
+        # its still-in-the-future label into training folds. The
+        # fixed-horizon path remains for callers without res.
+        use_res = res is not None and len(res) == n
+        if use_res:
+            res = np.asarray(res, float)
     # NOTE: with an expanding window (train strictly precedes test) the
     # post-test embargo is a no-op — it only matters for combinatorial CV
     # where training data can follow the test block. embargo_frac is kept
@@ -148,14 +156,22 @@ def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
     for k in range(1, n_splits + 1):
         test_start = k * fold
         test_end = min(test_start + fold, n)
-        if use_time:
+        if use_time and use_res:
+            # keep only rows whose label ACTUALLY resolved before the
+            # test opens; res is not monotone in sig (variable holds)
+            # so this is a mask, not a prefix
+            train_idx = np.where(
+                (np.arange(n) < test_start)
+                & (res <= sig[test_start]))[0]
+        elif use_time:
             # keep only rows whose label fully resolves at/before the test
             # opens: sig[i] + horizon <= sig[test_start]
             cutoff = sig[test_start] - horizon_sec
             train_end = int(np.searchsorted(sig, cutoff, side="right"))
+            train_idx = np.arange(0, train_end)
         else:
             train_end = max(test_start - label_span, 0)      # row-count purge
-        train_idx = np.arange(0, train_end)
+            train_idx = np.arange(0, train_end)
         test_idx = np.arange(test_start, test_end)
         if len(train_idx) >= 30 and len(test_idx) >= 10:
             yield train_idx, test_idx
@@ -199,7 +215,8 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                         ensemble_k: int = 3, sig=None,
                         extra_models=(), adaptive_cfg=None,
                         n_live: int | None = None,
-                        select_cfg: dict | None = None) -> dict:
+                        select_cfg: dict | None = None,
+                        res=None) -> dict:
     """Walk-forward all candidates; ship the Brier winner (simplicity-
     biased), fitted on all data. When `sig` (per-row signal timestamps) is
     given the fold purge is TIME-based, not row-count - the deployed model
@@ -241,7 +258,8 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     # WHICH rows were scored out-of-fold (results["oof_idx"] — needed to
     # rescore a frozen incumbent champion on the same fresh evidence)
     folds = [(tr, te) for tr, te in
-             purged_walk_forward(len(X), n_splits, label_span, sig=sig)
+             purged_walk_forward(len(X), n_splits, label_span, sig=sig,
+                                 res=res)
              if y[tr].sum() >= 5 and (len(y[tr]) - y[tr].sum()) >= 5]
     results["oof_idx"] = (np.concatenate([te for _, te in folds])
                           if folds else np.empty(0, int))
