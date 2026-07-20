@@ -8,11 +8,14 @@ skew - the classic way ML trading systems silently die.
 
 Feature families:
 price/momentum   - multi-horizon returns normalized by bar vol
-volatility       - per-bar vol, daily vol percentile
-microstructure   - imbalance, spread, depth, fair-value edge, basis
+volatility       - per-bar vol, daily vol percentile, realized-vol
+                    term structure (expanding vs compressing)
+microstructure   - imbalance, spread, depth, fair-value edge, basis,
+                    touch-depth concentration (book SHAPE)
 flow             - volume z-score, funding rate
 regime           - macro label one-hots, momentum score, drawdown
-cross-asset      - fast corr, corr shift, turbulence percentile
+cross-asset      - fast corr, corr shift, turbulence percentile,
+                    equal-weight market-factor drift with the trade
 sentiment        - blended influencer/news/crowd score, fear-spike
                      flag (filter inputs only; never *creates* a signal)
 context          - crypto Fear&Greed index, BTC-dominance delta
@@ -53,14 +56,25 @@ CONTEXT_NEUTRAL = {"regime_age": 0.5, "funding_dist": 0.5,
                    "opt_iv_skew": 0.0,
                    "manip_suspect": 0.0}
 
+# migration neutrals for the v7 trio. vol_term/mkt_ret_6_dir: 0.0 =
+# "flat term structure / no market drift observed". book_touch_share:
+# 0.2 = the even-10-level neutral — the denominator is the top-10
+# notionals BOTH SIDES (5 levels per side); under a perfectly flat book
+# each of those 10 levels carries 1/10, and the touch is one level per
+# side = 2/10 = 0.2. Padding 0.0 would falsely claim a hollow touch.
+TRIO_NEUTRAL = {"vol_term": 0.0, "mkt_ret_6_dir": 0.0,
+                "book_touch_share": 0.2}
+
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
 # v3: +context/THALES block, 46->53; v4: +options positioning, 53->56;
 # v5: +manip_suspect adversarial-data score, 56->57; v6: +th_barclose
-# bar-close herd detector, 57->58).
+# bar-close herd detector, 57->58; v7: +vol_term/mkt_ret_6_dir/
+# book_touch_share regime-derivative/market-factor/book-shape trio,
+# 58->61).
 # Restore paths must drop pending vectors from other versions - the
 # width guard alone cannot see a semantic change, and versioning also
 # documents additive bumps.
-FEATURE_SCHEMA_VERSION = 6
+FEATURE_SCHEMA_VERSION = 7
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -95,6 +109,9 @@ FEATURE_NAMES = [
     "opt_iv_skew",                # put-minus-call IV, points/10 [-1,1]
     "manip_suspect",              # adversarial-data suspicion [0,1]
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
+    "vol_term",                   # log(sigma_12/sigma_96) term structure
+    "mkt_ret_6_dir",              # equal-weight market drift, with trade
+    "book_touch_share",           # touch notional / top-10 notional [0,1]
     "direction", "gate_confidence",
 ]
 
@@ -109,6 +126,8 @@ FEATURE_NAMES = [
 # already returns 0 for degenerate (binary/one-hot) deciles; here the tell is
 # semantic (clock/counter) rather than structural (tied edges), so it is named
 # explicitly. Market features (vol, spread, returns, imbalance, ...) still vote.
+# The v7 trio (vol_term, mkt_ret_6_dir, book_touch_share) was considered and
+# left VOTING: all three are functions of market state, not the clock.
 DRIFT_EXCLUDED_FEATURES = frozenset({
     "hour_sin", "hour_cos",   # time-of-day cyclical (pure clock)
     "funding_dist",           # fraction of the 8h funding cycle (pure clock)
@@ -188,6 +207,28 @@ def _th(extras, key: str) -> float:
         return float(((extras or {}).get("thales") or {}).get(key, 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _vol_term(closes: np.ndarray) -> float:
+    """Realized-vol term structure log(sigma_short / sigma_long) from the
+    5m closes already in view: sigma_short = std of the last 12 bar
+    log-returns, sigma_long = std of the last 96. Expanding-vs-compressing
+    vol LEADS regime; sigma_bar_pct + vol_percentile give level and rank
+    but cannot see the derivative. NOT direction-signed - the term
+    structure is symmetric information (expansion hurts/helps both sides
+    the same way). Insufficient history (<97 closes, i.e. <96 returns) or
+    degenerate sigma_long -> 0.0 (flat = neutral)."""
+    if len(closes) < 97 or np.any(closes[-97:] <= 0):
+        return 0.0
+    lr = np.diff(np.log(closes[-97:]))          # exactly 96 log-returns
+    s_short = float(np.std(lr[-12:]))
+    s_long = float(np.std(lr))
+    if s_long <= 0:
+        return 0.0
+    # s_short == 0 with live s_long = maximal 12-bar compression: EPS
+    # floor keeps the log finite and the clip lands it at -2, without a
+    # divide-by-zero warning polluting the cycle logs.
+    return float(np.clip(np.log(max(s_short, EPS) / s_long), -2, 2))
 
 
 def _ret(closes: np.ndarray, k: int, sigma_bar: float) -> float:
@@ -291,6 +332,25 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         float(np.clip((extras or {}).get("opt_iv_skew", 0.0), -1, 1)),
         float(np.clip((extras or {}).get("manip_suspect", 0.0), 0, 1)),
         *(dir_sign * v for v in _candle_patterns(candles)),
+        _vol_term(closes),
+        # market-factor drift WITH the trade: extras carry the RAW
+        # equal-weight mean 6-bar log-return across all viewed assets
+        # (main._feature_extras); the denominator is _ret's exact 6-bar
+        # form (sigma_bar*sqrt(6)+EPS) so the units ARE ret_6_dir's -
+        # a bare sigma_bar would run sqrt(6)~2.45x hot and saturate the
+        # clip in routine trends, and a 1e-3 floor here would be a
+        # percent-unit floor on a fraction-unit sigma (sigma_bar is
+        # already floored upstream). Separates "my asset moving" from
+        # "everything moving" - the biggest confounder in crypto
+        # cross-sections.
+        dir_sign * float(np.clip((extras or {}).get("mkt_ret_6", 0.0)
+                                 / (sigma_bar * np.sqrt(6.0) + EPS),
+                                 -3, 3)),
+        # book SHAPE: notional share of the touch within the top-10.
+        # thin-behind-the-touch books break differently than thick ones
+        # at identical spread; imbalance/depth_log see size, not shape.
+        # 0.2 = flat-book neutral (1/10 per level x 2 sides at touch).
+        float(np.clip((extras or {}).get("book_touch_share", 0.2), 0, 1)),
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)

@@ -16,6 +16,7 @@ bug hunt (all silent, all dataset-shaping):
 import numpy as np
 
 from ml.calibration import IsotonicCalibrator
+from ml.features import FEATURE_NAMES
 from ml.history import CandidateLabeler, HistoryStore
 from ml.monitor import ModelMonitor
 
@@ -29,7 +30,7 @@ def _labeler(tmp_path, cap):
 
 def test_eviction_keeps_the_ripest_candidate(tmp_path):
     lab = _labeler(tmp_path, cap=3)
-    feats = np.zeros(58)
+    feats = np.zeros(len(FEATURE_NAMES))
     for i in range(3):
         lab.register("BTC", "long", feats, 0.01, 1000 + i * 300)
     oldest = lab._cands[0]["id"]

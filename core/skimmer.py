@@ -1,8 +1,8 @@
 """core/skimmer.py — asset skimmer: watch a candidate pool beyond the core
 six, rank tradability, and PROMOTE the best into the active universe.
 
-Why it exists: the meta-model is GLOBAL (58 asset-relative features, no asset
-identity), so every additional tradable asset multiplies label flow — breadth
+Why it exists: the meta-model is GLOBAL (one asset-relative feature schema,
+no asset identity), so every additional tradable asset multiplies label flow — breadth
 is the cheapest learning accelerator. But risk capacity (5 slots, 35% heat) is
 fixed, and the Kraken REST fallback budget caps a safe universe at ~12 pairs
 (3 req/s: N books x 6 fast cycles + tickers + candles per 30s window). So the

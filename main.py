@@ -2269,6 +2269,42 @@ class LiquidityBot:
         # mixed-unit merged book (SD-003 - the incoherent path poisoned this
         # feature with false 'divergence' on the majors). No external book ->
         # mirror kraken_imb so divergence is 0, not a phantom manip flag.
+        # equal-weight market factor: RAW mean 6-bar log-return across
+        # every viewed asset with enough committed history. Un-normalized
+        # here - build_features divides by THIS asset's sigma_bar*sqrt(6)
+        # (the exact ret_6_dir denominator) so the units match. Missing
+        # candles simply drop out; no assets qualifying -> 0.0 (no drift
+        # observed), never a raise.
+        mkt_rets = []
+        for av in self.view.values():
+            c = (av or {}).get("candles") or []
+            if len(c) >= 7:
+                try:
+                    c0, c1 = float(c[-7]["close"]), float(c[-1]["close"])
+                    if c0 > 0 and c1 > 0:
+                        mkt_rets.append(math.log(c1 / c0))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        mkt_ret_6 = float(np.mean(mkt_rets)) if mkt_rets else 0.0
+        # depth CONCENTRATION at the touch (book shape) from the Kraken
+        # book already in memory: (bid1 + ask1 notional) / sum of the top
+        # 10 notionals BOTH SIDES (5 levels per side, 10 numbers total -
+        # this denominator is what makes the flat-book neutral 0.2: each
+        # of the 10 levels carries 1/10, the touch is one level per side
+        # = 2/10). Missing/one-sided book -> 0.2; 0.0 would falsely
+        # claim a hollow touch.
+        touch_share = 0.2
+        kb = self.kraken_books.get(asset) or {}
+        try:
+            bid_n = [float(p) * float(s)
+                     for p, s in (kb.get("bids") or [])[:5]]
+            ask_n = [float(p) * float(s)
+                     for p, s in (kb.get("asks") or [])[:5]]
+            total = sum(bid_n) + sum(ask_n)
+            if bid_n and ask_n and total > 0:
+                touch_share = (bid_n[0] + ask_n[0]) / total
+        except (TypeError, ValueError):
+            pass
         kb_imb = _book_imbalance(self.kraken_books.get(asset) or {})
         comp_imb = _composite_imbalance(v.get("venue_books") or [])
         suspect = manip_suspect_score(
@@ -2290,7 +2326,9 @@ class LiquidityBot:
                 "opt_pcr_z": risk.opt_pcr_z,
                 "opt_oi_pcr_z": risk.opt_oi_pcr_z,
                 "opt_iv_skew": risk.opt_iv_skew,
-                "manip_suspect": suspect}
+                "manip_suspect": suspect,
+                "mkt_ret_6": mkt_ret_6,
+                "book_touch_share": touch_share}
 
     def _maybe_unwind_unteachable(self, now: float):
         """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:

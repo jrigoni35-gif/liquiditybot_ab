@@ -62,6 +62,8 @@ _RANGES = {
     "opt_pcr_z": (-4, 4), "opt_oi_pcr_z": (-4, 4), "opt_iv_skew": (-1, 1),
     "manip_suspect": (0, 1),
     "pat_engulf_dir": (-1, 1), "pat_hammer_dir": (-1, 1), "pat_marubozu_dir": (-1, 1),
+    "vol_term": (-2, 2), "mkt_ret_6_dir": (-3, 3),
+    "book_touch_share": (0, 1),
     "direction": (-1, 1), "gate_confidence": (0, 1),
 }
 _TOL = 1e-6

@@ -15,10 +15,12 @@ def _bar(o, h, lo, c):
 
 
 def test_schema_has_patterns_before_direction():
-    assert len(FEATURE_NAMES) == 58
-    assert FEATURE_NAMES[-5:] == ["pat_engulf_dir", "pat_hammer_dir",
-                                  "pat_marubozu_dir", "direction",
-                                  "gate_confidence"]
+    assert len(FEATURE_NAMES) == 61
+    # v7 trio slots between the pattern block and the signal tail
+    assert FEATURE_NAMES[-8:] == ["pat_engulf_dir", "pat_hammer_dir",
+                                  "pat_marubozu_dir", "vol_term",
+                                  "mkt_ret_6_dir", "book_touch_share",
+                                  "direction", "gate_confidence"]
 
 
 def test_bullish_engulfing_positive_and_scaled():
