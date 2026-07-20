@@ -11,7 +11,7 @@ non-hedge position past mature_h, one per call, auto-off at graduation.
 import types
 from datetime import datetime, timezone
 
-from main import pick_label_mature_unwind
+from main import effective_realize_spans, pick_label_mature_unwind
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc).timestamp()
 
@@ -51,6 +51,33 @@ def test_skips_hedges():
 def test_none_on_empty_book_or_nonpositive_horizon():
     assert pick_label_mature_unwind([], 35, 500, NOW, 8.0) is None
     assert pick_label_mature_unwind([_pos(50.0)], 35, 500, NOW, 0.0) is None
+
+
+def test_fastpath_fires_only_when_the_book_is_full():
+    """VALUE-OF-INFORMATION fast-forward: the realize horizon only throttles
+    learning when the book is FULL — a free slot admits a new teach trade
+    regardless, so the full window costs nothing and keeps the richer label."""
+    # full book (5/5 non-hedge) -> the shorter fastpath horizon
+    assert effective_realize_spans(1.0, 0.5, 5, 5) == 0.5
+    # over-full (hedge unwind race etc.) still fires
+    assert effective_realize_spans(1.0, 0.5, 6, 5) == 0.5
+    # a single free slot -> full window
+    assert effective_realize_spans(1.0, 0.5, 4, 5) == 1.0
+    assert effective_realize_spans(1.0, 0.5, 0, 5) == 1.0
+
+
+def test_fastpath_zero_disables_and_never_extends():
+    # 0 (engine default) disables: full book still uses the full spans
+    assert effective_realize_spans(1.0, 0.0, 5, 5) == 1.0
+    assert effective_realize_spans(1.0, -1.0, 5, 5) == 1.0
+    # a fastpath ABOVE the full horizon can only ever shorten, never extend
+    assert effective_realize_spans(1.0, 2.0, 5, 5) == 1.0
+
+
+def test_fastpath_degenerate_slot_cap_is_safe():
+    # slot_cap <= 0 clamps to 1 so any open position counts as "full"
+    assert effective_realize_spans(1.0, 0.5, 1, 0) == 0.5
+    assert effective_realize_spans(1.0, 0.5, 0, 0) == 1.0
 
 
 def test_horizon_derives_from_label_window_default_8h():

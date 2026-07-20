@@ -321,6 +321,17 @@ def validate(config: dict) -> list:
               f"[1, 6] label spans - below 1 closes positions before the "
               f"triple-barrier label window even resolves; above 6 they sit so "
               f"long the SD-002 starvation loop never clears")
+    # fastpath: only binds when the book is FULL (buying a teach slot). A
+    # shortened-hold realized label is honest ground truth of that hold —
+    # but below a quarter-span the holds get so short the labels are churn,
+    # not outcomes. 0 disables; otherwise [0.25, realize_after_label_spans].
+    rfp = float(_f(config, "ml.exploration.realize_fastpath_spans", 0.0))
+    if bool(_f(config, "ml.exploration.realize_mature_labels", True)) and \
+            rfp != 0.0 and not (0.25 <= rfp <= rls):
+        fatal(f"ml.exploration.realize_fastpath_spans ({rfp}) must be 0 "
+              f"(disabled) or in [0.25, realize_after_label_spans={rls}] - "
+              f"shorter holds than a quarter-span teach churn, and a "
+              f"fastpath above the full horizon never fires")
 
     max_pos = float(_f(config,
                        "capital_management.max_position_size_pct_of_capital", 10))

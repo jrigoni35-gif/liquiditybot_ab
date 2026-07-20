@@ -131,6 +131,21 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
+def effective_realize_spans(spans: float, fastpath: float,
+                            open_non_hedge: int, slot_cap: int) -> float:
+    """ML-073 VALUE-OF-INFORMATION horizon (pure, unit-tested). The realize
+    horizon only throttles learning when the book is FULL — with a free slot
+    a new teach trade can open regardless, so holding a position to the full
+    label window costs nothing and keeps the richer outcome. Full book ->
+    the shorter fastpath horizon buys a teach slot with the least
+    label-richness cost; that faster live-label flow reaches the evidence
+    gate's floors sooner, unlocking model capacity earlier (compounding).
+    fastpath <= 0 disables (always the full spans)."""
+    if fastpath > 0 and open_non_hedge >= max(slot_cap, 1):
+        return min(spans, fastpath)
+    return spans
+
+
 def pick_label_mature_unwind(positions, rows: int, until_live_rows: int,
                              now: float, mature_h: float):
     """Learning-phase LABEL REALIZATION (ML-073), pure decision logic. The
@@ -2120,13 +2135,23 @@ class LiquidityBot:
         _ml = self.config.get("ml", {})
         _bars = int(_ml.get("label_max_bars", 96))
         _spans = float(cfg.get("realize_after_label_spans", 1.0))
+        # value-of-information fast-forward: when the book is FULL the
+        # horizon is the learning bottleneck — use the fastpath spans to
+        # buy a teach slot; with free slots keep the full window (holding
+        # is free and the outcome richer). See effective_realize_spans.
+        _open = self.state.open_positions()
+        _non_hedge = sum(1 for p in _open
+                         if not getattr(p, "is_hedge", False))
+        _spans = effective_realize_spans(
+            _spans, float(cfg.get("realize_fastpath_spans", 0.0)),
+            _non_hedge, self.capital.max_concurrent_positions)
         mature_h = _spans * _bars * BAR_SECONDS / 3600.0
         # graduate on LIVE rows (real closed trades), same basis as exploration
         _sc_fn = getattr(self.history, "source_counts", None)
         _sc = _sc_fn() if callable(_sc_fn) else {}
         _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
         pos = pick_label_mature_unwind(
-            self.state.open_positions(), _grad_rows,
+            _open, _grad_rows,
             int(cfg.get("until_live_rows", 500)), now, mature_h)
         if pos is None:
             return

@@ -68,3 +68,24 @@ def test_profit_split_parity_fatals_on_incoherent_knobs():
     # reinvestment omitted -> defaults to the coherent complement: no fatal
     del cfg["capital_management"]["reinvestment_pct_of_profit"]
     assert not any("profit split incoherent" in m for m in _sev(cfg, "FATAL"))
+
+
+def test_realize_fastpath_spans_bounds():
+    """VOI fastpath: 0 disables; otherwise it must sit in
+    [0.25, realize_after_label_spans] — shorter holds than a quarter-span
+    teach churn, and a fastpath above the full horizon never fires."""
+    def _cfg(rfp):
+        return {"system": {"dry_run": True},
+                "ml": {"exploration": {"realize_mature_labels": True,
+                                       "realize_after_label_spans": 1.0,
+                                       "realize_fastpath_spans": rfp}}}
+    assert any("realize_fastpath_spans" in m for m in _sev(_cfg(0.1), "FATAL"))
+    assert any("realize_fastpath_spans" in m for m in _sev(_cfg(1.5), "FATAL"))
+    assert not any("realize_fastpath_spans" in m
+                   for m in _sev(_cfg(0.5), "FATAL"))   # deployed value
+    assert not any("realize_fastpath_spans" in m
+                   for m in _sev(_cfg(0.0), "FATAL"))   # disabled
+    # realization off entirely -> the knob is inert, no fatal
+    off = _cfg(0.1)
+    off["ml"]["exploration"]["realize_mature_labels"] = False
+    assert not any("realize_fastpath_spans" in m for m in _sev(off, "FATAL"))
