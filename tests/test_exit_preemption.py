@@ -56,6 +56,10 @@ def _fake_self(resting):
         esc_market_after=3,
         kraken_books={"ETH": {"bids": [[99.0, 5.0]], "asks": [[101.0, 5.0]]}},
         marks={"ETH/USD": 100.0}, maker_first_profit_exits=True,
+        # EX-6 collar-ref chain: fresh mark -> book mid -> fair value
+        _mark_fresh=lambda sym, now: True,
+        fv=SimpleNamespace(state=lambda a: SimpleNamespace(
+            fair_value=100.0)),
         _equity=lambda: 1000.0,
         vol=SimpleNamespace(state=lambda a: SimpleNamespace(sigma_bar_pct=0.3)),
     )

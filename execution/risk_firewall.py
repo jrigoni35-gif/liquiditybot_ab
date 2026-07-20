@@ -216,7 +216,19 @@ class RiskFirewall:
         # ---- REQ-FW-04: duplicate suppression ---------------------------
         fp = self._fingerprint(pair, side, purpose, price, size)
         age = t - self._recent.get(fp, -1e18)
-        if age < self.limits.dupe_window_sec:
+        if age < self.limits.dupe_window_sec and is_exit:
+            # INVARIANT #5 (EX-5): escapes are never dupe-vetoed. The
+            # engine's one-live-exit dedup already prevents a double-submit
+            # while an exit order is WORKING, so an identical exit can only
+            # reach this window after its predecessor went terminal - i.e.
+            # the escalation ladder deliberately retrying into a frozen
+            # book, exactly when being vetoed hurts most. Note + count,
+            # never reject.
+            notes.append(tag(Code.FW_DUPLICATE,
+                             f"identical exit {age:.1f}s ago - escape "
+                             f"retried, never dupe-vetoed"))
+            self._count(Code.FW_DUPLICATE)
+        elif age < self.limits.dupe_window_sec:
             self._counters["rejected"] += 1
             self._count(Code.FW_DUPLICATE)
             if not getattr(self, "_quiet", False):

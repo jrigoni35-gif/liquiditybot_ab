@@ -99,6 +99,9 @@ def _run_exit(direction, tier_fired, *, attempts=0,
         kraken_books={"ETH": {"bids": list(bids), "asks": list(asks)}},
         marks={"ETH/USD": 100.0},
         maker_first_profit_exits=maker_first_flag,
+        # EX-6 collar-ref chain: fresh mark -> book mid -> fair value
+        _mark_fresh=lambda sym, now: True,
+        fv=SimpleNamespace(state=lambda a: SimpleNamespace(fair_value=100.0)),
         _equity=lambda: 1000.0,
         vol=SimpleNamespace(state=lambda a: SimpleNamespace(sigma_bar_pct=0.3)),
     )

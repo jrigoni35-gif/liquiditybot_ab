@@ -468,6 +468,7 @@ class OrderManager:
             price = ref_price            # market-order bookkeeping price
 
         # ---- risk firewall: independent last line on EVERY order --------
+        requested_size = size
         if self.firewall is not None:
             # Pass ref_price THROUGH untouched — never `ref_price or price`.
             # Substituting the order's OWN price as the reference makes the
@@ -488,6 +489,19 @@ class OrderManager:
 
         # ---- venue minimum: below-ordermin is a guaranteed reject --------
         omin = self._ordermin(pair)
+        if omin > 0 and purpose == "exit" and size < omin <= requested_size:
+            # EX-4: the firewall's notional clamp shrank a VIABLE exit
+            # below the venue minimum - submitting would reject, the caller
+            # never escalates a None, and the position loops unexitable.
+            # The venue minimum is the smallest executable escape: floor
+            # back up to it (never above the caller's requested size, so an
+            # oversell is impossible; the cap overshoot is ordermin-sized
+            # notional - cents against an un-closeable position).
+            log.warning(tag(Code.OM_BELOW_ORDERMIN,
+                            f"exit clamped to {size:.8f} {pair} < venue min "
+                            f"{omin} - floored back to the minimum "
+                            f"executable escape"))
+            size = omin
         if omin > 0 and size < omin:
             if purpose == "exit":
                 log.warning(tag(Code.OM_BELOW_ORDERMIN,

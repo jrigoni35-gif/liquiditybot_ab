@@ -1143,6 +1143,19 @@ class LiquidityBot:
         book = self.kraken_books.get(asset) or {}
         bids, asks = book.get("bids") or [], book.get("asks") or []
         mark = self.marks.get(pos.symbol, pos.entry_price)
+        # collar REFERENCE (EX-6): the exit collar must center on an
+        # INDEPENDENT current price - fresh mark, else live book mid, else
+        # fair value - NEVER the entry price. Anchoring to entry in a gap
+        # clamps the escape toward where the position was opened (a price
+        # that no longer exists) and the order never fills; with no
+        # independent reference at all, pass None - the firewall lets
+        # exits through uncollared by design (fail-safe, documented).
+        if pos.symbol in self.marks and self._mark_fresh(pos.symbol, now):
+            ref = self.marks[pos.symbol]
+        elif bids and asks:
+            ref = 0.5 * (bids[0][0] + asks[0][0])
+        else:
+            ref = self.fv.state(asset).fair_value or None
         # MAKER-FIRST profit exits: a scheduled profit-TARGET take (price
         # reached the tier trigger; profit_take=True) is not urgent risk-off -
         # it is capturing gains, so its FIRST attempt rests POST-ONLY on our
@@ -1188,7 +1201,7 @@ class LiquidityBot:
             position_id=pos.position_id, close_pct=close_pct,
             post_only=maker_first,
             ordertype="market" if go_market else "limit",
-            ref_price=mark, equity=self._equity(),
+            ref_price=ref, equity=self._equity(),
             book=book, sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
             meta={"reason": reason, "attempt": attempts + 1,
                   "tier_fired": int(tier_fired)},
@@ -1318,7 +1331,14 @@ class LiquidityBot:
             now, self.book_ts, list(self.symbol_map), kraken_mids, fvs,
             equity, self.state.open_position_count(), self.dry_run)
 
-        if marks_confirmed and self.capital.hard_stop_triggered(self.state, equity):
+        # the TRIGGER stays gated on all-marks-confirmed (a quarantined or
+        # stale print must never fabricate the drawdown that liquidates the
+        # book), but once LATCHED the flatten retries every cycle regardless
+        # (EX-3: a single dark symbol used to stall the whole catastrophe
+        # flatten AND the halt latch until every mark recovered)
+        if ((marks_confirmed
+             and self.capital.hard_stop_triggered(self.state, equity))
+                or self._halted):
             if not self._halted:
                 log.critical("HARD STOP drawdown breached - flattening, no new risk")
                 self._halted = True
@@ -1327,15 +1347,26 @@ class LiquidityBot:
                     fm.latch("hard_stop_drawdown", Severity.CRITICAL,
                              "catastrophe drawdown hard-stop: flatten-and-stop")
             # emergency flatten: isolate per position so one that errors on
-            # exit submission cannot leave the REST of the book unflattened
+            # exit submission cannot leave the REST of the book unflattened.
+            # Per-position mark gate: flatten every position whose OWN mark
+            # is trusted; a dark symbol defers (never liquidate off a
+            # phantom print), retries next cycle, and its protective stop
+            # below still manages it in the meantime.
             for pos in list(self.state.open_positions()):
                 try:
+                    if not (self._stop_ok.get(self._asset_of(pos.symbol), True)
+                            and self._mark_fresh(pos.symbol, now)):
+                        continue
                     self._submit_exit(pos, 100.0, "hard stop", now=now)
                 except Exception:
                     self._exit_eval_failures += 1
                     log.exception("[%s] hard-stop flatten raised - flattening "
                                   "the rest of the book", pos.symbol)
-            return
+            if marks_confirmed:
+                return
+            # some marks are dark: fall through so the protective-stop loop
+            # (an ESCAPE that runs on the best mark there is) still manages
+            # the deferred positions this cycle
 
         macro_states = {a: self.macro.state(a) for a in self.symbol_map}
 
