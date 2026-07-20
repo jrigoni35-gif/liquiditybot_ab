@@ -41,7 +41,9 @@ foreach ($p in $cands) {
     } catch {
         $queryOk = $false; $kids = @()
     }
-    $live = @($kids | Where-Object { $_.Name -match '^python(w)?\.exe$' })
+    # ANY live child counts as alive — not just python: a runner-titled
+    # window currently running git/pip/robocopy must never be tree-killed
+    $live = @($kids)
     if (-not $queryOk) {
         $kept++
         Write-Host ("KEEP  pid {0}: could not enumerate children (CIM error) - NOT risking the bot." -f $p.Id) -ForegroundColor Yellow
@@ -49,7 +51,7 @@ foreach ($p in $cands) {
     }
     if ($live.Count -gt 0) {
         $kept++
-        Write-Host ("KEEP  pid {0}: live runner (python child present) - leaving the bot up." -f $p.Id) -ForegroundColor Yellow
+        Write-Host ("KEEP  pid {0}: {1} live child process(es) - leaving it alone." -f $p.Id, $live.Count) -ForegroundColor Yellow
         continue
     }
     Write-Host ("CLOSE pid {0}: dead shell (no runner child)" -f $p.Id) -ForegroundColor Cyan

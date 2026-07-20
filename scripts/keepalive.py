@@ -56,9 +56,12 @@ def main() -> int:
     # detach per-OS: Windows wants its own process group/console flags,
     # POSIX wants a new session so scheduler/terminal signals never reach
     # the revived runner. Same detach contract, both platforms.
+    # CREATE_NO_WINDOW (hidden console the whole child tree inherits), NOT
+    # DETACHED_PROCESS: per CreateProcess docs the two are mutually exclusive
+    # and DETACHED wins, leaving the child console-LESS — any unflagged
+    # console-subsystem grandchild would then pop a visible window.
     detach: dict[str, Any] = (
-        {"creationflags": (subprocess.DETACHED_PROCESS
-                           | subprocess.CREATE_NO_WINDOW
+        {"creationflags": (subprocess.CREATE_NO_WINDOW
                            | subprocess.CREATE_NEW_PROCESS_GROUP)}
         if os.name == "nt" else {"start_new_session": True})
     subprocess.Popen(  # nosec B603 - fixed argv, repo-local interpreter

@@ -21,8 +21,8 @@ Telemetry token: materialised once from the GC_OTLP_TOKEN env var (set it as a
 Windows user environment variable) into ~/.liquiditybot/gc-token, matching the
 cloud hook — so the pushers find it without a token ever entering git.
 
-Run it directly to test (Ctrl+C to stop); Task Scheduler runs it via
-scripts/run_hidden.vbs at logon.
+Run it directly to test (Ctrl+C to stop); Task Scheduler runs it directly
+via .venv\\Scripts\\pythonw.exe at logon (see scripts/install_autostart.ps1).
 """
 import json
 import os
@@ -79,10 +79,18 @@ except ValueError:
     TELEM_BACKUP_SEC = 3600.0
 _TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
-# ONE-SHOT prompt sweep (operator request 2026-07-20): close the Command
+# ONE-SHOT prompt sweep (operator request 2026-07-20): close the DEAD Command
 # Prompt windows the pre-fix code left open. Runs once, then the stamp holds
-# forever (delete outputs/.prompt_sweep_done to run it again).
-_PROMPT_SWEEP_STAMP = OUT / ".prompt_sweep_done"
+# forever (delete the stamp to run it again). v2 stamp: the v1 sweep could
+# silently no-op on Windows-Terminal-default machines; the hardened script
+# (runner-signature fallback + evidence log) gets one fresh shot.
+_PROMPT_SWEEP_STAMP = OUT / ".prompt_sweep_done2"
+# ONE-SHOT legacy scheduled-task migration: the pre-supervisor runbook
+# registered 'Revival' (console python.exe keepalive.py, every 10 min) and
+# 'Deep audit' (run_checkin.bat under cmd.exe, hourly). Each fire pops a
+# visible console — the operator's recurring "command centers". Re-register
+# those actions windowless (pythonw / the quiet wrapper); never delete.
+_TASK_MIGRATE_STAMP = OUT / ".task_migrate_done"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
 # launch attempt is spaced at least this far apart regardless of outcome.
@@ -127,13 +135,19 @@ def _fresh(path: Path, key: str | None = None) -> bool:
 
 
 def _spawn(argv: list, own_log: bool = True) -> None:
-    """Launch a detached, WINDOWLESS child that outlives this process. When
-    own_log is False the child keeps its own log file, so stdout goes to
-    DEVNULL (avoids double-writing every line)."""
+    """Launch a windowless child that outlives this process. When own_log is
+    False the child keeps its own log file, so stdout goes to DEVNULL
+    (avoids double-writing every line).
+
+    CREATE_NO_WINDOW (0x08000000) | CREATE_NEW_PROCESS_GROUP (0x00000200) —
+    deliberately NOT DETACHED_PROCESS: per CreateProcess docs the two are
+    mutually exclusive and DETACHED wins, leaving the child with NO console;
+    any console-subsystem grandchild spawned without flags would then pop a
+    VISIBLE window. CREATE_NO_WINDOW instead gives the child a HIDDEN
+    console that every descendant inherits — the whole tree stays silent."""
     kwargs: dict = {"cwd": str(ROOT)}
     if IS_WIN:
-        # DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-        kwargs["creationflags"] = 0x00000008 | 0x08000000 | 0x00000200
+        kwargs["creationflags"] = 0x08000000 | 0x00000200
     else:
         kwargs["start_new_session"] = True          # setsid-equivalent
     out = (open(OUT / (Path(argv[1]).stem + ".log"), "a", encoding="utf-8")
@@ -238,13 +252,14 @@ def _opend_relaunch_due() -> bool:
 
 
 def _launch_opend(path: str) -> None:
-    """Launch OpenD detached, from its OWN directory (it reads OpenD.xml there
-    for headless login). GUI-login OpenD without a headless config will open a
-    window and not serve the port — that is a moomoo-side setup, not ours."""
+    """Launch OpenD windowless, from its OWN directory (it reads OpenD.xml
+    there for headless login). GUI-login OpenD without a headless config will
+    open a window and not serve the port — that is a moomoo-side setup, not
+    ours. Same flag rationale as _spawn (no DETACHED_PROCESS)."""
     p = Path(path)
     kwargs: dict = {"cwd": str(p.parent)}
     if IS_WIN:
-        kwargs["creationflags"] = 0x00000008 | 0x08000000 | 0x00000200
+        kwargs["creationflags"] = 0x08000000 | 0x00000200
     else:
         kwargs["start_new_session"] = True
     try:
@@ -254,6 +269,66 @@ def _launch_opend(path: str) -> None:
                              stdin=subprocess.DEVNULL, **kwargs)
     except OSError as e:
         log(f"OpenD launch failed: {e}")
+
+
+def _run_quiet(argv: list, timeout: float = 60.0):
+    """Run a short helper (schtasks) with a HIDDEN console; (rc, stdout)."""
+    kwargs: dict = {}
+    if IS_WIN:
+        kwargs["creationflags"] = 0x08000000
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True,  # nosec B603
+                           timeout=timeout, **kwargs)
+        return p.returncode, (p.stdout or "")
+    except Exception as e:                       # noqa: BLE001
+        return 1, f"error: {e}"
+
+
+def migrate_legacy_tasks() -> str:
+    """ONE-SHOT: re-register the runbook's pre-supervisor scheduled tasks so
+    they stop popping consoles. 'Revival' ran console python.exe
+    keepalive.py every 10 min (a visible flash per fire); 'Deep audit' ran
+    run_checkin.bat under cmd.exe (a window for the whole checkin). Matched
+    by ACTION CONTENT, never by name; the action is re-pointed at pythonw /
+    the quiet wrapper with the SAME script and cadence — behavior preserved,
+    window gone. Never deletes a task; any failure logs and moves on."""
+    pyw = ROOT / ".venv" / "Scripts" / "pythonw.exe"
+    if not (IS_WIN and pyw.exists()):
+        return "skipped"
+    rc, out = _run_quiet(["schtasks", "/Query", "/FO", "CSV", "/V"])
+    if rc != 0:
+        log(f"task migration: schtasks query failed ({out[:120]})")
+        return "query_failed"
+    import csv as _csv
+    import io as _io
+    changed = 0
+    for row in _csv.DictReader(_io.StringIO(out)):
+        name = (row.get("TaskName") or "").strip()
+        action = (row.get("Task To Run") or "")
+        low = action.lower()
+        if not name or name.lower() == "taskname":
+            continue
+        new_tr = None
+        if "keepalive.py" in low and "pythonw" not in low:
+            new_tr = f'"{pyw}" "{ROOT / "scripts" / "keepalive.py"}"'
+        elif "run_checkin.bat" in low:
+            # preserve the label argument the .bat received (e.g. "6h")
+            label = action.rsplit(" ", 1)[-1].strip('"') \
+                if " " in action.strip() else "6h"
+            if label.lower().endswith(".bat"):
+                label = "6h"
+            new_tr = (f'"{pyw}" "{ROOT / "scripts" / "run_checkin_quiet.py"}"'
+                      f' {label}')
+        if new_tr is None:
+            continue
+        rc2, out2 = _run_quiet(["schtasks", "/Change", "/TN", name,
+                                "/TR", new_tr])
+        if rc2 == 0:
+            changed += 1
+            log(f"task migration: {name!r} re-registered windowless")
+        else:
+            log(f"task migration: {name!r} change failed ({out2[:120]})")
+    return f"migrated={changed}"
 
 
 def _maybe_launch_opend() -> str:
@@ -333,21 +408,40 @@ def tick() -> None:
         _spawn([PY, "scripts/telemetry_backup.py", "--once",
                 "--label", "pc-live"])
 
-    # 5b) ONE-SHOT window sweep: close the Command Prompt windows the
-    # pre-popup-fix code left on the desktop. Polite WM_CLOSE for every
-    # classic cmd window; force only known-dead liquiditybot-runner shells;
-    # Windows Terminal / PowerShell never touched. Stamp-gated to exactly
-    # one run so it can never fight the operator's own future prompts.
+    # 5b) ONE-SHOT window sweep: close DEAD Command Prompt windows the
+    # pre-popup-fix code left on the desktop (polite first; force + the
+    # Windows-Terminal fallback only for runner-signature shells; evidence
+    # in outputs/prompt_sweep.log). FAIL CLOSED: the sweep spawns ONLY
+    # after the stamp provably exists on disk — an unwritable outputs/
+    # (ACL drift, disk full) must skip the sweep entirely, never turn a
+    # one-shot into an every-30s loop against the operator's prompts.
     if IS_WIN and not _PROMPT_SWEEP_STAMP.exists():
-        log("one-shot prompt sweep -> closing leftover Command Prompt windows")
         try:
             OUT.mkdir(exist_ok=True)
-            _PROMPT_SWEEP_STAMP.touch()      # stamp FIRST: even a crash below
-        except OSError:                      # must never make this recur
-            pass
-        _spawn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                "-File", str(ROOT / "scripts" / "close_prompts.ps1")],
-               own_log=False)
+            _PROMPT_SWEEP_STAMP.touch()      # stamp FIRST, spawn only if it
+            stamped = _PROMPT_SWEEP_STAMP.exists()   # actually landed
+        except OSError as e:
+            stamped = False
+            log(f"prompt sweep skipped: stamp unwritable ({e})")
+        if stamped:
+            log("one-shot prompt sweep -> closing dead Command Prompt windows")
+            _spawn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", str(ROOT / "scripts" / "close_prompts.ps1")],
+                   own_log=False)
+
+    # 5c) ONE-SHOT legacy-task migration: re-register the runbook's console
+    # scheduled tasks (keepalive / run_checkin.bat) windowless — the source
+    # of the every-10-min console flash. Same fail-closed stamp contract.
+    if IS_WIN and not _TASK_MIGRATE_STAMP.exists():
+        try:
+            OUT.mkdir(exist_ok=True)
+            _TASK_MIGRATE_STAMP.touch()
+            stamped = _TASK_MIGRATE_STAMP.exists()
+        except OSError as e:
+            stamped = False
+            log(f"task migration skipped: stamp unwritable ({e})")
+        if stamped:
+            log(f"legacy-task migration: {migrate_legacy_tasks()}")
 
     # 6) self-restart on source change: the auto-updater bounces the RUNNER,
     # but this process would keep the pre-update supervisor in memory until
