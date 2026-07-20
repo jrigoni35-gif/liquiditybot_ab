@@ -68,5 +68,8 @@ def test_dsr_is_informational_not_gating_during_exploration(tmp_path):
     assert proc.returncode == 0, (
         f"a pure-exploration losing sample must not gate the battery:\n"
         f"{proc.stdout}\n{proc.stderr}")
-    assert "INFORMATIONAL during exploration phase" in proc.stdout
+    # since the probe marker (task #48) the gate defers on the conviction
+    # sample instead of going informational on the mixed one — same intent:
+    # an EV-mixed exploration sample must never gate the battery
+    assert "conviction-marked live trades" in proc.stdout
     assert "FAIL" not in report.read_text(encoding="utf-8")

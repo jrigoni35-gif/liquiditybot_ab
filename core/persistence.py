@@ -61,6 +61,7 @@ def position_to_dict(pos) -> dict:
         "entry_fees_usd": pos.entry_fees_usd,
         "leverage": pos.leverage,
         "high_water": pos.high_water,
+        "is_probe": pos.is_probe,
     }
 
 
@@ -81,6 +82,7 @@ def position_from_dict(d: dict):
         entry_fees_usd=float(d.get("entry_fees_usd", 0.0)),
         leverage=float(d.get("leverage", 1.0)),
         high_water=(None if d.get("high_water") is None else float(d["high_water"])),
+        is_probe=bool(d.get("is_probe", False)),
     )
 
 
@@ -201,7 +203,9 @@ class StateStore:
                     pid: {"asset": e[0], "direction": e[1],
                           "features": e[2].tolist(),
                           # signal time (4th slot; older 3-tuples lack it)
-                          "signal_ts": float(e[3]) if len(e) > 3 else None}
+                          "signal_ts": float(e[3]) if len(e) > 3 else None,
+                          # PT-050 probe flag (5th slot; older tuples lack it)
+                          "probe": bool(e[4]) if len(e) > 4 else False}
                     for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
@@ -436,7 +440,8 @@ class StateStore:
                         h["asset"], h["direction"],
                         np.array(h["features"], dtype=float),
                         float(h["signal_ts"]) if h.get("signal_ts")
-                        else time.time())
+                        else time.time(),
+                        bool(h.get("probe", False)))
         except Exception:
             log.exception("history section malformed - skipped")
 

@@ -73,6 +73,25 @@ def info(name: str, detail: str = ""):
 
 
 # ---------------------------------------------------------------------------
+def split_dsr_samples(live_rows: list) -> tuple[list, list]:
+    """OF-5 sample selection (pure, unit-tested). Returns (conviction, mixed)
+    PnL lists from live-source rows. Conviction = probe column explicitly
+    "0" — a PT-050 probe ("1") bypassed the profit-EV gate to buy its label,
+    and a pre-marker row ("") is unknown provenance; neither may vouch for
+    the deployed strategy's Sharpe. Mixed = every live row (the legacy
+    sample, still reported for context)."""
+    conviction, mixed = [], []
+    for row in live_rows:
+        try:
+            pnl = float(row.get("net_pnl_usd"))
+        except (TypeError, ValueError):
+            continue
+        mixed.append(pnl)
+        if str(row.get("probe", "")).strip() == "0":
+            conviction.append(pnl)
+    return conviction, mixed
+
+
 def synthetic_benchmark(n: int | None = None, seed: int = 11):
     """Planted-signal dataset with the live feature width: linear +
     regime-conditional structure + noise, known learnable ceiling. Used
@@ -398,21 +417,17 @@ def main() -> int:
     # ---- live-results layer ---------------------------------------------
     print("[OF-5] deflated Sharpe (live trades)")
     store = HistoryStore()
-    rets = []
+    live_rows = []
     try:
         import csv
         with open(store.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 if row.get("source") == "live" and row.get("net_pnl_usd"):
-                    rets.append(float(row["net_pnl_usd"]))
+                    live_rows.append({"net_pnl_usd": row["net_pnl_usd"],
+                                      "probe": row.get("probe", "")})
     except (OSError, ValueError):
         pass
-    # dry-run active learning deliberately mixes EV-negative probes into the
-    # live population (PT-050 bypasses the profit-EV gate to buy labels), so
-    # DSR on that mixture measures tuition, not the deployed strategy — and
-    # ML-070 records carry no position_id yet, so probes cannot be excluded
-    # per-trade. While exploration is enabled the number is reported but not
-    # gated; the gate re-arms the moment ml.exploration.enabled is false.
+    conviction, mixed = split_dsr_samples(live_rows)
     try:
         _cfg_p = Path(__file__).resolve().parents[1] / "config.json"
         _explore_on = bool(((json.loads(_cfg_p.read_text(encoding="utf-8"))
@@ -420,11 +435,8 @@ def main() -> int:
                            .get("enabled", False))
     except (OSError, json.JSONDecodeError):
         _explore_on = False                     # unreadable config: full gate
-    if len(rets) < 30:
-        info("dsr", f"DEFERRED — {len(rets)} live labeled trades < 30; "
-                    f"rerun after live history accrues")
-    else:
-        r = np.array(rets)
+
+    def _dsr_of(r):
         sr = float(r.mean() / (r.std() + 1e-12))
         d = deflated_sharpe(sr, len(r),
                             skew=float(((r - r.mean()) ** 3).mean()
@@ -432,15 +444,42 @@ def main() -> int:
                             kurtosis=float(((r - r.mean()) ** 4).mean()
                                            / (r.std() + 1e-12) ** 4),
                             n_trials=7)
-        if _explore_on:
-            info("dsr", f"INFORMATIONAL during exploration phase — "
-                        f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}; "
-                        f"live sample is EV-mixed by design (PT-050 probes); "
-                        f"gate arms when ml.exploration.enabled is false")
-        else:
-            check("dsr: P(true SR > 0) after trials correction",
-                  (d.get("dsr") or 0) >= 0.90,
-                  f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)}")
+        return d, sr
+
+    # PT-050 probes deliberately bypass the profit-EV gate to buy labels, so
+    # DSR on the mixed sample measures tuition, not the deployed strategy.
+    # Since 2026-07-20 every position carries is_probe -> the 'probe' column,
+    # so the gate can grade the CONVICTION-ONLY sample even while exploration
+    # is running. Pre-marker rows ('' = unknown) never count as conviction.
+    if len(conviction) >= 30:
+        r = np.array(conviction)
+        d, sr = _dsr_of(r)
+        check("dsr: P(true SR > 0) on conviction-only sample",
+              (d.get("dsr") or 0) >= 0.90,
+              f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
+              f"(probes excluded: {len(mixed) - len(conviction)})")
+    elif _explore_on:
+        note = ""
+        if len(mixed) >= 30:
+            d, sr = _dsr_of(np.array(mixed))
+            note = f" mixed-sample dsr={d.get('dsr'):.3f} sr={sr:.2f};"
+        info("dsr", f"DEFERRED — {len(conviction)} conviction-marked live "
+                    f"trades < 30 (mixed n={len(mixed)});{note} probes are "
+                    f"EV-mixed by design (PT-050); gate arms as conviction "
+                    f"labels accrue")
+    elif len(mixed) < 30:
+        info("dsr", f"DEFERRED — {len(mixed)} live labeled trades < 30; "
+                    f"rerun after live history accrues")
+    else:
+        # exploration off and conviction sample still thin: pre-marker
+        # corpora ('' rows) would defer forever, so grade the full live
+        # sample (no probes are entering anymore)
+        r = np.array(mixed)
+        d, sr = _dsr_of(r)
+        check("dsr: P(true SR > 0) after trials correction",
+              (d.get("dsr") or 0) >= 0.90,
+              f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
+              f"(conviction-marked subset still {len(conviction)} < 30)")
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)

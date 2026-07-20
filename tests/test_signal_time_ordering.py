@@ -49,7 +49,7 @@ def test_signal_ts_flows_from_log_entry_to_row(tmp_path):
     feats = np.zeros(len(FEATURE_NAMES))
     store.log_entry("p1", "BTC", "long", feats)
     entry = store._pending["p1"]
-    assert len(entry) == 4 and entry[3] > 0, "log_entry must stamp signal time"
+    assert len(entry) == 5 and entry[3] > 0, "log_entry must stamp signal time"
     sig_ts = entry[3]
     store.log_close("p1", 5.0)
     row = list(csv.DictReader(open(store.path)))[0]

@@ -43,7 +43,8 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         header = f.readline().strip().split(",")
         row = f.readline().strip().split(",")
-    assert header[-1] == "barrier" and row[-1] == "time"
+    assert header[-2] == "barrier" and row[-2] == "time"
+    assert header[-1] == "probe" and row[-1] == ""   # candidates: unmarked
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -53,7 +54,9 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     hs.log_close("p1", 12.0)
     with open(hs.path, encoding="utf-8") as f:
         f.readline()
-        assert f.readline().strip().split(",")[-1] == "realized"
+        tail = f.readline().strip().split(",")
+        assert tail[-2] == "realized"
+        assert tail[-1] == "0"        # un-flagged live close = conviction
 
 
 # ---- average uniqueness ----------------------------------------------------

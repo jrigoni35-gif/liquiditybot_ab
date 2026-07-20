@@ -88,9 +88,11 @@ def test_history_header_contract_is_stable(tmp_path):
     # barrier joined 2026-07-19 (AFML corrections: time-barrier zeros are
     # distinguished from stop-hit zeros at load time) — a conscious,
     # migration-backed schema extension, appended last so meta order is stable
+    # probe joined 2026-07-20 (task #48): bookkeeping-only marker so OF-5
+    # can grade the conviction-only sample mid-exploration — appended last
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                "barrier"]
+                "barrier", "probe"]
     assert hs._header == expected
 
 

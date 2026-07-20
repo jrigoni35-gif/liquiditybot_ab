@@ -31,6 +31,8 @@ class Position:
     entry_fees_usd: float = 0.0       # entry-leg fees only (pro-rated into exit nets)
     leverage: float = 1.0             # leverage used at entry (1 = spot)
     high_water: Optional[float] = None  # best favorable price since entry (chandelier anchor)
+    is_probe: bool = False            # PT-050 exploration probe (EV gate bypassed to buy a
+                                      # label) - OF-5 grades conviction trades separately
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
         if self.entry_price == 0:

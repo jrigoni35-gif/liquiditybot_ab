@@ -45,7 +45,13 @@ class HistoryStore:
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                        "barrier"]
+                        "barrier", "probe"]
+        # probe: "1" = PT-050 exploration probe (profit-EV gate bypassed
+        # to buy the label), "0" = conviction entry, "" = candidate row or
+        # pre-2026-07-20 unknown. BOOKKEEPING ONLY - never a feature, and
+        # probe rows keep FULL live training weight (a probe's outcome is
+        # honest ground truth); OF-5 uses it to grade the conviction-only
+        # sample while exploration still mixes EV-negative probes in.
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -71,17 +77,17 @@ class HistoryStore:
             csv.writer(f).writerow(self._header)
 
     def log_entry(self, position_id: str, asset: str, direction: str,
-                features: np.ndarray):
+                features: np.ndarray, probe: bool = False):
         # signal time captured HERE: rows are appended at label time, and
         # the purged walk-forward must order/purge by when the SIGNAL
         # happened, not when its barrier resolved
         self._pending[position_id] = (asset, direction, features.copy(),
-                                      time.time())
+                                      time.time(), bool(probe))
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
-                    barrier: str = ""):
+                    barrier: str = "", probe: str = ""):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -89,11 +95,11 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 6 != len(self._header):
+        if 3 + len(feats) + 7 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 8} - stale pre-rotation "
+                f"schema {len(self._header) - 9} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
@@ -119,13 +125,16 @@ class HistoryStore:
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier])
+                                    barrier, probe])
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
         if entry is None:
             return
-        if len(entry) == 4:
+        probe = False
+        if len(entry) == 5:
+            asset, direction, feats, sig_ts, probe = entry
+        elif len(entry) == 4:
             asset, direction, feats, sig_ts = entry
         else:                                   # pre-upgrade snapshot shape
             asset, direction, feats = entry
@@ -133,7 +142,8 @@ class HistoryStore:
         label = int(net_pnl_usd > 0)
         self._append_row(position_id, asset, direction, feats, label,
                         net_pnl_usd, "live", signal_ts=sig_ts,
-                        barrier="realized")
+                        barrier="realized",
+                        probe="1" if probe else "0")
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 

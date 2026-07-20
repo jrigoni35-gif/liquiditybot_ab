@@ -839,6 +839,7 @@ class LiquidityBot:
             meta={"p_win": meta_t.get("p_win", 0.0),
                   "edge_bps": meta_t.get("edge_bps", 0.0),
                   "features": meta_t.get("features"),
+                  "probe": bool(meta_t.get("probe", False)),
                   "algo_parent": parent.parent_id,
                   "algo_child_seq": child.seq},
             now=now,
@@ -983,6 +984,7 @@ class LiquidityBot:
                     # historical replays behave unlike production)
                     opened_at=datetime.fromtimestamp(now, tz=timezone.utc),
                     is_hedge=(order.purpose == "hedge"),
+                    is_probe=bool(order.meta.get("probe", False)),
                     confidence=order.meta.get("p_win", 0.0),
                     edge_bps=order.meta.get("edge_bps", 0.0),
                     leverage=order.leverage,
@@ -997,7 +999,8 @@ class LiquidityBot:
                 self.postmortem.note_fill(position_id, event.fill_price)
                 if not pos.is_hedge and "features" in order.meta:
                     self.history.log_entry(position_id, self._asset_of(pos.symbol),
-                                        pos.direction, order.meta["features"])
+                                        pos.direction, order.meta["features"],
+                                        probe=pos.is_probe)
                 log.info(f"OPEN {pos.direction} {pos.size:.6f} {pos.symbol} "
                         f"@ {self._px(pos.symbol, pos.entry_price)} "
                         f"(p={pos.confidence:.2f}, "
@@ -1864,6 +1867,13 @@ class LiquidityBot:
             # logged FEATURES and the win/loss LABEL stay real (honest data).
             model_p, explore_scale = p_win, 1.0
             explored = aggressive = False
+            # position id PRE-ASSIGNED (before any entry order exists) so
+            # the ML-070 exploration audit can name the position a probe
+            # becomes, and OF-5 can exclude it per-trade. Direct entries
+            # submit under this id (the fill coalesces onto it); an entry
+            # routed to the algo slicer uses "algo-<parent>" instead - the
+            # probe flag still reaches its position via _algo_meta.
+            pid = str(uuid.uuid4())
             if can_enter and self._exploration_active(now, asset):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
@@ -1887,6 +1897,7 @@ class LiquidityBot:
                                 {"model_p": round(model_p, 3),
                                  "sized_p": round(p_win, 3),
                                  "aggressive": aggressive, "manip": round(ms, 3),
+                                 "position_id": pid,
                                  "rows": self.history.row_count()})
                 log.info("[%s] %sEXPLORATION paper entry: model p=%.2f -> sizing "
                          "p=%.2f, size x%.2f (learning; %d history rows)",
@@ -1995,7 +2006,9 @@ class LiquidityBot:
                 log.info(f"[{asset}] pre-trade veto: {decision.reasons}")
                 continue
 
-            position_id = str(uuid.uuid4())
+            # the id pre-assigned before the ML-070 audit IS the position
+            # id - the audited probe and the eventual position correlate 1:1
+            position_id = pid
             # thesis for the postmortem engine: what did we expect and why
             stop_pct_eff = max(self.base_stop_pct,
                                self.stop_vol_mult * vol_state.sigma_bar_pct) * \
@@ -2039,6 +2052,7 @@ class LiquidityBot:
                     "features": feats, "leverage":
                         lev_decision.allowed_leverage,
                     "post_only": plan.post_only,
+                    "probe": explored,
                     "thales_fired": self._thales_fired.get(asset) or []}
                 self._submit_algo_child(parent, now)   # first slice now
                 log.info(
@@ -2066,7 +2080,7 @@ class LiquidityBot:
                 book=self.kraken_books.get(asset) or {},
                 sigma_bar_pct=vol_state.sigma_bar_pct,
                 meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
-                    "features": feats,
+                    "features": feats, "probe": explored,
                     "thales_fired": self._thales_fired.get(asset) or []},
                 now=now,
             )

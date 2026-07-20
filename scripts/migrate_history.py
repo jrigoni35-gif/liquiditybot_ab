@@ -89,7 +89,11 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
         # loader treats as no time-barrier distinction — full weight).
         out.append([r["position_id"], r["asset"], r["side"], *feats,
                     r["label"], r["net_pnl_usd"], r["source"], r["ts"],
-                    r.get("signal_ts") or r["ts"], r.get("barrier") or ""])
+                    r.get("signal_ts") or r["ts"], r.get("barrier") or "",
+                    # probe joined the schema 2026-07-20: "1" PT-050 probe,
+                    # "0" conviction, "" pre-bump unknown (OF-5 counts only
+                    # explicit "0" toward the conviction sample)
+                    r.get("probe") or ""])
     return out, padded
 
 
