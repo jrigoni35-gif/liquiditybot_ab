@@ -280,16 +280,21 @@ def validate(config: dict) -> list:
     # numbers that don't sum to 100, the config is lying about where profit
     # goes — refuse rather than silently honoring only savings_pct.
     sav = float(_f(config, "capital_management.savings_pct_of_profit", 20))
+    resv = float(_f(config, "capital_management.reserve_pct_of_profit", 0))
     reinv = float(_f(config, "capital_management.reinvestment_pct_of_profit",
-                     100 - sav))
+                     100 - sav - resv))
     if not (0.0 <= sav <= 100.0):
         fatal(f"capital_management.savings_pct_of_profit ({sav}) outside "
               f"[0, 100]")
-    if abs(sav + reinv - 100.0) > 1e-9:
+    if not (0.0 <= resv <= 50.0):
+        fatal(f"capital_management.reserve_pct_of_profit ({resv}) outside "
+              f"[0, 50] - above half of every win into the shock "
+              f"absorber starves both compounding and savings")
+    if abs(sav + resv + reinv - 100.0) > 1e-9:
         fatal(f"capital_management profit split incoherent: savings "
-              f"({sav}) + reinvestment ({reinv}) != 100 - the split is "
-              f"driven by savings_pct alone (reinvest = 100 - savings), so "
-              f"these must agree")
+              f"({sav}) + reserve ({resv}) + reinvestment ({reinv}) "
+              f"must sum to 100 - the split silently lies about "
+              f"where profit goes otherwise")
     if daily <= 0 or hard <= 0:
         fatal("loss limits must be positive")
     elif daily >= hard:

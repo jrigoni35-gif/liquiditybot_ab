@@ -154,7 +154,9 @@
   "capital_management": {
     "starting_capital_usd": 5000,
     "savings_pct_of_profit": 20,
-    "reinvestment_pct_of_profit": 80,
+    "reserve_pct_of_profit": 10,
+    "reinvestment_pct_of_profit": 70,
+    "_pools_doc": "THREE PROFIT POOLS on every realized win: savings_pct locked away untouchable; reserve_pct into the drawdown reserve (weekly rollover RP-070: a LOSING week refills its realized loss from reserve into trading cash before the working baseline can shrink - reserve only ever moves INTO cash, savings never moves); the rest stays as reinvestment and compounds sizing. Three-way parity guard: the pcts must sum to 100. Weekly ledger: outputs/weekly_ledger.csv, one signed row per ISO-week close.",
     "max_position_size_pct_of_capital": 25,
     "max_concurrent_positions": 5,
     "daily_loss_limit_pct": 5,

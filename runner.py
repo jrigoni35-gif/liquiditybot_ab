@@ -397,6 +397,8 @@ class BotRunner:
             "equity": round(equity, 2),
             "cash": round(bot.state.cash_balance, 2),
             "savings": round(bot.state.savings_balance, 2),
+            "reserve": round(bot.state.reserve_balance, 2),
+            "weekly_pnl": round(bot.state.weekly_realized_pnl, 2),
             "daily_pnl": round(bot.state.daily_realized_pnl, 2),
             "realized_total": round(bot.state.realized_pnl_total, 2),
             "fees_total": round(bot.state.fees_paid_total, 2),

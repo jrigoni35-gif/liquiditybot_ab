@@ -177,6 +177,9 @@ class StateStore:
                     "starting_capital": state.starting_capital,
                     "cash_balance": state.cash_balance,
                     "savings_balance": state.savings_balance,
+                    "reserve_balance": state.reserve_balance,
+                    "weekly_realized_pnl": state.weekly_realized_pnl,
+                    "last_week_key": state._last_week_key,
                     "realized_pnl_total": state.realized_pnl_total,
                     "daily_realized_pnl": state.daily_realized_pnl,
                     "fees_paid_total": state.fees_paid_total,
@@ -384,6 +387,12 @@ class StateStore:
             state.realized_pnl_total = float(p["realized_pnl_total"])
             state.daily_realized_pnl = float(p["daily_realized_pnl"])
             state.fees_paid_total = float(p.get("fees_paid_total", 0.0))
+            # pool fields absent in pre-upgrade snapshots -> defaults
+            state.reserve_balance = float(p.get("reserve_balance", 0.0))
+            state.weekly_realized_pnl = float(
+                p.get("weekly_realized_pnl", 0.0))
+            if p.get("last_week_key"):
+                state._last_week_key = str(p["last_week_key"])
             state._last_pnl_reset_date = p.get("last_pnl_reset_date", "")
             state._equity_high_water = float(p.get("equity_high_water",
                                                    state.starting_capital))

@@ -20,6 +20,10 @@ class CapitalManager:
         # silently ignored (harmless only while the values matched).
         config = config.get("capital_management", config)
         self.savings_pct = config.get("savings_pct_of_profit", 20)
+        # drawdown-reserve slice (taken from the reinvestment share,
+        # never from savings); 0 = pool off. config_guard enforces
+        # three-way parity: savings + reserve + reinvestment == 100.
+        self.reserve_pct = config.get("reserve_pct_of_profit", 0)
         # informational only: the reinvested share is IMPLICITLY
         # (100 - savings_pct) in record_realized_profit — this knob is never
         # read in the split. config_guard FATALs when the two knobs disagree
@@ -75,15 +79,39 @@ class CapitalManager:
 
         if realized_pnl > 0:
             savings_amount = realized_pnl * (self.savings_pct / 100)
+            reserve_amount = realized_pnl * (self.reserve_pct / 100)
             state.savings_balance += savings_amount
-            state.cash_balance -= savings_amount
+            state.reserve_balance += reserve_amount
+            state.cash_balance -= savings_amount + reserve_amount
             log.info(
                 f"Realized profit {realized_pnl:.2f}: "
                 f"{savings_amount:.2f} -> savings, "
-                f"{realized_pnl - savings_amount:.2f} retained for reinvestment."
+                f"{reserve_amount:.2f} -> reserve, "
+                f"{realized_pnl - savings_amount - reserve_amount:.2f} "
+                f"retained for reinvestment."
             )
         else:
             log.info(f"Realized loss {realized_pnl:.2f} recorded.")
+
+    def weekly_rollover(self, state, week_summary: dict) -> float:
+        """Week-close money action: after a LOSING week the reserve refills
+        trading cash up to the week's realized loss - a bad week borrows
+        from past wins before it can shrink the working baseline. Winning
+        (or flat) weeks roll over untouched; the reserve only ever moves
+        INTO cash, and savings is never touched. Returns the refill amount
+        (0.0 when nothing moved). Pure bookkeeping - no orders, no risk
+        state; the caller owns the ledger/audit trail."""
+        week_net = float(week_summary.get("weekly_realized", 0.0))
+        if week_net >= 0 or state.reserve_balance <= 0:
+            return 0.0
+        refill = min(state.reserve_balance, -week_net)
+        state.reserve_balance -= refill
+        state.cash_balance += refill
+        log.warning(
+            f"weekly rollover {week_summary.get('week')}: losing week "
+            f"({week_net:+.2f}) - reserve refilled {refill:.2f} into "
+            f"trading cash ({state.reserve_balance:.2f} remains)")
+        return refill
 
     def hard_stop_triggered(self, state, mtm_equity=None) -> bool:
         # MARK-TO-MARKET drawdown when the caller supplies live equity: the

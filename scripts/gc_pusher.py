@@ -98,7 +98,8 @@ def collect(status_path: str) -> list:
         m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))
         return m
     m.append(gauge("liquiditybot_status_stale", 0.0, ts=time.time()))
-    for key in ("equity", "daily_pnl", "drawdown_pct", "cycle",
+    for key in ("equity", "daily_pnl", "weekly_pnl", "savings",
+                "reserve", "drawdown_pct", "cycle",
                 "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
                 "fees_total", "realized_total", "equity_drift_pct",
                 # hardening guards (rising = a book position or the whole

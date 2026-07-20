@@ -40,7 +40,8 @@ sys.path.insert(0, str(ROOT))
 
 from core.persistence import StateStore  # noqa: E402
 
-_MONEY_ZERO = ("savings_balance", "realized_pnl_total", "daily_realized_pnl",
+_MONEY_ZERO = ("savings_balance", "reserve_balance", "weekly_realized_pnl",
+               "realized_pnl_total", "daily_realized_pnl",
                "fees_paid_total")
 _HEARTBEAT_STALE_SEC = 12.0     # a status.json older than this => runner is gone
 

@@ -105,6 +105,7 @@ class Code(str, Enum):
     RP_HEAT_CAP = "RP-050"           # portfolio heat headroom capped size
     RP_HEAT_FULL = "RP-051"          # portfolio heat at max: no new risk
     RP_WARMUP = "RP-060"             # component neutral: insufficient observations
+    RP_WEEK_CLOSED = "RP-070"        # weekly ledger: week closed, pools rolled
 
     # ---- quoter / fair value ------------------------------------------
     QT_FEE_FLOOR = "QT-010"          # half-spread raised to structural floor

@@ -26,6 +26,7 @@ Sentiment can only shade size/confidence within clamps; it cannot
 create, veto, or flip a trade.
 """
 
+import csv
 import hashlib
 import json
 import logging
@@ -35,6 +36,7 @@ import random
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -130,6 +132,21 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     if not old_enough:
         return None
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
+
+
+def _append_weekly_ledger(path: Path, row: dict) -> None:
+    """Append one week-close row to the pool ledger (header on create,
+    UTF-8, atomic-enough: single append write). Fixed column order so the
+    file stays machine-readable as the summary dict grows."""
+    cols = ["week", "weekly_realized", "reserve_refill", "cash", "savings",
+            "reserve", "realized_total"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new_file = not path.exists()
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if new_file:
+            w.writerow(cols)
+        w.writerow([row.get(c, "") for c in cols])
 
 
 def exit_in_flight(open_orders, position_id: str) -> bool:
@@ -1308,7 +1325,30 @@ class LiquidityBot:
         if fills:
             self.store.snapshot(self)      # never lose an executed fill
 
-        self.state.maybe_reset_daily_pnl()
+        self.state.maybe_reset_daily_pnl(now)
+        # WEEKLY CLOSE-OUT (RP-070): exactly once at each ISO-week boundary,
+        # restart-safe. The rollover ritual: reserve refills a losing week's
+        # realized loss into trading cash (capital_manager.weekly_rollover),
+        # then the week's signed record lands in the hash-chained audit and
+        # the append-only ledger. Reporting + pool bookkeeping only - no
+        # orders, no risk-state changes.
+        _wk = self.state.maybe_close_week(now)
+        if _wk is not None:
+            try:
+                _refill = self.capital.weekly_rollover(self.state, _wk)
+                _wk["reserve_refill"] = round(_refill, 2)
+                get_audit().log(
+                    "engine", Code.RP_WEEK_CLOSED,
+                    f"week {_wk['week']} closed: net "
+                    f"{_wk['weekly_realized']:+.2f}, refill {_refill:.2f}",
+                    dict(_wk))
+                _append_weekly_ledger(
+                    Path(self.config.get("system", {}).get(
+                        "weekly_ledger_path",
+                        "outputs/weekly_ledger.csv")), _wk)
+            except Exception:
+                log.exception("weekly close-out failed - trading unaffected, "
+                              "ledger row lost for %s", _wk.get("week"))
         equity = self._equity()
         # A held mark is TRUSTED for equity/liquidation math only when it is
         # both (a) jump-CONFIRMED — not a quarantined >tick_jump_pct fat-finger

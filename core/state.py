@@ -48,15 +48,24 @@ class PortfolioState:
     starting_capital: float
     cash_balance: float = field(init=False)
     savings_balance: float = 0.0
+    # drawdown RESERVE: profit slice that refills trading cash after a
+    # losing week, so a bad week borrows from past wins before it can
+    # shrink the working baseline. Savings stays untouchable; reserve
+    # is the shock absorber between trading and savings.
+    reserve_balance: float = 0.0
     realized_pnl_total: float = 0.0
     daily_realized_pnl: float = 0.0
+    weekly_realized_pnl: float = 0.0
     fees_paid_total: float = 0.0
     _positions: dict = field(default_factory=dict)
     _last_pnl_reset_date: str = field(default="", init=False)
+    _last_week_key: str = field(default="", init=False)
 
     def __post_init__(self):
         self.cash_balance = self.starting_capital
         self._last_pnl_reset_date = datetime.now(timezone.utc).date().isoformat()
+        _iso = datetime.now(timezone.utc).isocalendar()
+        self._last_week_key = f"{_iso[0]}-W{_iso[1]:02d}"
         # peak mark-to-market equity, for a TRUE (unrealized-aware, peak-based)
         # drawdown backstop — realized-only drawdown_pct is blind to a book that
         # is deep underwater on marks but not yet closed.
@@ -117,7 +126,8 @@ class PortfolioState:
         sizer/caps/watchdog, loosening every risk control the more you hold.
         Sign-correct for shorts. Matches scripts/quant_trials.py mark-to-market.
         """
-        equity = self.cash_balance + self.savings_balance
+        equity = (self.cash_balance + self.savings_balance
+                  + self.reserve_balance)
         if mark_prices:
             for pos in self._positions.values():
                 price = mark_prices.get(pos.symbol)
@@ -129,17 +139,51 @@ class PortfolioState:
     def record_realized_pnl(self, amount: float):
         self.realized_pnl_total += amount
         self.daily_realized_pnl += amount
+        self.weekly_realized_pnl += amount
         self.cash_balance += amount
 
     def reset_daily_pnl(self):
         self.daily_realized_pnl = 0.0
 
-    def maybe_reset_daily_pnl(self):
-        """Call once per cycle. Resets daily_realized_pnl automatically at UTC day boundary."""
-        today = datetime.now(timezone.utc).date().isoformat()
+    def maybe_reset_daily_pnl(self, now: Optional[float] = None):
+        """Call once per cycle. Resets daily_realized_pnl at the UTC day
+        boundary. `now` is the injected engine time (replay determinism:
+        a wall-clock read here made historical replays reset on the
+        machine's day, not the recording's); wall clock is the fallback
+        for callers without one."""
+        _dt = (datetime.fromtimestamp(now, tz=timezone.utc)
+               if now is not None else datetime.now(timezone.utc))
+        today = _dt.date().isoformat()
         if today != self._last_pnl_reset_date:
             self.reset_daily_pnl()
             self._last_pnl_reset_date = today
+
+    def maybe_close_week(self, now: Optional[float] = None):
+        """Detect the ISO-week boundary (UTC) exactly once, restart-safe
+        (_last_week_key is persisted). Returns the CLOSING summary dict
+        for the week that just ended - the caller owns the rollover
+        actions (reserve refill, ledger, audit) - or None mid-week.
+        weekly_realized_pnl resets here and only here."""
+        _dt = (datetime.fromtimestamp(now, tz=timezone.utc)
+               if now is not None else datetime.now(timezone.utc))
+        _iso = _dt.isocalendar()
+        wk = f"{_iso[0]}-W{_iso[1]:02d}"
+        if wk == self._last_week_key:
+            return None
+        if not self._last_week_key:      # fresh state: adopt, no phantom
+            self._last_week_key = wk     # week-0 ledger row
+            return None
+        summary = {
+            "week": self._last_week_key,
+            "weekly_realized": round(self.weekly_realized_pnl, 2),
+            "cash": round(self.cash_balance, 2),
+            "savings": round(self.savings_balance, 2),
+            "reserve": round(self.reserve_balance, 2),
+            "realized_total": round(self.realized_pnl_total, 2),
+        }
+        self._last_week_key = wk
+        self.weekly_realized_pnl = 0.0
+        return summary
 
     def drawdown_pct(self) -> float:
         """Drawdown from starting capital, based on cash + savings only."""
