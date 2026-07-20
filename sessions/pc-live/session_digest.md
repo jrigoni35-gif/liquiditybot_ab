@@ -2,12 +2,12 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-07-20 08:41 UTC (240.8h, ~217 cycles)
-- Equity: $25,000.00 -> $4,996.61 (range $99,208.70) | realized PnL $-1.30 | fees $3.59
-- Activity: 4 open | 56 live labeled trades | 1882 candidates | 53 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-07-20 09:41 UTC (241.8h, ~332 cycles)
+- Equity: $25,000.00 -> $4,996.66 (range $99,208.70) | realized PnL $-1.30 | fees $3.59
+- Activity: 4 open | 56 live labeled trades | 1888 candidates | 53 postmortems
 - Model: level 2 | use_model=False | brier n/a | history_rows 56 | cold=True
-- Audit: 950 records (445 non-routine) | dominant OM-000 (32% of non-routine) | chain_ok=False | retrain_requests 22
-- Liquidity: spoofy 38% of classified cycles | feed errors 0
+- Audit: 953 records (445 non-routine) | dominant OM-000 (32% of non-routine) | chain_ok=False | retrain_requests 22
+- Liquidity: spoofy 39% of classified cycles | feed errors 0
 
 ## Diagnostics
 - [ERR]  **SD-007 audit chain broken**  -  hash chain first breaks at record 505  -  the trail was truncated, reordered, or corrupted past that point
