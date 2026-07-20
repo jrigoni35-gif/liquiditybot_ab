@@ -158,7 +158,7 @@ class FairValueEngine:
             return st
 
         tot = sum(weights)
-        raw = sum(m * w for m, w in zip(mps, weights)) / tot
+        raw = sum(m * w for m, w in zip(mps, weights, strict=True)) / tot
         st.fair_value_raw = raw
 
         if st.fair_value <= 0:

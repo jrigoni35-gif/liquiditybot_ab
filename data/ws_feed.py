@@ -65,6 +65,8 @@ class LiveMarketCache:
         self._marks: dict = {}      # (venue, symbol) -> (price, ts)
 
     def update_book(self, venue: str, symbol: str, bids: list, asks: list):
+        """Store the latest book snapshot + a lockstep mid mark (writer:
+        the websocket handler thread)."""
         ts = self._now()
         with self._lock:
             self._books[(venue, symbol)] = (bids, asks, ts)
@@ -77,6 +79,8 @@ class LiveMarketCache:
                 pass
 
     def update_trade(self, venue: str, symbol: str, price: float):
+        """Store a last-trade mark; non-positive/garbage prices are dropped
+        (writer: the websocket handler thread)."""
         ts = self._now()
         try:
             px = float(price)
@@ -89,6 +93,9 @@ class LiveMarketCache:
 
     def get_book(self, venue: str, symbol: str,
                  max_age_s: float) -> Optional[dict]:
+        """Sanitized (clean_book) snapshot no older than max_age_s, else
+        None - missing and stale are indistinguishable BY DESIGN so the
+        caller always falls back to REST (reader: engine thread)."""
         with self._lock:
             entry = self._books.get((venue, symbol))
         if entry is None:
@@ -100,6 +107,8 @@ class LiveMarketCache:
 
     def get_mark(self, venue: str, symbol: str,
                  max_age_s: float) -> Optional[float]:
+        """Latest mark no older than max_age_s, else None (reader: engine
+        thread)."""
         with self._lock:
             entry = self._marks.get((venue, symbol))
         if entry is None:
@@ -110,11 +119,13 @@ class LiveMarketCache:
         return px
 
     def age(self, venue: str, symbol: str) -> Optional[float]:
+        """Seconds since the last book write, or None if never written."""
         with self._lock:
             entry = self._books.get((venue, symbol))
         return None if entry is None else self._now() - entry[2]
 
     def stats(self) -> dict:
+        """Entry counts ({books, marks}) for health/telemetry payloads."""
         with self._lock:
             return {"books": len(self._books), "marks": len(self._marks)}
 
@@ -159,6 +170,7 @@ class ResilientWebSocket:
 
     @staticmethod
     def available() -> bool:
+        """True when the optional `websockets` package is importable."""
         try:
             import websockets  # noqa: F401
             return True
@@ -166,6 +178,8 @@ class ResilientWebSocket:
             return False
 
     def start(self):
+        """Launch the reader daemon thread (idempotent; no-op without the
+        websockets package - REST fallback stays in effect)."""
         if not self.available():
             log.warning("websockets package absent - live stream disabled, "
                         "REST fallback remains in effect")
@@ -178,6 +192,8 @@ class ResilientWebSocket:
         self._thread.start()
 
     def stop(self, timeout: float = 5.0):
+        """Signal the reader to exit and join it (bounded wait); safe to
+        call from any thread, any number of times."""
         self._stop.set()
         t = self._thread
         if t and t.is_alive():
@@ -273,6 +289,7 @@ class BinanceUSDepthStream:
         self.interval_ms = interval_ms
 
     def stream_url(self) -> str:
+        """Combined partial-depth stream URL for every configured symbol."""
         parts = [f"{v}@depth{self.depth}@{self.interval_ms}ms"
                  for v in self._to_venue.values()]
         return f"{_BINANCEUS_WS_BASE}?streams={'/'.join(parts)}"
@@ -280,9 +297,11 @@ class BinanceUSDepthStream:
     # uniform adapter interface (see WebSocketFeedManager): Binance encodes
     # its subscription in the URL, so there is no post-connect subscribe frame
     def url(self) -> str:
+        """Adapter interface: the connect URL (carries the subscription)."""
         return self.stream_url()
 
     def subscribe_msg(self) -> Optional[str]:
+        """Adapter interface: None - Binance subscribes via the URL."""
         return None
 
     def handle(self, text: str):
@@ -342,9 +361,12 @@ class KrakenV2BookStream:
         self._state: dict = {}
 
     def url(self) -> str:
+        """Adapter interface: the Kraken v2 public websocket URL."""
         return _KRAKEN_WS_V2
 
     def subscribe_msg(self) -> Optional[str]:
+        """Adapter interface: the post-connect `book` subscribe frame
+        (None with no symbols configured)."""
         if not self._symbols:
             return None
         return json.dumps({"method": "subscribe", "params": {
@@ -394,7 +416,10 @@ class KrakenV2BookStream:
             if not isinstance(d, dict):
                 continue
             sym = d.get("symbol")
-            if sym not in self.sym_to_pair:
+            # `is None` first: sym_to_pair keys are str, so a missing symbol
+            # field could never match anyway - the explicit check narrows
+            # the type for the _publish(sym) call below
+            if sym is None or sym not in self.sym_to_pair:
                 continue
             st = self._state.setdefault(sym, {"bids": {}, "asks": {}})
             if typ == "snapshot":                 # (re)subscribe: hard reset
@@ -449,6 +474,8 @@ class WebSocketFeedManager:
         self._ws: Optional[ResilientWebSocket] = None
 
     def start(self):
+        """Start the venue stream when enabled and symbols are configured;
+        otherwise stay silently on REST."""
         if not self.enabled:
             return
         if not self._symbols:
@@ -464,6 +491,7 @@ class WebSocketFeedManager:
         log.info("ws feed started: %s %s", self.venue, self._symbols)
 
     def stop(self):
+        """Stop and discard the underlying socket (idempotent)."""
         if self._ws is not None:
             self._ws.stop()
             self._ws = None
@@ -479,11 +507,15 @@ class WebSocketFeedManager:
         return self.cache.get_book(self.venue, symbol, self.max_age_s)
 
     def get_mark(self, symbol: str) -> Optional[float]:
+        """Fresh cached mark or None (disabled/stale both -> None, caller
+        falls back to REST)."""
         if not self.enabled:
             return None
         return self.cache.get_mark(self.venue, symbol, self.max_age_s)
 
     def health(self) -> dict:
+        """Status-schema `ws` payload: enabled/connected/reconnects/
+        lib_available plus cache entry counts."""
         return {
             "enabled": self.enabled,
             "connected": bool(self._ws and self._ws.connected),

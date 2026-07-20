@@ -24,7 +24,7 @@ class OKXFeed(ThrottledRestClient):
         self.symbols = config.get("symbols", [])
         self._ctval_cache: dict = {}
 
-    def _ctval(self, symbol: str) -> float:
+    def _ctval(self, symbol: str) -> Optional[float]:
         """SWAP order-book size is in CONTRACTS, not coin units (e.g.
         BTC-USDT-SWAP ctVal=0.01 means 1 contract = 0.01 BTC); spot symbols
         need no conversion. Without this, price*size overstates USD depth

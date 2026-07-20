@@ -264,7 +264,7 @@ def make_offline_recording(tmpdir: Path) -> str:
         all_confirmed=(base_asset == "ETH"), gates_passed={})
     rng = np.random.default_rng(77)
     t = time.time()
-    for k in range(60):
+    for _k in range(60):
         for a in prices:
             prices[a] *= float(1 + rng.normal(0, 0.0012) +
                                (0.0008 if a == "ETH" else 0.0))

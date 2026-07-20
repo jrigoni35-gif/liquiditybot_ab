@@ -415,7 +415,8 @@ class ThalesEngine:
                 try:
                     tss = sorted(float(b.get("ts") or b.get("time") or 0.0)
                                  for b in candles)
-                    diffs = sorted(b - a for a, b in zip(tss, tss[1:])
+                    diffs = sorted(b - a
+                                   for a, b in zip(tss, tss[1:], strict=False)
                                    if b - a > 0 and math.isfinite(b - a))
                     if diffs:
                         st.bar_spacing = diffs[len(diffs) // 2]
@@ -527,7 +528,8 @@ class ThalesEngine:
             if len(prices) < 2:
                 degenerate = True
             else:
-                tick = min(b - a for a, b in zip(prices, prices[1:]))
+                tick = min(b - a for a, b in
+                           zip(prices, prices[1:], strict=False))
                 degenerate = tick >= tol * mark
         if degenerate != st.zone_degenerate:
             st.zone_degenerate = degenerate

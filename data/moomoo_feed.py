@@ -109,7 +109,7 @@ class MoomooFeed:
         real gateway connection; a direct seam has no machinery to
         route around.) QUOTE context only — the trade context class is
         deliberately never imported anywhere in this codebase."""
-        from moomoo import OpenQuoteContext
+        from moomoo import OpenQuoteContext  # type: ignore[import-not-found]  # optional SDK, absent by default
         return OpenQuoteContext
 
     def _probe_port(self) -> bool:

@@ -19,6 +19,12 @@ Messages implemented: Logon(A), Heartbeat(0), TestRequest(1),
 Logout(5), NewOrderSingle(D), OrderCancelRequest(F), ExecutionReport(8)
 parse-side. Repeating groups are out of scope (not needed for these
 types).
+
+Hard-off stub, deliberately unreferenced by the engine: execution
+eligibility is Kraken-only (CLAUDE.md invariant #3 - IBKR/DMA/prime/FIX
+adapters exist as hard-off stubs). The builders are kept for protocol
+fidelity should a venue ever be certified, NOT wired to any live path.
+Do not flag them as dead code and do not wire them up.
 """
 
 import time

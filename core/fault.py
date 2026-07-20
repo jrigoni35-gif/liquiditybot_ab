@@ -149,13 +149,3 @@ class FaultManager:
                     "faults": {k: {"severity": f.severity.value,
                                    "detail": f.detail, "count": f.count}
                                for k, f in self._faults.items()}}
-
-
-_FM = None
-
-
-def get_fault_manager() -> FaultManager:
-    global _FM
-    if _FM is None:
-        _FM = FaultManager()
-    return _FM

@@ -35,6 +35,8 @@ class Position:
                                       # label) - OF-5 grades conviction trades separately
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
+        """Unrealized PnL in PERCENT of entry price, sign-correct for
+        shorts (positive = in profit); 0.0 on a zero entry price."""
         if self.entry_price == 0:
             return 0.0
         if self.direction == "long":
@@ -73,22 +75,29 @@ class PortfolioState:
 
     # --- Position management -------------------------------------------------
     def add_position(self, position: Position):
+        """Register an open Position, keyed by position_id (upsert)."""
         self._positions[position.position_id] = position
 
     def remove_position(self, position_id: str):
+        """Drop a position from the book (no-op when the id is unknown)."""
         self._positions.pop(position_id, None)
 
     def get_position(self, position_id: str) -> Optional[Position]:
+        """The open Position for this id, or None."""
         return self._positions.get(position_id)
 
     def open_positions(self) -> list:
+        """Snapshot list of all open Position objects (hedges included)."""
         return list(self._positions.values())
 
     def open_position_count(self) -> int:
+        """Number of open positions (hedges included)."""
         return len(self._positions)
 
     # --- Exposure helpers (v2) --------------------------------------------------
     def gross_exposure_usd(self, mark_prices: Optional[Dict[str, float]] = None) -> float:
+        """Sum of size*mark in USD across open positions, direction-blind
+        (longs and shorts both add); entry price when no mark is given."""
         total = 0.0
         for pos in self._positions.values():
             px = (mark_prices or {}).get(pos.symbol) or pos.entry_price
@@ -96,6 +105,8 @@ class PortfolioState:
         return total
 
     def net_delta_usd(self, mark_prices: Optional[Dict[str, float]] = None) -> float:
+        """Signed net exposure in USD (long positive, short negative);
+        entry price when no mark is given."""
         total = 0.0
         for pos in self._positions.values():
             px = (mark_prices or {}).get(pos.symbol) or pos.entry_price
@@ -104,6 +115,7 @@ class PortfolioState:
         return total
 
     def record_fees(self, amount: float):
+        """Accumulate venue fees (USD) into the running lifetime total."""
         self.fees_paid_total += amount
 
     def record_entry_fee(self, amount: float):
@@ -137,12 +149,15 @@ class PortfolioState:
         return equity
 
     def record_realized_pnl(self, amount: float):
+        """Book realized PnL (USD, net of exit fees) into the lifetime/
+        daily/weekly totals AND settle it into cash_balance."""
         self.realized_pnl_total += amount
         self.daily_realized_pnl += amount
         self.weekly_realized_pnl += amount
         self.cash_balance += amount
 
     def reset_daily_pnl(self):
+        """Zero the daily realized-PnL counter (UTC day rollover)."""
         self.daily_realized_pnl = 0.0
 
     def maybe_reset_daily_pnl(self, now: Optional[float] = None):

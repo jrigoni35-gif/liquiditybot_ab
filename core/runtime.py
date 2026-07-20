@@ -43,6 +43,9 @@ ARM_PHRASE = "ARM LIVE"
 
 
 def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
+    """Publish `payload` as UTF-8 JSON atomically: PID-scoped tmp + fsync +
+    os.replace, so a reader can never observe a torn or half-written file.
+    Retries transient Windows PermissionError renames; last attempt raises."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # PID-scoped tmp: a fixed "status.json.tmp" is shared, so during the
     # single-instance-lock convergence window (LOST_LIMIT cycles, or a
@@ -74,6 +77,8 @@ def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
 
 
 def read_json(path: Path):
+    """Best-effort UTF-8 JSON read: the parsed payload, or None on any
+    OS/parse error (never raises - readers must not wedge on a torn file)."""
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -107,6 +112,8 @@ class JsonlLogHandler(logging.Handler):
             pass
 
     def emit(self, record: logging.LogRecord):
+        """Append one {ts, level, logger, msg[, exc]} JSON line (UTF-8);
+        any failure routes to handleError, never to the caller."""
         try:
             self._maybe_rotate()
             payload = {
@@ -130,6 +137,9 @@ class JsonlLogHandler(logging.Handler):
 
 def tail_events(path: str = "outputs/events.jsonl", n: int = 200,
                 min_level: str = "INFO") -> list:
+    """Last `n` structured event dicts at/above `min_level`, oldest first.
+    Reads only the file tail (bounded I/O); malformed lines are skipped and
+    any OS error returns [] - a log reader must never raise."""
     order = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
     floor = order.get(min_level, 1)
     p = Path(path)
@@ -267,9 +277,13 @@ class SingleInstanceLock:
 
     @property
     def forfeited(self) -> bool:
+        """True after LOST_LIMIT consecutive failed refreshes: a live peer
+        owns the dir and this runner must exit."""
         return self.lost_count >= self.LOST_LIMIT
 
     def release(self):
+        """Delete the lockfile - but only if this process still owns it
+        (never destroys a peer's live lock)."""
         cur = read_json(self.path)
         if isinstance(cur, dict) and cur.get("pid") == self.pid:
             try:
@@ -290,6 +304,8 @@ class ControlChannel:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def send(self, cmd: str, args: dict | None = None) -> str:
+        """Drop one command file (atomic write) into the queue; returns the
+        command id. Raises ValueError on a command not in VALID_COMMANDS."""
         if cmd not in VALID_COMMANDS:
             raise ValueError(f"unknown command {cmd}")
         cid = f"{time.time():.6f}-{uuid.uuid4().hex[:6]}"
@@ -299,6 +315,9 @@ class ControlChannel:
         return cid
 
     def consume(self) -> list:
+        """Drain the queue in timestamp order: returns valid command dicts,
+        deleting every file it touches (unparseable/unknown files are
+        dropped silently - the queue can never wedge)."""
         cmds = []
         for f in sorted(self.dir.glob("cmd_*.json")):
             payload = read_json(f)
@@ -321,9 +340,12 @@ class SimOverrides:
     force_regime: dict = field(default_factory=dict)  # asset -> {"label","cycles"}
 
     def active(self) -> bool:
+        """True while any injected override still has cycles remaining."""
         return bool(self.price_shock or self.force_fear or self.force_regime)
 
     def tick(self):
+        """Decrement every override's remaining-cycle count by one engine
+        cycle, expiring those that reach zero."""
         for a in list(self.price_shock):
             self.price_shock[a]["cycles"] -= 1
             if self.price_shock[a]["cycles"] <= 0:
@@ -336,6 +358,7 @@ class SimOverrides:
                 del self.force_regime[a]
 
     def describe(self) -> dict:
+        """Status-schema `sim` payload: the currently active overrides."""
         return {"price_shock": self.price_shock,
                 "force_fear_cycles": self.force_fear,
                 "force_regime": self.force_regime}
@@ -343,6 +366,9 @@ class SimOverrides:
 
 # ---------------------------------------------------------------------------
 class StatusWriter:
+    """Owns the telemetry files: atomic status.json rewrites plus the
+    append-only equity.csv curve (throttled to one row / 15s)."""
+
     def __init__(self, status_path: str = "outputs/status.json",
                 equity_path: str = "outputs/equity.csv"):
         self.status_path = Path(status_path)
@@ -354,6 +380,10 @@ class StatusWriter:
             self.equity_path.write_text("ts,equity,daily_pnl\n", encoding="utf-8")
 
     def write(self, payload: dict, now: float | None = None):
+        """Publish the status snapshot atomically (MUTATES payload: adds
+        written_at) and append the throttled equity row. A lost write is
+        benign - the next cycle rewrites - so failures are counted and
+        warned sparsely, never raised."""
         now = now if now is not None else time.time()
         payload["written_at"] = now
         try:

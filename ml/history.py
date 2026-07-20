@@ -213,7 +213,7 @@ class HistoryStore:
                         candidate_weight: float = 0.4,
                         manip_discount: float = 0.5, return_sig: bool = False,
                         weights_cfg: dict | None = None,
-                        return_label_times: bool = False):
+                        return_label_times: bool = False) -> tuple:
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
         weights encode the honest priors:
@@ -846,9 +846,12 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
             continue
         side = 1 if crossed_up else -1
         sigma_bar = float(rets[max(i - 60, 0):i].std() + 1e-6)
+        # `exit_policy is not None` is implied by use_policy (line above);
+        # restated inline so the type checker narrows the Optional
         out = simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
                                    exit_policy, max_bars=max_bars,
-                                   cost_pct=cost_pct) if use_policy \
+                                   cost_pct=cost_pct) \
+            if use_policy and exit_policy is not None \
             else triple_barrier(closes, highs, lows, i, side, sigma_bar,
                                 pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
         feats = np.zeros(len(FEATURE_NAMES))

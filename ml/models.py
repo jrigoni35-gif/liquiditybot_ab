@@ -79,7 +79,12 @@ class LogisticModel:
         self.b = 0.0
         self.std = _Standardizer()
 
-    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            Xv: np.ndarray | None = None, yv: np.ndarray | None = None,
+            sample_weight: np.ndarray | None = None) -> "LogisticModel":
+        """Fit weighted L2 logistic regression on (X rows, y in {0,1});
+        standardizes with train-set stats. Xv/yv accepted for interface
+        parity (unused). Returns self."""
         rng = np.random.default_rng(self.seed)
         self.std.fit(X)
         Xs = self.std.transform(X)
@@ -99,7 +104,8 @@ class LogisticModel:
             self.b -= self.lr * float(g.mean())
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]; standardizes with train-set stats."""
         Xs = self.std.transform(np.atleast_2d(X))
         z = Xs @ self.w + self.b
         return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
@@ -112,14 +118,17 @@ class LogisticModel:
         mu = getattr(self.std, "mu", None)
         return None if mu is None else int(np.asarray(mu).shape[0])
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
+        """JSON-serializable artifact: kind + weights + standardizer stats
+        (model must be fitted)."""
         assert (self.w is not None and self.std.mu is not None
                 and self.std.sd is not None), "model must be fitted before to_dict()"
         return {"kind": self.kind, "w": self.w.tolist(), "b": self.b,
                 "mu": self.std.mu.tolist(), "sd": self.std.sd.tolist()}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "LogisticModel":
+        """Rebuild a fitted model from to_dict() output."""
         m = cls()
         m.w = np.array(d["w"])
         m.b = float(d["b"])
@@ -187,7 +196,11 @@ class NumpyMLP:
             da = dz @ P[f"W{i}"].T
         return grads
 
-    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            Xv: np.ndarray | None = None, yv: np.ndarray | None = None,
+            sample_weight: np.ndarray | None = None) -> "NumpyMLP":
+        """Train with Adam + dropout + early stopping on a validation
+        slice (tail split when Xv/yv not given). Returns self."""
         rng = np.random.default_rng(self.seed)
         X = np.asarray(X, float)
         y = np.asarray(y, float)
@@ -240,17 +253,22 @@ class NumpyMLP:
         self.params = best_P or P
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]; standardizes with train-set stats,
+        dropout disabled (inference mode)."""
         Xs = self.std.transform(np.atleast_2d(np.asarray(X, float)))
         p, _ = self._forward(Xs, self.params, False, np.random.default_rng(0))
         return p
 
     @property
     def n_features(self):
+        """Input width this model was fit on (None if unfitted)."""
         mu = getattr(self.std, "mu", None)
         return None if mu is None else int(np.asarray(mu).shape[0])
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
+        """JSON-serializable artifact: kind + layer params + standardizer
+        stats (model must be fitted)."""
         assert (self.params is not None and self.std.mu is not None
                 and self.std.sd is not None), "model must be fitted before to_dict()"
         return {"kind": self.kind, "hidden": list(self.hidden),
@@ -258,7 +276,8 @@ class NumpyMLP:
                 "mu": self.std.mu.tolist(), "sd": self.std.sd.tolist()}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "NumpyMLP":
+        """Rebuild a fitted model from to_dict() output."""
         m = cls(hidden=tuple(d["hidden"]))
         m.params = {k: np.array(v) for k, v in d["params"].items()}
         m.std.mu = np.array(d["mu"])
@@ -279,7 +298,10 @@ class EnsembleMLP:
         self.mlp_kwargs = mlp_kwargs
         self.members = []
 
-    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            Xv: np.ndarray | None = None, yv: np.ndarray | None = None,
+            sample_weight: np.ndarray | None = None) -> "EnsembleMLP":
+        """Fit k NumpyMLP members on decorrelated seeds. Returns self."""
         self.members = []
         for i in range(self.k):
             m = NumpyMLP(seed=self.seed + 101 * i, **self.mlp_kwargs)
@@ -287,19 +309,23 @@ class EnsembleMLP:
             self.members.append(m)
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]: mean of the members' probabilities."""
         return np.mean([m.predict_proba(X) for m in self.members], axis=0)
 
     @property
     def n_features(self):
+        """Input width this model was fit on (None if unfitted)."""
         return self.members[0].n_features if self.members else None
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
+        """JSON-serializable artifact: kind + k + member artifacts."""
         return {"kind": self.kind, "k": self.k,
                 "members": [m.to_dict() for m in self.members]}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "EnsembleMLP":
+        """Rebuild a fitted ensemble from to_dict() output."""
         e = cls(k=int(d.get("k", 3)))
         e.members = [NumpyMLP.from_dict(m) for m in d["members"]]
         return e
@@ -341,6 +367,8 @@ def save_model(model, path: str, extra: dict | None = None):
 
 
 def load_model(path: str):
+    """Load a saved artifact, dispatching on its 'kind' tag; None when the
+    file does not exist. Unknown/missing kind falls back to logistic."""
     p = Path(path)
     if not p.exists():
         return None
@@ -484,7 +512,12 @@ class GradientBoostedStumps:
         return np.where(m, node["vl"], node["vr"])  # legacy depth-2 artifacts
 
     # ---- API --------------------------------------------------------------
-    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            Xv: np.ndarray | None = None, yv: np.ndarray | None = None,
+            sample_weight: np.ndarray | None = None
+            ) -> "GradientBoostedStumps":
+        """Newton-boost shallow trees on logloss with early stopping on a
+        validation slice (tail split when Xv/yv not given). Returns self."""
         rng = np.random.default_rng(self.seed)
         X = np.asarray(X, float)
         y = np.asarray(y, float)
@@ -600,7 +633,8 @@ class GradientBoostedStumps:
             raw += self.lr * self._node_out(tree, X)
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]: sigmoid of base + sum of tree outputs."""
         X = np.atleast_2d(np.asarray(X, float))
         raw = np.full(len(X), self.base)
         for tree in self.trees:
@@ -609,9 +643,10 @@ class GradientBoostedStumps:
 
     @property
     def n_features(self):
+        """Input width this model was fit on (None if unfitted)."""
         return self.n_features_
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         # subsample/l2/min_child_hess/seed are serialized so a model loaded
         # from disk can continue_fit() with its ORIGINAL regularization, not
         # the constructor defaults — a warm update after a restart must be
@@ -626,7 +661,9 @@ class GradientBoostedStumps:
                 "importance": {str(k): v for k, v in self.importance_.items()}}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "GradientBoostedStumps":
+        """Rebuild a fitted model from to_dict() output (older artifacts
+        without the regularization keys get the current defaults)."""
         m = cls()
         m.base = float(d["base"])
         m.lr = float(d.get("lr", 0.05))
@@ -665,25 +702,31 @@ class BlendModel:
         self.a = LogisticModel(seed=seed)
         self.b = GradientBoostedStumps(seed=seed)
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            sample_weight: np.ndarray | None = None) -> "BlendModel":
+        """Fit both members on the same data. Returns self."""
         self.a.fit(X, y, sample_weight=sample_weight)
         self.b.fit(X, y, sample_weight=sample_weight)
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]: equal-weight mean of both members."""
         return 0.5 * (self.a.predict_proba(X) + self.b.predict_proba(X))
 
     @property
     def n_features(self):
+        """Input width this model was fit on (None if unfitted)."""
         # the logistic member always carries a standardizer -> reliable width
         return self.a.n_features
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
+        """JSON-serializable artifact: kind + both member artifacts."""
         return {"kind": self.kind, "seed": self.seed,
                 "a": self.a.to_dict(), "b": self.b.to_dict()}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "BlendModel":
+        """Rebuild a fitted blend from to_dict() output."""
         m = cls(seed=int(d.get("seed", 7)))
         m.a = LogisticModel.from_dict(d["a"])
         m.b = GradientBoostedStumps.from_dict(d["b"])
@@ -728,7 +771,11 @@ class AdaptiveGBT:
         self.gbt_kwargs = gbt_kwargs
         self.members: list = []
 
-    def fit(self, X, y, Xv=None, yv=None, sample_weight=None):
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            Xv: np.ndarray | None = None, yv: np.ndarray | None = None,
+            sample_weight: np.ndarray | None = None) -> "AdaptiveGBT":
+        """Fit k GradientBoostedStumps members on decorrelated seeds.
+        Returns self."""
         self.members = []
         for i in range(self.k):
             m = GradientBoostedStumps(seed=self.seed + 101 * i,
@@ -750,21 +797,26 @@ class AdaptiveGBT:
                                sample_weight=sample_weight)
         return self
 
-    def predict_proba(self, X):
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Per-row P(win) in [0,1]: mean of the members' probabilities."""
         return np.mean([m.predict_proba(X) for m in self.members], axis=0)
 
     @property
     def n_features(self):
+        """Input width this model was fit on (None if unfitted)."""
         return self.members[0].n_features if self.members else None
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
+        """JSON-serializable artifact: kind + warm-update caps + member
+        artifacts (so warm updates survive a restart)."""
         return {"kind": self.kind, "k": self.k,
                 "warm_rounds": self.warm_rounds,
                 "max_total_trees": self.max_total_trees,
                 "members": [m.to_dict() for m in self.members]}
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict) -> "AdaptiveGBT":
+        """Rebuild a fitted model from to_dict() output."""
         e = cls(k=int(d.get("k", 4)),
                 warm_rounds=int(d.get("warm_rounds", 25)),
                 max_total_trees=int(d.get("max_total_trees", 800)))

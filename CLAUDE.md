@@ -81,10 +81,13 @@ INVARIANT below, stop and say so instead of complying.
 Run ALL of it; a change is not done while anything is red:
 `python -m pytest tests/ -q` · `python scripts/smoke_test.py` ·
 `python scripts/assurance_check.py` · `python scripts/overfit_check.py`
-· `ruff check core data execution ml risk api tests
-scripts/quant_trials.py scripts/overfit_check.py` · `bandit -c
-pyproject.toml -r . -x ./.venv,./tests` · `python -m compileall -q . -x
-'.venv'`.
+· `ruff check core data execution ml risk regime strategies sentiment
+api main.py runner.py tests scripts/quant_trials.py
+scripts/overfit_check.py` · `pyright core data execution ml risk regime
+strategies sentiment api main.py runner.py` (type ratchet: shipped scope
+is at ZERO errors — keep it there; tests/scripts are outside the gate)
+· `bandit -c pyproject.toml -r . -x ./.venv,./tests` · `python -m
+compileall -q . -x '.venv'`.
 Every module must import in isolation (`tests/test_import_integrity.py`
 enforces; optional third-party deps may be absent, our names may not).
 New behavior gets a test in the same commit. Windows is the target

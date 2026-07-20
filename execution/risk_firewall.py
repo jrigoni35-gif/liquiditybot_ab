@@ -91,7 +91,10 @@ class Limits:
             try:
                 x = float(cfg.get(name, default))
             except (TypeError, ValueError):
-                raise ValueError(f"firewall config: {name} not numeric")
+                # `from None`: the swallowed conversion error carries no
+                # information beyond what this FATAL config message states
+                raise ValueError(
+                    f"firewall config: {name} not numeric") from None
             if not math.isfinite(x) or not (lo <= x <= hi):
                 raise ValueError(
                     f"firewall config: {name}={x} outside [{lo}, {hi}]")

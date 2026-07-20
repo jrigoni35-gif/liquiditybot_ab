@@ -64,7 +64,7 @@ class IsotonicCalibrator:
         px, yy = p[order], y[order]
         # PAV: pools of (value_sum, weight)
         vals, wts, xs = [], [], []
-        for xi, yi in zip(px, yy):
+        for xi, yi in zip(px, yy, strict=True):
             vals.append(yi)
             wts.append(1.0)
             xs.append(xi)
@@ -82,7 +82,7 @@ class IsotonicCalibrator:
         ys = list(np.clip(np.array(vals, float) / np.array(wts, float),
                           0.02, 0.98))
         mx, my = [], []
-        for xv, yv in zip(xs, ys):
+        for xv, yv in zip(xs, ys, strict=True):
             if mx and xv == mx[-1]:
                 my[-1] = yv
             else:

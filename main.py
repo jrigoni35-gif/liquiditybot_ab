@@ -37,7 +37,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -112,7 +112,8 @@ def load_config(path: str = "config.json") -> dict:
         return json.load(f)
 
 
-def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
+def pick_unteachable_unwind(positions: list, pending_ids: set,
+                            at_capacity: bool,
                             rows: int, until_live_rows: int, now: float,
                             min_age_h: float):
     """Learning-phase anti-wedge (ML-071), pure decision logic: when the
@@ -149,7 +150,7 @@ def _append_weekly_ledger(path: Path, row: dict) -> None:
         w.writerow([row.get(c, "") for c in cols])
 
 
-def exit_in_flight(open_orders, position_id: str) -> bool:
+def exit_in_flight(open_orders: list, position_id: str) -> bool:
     """True when a working exit order already exists for this position.
     The learning-phase unwinds (ML-071/ML-073) run every slow tick; without
     this guard a slow fill makes them re-log the same disposition each tick
@@ -195,7 +196,7 @@ def effective_realize_spans(spans: float, fastpath: float,
     return spans
 
 
-def pick_label_mature_unwind(positions, rows: int, until_live_rows: int,
+def pick_label_mature_unwind(positions: list, rows: int, until_live_rows: int,
                              now: float, mature_h: float):
     """Learning-phase LABEL REALIZATION (ML-073), pure decision logic. The
     documented SD-002 starvation loop: dry-run exploration opens paper trades
@@ -336,7 +337,7 @@ def _book_imbalance(book: dict) -> float:
     return 0.0
 
 
-def _composite_imbalance(venue_books: list):
+def _composite_imbalance(venue_books: list) -> Optional[float]:
     """Mean of PER-VENUE log-imbalances for the manip divergence term.
     NEVER the price-merged combined book: OKX (perp, contract-unit sizes)
     and Binance.US (spot, coin-unit sizes) don't share size units, so
@@ -786,7 +787,7 @@ class LiquidityBot:
         self.fault = FaultManager(alerts=self.alerts)
         self.fault.arm()
 
-    def _reconcile_live_on_resume(self):
+    def _reconcile_live_on_resume(self) -> None:
         """Live resume: restored resting orders reconcile through the normal
         poll path (QueryOrders reports fills that happened while offline as
         deltas vs the persisted fill state, and they flow through
@@ -797,7 +798,7 @@ class LiquidityBot:
         except Exception:
             log.warning("resume balance check skipped: Balance call failed")
             return
-        for asset, symbol in self.symbol_map.items():
+        for asset, _symbol in self.symbol_map.items():
             local = sum(p.size if p.direction == "long" else -p.size
                         for p in self.state.open_positions()
                         if self._asset_of(p.symbol) == asset)
@@ -836,7 +837,7 @@ class LiquidityBot:
             self._tier_engines[key] = eng
         return eng
 
-    def _submit_algo_child(self, parent, now: float):
+    def _submit_algo_child(self, parent, now: float) -> None:
         """Price and submit one child slice through the UNCHANGED
         hardened path: fresh AS quote + tactics for placement, then
         order_manager (pre-trade already approved the parent's edge;
@@ -900,7 +901,7 @@ class LiquidityBot:
             self.algo.note_child_rejected(parent.parent_id, child.units,
                                           "order_manager/firewall refused")
 
-    def _step_exec_algos(self, now: float):
+    def _step_exec_algos(self, now: float) -> None:
         """Advance every live parent one scheduling step; abort them all
         when new risk is globally blocked (kill switch / watchdog)."""
         if not self.algo.parents:
@@ -928,7 +929,7 @@ class LiquidityBot:
         gate on this so they never fire off a frozen price; escapes never do."""
         return (now - self._mark_ts.get(symbol, 0.0)) <= self._mark_stale_sec
 
-    def _px(self, symbol: str, price) -> str:
+    def _px(self, symbol: str, price: float) -> str:
         """Format a price at its venue precision for human output, so a
         sub-dollar pair (ARB/MINA/FLOW) is never logged on a 2-decimal grid
         coarser than its own tick. Display only - the engine computes on
@@ -977,7 +978,8 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # fill handling
     # ------------------------------------------------------------------
-    def _finalize_position(self, pos: Position, total_net: float, now: float):
+    def _finalize_position(self, pos: Position, total_net: float,
+                           now: float) -> None:
         """Single close-out path (fill-flat and dust-flat both land here):
         history close, postmortem observation, ledger removal, counter
         cleanup. Keeping this in one place means the two exits can never
@@ -1011,7 +1013,7 @@ class LiquidityBot:
         self.state.remove_position(pos.position_id)
         self._exit_attempts.pop(pos.position_id, None)
 
-    def _mark_cand(self, asset: str, direction: str, code: str):
+    def _mark_cand(self, asset: str, direction: str, code: str) -> None:
         """Stamp the newest open candidate with the pipeline's final verdict
         (entered / veto). Guarded: bookkeeping never breaks the entry loop."""
         try:
@@ -1019,7 +1021,8 @@ class LiquidityBot:
         except Exception:
             log.exception("candidate disposition mark failed (%s)", code)
 
-    def _ledger_fill(self, order, event, fees_delta: float, now: float):
+    def _ledger_fill(self, order, event, fees_delta: float,
+                     now: float) -> None:
         """Durable per-fill execution record (core/fill_ledger). Guarded:
         recording must never break the trade that produced it."""
         try:
@@ -1030,7 +1033,7 @@ class LiquidityBot:
         except Exception:
             log.exception("fill ledger failed - row lost, fill unaffected")
 
-    def _handle_fill(self, event, now: Optional[float] = None):
+    def _handle_fill(self, event, now: Optional[float] = None) -> None:
         now = now if now is not None else time.time()
         order = event.order
         if event.fill_size > EPS and order.purpose in ("entry", "hedge"):
@@ -1152,7 +1155,7 @@ class LiquidityBot:
 
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
                  tier_fired: int = 0, now: Optional[float] = None,
-                 profit_take: bool = False):
+                 profit_take: bool = False) -> None:
         """Risk-reduction exit: marketable limit, slippage-capped, never
         blocked by the pre-trade edge gate (exits are risk management).
 
@@ -1267,7 +1270,9 @@ class LiquidityBot:
             position_id=pos.position_id, close_pct=close_pct,
             post_only=maker_first,
             ordertype="market" if go_market else "limit",
-            ref_price=ref, equity=self._equity(),
+            # ref may be None BY DESIGN (see EX-6 above: the firewall lets
+            # exits through uncollared on a missing reference)
+            ref_price=ref, equity=self._equity(),  # type: ignore[arg-type]
             book=book, sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
             meta={"reason": reason, "attempt": attempts + 1,
                   "tier_fired": int(tier_fired)},
@@ -1286,7 +1291,7 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # FAST cycle
     # ------------------------------------------------------------------
-    def fast_cycle(self, now: float):
+    def fast_cycle(self, now: float) -> None:
         # marks + books from the execution venue; every mark passes the
         # tick quarantine so one anomalous print can't fire every stop.
         # Marks fetch in ONE batched Ticker call (6 pairs -> 1 request)
@@ -1518,7 +1523,7 @@ class LiquidityBot:
         # 4) hedging
         self._run_hedge_pass(now, equity)
 
-    def _run_hedge_pass(self, now: float, equity: float):
+    def _run_hedge_pass(self, now: float, equity: float) -> None:
         """Hedge/unwind/trim actions, isolated so a hedge-engine error cannot
         wedge fast_cycle (the stop loop already ran above)."""
         try:
@@ -1527,7 +1532,7 @@ class LiquidityBot:
             self._exit_eval_failures += 1
             log.exception("hedge pass raised - isolated, cycle continues")
 
-    def _hedge_actions(self, now: float, equity: float):
+    def _hedge_actions(self, now: float, equity: float) -> None:
         for act in self.hedger.evaluate(self.state, self.marks, equity,
                                         self.corr.state):
             if act.kind == "unwind":
@@ -1569,8 +1574,8 @@ class LiquidityBot:
                 log.info(f"HEDGE {act.direction} ${act.usd:,.0f} {act.symbol}: "
                         f"{act.reason}")
 
-    def _manage_open_position(self, pos, now: float, equity: float,
-                              macro_states: dict):
+    def _manage_open_position(self, pos: Position, now: float, equity: float,
+                              macro_states: dict) -> None:
         """Stop + profit-tier management for ONE open position. Called inside a
         per-position guard in fast_cycle so a single position that errors can
         never starve the OTHER positions' hard stops (invariant #5). Behaviour
@@ -1662,7 +1667,8 @@ class LiquidityBot:
         # data it actually needs for OOS edge (2026-07-18: OF-1 gap 0.44,
         # exploration off). Honors the config key's own name (until_LIVE_rows).
         # Falls back to total rows only when the source split is unavailable.
-        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc_fn: Optional[Callable[[], dict]] = getattr(
+            self.history, "source_counts", None)
         _sc = _sc_fn() if callable(_sc_fn) else {}
         _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
         if _grad_rows >= self.explore_until_rows:
@@ -1714,7 +1720,8 @@ class LiquidityBot:
         mp = float(getattr(thesis, "model_p", -1.0))
         return mp if mp >= 0.0 else float(thesis.p_win)
 
-    def _log_sizer_veto(self, asset: str, reasons: list, explored: bool):
+    def _log_sizer_veto(self, asset: str, reasons: list,
+                        explored: bool) -> None:
         """Exploration entries surface their sizer veto at INFO: these are
         the trades the bot takes SPECIFICALLY to learn, so a veto here is a
         learning outage, not routine noise. (A DEBUG-only veto hid 45h of
@@ -1753,7 +1760,7 @@ class LiquidityBot:
             futures = [ex.submit(_safe, n, f) for n, f in feeds]
             return [f.result() for f in futures]   # feed order preserved
 
-    def _augment_view_with_kraken(self, now: float):
+    def _augment_view_with_kraken(self, now: float) -> None:
         """Ground EVERY mapped asset's candles on the EXECUTION venue (v8
         wash-trading hygiene): build_view merges external candles by
         "prefer the longer history" venue-agnostically, so volume_z /
@@ -1804,7 +1811,7 @@ class LiquidityBot:
             entry.setdefault("kraken_symbol", symbol)
             self.view[asset] = entry
 
-    def slow_cycle(self, now: float):
+    def slow_cycle(self, now: float) -> None:
         self.view = self.liquidity_model.build_view(
             *self._fetch_market_payloads())
         self._augment_view_with_kraken(now)
@@ -2371,7 +2378,7 @@ class LiquidityBot:
                 "mkt_ret_6": mkt_ret_6,
                 "book_touch_share": touch_share}
 
-    def _maybe_unwind_unteachable(self, now: float):
+    def _maybe_unwind_unteachable(self, now: float) -> None:
         """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:
         live exits stay entirely with the tier engine and operator."""
         cfg = self.config.get("ml", {}).get("exploration", {})
@@ -2384,7 +2391,8 @@ class LiquidityBot:
         # the teaching-slot unwind while real fill outcomes are still scarce,
         # letting non-teaching positions squat every slot and starving the
         # learning loop of meaningful data.
-        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc_fn: Optional[Callable[[], dict]] = getattr(
+            self.history, "source_counts", None)
         _sc = _sc_fn() if callable(_sc_fn) else {}
         _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
         pos = pick_unteachable_unwind(
@@ -2413,7 +2421,7 @@ class LiquidityBot:
         self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)",
                           now=now)
 
-    def _maybe_realize_mature_label(self, now: float):
+    def _maybe_realize_mature_label(self, now: float) -> None:
         """ML-073 learning-phase label realization (see pick_label_mature_unwind).
         Dry-run only: live exits stay entirely with the tier engine/operator.
         A dry-run position held past the model's label horizon has resolved its
@@ -2447,7 +2455,8 @@ class LiquidityBot:
             drought_after_h=float(cfg.get("realize_drought_h", 0.0)))
         mature_h = _spans * _bars * BAR_SECONDS / 3600.0
         # graduate on LIVE rows (real closed trades), same basis as exploration
-        _sc_fn = getattr(self.history, "source_counts", None)
+        _sc_fn: Optional[Callable[[], dict]] = getattr(
+            self.history, "source_counts", None)
         _sc = _sc_fn() if callable(_sc_fn) else {}
         _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
         pos = pick_label_mature_unwind(
@@ -2491,7 +2500,7 @@ class LiquidityBot:
                 return sym[:-len(q)]
         return sym
 
-    def hourly_cycle(self, now: float):
+    def hourly_cycle(self, now: float) -> None:
         # adaptive-penalty staleness decay: without this a raised entry
         # bar can deadlock (bar blocks trades -> no closes -> the causes
         # window that justifies the bar never refreshes)
@@ -2553,7 +2562,7 @@ class LiquidityBot:
                 f"kelly_mult={st['kelly_mult']:.2f} "
                 f"history_rows={self.history.row_count()}")
 
-    def _check_equity_truth(self):
+    def _check_equity_truth(self) -> None:
         """Live only: compare the bot's internal equity ledger against the
         venue's TradeBalance. Config can lie, fills can be missed, someone
         can trade the account manually - the exchange's number is the
@@ -2617,7 +2626,7 @@ class LiquidityBot:
         self._retrain_attempted = True
         return True
 
-    def _maybe_auto_retrain(self):
+    def _maybe_auto_retrain(self) -> None:
         """Self-improvement loop: when the monitor requests a retrain (level
         2, or the flag file exists) and enough NEW labeled rows have accrued,
         retrain in-process on live+candidate history. The challenger only
@@ -2667,7 +2676,8 @@ class LiquidityBot:
             _stats = getattr(self.history, "last_load_stats", {}) or {}
             _n_live = _stats.get("live_clean")
             if _n_live is None:
-                _sc_fn = getattr(self.history, "source_counts", None)
+                _sc_fn: Optional[Callable[[], dict]] = getattr(
+                    self.history, "source_counts", None)
                 _n_live = ((_sc_fn() or {}).get("live", 0)
                            if callable(_sc_fn) else 0)
             _sel_cfg = self.config.get('ml', {}).get('model_selection') or None
@@ -2781,7 +2791,7 @@ class LiquidityBot:
             log.exception("auto-retrain failed - keeping current model "
                           "(retrain_failures=%d)", self._retrain_failures)
 
-    def cycle_once(self, now: Optional[float] = None):
+    def cycle_once(self, now: Optional[float] = None) -> None:
         """Exactly one engine cycle. The engine owns NO loop - runner.py
         (or a test, or the UI's 'run one cycle' button) drives this."""
         now = now if now is not None else time.time()
@@ -2794,7 +2804,7 @@ class LiquidityBot:
         self._cycle += 1
         self._cycle_lifetime += 1
 
-    def _apply_sim(self):
+    def _apply_sim(self) -> None:
         if not self.dry_run or not self.sim.active():
             return
         for asset, shock in self.sim.price_shock.items():
@@ -2822,13 +2832,13 @@ class LiquidityBot:
         return False
 
     # ------------------------------------------------------------------
-    def run(self):
+    def run(self) -> None:
         """Back-compat: the loop lives in runner.py now."""
         from runner import BotRunner
         BotRunner(self.config, bot=self).run()
 
 
-def main():
+def main() -> None:
     """Delegates to the runner - the loop lives there. `python main.py`
     and `python runner.py` are equivalent."""
     from runner import main as runner_main

@@ -504,8 +504,8 @@ class BotRunner:
             "risk_protocols": self._rp_status(bot, equity),
             # asset skimmer: candidate rankings + the promoted set that will
             # join the universe at the next restart
-            "skimmer": self.skimmer.snapshot()
-            if getattr(self, "skimmer", None) is not None else {},
+            "skimmer": _sk.snapshot()
+            if (_sk := getattr(self, "skimmer", None)) is not None else {},
             # per-asset consecutive-loss breaker: active pauses + streaks
             "circuit_breaker": bot.breaker.snapshot(now)
             if getattr(bot, "breaker", None) is not None else {},
@@ -525,8 +525,8 @@ class BotRunner:
             "thales": bot.thales.status(now) if hasattr(bot, "thales") else {},
             "ws": bot.ws_manager.health()
             if getattr(bot, "ws_manager", None) is not None else {},
-            "ws_kraken": bot.kraken_ws.health()
-            if getattr(bot, "kraken_ws", None) is not None else {},
+            "ws_kraken": _kws.health()
+            if (_kws := getattr(bot, "kraken_ws", None)) is not None else {},
             "sim": bot.sim.describe(),
         }
 
@@ -699,8 +699,8 @@ class BotRunner:
                         # skimmer watch tick: self-throttled (round-robin, one
                         # candidate per eval interval); isolated with the rest
                         # of telemetry — a skimmer fault never touches trading
-                        if getattr(self, "skimmer", None) is not None:
-                            self.skimmer.evaluate(now)
+                        if (_sk := getattr(self, "skimmer", None)) is not None:
+                            _sk.evaluate(now)
                         snap = self.build_status(now)
                         # write BEFORE publishing to the API threads: write()
                         # mutates snap (adds written_at), and a REST poll

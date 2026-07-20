@@ -1,13 +1,45 @@
 # Tooling config. Kept minimal on purpose.
 
+[tool.ruff.lint]
+# Defaults (E4,E7,E9,F) plus a curated breadth bump:
+#   B    - bugbear: real bug classes (B905 zip strict, B904 raise-from,
+#          B007 unused loop vars); the tree is clean under it.
+#   C901 - mccabe complexity CEILING, set at 40: freezes the current worst
+#          shipped function and blocks new giants. This is a regression
+#          stop, not a target - do not grow functions toward it.
+# N (pep8-naming) is deliberately NOT enabled: X/y/T/P math names are
+# ML house style and the gRPC servicer method names are proto-mandated.
+# No formatter adoption either - a reformat-everything diff would destroy
+# git blame and review discipline.
+extend-select = ["B", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 40
+
 [tool.ruff.lint.per-file-ignores]
+# config_guard.validate is ONE deliberate linear checklist (every config
+# key gets its FATAL/WARN checks in sequence); C901 is waived here until
+# it is split into per-section validators. Do not add new giants behind
+# this waiver.
+"core/config_guard.py" = ["C901"]
+# The breadth bump (B) targets SHIPPED code; test files keep ruff
+# defaults - their fixture-style zips/setattr are harness idiom, and
+# rewriting them buys no production safety.
+"tests/*" = ["B"]
+# Offline operator/tuning scripts (outside the DoD ruff scope): waive the
+# breadth-bump rules their harness style trips so the editor's on-save
+# linter stays quiet; scripts/quant_trials.py + scripts/overfit_check.py
+# ARE in the DoD scope and stay fully un-waived.
+"scripts/gc_pusher.py" = ["C901"]
+"scripts/sweep.py" = ["B905"]
+"scripts/tune_search.py" = ["B905"]
 # scripts/smoke_test.py is a dense offline test harness (200+ checks) that
 # uses intentional compact one-liners - `ch.send("pause"); ch.send(...)`,
 # `mm.maybe_poll(t); t += 1` - and a couple of deliberately-local imports.
 # It is already OUTSIDE the Definition-of-Done ruff scope; this stops the
 # editor's on-save linter from flagging that harness style as errors while
 # every shipped engine/library path stays on ruff defaults, unignored.
-"scripts/smoke_test.py" = ["E702", "E401", "E402"]
+"scripts/smoke_test.py" = ["E702", "E401", "E402", "B007"]
 
 [tool.bandit]
 # B101 (assert_used) is skipped repo-wide. Every assert in the tree is either a

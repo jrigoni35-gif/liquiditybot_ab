@@ -17,7 +17,7 @@ import math
 import socket
 import threading
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -129,7 +129,7 @@ class ThrottledRestClient:
         return isinstance(e, requests.exceptions.ConnectionError) and \
             not isinstance(e, requests.exceptions.Timeout)
 
-    def _request(self, url, params, log, venue, timeout, decode_json):
+    def _request(self, url, params, log, venue, timeout, decode_json) -> Any:
         last_err: Optional[Exception] = None
         for attempt in range(self.transport_retries + 1):
             self._throttle()               # every attempt is rate-limited
@@ -172,7 +172,8 @@ class ThrottledRestClient:
                              decode_json=False)
 
     def _get_json(self, url: str, params: Optional[dict],
-                  log: logging.Logger, venue: str, timeout: float = 10):
+                  log: logging.Logger, venue: str,
+                  timeout: float = 10) -> Optional[Any]:
         """Throttled GET returning decoded JSON, or None on any
         transport/decode failure (requests>=2.27 JSONDecodeError is a
         RequestException, so one except covers both)."""

@@ -299,7 +299,7 @@ def _volume_profile(bars: List[tuple], cfg: dict
     n_bins = max(int(cfg.get("n_bins", 24)), 3)
     bin_w = (hi - lo) / n_bins
     vols = [0.0] * n_bins
-    for _, o, h, lo_p, c, v in window:
+    for _, _o, h, lo_p, c, v in window:
         typical = (h + lo_p + c) / 3.0
         b = int((typical - lo) / bin_w)
         b = min(max(b, 0), n_bins - 1)

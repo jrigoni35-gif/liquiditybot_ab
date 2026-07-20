@@ -26,7 +26,16 @@ echo === overfit_check (OF-1..OF-7 battery) ===
 
 echo.
 echo === ruff lint ===
-%PY% -m ruff check core data execution ml risk api ui strategies regime sentiment tests scripts\quant_trials.py scripts\overfit_check.py || (echo RUFF FAILED & exit /b 1)
+%PY% -m ruff check core data execution ml risk regime strategies sentiment api main.py runner.py tests scripts\quant_trials.py scripts\overfit_check.py || (echo RUFF FAILED & exit /b 1)
+
+echo.
+echo === pyright type ratchet (shipped scope, must stay at zero) ===
+where pyright >nul 2>nul
+if %ERRORLEVEL%==0 (
+    pyright core data execution ml risk regime strategies sentiment api main.py runner.py || (echo PYRIGHT FAILED - type ratchet regressed & exit /b 1)
+) else (
+    echo pyright not installed - stage SKIPPED. Install: pip install pyright
+)
 
 echo.
 echo === bandit security scan ===

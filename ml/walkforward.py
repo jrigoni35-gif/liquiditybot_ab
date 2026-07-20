@@ -157,6 +157,9 @@ def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
         test_start = k * fold
         test_end = min(test_start + fold, n)
         if use_time and use_res:
+            # type-narrowing invariant guard: use_time/use_res imply the
+            # arrays exist (set above); assert for the checker, never fires
+            assert sig is not None and res is not None
             # keep only rows whose label ACTUALLY resolved before the
             # test opens; res is not monotone in sig (variable holds)
             # so this is a mask, not a prefix
@@ -164,6 +167,7 @@ def purged_walk_forward(n: int, n_splits: int = 5, label_span: int = 96,
                 (np.arange(n) < test_start)
                 & (res <= sig[test_start]))[0]
         elif use_time:
+            assert sig is not None      # implied by use_time (see above)
             # keep only rows whose label fully resolves at/before the test
             # opens: sig[i] + horizon <= sig[test_start]
             cutoff = sig[test_start] - horizon_sec

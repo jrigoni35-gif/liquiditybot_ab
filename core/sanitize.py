@@ -50,12 +50,6 @@ def safe_float(value, default: float = 0.0,
     return f
 
 
-def sanitize_number(value, default: float = 0.0) -> float:
-    """Finite-or-default with no clamp (for values whose range isn't known
-    a priori but which must never be NaN/Inf)."""
-    return safe_float(value, default)
-
-
 def is_finite(x) -> bool:
     """True iff x is a real, finite number (not bool-excluding — callers that
     build math on it already treat bool as int). The single home for the
@@ -100,9 +94,9 @@ def safe_rss_root(xml_text: str, max_bytes: int = MAX_RESPONSE_BYTES):
         log.warning(f"XML {len(xml_text)} bytes exceeds cap {max_bytes} - rejected")
         return None
     try:
-        import defusedxml.ElementTree as DET
+        import defusedxml.ElementTree as det_et
         try:
-            return DET.fromstring(xml_text)
+            return det_et.fromstring(xml_text)
         except Exception as e:          # ParseError, EntitiesForbidden, etc.
             log.warning(f"rejected malformed/hostile XML: {e}")
             return None
