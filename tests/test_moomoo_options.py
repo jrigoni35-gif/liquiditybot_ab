@@ -87,7 +87,28 @@ def test_pcr_oi_and_skew_math():
     assert snap.available and snap.options_available
     assert abs(snap.opt_pcr - 3.0) < 1e-9        # 300 put vol / 100 call
     assert abs(snap.opt_oi_pcr - 0.5) < 1e-9     # 40 put OI / 80 call
-    assert snap.opt_iv_skew == 1.0               # (60-50)/10, clipped
+    assert snap.opt_iv_skew == 1.0               # (60-50)/10, in range
+
+
+def test_iv_skew_keeps_resolution_past_ten_points():
+    # 43% of options-available corpus rows sat censored at the old -1.0
+    # bound: call IV routinely runs 10+ points over puts on the crypto-
+    # proxy basket, so the model saw only "inverted", never how hard.
+    # Clip is now +/-3 (30 IV points) at every layer - feed (binding),
+    # builder, contract - pinned together because layer drift is exactly
+    # how the censoring went unnoticed.
+    snap = _feed(StubCtx(put_iv=50.0, call_iv=75.0)).maybe_poll(1000.0)
+    assert abs(snap.opt_iv_skew - (-2.5)) < 1e-9   # was censored to -1.0
+    snap = _feed(StubCtx(put_iv=40.0, call_iv=85.0)).maybe_poll(1000.0)
+    assert snap.opt_iv_skew == -3.0                # outlier guard holds
+    from pathlib import Path
+
+    from ml.contracts import _RANGES
+    assert _RANGES["opt_iv_skew"] == (-3, 3)
+    src = (Path(__file__).resolve().parents[1] / "ml"
+           / "features.py").read_text(encoding="utf-8")
+    assert '("opt_iv_skew", 0.0), -3, 3' in src, \
+        "builder clip must match the feed clip and contract range"
 
 
 def test_far_otm_strikes_excluded_from_band():

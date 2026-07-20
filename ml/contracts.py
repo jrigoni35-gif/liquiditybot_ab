@@ -59,7 +59,7 @@ _RANGES = {
     "venue_disloc_dir": (-3, 3),
     "th_grid": (0, 1), "th_metronome": (0, 1),
     "th_clockwork": (0, 1), "th_stopzone": (0, 1), "th_barclose": (0, 1),
-    "opt_pcr_z": (-4, 4), "opt_oi_pcr_z": (-4, 4), "opt_iv_skew": (-1, 1),
+    "opt_pcr_z": (-4, 4), "opt_oi_pcr_z": (-4, 4), "opt_iv_skew": (-3, 3),
     "manip_suspect": (0, 1),
     "pat_engulf_dir": (-1, 1), "pat_hammer_dir": (-1, 1), "pat_marubozu_dir": (-1, 1),
     "vol_term": (-2, 2), "mkt_ret_6_dir": (-3, 3),

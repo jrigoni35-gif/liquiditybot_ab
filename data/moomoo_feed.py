@@ -348,10 +348,17 @@ class MoomooFeed:
         oi_z = _z(oi_pcr, self._opt_oi_hist) if oi_pcr > EPS else 0.0
         skew = 0.0
         if put_iv and call_iv:
-            # IV points (e.g. 65 vs 58 -> +7): /10 and clip to [-1, 1]
+            # IV points (e.g. 65 vs 58 -> +7): /10, clip [-3, 3] (30 IV
+            # points). The original [-1, 1] censored 43% of options-
+            # available corpus rows at -1.0: the crypto-proxy basket
+            # routinely runs call IV 10+ points OVER puts (speculative
+            # upside bid), so the model saw only "inverted", never how
+            # hard. Unit is unchanged (points/10) - only the censoring
+            # bound moved; ml/features.py and ml/contracts.py carry the
+            # same bound (the feed clip is the binding one).
             skew = float(np.clip(
                 (sum(put_iv) / len(put_iv) - sum(call_iv) / len(call_iv))
-                / 10.0, -1.0, 1.0))
+                / 10.0, -3.0, 3.0))
         return (pcr_z, oi_z, skew, round(pcr, 3), round(oi_pcr, 3))
 
     def close(self):

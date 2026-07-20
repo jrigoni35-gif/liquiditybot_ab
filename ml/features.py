@@ -106,7 +106,11 @@ FEATURE_NAMES = [
     "th_barclose",                # bar-close herd (no-code bot bursts) [0,1]
     "opt_pcr_z",                  # put/call VOLUME ratio z (day hedge flow)
     "opt_oi_pcr_z",               # put/call OPEN-INTEREST ratio z (stock)
-    "opt_iv_skew",                # put-minus-call IV, points/10 [-1,1]
+    "opt_iv_skew",                # put-minus-call IV, points/10 [-3,3]
+                                  # (widened from [-1,1] 2026-07-20: 43%
+                                  # of options-available rows censored at
+                                  # -1; unit unchanged, no version bump -
+                                  # old pinned rows are censored obs)
     "manip_suspect",              # adversarial-data suspicion [0,1]
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
     "vol_term",                   # log(sigma_12/sigma_96) term structure
@@ -329,7 +333,7 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         # contrarian vs confirmation is an empirical question, not doctrine
         float(np.clip((extras or {}).get("opt_pcr_z", 0.0), -4, 4)),
         float(np.clip((extras or {}).get("opt_oi_pcr_z", 0.0), -4, 4)),
-        float(np.clip((extras or {}).get("opt_iv_skew", 0.0), -1, 1)),
+        float(np.clip((extras or {}).get("opt_iv_skew", 0.0), -3, 3)),
         float(np.clip((extras or {}).get("manip_suspect", 0.0), 0, 1)),
         *(dir_sign * v for v in _candle_patterns(candles)),
         _vol_term(closes),
