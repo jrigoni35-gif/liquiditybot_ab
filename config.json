@@ -124,8 +124,9 @@
     "tighten_floor": 0.45,
     "_rollback": "set vol_scaled=false for exact rev-2 fixed-% behavior",
     "give_back": {
+        "_arm_doc": "arm_gain_pct set from the honest ledger 2026-07-20 (n=55, movers n=13): MFE p50 0.30 / p75 0.45 / p90 0.72 - the old 1.5 arm sat ABOVE p90, so the ratchet armed once in 55 trades and movers round-tripped (median peak +0.64 -> median close -0.33). 0.6 sits inside the observed envelope (~2x median mover peak); giveback_frac 0.4 then locks 60 percent of peak. Category repair, not peak-fit: any arm in [0.5, 0.8] captures the same mass.",
       "enabled": true,
-      "arm_gain_pct": 1.5,
+      "arm_gain_pct": 0.6,
       "giveback_frac": 0.4,
       "tighten_gain_pct": 4.0,
       "tight_frac": 0.25,

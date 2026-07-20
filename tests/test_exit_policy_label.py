@@ -37,7 +37,10 @@ def test_from_config_reads_live_geometry():
     assert p.base_stop_frac == 0.02 and p.stop_vol_mult == 4.0
     assert len(p.tiers) == 4
     assert p.tiers[0][2] == 0.25                 # 25% close per tier
-    assert p.gb_arm_frac == 0.015 and p.trail_after_tier == 2
+    # 0.006 since the 2026-07-20 tuning pass: the ledger showed movers
+    # peak at MFE p90 0.72% while the ratchet armed at 1.5% (armed once
+    # in 55 trades) - the labeler mirrors the DEPLOYED geometry (#30)
+    assert p.gb_arm_frac == 0.006 and p.trail_after_tier == 2
 
 
 def test_immediate_stop_is_a_loss():

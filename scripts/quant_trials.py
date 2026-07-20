@@ -58,7 +58,7 @@ TIER_CFG = {
     "be_after_tier": 1, "be_buffer_bps": 6, "est_fee_bps": 40,
     "chandelier_k": 3.0, "chandelier_bars": 6,
 }
-GIVE_BACK = {"enabled": True, "arm_gain_pct": 1.5, "giveback_frac": 0.40,
+GIVE_BACK = {"enabled": True, "arm_gain_pct": 0.6, "giveback_frac": 0.40,
              "tighten_gain_pct": 4.0, "tight_frac": 0.25}
 STACK_CFG = {
     "enabled": True,
