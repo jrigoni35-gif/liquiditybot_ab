@@ -48,3 +48,25 @@ def test_supervisor_and_keepalive_spawn_windowless():
     assert "0x08000000" in sup
     ka = (ROOT / "scripts" / "keepalive.py").read_text(encoding="utf-8")
     assert "CREATE_NO_WINDOW" in ka
+
+
+def test_prompt_sweep_is_one_shot_dead_only():
+    """The deployed close-dead-prompts sweep must be stamp-gated to exactly
+    one run (never recurring against the operator's own prompts), target
+    ONLY cmd windows with no live child (dead shells), fail SAFE on child
+    enumeration errors, and close politely before any force."""
+    sup = (ROOT / "scripts" / "pc_supervisor.py").read_text(encoding="utf-8")
+    assert "_PROMPT_SWEEP_STAMP" in sup
+    assert ".prompt_sweep_done" in sup
+    # stamp is written BEFORE the spawn so a crash can never make it recur
+    assert sup.index("_PROMPT_SWEEP_STAMP.touch()") \
+        < sup.index("close_prompts.ps1")
+    ps1 = (ROOT / "scripts" / "close_prompts.ps1").read_text(encoding="utf-8")
+    assert "ParentProcessId" in ps1                      # dead = no children
+    assert "-ErrorAction Stop" in ps1 and "catch" in ps1  # fail-safe CIM
+    assert "CloseMainWindow" in ps1                      # polite first
+    # the polite pass precedes any force path
+    assert ps1.index("CloseMainWindow") < ps1.index("Stop-Process")
+    assert "-Name cmd" in ps1                            # classic cmd only
+    # never targets terminal apps (the process name has no space)
+    assert "WindowsTerminal" not in ps1

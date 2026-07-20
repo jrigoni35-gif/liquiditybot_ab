@@ -79,6 +79,10 @@ except ValueError:
     TELEM_BACKUP_SEC = 3600.0
 _TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
+# ONE-SHOT prompt sweep (operator request 2026-07-20): close the Command
+# Prompt windows the pre-fix code left open. Runs once, then the stamp holds
+# forever (delete outputs/.prompt_sweep_done to run it again).
+_PROMPT_SWEEP_STAMP = OUT / ".prompt_sweep_done"
 # moomoo OpenD gateway: relaunch throttle. A GUI-login OpenD that never opens
 # its port must NOT be relaunched every tick (that stacks login windows), so a
 # launch attempt is spaced at least this far apart regardless of outcome.
@@ -328,6 +332,22 @@ def tick() -> None:
             and _stamp_due(_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC)):
         _spawn([PY, "scripts/telemetry_backup.py", "--once",
                 "--label", "pc-live"])
+
+    # 5b) ONE-SHOT window sweep: close the Command Prompt windows the
+    # pre-popup-fix code left on the desktop. Polite WM_CLOSE for every
+    # classic cmd window; force only known-dead liquiditybot-runner shells;
+    # Windows Terminal / PowerShell never touched. Stamp-gated to exactly
+    # one run so it can never fight the operator's own future prompts.
+    if IS_WIN and not _PROMPT_SWEEP_STAMP.exists():
+        log("one-shot prompt sweep -> closing leftover Command Prompt windows")
+        try:
+            OUT.mkdir(exist_ok=True)
+            _PROMPT_SWEEP_STAMP.touch()      # stamp FIRST: even a crash below
+        except OSError:                      # must never make this recur
+            pass
+        _spawn(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", str(ROOT / "scripts" / "close_prompts.ps1")],
+               own_log=False)
 
     # 6) self-restart on source change: the auto-updater bounces the RUNNER,
     # but this process would keep the pre-update supervisor in memory until
