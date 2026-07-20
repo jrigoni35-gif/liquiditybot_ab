@@ -123,3 +123,42 @@ def test_cancel_order_terminates_and_removes_from_open():
     assert o not in om.open_orders(), "a cancelled order is no longer live"
     # idempotent: cancelling a terminal order is a no-op, not an error
     assert om.cancel_order(o) is False
+
+
+# --- escalation-ladder de-escalation: only a COMPLETED exit resets ----------
+def _ladder_fill(order, fill_size, attempts):
+    """Drive the REAL _handle_fill exit branch with a stub self (same idiom
+    as the _submit_exit routing tests above)."""
+    from execution.order_manager import FillEvent
+    pos = Position(position_id="p1", symbol="ETH/USD", direction="long",
+                   entry_price=100.0, size=1.0, original_size=1.0,
+                   opened_at=datetime.now(timezone.utc))
+    fake = SimpleNamespace(
+        state=SimpleNamespace(get_position=lambda pid: pos,
+                              record_fees=lambda f: None),
+        capital=SimpleNamespace(record_realized_profit=lambda n, s: None),
+        _exit_attempts=dict(attempts), _pos_realized={},
+        _px=lambda s, p: f"{p:.2f}",
+        _finalize_position=lambda p, n, t: None,
+    )
+    main_mod.LiquidityBot._handle_fill(
+        fake, FillEvent(order, fill_size, 101.0, final=False), now=0.0)
+    return fake
+
+
+def test_dribble_partial_fill_does_not_reset_the_ladder():
+    """A 3% partial on a timed-out attempt used to wipe _exit_attempts, so
+    the ladder never widened its slippage cap nor reached the market rung —
+    exactly the dislocated-book case it exists for."""
+    o = _resting(post_only=False)
+    o.filled = 0.03                            # dribble: remaining 0.97
+    fake = _ladder_fill(o, fill_size=0.03, attempts={"p1": 2})
+    assert fake._exit_attempts == {"p1": 2}, \
+        "partial fill must keep the escalation counter"
+
+
+def test_completed_exit_resets_the_ladder():
+    o = _resting(post_only=False)
+    o.filled = 1.0                             # this exit order COMPLETED
+    fake = _ladder_fill(o, fill_size=0.97, attempts={"p1": 2})
+    assert fake._exit_attempts == {}, "a completed exit de-escalates"

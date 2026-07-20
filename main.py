@@ -143,7 +143,7 @@ def exit_in_flight(open_orders, position_id: str) -> bool:
 
 
 def effective_realize_spans(spans: float, fastpath: float,
-                            open_non_hedge: int, slot_cap: int) -> float:
+                            occupancy: int, slot_cap: int) -> float:
     """ML-073 VALUE-OF-INFORMATION horizon (pure, unit-tested). The realize
     horizon only throttles learning when the book is FULL — with a free slot
     a new teach trade can open regardless, so holding a position to the full
@@ -151,8 +151,15 @@ def effective_realize_spans(spans: float, fastpath: float,
     the shorter fastpath horizon buys a teach slot with the least
     label-richness cost; that faster live-label flow reaches the evidence
     gate's floors sooner, unlocking model capacity earlier (compounding).
+
+    `occupancy` must mirror the ENTRY GATE's fullness test (all filled
+    positions INCLUDING hedges, plus resting entry orders), not the
+    teachable subset: a hedge or resting entry occupies a slot no teach
+    trade can use — counting only non-hedge positions left the fastpath
+    dormant in exactly the entry-blocked state it exists to clear
+    (adversarially-verified fleet finding, 2026-07-20).
     fastpath <= 0 disables (always the full spans)."""
-    if fastpath > 0 and open_non_hedge >= max(slot_cap, 1):
+    if fastpath > 0 and occupancy >= max(slot_cap, 1):
         return min(spans, fastpath)
     return spans
 
@@ -1003,7 +1010,13 @@ class LiquidityBot:
             pos = self.state.get_position(order.position_id)
             if pos is None:
                 return
-            self._exit_attempts.pop(order.position_id, None)  # progress: de-escalate
+            # de-escalate the exit ladder ONLY when this exit order
+            # COMPLETED — a dribble partial fill on each timed-out attempt
+            # must not reset the counter, or the ladder can never widen its
+            # slippage cap / reach the market rung in the dislocated-book
+            # case it exists for (adversarially-verified fleet finding).
+            if order.remaining <= EPS:
+                self._exit_attempts.pop(order.position_id, None)
             sgn = 1.0 if pos.direction == "long" else -1.0
             fee_delta = order.fees_usd - order.meta.get("_fees_seen", 0.0)
             order.meta["_fees_seen"] = order.fees_usd
@@ -2150,13 +2163,16 @@ class LiquidityBot:
         # value-of-information fast-forward: when the book is FULL the
         # horizon is the learning bottleneck — use the fastpath spans to
         # buy a teach slot; with free slots keep the full window (holding
-        # is free and the outcome richer). See effective_realize_spans.
+        # is free and the outcome richer). Fullness mirrors the ENTRY
+        # GATE (all filled positions incl. hedges + resting entry
+        # orders): a hedge or resting entry occupies a slot no teach
+        # trade can use. See effective_realize_spans.
         _open = self.state.open_positions()
-        _non_hedge = sum(1 for p in _open
-                         if not getattr(p, "is_hedge", False))
+        _reserved = sum(1 for o in self.orders.open_orders()
+                        if o.purpose == "entry")
         _spans = effective_realize_spans(
             _spans, float(cfg.get("realize_fastpath_spans", 0.0)),
-            _non_hedge, self.capital.max_concurrent_positions)
+            len(_open) + _reserved, self.capital.max_concurrent_positions)
         mature_h = _spans * _bars * BAR_SECONDS / 3600.0
         # graduate on LIVE rows (real closed trades), same basis as exploration
         _sc_fn = getattr(self.history, "source_counts", None)

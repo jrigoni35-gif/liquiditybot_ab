@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
 
 from smoke_test import (  # noqa: E402
-    MockBinanceUS, MockKraken, MockOKX, TMP, qa_redirect_paths)
+    MockBinanceUS, MockKraken, MockOKX, qa_redirect_paths)
 
 
 def build_bot():
@@ -48,10 +48,12 @@ def build_bot():
     cfg["ml"]["cold_start_prior_p"] = 0.66
     cfg["pretrade"] = dict(cfg.get("pretrade", {}),
                            min_edge_cost_ratio=0.1, price_exit_leg=False)
-    cfg["ml"]["model_path"] = str(TMP / "debug_cycle_model.json")
-    cfg["ml"]["history_path"] = str(TMP / "debug_cycle_history.csv")
+    qa_redirect_paths(cfg, "debug_cycle")       # owns model/history paths
+    # fresh corpus EVERY session — must come AFTER the redirect (unlinking
+    # a pre-redirect path left the real file accumulating live rows across
+    # runs until until_live_rows auto-off silenced the very ML-073 path
+    # this driver demonstrates; adversarially-verified fleet finding)
     Path(cfg["ml"]["history_path"]).unlink(missing_ok=True)
-    qa_redirect_paths(cfg, "debug_cycle")
     prices = {"ETH": 2000.0, "BTC": 60000.0}
     bot = LiquidityBot(cfg, okx=MockOKX(prices),
                        binanceus=MockBinanceUS(prices),
@@ -99,12 +101,12 @@ def main():
                     help="slow ticks to watch after the time travel")
     ap.add_argument("--timetravel-h", type=float, default=2.5,
                     help="hours to jump `now` forward so ML-073 matures")
-    ap.add_argument("--cap", type=int, default=3,
-                    help="concurrency cap override — 3 is reachable with the "
-                         "two mock assets, so 'book FULL' (the VOI fastpath "
-                         "arm condition) actually occurs; pass 0 to keep the "
-                         "config value and watch the free-slot (full-window) "
-                         "branch instead")
+    ap.add_argument("--cap", type=int, default=2,
+                    help="concurrency cap override — 2 is always reachable "
+                         "with the two mock assets, so 'book FULL' (the VOI "
+                         "fastpath arm condition) actually occurs; pass 0 to "
+                         "keep the config value and watch the free-slot "
+                         "(full-window) branch instead")
     args = ap.parse_args()
 
     bot, prices = build_bot()

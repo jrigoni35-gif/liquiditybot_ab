@@ -57,14 +57,33 @@ def test_none_on_empty_book_or_nonpositive_horizon():
 def test_fastpath_fires_only_when_the_book_is_full():
     """VALUE-OF-INFORMATION fast-forward: the realize horizon only throttles
     learning when the book is FULL — a free slot admits a new teach trade
-    regardless, so the full window costs nothing and keeps the richer label."""
-    # full book (5/5 non-hedge) -> the shorter fastpath horizon
+    regardless, so the full window costs nothing and keeps the richer label.
+    Occupancy = filled positions INCL. hedges + resting entries (entry-gate
+    parity): 4 teach longs + 1 hedge short is occupancy 5, entries blocked,
+    fastpath armed."""
+    # occupancy at cap (e.g. 4 teach + 1 hedge) -> the shorter fastpath
     assert effective_realize_spans(1.0, 0.5, 5, 5) == 0.5
     # over-full (hedge unwind race etc.) still fires
     assert effective_realize_spans(1.0, 0.5, 6, 5) == 0.5
     # a single free slot -> full window
     assert effective_realize_spans(1.0, 0.5, 4, 5) == 1.0
     assert effective_realize_spans(1.0, 0.5, 0, 5) == 1.0
+
+
+def test_fastpath_occupancy_mirrors_the_entry_gate():
+    """Source contract: the engine must arm the fastpath on the SAME
+    fullness the entry gate blocks on — all open positions (hedges too)
+    plus resting entry orders — never the non-hedge subset (which left the
+    fastpath dormant exactly when a hedge blocked the last teach slot)."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    assert "len(_open) + _reserved" in src
+    assert "_non_hedge" not in src               # the old subset count is gone
+    # sibling finding, same commit: the exit ladder de-escalates only on a
+    # COMPLETED exit order (a dribble partial must not reset the counter)
+    assert ("if order.remaining <= EPS:\n"
+            "                self._exit_attempts.pop") in src
 
 
 def test_fastpath_zero_disables_and_never_extends():
