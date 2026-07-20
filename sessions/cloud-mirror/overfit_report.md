@@ -1,10 +1,10 @@
-# Overfit audit — 2026-07-19 23:08 UTC
+# Overfit audit — 2026-07-20 00:11 UTC
 
 Dataset: live history (1741 rows)
 
-- **FAIL** gap[logistic]: OOF gap within memorization band — train_auc=0.872 oof_auc=0.430 gap=+0.442
-- **FAIL** gap[gbt]: OOF gap within memorization band — train_auc=0.843 oof_auc=0.495 gap=+0.348
-- **FAIL** gap[mlp]: OOF gap within memorization band — train_auc=0.809 oof_auc=0.451 gap=+0.358
+- **FAIL** gap[logistic]: OOF gap within memorization band — train_auc=0.785 oof_auc=0.438 gap=+0.347
+- **FAIL** gap[gbt]: OOF gap within memorization band — train_auc=0.789 oof_auc=0.530 gap=+0.259
+- **FAIL** gap[mlp]: OOF gap within memorization band — train_auc=0.689 oof_auc=0.502 gap=+0.187
 - **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.494 z=0.7 (limit 3.0)
 - **INFO** pbo space — ml.adaptive_gbt.enabled=true — the adaptive rung is IN the measured selection space
 - **INFO** pbo — evidence-gated to a single family (no model selection to overfit at this live-row count) (space=['logistic'])
@@ -18,4 +18,4 @@ Dataset: live history (1741 rows)
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — INFORMATIONAL during exploration phase — dsr=0.000 sr=-0.69 n=45; live sample is EV-mixed by design (PT-050 probes); gate arms when ml.exploration.enabled is false
 
-3 passed, 4 failed (16s)
+3 passed, 4 failed (17s)
