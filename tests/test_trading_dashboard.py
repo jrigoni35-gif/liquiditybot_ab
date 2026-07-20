@@ -13,6 +13,7 @@ contract, CI-enforced:
      only), the whole point of the condense.
 """
 import json
+import time
 import re
 from pathlib import Path
 
@@ -24,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # a synthetic status.json exercising every section the pusher exports, so the
 # emitted-metric universe is complete for check 3
 _SYNTH_STATUS = {
-    "written_at": 1.7e9, "equity": 5000.0, "daily_pnl": 3.0,
+    "written_at": time.time(), "equity": 5000.0, "daily_pnl": 3.0,
     "realized_total": 1.0, "drawdown_pct": 0.4, "fees_total": 2.0,
     "cycle": 10, "cycle_lifetime": 100, "feed_latency_ms": 50.0,
     "marks_age_sec": 1.0, "equity_drift_pct": 0.0, "exit_eval_failures": 0,
@@ -167,7 +168,11 @@ def test_has_per_asset_comparison_table():
 
 def test_every_query_hits_an_emitted_metric(tmp_path):
     p = tmp_path / "status.json"
-    p.write_text(json.dumps(_SYNTH_STATUS), encoding="utf-8")
+    # written_at stamped at USE time, not module import: the DL-6 stale
+    # guard returns the alarm-only batch for a status older than 120s, and
+    # a full-suite run takes longer than that to reach this test
+    p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
+                 encoding="utf-8")
     emitted = {m["name"] for m in gp.collect(str(p))}
     referenced = set()
     for d in gen.DASHBOARDS.values():

@@ -52,14 +52,18 @@ def test_ctval_cached_after_first_lookup():
     assert calls[2][0] == "/api/v5/market/books"
 
 
-def test_failed_ctval_lookup_falls_back_unscaled_and_is_not_cached():
+def test_failed_ctval_lookup_skips_the_book_and_is_not_cached():
+    """DL-8 (2026-07-20) contract change: a failed ctVal lookup used to
+    fall back UNSCALED (raw contract units, wrong by 1/ctVal - 100x for
+    BTC) and silently poison depth/imbalance features. Fail closed now:
+    no ctVal -> no book from this venue this cycle; the failure is not
+    cached so the next cycle retries."""
     book_resp = [{"bids": [["50000", "10"]], "asks": [["50001", "8"]]}]
     feed, calls = _feed_with_responses([book_resp, None])
 
     book = feed.get_order_book("BTC-USDT-SWAP")
 
-    assert book is not None
-    assert book["bids"] == [[50000.0, 10.0]]    # unscaled fallback (ctVal=1.0)
+    assert book is None                          # unscalable = absent
     assert "BTC-USDT-SWAP" not in feed._ctval_cache  # not cached -> will retry
 
 

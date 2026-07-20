@@ -253,6 +253,8 @@ class KrakenFeed(ThrottledRestClient):
             return None
         key = next(iter(result))
         book = result[key]
+        if not isinstance(book, dict):    # DL-3: malformed payload
+            return None
         return clean_book({
             "bids": [list(lvl) for lvl in book.get("bids", [])],
             "asks": [list(lvl) for lvl in book.get("asks", [])],

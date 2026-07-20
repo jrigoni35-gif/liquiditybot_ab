@@ -7,6 +7,7 @@ availability and the reason-code frequency ledger were all tracked internally
 but never pushed to Grafana.
 """
 import json
+import time
 
 import pytest
 
@@ -24,7 +25,7 @@ def _by_name(metrics, name):
 def test_collect_thales_excludes_bool_values_and_survives_malformed(tmp_path):
     # the THALES metric guard must exclude bool VALUES (bool is an int
     # subclass) and never crash on a malformed (non-dict) asset entry
-    status = {"written_at": 1_700_000_000.0,
+    status = {"written_at": time.time(),
               "thales": {"assets": {"BTC": {"grid": True, "metronome": 0.5},
                                     "ETH": "garbage"}}}
     p = tmp_path / "status.json"
@@ -37,7 +38,7 @@ def test_collect_thales_excludes_bool_values_and_survives_malformed(tmp_path):
 
 def test_collect_emits_fault_and_health_metrics(tmp_path):
     status = {
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "halted": False, "entries_enabled": True, "audit_dropped_writes": 0,
         "monitor": {"level": 1, "drift_share": 0.42, "brier": 0.31,
                     "baseline_brier": 0.24, "calibration_gap": 0.09,
@@ -112,7 +113,7 @@ def _val(metrics, name, **labels):
 def test_collect_emits_per_instrument_positions(tmp_path):
     # 2 ETH long lots + 1 BTC short + a hedge that must NOT be counted
     status = {
-        "written_at": 1_700_000_000.0, "equity": 5000.0,
+        "written_at": time.time(), "equity": 5000.0,
         "positions": [
             {"symbol": "ETH/USD", "direction": "long", "entry": 2000.0,
              "mark": 2020.0, "size": 0.01, "stop": 1960.0, "upnl_usd": 0.20,
@@ -159,7 +160,7 @@ def test_collect_emits_per_instrument_positions(tmp_path):
 
 def test_collect_emits_exec_quality(tmp_path):
     status = {
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "order_manager": {"venue_rejects": 1, "deadman_failures": 0,
                           "latency_ms": 42.5, "maker_fills": 7,
                           "taker_fills": 3, "maker_share": 0.7,
@@ -179,7 +180,7 @@ def test_collect_emits_exec_quality(tmp_path):
     # cold OM (no fills): None fields must NOT emit
     p2 = tmp_path / "status2.json"
     p2.write_text(json.dumps({
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "order_manager": {"venue_rejects": 0, "deadman_failures": 0,
                           "latency_ms": 0.0, "maker_fills": 0,
                           "taker_fills": 0, "maker_share": None,
@@ -192,7 +193,7 @@ def test_collect_emits_exec_quality(tmp_path):
 
 def test_collect_emits_performance(tmp_path):
     status = {
-        "written_at": 1_700_000_000.0, "equity": 5000.0,
+        "written_at": time.time(), "equity": 5000.0,
         "performance": {
             "overall": {"trades": 20, "win_rate": 0.55, "profit_factor": 1.8,
                         "expectancy_usd": 2.3, "expectancy_r": 0.4,
@@ -221,7 +222,7 @@ def test_collect_emits_performance(tmp_path):
 def test_collect_emits_circuit_breaker(tmp_path):
     p = tmp_path / "status.json"
     p.write_text(json.dumps({
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "circuit_breaker": {"enabled": True, "loss_streak": 4,
                             "streaks": {"ETH": 2},
                             "tripped": {"BTC": 4.5}}}), encoding="utf-8")
@@ -231,14 +232,14 @@ def test_collect_emits_circuit_breaker(tmp_path):
     assert _val(m, "liquiditybot_cb_loss_streak", asset="ETH") == 2.0
     # absent section -> nothing, no crash
     p2 = tmp_path / "s2.json"
-    p2.write_text(json.dumps({"written_at": 1_700_000_000.0}), encoding="utf-8")
+    p2.write_text(json.dumps({"written_at": time.time()}), encoding="utf-8")
     assert _val(gp.collect(str(p2)), "liquiditybot_cb_tripped_count") is None
 
 
 def test_collect_emits_risk_protocols(tmp_path):
     p = tmp_path / "status.json"
     p.write_text(json.dumps({
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "risk_protocols": {"daily_budget_used_frac": 0.3,
                            "weekly_budget_used_frac": 0.12,
                            "taper_mult": 1.0, "heat_frac": 0.05,
@@ -251,13 +252,13 @@ def test_collect_emits_risk_protocols(tmp_path):
     assert _val(m, "liquiditybot_rp_dd_throttle_mult") == pytest.approx(0.92)
     # absent block -> nothing emitted, no crash
     p2 = tmp_path / "s2.json"
-    p2.write_text(json.dumps({"written_at": 1_700_000_000.0}), encoding="utf-8")
+    p2.write_text(json.dumps({"written_at": time.time()}), encoding="utf-8")
     assert _val(gp.collect(str(p2)), "liquiditybot_rp_heat_frac") is None
 
 
 def test_collect_emits_model_health(tmp_path):
     status = {
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "monitor": {"level": 0, "drift_share": 0.1, "shrinkage": 0.35,
                     "kelly_mult": 0.8, "stop_widen": 1.1,
                     "edge_ratio_bump": 0.05, "champion_brier": 0.1887,
@@ -284,7 +285,7 @@ def test_collect_emits_model_health(tmp_path):
 
     # cold bot: no monitor window, no model, flag off -> booleans still emit
     p2 = tmp_path / "s2.json"
-    p2.write_text(json.dumps({"written_at": 1_700_000_000.0,
+    p2.write_text(json.dumps({"written_at": time.time(),
                               "ml": {"model_kind": None}}), encoding="utf-8")
     m2 = gp.collect(str(p2))
     assert _val(m2, "liquiditybot_ml_use_model") == 0.0
@@ -298,7 +299,7 @@ def test_collect_never_emits_non_finite(tmp_path):
     # choke point — ONE non-finite gauge invalidates the whole OTLP batch
     import math
     p = tmp_path / "status.json"
-    p.write_text(json.dumps({"written_at": 1_700_000_000.0,
+    p.write_text(json.dumps({"written_at": time.time(),
                              "equity": float("nan"),
                              "daily_pnl": float("inf"),
                              "drawdown_pct": 0.5}), encoding="utf-8")
@@ -311,7 +312,7 @@ def test_collect_never_emits_non_finite(tmp_path):
 
 def test_collect_emits_signal_edge(tmp_path):
     status = {
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "signals": {"ETH": {"confirmed": True, "confidence": 0.9,
                             "urgency": 0.55,
                             "gates": {"if_1_flow_persistence": True,
@@ -350,7 +351,7 @@ def test_collect_emits_signal_edge(tmp_path):
 def test_collect_positions_absent_safe(tmp_path):
     # no positions -> risk-on banner is all zeros, no per-instrument series
     p = tmp_path / "status.json"
-    p.write_text(json.dumps({"written_at": 1_700_000_000.0, "equity": 5000.0}),
+    p.write_text(json.dumps({"written_at": time.time(), "equity": 5000.0}),
                  encoding="utf-8")
     m = gp.collect(str(p))
     assert _val(m, "liquiditybot_open_upnl_usd") == 0.0
@@ -364,7 +365,7 @@ def test_collect_emits_hardening_guard_counters(tmp_path):
     # the exit-isolation + wedge-guard counters feed the incidents dashboard
     p = tmp_path / "status.json"
     p.write_text(json.dumps({
-        "written_at": 1_700_000_000.0,
+        "written_at": time.time(),
         "exit_eval_failures": 3, "cycle_consecutive_failures": 2}),
         encoding="utf-8")
     metrics = gp.collect(str(p))
@@ -377,7 +378,7 @@ def test_collect_emits_hardening_guard_counters(tmp_path):
 def test_collect_handles_missing_fault_blocks(tmp_path):
     # a minimal/old status.json must never crash the pusher
     p = tmp_path / "status.json"
-    p.write_text(json.dumps({"written_at": 1_700_000_000.0, "equity": 800.0}),
+    p.write_text(json.dumps({"written_at": time.time(), "equity": 800.0}),
                  encoding="utf-8")
     names = _names(gp.collect(str(p)))
     assert "liquiditybot_halted" in names

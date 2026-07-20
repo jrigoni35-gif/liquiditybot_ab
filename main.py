@@ -1705,6 +1705,16 @@ class LiquidityBot:
             if asset not in self.symbol_map:
                 continue
             kbook = self.kraken_books.get(asset) or {}
+            # DL-10: kraken_books entries never expire - when the venue
+            # goes quiet the LAST book would keep classifying liquidity/
+            # spoof/imbalance as if live, freezing every book feature at
+            # its final frame. Past the watchdog's critical staleness the
+            # book is treated as ABSENT (spread 999 / depth 0 - the same
+            # fail-closed shape as a missing venue). Exits are untouched:
+            # they price off marks/books at submit time, gated separately.
+            if kbook and (now - self.book_ts.get(asset, 0.0)) > \
+                    self.watchdog.stale_critical_sec:
+                kbook = {}
             self.fv.update(asset, [v.get("order_book") or {}], kbook)
             self.vol.update(asset, v.get("candles") or [],
                             self.daily_candles.get(asset) or [])

@@ -7,6 +7,7 @@ Kraken (execution/order_manager.py) is the sole execution venue.
 """
 
 import logging
+import math
 from typing import Optional
 
 from core.sanitize import (clean_book, clean_candles, drop_forming_candles,
@@ -42,10 +43,15 @@ class OKXFeed(ThrottledRestClient):
         data = self._get("/api/v5/public/instruments",
                          {"instType": "SWAP", "instId": symbol})
         if not data:
-            log.warning(f"OKX: ctVal lookup failed for {symbol} - order "
-                       f"book depth for this symbol is in raw CONTRACT "
-                       f"units this cycle, not coin-equivalent USD")
-            return 1.0
+            # DL-8: raw contract units are wrong by 1/ctVal (100x for
+            # BTC ctVal=0.01) - a silently mis-scaled book poisons depth
+            # and composite-imbalance features. Fail closed: no ctVal,
+            # no book from this venue this cycle (the composite
+            # tolerates a missing venue; a mis-scaled one it cannot).
+            log.warning(f"OKX: ctVal lookup failed for {symbol} - "
+                       f"skipping this venue's book this cycle "
+                       f"(unscalable contract units)")
+            return None
         ct = safe_float(data[0].get("ctVal"), default=1.0, lo=1e-9, hi=1e6)
         self._ctval_cache[symbol] = ct
         return ct
@@ -65,6 +71,8 @@ class OKXFeed(ThrottledRestClient):
             return None
         book = data[0]
         ct = self._ctval(symbol)
+        if ct is None:                    # DL-8: unscalable, skip
+            return None
 
         def _scaled(levels):
             out = []
@@ -147,8 +155,12 @@ class OKXFeed(ThrottledRestClient):
         data = self._get("/api/v5/public/funding-rate", {"instId": symbol})
         if not data:
             return None
-        return safe_float(data[0].get("fundingRate"), default=0.0,
-                        lo=-1.0, hi=1.0)
+        # DL-11: an unparsable rate must surface as UNAVAILABLE (None),
+        # never as 0.0 - a fake 'funding is zero' print defeats the
+        # funding gate's fail-closed unavailable handling downstream.
+        raw = safe_float(data[0].get("fundingRate"),
+                         default=float("nan"), lo=-1.0, hi=1.0)
+        return None if math.isnan(raw) else raw
 
     def get_24h_volume(self, symbol: str) -> Optional[float]:
         data = self._get("/api/v5/market/ticker", {"instId": symbol})

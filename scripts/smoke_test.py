@@ -1541,9 +1541,13 @@ def test_security_hardening():
     # poisoned OKX book must not reach the view
     from data.okx_feed import OKXFeed
     ok = OKXFeed({"symbols": ["ETH-USDT-SWAP"]})
+    # ctVal answered (scale 1.0) so the subject stays SANITIZE — with the
+    # lookup failing, DL-8's fail-closed skip would return None before
+    # clean_book ever ran (that contract is pinned in test_okx_ctval.py)
     ok._get = lambda path, params=None: ([{  # type: ignore[assignment]
         "bids": [["NaN", "1"], ["1999.0", "2"]],
-        "asks": [["2001.0", "2"]]}] if "books" in path else None)
+        "asks": [["2001.0", "2"]]}] if "books" in path
+        else [{"ctVal": "1"}] if "instruments" in path else None)
     book = ok.get_order_book("ETH-USDT-SWAP")
     check("sanitize: poisoned OKX book cleaned before use",
           book is not None and

@@ -74,6 +74,10 @@ def _num(x, default: float = 0.0) -> float:
         return default
 
 
+STALE_AFTER_SEC = 120.0    # runner writes ~2s cadence; 120s = frozen/dead
+                           # (mirrors the watchdog's stale_critical_sec)
+
+
 def collect(status_path: str) -> list:
     with open(status_path, encoding="utf-8") as fh:
         s = json.load(fh)
@@ -81,8 +85,19 @@ def collect(status_path: str) -> list:
     m = []
     # stamped with NOW, not written_at: a frozen runner (or stale file)
     # shows up as a rising age even while runner_state still says RUNNING
-    m.append(gauge("liquiditybot_status_age_sec",
-                   max(0.0, time.time() - ts), ts=time.time()))
+    age = max(0.0, time.time() - ts)
+    m.append(gauge("liquiditybot_status_age_sec", age, ts=time.time()))
+    # DL-6: a frozen runner leaves a stale status file that still says
+    # RUNNING with healthy equity/cycle numbers - pushing those painted a
+    # live bot on every panel while only the age gauge told the truth.
+    # Past the staleness threshold push the ALARM-ONLY batch: age,
+    # running=0, and an explicit stale flag. No stale gauge ever masquerades
+    # as current market/PnL state again.
+    if age > STALE_AFTER_SEC:
+        m.append(gauge("liquiditybot_running", 0.0, ts=time.time()))
+        m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))
+        return m
+    m.append(gauge("liquiditybot_status_stale", 0.0, ts=time.time()))
     for key in ("equity", "daily_pnl", "drawdown_pct", "cycle",
                 "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
                 "fees_total", "realized_total", "equity_drift_pct",

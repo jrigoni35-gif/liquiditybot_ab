@@ -22,6 +22,8 @@ from typing import Optional
 import requests
 from requests.adapters import HTTPAdapter
 
+_MAX_BODY_BYTES = 16 * 1024 * 1024   # feeds return KBs; 16MB = something is wrong
+
 
 def _keepalive_socket_options() -> list:
     """Latency + connection-warmth socket options for a long-lived polling
@@ -135,6 +137,16 @@ class ThrottledRestClient:
             try:
                 resp = self.session.get(url, params=params, timeout=timeout)
                 resp.raise_for_status()
+                # DL-7: bound the decoded body - a mis-routed/proxied
+                # response (HTML error page, runaway payload) must not
+                # balloon memory or stall the feed thread mid-decode
+                _hdrs = getattr(resp, "headers", None) or {}
+                if decode_json and int(_hdrs.get(
+                        "content-length") or 0) > _MAX_BODY_BYTES:
+                    log.warning("%s: response body %s bytes > cap - "
+                                "discarded", venue,
+                                _hdrs.get("content-length"))
+                    return None
                 out = resp.json() if decode_json else resp
                 self._note_rtt(t0)
                 if attempt:

@@ -39,6 +39,7 @@ class LiquidityState:
     label: str = "liquid"            # liquid | thin | spoofy
     spread_bps: float = 5.0          # execution venue (Kraken) spread
     combined_spread_bps: float = 5.0
+    combined_crossed: bool = False   # merged street book bid>=ask (DL-2)
     depth_top10_usd: float = 0.0     # Kraken two-sided depth
     depth_ratio: float = 1.0         # vs trailing median depth
     imbalance_whiplash: float = 0.0  # std of imbalance ratio, recent window
@@ -64,6 +65,16 @@ def _spread_bps(book: dict) -> float:
     if not bids or not asks:
         return 999.0
     bb, ba = bids[0][0], asks[0][0]
+    # DL-2: a CROSSED book (bid >= ask) is garbage, not tight. Single-
+    # venue books are rejected upstream by clean_book, but the price-
+    # merged multi-venue book can cross legitimately-looking levels
+    # from different venues (USDT-perp vs USD-spot basis) - the old
+    # max(...,0.0) turned that into spread=0.0, a fake ULTRA-TIGHT
+    # book that masked the max_spread_bps entry veto and poisoned the
+    # spread features. Crossed = unmeasurable = the same fail-closed
+    # sentinel as a one-sided book.
+    if bb >= ba:
+        return 999.0
     mid = 0.5 * (bb + ba)
     return max((ba - bb) / (mid + EPS) * 1e4, 0.0)
 
@@ -129,6 +140,9 @@ class LiquidityRegimeEngine:
         exec_book = kraken_book if (kraken_book and kraken_book.get("bids")) else combined_book
         st.spread_bps = _spread_bps(exec_book)
         st.combined_spread_bps = _spread_bps(combined_book)
+        _cb, _ca = (combined_book.get("bids") or []), \
+            (combined_book.get("asks") or [])
+        st.combined_crossed = bool(_cb and _ca and _cb[0][0] >= _ca[0][0])
         st.depth_top10_usd = _depth_usd(exec_book)
 
         trk.depth_hist.append(st.depth_top10_usd)
