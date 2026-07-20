@@ -347,6 +347,15 @@ def validate(config: dict) -> list:
             fatal(f"ml.exploration.realize_drought_h ({rdh}) must be 0 "
                   f"(disabled) or in [0.25, 24] hours")
 
+    # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
+    # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
+    # bar noise (churn); above 6 sigma it can never arm on a real move.
+    gbm = float(_f(config, "profit_taking.give_back.arm_vol_mult", 0.0))
+    if bool(_f(config, "profit_taking.give_back.enabled", False)) and \
+            gbm != 0.0 and not (0.5 <= gbm <= 6.0):
+        fatal(f"profit_taking.give_back.arm_vol_mult ({gbm}) must be 0 "
+              f"(static arm) or in [0.5, 6] sigma_bar multiples")
+
     max_pos = float(_f(config,
                        "capital_management.max_position_size_pct_of_capital", 10))
     if not (0 < max_pos <= 100):

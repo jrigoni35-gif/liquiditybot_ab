@@ -59,7 +59,8 @@ class ExitPolicy:
     trail_after_tier: int = 2            # trailing floor armed after tier N
     trail_frac: float = 0.010            # trailing_stop.trail_pct
     gb_enabled: bool = True
-    gb_arm_frac: float = 0.015           # give_back.arm_gain_pct
+    gb_arm_frac: float = 0.015           # give_back.arm_gain_pct (fallback)
+    gb_arm_vol_mult: float = 0.0         # give_back.arm_vol_mult (0 = static)
     gb_frac: float = 0.40                # give_back.giveback_frac (lock 1-frac)
     gb_tighten_frac: float = 0.040       # give_back.tighten_gain_pct
     gb_tight_frac: float = 0.25          # give_back.tight_frac (lock 1-frac)
@@ -96,6 +97,7 @@ class ExitPolicy:
             trail_frac=max(float(tr.get("trail_pct", 1.0)), 0.01) / 100.0,
             gb_enabled=bool(gb.get("enabled", True)),
             gb_arm_frac=float(gb.get("arm_gain_pct", 1.5)) / 100.0,
+            gb_arm_vol_mult=float(gb.get("arm_vol_mult", 0.0)),
             gb_frac=float(gb.get("giveback_frac", 0.4)),
             gb_tighten_frac=float(gb.get("tighten_gain_pct", 4.0)) / 100.0,
             gb_tight_frac=float(gb.get("tight_frac", 0.25)))
@@ -177,7 +179,12 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
         floor = stop_level
         if tier_idx >= policy.be_after_tier:
             floor = max(floor, policy.be_buffer_frac)        # break-even+buf
-        if policy.gb_enabled and peak_gain >= policy.gb_arm_frac:
+        # vol-scaled arm mirrors the live engine (sigma_bar is a
+        # fraction here, same units as peak_gain); static fallback
+        _gb_arm = (policy.gb_arm_vol_mult * sigma_bar
+                   if policy.gb_arm_vol_mult > 0 and sigma_bar > 0
+                   else policy.gb_arm_frac)
+        if policy.gb_enabled and peak_gain >= _gb_arm:
             lock = (1.0 - (policy.gb_tight_frac
                            if peak_gain >= policy.gb_tighten_frac
                            else policy.gb_frac))

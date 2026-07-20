@@ -130,6 +130,16 @@ class ProfitTierEngine:
         gb = cfg.get("give_back", {}) or {}
         self.gb_enabled = bool(gb.get("enabled", False))
         self.gb_arm_gain_pct = max(_f(gb.get("arm_gain_pct", 1.5), 1.5), 0.05)
+        # VOL-SCALED ARM (2026-07-20 tuning pass): a static arm is fitted
+        # to one vol regime's MFE envelope and goes stale when vol moves
+        # (the 1.5 arm sat above MFE p90 0.72 and armed once in 55
+        # trades). arm_vol_mult > 0 arms at mult * sigma_bar_pct - the
+        # same rev-3 calculus the tiers use - so the ratchet tracks the
+        # envelope it protects. MFE p90 was ~2.4 sigma_bar; 2.0 sits on
+        # a verified plateau. 0 (or a missing sigma at eval time) falls
+        # back to the static arm_gain_pct.
+        self.gb_arm_vol_mult = max(_f(gb.get("arm_vol_mult", 0.0), 0.0),
+                                   0.0)
         self.gb_frac = min(max(_f(gb.get("giveback_frac", 0.40), 0.40),
                                0.05), 0.95)
         self.gb_tighten_gain_pct = max(
@@ -235,7 +245,7 @@ class ProfitTierEngine:
             if cur is None or candidate < cur:
                 position.trailing_stop_price = candidate
 
-    def _give_back_candidate(self, position):
+    def _give_back_candidate(self, position, sigma_bar_pct=None):
         """Stop that locks (1 - frac) of the PEAK move once armed by the
         peak gain itself. Returns a price or None while disarmed. Pure
         function of (entry, high_water, config): restart-safe."""
@@ -247,7 +257,12 @@ class ProfitTierEngine:
         hw = _f(getattr(position, "high_water", None), e)
         long = position.direction == "long"
         peak_gain = ((hw - e) if long else (e - hw)) / e * 100.0
-        if peak_gain < self.gb_arm_gain_pct:
+        arm = self.gb_arm_gain_pct
+        if self.gb_arm_vol_mult > 0.0 and sigma_bar_pct is not None:
+            sig = _f(sigma_bar_pct)
+            if sig > 0.0:
+                arm = self.gb_arm_vol_mult * sig
+        if peak_gain < arm:
             return None
         frac = self.gb_frac
         if 0.0 < self.gb_tighten_gain_pct <= peak_gain:
@@ -267,7 +282,7 @@ class ProfitTierEngine:
         trail_on = bool(ts_cfg.get("enabled", False)) and \
             position.tier_closed >= activate_after
         be_on = position.tier_closed >= self.be_after_tier
-        gb_cand = self._give_back_candidate(position)
+        gb_cand = self._give_back_candidate(position, sigma_bar_pct)
 
         if not trail_on and not be_on and gb_cand is None \
                 and position.trailing_stop_price is None:
