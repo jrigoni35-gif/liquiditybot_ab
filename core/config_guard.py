@@ -165,6 +165,20 @@ def validate(config: dict) -> list:
                 fatal(f"ml.multi_horizon horizon {int(h)} > label_max_bars "
                       f"{max_bars} - would never be labeled")
 
+    # State-Change Sampler: cusum_k is the sigma-multiple event threshold.
+    # Below 1 sigma nearly every bar triggers - clock sampling by another
+    # name, defeating the filter; above 6 events all but vanish and the
+    # candidate corpus starves. Calibrated plateau is k in [1,4]; the
+    # bound leaves headroom without allowing a self-defeating config.
+    smp = config.get("ml", {}).get("sampling", {}) or {}
+    if smp.get("cusum_enabled", False):
+        cusum_k = float(smp.get("cusum_k", 3.0))
+        if not (1.0 <= cusum_k <= 6.0):
+            fatal(f"ml.sampling.cusum_k={cusum_k} outside [1.0, 6.0] - "
+                  f"below 1 sigma the event filter degenerates to clock "
+                  f"sampling (defeats the uniqueness win); above 6 it "
+                  f"starves the training corpus")
+
     # adaptive_gbt (opt-in top ladder rung): bounds so an enabled config
     # can't degrade the learner. max_total_trees must sit comfortably above
     # a base GBT fit (~n_estimators, default 300) or warm_update would find

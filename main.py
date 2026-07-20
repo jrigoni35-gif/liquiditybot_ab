@@ -81,6 +81,7 @@ from ml.features import FEATURE_NAMES, build_features
 from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
 from ml.labeling import ExitPolicy
+from ml.event_sampler import StateChangeSampler
 from ml.monitor import ModelMonitor
 from core.performance import PerformanceTracker
 from ml.postmortem import PostmortemEngine, TradeThesis
@@ -543,6 +544,12 @@ class LiquidityBot:
                                            shadow_store=self.horizon_shadow,
                                            exit_policy=ExitPolicy.from_config(
                                                config))
+        # State-Change Sampler (ml/event_sampler.py): event-based candidate
+        # sampling — CUSUM price trigger OR-fused with our own regime/liq
+        # label flips. Gates ONLY candidate registration (the learning
+        # corpus), never entries/exploration/gates/exits.
+        self.scs = StateChangeSampler(config.get("ml", {}).get("sampling", {}))
+        self._scs_pending: dict = {}        # asset -> teachable event latched
         # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
         # over public books/candles; shadow by default (telemetry only),
         # bounded confidence shading only when influence=advise
@@ -1746,6 +1753,18 @@ class LiquidityBot:
                 self._regime_since[asset] = (label, now)
             if v.get("candles"):
                 closes[asset] = float(v["candles"][-1]["close"])
+                # State-Change Sampler: advance the CUSUM EVERY bar (it
+                # integrates drift) and LATCH any event until candidate
+                # registration consumes it — the register site may skip
+                # cycles (unconfirmed signal), but the event must not be
+                # lost. Samples the learning corpus only; no entry/exit/
+                # gate decision reads this.
+                if self.scs.observe(asset, closes[asset],
+                                    sigma_bar_pct=self.vol.state(asset)
+                                    .sigma_bar_pct,
+                                    regime_label=label,
+                                    liq_label=ls.label):
+                    self._scs_pending[asset] = True
         if closes:
             self.corr.update_intraday(closes)
 
@@ -1947,13 +1966,23 @@ class LiquidityBot:
 
             # every confirmed signal becomes a training candidate (labeled
             # later via triple-barrier) - taken AND vetoed, so the model
-            # learns from an unbiased sample instead of survivors only
-            if v.get("candles"):
-                self.candidates.register(asset, signal.direction, feats,
+            # learns from an unbiased sample instead of survivors only.
+            # SCS gate: register only when a state-change event is latched
+            # (ml/event_sampler.py). Unbiasedness is preserved because
+            # event times are independent of gate verdicts — taken AND
+            # vetoed signals are still both sampled, just at event times.
+            # Sampler disabled -> observe() returns True every cycle, the
+            # latch is always set, behavior identical to legacy.
+            if v.get("candles") and self._scs_pending.get(asset):
+                if self.candidates.register(asset, signal.direction, feats,
                                         vol_state.sigma_bar_pct / 100.0,
                                         v["candles"][-1]["time"],
                                         gates_passed=signal.gates_passed,
-                                        spread_bps=liq_state.spread_bps)
+                                        spread_bps=liq_state.spread_bps):
+                    # consume the latch ONLY on a real append: a same-
+                    # candle dedup no-op keeps the event pending so the
+                    # state-change lesson registers at the next bar
+                    self._scs_pending[asset] = False
             self.monitor.note_features(feats)
             if not can_enter:
                 continue          # book full: lesson recorded, no new risk

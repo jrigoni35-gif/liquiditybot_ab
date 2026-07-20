@@ -558,9 +558,14 @@ class CandidateLabeler:
 
     def register(self, asset: str, direction: str, features: np.ndarray,
                 sigma_bar: float, bar_time, gates_passed=None,
-                spread_bps: float = 0.0) -> None:
+                spread_bps: float = 0.0) -> bool:
+        """Returns True when a candidate row was actually appended -
+        the SCS latch must only be consumed by a REAL append (a dedup
+        no-op would silently discard the state-change lesson the
+        sampler exists to capture). Interface extended, not changed:
+        legacy callers ignored the None return."""
         if self._last_reg.get((asset, direction)) == bar_time:
-            return                      # same signal, same candle: no duplicate
+            return False                # same signal, same candle: no duplicate
         self._last_reg[(asset, direction)] = bar_time
         if len(self._cands) >= self.max_candidates:
             # evict the NEWEST pending candidate, never index 0: poll()
@@ -584,6 +589,7 @@ class CandidateLabeler:
                             "gates": {str(g): bool(v) for g, v in
                                       gates_passed.items()}
                             if isinstance(gates_passed, dict) else None})
+        return True
 
     def _cost_pct(self, cand: dict) -> float:
         """Round-trip cost for this candidate's label: the fee floor plus,

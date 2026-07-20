@@ -386,6 +386,13 @@
     }
   },
   "ml": {
+    "sampling": {
+      "cusum_enabled": true,
+      "cusum_k": 3.0,
+      "ewma_alpha": 0.06,
+      "_doc": "State-Change Sampler: register candidates on state-change EVENTS instead of every confirmed-signal cycle. Symmetric CUSUM on log returns (Page 1954 Biometrika 41:100-115; Lopez de Prado AFML 2018 ch.2 vol-scaled symmetric CUSUM filter; Easley/Lopez de Prado/O'Hara 2012 JPM 39:19-29 information-driven clocks), h = cusum_k * sigma_bar, OR-fused with the bot's own macro/liquidity regime-label flips (a label flip is a new state even with zero net drift). Clock sampling gave mean per-asset label uniqueness 0.06 (2016 rows ~ 120 independent lessons). Calibration on 60h real Kraken 5m data (ETH/BTC/SOL/XRP): k=3.0 -> ~30 events/day/asset, median gap ~45min, implied uniqueness ~0.11 at one-third the row rate; effective-lessons/day is FLAT across k in [1,4] (8h label span bounds it), so 3.0 is a plateau choice, not a fitted peak. Win = state diversity + 3-6x less redundancy, not more raw information.",
+      "_bounds": "guard: 1.0 <= cusum_k <= 6.0 when enabled (below 1 sigma is clock sampling by another name; above 6 starves the corpus)"
+    },
     "model_path": "outputs/meta_model.json",
     "history_path": "outputs/signal_history.csv",
     "cold_start_prior_p": 0.56,
