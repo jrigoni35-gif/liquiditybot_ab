@@ -100,3 +100,25 @@ def test_alert_failure_never_prevents_the_fault_latch():
     r.bot.alerts.fire = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bus"))
     r._note_cycle_failure()                     # crosses at 1
     assert r.bot.fault.state is OpState.HALTED  # latched despite the alert raising
+
+
+def test_paused_ticks_never_clear_a_latched_wedge():
+    """Audit fix (0da246c): the PAUSED branch calls _note_cycle_ok(
+    recovered=False) every tick. Before the split, cycle_fail_halt paused
+    ticks auto-cleared the CRITICAL wedge with ZERO successful cycles —
+    re-enabling new risk on false evidence the moment the operator resumed."""
+    r = _runner(halt_at=3)
+    for _ in range(3):
+        r._note_cycle_failure()                 # latch the wedge
+    assert r._wedge_latched and r.bot.fault.allow_new_risk() is False
+    for _ in range(50):                         # a long PAUSE
+        r._note_cycle_ok(recovered=False)
+    assert r._wedge_latched, "a pause proves nothing about cycle health"
+    assert r.bot.fault.allow_new_risk() is False
+    # pause resets the failure streak/alert (not failing while paused)...
+    assert r._cycle_fail_streak == 0 and r._wedge_alerted is False
+    # ...and only genuinely SUCCESSFUL cycles clear the latch
+    for _ in range(3):
+        r._note_cycle_ok(recovered=True)
+    assert not r._wedge_latched
+    assert r.bot.fault.allow_new_risk() is True

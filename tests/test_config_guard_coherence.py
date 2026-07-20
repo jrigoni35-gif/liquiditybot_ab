@@ -54,3 +54,17 @@ def test_daily_budget_checked_against_real_kill_switch():
     cfg["capital_management"]["hard_stop_drawdown_pct"] = 25
     assert not any("daily_loss_budget_pct must sit below" in m
                    for m in _sev(cfg, "FATAL"))
+
+
+def test_profit_split_parity_fatals_on_incoherent_knobs():
+    """The reinvested share is IMPLICITLY 100-savings; a config where the
+    two knobs disagree is lying about where profit goes -> FATAL."""
+    cfg = {"system": {"dry_run": True},
+           "capital_management": {"savings_pct_of_profit": 20,
+                                  "reinvestment_pct_of_profit": 70}}
+    assert any("profit split incoherent" in m for m in _sev(cfg, "FATAL"))
+    cfg["capital_management"]["reinvestment_pct_of_profit"] = 80
+    assert not any("profit split incoherent" in m for m in _sev(cfg, "FATAL"))
+    # reinvestment omitted -> defaults to the coherent complement: no fatal
+    del cfg["capital_management"]["reinvestment_pct_of_profit"]
+    assert not any("profit split incoherent" in m for m in _sev(cfg, "FATAL"))
