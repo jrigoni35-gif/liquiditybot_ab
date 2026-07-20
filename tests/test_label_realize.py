@@ -100,6 +100,43 @@ def test_fastpath_degenerate_slot_cap_is_safe():
     assert effective_realize_spans(1.0, 0.5, 0, 0) == 1.0
 
 
+def test_drought_arms_the_fastpath_with_free_slots():
+    """SIGNAL-DROUGHT extension: the free-slot premise ('a new teach trade
+    can open regardless') fails when no entry has been admitted for hours —
+    then holding to the full window buys nothing and costs label latency."""
+    # book 4/5 (free slot) but 1.5h since the last admitted entry > 1.0h
+    assert effective_realize_spans(1.0, 0.25, 4, 5,
+                                   drought_h=1.5, drought_after_h=1.0) == 0.25
+    # entries flowing (drought clock below threshold) -> full window
+    assert effective_realize_spans(1.0, 0.25, 4, 5,
+                                   drought_h=0.4, drought_after_h=1.0) == 1.0
+    # extension disabled (default) -> free slots always keep the full window
+    assert effective_realize_spans(1.0, 0.25, 4, 5,
+                                   drought_h=9.9, drought_after_h=0.0) == 1.0
+    # full book arms regardless of the drought clock (original rule intact)
+    assert effective_realize_spans(1.0, 0.25, 5, 5,
+                                   drought_h=0.0, drought_after_h=1.0) == 0.25
+    # fastpath off disables everything, drought included
+    assert effective_realize_spans(1.0, 0.0, 4, 5,
+                                   drought_h=9.9, drought_after_h=1.0) == 1.0
+
+
+def test_learning_unwinds_gate_on_trusted_marks():
+    """Source contract: BOTH learning unwinds (ML-071/ML-073) must consult
+    the stop-eval + mark-freshness gates before closing — realizing against
+    a stale cached book banks a phantom-price PnL as GROUND TRUTH, and the
+    watchdog is blocking entries on the same staleness so the freed slot is
+    unusable anyway. Same gate the derisk path honors."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    # derisk (1) + ML-071 (2) + ML-073 (3) all consult the freshness gate
+    assert src.count("self._mark_fresh(pos.symbol, now)") >= 3
+    # and both unwind exits run on injected engine time, not wall clock
+    assert 'self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)",' in src
+    assert '"label-mature realization (ML-073)", now=now)' in src
+
+
 def _order(purpose, pid, post_only=False):
     return types.SimpleNamespace(purpose=purpose, position_id=pid,
                                  post_only=post_only)

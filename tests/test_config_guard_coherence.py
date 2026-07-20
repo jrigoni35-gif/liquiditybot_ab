@@ -89,3 +89,24 @@ def test_realize_fastpath_spans_bounds():
     off = _cfg(0.1)
     off["ml"]["exploration"]["realize_mature_labels"] = False
     assert not any("realize_fastpath_spans" in m for m in _sev(off, "FATAL"))
+
+
+def test_realize_drought_h_bounds():
+    """Drought extension: needs the fastpath on; 0 disables; else [0.25, 24]h
+    (longer never fires inside the weekend droughts it was built for)."""
+    def _cfg(rdh, rfp=0.25):
+        return {"system": {"dry_run": True},
+                "ml": {"exploration": {"realize_mature_labels": True,
+                                       "realize_after_label_spans": 1.0,
+                                       "realize_fastpath_spans": rfp,
+                                       "realize_drought_h": rdh}}}
+    assert not any("realize_drought_h" in m
+                   for m in _sev(_cfg(1.0), "FATAL"))   # deployed value
+    assert not any("realize_drought_h" in m
+                   for m in _sev(_cfg(0.0), "FATAL"))   # disabled
+    assert any("realize_drought_h" in m for m in _sev(_cfg(0.1), "FATAL"))
+    assert any("realize_drought_h" in m for m in _sev(_cfg(48.0), "FATAL"))
+    # drought without a fastpath is incoherent - it only picks WHEN the
+    # fastpath horizon applies
+    assert any("realize_drought_h" in m
+               for m in _sev(_cfg(1.0, rfp=0.0), "FATAL"))

@@ -332,6 +332,20 @@ def validate(config: dict) -> list:
               f"(disabled) or in [0.25, realize_after_label_spans={rls}] - "
               f"shorter holds than a quarter-span teach churn, and a "
               f"fastpath above the full horizon never fires")
+    # drought extension: arms the fastpath with FREE slots after this many
+    # hours without an admitted entry. Meaningless without a fastpath; sane
+    # only between "one label span" scale and "a day" (longer = never fires
+    # inside a weekend, the exact drought it was built for).
+    rdh = float(_f(config, "ml.exploration.realize_drought_h", 0.0))
+    if bool(_f(config, "ml.exploration.realize_mature_labels", True)) and \
+            rdh != 0.0:
+        if rfp == 0.0:
+            fatal(f"ml.exploration.realize_drought_h ({rdh}) needs "
+                  f"realize_fastpath_spans enabled - the drought extension "
+                  f"only chooses WHEN the fastpath horizon applies")
+        if not (0.25 <= rdh <= 24.0):
+            fatal(f"ml.exploration.realize_drought_h ({rdh}) must be 0 "
+                  f"(disabled) or in [0.25, 24] hours")
 
     max_pos = float(_f(config,
                        "capital_management.max_position_size_pct_of_capital", 10))

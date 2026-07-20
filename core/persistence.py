@@ -388,11 +388,30 @@ class StateStore:
         except (KeyError, TypeError, ValueError):
             log.exception("portfolio section malformed - skipped")
 
-        # open orders
+        # open orders — meta['features'] is version-gated exactly like
+        # history_pending below: a feature-schema bump changes what a
+        # same-width vector MEANS, and a restored entry order that fills
+        # post-restart would push its stale-semantics vector into the label
+        # pipeline via log_entry. Strip the vector, keep the order.
         try:
+            snap_ver = int(data.get("feature_schema_version", 1) or 1)
+        except (TypeError, ValueError):
+            snap_ver = 1
+        try:
+            stripped = 0
             for od in data.get("open_orders", []):
                 o = order_from_dict(od)
+                if snap_ver != _feature_schema_version() and \
+                        o.meta.get("features") is not None:
+                    o.meta.pop("features", None)
+                    stripped += 1
                 bot.orders._orders[o.order_id] = o
+            if stripped:
+                log.warning(
+                    "stripped feature vector(s) from %d restored order(s) "
+                    "(feature-schema v%d != current v%d) - orders stay "
+                    "managed, their fills will not produce training rows",
+                    stripped, snap_ver, _feature_schema_version())
         except Exception:
             log.exception("open-orders section malformed - skipped")
 

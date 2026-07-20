@@ -123,6 +123,10 @@ class OrderManager:
         self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
         self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
         self.deadman_sec = int(cfg.get("deadman_timeout_sec", 60))
+        # fills booked OUTSIDE poll() (cancel-time final reconciliation)
+        # queue here and are delivered by the next poll(), so every fill
+        # still flows through the engine's single _handle_fill path
+        self._deferred_events: list = []
         # DRY-RUN passive-fill realism (order_manager.sim_fill). The old
         # model fired a FLAT base probability regardless of how much depth
         # rested ahead of us (MP-7) — the exact Poisson-fill optimism the
@@ -285,6 +289,40 @@ class OrderManager:
                                          or o.purpose == purpose)
                    for o in self.open_orders())
 
+    def _book_venue_segment(self, order: ManagedOrder, vol_exec: float,
+                            avg: float):
+        """Book the venue's CUMULATIVE (vol_exec, avg price) into this order
+        as one fill segment (the delta vs what's already booked). Kraken's
+        `price` is the cumulative average across all fills of the order;
+        recover THIS segment's own execution price from the average delta
+        BEFORE overwriting, else every later segment is booked at the blend
+        of earlier ones (smeared slippage, diluted worst_slip, wrong
+        notional split). Fees and the FILL EVENT both use the SEGMENT price:
+        booking the cumulative average smears the basis toward the earliest
+        fill (buy 1@100 then 1@110 booked as entry 102.50 instead of 105.00
+        — audit MP-1/MP-3 2026-07-17), corrupting stops, tiers, realized
+        PnL, and every label downstream. Returns the FillEvent, or None
+        when nothing new filled."""
+        new_fill = vol_exec - order.filled
+        if new_fill <= EPS:
+            return None
+        prev_avg, prev_filled = order.avg_price, order.filled
+        order.avg_price = avg if avg > 0 else order.price
+        order.filled = vol_exec
+        seg_px = order.avg_price
+        if avg > 0 and prev_filled > EPS:
+            cand = (vol_exec * avg - prev_filled * prev_avg) / new_fill
+            if math.isfinite(cand) and cand > 0:
+                seg_px = cand
+        order.fees_usd += new_fill * seg_px * \
+            (self.maker_fee_bps if order.post_only
+             else self.taker_fee_bps) / 1e4
+        self._note_exec(order.post_only, new_fill * seg_px,
+                        seg_px, order.arrival_ref or order.price,
+                        order.side)
+        self._transition(order, "partial", "venue fill")
+        return FillEvent(order, new_fill, seg_px, final=False)
+
     def cancel_order(self, order: ManagedOrder, reason: str = "cancelled") -> bool:
         """Cancel ONE resting order (venue + local state), emitting no fill.
         Used to PREEMPT a non-urgent resting maker exit so a risk-off exit can
@@ -302,6 +340,37 @@ class OrderManager:
             except Exception:                       # noqa: BLE001
                 log.exception("CancelOrder failed for %s — forcing local "
                               "cancel (%s)", order.txid, reason)
+            # FINAL RECONCILIATION: a fill can land between the last poll
+            # and the venue cancel; transitioning terminal without a last
+            # look would DROP that fill — the preempting risk-off exit then
+            # sizes off a stale pos.size and oversells (with margin that
+            # opens an unintended short). Query once more and book any
+            # unbooked remainder; the event is delivered by the next poll()
+            # so fills keep flowing through the single _handle_fill path.
+            # Best-effort: a failed query keeps the forced-terminal behavior
+            # (a blocked escape is the worse failure).
+            try:
+                res = self._timed_private("QueryOrders",
+                                          {"txid": order.txid}) or {}
+                info = res.get(order.txid) or {}
+                vol_exec = safe_float(info.get("vol_exec"),
+                                      default=order.filled, lo=0.0)
+                avg = safe_float(info.get("price"),
+                                 default=order.avg_price, lo=0.0)
+                ev = self._book_venue_segment(order, vol_exec, avg)
+                if ev is not None:
+                    self._deferred_events.append(ev)
+                if order.remaining <= EPS:
+                    # it fully filled before the cancel took effect - that
+                    # is a FILL, not a cancel; finalize it as one
+                    self._transition(order, "filled",
+                                     "venue filled before cancel")
+                    self._deferred_events.append(
+                        FillEvent(order, 0.0, order.avg_price, final=True))
+                    return True
+            except Exception:                       # noqa: BLE001
+                log.exception("final QueryOrders failed for %s — cancelling "
+                              "with last-known fill state", order.txid)
         return self._transition(order, "cancelled", reason)
 
     def _note_exec(self, maker: bool, notional_usd: float,
@@ -373,7 +442,8 @@ class OrderManager:
                book: Optional[dict] = None, sigma_bar_pct: float = 0.05,
                ordertype: str = "limit", ref_price: float = 0.0,
                equity: float = 0.0,
-               meta: Optional[dict] = None) -> Optional[ManagedOrder]:
+               meta: Optional[dict] = None,
+               now: Optional[float] = None) -> Optional[ManagedOrder]:
         # ---- fail-closed input validation (OM-010) ---------------------
         if side not in ("buy", "sell") or purpose not in ("entry", "exit",
                                                           "hedge") \
@@ -437,6 +507,11 @@ class OrderManager:
             close_pct=close_pct,
             post_only=post_only and ordertype == "limit",
             leverage=leverage, ordertype=ordertype, meta=meta or {},
+            # injected engine time when given (deterministic replay: poll()
+            # compares age against the injected now, so a wall-clock stamp
+            # makes historical replays never expire orders and time-travel
+            # drivers expire them instantly)
+            created_ts=float(now) if now is not None else time.time(),
             # implementation-shortfall benchmark: the trusted mark at submit
             # (same arrival price the algo layer books IS against). Firewall
             # may collar `price`; the arrival reference is NEVER collared.
@@ -485,7 +560,10 @@ class OrderManager:
              now: Optional[float] = None) -> list:
         """Advance all open orders one step. Returns FillEvents."""
         now = now if now is not None else time.time()
-        events = []
+        # deliver fills booked outside the poll loop first (cancel-time
+        # final reconciliation) so _handle_fill sees them in order
+        events = self._deferred_events
+        self._deferred_events = []
         open_now = list(self.open_orders())
         if self.dry_run:
             for order in open_now:
@@ -528,35 +606,9 @@ class OrderManager:
             avg = safe_float(info.get("price"), default=order.avg_price,
                              lo=0.0)
             status = info.get("status", "open")
-            new_fill = vol_exec - order.filled
-            if new_fill > EPS:
-                # Kraken's `price` is the CUMULATIVE average across all fills
-                # of the order; recover THIS segment's own execution price
-                # from the average delta BEFORE overwriting, else every later
-                # segment is booked at the blend of earlier ones (smeared
-                # slippage, diluted worst_slip, wrong notional split).
-                prev_avg, prev_filled = order.avg_price, order.filled
-                order.avg_price = avg if avg > 0 else order.price
-                order.filled = vol_exec
-                seg_px = order.avg_price
-                if avg > 0 and prev_filled > EPS:
-                    cand = (vol_exec * avg - prev_filled * prev_avg) / new_fill
-                    if math.isfinite(cand) and cand > 0:
-                        seg_px = cand
-                # fees and the FILL EVENT both use the SEGMENT price: booking
-                # the cumulative average smears the basis toward the earliest
-                # fill (buy 1@100 then 1@110 booked as entry 102.50 instead of
-                # 105.00 — audit MP-1/MP-3 2026-07-17), corrupting stops,
-                # tiers, realized PnL, and every label downstream.
-                order.fees_usd += new_fill * seg_px * \
-                    (self.maker_fee_bps if order.post_only
-                     else self.taker_fee_bps) / 1e4
-                self._note_exec(order.post_only, new_fill * seg_px,
-                                seg_px, order.arrival_ref or order.price,
-                                order.side)
-                self._transition(order, "partial", "venue fill")
-                events.append(FillEvent(order, new_fill, seg_px,
-                                        final=False))
+            ev = self._book_venue_segment(order, vol_exec, avg)
+            if ev is not None:
+                events.append(ev)
             if status == "closed" or order.remaining <= EPS:
                 self._transition(order, "filled", "venue closed")
                 events.append(FillEvent(order, 0.0, order.avg_price,

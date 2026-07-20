@@ -30,13 +30,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
 
 from smoke_test import (  # noqa: E402
-    MockBinanceUS, MockKraken, MockOKX, qa_redirect_paths)
+    MockBinanceUS, MockKraken, MockOKX, TMP, qa_redirect_paths)
 
 
 def build_bot():
     """The smoke harness's hermetic bot: real config, mocked venues, entry
     knobs from the lifecycle smoke (clear net-Kelly so forced entries fill)."""
+    from core.audit import configure_audit
     from main import LiquidityBot, load_config
+    # hermetic audit trail: without this the driver's mock realizes append
+    # to the REAL outputs/audit.jsonl (observed live: 2 mock entries landed
+    # in the cloud trail before this line existed)
+    configure_audit(TMP / "debug_cycle_audit.jsonl")
     cfg = load_config(str(Path(__file__).resolve().parents[1] / "config.json"))
     cfg["system"]["dry_run"] = True
     cfg["capital_management"]["starting_capital_usd"] = 10_000

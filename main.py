@@ -143,7 +143,9 @@ def exit_in_flight(open_orders, position_id: str) -> bool:
 
 
 def effective_realize_spans(spans: float, fastpath: float,
-                            occupancy: int, slot_cap: int) -> float:
+                            occupancy: int, slot_cap: int,
+                            drought_h: float = 0.0,
+                            drought_after_h: float = 0.0) -> float:
     """ML-073 VALUE-OF-INFORMATION horizon (pure, unit-tested). The realize
     horizon only throttles learning when the book is FULL — with a free slot
     a new teach trade can open regardless, so holding a position to the full
@@ -158,8 +160,19 @@ def effective_realize_spans(spans: float, fastpath: float,
     trade can use — counting only non-hedge positions left the fastpath
     dormant in exactly the entry-blocked state it exists to clear
     (adversarially-verified fleet finding, 2026-07-20).
-    fastpath <= 0 disables (always the full spans)."""
-    if fastpath > 0 and occupancy >= max(slot_cap, 1):
+
+    SIGNAL DROUGHT extension: the free-slot premise is "a new teach trade
+    can open regardless" — during a drought (no entry admitted for
+    drought_after_h hours; thin weekend books, sustained gate vetoes) that
+    premise fails, so holding to the full window buys nothing and costs
+    label latency with no offsetting entry flow. The fastpath then arms
+    with free slots too. drought_after_h <= 0 disables the extension.
+    fastpath <= 0 disables everything (always the full spans)."""
+    if fastpath <= 0:
+        return spans
+    if occupancy >= max(slot_cap, 1):
+        return min(spans, fastpath)
+    if drought_after_h > 0 and drought_h >= drought_after_h:
         return min(spans, fastpath)
     return spans
 
@@ -683,6 +696,10 @@ class LiquidityBot:
         self.maker_first_profit_exits = bool(
             esc.get("maker_first_profit_exits", True))
         self._exit_attempts: dict = {}      # position_id -> failed attempts
+        # last time the entry pipeline ADMITTED an order (signal passed the
+        # gates and a submit succeeded) — the ML-073 drought clock. Starts
+        # at boot so a restart never instantly declares a drought.
+        self._last_entry_admit_ts: float = time.time()
         self._stop_ok: dict = {}            # asset -> stop eval allowed this cycle
         self._equity_drift_pct: float = 0.0
 
@@ -824,9 +841,11 @@ class LiquidityBot:
                   "features": meta_t.get("features"),
                   "algo_parent": parent.parent_id,
                   "algo_child_seq": child.seq},
+            now=now,
         )
         if order:
             self.algo.note_child_order(parent.parent_id, position_id)
+            self._last_entry_admit_ts = now            # ML-073 drought clock
             log.info(f"ALGO-CHILD {child.seq}/{child.n_total} "
                      f"{parent.side} {child.units:.6f} {parent.symbol} "
                      f"@ {self._px(parent.symbol, plan.price)} [{plan.style}] "
@@ -958,7 +977,11 @@ class LiquidityBot:
                     direction="long" if order.side == "buy" else "short",
                     entry_price=event.fill_price, size=event.fill_size,
                     original_size=event.fill_size,
-                    opened_at=datetime.now(timezone.utc),
+                    # injected engine time, NOT wall clock: ML-071/ML-073
+                    # ages and replay determinism both compare against the
+                    # injected now (fleet finding: wall-clock stamps made
+                    # historical replays behave unlike production)
+                    opened_at=datetime.fromtimestamp(now, tz=timezone.utc),
                     is_hedge=(order.purpose == "hedge"),
                     confidence=order.meta.get("p_win", 0.0),
                     edge_bps=order.meta.get("edge_bps", 0.0),
@@ -1166,6 +1189,7 @@ class LiquidityBot:
             book=book, sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
             meta={"reason": reason, "attempt": attempts + 1,
                   "tier_fired": int(tier_fired)},
+            now=now,
         )
         if order is None:
             return                      # rejected orders never escalate
@@ -1417,6 +1441,7 @@ class LiquidityBot:
                     post_only=False, book=book, ref_price=px, equity=equity,
                     sigma_bar_pct=self.vol.state(act.asset).sigma_bar_pct,
                     meta={"reason": act.reason},
+                    now=now,
                 )
                 log.info(f"HEDGE {act.direction} ${act.usd:,.0f} {act.symbol}: "
                         f"{act.reason}")
@@ -2043,9 +2068,11 @@ class LiquidityBot:
                 meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
                     "features": feats,
                     "thales_fired": self._thales_fired.get(asset) or []},
+                now=now,
             )
             if order:
                 self.sizer.note_entry(asset, now)
+                self._last_entry_admit_ts = now        # ML-073 drought clock
                 reserved_entries += 1                  # committed a slot
                 if not self.capital.can_open_new_position(
                         self.state, reserved_entries):
@@ -2133,6 +2160,13 @@ class LiquidityBot:
         if pos is None or exit_in_flight(self.orders.open_orders(),
                                          pos.position_id):
             return
+        # trusted-mark gate (same as derisk/tiers): a learning unwind is NOT
+        # an escape — closing against a stale cached book banks a phantom-
+        # price PnL as a live training label, and buys nothing (the watchdog
+        # blocks entries on the same staleness, so the freed slot is unusable)
+        if not (self._stop_ok.get(self._asset_of(pos.symbol), True)
+                and self._mark_fresh(pos.symbol, now)):
+            return
         get_audit().log("engine", Code.ML_UNTEACHABLE_UNWIND,
                         f"learning-phase unwind {pos.symbol} "
                         f"{pos.position_id[:8]}: book full, zero pending "
@@ -2141,7 +2175,8 @@ class LiquidityBot:
         log.warning(f"{Code.ML_UNTEACHABLE_UNWIND.value}: unwinding "
                     f"{pos.symbol} {pos.position_id[:8]} - full book, no "
                     f"open position can produce a training row")
-        self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)")
+        self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)",
+                          now=now)
 
     def _maybe_realize_mature_label(self, now: float):
         """ML-073 learning-phase label realization (see pick_label_mature_unwind).
@@ -2172,7 +2207,9 @@ class LiquidityBot:
                         if o.purpose == "entry")
         _spans = effective_realize_spans(
             _spans, float(cfg.get("realize_fastpath_spans", 0.0)),
-            len(_open) + _reserved, self.capital.max_concurrent_positions)
+            len(_open) + _reserved, self.capital.max_concurrent_positions,
+            drought_h=(now - self._last_entry_admit_ts) / 3600.0,
+            drought_after_h=float(cfg.get("realize_drought_h", 0.0)))
         mature_h = _spans * _bars * BAR_SECONDS / 3600.0
         # graduate on LIVE rows (real closed trades), same basis as exploration
         _sc_fn = getattr(self.history, "source_counts", None)
@@ -2183,6 +2220,11 @@ class LiquidityBot:
             int(cfg.get("until_live_rows", 500)), now, mature_h)
         if pos is None or exit_in_flight(self.orders.open_orders(),
                                          pos.position_id):
+            return
+        # trusted-mark gate (same as derisk/tiers): realizing against a stale
+        # cached book would bank a phantom-price PnL as GROUND TRUTH
+        if not (self._stop_ok.get(self._asset_of(pos.symbol), True)
+                and self._mark_fresh(pos.symbol, now)):
             return
         age_h = (now - pos.opened_at.timestamp()) / 3600.0
         get_audit().log("engine", Code.ML_LABEL_REALIZE,
@@ -2195,7 +2237,8 @@ class LiquidityBot:
         log.warning(f"{Code.ML_LABEL_REALIZE.value}: realizing {pos.symbol} "
                     f"{pos.position_id[:8]} - {age_h:.1f}h > {mature_h:.1f}h "
                     f"label horizon; banking live label")
-        self._submit_exit(pos, 100.0, "label-mature realization (ML-073)")
+        self._submit_exit(pos, 100.0,
+                          "label-mature realization (ML-073)", now=now)
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence
