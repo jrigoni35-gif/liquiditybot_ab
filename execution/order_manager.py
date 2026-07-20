@@ -580,6 +580,35 @@ class OrderManager:
         return events
 
     # --- dry-run simulator ---------------------------------------------------
+    def _sim_maker_cross(self, order: ManagedOrder, book: dict):
+        """A POST-ONLY limit NEVER takes: when the opposite touch crosses the
+        resting price, the market traded THROUGH us — the aggressor pays
+        taker and we fill AT OUR OWN price as maker. The old model routed
+        post-only orders through _sim_cross, sweeping the book at taker fees
+        (wrong price, wrong fees, wrong side of the trade), which biased
+        paper fills and the net_pnl labels learned from them."""
+        levels = (book.get("asks") if order.side == "buy"
+                  else book.get("bids")) or []
+        try:
+            top = float(levels[0][0])
+        except (TypeError, ValueError, IndexError):
+            return
+        if not _fin_pos(top) or order.remaining <= EPS:
+            return
+        crossed = (top <= order.price if order.side == "buy"
+                   else top >= order.price)
+        if not crossed:
+            return
+        fill = order.remaining
+        notional = fill * order.price
+        order.avg_price = (order.avg_price * order.filled + notional) \
+            / (order.filled + fill)
+        order.filled += fill
+        order.fees_usd += notional * self.maker_fee_bps / 1e4
+        self._note_exec(True, notional, order.price,
+                        order.arrival_ref or order.price, order.side)
+        self._transition(order, "filled", "sim maker-cross")
+
     def _sim_cross(self, order: ManagedOrder, book: dict):
         """Immediate fill of the crossing portion against the live book."""
         levels = (book.get("asks") if order.side == "buy"
@@ -683,7 +712,12 @@ class OrderManager:
             events.append(FillEvent(order, 0.0, order.avg_price, final=True))
             return events
         if book:
-            self._sim_cross(order, book)
+            # post-only NEVER takes (maker-first, OM-011): crossed books fill
+            # it AT ITS OWN price as maker; everything else may sweep
+            if order.post_only:
+                self._sim_maker_cross(order, book)
+            else:
+                self._sim_cross(order, book)
             if order.remaining > EPS and order.status in ("pending",
                                                           "partial"):
                 bids, asks = book.get("bids") or [], book.get("asks") or []

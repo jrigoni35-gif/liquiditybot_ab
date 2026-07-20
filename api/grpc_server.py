@@ -2,8 +2,10 @@
 api/grpc_server.py — optional gRPC surface, rev 4
 
 Mirrors api/rest_server.py exactly: same status snapshot, same allowed
-control verbs, same loopback bind, same arm_live exclusion. gRPC is an
-OPTIONAL dependency (grpcio + generated stubs from api/liquiditybot
+control verbs, same loopback bind, same arm_live exclusion, same optional
+shared-secret (api_server.grpc.auth_token; when set, every RPC must carry
+x-auth-token metadata — parity with REST's X-Auth-Token header). gRPC is
+an OPTIONAL dependency (grpcio + generated stubs from api/liquiditybot
 .proto); absence degrades with one warning and the bot runs on —
 the moomoo optional-SDK pattern.
 """
@@ -21,6 +23,10 @@ class GrpcStatusServer:
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled", False))
         self.port = int(cfg.get("port", 8900))
+        # shared-secret parity with REST (api_server.rest.auth_token): when
+        # set, every RPC must carry x-auth-token metadata. Empty = loopback
+        # bind is the only guard (the historical default, unchanged).
+        self.auth_token = str(cfg.get("auth_token", "") or "")
         self._provider = status_provider
         self._control = control_send
         self._server = None
@@ -49,7 +55,20 @@ class GrpcStatusServer:
         outer = self
 
         class Service(pb2g.BotServiceServicer):
+            @staticmethod
+            def _authed(context) -> bool:
+                """Mirror REST's shared-secret check. No token configured ->
+                open (loopback bind is the guard, as before). Token set ->
+                the x-auth-token metadata entry must match on EVERY RPC."""
+                if not outer.auth_token:
+                    return True
+                md = dict(context.invocation_metadata() or ())
+                return md.get("x-auth-token", "") == outer.auth_token
+
             def GetStatus(self, request, context):
+                if not self._authed(context):
+                    context.abort(grpc.StatusCode.UNAUTHENTICATED,
+                                  "bad or missing x-auth-token")
                 try:
                     snap = outer._provider() or {}
                 except Exception:
@@ -58,6 +77,9 @@ class GrpcStatusServer:
                 return pb2.StatusJson(json=json.dumps(snap, default=str))
 
             def SendControl(self, request, context):
+                if not self._authed(context):
+                    context.abort(grpc.StatusCode.UNAUTHENTICATED,
+                                  "bad or missing x-auth-token")
                 cmd = request.cmd
                 if cmd not in ALLOWED_CONTROL:
                     return pb2.ControlReply(

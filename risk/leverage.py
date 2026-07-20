@@ -59,6 +59,16 @@ class LeverageGovernor:
             lev = self.region_cap
             reasons.append(f"region cap {self.region_cap:.0f}x (Kraken)")
 
+        # dust floor applies to the vol/regime/region ladder ONLY, and must
+        # run BEFORE margin health: it is an entry-practicality bound (avoid
+        # dust-sized vol-target entries), not a risk floor. Applied after
+        # margin scaling it RE-INFLATED a margin-stressed book back up to the
+        # floor exactly when the governor was de-risking it (a 155% margin
+        # level scaling 2.0x down to 0.20x was bounced back to 0.25x).
+        if 0.0 < lev < self.min_leverage:
+            lev = self.min_leverage
+            reasons.append(f"min-leverage floor {self.min_leverage:.2f}x")
+
         if not self.use_margin:
             lev = min(lev, 1.0)
             reasons.append("margin disabled: capped at 1x")
@@ -73,8 +83,6 @@ class LeverageGovernor:
                 reasons.append(f"margin level {margin_level_pct:.0f}% - scaled x{frac:.2f}")
 
         lev = max(lev, 0.0)
-        if 0.0 < lev < self.min_leverage:
-            lev = self.min_leverage
         return lev, reasons
 
     def decide(self, state, marks: dict, equity: float,

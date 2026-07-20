@@ -260,6 +260,22 @@ def validate(config: dict) -> list:
               "real money)")
     daily = float(_f(config, "capital_management.daily_loss_limit_pct", 5))
     hard = float(_f(config, "capital_management.hard_stop_drawdown_pct", 15))
+    # profit-split parity: the reinvested share is IMPLICITLY
+    # (100 - savings_pct) in CapitalManager.record_realized_profit; the
+    # reinvestment knob is informational. If an operator sets the two to
+    # numbers that don't sum to 100, the config is lying about where profit
+    # goes — refuse rather than silently honoring only savings_pct.
+    sav = float(_f(config, "capital_management.savings_pct_of_profit", 20))
+    reinv = float(_f(config, "capital_management.reinvestment_pct_of_profit",
+                     100 - sav))
+    if not (0.0 <= sav <= 100.0):
+        fatal(f"capital_management.savings_pct_of_profit ({sav}) outside "
+              f"[0, 100]")
+    if abs(sav + reinv - 100.0) > 1e-9:
+        fatal(f"capital_management profit split incoherent: savings "
+              f"({sav}) + reinvestment ({reinv}) != 100 - the split is "
+              f"driven by savings_pct alone (reinvest = 100 - savings), so "
+              f"these must agree")
     if daily <= 0 or hard <= 0:
         fatal("loss limits must be positive")
     elif daily >= hard:

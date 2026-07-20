@@ -104,6 +104,36 @@ def test_note_exec_garbage_safe():
     assert om.status()["maker_notional_usd"] == 100.0   # still accumulates
 
 
+def test_post_only_crossed_fills_at_own_price_as_maker():
+    """A post-only limit NEVER takes: when the book crosses through the
+    resting price, it fills AT ITS OWN price with MAKER fees (the aggressor
+    paid taker) — not by sweeping the book at taker fees."""
+    om = _om()
+    o = _order(side="buy", price=2000.0, post_only=True)   # resting bid 2000
+    om._orders[o.order_id] = o
+    om._poll_dry(o, {"bids": [[1998.0, 5.0]], "asks": [[1999.0, 2.0]]},
+                 sigma_bar_pct=0.5, now=o.created_ts + 1.0)
+    assert o.status == "filled" and o.avg_price == pytest.approx(2000.0)
+    assert om.maker_fills == 1 and om.taker_fills == 0
+    # maker fees on our own-price notional, not taker on swept prices
+    assert o.fees_usd == pytest.approx(2000.0 * 25.0 / 1e4)
+
+
+def test_post_only_uncrossed_book_does_not_sweep():
+    om = _om()
+    o = _order(side="sell", price=2010.0, post_only=True)  # resting ask 2010
+    om._sim_maker_cross(o, {"bids": [[2005.0, 5.0]], "asks": [[2006.0, 5.0]]})
+    assert o.filled == 0.0 and om.maker_fills == 0
+
+
+def test_non_post_only_still_sweeps_as_taker():
+    om, o = _om(), _order()                       # post_only=False
+    om._orders[o.order_id] = o
+    om._poll_dry(o, {"bids": [[1998.0, 5.0]], "asks": [[1999.0, 2.0]]},
+                 sigma_bar_pct=0.5, now=o.created_ts + 1.0)
+    assert om.taker_fills == 1 and om.maker_fills == 0
+
+
 def test_query_orders_chunks_all_txids_over_50():
     """Live poll must QueryOrders in chunks of 50 and merge, so the 51st+
     resting order is actually polled (was truncated to the first 50)."""

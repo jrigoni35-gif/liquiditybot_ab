@@ -529,14 +529,24 @@ class BotRunner:
         }
 
     # ------------------------------------------------------------------
-    def _note_cycle_ok(self):
+    def _note_cycle_ok(self, recovered: bool = True):
         """A clean cycle_once clears the failure streak. If a wedge was latched,
         require a SUSTAINED healthy streak (cycle_fail_halt successes) before
         auto-clearing it — enough to ride out a flapping feed without resuming
         risk on one lucky cycle. (review A1-F1: the wedge must be RECOVERABLE,
-        not a permanent strand.)"""
+        not a permanent strand.)
+
+        recovered=False (the PAUSED branch): a paused runner is healthy in the
+        sense that it isn't accumulating failures — reset the streak/alert —
+        but a pause proves NOTHING about cycle health, so it must never
+        advance the wedge-recovery streak. Before this split, a latched
+        CRITICAL cycle_wedged fault auto-cleared after cycle_fail_halt PAUSED
+        loop ticks with zero successful cycles, re-enabling new risk on false
+        evidence the moment the operator resumed."""
         self._cycle_fail_streak = 0
         self._wedge_alerted = False
+        if not recovered:
+            return                # pause: no evidence of recovery — hold latch
         if self._wedge_latched:
             self._recover_streak += 1
             if self._recover_streak >= self._cycle_fail_halt:
@@ -677,7 +687,8 @@ class BotRunner:
                             if stepped:
                                 log.info(f"stepped one cycle -> {bot._cycle}")
                     else:
-                        self._note_cycle_ok()
+                        # paused: not failing, but not proof of recovery either
+                        self._note_cycle_ok(recovered=False)
                     # telemetry: isolated, never counts toward the wedge streak
                     try:
                         if now - bot._last_snapshot >= bot.snapshot_sec:

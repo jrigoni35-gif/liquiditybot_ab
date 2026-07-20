@@ -42,10 +42,27 @@ def test_barrier_hit_labels_immediately(tmp_path):
     assert lab.poll() == 1, "pt hit inside the window must label NOW"
     rows = list(csv.DictReader(open(store.path)))
     assert len(rows) == 1 and rows[0]["label"] == "1"
-    # candidate stays for shadow completion, but never re-labels
-    assert len(lab._cands) == 1 and lab._cands[0]["labeled"]
+    # shadows disabled (default): a DECIDED candidate frees its pool slot
+    # immediately instead of squatting until the full 8h horizon (that
+    # retention starved registration at max_open_candidates) — and it
+    # never re-labels
+    assert len(lab._cands) == 0
     assert lab.poll() == 0
     assert len(list(csv.DictReader(open(store.path)))) == 1
+
+
+def test_early_label_with_shadows_enabled_keeps_candidate(tmp_path):
+    """Multi-horizon shadows need the COMPLETE path: with shadows on, an
+    early-decided candidate stays (labeled=True) until the full horizon."""
+    store = HistoryStore(str(tmp_path / "h.csv"))
+    cfg = dict(CFG)
+    cfg["multi_horizon"] = {"enabled": True, "horizons_bars": [12, 48]}
+    lab = CandidateLabeler(store, cfg)
+    lab.register("BTC", "long", np.zeros(len(FEATURE_NAMES)), 0.005, 0)
+    lab.update_candles("BTC", _bars(10, jump_at=5, jump_to=105.5))
+    assert lab.poll() == 1
+    assert len(lab._cands) == 1 and lab._cands[0]["labeled"]
+    assert lab.poll() == 0                          # never re-labels
 
 
 def test_undecided_short_window_waits(tmp_path):

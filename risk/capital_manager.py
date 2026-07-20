@@ -20,6 +20,12 @@ class CapitalManager:
         # silently ignored (harmless only while the values matched).
         config = config.get("capital_management", config)
         self.savings_pct = config.get("savings_pct_of_profit", 20)
+        # informational only: the reinvested share is IMPLICITLY
+        # (100 - savings_pct) in record_realized_profit — this knob is never
+        # read in the split. config_guard FATALs when the two knobs disagree
+        # (savings + reinvestment != 100), so the config cannot silently lie
+        # about where profit goes. Kept as an attribute for interface
+        # stability (invariant #7).
         self.reinvestment_pct = config.get("reinvestment_pct_of_profit", 80)
         self.max_position_size_pct = config.get("max_position_size_pct_of_capital", 10)
         self.max_concurrent_positions = config.get("max_concurrent_positions", 3)

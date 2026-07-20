@@ -633,6 +633,14 @@ class CandidateLabeler:
             if out.final:                   # resolved inside the window -> final
                 written += self._emit_label(cand, out)
                 cand["labeled"] = True
+                if not self.horizons:
+                    # no multi-horizon shadows to complete: a DECIDED
+                    # candidate has no reason to hold a pool slot for the
+                    # rest of its 8h horizon — at max_open_candidates that
+                    # retention starved registration of NEW signals for
+                    # hours (audit M-finding). Shadows enabled -> keep it
+                    # until the full path is recorded, as before.
+                    self._cands.remove(cand)
         if written:
             log.info("labeled %d candidate signal(s) via %s",
                      written, self.label_mode)
