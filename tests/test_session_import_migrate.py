@@ -62,9 +62,9 @@ def test_old_schema_bundle_is_migrated_and_merged(tmp_path):
         assert reader.fieldnames == HistoryStore(str(dest))._header  # current
         rows = list(reader)
     assert len(rows) == 3
-    # a padded-but-current row is the full width: 3 meta + features + 7 trailing
+    # a padded-but-current row is the full width: 3 meta + features + 8 trailing
     # (label, net_pnl_usd, source, ts, signal_ts, barrier)
-    assert all(len(r) == 3 + len(FEATURE_NAMES) + 7 for r in rows)
+    assert all(len(r) == 3 + len(FEATURE_NAMES) + 8 for r in rows)
     # the labels survived the migration
     assert sorted(r["label"] for r in rows) == ["0", "0", "1"]
 

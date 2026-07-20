@@ -93,7 +93,9 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # probe joined the schema 2026-07-20: "1" PT-050 probe,
                     # "0" conviction, "" pre-bump unknown (OF-5 counts only
                     # explicit "0" toward the conviction sample)
-                    r.get("probe") or ""])
+                    r.get("probe") or "",
+                    # disp joined 2026-07-20 (pipeline disposition)
+                    r.get("disp") or ""])
     return out, padded
 
 

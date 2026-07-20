@@ -213,6 +213,21 @@ class StateStore:
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
                 "pos_realized": dict(bot._pos_realized),
+                # RESTART-COUPLING continuity (2026-07-20): the auto-updater
+                # restarts the bot on every deploy; temporal anchors that
+                # lived only in memory silently reset each time -
+                # exit-escalation counters (a mid-ladder restart re-based the
+                # slippage widening), the ML-073 drought clock (the 1h
+                # drought could never fire on an active deploy day), and the
+                # state-change sampler (a phantom bootstrap event per asset
+                # per restart). Downtime does not count toward the drought:
+                # elapsed RUNNING time is stored, not the wall timestamp.
+                "exit_attempts": dict(getattr(bot, "_exit_attempts", {})),
+                "drought_elapsed_s": max(
+                    0.0, time.time() - getattr(bot, "_last_entry_admit_ts",
+                                               time.time())),
+                "scs": (bot.scs.to_dict()
+                        if getattr(bot, "scs", None) is not None else {}),
                 # V2 vindication continuity: fired-detector maps for OPEN
                 # positions and the graded reliability ledger. Detector
                 # OBSERVATION state stays un-snapshotted (see NOTE below);
@@ -456,6 +471,21 @@ class StateStore:
 
         bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
         bot._pos_realized.update(data.get("pos_realized", {}))
+        try:
+            if hasattr(bot, "_exit_attempts"):
+                bot._exit_attempts.update(
+                    {str(k): int(v) for k, v in
+                     (data.get("exit_attempts") or {}).items()})
+            if getattr(bot, "scs", None) is not None:
+                bot.scs.from_dict(data.get("scs") or {})
+            if (data.get("drought_elapsed_s") is not None
+                    and hasattr(bot, "_last_entry_admit_ts")):
+                # resume the RUNNING-time drought clock; the gap while the
+                # bot was down is not a signal drought
+                bot._last_entry_admit_ts = (
+                    time.time() - float(data["drought_elapsed_s"]))
+        except (TypeError, ValueError, AttributeError):
+            log.warning("continuity anchors malformed - timers restart fresh")
         try:
             if hasattr(bot, "_pos_thales"):
                 bot._pos_thales.update(

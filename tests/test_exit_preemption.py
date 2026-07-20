@@ -142,6 +142,7 @@ def _ladder_fill(order, fill_size, attempts):
                               record_fees=lambda f: None),
         capital=SimpleNamespace(record_realized_profit=lambda n, s: None),
         _exit_attempts=dict(attempts), _pos_realized={},
+        _ledger_fill=lambda *a, **k: None,   # record layer: no-op stub
         _px=lambda s, p: f"{p:.2f}",
         _finalize_position=lambda p, n, t: None,
     )

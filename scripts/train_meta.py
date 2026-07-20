@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import json
+import time
 import logging
 import sys
 from pathlib import Path
@@ -243,10 +244,15 @@ def main():
              "background": background_sample(
                  X, int(ml_cfg.get("interpret", {})
                         .get("background_rows", 64)))}
-    if not _deploy_challenger(config, results["model"], oof_brier, extra,
-                              model_path):
-        return 1
-    return 0
+    deployed = _deploy_challenger(config, results["model"], oof_brier,
+                                  extra, model_path)
+    from ml.retrain_log import append_retrain, retrain_record
+    append_retrain(
+        ml_cfg.get("retrain_history_path",
+                   "outputs/retrain_history.jsonl"),
+        retrain_record(time.time(), "cli", results, len(X),
+                       int(n_live), oof_brier, None, deployed))
+    return 0 if deployed else 1
 
 
 if __name__ == "__main__":

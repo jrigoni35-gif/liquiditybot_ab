@@ -92,7 +92,7 @@ def test_history_header_contract_is_stable(tmp_path):
     # can grade the conviction-only sample mid-exploration — appended last
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                "barrier", "probe"]
+                "barrier", "probe", "disp"]
     assert hs._header == expected
 
 

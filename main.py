@@ -990,6 +990,25 @@ class LiquidityBot:
         self.state.remove_position(pos.position_id)
         self._exit_attempts.pop(pos.position_id, None)
 
+    def _mark_cand(self, asset: str, direction: str, code: str):
+        """Stamp the newest open candidate with the pipeline's final verdict
+        (entered / veto). Guarded: bookkeeping never breaks the entry loop."""
+        try:
+            self.candidates.mark_disposition(asset, direction, code)
+        except Exception:
+            log.exception("candidate disposition mark failed (%s)", code)
+
+    def _ledger_fill(self, order, event, fees_delta: float, now: float):
+        """Durable per-fill execution record (core/fill_ledger). Guarded:
+        recording must never break the trade that produced it."""
+        try:
+            from core.fill_ledger import append_fill, fill_row
+            append_fill(Path(self.config.get("system", {}).get(
+                "fills_ledger_path", "outputs/fills.csv")),
+                fill_row(order, event, fees_delta, now))
+        except Exception:
+            log.exception("fill ledger failed - row lost, fill unaffected")
+
     def _handle_fill(self, event, now: Optional[float] = None):
         now = now if now is not None else time.time()
         order = event.order
@@ -1055,6 +1074,7 @@ class LiquidityBot:
             self.state.record_fees(fee_booked_delta)
             self.state.record_entry_fee(fee_booked_delta)
             order.meta["_fees_booked"] = order.fees_usd
+            self._ledger_fill(order, event, fee_booked_delta, now)
 
         elif event.fill_size > EPS and order.purpose == "exit":
             pos = self.state.get_position(order.position_id)
@@ -1070,6 +1090,7 @@ class LiquidityBot:
             sgn = 1.0 if pos.direction == "long" else -1.0
             fee_delta = order.fees_usd - order.meta.get("_fees_seen", 0.0)
             order.meta["_fees_seen"] = order.fees_usd
+            self._ledger_fill(order, event, fee_delta, now)
             gross = sgn * (event.fill_price - pos.entry_price) * event.fill_size
             # cash settlement nets ONLY the exit leg (entry fees already left
             # cash at fill time via record_entry_fee); the TRADE net used for
@@ -2025,6 +2046,7 @@ class LiquidityBot:
                     self._scs_pending[asset] = False
             self.monitor.note_features(feats)
             if not can_enter:
+                self._mark_cand(asset, signal.direction, "capped")
                 continue          # book full: lesson recorded, no new risk
 
             lev_decision = self.lev_gov.decide(
@@ -2041,6 +2063,8 @@ class LiquidityBot:
                     Code.SZ_CIRCUIT_BREAKER,
                     f"paused {left_h:.1f}h more (consecutive-loss "
                     f"breaker)")], explored)
+                self._mark_cand(asset, signal.direction,
+                                Code.SZ_CIRCUIT_BREAKER.value)
                 continue
 
             # anti-scalp: fold manipulation suspicion into the NEW entry.
@@ -2063,6 +2087,8 @@ class LiquidityBot:
                         Code.SZ_MANIP_SUSPECT,
                         f"manip suspect {ms:.2f} >= veto "
                         f"{self._manip_veto_at:.2f}")], explored)
+                    self._mark_cand(asset, signal.direction,
+                                    Code.SZ_MANIP_SUSPECT.value)
                     continue
                 manip_scale = scale
 
@@ -2076,6 +2102,8 @@ class LiquidityBot:
                 symbol=symbol, floor_to_min=(explored and not aggressive))
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
+                self._mark_cand(asset, signal.direction,
+                                str((sized.reasons or ["sizer"])[0])[:40])
                 continue
 
             # AS quote prices the entry; maker side of our own quote
@@ -2114,6 +2142,8 @@ class LiquidityBot:
                 exploring=(explored and self.explore_bypass_ev))
             if not decision.approved:
                 log.info(f"[{asset}] pre-trade veto: {decision.reasons}")
+                self._mark_cand(asset, signal.direction,
+                                str((decision.reasons or ["pretrade"])[0])[:40])
                 continue
 
             # the id pre-assigned before the ML-070 audit IS the position
@@ -2164,6 +2194,7 @@ class LiquidityBot:
                     "post_only": plan.post_only,
                     "probe": explored,
                     "thales_fired": self._thales_fired.get(asset) or []}
+                self._mark_cand(asset, signal.direction, "entered")
                 self._submit_algo_child(parent, now)   # first slice now
                 log.info(
                     f"ENTRY-ALGO {signal.direction} {symbol} "
@@ -2196,6 +2227,7 @@ class LiquidityBot:
             )
             if order:
                 self.sizer.note_entry(asset, now)
+                self._mark_cand(asset, signal.direction, "entered")
                 self._last_entry_admit_ts = now        # ML-073 drought clock
                 reserved_entries += 1                  # committed a slot
                 if not self.capital.can_open_new_position(
@@ -2624,8 +2656,19 @@ class LiquidityBot:
                          "OOF, rows beyond its training horizon)",
                          self.monitor.champion_brier, champ_fresh)
                 self.monitor.champion_brier = champ_fresh
-            if not self.monitor.should_deploy(challenger_brier,
-                                              n_oof=len(oof_cal)):
+            _deploy_ok = self.monitor.should_deploy(challenger_brier,
+                                                    n_oof=len(oof_cal))
+            # continuous learning curve: one history row per retrain,
+            # deployed or rejected (ml/retrain_log)
+            from ml.retrain_log import append_retrain, retrain_record
+            append_retrain(
+                self.config.get("ml", {}).get(
+                    "retrain_history_path",
+                    "outputs/retrain_history.jsonl"),
+                retrain_record(time.time(), "auto", results, len(X),
+                               int(_n_live), challenger_brier,
+                               self.monitor.champion_brier, _deploy_ok))
+            if not _deploy_ok:
                 return
             from ml.interpret import background_sample
             from ml.registry import sha256_array

@@ -60,6 +60,33 @@ class StateChangeSampler:
         # fallback), last-seen regime / liquidity labels
         self._st: dict = {}
 
+    def to_dict(self) -> dict:
+        """Snapshot the per-asset CUSUM/label state. Restart-coupling fix:
+        the auto-updater restarts the bot on every deploy, and an in-memory
+        sampler re-bootstrapped one free event per asset per restart - on an
+        active deploy day the thinning barely engaged. Continuity makes the
+        sampler behave as designed across the bot's self-deploy lifestyle."""
+        out = {}
+        for a, st in self._st.items():
+            out[a] = {"px": st.get("px"), "sp": st.get("sp", 0.0),
+                      "sn": st.get("sn", 0.0), "var": st.get("var"),
+                      "regime": st.get("regime"), "liq": st.get("liq")}
+        return out
+
+    def from_dict(self, d: dict) -> None:
+        for a, st in (d or {}).items():
+            try:
+                px = st.get("px")
+                var = st.get("var")
+                self._st[str(a)] = {
+                    "px": None if px is None else float(px),
+                    "sp": float(st.get("sp", 0.0)),
+                    "sn": float(st.get("sn", 0.0)),
+                    "var": None if var is None else float(var),
+                    "regime": st.get("regime"), "liq": st.get("liq")}
+            except (TypeError, ValueError):
+                continue                 # malformed asset entry: re-bootstrap it
+
     def observe(self, asset: str, price: float, sigma_bar_pct=None,
                 regime_label=None, liq_label=None) -> bool:
         """Advance the asset's state one bar; True = teachable event.

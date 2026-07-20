@@ -45,7 +45,13 @@ class HistoryStore:
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                        "barrier", "probe"]
+                        "barrier", "probe", "disp"]
+        # disp: the signal's final DISPOSITION - "entered", "confirmed"
+        # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
+        # Closes the loop on the unbiased candidate sample: gate and
+        # EV-threshold tuning can now be done OFFLINE against labeled
+        # outcomes split by what the pipeline actually did with the signal.
+        # Bookkeeping only - never a feature, never a weight.
         # probe: "1" = PT-050 exploration probe (profit-EV gate bypassed
         # to buy the label), "0" = conviction entry, "" = candidate row or
         # pre-2026-07-20 unknown. BOOKKEEPING ONLY - never a feature, and
@@ -87,7 +93,7 @@ class HistoryStore:
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
-                    barrier: str = "", probe: str = ""):
+                    barrier: str = "", probe: str = "", disp: str = ""):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -95,11 +101,11 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 7 != len(self._header):
+        if 3 + len(feats) + 8 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 9} - stale pre-rotation "
+                f"schema {len(self._header) - 10} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
@@ -125,7 +131,7 @@ class HistoryStore:
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier, probe])
+                                    barrier, probe, disp])
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
@@ -143,7 +149,7 @@ class HistoryStore:
         self._append_row(position_id, asset, direction, feats, label,
                         net_pnl_usd, "live", signal_ts=sig_ts,
                         barrier="realized",
-                        probe="1" if probe else "0")
+                        probe="1" if probe else "0", disp="entered")
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 
@@ -584,7 +590,8 @@ class CandidateLabeler:
             # signal flow was busiest, biasing labels toward quiet hours
             self._cands.pop()
         self._seq += 1
-        self._cands.append({"id": f"cand-{self._id_salt}-{self._seq}",
+        self._cands.append({"disp": "confirmed",
+                            "id": f"cand-{self._id_salt}-{self._seq}",
                             "asset": asset,
                             "direction": direction,
                             "features": features.copy(),
@@ -599,6 +606,16 @@ class CandidateLabeler:
                                       gates_passed.items()}
                             if isinstance(gates_passed, dict) else None})
         return True
+
+    def mark_disposition(self, asset: str, direction: str, code: str):
+        """Stamp the NEWEST open candidate for (asset, direction) with the
+        pipeline's final verdict on that signal - entered, or the veto that
+        stopped it. Best-effort: no matching open candidate (evicted,
+        already labeled, sampler-thinned) is a silent no-op."""
+        for cand in reversed(self._cands):
+            if cand.get("asset") == asset and cand.get("direction") == direction:
+                cand["disp"] = str(code)[:40]
+                return
 
     def _cost_pct(self, cand: dict) -> float:
         """Round-trip cost for this candidate's label: the fee floor plus,
@@ -687,7 +704,8 @@ class CandidateLabeler:
                             cand["direction"], cand["features"],
                             out.label, 0.0, "candidate",
                             signal_ts=float(cand["bar_time"]),
-                            barrier=str(getattr(out, "barrier", "") or ""))
+                            barrier=str(getattr(out, "barrier", "") or ""),
+                            disp=str(cand.get("disp") or ""))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)
