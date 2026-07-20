@@ -11,7 +11,8 @@ non-hedge position past mature_h, one per call, auto-off at graduation.
 import types
 from datetime import datetime, timezone
 
-from main import effective_realize_spans, pick_label_mature_unwind
+from main import (effective_realize_spans, exit_in_flight,
+                  pick_label_mature_unwind)
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc).timestamp()
 
@@ -78,6 +79,31 @@ def test_fastpath_degenerate_slot_cap_is_safe():
     # slot_cap <= 0 clamps to 1 so any open position counts as "full"
     assert effective_realize_spans(1.0, 0.5, 1, 0) == 0.5
     assert effective_realize_spans(1.0, 0.5, 0, 0) == 1.0
+
+
+def _order(purpose, pid, post_only=False):
+    return types.SimpleNamespace(purpose=purpose, position_id=pid,
+                                 post_only=post_only)
+
+
+def test_exit_in_flight_detects_only_this_positions_exit():
+    orders = [_order("entry", "p1"), _order("exit", "p2"),
+              _order("exit", "p3", post_only=True)]
+    assert not exit_in_flight(orders, "p1")     # entry order is not an exit
+    assert exit_in_flight(orders, "p2")         # marketable exit working
+    assert exit_in_flight(orders, "p3")         # resting maker profit-take:
+    assert not exit_in_flight([], "p2")         # it will bank the same label —
+    # never preempt it for a non-urgent learning-phase close
+
+
+def test_learning_unwinds_skip_positions_already_exiting():
+    """Source contract: BOTH slow-tick unwinds (ML-071 unteachable, ML-073
+    realize) must consult exit_in_flight before logging/submitting, so a slow
+    fill cannot re-log the disposition each tick or cancel a resting maker."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    assert src.count("exit_in_flight(self.orders.open_orders()") == 2
 
 
 def test_horizon_derives_from_label_window_default_8h():

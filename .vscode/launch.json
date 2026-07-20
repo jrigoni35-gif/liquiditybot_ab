@@ -34,6 +34,17 @@
             "env": { "PYTHONUTF8": "1" }
         },
         {
+            "name": "Engine: step deterministic cycles (injected feeds)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/debug_cycle.py",
+            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": { "PYTHONUTF8": "1" }
+        },
+        {
             "name": "Full Test Suite (pytest)",
             "type": "debugpy",
             "request": "launch",

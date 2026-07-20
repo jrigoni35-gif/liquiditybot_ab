@@ -131,6 +131,17 @@ def pick_unteachable_unwind(positions, pending_ids, at_capacity: bool,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
+def exit_in_flight(open_orders, position_id: str) -> bool:
+    """True when a working exit order already exists for this position.
+    The learning-phase unwinds (ML-071/ML-073) run every slow tick; without
+    this guard a slow fill makes them re-log the same disposition each tick
+    and re-enter _submit_exit, whose maker-preempt rung would cancel a
+    resting maker profit-take — paying the spread for a close that is not
+    urgent (the working exit banks the same label when it fills)."""
+    return any(o.purpose == "exit" and o.position_id == position_id
+               for o in open_orders)
+
+
 def effective_realize_spans(spans: float, fastpath: float,
                             open_non_hedge: int, slot_cap: int) -> float:
     """ML-073 VALUE-OF-INFORMATION horizon (pure, unit-tested). The realize
@@ -2106,7 +2117,8 @@ class LiquidityBot:
             _grad_rows,
             int(cfg.get("until_live_rows", 240)), now,
             float(cfg.get("unteachable_min_age_h", 1.0)))
-        if pos is None:
+        if pos is None or exit_in_flight(self.orders.open_orders(),
+                                         pos.position_id):
             return
         get_audit().log("engine", Code.ML_UNTEACHABLE_UNWIND,
                         f"learning-phase unwind {pos.symbol} "
@@ -2153,7 +2165,8 @@ class LiquidityBot:
         pos = pick_label_mature_unwind(
             _open, _grad_rows,
             int(cfg.get("until_live_rows", 500)), now, mature_h)
-        if pos is None:
+        if pos is None or exit_in_flight(self.orders.open_orders(),
+                                         pos.position_id):
             return
         age_h = (now - pos.opened_at.timestamp()) / 3600.0
         get_audit().log("engine", Code.ML_LABEL_REALIZE,
