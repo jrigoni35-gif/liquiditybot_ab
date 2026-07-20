@@ -79,12 +79,13 @@ def _candles(rets):
 
 
 # ------------------------------------------------------------ schema pins
-def test_schema_is_61_wide_v7_trio_before_signal_tail():
-    assert len(FEATURE_NAMES) == 61
-    assert FEATURE_SCHEMA_VERSION == 7
-    assert FEATURE_NAMES[-5:] == ["vol_term", "mkt_ret_6_dir",
-                                  "book_touch_share", "direction",
-                                  "gate_confidence"]
+def test_schema_is_62_wide_v8_trio_before_signal_tail():
+    # deliberate re-pin: v8 adds flow_tox after the trio (61->62, 7->8)
+    assert len(FEATURE_NAMES) == 62
+    assert FEATURE_SCHEMA_VERSION == 8
+    assert FEATURE_NAMES[-6:] == ["vol_term", "mkt_ret_6_dir",
+                                  "book_touch_share", "flow_tox",
+                                  "direction", "gate_confidence"]
 
 
 def test_contract_declares_ranges_and_accepts_a_built_vector():

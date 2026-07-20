@@ -12,9 +12,10 @@ from ml.features import (CONTEXT_NEUTRAL, FEATURE_NAMES,
 from strategies.thales import ThalesEngine
 
 
-def test_schema_is_61_wide_v7():
-    assert len(FEATURE_NAMES) == 61
-    assert FEATURE_SCHEMA_VERSION == 7
+def test_schema_is_62_wide_v8():
+    # deliberate re-pin: v8 adds flow_tox (61->62, version 7->8)
+    assert len(FEATURE_NAMES) == 62
+    assert FEATURE_SCHEMA_VERSION == 8
     for n in ("regime_age", "funding_dist", "venue_disloc_dir", "th_grid",
               "th_metronome", "th_clockwork", "th_stopzone"):
         assert n in FEATURE_NAMES

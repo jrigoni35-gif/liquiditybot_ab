@@ -689,6 +689,39 @@ def validate(config: dict) -> list:
             fatal("profit_taking.conviction_runner.min_trail_mult must be in "
                   "[0.1, 1.0] - it can only tighten the runner, never loosen it")
 
+    # --- v8 anti-predation batch -----------------------------------------
+    # stop-magnet band: the nudge widens a trailing stop by up to band_bps
+    # past a round level. Negative is nonsense; above 100bps (1%) the
+    # "nudge" rivals the trail distance itself and the labeler divergence
+    # (ml/labeling.py mirrors trails in percent space, magnets are price-
+    # anchored) stops being ignorable. 0 = off.
+    mgb = float(_f(config, "profit_taking.stop_magnet.band_bps", 0.0))
+    if not (0.0 <= mgb <= 100.0):
+        fatal(f"profit_taking.stop_magnet.band_bps={mgb} outside [0, 100] - "
+              f"negative bands are nonsense and past 100bps the anti-hunt "
+              f"nudge rivals the trail distance itself (and the label sim, "
+              f"which cannot mirror price-anchored magnets, diverges "
+              f"materially)")
+    # imbalance distance decay: 0 = legacy equal-weight; above 200bps the
+    # e-folding covers the whole tracked book and the decay is a no-op
+    # wearing a knob (every level weighted ~1), which lies about intent.
+    idb = float(_f(config, "liquidity_regime.imbalance_decay_bps", 15.0))
+    if not (0.0 <= idb <= 200.0):
+        fatal(f"liquidity_regime.imbalance_decay_bps={idb} outside [0, 200] "
+              f"- negative inverts the weighting (rewarding painted far "
+              f"depth); above 200bps every tracked level weighs ~1 and the "
+              f"decay is a silent no-op (set 0 to disable explicitly)")
+    # venue-candle refresh: below 30s the throttled refresh burns the 3
+    # req/s Kraken REST budget the trading path depends on for nothing (5m
+    # bars can't change that fast); above 600s (2 full bars) the cached
+    # bars lag the external feed enough to skew volume_z at bar rollover.
+    crs = float(_f(config, "exchanges.kraken.candle_refresh_sec", 150.0))
+    if not (30.0 <= crs <= 600.0):
+        fatal(f"exchanges.kraken.candle_refresh_sec={crs} outside [30, 600] "
+              f"- below 30s the candle refresh eats the Kraken REST budget "
+              f"for identical 5m bars; above 600s (2 bars) venue-grounded "
+              f"features lag the market they price")
+
     # --- urgency composition vs the execution ladder --------------------------
     ub = float(_f(config, "informed_flow.urgency.base", 0.30))
     uw = (float(_f(config, "informed_flow.urgency.w_burst", 0.40))

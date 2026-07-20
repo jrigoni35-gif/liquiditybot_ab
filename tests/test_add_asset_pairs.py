@@ -8,8 +8,11 @@
 3. a Kraken-only pair (no OKX/Binance.US listing, e.g. MINA) still warms
    up: the Kraken intraday-candle fallback fills its view entry so it can
    emit vol/liq/candidates instead of sitting tradeable-but-inert;
-4. the fallback never overrides an asset the multi-venue view already
-   covers (ETH/BTC cross-venue imbalance stays untouched).
+4. (re-pinned for v8 venue-grounded candles) Kraken bars now GROUND every
+   mapped asset's candles when at least as long as the external history
+   (wash-trading hygiene) - but a SHORTER Kraken history below the 97-bar
+   builder window must never replace a longer external one, and non-candle
+   view fields (cross-venue imbalance etc.) stay untouched either way.
 """
 import types
 
@@ -71,10 +74,12 @@ def _fake_bot(view, symbol_map, kraken_candles):
     bot = types.SimpleNamespace(
         view=view, symbol_map=symbol_map, kraken=kraken,
         kraken_books={"MINA": {"bids": [[0.5, 100.0]],
-                               "asks": [[0.51, 100.0]]}})
+                               "asks": [[0.51, 100.0]]}},
+        # v8 venue-grounded candle cache + cadence (fresh -> fetch now)
+        _kr_candles={}, _kr_candle_refresh_sec=150.0)
     # call the real method unbound against the stand-in (duck-typed: the
-    # method only touches view/symbol_map/kraken/kraken_books)
-    LiquidityBot._augment_view_with_kraken(bot)  # type: ignore[arg-type]
+    # method only touches view/symbol_map/kraken/kraken_books/_kr_*)
+    LiquidityBot._augment_view_with_kraken(bot, 1_000.0)  # type: ignore[arg-type]
     return bot
 
 
@@ -89,11 +94,29 @@ def test_kraken_fallback_warms_data_cold_pair():
     assert bot.view["MINA"]["order_book"]["bids"] == [[0.5, 100.0]]
 
 
-def test_kraken_fallback_does_not_override_covered_pair():
-    eth_candles = [{"time": 1, "close": 3000}]
+def test_kraken_shorter_history_never_degrades_covered_pair():
+    # re-pinned for v8: Kraken bars GROUND covered assets too now, but only
+    # when >= the 97-bar builder window or >= the external length - a
+    # shorter venue history must never shrink the feature windows, and
+    # non-candle view fields survive the merge either way
+    eth_candles = [{"time": i, "close": 3000} for i in range(5)]
     bot = _fake_bot(
         view={"ETH": {"candles": eth_candles, "imbalance_ratio": 1.2}},
         symbol_map={"ETH": "ETH/USD"},
         kraken_candles={"ETHUSD": [{"time": 9, "close": 1}]})
-    assert bot.view["ETH"]["candles"] == eth_candles       # untouched
+    assert bot.view["ETH"]["candles"] == eth_candles       # kept: 1 < 5 < 97
+    assert bot.view["ETH"]["imbalance_ratio"] == 1.2
+
+
+def test_kraken_equal_history_grounds_covered_pair():
+    # v8 wash-trading hygiene: at >= external length the execution venue's
+    # bars win, and the rest of the view entry is untouched
+    kr = [{"time": 10 + i, "close": 2999} for i in range(5)]
+    bot = _fake_bot(
+        view={"ETH": {"candles": [{"time": i, "close": 3000}
+                                  for i in range(5)],
+                      "imbalance_ratio": 1.2}},
+        symbol_map={"ETH": "ETH/USD"},
+        kraken_candles={"ETHUSD": kr})
+    assert bot.view["ETH"]["candles"] == kr                # grounded
     assert bot.view["ETH"]["imbalance_ratio"] == 1.2

@@ -36,7 +36,9 @@
         "MINA/USD",
         "FLOW/USD"
       ],
-      "rate_limit_per_sec": 3
+      "rate_limit_per_sec": 3,
+      "candle_refresh_sec": 150,
+      "_candle_doc": "v8 venue-grounded candles: every mapped asset's 5m bars are re-grounded on Kraken (wash-trading hygiene, Cong et al. 2023 - external reported volume averages >70% fabricated); this is the per-asset REST refresh cadence (150s = half a 5m bar), throttled to 3 fetches/cycle, most-stale first"
     },
     "ccxt": {
       "enabled": false,
@@ -123,6 +125,10 @@
     "tighten_factor": 0.85,
     "tighten_floor": 0.45,
     "_rollback": "set vol_scaled=false for exact rev-2 fixed-% behavior",
+    "stop_magnet": {
+      "band_bps": 25.0,
+      "_doc": "v8 anti stop-hunt (Osler 2003/2005: stops cluster just past round numbers; sweep wicks overshoot the level then revert): a trailing-stop candidate within band_bps of the nearest round level on its sweep side is nudged to band_bps beyond it - always AWAY from price, ratchet-composed (never loosens a held stop), never blocks an exit. Break-even floor exempt (its contract is locking breakeven+buffer exactly). 0 = off (code default)."
+    },
     "give_back": {
         "_arm_doc": "arm_gain_pct set from the honest ledger 2026-07-20 (n=55, movers n=13): MFE p50 0.30 / p75 0.45 / p90 0.72 - the old 1.5 arm sat ABOVE p90, so the ratchet armed once in 55 trades and movers round-tripped (median peak +0.64 -> median close -0.33). 0.6 sits inside the observed envelope (~2x median mover peak); giveback_frac 0.4 then locks 60 percent of peak. Category repair, not peak-fit: any arm in [0.5, 0.8] captures the same mass.",
       "enabled": true,
@@ -255,7 +261,9 @@
     "imbalance_whiplash_threshold": 1.45,
     "whiplash_healthy_p95": 1.27,
     "spoof_touch_buffer_bps": 5.0,
-    "track_levels": 15
+    "track_levels": 15,
+    "imbalance_decay_bps": 15.0,
+    "_decay_doc": "v8 anti-layering (Stoikov 2018 near-touch information; spoof economics: far size is cheap to paint+cancel, touch size gets executed): order-book imbalance weights each level exp(-dist_bps/decay_bps) vs its side's own best, so painted far-from-touch walls decay out of the ratio. One source of truth - regime engine AND liquidity_model view imbalance read this key. 0 = legacy equal-weight."
   },
   "correlation": {
     "lambda_fast": 0.94,

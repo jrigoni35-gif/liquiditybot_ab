@@ -127,6 +127,25 @@ class ProfitTierEngine:
         self.cr_min_trail_mult = min(max(
             _f(cr.get("min_trail_mult", 0.60), 0.60), 0.1), 1.0)
         self._cr_logged = set()
+        # STOP-MAGNET NUDGE (v8, Osler 2003/2005): stop clusters sit just
+        # past round numbers, and sweep wicks overshoot the level then
+        # revert - a trailing stop parked inside that band gets tagged by
+        # a pure hunt, not a genuine break. When a trail candidate lands
+        # within band_bps of the nearest round level ON ITS SWEEP SIDE
+        # (grid auto-scales with price magnitude), it is nudged to
+        # band_bps BEYOND the level - always AWAY from price, so the
+        # ratchet (which keeps the tighter of current/candidate) can
+        # never loosen an existing stop, and exits are never blocked
+        # (invariant 5) - only WHERE the trail sits moves. Code default
+        # 0.0 = OFF: bare ProfitTierEngine({}) stays byte-identical
+        # legacy; config.json profit_taking.stop_magnet turns it on.
+        # KNOWN DIVERGENCE: ml/labeling.py's ExitPolicy sim mirrors the
+        # trail in PERCENT space and cannot mirror price-anchored magnet
+        # nudges - labels may run up to band_bps wider than the live
+        # trail on the occasional magnet-adjacent stop; accepted (same
+        # class as the sim's other geometry approximations).
+        mg = cfg.get("stop_magnet", {}) or {}
+        self.mg_band_bps = min(max(_f(mg.get("band_bps", 0.0)), 0.0), 100.0)
         gb = cfg.get("give_back", {}) or {}
         self.gb_enabled = bool(gb.get("enabled", False))
         self.gb_arm_gain_pct = max(_f(gb.get("arm_gain_pct", 1.5), 1.5), 0.05)
@@ -236,7 +255,51 @@ class ProfitTierEngine:
                          f"tightened x{mult:.2f}"))
         return mult
 
-    def _ratchet_stop(self, position, candidate: float) -> None:
+    @staticmethod
+    def _magnet_grid(px: float) -> float:
+        """Round-number grid for the magnet check, auto-scaled to price
+        magnitude (~1% of price, snapped to a power of 10): BTC 118432 ->
+        1000, ETH 3600 -> 100, SOL 180 -> 1, ADA 0.45 -> 0.01. Round
+        levels = multiples of this grid - the numbers retail stops
+        cluster against (Osler: stop-loss orders pool just past round
+        numbers)."""
+        return 10.0 ** round(math.log10(px) - 2.0)
+
+    def _magnet_adjust(self, direction: str, px: float) -> float:
+        """Nudge a stop candidate out of the stop-hunt band around the
+        nearest round level on its sweep side. LONG: the stop sits below
+        price and a sweep comes DOWN through the magnet, so the relevant
+        level is the nearest at/above the stop (ceil); a stop within
+        band_bps under it moves to band_bps BELOW the level. SHORT is the
+        mirror (floor / above). Always moves AWAY from price - wider,
+        never tighter - so composed with the ratchet it can only place
+        NEW stop ground, never loosen held ground. band 0 or bad px =
+        exact no-op."""
+        band = self.mg_band_bps
+        if band <= 0.0 or px <= 0.0:
+            return px
+        g = self._magnet_grid(px)
+        # min/max clamp: at the far edge of the band the nudged level can
+        # land a hair (<= band^2, ~0.06bp at 25bps) on the TIGHT side of
+        # the raw candidate; clamping to the raw candidate makes "away
+        # from price, never tighter" exact instead of approximate.
+        if direction == "long":
+            magnet = math.ceil(px / g) * g
+            if (magnet - px) / px * 1e4 < band:
+                return min(px, magnet * (1.0 - band / 1e4))
+        else:
+            magnet = math.floor(px / g) * g
+            if (px - magnet) / px * 1e4 < band:
+                return max(px, magnet * (1.0 + band / 1e4))
+        return px
+
+    def _ratchet_stop(self, position, candidate: float,
+                      magnet: bool = True) -> None:
+        # magnet=False is for the BREAK-EVEN floor: its contract is
+        # locking entry + fees + buffer exactly, and a widening nudge
+        # would betray it (a BE floor below breakeven is not breakeven).
+        if magnet:
+            candidate = self._magnet_adjust(position.direction, candidate)
         cur = position.trailing_stop_price
         if position.direction == "long":
             if cur is None or candidate > cur:
@@ -303,7 +366,7 @@ class ProfitTierEngine:
             cleared = (px > be_px) if position.direction == "long" \
                 else (px < be_px)
             if cleared:
-                self._ratchet_stop(position, be_px)
+                self._ratchet_stop(position, be_px, magnet=False)
 
         if trail_on:
             decay_mult = 1.0

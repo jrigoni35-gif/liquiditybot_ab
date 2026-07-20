@@ -21,6 +21,7 @@ forms the spoof score.
 """
 
 import logging
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -86,11 +87,27 @@ def _depth_usd(book: dict, levels: int = 10) -> float:
             sum(p * s for p, s in asks[:levels]))
 
 
-def _imbalance(book: dict, levels: int = 10) -> float:
+def _decayed_notional(side: list, levels: int, decay_bps: float) -> float:
+    """Top-N notional with exponential distance decay toward the side's
+    OWN best (spoof economics, Stoikov 2018 / Cont-Kukanov-Stoikov: size
+    far from the touch is cheap to paint and cancel - layering; size at
+    the touch gets executed, so near-touch depth carries the information).
+    Each level's p*s is weighted exp(-dist_bps / decay_bps), dist measured
+    against the side's own best (book SHAPE only - the spread is not
+    counted, so a wide-but-honest book is not penalized). decay_bps <= 0
+    reproduces the legacy equal-weight sum byte-identically."""
+    if decay_bps <= 0.0 or not side or side[0][0] <= 0:
+        return sum(p * s for p, s in side[:levels])
+    best = side[0][0]
+    return sum(p * s * math.exp(-(abs(p - best) / best * 1e4) / decay_bps)
+               for p, s in side[:levels])
+
+
+def _imbalance(book: dict, levels: int = 10, decay_bps: float = 0.0) -> float:
     bids = book.get("bids") or []
     asks = book.get("asks") or []
-    b = sum(p * s for p, s in bids[:levels])
-    a = sum(p * s for p, s in asks[:levels])
+    b = _decayed_notional(bids, levels, decay_bps)
+    a = _decayed_notional(asks, levels, decay_bps)
     if a <= EPS:
         return 3.0 if b > 0 else 1.0
     return min(b / a, 3.0)
@@ -124,6 +141,12 @@ class LiquidityRegimeEngine:
         self.touch_buffer_bps = float(cfg.get("spoof_touch_buffer_bps", 5.0))
         self.ewma_alpha = float(cfg.get("spoof_ewma_alpha", 0.06))
         self.track_levels = int(cfg.get("track_levels", 15))
+        # v8 anti-layering: distance-decay half-life (bps from each side's
+        # own best) for the imbalance notional. A painted far-from-touch
+        # wall decays toward zero weight instead of dragging the ratio;
+        # 0 disables (exact legacy equal-weight). Ratio is shape-invariant
+        # under symmetric books, so the whiplash calibration above holds.
+        self.imbalance_decay_bps = float(cfg.get("imbalance_decay_bps", 15.0))
         self._trk: dict = {}
         self._states: dict = {}
 
@@ -160,7 +183,7 @@ class LiquidityRegimeEngine:
         # calibrated on single-venue books anyway, so the coherent exec book
         # is both correct and on-distribution. Depth (a USD sum, USDT~USD) and
         # combined_spread_bps stay on the combined book as informational.
-        imb = _imbalance(exec_book)
+        imb = _imbalance(exec_book, decay_bps=self.imbalance_decay_bps)
         trk.imb_hist.append(imb)
         st.imbalance_whiplash = float(np.std(trk.imb_hist)) if len(trk.imb_hist) >= 5 else 0.0
 

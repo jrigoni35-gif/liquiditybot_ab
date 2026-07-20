@@ -15,11 +15,13 @@ def _bar(o, h, lo, c):
 
 
 def test_schema_has_patterns_before_direction():
-    assert len(FEATURE_NAMES) == 61
-    # v7 trio slots between the pattern block and the signal tail
-    assert FEATURE_NAMES[-8:] == ["pat_engulf_dir", "pat_hammer_dir",
+    # deliberate re-pin: v8 adds flow_tox (61->62), widening the tail by one
+    assert len(FEATURE_NAMES) == 62
+    # v7 trio + v8 flow_tox slot between the pattern block and the tail
+    assert FEATURE_NAMES[-9:] == ["pat_engulf_dir", "pat_hammer_dir",
                                   "pat_marubozu_dir", "vol_term",
                                   "mkt_ret_6_dir", "book_touch_share",
+                                  "flow_tox",
                                   "direction", "gate_confidence"]
 
 

@@ -57,6 +57,7 @@ def test_merge_marks_funding_available_from_source_presence():
     from strategies.liquidity_model import LiquidityModel
     lm = LiquidityModel.__new__(LiquidityModel)   # real build_view, no full init
     lm.base_to_pair = {"ETH": "ETH/USD"}
+    lm.imbalance_decay_bps = 0.0    # v8 knob build_view reads; irrelevant here
 
     def _src(funding):     # one OKX-style feed payload for ETH
         return {"ETH/USD": {"order_book": {"bids": [[100.0, 1.0]],

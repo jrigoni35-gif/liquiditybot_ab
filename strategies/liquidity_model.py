@@ -9,6 +9,7 @@ and maps that asset to the Kraken pair that will actually be traded.
 """
 
 import logging
+import math
 from typing import Optional
 
 log = logging.getLogger("liquiditybot.strategies.liquidity_model")
@@ -63,6 +64,13 @@ class LiquidityModel:
                  .get("trading_pairs")) or []
         self.base_to_pair = {p.split("/")[0].upper(): p for p in pairs} \
             or dict(BASE_ASSET_TO_KRAKEN_PAIR)
+        # v8 anti-layering: SAME knob as regime/liquidity_regime.py (one
+        # source of truth - the regime engine and the view imbalance must
+        # weigh painted depth identically or manip divergence would flag
+        # our own asymmetry). 0 disables (legacy equal-weight).
+        self.imbalance_decay_bps = float(
+            (config.get("liquidity_regime", {}) or {})
+            .get("imbalance_decay_bps", 15.0))
 
     def _combine_order_books(self, books: list) -> dict:
         """Concatenates bids/asks from multiple exchanges, best price first."""
@@ -84,18 +92,36 @@ class LiquidityModel:
     # one-sided book can't saturate the downstream log() feature / flow gate.
     _IMB_CAP = 5.0
 
-    def _imbalance_ratio(self, order_book: dict, levels: int = 10) -> float:
+    @staticmethod
+    def _decayed_depth(side: list, levels: int, decay_bps: float) -> float:
+        """Top-N notional, each level weighted exp(-dist_bps/decay_bps)
+        against the side's OWN best (v8 anti-layering, Stoikov 2018: far
+        size is cheap to paint and cancel, near-touch size gets executed
+        - the touch carries the information). Own-best reference = shape
+        only, the spread is not counted. decay_bps <= 0 is the exact
+        legacy equal-weight sum."""
+        if decay_bps <= 0.0 or not side or side[0][0] <= 0:
+            return sum(p * s for p, s in side[:levels])
+        best = side[0][0]
+        return sum(p * s * math.exp(-(abs(p - best) / best * 1e4)
+                                    / decay_bps)
+                   for p, s in side[:levels])
+
+    def _imbalance_ratio(self, order_book: dict, levels: int = 10,
+                         decay_bps: float = 0.0) -> float:
         """bid depth / ask depth across top N levels of ONE venue's book.
-        >1 means buy-side heavier. Clamped to [1/cap, cap]."""
-        bids = order_book.get("bids", [])[:levels]
-        asks = order_book.get("asks", [])[:levels]
-        bid_depth = sum(p * s for p, s in bids)
-        ask_depth = sum(p * s for p, s in asks)
+        >1 means buy-side heavier. Clamped to [1/cap, cap]. decay_bps > 0
+        distance-decays each level toward its own best (0 = legacy)."""
+        bids = order_book.get("bids", [])
+        asks = order_book.get("asks", [])
+        bid_depth = self._decayed_depth(bids, levels, decay_bps)
+        ask_depth = self._decayed_depth(asks, levels, decay_bps)
         if ask_depth <= 0:
             return self._IMB_CAP if bid_depth > 0 else 1.0
         return max(1.0 / self._IMB_CAP, min(bid_depth / ask_depth, self._IMB_CAP))
 
-    def _combined_imbalance(self, books: list, levels: int = 10) -> float:
+    def _combined_imbalance(self, books: list, levels: int = 10,
+                            decay_bps: float = 0.0) -> float:
         """Average of PER-VENUE imbalance ratios. Computing it on the
         concatenated multi-venue book is invalid: OKX (SWAP, contract-unit
         sizes, perp price) and BinanceUS (spot, coin-unit sizes) don't share
@@ -103,7 +129,7 @@ class LiquidityModel:
         (observed live 22-112x -> the log() feature pinned at its clip ceiling
         and the informed-flow flow gate mis-driven). A ratio is unit-consistent
         only within one book, so average per-venue ratios instead."""
-        ratios = [self._imbalance_ratio(b, levels) for b in books
+        ratios = [self._imbalance_ratio(b, levels, decay_bps) for b in books
                   if b and b.get("bids") and b.get("asks")]
         return sum(ratios) / len(ratios) if ratios else 1.0
 
@@ -159,7 +185,9 @@ class LiquidityModel:
                 "kraken_symbol": kraken_symbol,
                 "order_book": combined_book,
                 "liquidity_pool_usd": self._order_book_depth_usd(combined_book),
-                "imbalance_ratio": self._combined_imbalance(entry["order_books"]),
+                "imbalance_ratio": self._combined_imbalance(
+                    entry["order_books"],
+                    decay_bps=self.imbalance_decay_bps),
                 # per-venue external books (OKX/Binance.US; Kraken is added
                 # separately by the engine). The manip divergence term needs a
                 # COHERENT cross-venue imbalance to compare against Kraken -

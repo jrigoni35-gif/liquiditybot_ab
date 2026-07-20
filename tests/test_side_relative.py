@@ -53,7 +53,19 @@ def _vector(direction: str) -> np.ndarray:
 
 
 def test_schema_version_current():
-    assert FEATURE_SCHEMA_VERSION == 7
+    # deliberate re-pin: v8 flow_tox bump (flow_tox is NOT in DIR_FEATURES -
+    # toxicity is symmetric information, so the flip test below asserts it
+    # in the must-NOT-flip branch)
+    assert FEATURE_SCHEMA_VERSION == 8
+
+
+def test_flow_tox_is_live_in_the_flip_stub():
+    # the NOT-flip branch of the test below only proves something for
+    # flow_tox if the stub actually produces a NONZERO value (0 == -0
+    # would pass vacuously): the stub's 60 trending candles cover the
+    # 48-bar toxicity window and read one-sided, so it is genuinely hot
+    x = _vector("long")
+    assert x[FEATURE_NAMES.index("flow_tox")] > 0.0
 
 
 def test_long_short_flip_exactly_the_dir_features():

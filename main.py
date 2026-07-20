@@ -309,6 +309,20 @@ def whiplash_suspicion(whiplash_std: float, healthy_p95: float,
                          0.0), 1.0))
 
 
+# v8 venue-grounded candle plumbing (module-level so the duck-typed test
+# stand-ins that call _augment_view_with_kraken unbound keep working):
+# FETCH_BUDGET bounds slow-cycle latency + Kraken REST budget - at most
+# this many OHLC calls per cycle, most-stale assets first (candles are 5m
+# bars; being up to candle_refresh_sec behind is harmless). STALE_MULT is
+# the serving fence: cached venue bars older than this multiple of the
+# refresh cadence are treated as ABSENT, so a persistently-failing fetch
+# degrades to the external feed instead of freezing every candle-derived
+# feature on the last good frame (the DL-10 never-expires failure class).
+# 3x = two missed refreshes of grace before falling back.
+_KR_CANDLE_FETCH_BUDGET = 3
+_KR_CANDLE_STALE_MULT = 3.0
+
+
 def _book_imbalance(book: dict) -> float:
     """log(bid depth / ask depth) over the top 10 levels, clipped like the
     imbalance feature; 0.0 when a side is missing."""
@@ -734,6 +748,13 @@ class LiquidityBot:
         self._mark_ts: dict = {}            # kraken symbol -> last mark update
         self.book_ts: dict = {}             # base asset -> fetch time
         self.daily_candles: dict = {}       # base asset -> daily candles
+        # v8 venue-grounded candles: execution-venue 5m bars, cached per
+        # asset as (fetched_ts, candles) and refreshed round-robin by
+        # _augment_view_with_kraken (throttled REST; the ws feed owns
+        # books, candles tolerate staleness up to the refresh cadence).
+        self._kr_candles: dict = {}         # base asset -> (ts, candles)
+        self._kr_candle_refresh_sec = float(
+            config["exchanges"]["kraken"].get("candle_refresh_sec", 150.0))
         self.margin_level_pct: float = 0.0
         self._pos_realized: dict = {}       # position_id -> cumulative net PnL
         self._cycle = 0                     # per-process heartbeat
@@ -1732,41 +1753,61 @@ class LiquidityBot:
             futures = [ex.submit(_safe, n, f) for n, f in feeds]
             return [f.result() for f in futures]   # feed order preserved
 
-    def _augment_view_with_kraken(self):
-        """Data-cold fallback: any execution-venue pair that the third-party
-        data feeds (OKX/Binance.US) don't carry - e.g. a Kraken-only listing
-        like MINA/USD - still needs intraday candles + a book to warm up
-        vol/liq/fair-value and to emit training candidates, or it would be
-        tradeable-but-inert. Fetch those from Kraken itself (the venue that
-        by definition lists every pair we trade), mirroring the daily-candle
-        Kraken fallback already in hourly_cycle. Only fills GAPS: an asset
-        the multi-venue view already covers is left untouched, so ETH/BTC
-        cross-venue imbalance is unchanged and this is behavior-preserving
-        for the existing universe."""
-        for asset, symbol in self.symbol_map.items():
-            existing = self.view.get(asset)
-            if existing and existing.get("candles"):
-                continue
-            pair = self.kraken.kraken_pair(symbol)
+    def _augment_view_with_kraken(self, now: float):
+        """Ground EVERY mapped asset's candles on the EXECUTION venue (v8
+        wash-trading hygiene): build_view merges external candles by
+        "prefer the longer history" venue-agnostically, so volume_z /
+        vol_term / ret_* learned unregulated-venue REPORTED volume - the
+        exact quantity Cong-Li-Tang-Yang 2023 showed averages >70%
+        fabricated on such venues. Kraken bars replace an asset's external
+        bars whenever they cover the longest builder window (vol_term: 97
+        bars) OR are at least as long; external candles are kept when
+        Kraken's are shorter (never degrade feature windows) or the fetch
+        fails (availability preserved, debug log). External BOOKS still
+        feed imbalance/dislocation/manip divergence unchanged. Throttled:
+        at most _KR_CANDLE_FETCH_BUDGET REST fetches per slow cycle,
+        most-stale assets first, each asset refreshed every
+        candle_refresh_sec (5m bars - staleness up to the cadence is
+        harmless). Data-cold GAP assets (no external candles - e.g. a
+        Kraken-only listing like MINA/USD) warm vol/liq/fair-value from
+        these same bars plus a cached-book fallback, as before."""
+        stale = sorted(((now - self._kr_candles.get(a, (0.0, []))[0], a)
+                        for a in self.symbol_map), reverse=True)
+        fetched = 0
+        for age, asset in stale:
+            if fetched >= _KR_CANDLE_FETCH_BUDGET \
+                    or age < self._kr_candle_refresh_sec:
+                break              # ages sorted desc: the rest are fresher
+            fetched += 1
+            pair = self.kraken.kraken_pair(self.symbol_map[asset])
             try:
                 candles = self.kraken.get_candles(pair)
             except Exception:
-                log.debug("kraken intraday fallback failed for %s", asset,
+                log.debug("kraken candle refresh failed for %s", asset,
                           exc_info=True)
                 continue
-            if not candles:
-                continue
-            book = self.kraken_books.get(asset) or {}
+            if candles:
+                self._kr_candles[asset] = (now, candles)
+
+        max_age = _KR_CANDLE_STALE_MULT * self._kr_candle_refresh_sec
+        for asset, symbol in self.symbol_map.items():
+            ts, kr = self._kr_candles.get(asset, (0.0, []))
+            if not kr or (now - ts) > max_age:
+                continue           # no usable venue bars -> external stands
+            existing = self.view.get(asset)
+            ext = (existing or {}).get("candles") or []
+            if len(kr) < 97 and len(kr) < len(ext):
+                continue           # would shrink the feature window: keep ext
             entry = dict(existing or {})
-            entry["candles"] = candles
-            entry.setdefault("order_book", book)
+            entry["candles"] = kr
+            entry.setdefault("order_book", self.kraken_books.get(asset) or {})
             entry.setdefault("kraken_symbol", symbol)
             self.view[asset] = entry
 
     def slow_cycle(self, now: float):
         self.view = self.liquidity_model.build_view(
             *self._fetch_market_payloads())
-        self._augment_view_with_kraken()
+        self._augment_view_with_kraken(now)
 
         closes = {}
         for asset, v in self.view.items():

@@ -65,16 +65,26 @@ CONTEXT_NEUTRAL = {"regime_age": 0.5, "funding_dist": 0.5,
 TRIO_NEUTRAL = {"vol_term": 0.0, "mkt_ret_6_dir": 0.0,
                 "book_touch_share": 0.2}
 
+# migration neutral for the v8 flow-toxicity feature: 0.0 = "no
+# toxicity signal read" (same convention as the opt_* block). A padded
+# old row is indistinguishable from genuinely balanced flow - accepted,
+# exactly like the pattern neutrals.
+TOX_NEUTRAL = {"flow_tox": 0.0}
+
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
 # v3: +context/THALES block, 46->53; v4: +options positioning, 53->56;
 # v5: +manip_suspect adversarial-data score, 56->57; v6: +th_barclose
 # bar-close herd detector, 57->58; v7: +vol_term/mkt_ret_6_dir/
 # book_touch_share regime-derivative/market-factor/book-shape trio,
-# 58->61).
+# 58->61; v8: +flow_tox VPIN-lite order-flow toxicity, 61->62 - the
+# same bump batches two value-semantics changes with no width change:
+# candles/volume re-grounded to the execution venue (wash-trading
+# hygiene, Cong et al. 2023) and order-book imbalance distance-decayed
+# toward the touch (spoof economics, Stoikov 2018)).
 # Restore paths must drop pending vectors from other versions - the
 # width guard alone cannot see a semantic change, and versioning also
 # documents additive bumps.
-FEATURE_SCHEMA_VERSION = 7
+FEATURE_SCHEMA_VERSION = 8
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -116,6 +126,7 @@ FEATURE_NAMES = [
     "vol_term",                   # log(sigma_12/sigma_96) term structure
     "mkt_ret_6_dir",              # equal-weight market drift, with trade
     "book_touch_share",           # touch notional / top-10 notional [0,1]
+    "flow_tox",                   # VPIN-lite order-flow toxicity [0,1]
     "direction", "gate_confidence",
 ]
 
@@ -242,6 +253,39 @@ def _ret(closes: np.ndarray, k: int, sigma_bar: float) -> float:
     return float(np.clip(r / (sigma_bar * np.sqrt(k) + EPS), -6, 6))
 
 
+# flow-toxicity window: 48 five-minute bars = 4h, the same lookback the
+# volume_z baseline uses - a schema constant like the ret_k horizons,
+# not a tunable (changing it is a version bump, not a config edit)
+_TOX_BARS = 48
+
+
+def _flow_toxicity(closes: np.ndarray, vols: np.ndarray,
+                   sigma_bar: float) -> float:
+    """VPIN-lite order-flow toxicity from bars already in view (Easley,
+    Lopez de Prado & O'Hara 2012, RFS - flow toxicity adversely selects
+    liquidity providers; VPIN spiked an hour before the Flash Crash).
+    Bulk Volume Classification assigns each bar's volume a buy fraction
+    Phi(r/sigma); toxicity = volume-weighted |2*buy_frac - 1| over the
+    last _TOX_BARS bars, in [0,1]. Balanced two-way flow -> 0, one-sided
+    (informed/predatory) flow -> 1. Too little history, dead volume, or
+    degenerate sigma -> 0.0 = "no toxicity signal read" (TOX_NEUTRAL)."""
+    if len(closes) < _TOX_BARS + 1 or len(vols) < _TOX_BARS or sigma_bar <= 0:
+        return 0.0
+    px = closes[-(_TOX_BARS + 1):]
+    if np.any(px <= 0):
+        return 0.0
+    v = np.asarray(vols[-_TOX_BARS:], dtype=float)
+    v = np.where(np.isfinite(v) & (v > 0), v, 0.0)
+    total = float(v.sum())
+    if total <= 0:
+        return 0.0
+    z = np.diff(np.log(px)) / (sigma_bar + EPS)
+    buy_frac = np.array([0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+                         for x in z])
+    tox = float(np.dot(np.abs(2.0 * buy_frac - 1.0), v) / total)
+    return float(np.clip(tox, 0.0, 1.0))
+
+
 def build_features(asset: str, direction: str, gate_confidence: float,
                 view: dict, fv_state, vol_state, liq_state,
                 macro_state, corr_state, sentiment, smc_feats: dict,
@@ -355,6 +399,9 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         # at identical spread; imbalance/depth_log see size, not shape.
         # 0.2 = flat-book neutral (1/10 per level x 2 sides at touch).
         float(np.clip((extras or {}).get("book_touch_share", 0.2), 0, 1)),
+        # NOT direction-signed: toxicity is symmetric information (toxic
+        # flow hurts whichever side provides the liquidity)
+        _flow_toxicity(closes, vols, sigma_bar),
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)
