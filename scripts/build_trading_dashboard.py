@@ -149,7 +149,7 @@ def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
 
 
 def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
-               calcs=None, decimals=None):
+               calcs=None, decimals=None, extra=None):
     """calcs (e.g. ["lastNotNull","min","max"]) upgrades the legend to a
     table with those reductions — exact numbers beside the trend, so the
     curve never has to be eyeballed off the axis (Tufte: show the data)."""
@@ -173,7 +173,9 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
                                "displayMode": "table" if calcs else "list",
                                "placement": "bottom", "calcs": calcs or []},
                     "tooltip": {"mode": "multi", "sort": "desc"}},
-        "targets": [_t(expr, instant=False, legend=legend)]})
+        "targets": [_t(expr, instant=False, legend=legend)] + [
+            _t(e, ref=chr(ord("B") + i), instant=False, legend=lg)
+            for i, (e, lg) in enumerate(extra or [])]})
 
 
 def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
@@ -352,6 +354,35 @@ def _author_command():
          decimals=2, steps=PF, desc="Gross profit / gross loss.")
     stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 7, decimals=2,
          steps=PNL, desc="Avg trade in R-multiples.")
+
+    row("🏦 Profit pools & weekly rollover")
+    stat("P&L this week", M("liquiditybot_weekly_pnl"), 5, 5, unit=USD,
+         steps=PNL, desc="Realized P&L since the ISO-week open (Mon 00:00 "
+                         "UTC). Resets at the weekly close-out (RP-070); a "
+                         "losing week is refilled from Reserve before the "
+                         "working baseline shrinks.")
+    stat("Savings pool", M("liquiditybot_savings"), 5, 5, unit=USD,
+         decimals=2, steps=GRN,
+         desc="20% of every realized win, locked away - never traded, "
+              "never refilled from, only ever grows.")
+    stat("Reserve pool", M("liquiditybot_reserve"), 5, 5, unit=USD,
+         decimals=2, steps=GRN,
+         desc="10% of every realized win - the drawdown shock absorber. "
+              "At each weekly close a losing week's realized loss refills "
+              "trading cash from here (reserve only ever moves INTO cash).")
+    stat("Reinvested (cash)", "liquiditybot_equity" + A +
+         " - liquiditybot_savings" + A + " - liquiditybot_reserve" + A, 9, 5,
+         unit=USD, decimals=2, steps=GRN,
+         desc="Working trading capital: equity minus the two locked pools "
+              "- the 70% share that compounds position sizing.")
+    timeseries("Pools over time",
+               M("liquiditybot_savings"), 16, 7, unit=USD,
+               legend="savings", decimals=2,
+               calcs=["lastNotNull", "max"],
+               extra=[(M("liquiditybot_reserve"), "reserve"),
+                      (M("liquiditybot_weekly_pnl"), "weekly P&L")],
+               desc="Savings + reserve accrual and the week's running "
+                    "realized P&L - the rollover ritual made visible.")
 
     row("🩺 Health")
     state("Bot", M("liquiditybot_running"), 3, 4, UP_DOWN, desc="runner RUNNING.")

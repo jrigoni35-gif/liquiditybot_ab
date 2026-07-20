@@ -684,7 +684,7 @@
     {
       "id": 11,
       "type": "row",
-      "title": "🩺 Health",
+      "title": "🏦 Profit pools & weekly rollover",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -697,6 +697,361 @@
     {
       "id": 12,
       "type": "stat",
+      "title": "P&L this week",
+      "description": "Realized P&L since the ISO-week open (Mon 00:00 UTC). Resets at the weekly close-out (RP-070); a losing week is refilled from Reserve before the working baseline shrinks.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_weekly_pnl{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Savings pool",
+      "description": "20% of every realized win, locked away - never traded, never refilled from, only ever grows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_savings{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Reserve pool",
+      "description": "10% of every realized win - the drawdown shock absorber. At each weekly close a losing week's realized loss refills trading cash from here (reserve only ever moves INTO cash).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 10,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_reserve{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Reinvested (cash)",
+      "description": "Working trading capital: equity minus the two locked pools - the 70% share that compounds position sizing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 9,
+        "x": 15,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_equity{job=\"liquiditybot\"} - liquiditybot_savings{job=\"liquiditybot\"} - liquiditybot_reserve{job=\"liquiditybot\"}",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Pools over time",
+      "description": "Savings + reserve accrual and the week's running realized P&L - the rollover ritual made visible.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_savings{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "savings"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_reserve{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "reserve"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_weekly_pnl{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "weekly P&L"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "🩺 Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "stat",
       "title": "Bot",
       "description": "runner RUNNING.",
       "datasource": {
@@ -707,7 +1062,7 @@
         "h": 4,
         "w": 3,
         "x": 0,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -774,7 +1129,7 @@
       ]
     },
     {
-      "id": 13,
+      "id": 19,
       "type": "stat",
       "title": "Governor",
       "description": "0 OK / 1 degraded / 2 killed.",
@@ -786,7 +1141,7 @@
         "h": 4,
         "w": 3,
         "x": 3,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -858,7 +1213,7 @@
       ]
     },
     {
-      "id": 14,
+      "id": 20,
       "type": "stat",
       "title": "Entries",
       "description": "New-risk entries enabled (exits always allowed).",
@@ -870,7 +1225,7 @@
         "h": 4,
         "w": 3,
         "x": 6,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -937,7 +1292,7 @@
       ]
     },
     {
-      "id": 15,
+      "id": 21,
       "type": "stat",
       "title": "Halted",
       "description": "Global halt.",
@@ -949,7 +1304,7 @@
         "h": 4,
         "w": 3,
         "x": 9,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1016,7 +1371,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 22,
       "type": "stat",
       "title": "Kraken WS",
       "description": "Push book vs REST fallback.",
@@ -1028,7 +1383,7 @@
         "h": 4,
         "w": 3,
         "x": 12,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1095,7 +1450,7 @@
       ]
     },
     {
-      "id": 17,
+      "id": 23,
       "type": "stat",
       "title": "Feed latency",
       "description": "Kraken public-GET RTT EWMA.",
@@ -1107,7 +1462,7 @@
         "h": 4,
         "w": 3,
         "x": 15,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1165,7 +1520,7 @@
       ]
     },
     {
-      "id": 18,
+      "id": 24,
       "type": "stat",
       "title": "Status age",
       "description": "Seconds since last status write.",
@@ -1177,7 +1532,7 @@
         "h": 4,
         "w": 3,
         "x": 18,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1235,7 +1590,7 @@
       ]
     },
     {
-      "id": 19,
+      "id": 25,
       "type": "stat",
       "title": "Cycle",
       "description": "Fast-cycle counter (advancing = alive).",
@@ -1247,7 +1602,7 @@
         "h": 4,
         "w": 3,
         "x": 21,
-        "y": 14
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1297,7 +1652,7 @@
       ]
     },
     {
-      "id": 20,
+      "id": 26,
       "type": "row",
       "title": "🧠 Learning brain",
       "collapsed": false,
@@ -1305,12 +1660,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 31
       },
       "panels": []
     },
     {
-      "id": 21,
+      "id": 27,
       "type": "timeseries",
       "title": "Learning rows by label (live vs candidate)",
       "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time — the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved. Total training rows = the sum of the two.",
@@ -1322,7 +1677,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 32
       },
       "fieldConfig": {
         "defaults": {
@@ -1374,7 +1729,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 28,
       "type": "stat",
       "title": "Live labels",
       "description": "Ground-truth closed-trade labels — earns model complexity.",
@@ -1386,7 +1741,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1444,7 +1799,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 29,
       "type": "stat",
       "title": "Candidate labels",
       "description": "Triple-barrier proxy labels.",
@@ -1456,7 +1811,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1506,7 +1861,7 @@
       ]
     },
     {
-      "id": 24,
+      "id": 30,
       "type": "stat",
       "title": "Model",
       "description": "Deployed rung on the simplicity ladder.",
@@ -1518,7 +1873,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1568,7 +1923,7 @@
       ]
     },
     {
-      "id": 25,
+      "id": 31,
       "type": "stat",
       "title": "Model in use",
       "description": "Governor lets the model size trades.",
@@ -1580,7 +1935,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1647,7 +2002,7 @@
       ]
     },
     {
-      "id": 26,
+      "id": 32,
       "type": "stat",
       "title": "Retrain",
       "description": "Auto-retrain queued.",
@@ -1659,7 +2014,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1726,7 +2081,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 33,
       "type": "stat",
       "title": "Kelly mult",
       "description": "Governor size throttle.",
@@ -1738,7 +2093,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 26
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1788,7 +2143,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 34,
       "type": "stat",
       "title": "Brier",
       "description": "Rolling outcome Brier (lower better; must beat baseline).",
@@ -1800,7 +2155,7 @@
         "h": 5,
         "w": 5,
         "x": 0,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -1858,7 +2213,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 35,
       "type": "stat",
       "title": "Baseline Brier",
       "description": "Base-rate bar the model must beat.",
@@ -1870,7 +2225,7 @@
         "h": 5,
         "w": 4,
         "x": 5,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -1920,7 +2275,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 36,
       "type": "stat",
       "title": "Calibration gap",
       "description": "ECE; Kelly reads probs literally.",
@@ -1932,7 +2287,7 @@
         "h": 5,
         "w": 4,
         "x": 9,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -1990,7 +2345,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 37,
       "type": "stat",
       "title": "Champion Brier",
       "description": "Deployed champion badge.",
@@ -2002,7 +2357,7 @@
         "h": 5,
         "w": 4,
         "x": 13,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -2052,7 +2407,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 38,
       "type": "gauge",
       "title": "Drift share",
       "description": "Fraction of features past the PSI threshold.",
@@ -2064,7 +2419,7 @@
         "h": 5,
         "w": 4,
         "x": 17,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -2117,7 +2472,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 39,
       "type": "stat",
       "title": "Win rate LCB",
       "description": "Wilson lower bound.",
@@ -2129,7 +2484,7 @@
         "h": 5,
         "w": 3,
         "x": 21,
-        "y": 31
+        "y": 44
       },
       "fieldConfig": {
         "defaults": {
@@ -2179,7 +2534,7 @@
       ]
     },
     {
-      "id": 34,
+      "id": 40,
       "type": "stat",
       "title": "Clean live labels",
       "description": "Live rows surviving the hygiene pass — the count the evidence gate actually admits model complexity on.",
@@ -2191,7 +2546,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 36
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -2249,7 +2604,7 @@
       ]
     },
     {
-      "id": 35,
+      "id": 41,
       "type": "stat",
       "title": "Label uniqueness",
       "description": "Mean average-uniqueness (AFML ch.4): 1 = every label an independent fact; near 0 = heavily overlapping horizons (weights redistribute so overlap can't double-count).",
@@ -2261,7 +2616,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 36
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -2319,7 +2674,7 @@
       ]
     },
     {
-      "id": 36,
+      "id": 42,
       "type": "stat",
       "title": "Batch prior skew",
       "description": "ML-074: trailing-window label prior vs corpus prior — SKEWED = a one-sided batch (e.g. all-zero quiet weekend) is moving calibration; detection only, weights untouched.",
@@ -2331,7 +2686,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 36
+        "y": 49
       },
       "fieldConfig": {
         "defaults": {
@@ -2398,7 +2753,7 @@
       ]
     },
     {
-      "id": 37,
+      "id": 43,
       "type": "row",
       "title": "⚖️ Per-asset edge",
       "collapsed": false,
@@ -2406,12 +2761,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 54
       },
       "panels": []
     },
     {
-      "id": 38,
+      "id": 44,
       "type": "bargauge",
       "title": "Net $ by asset",
       "description": "Realized net per asset — where P&L actually comes from.",
@@ -2423,7 +2778,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 42
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
@@ -2476,7 +2831,7 @@
       ]
     },
     {
-      "id": 39,
+      "id": 45,
       "type": "bargauge",
       "title": "Signal concentration",
       "description": "0 diffuse average .. 1 pinpointed setup.",
@@ -2488,7 +2843,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 42
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
@@ -2547,7 +2902,7 @@
       ]
     },
     {
-      "id": 40,
+      "id": 46,
       "type": "bargauge",
       "title": "Confidence",
       "description": "Model conviction per asset.",
@@ -2559,7 +2914,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 42
+        "y": 55
       },
       "fieldConfig": {
         "defaults": {
@@ -2618,7 +2973,7 @@
       ]
     },
     {
-      "id": 41,
+      "id": 47,
       "type": "table",
       "title": "Asset scorecard",
       "description": "One row per asset; color-coded so a green row (positive net, high concentration, low manip, tight spread) reads instantly.",
@@ -2630,7 +2985,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3202,7 +3557,7 @@
       ]
     },
     {
-      "id": 42,
+      "id": 48,
       "type": "row",
       "title": "🏛️ THALES — footprint & manipulation defense",
       "collapsed": false,
@@ -3210,19 +3565,19 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 58
+        "y": 71
       },
       "panels": []
     },
     {
-      "id": 43,
+      "id": 49,
       "type": "text",
       "title": "What THALES is",
       "gridPos": {
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 59
+        "y": 72
       },
       "transparent": false,
       "options": {
@@ -3236,7 +3591,7 @@
       }
     },
     {
-      "id": 44,
+      "id": 50,
       "type": "table",
       "title": "THALES detector scorecard (higher = more suspicious)",
       "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
@@ -3248,7 +3603,7 @@
         "h": 9,
         "w": 16,
         "x": 8,
-        "y": 59
+        "y": 72
       },
       "fieldConfig": {
         "defaults": {
@@ -3923,7 +4278,7 @@
       ]
     },
     {
-      "id": 45,
+      "id": 51,
       "type": "bargauge",
       "title": "Spoof-flicker pressure (bid)",
       "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
@@ -3935,7 +4290,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 81
       },
       "fieldConfig": {
         "defaults": {
@@ -3994,7 +4349,7 @@
       ]
     },
     {
-      "id": 46,
+      "id": 52,
       "type": "bargauge",
       "title": "Stop-hunt zone proximity",
       "description": "Proximity to round-number stop clusters per asset.",
@@ -4006,7 +4361,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 68
+        "y": 81
       },
       "fieldConfig": {
         "defaults": {
@@ -4065,7 +4420,7 @@
       ]
     },
     {
-      "id": 47,
+      "id": 53,
       "type": "bargauge",
       "title": "Manipulation suspicion",
       "description": "Parameter-free max of the manipulation footprints per asset.",
@@ -4077,7 +4432,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 68
+        "y": 81
       },
       "fieldConfig": {
         "defaults": {
@@ -4136,7 +4491,7 @@
       ]
     },
     {
-      "id": 48,
+      "id": 54,
       "type": "row",
       "title": "🛡️ Positions & risk",
       "collapsed": false,
@@ -4144,12 +4499,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 87
       },
       "panels": []
     },
     {
-      "id": 49,
+      "id": 55,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -4161,7 +4516,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -4540,7 +4895,7 @@
       ]
     },
     {
-      "id": 50,
+      "id": 56,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -4552,7 +4907,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 75
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -4610,7 +4965,7 @@
       ]
     },
     {
-      "id": 51,
+      "id": 57,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -4622,7 +4977,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 75
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -4672,7 +5027,7 @@
       ]
     },
     {
-      "id": 52,
+      "id": 58,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -4684,7 +5039,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 75
+        "y": 88
       },
       "fieldConfig": {
         "defaults": {
@@ -4734,7 +5089,7 @@
       ]
     },
     {
-      "id": 53,
+      "id": 59,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -4746,7 +5101,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 80
+        "y": 93
       },
       "fieldConfig": {
         "defaults": {
@@ -4855,7 +5210,7 @@
       ]
     },
     {
-      "id": 54,
+      "id": 60,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -4867,7 +5222,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 80
+        "y": 93
       },
       "fieldConfig": {
         "defaults": {

@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # emitted-metric universe is complete for check 3
 _SYNTH_STATUS = {
     "written_at": time.time(), "equity": 5000.0, "daily_pnl": 3.0,
+    "weekly_pnl": 11.0, "savings": 20.0, "reserve": 8.0,
     "realized_total": 1.0, "drawdown_pct": 0.4, "fees_total": 2.0,
     "cycle": 10, "cycle_lifetime": 100, "feed_latency_ms": 50.0,
     "marks_age_sec": 1.0, "equity_drift_pct": 0.0, "exit_eval_failures": 0,
