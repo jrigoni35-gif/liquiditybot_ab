@@ -335,10 +335,15 @@ def collect(status_path: str) -> list:
         if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
             m.append(gauge("liquiditybot_ml_labels", cnt,
                            {"source": str(src)}, ts))
-    # deployed model rung on the simplicity ladder (info-style label gauge)
-    if ml.get("model_kind"):
+    # deployed model rung on the simplicity ladder (info-style label gauge).
+    # When no champion is loaded the bot IS the prior - say so instead of
+    # going silent: after the v7 schema bump the width guard correctly
+    # refused the 58-wide champion and the model panel showed "No data"
+    # for hours, which read as broken telemetry (lived 2026-07-20).
+    kind = ml.get("model_kind") or ("prior" if not ml.get("trained") else "")
+    if kind:
         m.append(gauge("liquiditybot_ml_model_info", 1.0,
-                       {"kind": str(ml["model_kind"])}, ts))
+                       {"kind": str(kind)}, ts))
     # ML fault counters (fallbacks/inference faults/contract breaches/SMC
     # degrades/retrain failures) — rising = a subsystem quietly dying
     for k in ("model_fallbacks", "infer_faults", "contract_failed",
@@ -481,6 +486,27 @@ def push(cfg: dict, metrics: list) -> int:
         return r.status
 
 
+# Restart-coupling: the supervisor relaunches this sidecar only when it
+# DIES (stale heartbeat log) - the auto-updater's restart signal reaches
+# the runner alone, so a long-lived pusher kept exporting an old gauge
+# set forever after every deploy (lived 2026-07-20: the profit-pools row
+# showed "No data" all day; the runner carried the values, this process
+# predated the gauges). Exit when our own source changes on disk and let
+# the supervisor bring us back on the new code.
+_BOOT_MTIME = os.path.getmtime(os.path.abspath(__file__))
+
+
+def _source_changed() -> bool:
+    """True once scripts/gc_pusher.py on disk differs from the running
+    copy (mtime moved - a git fast-forward touched it). Read failures
+    count as unchanged: staying alive is the fail-safe, and the
+    auto-updater's rev-marker bounce is the backstop."""
+    try:
+        return os.path.getmtime(os.path.abspath(__file__)) != _BOOT_MTIME
+    except OSError:
+        return False
+
+
 def main() -> None:
     cfg = _cfg()
     while True:
@@ -491,6 +517,11 @@ def main() -> None:
         except Exception as e:
             print(f"{time.strftime('%H:%M:%S')} push failed: {e}",
                   flush=True)
+        if _source_changed():
+            print(f"{time.strftime('%H:%M:%S')} source changed on disk "
+                  f"(deploy) - exiting; supervisor relaunches on new code",
+                  flush=True)
+            return
         time.sleep(cfg["period"])
 
 

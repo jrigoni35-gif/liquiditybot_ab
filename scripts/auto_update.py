@@ -153,6 +153,43 @@ def _record_outcome(outcome: str) -> None:
         log(f"outcome stamp failed ({e}) - update itself unaffected")
 
 
+def _ensure_pushers_current() -> None:
+    """Telemetry sidecars only reload code when THEY restart - the update
+    restart signal reaches the runner alone, so long-lived pushers kept
+    exporting a pre-deploy gauge set forever (lived 2026-07-20: the
+    profit-pools row was 'No data' all day while the runner carried the
+    values). This process is spawned FRESH every cadence, so it always
+    runs current code: when the deployed rev differs from the marker,
+    best-effort stop the pusher processes and let the supervisor's
+    stale-heartbeat check relaunch them on the new code. The pushers also
+    self-exit on source change now; this is the migration path for
+    processes started before that guard existed, and the backstop.
+    Fail-safe throughout: a failed bounce only means stale gauges."""
+    try:
+        _, head = _git("rev-parse", "--short", "HEAD")
+        marker = OUT / "pushers_code_rev.txt"
+        try:
+            if marker.read_text(encoding="utf-8").strip() == head.strip():
+                return
+        except OSError:
+            pass                              # no marker yet -> bounce once
+        if os.name == "nt":
+            ps = ("Get-CimInstance Win32_Process | Where-Object "
+                  "{ $_.CommandLine -match "
+                  "'gc_pusher\\.py|gc_log_pusher\\.py|gc_trace_pusher\\.py' }"
+                  " | ForEach-Object "
+                  "{ Stop-Process -Id $_.ProcessId -Force "
+                  "-ErrorAction SilentlyContinue }")
+            subprocess.run(["powershell", "-NoProfile",  # nosec B603 B607
+                            "-Command", ps], timeout=90,
+                           capture_output=True, **_NOWIN)
+            log(f"pushers bounced for rev {head.strip()} - supervisor "
+                f"relaunches them on the deployed code")
+        marker.write_text(head.strip() + "\n", encoding="utf-8")
+    except Exception as e:                        # noqa: BLE001
+        log(f"pusher bounce failed ({e}) - gauges may lag one deploy")
+
+
 def update_once() -> str:
     """One update attempt. Returns the outcome string."""
     if os.environ.get("LB_NO_AUTO_UPDATE"):
@@ -224,4 +261,8 @@ def _update_locked() -> str:
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if update_once() in OK_OUTCOMES else 1)
+    _outcome = update_once()
+    # after the update body (including a just-applied fast-forward), make
+    # sure the telemetry sidecars run the code that is now deployed
+    _ensure_pushers_current()
+    raise SystemExit(0 if _outcome in OK_OUTCOMES else 1)

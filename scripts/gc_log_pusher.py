@@ -147,6 +147,19 @@ def tick(cfg: dict) -> int:
     return sent
 
 
+# Restart-coupling guard (same as gc_pusher): the supervisor relaunches
+# this sidecar only when it dies, so deploys never reached a long-lived
+# process. Exit when our source changes on disk; supervisor brings us back.
+_BOOT_MTIME = os.path.getmtime(os.path.abspath(__file__))
+
+
+def _source_changed() -> bool:
+    try:
+        return os.path.getmtime(os.path.abspath(__file__)) != _BOOT_MTIME
+    except OSError:
+        return False       # staying alive is the fail-safe
+
+
 def main() -> None:
     cfg = _cfg()
     while True:
@@ -158,6 +171,11 @@ def main() -> None:
         except Exception as e:
             print(f"{time.strftime('%H:%M:%S')} ship failed: {e}",
                   flush=True)
+        if _source_changed():
+            print(f"{time.strftime('%H:%M:%S')} source changed on disk "
+                  f"(deploy) - exiting; supervisor relaunches on new code",
+                  flush=True)
+            return
         time.sleep(cfg["period"])
 
 

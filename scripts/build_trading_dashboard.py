@@ -101,14 +101,20 @@ def row(title):
 
 
 def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
-         mode="value", mappings=None, text_mode="auto", graph="area"):
+         mode="value", mappings=None, text_mode="auto", graph="area",
+         no_value=None):
     """KPI tile. graph='area' draws a sparkline behind the number (the default,
-    for the professional look); graph='none' for pure state/count tiles."""
+    for the professional look); graph='none' for pure state/count tiles.
+    no_value: honest empty-state text for event-sparse series (fills,
+    positions) whose ABSENCE is truthful - 'No data' reads as broken
+    telemetry, the text says what absence means."""
     x, y = _place(w, h)
     fld = {"unit": unit, "decimals": decimals,
            "thresholds": {"mode": "absolute",
                           "steps": steps or [{"color": "text", "value": None}]},
            "color": {"mode": "thresholds"}}
+    if no_value:
+        fld["noValue"] = no_value
     if mappings:
         fld["mappings"] = mappings
     panels.append({
@@ -132,16 +138,19 @@ def state(title, expr, w, h, mapping, desc=""):
 
 
 def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
-          desc=""):
+          desc="", no_value=None):
     x, y = _place(w, h)
+    fld = {"unit": unit, "min": 0, "max": mx,
+           "decimals": decimals, "thresholds": {"mode": "absolute",
+               "steps": steps or [{"color": "green", "value": None},
+               {"color": "yellow", "value": mx * 0.7},
+               {"color": "red", "value": mx * 0.9}]}}
+    if no_value:
+        fld["noValue"] = no_value
     panels.append({
         "id": _id(), "type": "gauge", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "min": 0, "max": mx,
-            "decimals": decimals, "thresholds": {"mode": "absolute",
-                "steps": steps or [{"color": "green", "value": None},
-                {"color": "yellow", "value": mx * 0.7},
-                {"color": "red", "value": mx * 0.9}]}}, "overrides": []},
+        "fieldConfig": {"defaults": fld, "overrides": []},
         "options": {"showThresholdLabels": False, "showThresholdMarkers": True,
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
                                       "values": False}},
@@ -179,13 +188,15 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
 
 
 def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
-             legend="{{asset}}", desc="", mn=None, mx=None):
+             legend="{{asset}}", desc="", mn=None, mx=None, no_value=None):
     """Horizontal gradient bars, one per series (asset/pair) — a compact,
     professional ranked comparison."""
     x, y = _place(w, h)
     fld = {"unit": unit, "decimals": decimals, "color": {"mode": "thresholds"},
            "thresholds": {"mode": "absolute",
                           "steps": steps or [{"color": "blue", "value": None}]}}
+    if no_value:
+        fld["noValue"] = no_value
     if mn is not None:
         fld["min"] = mn
     if mx is not None:
@@ -608,18 +619,22 @@ def _author_execution():
     _positions_table()
     bargauge("uPnL by instrument", _pa("liquiditybot_position_upnl_usd"), 12, 5,
              unit=USD, decimals=2, steps=PNL, legend="{{symbol}} {{side}}",
+             no_value="flat — no open positions",
              desc="Unrealized P&L ranked across open instruments.")
 
     row("⚡ Execution quality")
     gauge("Maker share", M("liquiditybot_order_maker_share", "*100"), 5, 5,
           mx=100.0, steps=[{"color": "red", "value": None},
           {"color": "yellow", "value": 60}, {"color": "green", "value": 80}],
+          no_value="no fills yet",
           desc="% fills that were maker (cheaper).")
     stat("Avg slippage", M("liquiditybot_order_avg_slip_bps"), 4, 5,
          unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
+         no_value="no fills yet",
          desc="Implementation shortfall vs the ARRIVAL mark, rolling avg bps (positive = paid worse than arrival; negative = improvement).")
     stat("Worst slippage", M("liquiditybot_order_worst_slip_bps"), 3, 5,
          unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
+         no_value="no fills yet",
          desc="Worst single implementation shortfall vs arrival in the window.")
     stat("Venue RTT", M("liquiditybot_order_latency_ms"), 4, 5, unit="ms",
          decimals=0, steps=LAT, desc="Private POST RTT (order path).")
@@ -644,6 +659,7 @@ def _author_execution():
     bargauge("Slippage by fill quality — avg vs worst (bps)",
              M("liquiditybot_order_avg_slip_bps"), 12, 6, unit="short",
              decimals=1, steps=SLIP, legend="avg slip",
+             no_value="no fills yet",
              desc="Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).")
 
 
