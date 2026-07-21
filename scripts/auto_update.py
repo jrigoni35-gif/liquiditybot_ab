@@ -35,8 +35,12 @@ OUT = ROOT / "outputs"
 BRANCH = "main"
 # One updater at a time: the supervisor's fast cadence plus a manual run could
 # otherwise stack two 20-min batteries and race the fast-forward. Staleness
-# must outlive the worst case (1200s battery + worktree/git ops) with margin.
-LOCK_STALE_SEC = 2700.0
+# must outlive the worst case with margin. battery_passes now chains TWO 1200s
+# subprocesses back-to-back — pytest then the replay gate — plus fetch/worktree
+# ops, so ~2400s of subprocess time is possible once recordings accrue. Sized
+# above that so a legitimately-long run is never mistaken for a stale lock (which
+# would let a second updater start concurrently and race the fast-forward).
+LOCK_STALE_SEC = 3900.0
 # Outcomes that exit 0 ("nothing wrong"), vs real failures that exit 1.
 OK_OUTCOMES = ("updated", "current", "dirty", "disabled", "busy")
 

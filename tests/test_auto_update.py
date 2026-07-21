@@ -134,3 +134,42 @@ def test_outcome_stamp_written_and_fail_safe(monkeypatch, tmp_path):
     # stamp failure is swallowed (update result still returned by caller)
     monkeypatch.setattr(au, "OUT", tmp_path / "nope" / "deeper")
     au._record_outcome("current")            # must not raise
+
+
+# ---- the pre-deploy replay gate: targets LIVE recordings, fails safe --------
+class _FakeProc:
+    def __init__(self, rc, out=""):
+        self.returncode, self.stdout = rc, out
+
+
+def test_replay_gate_targets_live_recordings_determinism_only(monkeypatch):
+    from pathlib import Path
+    captured = {}
+
+    def _fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc(0, "XV-001: no recordings present - gate dormant")
+
+    monkeypatch.setattr(au.subprocess, "run", _fake_run)
+    assert au._replay_gate_passes(Path("/tmp/wt"), "python") is True
+    # validates the LIVE checkout's recordings (absolute path), not the worktree,
+    # and skips reconcile (cross-version P&L would false-fail intentional changes)
+    assert "--determinism-only" in captured["cmd"]
+    rec = captured["cmd"][captured["cmd"].index("--recording-dir") + 1]
+    assert rec == str((au.OUT / "recordings").resolve())
+
+
+def test_replay_gate_nonzero_blocks_deploy(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setattr(au.subprocess, "run",
+                        lambda *a, **k: _FakeProc(1, "XV-010: determinism fail"))
+    assert au._replay_gate_passes(Path("/tmp/wt"), "python") is False
+
+
+def test_replay_gate_crash_blocks_deploy(monkeypatch):
+    from pathlib import Path
+
+    def _boom(*a, **k):
+        raise OSError("subprocess spawn failed")
+    monkeypatch.setattr(au.subprocess, "run", _boom)
+    assert au._replay_gate_passes(Path("/tmp/wt"), "python") is False

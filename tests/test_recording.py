@@ -38,7 +38,7 @@ def test_sink_rotator_rolls_when_file_exceeds_cap(tmp_path):
     assert first == base                          # part 0 is the un-suffixed base
     first.write_text("x" * 8, encoding="utf-8")   # exceed the cap
     second = rot.current()
-    assert second != first and second.name == "session_1000.part01.jsonl"
+    assert second != first and second.name == "session_1000.part001.jsonl"
 
 
 def test_prune_keeps_newest_and_drops_the_rest(tmp_path):
@@ -141,4 +141,4 @@ def test_feed_recorder_writes_through_rotator_and_rolls(tmp_path):
     rec.get_book("BTCUSD")
     parts = sorted(p.name for p in tmp_path.glob("session_1000*.jsonl"))
     assert "session_1000.jsonl" in parts
-    assert any(".part01." in p for p in parts)         # rolled to a second part
+    assert any(".part001." in p for p in parts)        # rolled to a second part

@@ -118,15 +118,21 @@ class BotRunner:
                 # flat-start sidecar: the reconciliation gate ties replay P&L to
                 # THIS session's live P&L delta; a clean tie-out wants a flat start.
                 # self_contained: every engine input was recorded, so replay ties
-                # out EXACTLY. False when an unrecorded feed (sentiment/webdata/
-                # moomoo) was live — reconciliation then only WARNs, never fails.
+                # out EXACTLY. False when an unrecorded feed was live — reconcile
+                # then only WARNs, never hard-fails. The Kraken/Binance WS book
+                # streams (websockets.*) drive fills FIRST (main.py get_order_book)
+                # but are NOT wrapped by FeedRecorder — only the REST fallback is —
+                # so any active WS book source makes the recording NON-self-contained.
+                _ws = config.get("websockets", {}) or {}
                 start_snap = pnl_snapshot(
                     self.bot.state.realized_pnl_total, self.bot._equity(),
                     self.bot.state.open_position_count(), now)
                 start_snap["self_contained"] = not (
                     config.get("sentiment", {}).get("enabled")
                     or config.get("webdata", {}).get("enabled")
-                    or config.get("moomoo", {}).get("enabled"))
+                    or config.get("moomoo", {}).get("enabled")
+                    or _ws.get("kraken_enabled")
+                    or _ws.get("enabled"))
                 update_sidecar(sink, "start", start_snap)
                 log.warning(f"feed recording ON -> {sink} (replay it with "
                             f"scripts/replay.py)")

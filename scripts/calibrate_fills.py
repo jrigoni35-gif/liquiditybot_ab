@@ -82,10 +82,12 @@ def trade_through_counts(frames: list, life_polls: int, dist_bps_grid: list,
                          sigma_bps: float) -> list:
     """Per distance, count resting limits the market crossed within their life.
 
-    Each frame that has at least one future frame becomes a placement; a buy
-    limit ``dist`` bps below mid is crossed if any future ask trades to/through
-    it, a sell limit ``dist`` bps above if any future bid does. Returns one
-    record per distance: {dist_bps, d_bar, k (crossed), n (placements)}.
+    A buy limit ``dist`` bps below mid is crossed if any future ask trades
+    to/through it, a sell limit ``dist`` bps above if any future bid does.
+    Placements are STRIDED by ``life`` so their look-ahead windows do not
+    overlap: adjacent overlapping windows are heavily autocorrelated, which
+    would inflate the Wilson trial count and over-power the recommendation.
+    Returns one record per distance: {dist_bps, d_bar, k (crossed), n}.
     """
     sig = max(float(sigma_bps), 1.0)
     life = max(int(life_polls), 1)
@@ -100,7 +102,7 @@ def trade_through_counts(frames: list, life_polls: int, dist_bps_grid: list,
             clean.append(None)
     for dist in dist_bps_grid:
         k = n = 0
-        for i in range(len(clean) - 1):
+        for i in range(0, len(clean) - 1, life):   # stride: non-overlapping windows
             here = clean[i]
             if here is None:
                 continue

@@ -19,6 +19,7 @@ running bot.
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 log = logging.getLogger("liquiditybot.data.recording")
@@ -42,6 +43,7 @@ class SinkRotator:
         self._base = Path(base_path)
         self._max = int(max_bytes)
         self._part = 0
+        self._lock = threading.Lock()   # feeds may be read off-thread someday
         self._base.parent.mkdir(parents=True, exist_ok=True)
 
     def _part_path(self, part: int) -> Path:
@@ -49,17 +51,19 @@ class SinkRotator:
             return self._base
         stem = self._base.name[: -len(".jsonl")] if \
             self._base.name.endswith(".jsonl") else self._base.stem
-        return self._base.with_name(f"{stem}.part{part:02d}.jsonl")
+        return self._base.with_name(f"{stem}.part{part:03d}.jsonl")
 
     def current(self) -> Path:
-        p = self._part_path(self._part)
-        try:
-            if self._max > 0 and p.exists() and p.stat().st_size >= self._max:
-                self._part += 1
-                p = self._part_path(self._part)
-        except OSError:
-            pass
-        return p
+        with self._lock:
+            p = self._part_path(self._part)
+            try:
+                if self._max > 0 and p.exists() and \
+                        p.stat().st_size >= self._max:
+                    self._part += 1
+                    p = self._part_path(self._part)
+            except OSError:
+                pass
+            return p
 
 
 def session_sink(rec_dir, now_ts: float) -> Path:
@@ -88,8 +92,14 @@ def session_part_files(path) -> list[Path]:
     base = d / f"{sid}.jsonl"
     if base.exists():
         ordered.append(base)
+
+    def _part_num(p: Path) -> int:
+        try:                                    # numeric, so part100 > part011
+            return int(p.name.split(".part")[1].split(".")[0])
+        except (IndexError, ValueError):
+            return 0
     try:
-        ordered.extend(sorted(d.glob(f"{sid}.part*.jsonl")))
+        ordered.extend(sorted(d.glob(f"{sid}.part*.jsonl"), key=_part_num))
     except OSError:
         pass
     return ordered
