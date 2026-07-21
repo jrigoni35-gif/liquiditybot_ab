@@ -146,12 +146,13 @@ def calibrate(k: int, n: int, d_bar: float, n_bar: float,
 
 
 def buckets_agree(results: list[CalibrationResult]) -> bool:
-    """True iff every actionable bucket's band overlaps every other's.
+    """True iff all actionable buckets share a COMMON overlap (max low <= min
+    high) — the single-sf_base consistency test, not merely pairwise overlap.
 
     sf_base is supposed to be distance-independent (the exp(-d_bar) term
-    carries distance), so disjoint per-bucket bands mean the forward model is
-    misspecified — the caller should report MODEL-MISSPECIFIED rather than a
-    false-precise single number. DEFERRED buckets (no band) are ignored.
+    carries distance), so bands with no common intersection mean the forward
+    model is misspecified — the caller should report MODEL-MISSPECIFIED rather
+    than a false-precise single number. DEFERRED buckets (no band) are ignored.
     """
     bands = [r.band for r in results
              if r.status in ("OK", "NO_CHANGE") and r.band is not None]

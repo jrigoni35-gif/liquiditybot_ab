@@ -101,34 +101,38 @@ class BotRunner:
                              len(dropped))
             except Exception:
                 log.exception("recording prune failed - continuing")
-            sink = session_sink(rec_dir, now)
-            self._rec_sink = sink
-            max_bytes = int(rc.get("max_file_mb", DEFAULT_MAX_FILE_MB)) \
-                * (1 << 20)
-            rotator = SinkRotator(sink, max_bytes)   # shared: recorders roll together
-            for name in ("okx", "binanceus", "kraken"):
-                setattr(self.bot, name,
-                        FeedRecorder(getattr(self.bot, name), name,
-                                     rotator=rotator))
-            # flat-start sidecar: the reconciliation gate ties replay P&L to
-            # THIS session's live P&L delta; a clean tie-out wants a flat start
+            # Recording SETUP is fail-soft: a bad recording_dir (OSError) or a
+            # non-numeric max_file_mb (ValueError) must DISABLE recording, never
+            # take down the boot — record_feeds is default-true now. On failure
+            # before the feeds are wrapped, recording simply stays off.
             try:
+                sink = session_sink(rec_dir, now)
+                max_bytes = int(rc.get("max_file_mb", DEFAULT_MAX_FILE_MB)) \
+                    * (1 << 20)
+                rotator = SinkRotator(sink, max_bytes)   # shared: recorders roll together
+                for name in ("okx", "binanceus", "kraken"):
+                    setattr(self.bot, name,
+                            FeedRecorder(getattr(self.bot, name), name,
+                                         rotator=rotator))
+                self._rec_sink = sink
+                # flat-start sidecar: the reconciliation gate ties replay P&L to
+                # THIS session's live P&L delta; a clean tie-out wants a flat start.
+                # self_contained: every engine input was recorded, so replay ties
+                # out EXACTLY. False when an unrecorded feed (sentiment/webdata/
+                # moomoo) was live — reconciliation then only WARNs, never fails.
                 start_snap = pnl_snapshot(
                     self.bot.state.realized_pnl_total, self.bot._equity(),
                     self.bot.state.open_position_count(), now)
-                # self_contained: every input the engine used was recorded, so
-                # replay can tie out EXACTLY. False when an unrecorded feed
-                # (sentiment/webdata/moomoo) was live — reconciliation then
-                # only WARNs on a mismatch, never hard-fails.
                 start_snap["self_contained"] = not (
                     config.get("sentiment", {}).get("enabled")
                     or config.get("webdata", {}).get("enabled")
                     or config.get("moomoo", {}).get("enabled"))
                 update_sidecar(sink, "start", start_snap)
+                log.warning(f"feed recording ON -> {sink} (replay it with "
+                            f"scripts/replay.py)")
             except Exception:
-                log.exception("recording start-sidecar failed - continuing")
-            log.warning(f"feed recording ON -> {sink} (replay it with "
-                        f"scripts/replay.py)")
+                log.exception("feed recording setup failed - recording disabled "
+                              "for this session; bot continues normally")
         # asset skimmer: watches the candidate pool (<=2 REST calls per loop
         # pass, self-throttled) and persists promotions for the NEXT boot's
         # universe merge in main(). Core = booted pairs minus persisted

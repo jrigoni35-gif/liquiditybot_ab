@@ -13,13 +13,15 @@ import os
 
 from data.recording import (
     SinkRotator,
+    discover_sessions,
     pnl_snapshot,
     prune_recordings,
     read_sidecar,
+    session_part_files,
     session_sink,
     update_sidecar,
 )
-from data.replay import FeedRecorder
+from data.replay import FeedRecorder, load_session
 
 
 def test_session_sink_names_and_creates_dir(tmp_path):
@@ -76,6 +78,55 @@ def test_sidecar_round_trips_start_and_end(tmp_path):
     assert meta["start"]["open_positions"] == 0
     assert meta["end"]["realized_pnl"] == -3.4
     assert meta["end"]["equity"] == 4996.6
+
+
+def _frame_line(feed, method, args, result, t):
+    import json
+    return json.dumps({"feed": feed, "method": method, "args": args,
+                       "kwargs": {}, "result": result, "t": t}) + "\n"
+
+
+def test_rolled_session_is_one_logical_recording(tmp_path):
+    # base + two rotation parts = ONE session, never three recordings
+    base = session_sink(str(tmp_path), 1000)
+    base.write_text(_frame_line("kraken", "m", [], 1, 1.0), encoding="utf-8")
+    (tmp_path / "session_1000.part01.jsonl").write_text(
+        _frame_line("kraken", "m", [], 2, 2.0), encoding="utf-8")
+    (tmp_path / "session_1000.part02.jsonl").write_text(
+        _frame_line("kraken", "m", [], 3, 3.0), encoding="utf-8")
+    assert [s.name for s in discover_sessions(str(tmp_path))] == \
+        ["session_1000.jsonl"]                       # not double-counted
+    assert [p.name for p in session_part_files(base)] == \
+        ["session_1000.jsonl", "session_1000.part01.jsonl",
+         "session_1000.part02.jsonl"]                # stream order
+
+
+def test_load_session_reads_all_parts_in_order(tmp_path):
+    base = session_sink(str(tmp_path), 2000)
+    base.write_text(_frame_line("kraken", "get", ["ETH"], 1, 1.0),
+                    encoding="utf-8")
+    (tmp_path / "session_2000.part01.jsonl").write_text(
+        _frame_line("kraken", "get", ["ETH"], 2, 2.0), encoding="utf-8")
+    players = load_session(str(base))
+    meta = players.pop("_meta")
+    assert meta["frames"] == 2                        # BOTH parts read
+    krk = players["kraken"]
+    assert krk.get("ETH") == 1 and krk.get("ETH") == 2   # FIFO across parts
+
+
+def test_prune_treats_rolled_session_as_one(tmp_path):
+    old = session_sink(str(tmp_path), 1000)
+    old.write_text("{}", encoding="utf-8")
+    new = session_sink(str(tmp_path), 2000)
+    new.write_text("{}", encoding="utf-8")
+    new_part = tmp_path / "session_2000.part01.jsonl"
+    new_part.write_text("{}", encoding="utf-8")
+    for p, t in ((old, 1000), (new, 2000), (new_part, 2001)):
+        os.utime(p, (t, t))
+    deleted = prune_recordings(str(tmp_path), retain_days=0, retain_files=1,
+                               now_ts=3000.0)
+    assert deleted == [old]                           # newest SESSION retained
+    assert new.exists() and new_part.exists()         # rolled session kept whole
 
 
 def test_feed_recorder_writes_through_rotator_and_rolls(tmp_path):

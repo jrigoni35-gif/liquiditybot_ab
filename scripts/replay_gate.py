@@ -38,6 +38,9 @@ def main() -> int:
                     help="newest N recordings to replay (default 3)")
     ap.add_argument("--rel-tol", type=float, default=0.005)
     ap.add_argument("--abs-tol", type=float, default=0.01)
+    ap.add_argument("--determinism-only", action="store_true",
+                    help="skip reconciliation (deploy-gate mode: cross-version "
+                         "P&L reconcile would false-fail intentional changes)")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.WARNING,
@@ -53,7 +56,8 @@ def main() -> int:
     cfg = load_config(args.config)
     res = run_gate(args.recording_dir, replay_fn=lambda p: run_replay(cfg, p),
                    rel_tol=args.rel_tol, abs_tol=args.abs_tol,
-                   max_recordings=args.max)
+                   max_recordings=args.max,
+                   check_reconcile=not args.determinism_only)
 
     if res.status == "SKIP":
         print(f"{Code.XV_GATE_SKIP.value}: {res.reason}")
@@ -66,6 +70,9 @@ def main() -> int:
         if d.get("reconcile_detail"):
             line += f" | {d['reconcile_detail']}"
         print(line)
+        if d["reconcile"] == "WARN":               # registered code on the disposition
+            print(f"{Code.XV_RECONCILE_WARN.value}: {d['recording']} "
+                  f"{d.get('reconcile_detail', '')}")
     if res.status == "PASS":
         print(f"{Code.XV_GATE_PASS.value}: {res.reason}")
         return 0

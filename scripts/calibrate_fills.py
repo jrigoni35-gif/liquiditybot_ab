@@ -140,33 +140,36 @@ def estimate_sigma_bps(frames: list) -> float:
 
 
 def extract_frames(recording_path, venue: str = "kraken") -> dict:
-    """{symbol: [ {ts,bid,ask} ...]} from a recording's get_order_book frames."""
+    """{symbol: [ {ts,bid,ask} ...]} from a session's get_order_book frames,
+    reading ALL rotation parts (base + .partNN) in stream order."""
+    from data.recording import session_part_files
     by_symbol: dict = {}
-    try:
-        with open(recording_path, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if rec.get("feed") != venue or rec.get("method") != \
-                        "get_order_book":
-                    continue
-                res = rec.get("result") or {}
-                bids = res.get("bids") or []
-                asks = res.get("asks") or []
-                if not bids or not asks:
-                    continue
-                sym = (rec.get("args") or ["?"])[0]
-                try:
-                    bid = float(bids[0][0])
-                    ask = float(asks[0][0])
-                except (TypeError, ValueError, IndexError):
-                    continue
-                by_symbol.setdefault(sym, []).append(
-                    {"ts": rec.get("t", 0.0), "bid": bid, "ask": ask})
-    except OSError as e:
-        log.warning("recording read failed %s: %s", recording_path, e)
+    for fpath in (session_part_files(recording_path) or [Path(recording_path)]):
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if rec.get("feed") != venue or rec.get("method") != \
+                            "get_order_book":
+                        continue
+                    res = rec.get("result") or {}
+                    bids = res.get("bids") or []
+                    asks = res.get("asks") or []
+                    if not bids or not asks:
+                        continue
+                    sym = (rec.get("args") or ["?"])[0]
+                    try:
+                        bid = float(bids[0][0])
+                        ask = float(asks[0][0])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    by_symbol.setdefault(sym, []).append(
+                        {"ts": rec.get("t", 0.0), "bid": bid, "ask": ask})
+        except OSError as e:
+            log.warning("recording read failed %s: %s", fpath, e)
     return by_symbol
 
 
@@ -289,8 +292,8 @@ def main() -> int:
     ledger_rows = []
     if ledger_path.exists():
         try:
-            ledger_rows = list(csv.DictReader(
-                open(ledger_path, encoding="utf-8")))
+            with open(ledger_path, encoding="utf-8") as fh:
+                ledger_rows = list(csv.DictReader(fh))
         except OSError as e:
             log.warning("ledger read failed: %s", e)
     ledger = ledger_maker_fill_summary(ledger_rows)

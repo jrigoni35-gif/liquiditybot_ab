@@ -128,3 +128,21 @@ def test_run_gate_fails_on_self_contained_reconciliation_mismatch(tmp_path):
     _make_recording(tmp_path, 1000, end_pnl=-9.0, self_contained=True)
     res = run_gate(str(tmp_path), replay_fn=lambda p: dict(_SUMMARY))
     assert res.status == "FAIL"
+
+
+def test_discover_collapses_rotation_parts_to_one_session(tmp_path):
+    base = session_sink(str(tmp_path), 1000)
+    base.write_text("{}\n", encoding="utf-8")
+    (tmp_path / "session_1000.part01.jsonl").write_text("{}\n", encoding="utf-8")
+    recs = discover_recordings(str(tmp_path))
+    assert [r.name for r in recs] == ["session_1000.jsonl"]  # part not counted
+
+
+def test_run_gate_determinism_only_skips_reconcile(tmp_path):
+    # a self_contained recording whose live delta disagrees with replay would
+    # FAIL under reconcile; determinism-only (deploy mode) must PASS and skip it
+    _make_recording(tmp_path, 1000, end_pnl=-9.0, self_contained=True)
+    res = run_gate(str(tmp_path), replay_fn=lambda p: dict(_SUMMARY),
+                   check_reconcile=False)
+    assert res.status == "PASS"
+    assert all(d["reconcile"] == "SKIP" for d in res.details)

@@ -69,6 +69,55 @@ def session_sink(rec_dir, now_ts: float) -> Path:
     return d / f"session_{int(now_ts)}.jsonl"
 
 
+# --- session grouping: a rolled session is base + .partNN, ONE logical unit ---
+def session_id(path) -> str:
+    """The 'session_<ts>' id a recording file (base or .partNN) belongs to."""
+    stem = Path(path).name.split(".part")[0]
+    if stem.endswith(".jsonl"):
+        stem = stem[: -len(".jsonl")]
+    return stem
+
+
+def session_part_files(path) -> list[Path]:
+    """Every existing file for a session in STREAM order: base first, then
+    .part01, .part02 ... Accepts the base path or any part path."""
+    p = Path(path)
+    sid = session_id(p)
+    d = p.parent
+    ordered: list[Path] = []
+    base = d / f"{sid}.jsonl"
+    if base.exists():
+        ordered.append(base)
+    try:
+        ordered.extend(sorted(d.glob(f"{sid}.part*.jsonl")))
+    except OSError:
+        pass
+    return ordered
+
+
+def discover_sessions(rec_dir) -> list[Path]:
+    """One base path per recorded session (excludes .partNN fragments), newest
+    first by the session's most-recent part mtime. This is the unit every
+    consumer (replay, reconcile, calibrate, prune) must treat as ONE recording;
+    globbing session_*.jsonl directly would double-count rolled parts."""
+    d = Path(rec_dir)
+    if not d.exists():
+        return []
+    try:
+        bases = [f for f in d.glob("session_*.jsonl") if ".part" not in f.name]
+    except OSError:
+        return []
+
+    def _mtime(base: Path) -> float:
+        try:
+            return max((p.stat().st_mtime for p in session_part_files(base)),
+                       default=0.0)
+        except OSError:
+            return 0.0
+    bases.sort(key=_mtime, reverse=True)
+    return bases
+
+
 def sidecar_path(sink) -> Path:
     """The single ``.meta.json`` for a session, shared across its parts."""
     base = Path(sink)
@@ -111,34 +160,35 @@ def pnl_snapshot(realized_pnl: float, equity: float, open_positions: int,
 
 def prune_recordings(rec_dir, retain_days: float, retain_files: int,
                      now_ts: float) -> list[Path]:
-    """Delete recordings beyond retention; return the deleted session files.
+    """Delete whole SESSIONS beyond retention; return the deleted base files.
 
-    A file is dropped if it is older than ``retain_days`` (when > 0) OR falls
-    outside the newest ``retain_files`` sessions (when > 0). Sidecars are
-    removed alongside, and any orphaned sidecar (its session gone) is swept.
+    A session (base + all its .partNN parts + shared sidecar) is dropped if it
+    is older than ``retain_days`` (when > 0) OR falls outside the newest
+    ``retain_files`` sessions (when > 0). Rotation parts count as ONE session,
+    never as separate recordings, so pruning can never orphan a surviving part
+    or delete a shared sidecar out from under one. Orphaned sidecars (whole
+    session already gone) are swept.
     """
     d = Path(rec_dir)
     if not d.exists():
         return []
-    try:
-        files = sorted(d.glob("session_*.jsonl"),
-                       key=lambda p: p.stat().st_mtime)
-    except OSError:
-        return []
-    n = len(files)
+    bases = discover_sessions(rec_dir)          # newest first, parts grouped
     cutoff = now_ts - float(retain_days) * 86400.0
     deleted: list[Path] = []
-    for i, p in enumerate(files):
+    for i, base in enumerate(bases):
+        parts = session_part_files(base)
         try:
-            too_old = retain_days > 0 and p.stat().st_mtime < cutoff
+            mtime = max((p.stat().st_mtime for p in parts), default=0.0)
         except OSError:
-            too_old = False
-        beyond = retain_files > 0 and (n - i) > retain_files
+            mtime = 0.0
+        too_old = retain_days > 0 and mtime < cutoff
+        beyond = retain_files > 0 and i >= retain_files   # newest-first index
         if too_old or beyond:
-            _unlink(p)
-            _unlink(sidecar_path(p))
-            deleted.append(p)
-    # sweep orphaned sidecars (session file already gone)
+            for p in parts:
+                _unlink(p)
+            _unlink(sidecar_path(base))
+            deleted.append(base)
+    # sweep orphaned sidecars (whole session already gone)
     try:
         for meta in d.glob("session_*.meta.json"):
             base = meta.with_name(meta.name[: -len(".meta.json")] + ".jsonl")

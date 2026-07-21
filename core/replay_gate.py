@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from data.recording import read_sidecar
+from data.recording import discover_sessions, read_sidecar
 
 log = logging.getLogger("liquiditybot.core.replay_gate")
 
@@ -59,17 +59,9 @@ class GateResult:
 
 
 def discover_recordings(rec_dir) -> list[Path]:
-    """Session recordings under ``rec_dir``, newest first (by mtime)."""
-    d = Path(rec_dir)
-    if not d.exists():
-        return []
-    try:
-        files = list(d.glob("session_*.jsonl"))
-    except OSError:
-        return []
-    files.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
-               reverse=True)
-    return files
+    """Recorded SESSIONS under ``rec_dir``, newest first — one base path per
+    session, with rotation parts (.partNN) grouped in, never double-counted."""
+    return discover_sessions(rec_dir)
 
 
 def determinism_ok(a: dict, b: dict,
@@ -119,11 +111,18 @@ def reconcile(replay_summary: dict, sidecar: dict | None, *,
 
 def run_gate(rec_dir, replay_fn: Callable[[str], dict], *,
              rel_tol: float = DEFAULT_REL_TOL, abs_tol: float = DEFAULT_ABS_TOL,
-             max_recordings: int = DEFAULT_MAX_RECORDINGS) -> GateResult:
+             max_recordings: int = DEFAULT_MAX_RECORDINGS,
+             check_reconcile: bool = True) -> GateResult:
     """Replay the newest recordings twice each; check determinism + reconcile.
 
     ``replay_fn(path) -> summary`` is injected (scripts/replay_gate.py binds the
     production run_replay). Returns SKIP when no recordings exist.
+
+    ``check_reconcile=False`` runs DETERMINISM-ONLY — the mode the pre-deploy
+    gate uses, because reconciling the INCOMING engine's replay against P&L the
+    OLD engine recorded would false-fail on any intentional fill/P&L change
+    (e.g. the queue_aware flip). Cross-version reconciliation is not a deploy
+    concern; it is an operator/same-version check.
     """
     recs = discover_recordings(rec_dir)[:max_recordings]
     if not recs:
@@ -141,8 +140,10 @@ def run_gate(rec_dir, replay_fn: Callable[[str], dict], *,
             failed = True
             continue
         det_ok, det_msg = determinism_ok(s1, s2)
-        recon = reconcile(s1, read_sidecar(rec), rel_tol=rel_tol,
-                          abs_tol=abs_tol)
+        recon = (reconcile(s1, read_sidecar(rec), rel_tol=rel_tol,
+                           abs_tol=abs_tol) if check_reconcile
+                 else ReconResult("SKIP", None, None, None,
+                                  "determinism-only (reconcile disabled)"))
         det_label = "OK" if det_ok else "FAIL"
         if not det_ok or recon.status == "FAIL":
             failed = True

@@ -122,12 +122,20 @@ def battery_passes(worktree: Path) -> bool:
 
 def _replay_gate_passes(worktree: Path, py: str) -> bool:
     global _BATTERY_DETAIL
+    # Validate the INCOMING engine (the worktree) against the LIVE checkout's
+    # real recordings — the worktree is a bare git checkout and outputs/ is
+    # gitignored, so it has none of its own. DETERMINISM-ONLY: reconciling the
+    # incoming replay against P&L the OLD engine recorded would false-fail any
+    # intentional fill change (e.g. the queue_aware flip). No recordings yet =>
+    # the gate SKIPs (exit 0), so this is dormant until the PC accrues sessions.
+    rec_dir = str((OUT / "recordings").resolve())
     # force UTF-8 in the child + decode as UTF-8 here, so the gate's report text
     # can never UnicodeEncodeError on a cp1252 Windows console and wedge the
     # deploy (a crashed gate reads as a failed battery -> update refused).
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
-        g = subprocess.run([py, "scripts/replay_gate.py"],  # nosec B603
+        g = subprocess.run([py, "scripts/replay_gate.py",  # nosec B603
+                            "--recording-dir", rec_dir, "--determinism-only"],
                            cwd=str(worktree), capture_output=True,
                            encoding="utf-8", errors="replace",
                            timeout=1200, env=env, **_NOWIN)

@@ -124,24 +124,35 @@ class FeedPlayer:
 
 
 def load_session(path: str) -> dict:
-    """Returns {feed_name: FeedPlayer}. Also reports session stats."""
+    """Returns {feed_name: FeedPlayer}. Also reports session stats.
+
+    A rolled session (base + .partNN) is read as ONE ordered stream, so a
+    recording that exceeded the size cap still replays end-to-end.
+    """
+    from data.recording import session_part_files
     frames = defaultdict(deque)
     names = set()
     n = 0
     t0, t1 = None, None
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            names.add(rec["feed"])
-            frames[_key(rec["feed"], rec["method"],
-                        tuple(rec["args"]), rec.get("kwargs") or {})
-                ].append(rec["result"])
-            t0 = rec["t"] if t0 is None else t0
-            t1 = rec["t"]
-            n += 1
+    files = session_part_files(path) or [Path(path)]
+    for fpath in files:
+        try:
+            fh = open(fpath, encoding="utf-8")
+        except OSError:
+            continue
+        with fh as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                names.add(rec["feed"])
+                frames[_key(rec["feed"], rec["method"],
+                            tuple(rec["args"]), rec.get("kwargs") or {})
+                    ].append(rec["result"])
+                t0 = rec["t"] if t0 is None else t0
+                t1 = rec["t"]
+                n += 1
     players = {}
     for name in names:
         sub = {k: q for k, q in frames.items()

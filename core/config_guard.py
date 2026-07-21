@@ -534,9 +534,10 @@ def validate(config: dict) -> list:
     # poll, and only ~order_timeout_sec/poll_cadence polls exist before an
     # unfilled order expires. At the default drain/sigma_ref a wall more than
     # a few multiples of the order size never clears in-window, so a book bot
-    # resting behind real depth generates ZERO passive labels. It is off by
-    # default; when enabling, calibrate drain/sigma_ref against the live poll
-    # cadence and confirm fills are not starved (part of the re-baseline).
+    # resting behind real depth generates ZERO passive labels. It is now ON by
+    # default (execution-truth harness): calibrate drain/sigma_ref against the
+    # live poll cadence via scripts/calibrate_fills.py and confirm fills are not
+    # starved before trusting the labels.
     if bool(_f(config, "order_manager.sim_fill.queue_aware", False)):
         warn("order_manager.sim_fill.queue_aware=true: verify passive fills "
              "are not starved at your live sigma/poll-cadence before trusting "
