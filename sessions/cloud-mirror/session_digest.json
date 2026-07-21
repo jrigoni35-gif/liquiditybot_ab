@@ -1,5 +1,5 @@
 {
-  "generated_at": 1784599845.3887858,
+  "generated_at": 1784601651.3885021,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
@@ -90,7 +90,9 @@
     "retrain_requests": 3,
     "kill_switch_events": 0,
     "chain_ok": false,
-    "chain_first_break": 199
+    "chain_first_break": null,
+    "chain_tamper": false,
+    "chain_seams": 4
   },
   "events": {
     "records": 13529,
@@ -178,17 +180,17 @@
   },
   "diagnostics": [
     {
-      "id": "SD-007",
-      "severity": "error",
-      "title": "audit chain broken",
-      "detail": "hash chain first breaks at record 199  -  the trail was truncated, reordered, or corrupted past that point"
-    },
-    {
       "id": "SD-005",
       "severity": "error",
       "title": "postmortem realized% contradicts its own excursions",
       "detail": "1 of 17 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
+    },
+    {
+      "id": "SD-010",
+      "severity": "info",
+      "title": "audit writer seam(s)",
+      "detail": "4 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
-  "verdict": "SD-007 audit chain broken"
+  "verdict": "SD-005 postmortem realized% contradicts its own excursions"
 }
