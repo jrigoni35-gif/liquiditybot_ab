@@ -180,6 +180,8 @@ class StateStore:
                     "reserve_balance": state.reserve_balance,
                     "weekly_realized_pnl": state.weekly_realized_pnl,
                     "last_week_key": state._last_week_key,
+                    "monthly_realized_pnl": state.monthly_realized_pnl,
+                    "last_month_key": state._last_month_key,
                     "realized_pnl_total": state.realized_pnl_total,
                     "daily_realized_pnl": state.daily_realized_pnl,
                     "fees_paid_total": state.fees_paid_total,
@@ -408,6 +410,10 @@ class StateStore:
                 p.get("weekly_realized_pnl", 0.0))
             if p.get("last_week_key"):
                 state._last_week_key = str(p["last_week_key"])
+            state.monthly_realized_pnl = float(
+                p.get("monthly_realized_pnl", 0.0))
+            if p.get("last_month_key"):
+                state._last_month_key = str(p["last_month_key"])
             state._last_pnl_reset_date = p.get("last_pnl_reset_date", "")
             state._equity_high_water = float(p.get("equity_high_water",
                                                    state.starting_capital))

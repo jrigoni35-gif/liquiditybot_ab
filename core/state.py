@@ -58,16 +58,20 @@ class PortfolioState:
     realized_pnl_total: float = 0.0
     daily_realized_pnl: float = 0.0
     weekly_realized_pnl: float = 0.0
+    monthly_realized_pnl: float = 0.0
     fees_paid_total: float = 0.0
     _positions: dict = field(default_factory=dict)
     _last_pnl_reset_date: str = field(default="", init=False)
     _last_week_key: str = field(default="", init=False)
+    _last_month_key: str = field(default="", init=False)
 
     def __post_init__(self):
         self.cash_balance = self.starting_capital
-        self._last_pnl_reset_date = datetime.now(timezone.utc).date().isoformat()
-        _iso = datetime.now(timezone.utc).isocalendar()
+        _now = datetime.now(timezone.utc)
+        self._last_pnl_reset_date = _now.date().isoformat()
+        _iso = _now.isocalendar()
         self._last_week_key = f"{_iso[0]}-W{_iso[1]:02d}"
+        self._last_month_key = f"{_now.year}-{_now.month:02d}"
         # peak mark-to-market equity, for a TRUE (unrealized-aware, peak-based)
         # drawdown backstop — realized-only drawdown_pct is blind to a book that
         # is deep underwater on marks but not yet closed.
@@ -154,6 +158,7 @@ class PortfolioState:
         self.realized_pnl_total += amount
         self.daily_realized_pnl += amount
         self.weekly_realized_pnl += amount
+        self.monthly_realized_pnl += amount
         self.cash_balance += amount
 
     def reset_daily_pnl(self):
@@ -198,6 +203,34 @@ class PortfolioState:
         }
         self._last_week_key = wk
         self.weekly_realized_pnl = 0.0
+        return summary
+
+    def maybe_close_month(self, now: Optional[float] = None):
+        """Calendar-month twin of maybe_close_week (UTC), restart-safe
+        via the persisted _last_month_key. Returns the CLOSING summary
+        for the month that just ended, or None mid-month. Reporting only
+        - unlike the week, the month runs NO reserve rollover (the
+        drawdown shock-absorber is weekly by design); the month is a
+        goal-grading period. monthly_realized_pnl resets here and only
+        here."""
+        _dt = (datetime.fromtimestamp(now, tz=timezone.utc)
+               if now is not None else datetime.now(timezone.utc))
+        mk = f"{_dt.year}-{_dt.month:02d}"
+        if mk == self._last_month_key:
+            return None
+        if not self._last_month_key:     # fresh state: adopt, no phantom
+            self._last_month_key = mk
+            return None
+        summary = {
+            "month": self._last_month_key,
+            "monthly_realized": round(self.monthly_realized_pnl, 2),
+            "cash": round(self.cash_balance, 2),
+            "savings": round(self.savings_balance, 2),
+            "reserve": round(self.reserve_balance, 2),
+            "realized_total": round(self.realized_pnl_total, 2),
+        }
+        self._last_month_key = mk
+        self.monthly_realized_pnl = 0.0
         return summary
 
     def drawdown_pct(self) -> float:

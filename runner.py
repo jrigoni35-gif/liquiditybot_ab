@@ -29,6 +29,7 @@ from pathlib import Path
 
 from core import code_stats
 from core.audit import get_audit
+from core.goals import goal_progress
 from core.persistence import StateStore
 from core.precision import round_price
 from core.runtime import (ARM_PHRASE, ControlChannel, JsonlLogHandler,
@@ -321,6 +322,19 @@ class BotRunner:
             log.exception("risk-protocol status failed - section omitted")
             return {}
 
+    @staticmethod
+    def _goal_progress(bot) -> dict:
+        """Live period-to-date progress toward the config profit goals,
+        for the status surface / Grafana (measurement only). 0 goal ->
+        untracked (goal_progress handles it)."""
+        cm = bot.config.get("capital_management", {})
+        return {
+            "week": goal_progress("week", bot.state.weekly_realized_pnl,
+                                  cm.get("weekly_profit_goal_usd", 0) or 0),
+            "month": goal_progress("month", bot.state.monthly_realized_pnl,
+                                   cm.get("monthly_profit_goal_usd", 0) or 0),
+        }
+
     def build_status(self, now: float) -> dict:
         bot = self.bot
         marks = bot.marks
@@ -399,6 +413,8 @@ class BotRunner:
             "savings": round(bot.state.savings_balance, 2),
             "reserve": round(bot.state.reserve_balance, 2),
             "weekly_pnl": round(bot.state.weekly_realized_pnl, 2),
+            "monthly_pnl": round(bot.state.monthly_realized_pnl, 2),
+            "goals": self._goal_progress(bot),
             "daily_pnl": round(bot.state.daily_realized_pnl, 2),
             "realized_total": round(bot.state.realized_pnl_total, 2),
             "fees_total": round(bot.state.fees_paid_total, 2),

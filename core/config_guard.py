@@ -308,6 +308,25 @@ def validate(config: dict) -> list:
               f"must be >= 1 - at 0 can_open_new_position vetoes every "
               f"entry and the bot idles silently")
 
+    # profit goals (measurement only): a target must be a non-negative
+    # number; 0 disables grading for that period. Negative is nonsense
+    # (a "goal" of losing money), and a goal above the hard-stop loss
+    # bound is unreachable by construction - flag it rather than grade
+    # every period a guaranteed miss.
+    wkg = float(_f(config, "capital_management.weekly_profit_goal_usd", 0))
+    mog = float(_f(config, "capital_management.monthly_profit_goal_usd", 0))
+    cap_ceiling = start_cap * hard / 100.0    # a period can't out-earn the
+    for _name, _v in (("weekly_profit_goal_usd", wkg),
+                      ("monthly_profit_goal_usd", mog)):
+        if _v < 0.0:
+            fatal(f"capital_management.{_name} ({_v}) is negative - a "
+                  f"profit goal is a target to beat, not a loss budget")
+        if cap_ceiling > 0 and _v > cap_ceiling * 4.0:
+            fatal(f"capital_management.{_name} ({_v}) is unreachable: "
+                  f"above 4x the hard-stop loss bound ({cap_ceiling:.0f}) "
+                  f"every period grades a guaranteed miss - set a real "
+                  f"target or 0 to disable grading")
+
     soft = float(_f(config, "inventory.soft_cap_pct_of_equity", 15))
     hardc = float(_f(config, "inventory.hard_cap_pct_of_equity", 25))
     if soft >= hardc:

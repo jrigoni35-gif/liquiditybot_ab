@@ -98,7 +98,7 @@ def collect(status_path: str) -> list:
         m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))
         return m
     m.append(gauge("liquiditybot_status_stale", 0.0, ts=time.time()))
-    for key in ("equity", "daily_pnl", "weekly_pnl", "savings",
+    for key in ("equity", "daily_pnl", "weekly_pnl", "monthly_pnl", "savings",
                 "reserve", "drawdown_pct", "cycle",
                 "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
                 "fees_total", "realized_total", "equity_drift_pct",
@@ -109,6 +109,18 @@ def collect(status_path: str) -> list:
         v = s.get(key)
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_{key}", v, ts=ts))
+    # profit-goal progress (measurement only): goal + running attainment %
+    # per period, so a Grafana panel can show goal-vs-actual live. Absent
+    # goals block (older status) -> no gauges, panel reads "no data".
+    for per, g in (s.get("goals") or {}).items():
+        if not isinstance(g, dict):
+            continue
+        m.append(gauge("liquiditybot_goal_target", _num(g.get("goal")),
+                       {"period": str(per)}, ts))
+        att = g.get("attainment_pct")
+        if isinstance(att, (int, float)):
+            m.append(gauge("liquiditybot_goal_attainment_pct", att,
+                           {"period": str(per)}, ts))
     m.append(gauge("liquiditybot_positions_open",
                    len(s.get("positions") or []), ts=ts))
     m.append(gauge("liquiditybot_running",

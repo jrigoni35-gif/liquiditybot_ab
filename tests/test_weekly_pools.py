@@ -144,13 +144,15 @@ def test_pools_survive_snapshot_roundtrip():
 
 
 def test_weekly_ledger_appends_with_header(tmp_path):
-    from main import _append_weekly_ledger
+    from main import _append_period_ledger
+    cols = ["week", "weekly_realized", "reserve_refill", "cash",
+            "savings", "reserve", "realized_total"]
     p = tmp_path / "ledger.csv"
     row = {"week": "2026-W29", "weekly_realized": -12.0,
            "reserve_refill": 12.0, "cash": 4988.0, "savings": 20.0,
            "reserve": 8.0, "realized_total": -4.0}
-    _append_weekly_ledger(p, row)
-    _append_weekly_ledger(p, dict(row, week="2026-W30"))
+    _append_period_ledger(p, row, cols)
+    _append_period_ledger(p, dict(row, week="2026-W30"), cols)
     lines = p.read_text(encoding="utf-8").strip().splitlines()
     assert lines[0].startswith("week,weekly_realized,reserve_refill")
     assert len(lines) == 3 and "2026-W30" in lines[2]
@@ -162,7 +164,8 @@ def test_surfaces_carry_the_pools():
     runner = (root / "runner.py").read_text(encoding="utf-8")
     assert '"reserve"' in runner and '"weekly_pnl"' in runner
     pusher = (root / "scripts" / "gc_pusher.py").read_text(encoding="utf-8")
-    assert '"weekly_pnl", "savings"' in pusher and '"reserve"' in pusher
+    assert '"weekly_pnl"' in pusher and '"savings"' in pusher
+    assert '"reserve"' in pusher
     reset = (root / "scripts" /
              "reset_paper_capital.py").read_text(encoding="utf-8")
     assert "reserve_balance" in reset and "weekly_realized_pnl" in reset
@@ -170,4 +173,4 @@ def test_surfaces_carry_the_pools():
     eng = (root / "main.py").read_text(encoding="utf-8")
     assert "maybe_close_week(now)" in eng
     assert "Code.RP_WEEK_CLOSED" in eng
-    assert "_append_weekly_ledger(" in eng
+    assert "_append_period_ledger(" in eng

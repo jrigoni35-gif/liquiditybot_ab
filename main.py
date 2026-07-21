@@ -43,6 +43,7 @@ import numpy as np
 
 from core.audit import get_audit
 from core.codes import Code, tag
+from core.goals import evaluate_goal
 from core.sanitize import safe_float
 from core.precision import fmt_price, price_decimals as _price_decimals
 from core.state import PortfolioState, Position
@@ -135,12 +136,16 @@ def pick_unteachable_unwind(positions: list, pending_ids: set,
     return max(old_enough, key=lambda p: now - p.opened_at.timestamp())
 
 
-def _append_weekly_ledger(path: Path, row: dict) -> None:
-    """Append one week-close row to the pool ledger (header on create,
+# goal columns appended (in fixed order) to every period-close ledger row
+_GOAL_COLS = ["goal", "hit", "category", "attainment_pct", "shortfall_usd",
+              "miss_reason"]
+
+
+def _append_period_ledger(path: Path, row: dict, cols: list) -> None:
+    """Append one period-close row to a pool/goal ledger (header on create,
     UTF-8, atomic-enough: single append write). Fixed column order so the
-    file stays machine-readable as the summary dict grows."""
-    cols = ["week", "weekly_realized", "reserve_refill", "cash", "savings",
-            "reserve", "realized_total"]
+    file stays machine-readable as the summary dict grows - callers pass
+    the column order for their period (weekly vs monthly)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     new_file = not path.exists()
     with open(path, "a", newline="", encoding="utf-8") as f:
@@ -1384,18 +1389,44 @@ class LiquidityBot:
             try:
                 _refill = self.capital.weekly_rollover(self.state, _wk)
                 _wk["reserve_refill"] = round(_refill, 2)
+                _wk.update(self._grade_period_goal(
+                    "week", _wk["weekly_realized"],
+                    "weekly_profit_goal_usd", reserve_refill=_refill))
                 get_audit().log(
                     "engine", Code.RP_WEEK_CLOSED,
                     f"week {_wk['week']} closed: net "
-                    f"{_wk['weekly_realized']:+.2f}, refill {_refill:.2f}",
+                    f"{_wk['weekly_realized']:+.2f}, refill {_refill:.2f}, "
+                    f"goal {_wk['category']}",
                     dict(_wk))
-                _append_weekly_ledger(
+                _append_period_ledger(
                     Path(self.config.get("system", {}).get(
-                        "weekly_ledger_path",
-                        "outputs/weekly_ledger.csv")), _wk)
+                        "weekly_ledger_path", "outputs/weekly_ledger.csv")),
+                    _wk, ["week", "weekly_realized", "reserve_refill", "cash",
+                          "savings", "reserve", "realized_total"] + _GOAL_COLS)
             except Exception:
                 log.exception("weekly close-out failed - trading unaffected, "
                               "ledger row lost for %s", _wk.get("week"))
+        # calendar-month close (RP-071): goal-grading only, NO reserve
+        # rollover (the shock absorber is weekly by design)
+        _mo = self.state.maybe_close_month(now)
+        if _mo is not None:
+            try:
+                _mo.update(self._grade_period_goal(
+                    "month", _mo["monthly_realized"],
+                    "monthly_profit_goal_usd"))
+                get_audit().log(
+                    "engine", Code.RP_MONTH_CLOSED,
+                    f"month {_mo['month']} closed: net "
+                    f"{_mo['monthly_realized']:+.2f}, goal {_mo['category']}",
+                    dict(_mo))
+                _append_period_ledger(
+                    Path(self.config.get("system", {}).get(
+                        "monthly_ledger_path", "outputs/monthly_ledger.csv")),
+                    _mo, ["month", "monthly_realized", "cash", "savings",
+                          "reserve", "realized_total"] + _GOAL_COLS)
+            except Exception:
+                log.exception("monthly close-out failed - trading unaffected, "
+                              "ledger row lost for %s", _mo.get("month"))
         equity = self._equity()
         # A held mark is TRUSTED for equity/liquidation math only when it is
         # both (a) jump-CONFIRMED — not a quarantined >tick_jump_pct fat-finger
@@ -2288,6 +2319,22 @@ class LiquidityBot:
                     f"p={p_win:.2f} edge={decision.est_edge_bps:.0f}bps "
                     f"cost={decision.est_cost_bps:.0f}bps regime={macro_state.label} "
                     f"narrative={verdict.label}")
+
+    def _grade_period_goal(self, period: str, actual: float, goal_key: str,
+                           reserve_refill: float = 0.0) -> dict:
+        """Grade a just-closed period's realized PnL against its config
+        goal and return the goal fields to merge into the close summary.
+        Measurement only: reads config + close-time context flags, changes
+        no trading state. Context is best-effort (unknown -> not a factor),
+        so a stub bot without a monitor still grades cleanly."""
+        goal = float(self.config.get("capital_management", {})
+                     .get(goal_key, 0.0) or 0.0)
+        ctx = {"reserve_refill": reserve_refill,
+               "model_active": getattr(self.monitor, "use_model", None),
+               "entries_enabled": getattr(self, "entries_enabled", None)}
+        verdict = evaluate_goal(period, actual, goal, ctx)
+        # drop period/actual: the close summary already owns those keys
+        return {k: verdict[k] for k in _GOAL_COLS}
 
     def _feature_extras(self, asset: str, v: dict, web, risk,
                         other_asset, now: float) -> dict:
