@@ -172,17 +172,17 @@ class AuditTrail:
     def verify(self) -> dict:
         """Replay the chain; report integrity. Bounded by file size.
 
-        Distinguishes two break kinds — they mean very different things:
-          * TORN TAIL: the FINAL line is incomplete/corrupt (a crash during
-            the last append) and every complete record before it chains
-            cleanly. Benign and expected on an unclean shutdown — the trail is
-            intact through `records`. Reported torn_tail=True.
-          * MID-CHAIN break: a record was edited, removed, or reordered and
-            valid content still follows. This is the tamper signal
-            (torn_tail=False).
-        Either way ok=False (the file has a bad line); a caller that only
-        cares about TAMPER consults torn_tail to forgive a crashed final
-        write. Delegates to verify_chain() — a read-only pass that NEVER
+        Three anomaly classes (see verify_chain for the full rationale):
+          * TORN TAIL (torn_tail=True): incomplete final line from a crash
+            mid-append; chain intact through `records`. Benign.
+          * WRITER SEAM (seams>0, tamper=False): a hash-valid record whose
+            prev forks back to an earlier record — two writers overlapped.
+            Nothing committed was altered. Benign, permanently in the file.
+          * TAMPER (tamper=True): an edited record (own-hash mismatch) or a
+            deleted one (dangling prev). The alarm class.
+        ok=True only for a single clean chain (no anomaly of any kind); a
+        caller that only cares about TAMPER consults the tamper bit, not
+        ok. Delegates to verify_chain() — a read-only pass that NEVER
         mutates the file (construction's _adopt_tail is what heals a torn
         tail; verify itself must not, so external callers can inspect a
         bundle's trail without truncating it)."""
@@ -195,13 +195,33 @@ def verify_chain(path) -> dict:
     """Read-only chain replay of a JSONL audit file. NEVER mutates the file
     (unlike constructing an AuditTrail, whose _adopt_tail heals a torn tail) —
     so session_import and operators can inspect a bundle's trail without
-    truncating it. Distinguishes a crashed torn tail (unparseable final line,
-    nothing valid after) from a mid-chain/tamper break (a complete record that
-    fails the hash/prev check)."""
+    truncating it.
+
+    Three anomaly classes, because they mean very different things:
+      * TORN TAIL (benign): unparseable FINAL line, nothing valid after — a
+        crash mid-append.
+      * WRITER SEAM (benign): a record whose OWN hash is valid but whose
+        prev resolves to an EARLIER verified record (or GENESIS — the
+        designed unreadable-at-startup refork). Two writers forked the
+        chain (dual-runner window, SD-007); nothing committed was altered.
+        The chain is adopted through the seam (later records chained onto
+        it physically) and verification continues.
+      * TAMPER (loud): an edited record (own-hash mismatch) or a deleted
+        one (successor's prev resolves NOWHERE). This is the alarm class.
+
+    Classification is sound against the naive-tamper modes the unkeyed
+    chain can catch: editing a record breaks its own sha256 before any
+    prev logic runs, and deleting one removes its hash from the file so
+    the successor's prev dangles — neither can be laundered as a seam. A
+    deliberate adversary with file-write access could always recompute
+    the whole unkeyed tail; the chain never defended against that, and
+    the seam class does not change it."""
     n, prev = 0, _GENESIS
     first_break = None
     first_break_torn = False          # True iff the breaking line was UNPARSEABLE
     tail_after_break = 0
+    seams = 0
+    seen: dict = {}                   # h -> ordinal of every verified record
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -225,25 +245,41 @@ def verify_chain(path) -> dict:
                 try:
                     h = rec.pop("h", None)
                     body = json.dumps(rec, sort_keys=True, default=str)
-                    if rec.get("prev") != prev or _h(body) != h:
-                        raise ValueError("chain break")
+                    if _h(body) != h:
+                        # the record's own bytes changed: tamper, before any
+                        # prev logic can classify it as a seam
+                        raise ValueError("record hash mismatch")
+                    rp = rec.get("prev")
+                    if rp != prev:
+                        if rp in seen or rp == _GENESIS:
+                            seams += 1        # hash-valid fork: benign seam
+                        else:
+                            # prev resolves nowhere: a committed record was
+                            # removed from under its successor
+                            raise ValueError("dangling prev")
                     prev = h
+                    seen[h] = n + 1
                     n += 1
                 except (ValueError, KeyError, AttributeError, TypeError):
-                    # a COMPLETE record that fails the hash/prev check is TAMPER
-                    # (or genuine corruption of a committed record), NOT a benign
-                    # crash — never mark it torn_tail.
+                    # a COMPLETE record that fails the hash check or whose
+                    # prev dangles is TAMPER (or genuine corruption of a
+                    # committed record), NOT a benign crash or seam.
                     first_break, first_break_torn = n + 1, False
     except OSError:
         return {"ok": False, "records": 0, "error": "unreadable",
-                "first_break": None, "torn_tail": False}
-    return {"ok": first_break is None, "records": n,
+                "first_break": None, "torn_tail": False,
+                "seams": 0, "tamper": True}
+    torn = (first_break is not None and tail_after_break == 0
+            and first_break_torn)
+    return {"ok": first_break is None and seams == 0, "records": n,
             "first_break": first_break,
             # torn_tail ONLY when the breaking line was an UNPARSEABLE final line
             # with nothing valid after it (a crashed append). A complete-but-
             # altered final record is tamper, not a torn tail.
-            "torn_tail": (first_break is not None and tail_after_break == 0
-                          and first_break_torn)}
+            "torn_tail": torn,
+            "seams": seams,
+            # the alarm bit: a break that is neither a torn tail nor a seam
+            "tamper": first_break is not None and not torn}
 
 
 _AUDIT = None

@@ -279,3 +279,122 @@ def test_sha256_tamper_still_hard_refuses(tmp_path):
     hist.write_text(hist.read_text(encoding="utf-8").replace("ETH", "BTC"),
                     encoding="utf-8")
     assert si.run(str(dst), str(_home(tmp_path)), apply=True) == 2
+
+
+# ============================ writer seams ==================================
+# A CONCURRENT-WRITER SEAM: two AuditTrail instances (dual-runner window)
+# both adopted the same tail; the stale one appended a record whose own hash
+# is VALID but whose prev points at an earlier record and whose seq collides.
+# Nothing committed was altered — a fork, not a rewrite. verify_chain must
+# class it 'seam' (benign, like torn_tail), reserving TAMPER for an edited
+# record (own-hash mismatch) or a deleted one (successor's prev resolves
+# nowhere). Root-caused 2026-07-21: live-trail seams @199/210/242/547, all
+# hash-valid ML-070 forks from the pre-one-bot dual-runner overlap; the old
+# two-class verifier shouted "AUDIT CHAIN BROKEN ... QUARANTINED" on every
+# boot, training the operator to ignore the real tamper alarm.
+
+def _fork_seam_trail(p):
+    """Mint a REAL seam the way production did: two writers, one stale."""
+    a1 = AuditTrail(str(p))
+    for i in range(3):
+        a1.log("qa", Code.FW_FAULT_DEGRADED, f"r{i}", {"i": i})
+    a2 = AuditTrail(str(p))                       # adopts tail at rec 3
+    a2.log("qa2", Code.FW_FAULT_DEGRADED, "b-side", {})   # rec 4, clean
+    # a1 is already synced (it wrote first), so its next append uses its own
+    # stale prev/seq — the SD-007 fork signature.
+    a1.log("qa", Code.FW_FAULT_DEGRADED, "a-side stale", {})
+    return p
+
+
+def test_concurrent_writer_seam_is_not_tamper(tmp_path):
+    p = _fork_seam_trail(tmp_path / "a.jsonl")
+    r = verify_chain(str(p))
+    assert r["ok"] is False                # not one clean chain...
+    assert r["tamper"] is False            # ...but nothing was altered
+    assert r["seams"] == 1
+    assert r["torn_tail"] is False
+    assert r["records"] == 5               # every hash-valid record adopted
+    assert r["first_break"] is None
+
+
+def test_chain_relinks_cleanly_after_a_seam(tmp_path):
+    # records appended AFTER the seam chain onto it; the seam count must not
+    # grow and no tamper appears (mirrors the live trail: 849 clean records
+    # after the last seam).
+    p = _fork_seam_trail(tmp_path / "a.jsonl")
+    t = AuditTrail(str(p))                 # adopts the (seam) tail
+    for i in range(4):
+        t.log("qa", Code.FW_FAULT_DEGRADED, f"post {i}", {})
+    r = verify_chain(str(p))
+    assert r["seams"] == 1 and r["tamper"] is False
+    assert r["records"] == 9
+
+
+def test_deleted_record_reads_as_tamper_not_seam(tmp_path):
+    # deleting a committed record leaves the successor's prev resolving
+    # NOWHERE (the deleted hash left the file) — that is tamper, and the
+    # seam class must never launder it.
+    p = tmp_path / "a.jsonl"
+    lines = _seed_trail(p, 5)
+    del lines[2]                                   # remove record 3
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    r = verify_chain(str(p))
+    assert r["tamper"] is True and r["seams"] == 0
+    assert r["first_break"] == 3
+
+
+def test_genesis_refork_is_seam_not_tamper(tmp_path):
+    # the designed-degraded path (unreadable trail at startup -> chain
+    # restarts from genesis, audit.py __init__) writes a hash-valid record
+    # with prev=GENESIS mid-file. Self-announced degradation, not tamper.
+    p = tmp_path / "a.jsonl"
+    _seed_trail(p, 3)
+    other = AuditTrail(str(tmp_path / "fresh.jsonl"))
+    other.log("qa", Code.FW_FAULT_DEGRADED, "genesis refork", {})
+    refork = (tmp_path / "fresh.jsonl").read_text(encoding="utf-8")
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(refork)
+    r = verify_chain(str(p))
+    assert r["seams"] == 1 and r["tamper"] is False
+    assert r["records"] == 4
+
+
+def test_edited_record_still_tamper_with_seam_class_present(tmp_path):
+    # an EDITED record fails its own hash before any prev logic runs — the
+    # seam class cannot forgive it (guards the classification order).
+    p = tmp_path / "a.jsonl"
+    lines = _seed_trail(p, 5)
+    lines[2] = lines[2].replace("record 2", "record X")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    r = verify_chain(str(p))
+    assert r["tamper"] is True and r["seams"] == 0
+
+
+def _seam_bundle(tmp_path):
+    """Bundle whose audit trail carries a real writer seam (built by the
+    production fork mechanism, then exported — manifest sha is honest)."""
+    out = _seed_outputs(tmp_path, ("p1", "p2"))
+    _fork_seam_trail(out / "audit.jsonl")          # extends the seeded trail
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    return dst
+
+
+def test_seam_bundle_imports_without_quarantine(tmp_path):
+    # a seam-only trail files under its NORMAL name (like a torn tail):
+    # the boot-time "AUDIT CHAIN BROKEN ... QUARANTINED" wolf-cry ends, and
+    # the loud path is reserved for real tamper.
+    home = _home(tmp_path)
+    rc = si.run(str(_seam_bundle(tmp_path)), str(home), apply=True)
+    assert rc == 0
+    rec_dir = home / "imported_sessions" / "qa"
+    assert (rec_dir / "audit.jsonl").exists()
+    assert not (rec_dir / "audit.jsonl.QUARANTINED").exists()
+
+
+def test_strict_audit_still_refuses_a_seam(tmp_path):
+    # --strict-audit's contract is "refuse ANY chain anomaly" — a seam is an
+    # anomaly (the file is not one clean chain), so strict refuses it.
+    rc = si.run(str(_seam_bundle(tmp_path)), str(_home(tmp_path)),
+                apply=True, strict_audit=True)
+    assert rc == 2

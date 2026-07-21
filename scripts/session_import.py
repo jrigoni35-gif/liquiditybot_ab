@@ -106,16 +106,22 @@ def verify_bundle(src: Path, strict_audit: bool = False) -> dict:
         chain = verify_chain(str(audit))
         if not chain.get("ok"):
             fb = chain.get("first_break")
-            # --strict-audit refuses ANY break (torn OR mid-chain), matching
-            # its contract; checked FIRST so a torn tail can't slip past it.
+            # --strict-audit refuses ANY anomaly (torn, seam, or tamper),
+            # matching its contract; checked FIRST so nothing slips past it.
             if strict_audit:
-                print(f"INTEGRITY FAIL: audit chain breaks at record {fb} - "
+                where = (f"breaks at record {fb}" if fb is not None
+                         else f"has {chain.get('seams')} writer seam(s)")
+                print(f"INTEGRITY FAIL: audit chain {where} - "
                       f"refusing bundle (--strict-audit)")
                 return {"rc": 2}
+            if chain.get("seams"):
+                print(f"  note: audit trail has {chain.get('seams')} writer "
+                      f"seam(s) (hash-valid concurrent-writer fork, benign - "
+                      f"no committed record altered); chain adopted through")
             if chain.get("torn_tail"):
                 print(f"  note: audit trail has a torn final line (crash mid-"
                       f"append at record {fb}); chain intact before it")
-            else:
+            elif chain.get("tamper"):
                 print(f"AUDIT CHAIN BROKEN at record {fb} - trail will be "
                       f"QUARANTINED; learning data (own sha256 ok) still "
                       f"imports. Re-run with --strict-audit to refuse instead.")
@@ -130,13 +136,15 @@ def run(src: str, outputs: str, apply: bool,
     if v["rc"] != 0:
         return v["rc"]
     manifest, chain = v["manifest"], v["chain"]
-    # a mid-chain break (not a benign torn tail) => the audit trail is filed
-    # under a QUARANTINED name so it is never mistaken for a clean chain. Gated
-    # on audit.jsonl actually being a MANIFEST file (the copy loop only files
+    # TAMPER (edited/deleted record) => the audit trail is filed under a
+    # QUARANTINED name so it is never mistaken for a clean chain. Benign
+    # anomalies (torn tail, writer seam) file normally with a note — they
+    # altered nothing committed, and quarantine-shouting them every boot
+    # trained the operator to ignore the real tamper alarm. Gated on
+    # audit.jsonl actually being a MANIFEST file (the copy loop only files
     # those) so the "QUARANTINED as ..." message can't fire when nothing is
     # filed (an on-disk-but-unlisted audit.jsonl).
-    audit_quarantined = bool(chain and not chain.get("ok")
-                             and not chain.get("torn_tail")
+    audit_quarantined = bool(chain and chain.get("tamper")
                              and "audit.jsonl" in manifest.get("files", {}))
 
     expected = HistoryStore(str(out / "signal_history.csv"))._header
@@ -194,13 +202,19 @@ def run(src: str, outputs: str, apply: bool,
         chain_desc = "not bundled"
     elif chain.get("ok"):
         chain_desc = f"ok, {chain.get('records')} records"
-    elif chain.get("torn_tail"):
-        chain_desc = (f"torn final line at {chain.get('first_break')} "
-                      f"(benign crash mid-append), "
-                      f"{chain.get('records')} records intact")
-    else:
+    elif chain.get("tamper"):
         chain_desc = (f"BROKEN at {chain.get('first_break')} - QUARANTINED "
                       f"({chain.get('records')} records verified before break)")
+    else:
+        # benign anomalies only: seams and/or a torn tail
+        parts = []
+        if chain.get("seams"):
+            parts.append(f"{chain.get('seams')} writer seam(s) (benign fork)")
+        if chain.get("torn_tail"):
+            parts.append(f"torn final line at {chain.get('first_break')} "
+                         f"(benign crash mid-append)")
+        chain_desc = (f"{chain.get('records')} records, "
+                      + ", ".join(parts))
     print(f"  audit chain: {chain_desc}")
     print(f"  training rows: {h.get('rows')} bundled "
           f"{h.get('by_source')} -> {len(new_lines)} new, {dupes} duplicate")

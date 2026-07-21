@@ -29,9 +29,13 @@ recurring condition has a durable name across sessions:
                              portfolio ledger (fabricated-% notional artifact)
   SD-006 config_capital_stale fresh-start capital would be untradeable and/or
                              disagrees with the live account equity
-  SD-007 audit_chain_break   the hash chain is broken (tamper/corruption)
+  SD-007 audit_chain_break   the hash chain is broken (tamper/corruption:
+                             an edited record or a dangling prev)
   SD-008 flat_equity         equity did not move across the whole window
   SD-009 feed_degraded       repeated external data-source errors
+  SD-010 audit_writer_seam   hash-valid concurrent-writer fork(s) in the
+                             chain (dual-runner window) - benign, nothing
+                             committed altered; informational only
 
 SD-000 is emitted when nothing fired. Severities: "info" | "warn" | "error".
 These ids are report diagnostics, not audit dispositions, so they live here as
@@ -61,6 +65,7 @@ SD_CONFIG_CAPITAL_STALE = "SD-006"
 SD_AUDIT_CHAIN_BREAK = "SD-007"
 SD_FLAT_EQUITY = "SD-008"
 SD_FEED_DEGRADED = "SD-009"
+SD_AUDIT_WRITER_SEAM = "SD-010"
 
 _LIQ_RE = re.compile(r"liquidity=(\w+)")
 _ASSET_RE = re.compile(r"^\[(\w+)\]")
@@ -145,6 +150,8 @@ def _audit_section(records: list, outputs: Path) -> dict:
         "kill_switch_events": codes.get("ML-050", 0),
         "chain_ok": chain.get("ok"),
         "chain_first_break": chain.get("first_break"),
+        "chain_tamper": chain.get("tamper"),
+        "chain_seams": chain.get("seams", 0),
     }
 
 
@@ -225,11 +232,22 @@ def _detectors(digest: dict, config: dict) -> list:
     def add(sd, sev, title, detail):
         out.append({"id": sd, "severity": sev, "title": title, "detail": detail})
 
-    # SD-007 chain break (most severe: integrity)
-    if aud.get("chain_ok") is False:
+    # SD-007 chain break (most severe: integrity) - TAMPER only: an edited
+    # record or a dangling prev. Benign anomalies (writer seams) must not
+    # fire the alarm every session or the operator learns to ignore it.
+    if aud.get("chain_tamper"):
         add(SD_AUDIT_CHAIN_BREAK, "error", "audit chain broken",
             f"hash chain first breaks at record {aud.get('chain_first_break')}"
-            "  -  the trail was truncated, reordered, or corrupted past that point")
+            "  -  a record was edited or removed (own-hash mismatch or "
+            "dangling prev) past that point")
+    # SD-010 writer seam(s): hash-valid concurrent-writer fork(s), benign
+    # (dual-runner window; nothing committed altered). Informational so the
+    # condition keeps a durable name without desensitizing SD-007.
+    elif aud.get("chain_seams"):
+        add(SD_AUDIT_WRITER_SEAM, "info", "audit writer seam(s)",
+            f"{aud.get('chain_seams')} hash-valid concurrent-writer fork(s) "
+            "in the chain - benign (no committed record altered); "
+            "prevention: runner instance lock + one-bot mode")
 
     # SD-005 stream inconsistency: a postmortem realized% that its OWN excursion
     # columns contradict. A position that never moved adverse (MAE ~ 0) cannot
@@ -413,7 +431,8 @@ def render_markdown(d: dict) -> str:
         f"- Audit: {aud['records']} records ({aud['signal_records']} "
         f"non-routine) | dominant {aud['dominant_code']} "
         f"({aud['dominant_frac']:.0%} of non-routine) | "
-        f"chain_ok={aud['chain_ok']} | "
+        f"chain_ok={aud['chain_ok']} (tamper={aud.get('chain_tamper')}, "
+        f"seams={aud.get('chain_seams', 0)}) | "
         f"retrain_requests {aud['retrain_requests']}",
         f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of classified cycles "
         f"| feed errors {evt['feed_error_events']}",

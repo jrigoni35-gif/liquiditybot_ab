@@ -104,7 +104,13 @@ def run_checkin(label: str, outputs: str, config_path: str) -> dict:
     elif worst.get("severity") == "warn":
         warnings.append(f"session_digest verdict: {digest.get('verdict')}")
 
-    if audit.get("chain_ok") is False:
+    # TAMPER only (edited record / dangling prev). Benign writer seams are
+    # permanently baked into the chain - flagging them critical every
+    # check-in would desensitize the real alarm (fallback to the old
+    # chain_ok signal for digests written before chain_tamper existed).
+    if audit.get("chain_tamper",
+                 audit.get("chain_ok") is False
+                 and not audit.get("chain_seams")):
         critical.append(f"audit hash chain broken at "
                         f"{audit.get('chain_first_break')}")
 
