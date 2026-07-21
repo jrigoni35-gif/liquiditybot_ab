@@ -318,8 +318,8 @@
     "taker_fee_bps": 40,
     "deadman_timeout_sec": 60,
     "sim_fill": {
-      "_doc": "DRY-RUN passive-fill realism (MP-7). queue_aware gates a resting limit's fill on the depth resting AHEAD of it at its price clearing first (Huang-Lehalle-Rosenbaum queue-reactive / Moallemi-Yuan queue value: state-independent Poisson fills over-credit passive execution and bias candidate labels). Eligible once that depth ratchets down (max of observed shrink and a vol-scaled geometric turnover) to within queue_tol_frac of our own order size; the passive_base_prob*exp(-dist/sigma) draw then applies to the front-of-queue remainder. OFF by default: it changes the DRY-RUN label distribution the model learns from, so enable it consciously and re-baseline the quant gates. Constants lifted from the fill path (overfit discipline). Live path unaffected: the venue owns real queueing.",
-      "queue_aware": false,
+      "_doc": "DRY-RUN passive-fill realism (MP-7). queue_aware gates a resting limit's fill on the depth resting AHEAD of it at its price clearing first (Huang-Lehalle-Rosenbaum queue-reactive / Moallemi-Yuan queue value: state-independent Poisson fills over-credit passive execution and bias candidate labels). Eligible once that depth ratchets down (max of observed shrink and a vol-scaled geometric turnover) to within queue_tol_frac of our own order size; the passive_base_prob*exp(-dist/sigma) draw then applies to the front-of-queue remainder. CONSCIOUSLY ENABLED (2026-07-21, execution-truth harness): the old flat-Poisson model over-credited passive fills ~95% at the touch with no queue/trade-through/adverse-selection, inflating the dry-run track record; queue-gating makes the paper fill honest. It changes the DRY-RUN label distribution, so it was enabled with a conscious re-baseline: pytest (1353) + smoke (219) + assurance (47) re-verified green (two controlled smoke fixtures — persistence + lifecycle plumbing — pinned to the deterministic fill model since their subject is persistence/pipeline, not fill realism; realism is tested in tests/test_sim_fill_queue). quant_trials is unaffected (it does not use the sim fill). The overfit live-data gap/pbo/dof fails are pre-existing and independent of the fill model (they read the fixed history CSV, not fills) — a data-thinness signal, not a regression. CAVEAT: honest fills are rarer, so verify passive fills are not starved at your live sigma/poll-cadence (scripts/calibrate_fills.py) before trusting the labels. Constants lifted from the fill path (overfit discipline). Live path unaffected: the venue owns real queueing.",
+      "queue_aware": true,
       "queue_tol_frac": 1.0,
       "queue_drain_frac": 0.20,
       "sigma_ref_bps": 30.0,
@@ -618,7 +618,13 @@
     "cycle_fail_halt": 10,
     "_cycle_fail_halt_doc": "consecutive whole-cycle (cycle_once) failures the runner tolerates before it latches a NEW-RISK halt and fires one loud alert. Exits still run every cycle (invariant #5); the runner never auto-flattens on a wedge (a transient feed outage must not dump the book) nor self-terminates (a deterministic fault would relaunch-storm). At ~5s polling, 10 = ~50s of a wedged loop before halting new entries. Cleared by an operator resume, not by a lucky cycle.",
     "record_feeds": false,
-    "recording_dir": "outputs/recordings"
+    "recording_dir": "outputs/recordings",
+    "recording": {
+      "_doc": "Retention + rotation for recorded feed sessions (data/recording.py). Operational/disk knobs only, not a decision path: max_file_mb rolls one boot's session file to .partNN past the cap; retain_days/retain_files bound how much history is kept (0 disables that arm). Each session also gets a session_*.meta.json flat-start sidecar (start/end realized P&L + equity + open positions) that the replay-vs-live reconciliation gate ties out.",
+      "max_file_mb": 128,
+      "retain_days": 45,
+      "retain_files": 60
+    }
   },
   "websockets": {
     "description": "Push-based Binance.US depth stream (data/ws_feed.py), read-only cross-venue depth for BTC/ETH. OFF by default: Binance.US's ws is geo/proxy-blocked from the Anthropic cloud container (Connection reset by peer, endless reconnects, shows 'disconnected'), and the Kraken v2 ws below already delivers the real-time execution-venue books. Enable this ONLY when running on the always-on PC, where Binance.US ws connects and adds sub-second cross-venue depth; REST is the always-on fallback regardless.",

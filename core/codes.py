@@ -18,6 +18,7 @@ Prefix map (subsystem of origin):
   TP  risk.profit_tiers (exit-system dispositions)
   TH  strategies.thales (lazy-bot insecurity detectors / advice)
   RC  scripts.remote_control (git command-bus dispositions)
+  XV  execution-truth harness (replay gate + fill-model calibration)
 """
 
 from enum import Enum
@@ -175,6 +176,16 @@ class Code(str, Enum):
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
     RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue
     RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)
+
+    # ---- execution-truth harness (XV) — replay gate + fill calibration ---
+    XV_GATE_PASS = "XV-000"  # nosec B105 - reason code, not a secret (name has "PASS")
+    XV_GATE_SKIP = "XV-001"          # no recordings present — gate dormant (not a fail)
+    XV_DETERMINISM_FAIL = "XV-010"   # two replays of one recording disagree (engine regression)
+    XV_RECONCILE_MISMATCH = "XV-011"  # self-contained recording: replay P&L != live delta
+    XV_RECONCILE_WARN = "XV-012"     # replay P&L != live delta but recording not self-contained
+    XV_CALIB_DEFERRED = "XV-020"     # fill calibration underpowered/not-near-touch: no recommendation
+    XV_CALIB_RECOMMEND = "XV-021"    # fill calibration recommends a passive_base_prob change
+    XV_CALIB_MISSPECIFIED = "XV-022"  # per-distance buckets disagree: forward model misspecified
 
 
 def tag(code: Code, detail: str) -> str:

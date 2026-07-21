@@ -505,6 +505,11 @@ def test_entry_fill_exit_path():
     cfg["ml"]["history_path"] = str(TMP / "smoke_history2.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1   # let the forced signal through
     cfg["pretrade"]["price_exit_leg"] = False  # subject: order pipeline, not cost policy
+    # subject is the order pipeline (sizer->quote->pretrade->fill->tier exit),
+    # not fill realism: use the deterministic passive fill model so the forced
+    # entry reliably fills. queue-aware gating (the live default) starves a tiny
+    # order behind realistic mock depth; that realism lives in test_sim_fill_queue.
+    cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})["queue_aware"] = False
     # this scenario tests tier PLUMBING (reduce + book PnL) against the
     # legacy fixed-% path; rev-3 vol-scaled calculus is covered by
     # tests/test_rev3.py
@@ -734,6 +739,11 @@ def test_persistence_roundtrip():
     # round-trip cost stack (price_exit_leg) can EV-veto the synthetic
     # entry and the roundtrip has no position to snapshot
     cfg["pretrade"]["price_exit_leg"] = False
+    # subject is persistence, not fill realism: use the deterministic passive
+    # fill model so the synthetic entry reliably fills. queue-aware gating (now
+    # the live default) starves a tiny order behind realistic mock depth — that
+    # realism is exercised in tests/test_sim_fill_queue, not here.
+    cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})["queue_aware"] = False
     Path(str(TMP / "smoke_history3.csv")).unlink(missing_ok=True)
     Path(str(TMP / "smoke_state.json")).unlink(missing_ok=True)
 

@@ -46,13 +46,24 @@ def _key(feed: str, method: str, args: tuple, kwargs: dict) -> str:
 
 
 class FeedRecorder:
-    """Wraps a feed; records every public call's result."""
+    """Wraps a feed; records every public call's result.
 
-    def __init__(self, feed, name: str, sink_path: str):
+    Pass a fixed ``sink_path`` for a single-file recording (smoke/overfit QA),
+    or a shared ``rotator`` (data.recording.SinkRotator) for a production boot
+    that rolls the session file at a size cap — all recorders sharing one
+    rotator write to the same active part.
+    """
+
+    def __init__(self, feed, name: str, sink_path: str | None = None,
+                 rotator=None):
+        if sink_path is None and rotator is None:
+            raise ValueError("FeedRecorder needs a sink_path or a rotator")
         self._feed = feed
         self._name = name
-        self._sink = Path(sink_path)
-        self._sink.parent.mkdir(parents=True, exist_ok=True)
+        self._rotator = rotator
+        self._sink = Path(sink_path) if sink_path is not None else None
+        if self._sink is not None:
+            self._sink.parent.mkdir(parents=True, exist_ok=True)
 
     def __getattr__(self, attr):
         target = getattr(self._feed, attr)
@@ -62,7 +73,10 @@ class FeedRecorder:
         def wrapper(*args, **kwargs):
             result = target(*args, **kwargs)
             try:
-                with open(self._sink, "a", encoding="utf-8") as f:
+                sink = self._rotator.current() if self._rotator is not None \
+                    else self._sink
+                assert sink is not None  # __init__ guarantees a sink or rotator
+                with open(sink, "a", encoding="utf-8") as f:
                     f.write(json.dumps({
                         "t": round(time.time(), 3), "feed": self._name,
                         "method": attr, "args": list(args),

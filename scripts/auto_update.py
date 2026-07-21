@@ -113,7 +113,29 @@ def battery_passes(worktree: Path) -> bool:
         failed = [ln for ln in lines if ln.startswith("FAILED")][:3]
         global _BATTERY_DETAIL
         _BATTERY_DETAIL = " | ".join(failed) or tail[0]
-    return p.returncode == 0
+        return False
+    # replay-vs-live standing gate: the INCOMING engine must still reproduce
+    # recorded sessions (determinism + reconciliation). Dormant (exit 0) when
+    # no recordings exist, so a box without them is never blocked.
+    return _replay_gate_passes(worktree, py)
+
+
+def _replay_gate_passes(worktree: Path, py: str) -> bool:
+    global _BATTERY_DETAIL
+    try:
+        g = subprocess.run([py, "scripts/replay_gate.py"],  # nosec B603
+                           cwd=str(worktree), capture_output=True, text=True,
+                           timeout=1200, **_NOWIN)
+    except Exception as e:                       # noqa: BLE001
+        log(f"replay gate could not run ({e}) - refusing the update")
+        _BATTERY_DETAIL = f"replay gate error: {e}"
+        return False
+    gtail = ((g.stdout or "").strip().splitlines()[-1:] or ["(no output)"])[0]
+    log(f"replay gate rc={g.returncode}: {gtail}")
+    if g.returncode != 0:
+        _BATTERY_DETAIL = f"replay gate: {gtail}"
+        return False
+    return True
 
 
 # Deploy-restart escalation: a graceful 'stop' asks the runner to exit so the

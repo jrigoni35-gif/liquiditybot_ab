@@ -78,14 +78,55 @@ class BotRunner:
         self.config = config
         self._lock = lock
         self.bot = bot or LiquidityBot(config, resume=resume)
+        self._rec_sink = None
         if config.get("system", {}).get("record_feeds"):
             from data.replay import FeedRecorder
-            rec_dir = config["system"].get("recording_dir",
-                                            "outputs/recordings")
-            sink = f"{rec_dir}/session_{int(time.time())}.jsonl"
+            from data.recording import (DEFAULT_MAX_FILE_MB,
+                                        DEFAULT_RETAIN_DAYS,
+                                        DEFAULT_RETAIN_FILES, SinkRotator,
+                                        pnl_snapshot, prune_recordings,
+                                        session_sink, update_sidecar)
+            sys_cfg = config["system"]
+            rec_dir = sys_cfg.get("recording_dir", "outputs/recordings")
+            rc = sys_cfg.get("recording", {}) or {}
+            now = time.time()
+            # retention: keep months of session files bounded (age + count) so
+            # a long-running recorder never fills the disk
+            try:
+                dropped = prune_recordings(
+                    rec_dir, rc.get("retain_days", DEFAULT_RETAIN_DAYS),
+                    rc.get("retain_files", DEFAULT_RETAIN_FILES), now)
+                if dropped:
+                    log.info("recording retention pruned %d old session(s)",
+                             len(dropped))
+            except Exception:
+                log.exception("recording prune failed - continuing")
+            sink = session_sink(rec_dir, now)
+            self._rec_sink = sink
+            max_bytes = int(rc.get("max_file_mb", DEFAULT_MAX_FILE_MB)) \
+                * (1 << 20)
+            rotator = SinkRotator(sink, max_bytes)   # shared: recorders roll together
             for name in ("okx", "binanceus", "kraken"):
                 setattr(self.bot, name,
-                        FeedRecorder(getattr(self.bot, name), name, sink))
+                        FeedRecorder(getattr(self.bot, name), name,
+                                     rotator=rotator))
+            # flat-start sidecar: the reconciliation gate ties replay P&L to
+            # THIS session's live P&L delta; a clean tie-out wants a flat start
+            try:
+                start_snap = pnl_snapshot(
+                    self.bot.state.realized_pnl_total, self.bot._equity(),
+                    self.bot.state.open_position_count(), now)
+                # self_contained: every input the engine used was recorded, so
+                # replay can tie out EXACTLY. False when an unrecorded feed
+                # (sentiment/webdata/moomoo) was live — reconciliation then
+                # only WARNs on a mismatch, never hard-fails.
+                start_snap["self_contained"] = not (
+                    config.get("sentiment", {}).get("enabled")
+                    or config.get("webdata", {}).get("enabled")
+                    or config.get("moomoo", {}).get("enabled"))
+                update_sidecar(sink, "start", start_snap)
+            except Exception:
+                log.exception("recording start-sidecar failed - continuing")
             log.warning(f"feed recording ON -> {sink} (replay it with "
                         f"scripts/replay.py)")
         # asset skimmer: watches the candidate pool (<=2 REST calls per loop
@@ -743,6 +784,18 @@ class BotRunner:
             kws = getattr(bot, "kraken_ws", None)
             if kws is not None:
                 kws.stop()              # join the Kraken stream thread
+            # finalize the recording sidecar with this session's END P&L, so
+            # the replay-vs-live reconciliation gate has both endpoints. A
+            # forfeited duplicate leaves the shared dir to the live peer.
+            _rec = getattr(self, "_rec_sink", None)
+            if _rec is not None and not self._forfeited:
+                try:
+                    from data.recording import pnl_snapshot, update_sidecar
+                    update_sidecar(_rec, "end", pnl_snapshot(
+                        bot.state.realized_pnl_total, bot._equity(),
+                        bot.state.open_position_count(), time.time()))
+                except Exception:
+                    log.exception("recording end-sidecar failed")
             if self._forfeited:
                 # a LIVE PEER owns this outputs/ dir: the book, the venue
                 # orders, the snapshot and status.json are ITS to manage.
