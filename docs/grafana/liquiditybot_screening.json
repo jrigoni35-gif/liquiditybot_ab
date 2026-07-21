@@ -75,15 +75,31 @@
   },
   "panels": [
     {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "transparent": true,
+      "options": {
+        "mode": "markdown",
+        "content": "**Asset screening** — which candidate pairs clear the book, regime and signal bar and earn a tradeable slot.  ·  Auto-refresh 30s  ·  Window now-24h"
+      }
+    },
+    {
       "id": 1,
       "type": "row",
-      "title": "🔎 Skimmer — candidate universe",
+      "title": "🔎 Candidate universe & skimmer ranks",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 3
       },
       "panels": []
     },
@@ -91,7 +107,7 @@
       "id": 2,
       "type": "stat",
       "title": "Candidates scanned",
-      "description": "Off-universe pairs ranked.",
+      "description": "Off-universe pairs ranked by the skimmer this cycle.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -100,7 +116,7 @@
         "h": 5,
         "w": 5,
         "x": 0,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -110,7 +126,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "text",
                 "value": null
               }
             ]
@@ -125,7 +141,7 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -153,7 +169,7 @@
       "id": 3,
       "type": "stat",
       "title": "Promoted",
-      "description": "Pairs promoted into the tradeable set.",
+      "description": "Pairs promoted into the tradeable set; a fuller pipeline is healthier.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -162,7 +178,7 @@
         "h": 5,
         "w": 5,
         "x": 5,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -172,8 +188,20 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "#8E8E8E",
                 "value": null
+              },
+              {
+                "color": "#F2495C",
+                "value": 0
+              },
+              {
+                "color": "#FF9830",
+                "value": 1
+              },
+              {
+                "color": "#73BF69",
+                "value": 3
               }
             ]
           },
@@ -187,7 +215,7 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -215,7 +243,7 @@
       "id": 4,
       "type": "stat",
       "title": "Open slots",
-      "description": "Slots in use (max 5).",
+      "description": "Position slots in use, out of a maximum of 5.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -224,7 +252,7 @@
         "h": 5,
         "w": 4,
         "x": 10,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -234,7 +262,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "text",
                 "value": null
               }
             ]
@@ -249,7 +277,7 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -277,7 +305,7 @@
       "id": 5,
       "type": "gauge",
       "title": "Exposure headroom",
-      "description": "Room left under the heat cap for a new name.",
+      "description": "Gross exposure against the heat cap — low (green) leaves room to add a new name.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -286,7 +314,7 @@
         "h": 5,
         "w": 5,
         "x": 14,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -298,15 +326,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 24.5
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 31.5
               }
             ]
@@ -342,7 +370,7 @@
       "id": 6,
       "type": "stat",
       "title": "Model in use",
-      "description": "Is the model sizing yet.",
+      "description": "Whether the ML model is sizing yet, or still on the prior.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -351,7 +379,7 @@
         "h": 5,
         "w": 5,
         "x": 19,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -375,12 +403,12 @@
               "options": {
                 "1": {
                   "text": "YES",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 0
                 },
                 "0": {
                   "text": "prior",
-                  "color": "yellow",
+                  "color": "#FF9830",
                   "index": 1
                 }
               }
@@ -393,7 +421,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -420,8 +448,8 @@
     {
       "id": 7,
       "type": "bargauge",
-      "title": "Skimmer score (higher = better book)",
-      "description": "Composite liquidity/spread/depth score per candidate pair.",
+      "title": "Skimmer score",
+      "description": "Composite book-quality score (liquidity, spread, depth) per candidate pair — higher means a better book to make markets in.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -430,12 +458,12 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 9
       },
       "fieldConfig": {
         "defaults": {
           "unit": "",
-          "decimals": 3,
+          "decimals": 2,
           "color": {
             "mode": "thresholds"
           },
@@ -443,15 +471,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 0.4
               },
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": 0.7
               }
             ]
@@ -499,13 +527,13 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 9
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true,
+            "filterable": false,
             "cellOptions": {
               "type": "auto"
             },
@@ -513,6 +541,22 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pair"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              },
+              {
+                "id": "custom.width",
+                "value": 240
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -528,29 +572,12 @@
                 "value": 0
               },
               {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "text",
-                      "value": null
-                    }
-                  ]
-                }
+                "id": "custom.align",
+                "value": "right"
               },
               {
-                "id": "color",
-                "value": {
-                  "mode": "thresholds"
-                }
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
-                }
+                "id": "custom.width",
+                "value": 140
               }
             ]
           }
@@ -616,15 +643,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 17
       },
       "panels": []
     },
     {
       "id": 10,
       "type": "table",
-      "title": "Screen — book & regime vs signal & result",
-      "description": "Screen an asset in one row: tight spread + low spoof/manip + high concentration + positive net = a tradeable edge; the color coding makes a good book jump out.",
+      "title": "Per-asset scorecard: book, regime, signal, result",
+      "description": "One row per asset: tight spread, low spoof/manipulation, strong signal concentration and positive net $ mark a tradeable edge. Cell colors flag good (green) versus bad (red).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -633,13 +660,13 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 18
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true,
+            "filterable": false,
             "cellOptions": {
               "type": "auto"
             },
@@ -647,6 +674,22 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "asset"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -667,15 +710,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 3
                     },
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": 8
                     }
                   ]
@@ -693,6 +736,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
               }
             ]
           },
@@ -709,6 +760,14 @@
               {
                 "id": "decimals",
                 "value": 1
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 120
               }
             ]
           },
@@ -732,15 +791,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 0.4
                     },
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": 0.7
                     }
                   ]
@@ -758,6 +817,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 120
               }
             ]
           },
@@ -781,15 +848,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 0.4
                     },
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": 0.7
                     }
                   ]
@@ -807,6 +874,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 120
               }
             ]
           },
@@ -830,15 +905,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": 0.7
                     }
                   ]
@@ -856,6 +931,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
               }
             ]
           },
@@ -879,15 +962,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": 0.7
                     }
                   ]
@@ -905,6 +988,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
               }
             ]
           },
@@ -921,6 +1012,14 @@
               {
                 "id": "decimals",
                 "value": 2
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },
@@ -944,15 +1043,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 0.45
                     },
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": 0.55
                     }
                   ]
@@ -970,6 +1069,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
               }
             ]
           },
@@ -993,11 +1100,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": 0
                     }
                   ]
@@ -1015,6 +1122,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 140
               }
             ]
           },
@@ -1031,6 +1146,14 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
               }
             ]
           }
@@ -1207,21 +1330,21 @@
     {
       "id": 11,
       "type": "row",
-      "title": "🌡️ Regime context & adverse selection",
+      "title": "🌡️ Regime & adverse selection",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 27
       },
       "panels": []
     },
     {
       "id": 12,
       "type": "bargauge",
-      "title": "Spread by asset (bps, lower = tighter book)",
-      "description": "Cost of crossing; the screen's first filter.",
+      "title": "Spread by asset",
+      "description": "Top-of-book spread per asset in basis points — the screen's first filter; tighter (green) is cheaper to cross.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1230,11 +1353,11 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "suffix: bps",
           "decimals": 1,
           "color": {
             "mode": "thresholds"
@@ -1243,15 +1366,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 8
               }
             ]
@@ -1289,8 +1412,8 @@
     {
       "id": 13,
       "type": "bargauge",
-      "title": "Volatility by asset (%)",
-      "description": "Realized vol regime per asset.",
+      "title": "Volatility by asset",
+      "description": "Realized volatility regime per asset — regime context, not a pass/fail filter.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1299,7 +1422,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1312,7 +1435,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#5794F2",
                 "value": null
               }
             ]
@@ -1351,7 +1474,7 @@
       "id": 14,
       "type": "table",
       "title": "Adverse selection (mark-out)",
-      "description": "Post-fill drift; persistently negative = the book picks us off — screen it down.",
+      "description": "Mark-out is price drift in the seconds after our fill. Persistently negative means the book is picking us off (adverse selection) — screen those assets down.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1360,13 +1483,13 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": true,
+            "filterable": false,
             "cellOptions": {
               "type": "auto"
             },
@@ -1374,6 +1497,46 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "asset"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "horizon_sec"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -1394,11 +1557,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": 0
                     }
                   ]
@@ -1416,6 +1579,14 @@
                   "type": "color-background",
                   "mode": "gradient"
                 }
+              },
+              {
+                "id": "custom.align",
+                "value": "right"
+              },
+              {
+                "id": "custom.width",
+                "value": 150
               }
             ]
           }

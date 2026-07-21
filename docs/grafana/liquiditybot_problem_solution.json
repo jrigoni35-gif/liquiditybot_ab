@@ -75,6 +75,21 @@
   },
   "panels": [
     {
+      "id": 40,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### Incidents & diagnostics\nEach tile is a fault detector paired with the mechanism that handles it. **A calm board is all green** — any amber or red tile is a live problem, so start there. Window: last 24h · refresh 30s."
+      }
+    },
+    {
       "id": 1,
       "type": "row",
       "title": "📡 Feed & data integrity",
@@ -83,7 +98,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 3
       },
       "panels": []
     },
@@ -91,16 +106,16 @@
       "id": 2,
       "type": "stat",
       "title": "Stale status",
-      "description": "PROBLEM: runner frozen. SOLUTION: wedge-guard escalates; supervisor revives a dead runner.",
+      "description": "Seconds since the runner last wrote status. Problem: a frozen runner. Solution: the wedge-guard escalates and the supervisor revives a dead runner.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 0,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -110,15 +125,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 120
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 300
               }
             ]
@@ -133,7 +148,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -161,16 +176,16 @@
       "id": 3,
       "type": "stat",
       "title": "Kraken WS",
-      "description": "SOLUTION: on drop the engine falls back to REST — trading continues.",
+      "description": "Kraken websocket link. On a drop the engine falls back to REST so trading continues.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 4,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -194,12 +209,12 @@
               "options": {
                 "1": {
                   "text": "LIVE",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 0
                 },
                 "0": {
                   "text": "REST",
-                  "color": "yellow",
+                  "color": "#FF9830",
                   "index": 1
                 }
               }
@@ -240,16 +255,16 @@
       "id": 4,
       "type": "stat",
       "title": "Stale marks",
-      "description": "PROBLEM: old prices. SOLUTION: mark-freshness gate holds non-escape risk; stops still run.",
+      "description": "Age of the freshest mark price. Problem: stale quotes. Solution: the mark-freshness gate holds new risk while stops still run.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 8,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
@@ -259,15 +274,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 30
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 90
               }
             ]
@@ -282,7 +297,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -310,31 +325,35 @@
       "id": 5,
       "type": "stat",
       "title": "Stale assets held",
-      "description": "Watchdog quarantined assets — entries blocked until feed heals.",
+      "description": "Assets the feed watchdog has quarantined; entries stay blocked until the feed heals.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 12,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#FF9830",
                 "value": 1
+              },
+              {
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -348,7 +367,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -376,31 +395,35 @@
       "id": 6,
       "type": "stat",
       "title": "Entries blocked",
-      "description": "Feed watchdog blocking new entries (a solution firing).",
+      "description": "Assets with new entries blocked by the feed watchdog — a solution actively firing.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 16,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#FF9830",
                 "value": 1
+              },
+              {
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -414,7 +437,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -442,31 +465,35 @@
       "id": 7,
       "type": "stat",
       "title": "Divergent feeds",
-      "description": "Cross-venue book divergence count.",
+      "description": "Assets whose cross-venue books disagree beyond tolerance.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 20,
-        "y": 1
+        "y": 4
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#FF9830",
                 "value": 1
+              },
+              {
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -480,7 +507,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -507,21 +534,21 @@
     {
       "id": 8,
       "type": "row",
-      "title": "🧠 Model health",
+      "title": "🧠 Model health & governance",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 9
       },
       "panels": []
     },
     {
       "id": 9,
       "type": "stat",
-      "title": "PROBLEM: model Brier",
-      "description": "Detector. SOLUTION: the governor kills the model + queues a retrain when Brier crosses baseline.",
+      "title": "Problem · model Brier",
+      "description": "Live model Brier score (lower is better). Solution: the governor kills the model and queues a retrain when Brier crosses baseline.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -530,7 +557,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -540,15 +567,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 0.24
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 0.25
               }
             ]
@@ -563,7 +590,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -590,8 +617,8 @@
     {
       "id": 10,
       "type": "stat",
-      "title": "vs baseline",
-      "description": "The bar Brier must stay under.",
+      "title": "Baseline Brier",
+      "description": "The baseline Brier the live model must stay under.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -600,7 +627,7 @@
         "h": 6,
         "w": 4,
         "x": 4,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -625,7 +652,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -652,8 +679,8 @@
     {
       "id": 11,
       "type": "stat",
-      "title": "SOLUTION: governor",
-      "description": "0 OK / 1 shrink+throttle / 2 model killed to the prior.",
+      "title": "Solution · model governor",
+      "description": "Model governor state: OK, degraded (shrink + throttle), or killed back to the prior.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -662,7 +689,7 @@
         "h": 6,
         "w": 4,
         "x": 8,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -686,17 +713,17 @@
               "options": {
                 "0": {
                   "text": "OK",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 0
                 },
                 "1": {
                   "text": "DEGRADED",
-                  "color": "yellow",
+                  "color": "#FF9830",
                   "index": 1
                 },
                 "2": {
                   "text": "KILLED",
-                  "color": "red",
+                  "color": "#F2495C",
                   "index": 2
                 }
               }
@@ -736,8 +763,8 @@
     {
       "id": 12,
       "type": "stat",
-      "title": "SOLUTION: retrain",
-      "description": "Auto-retrain queued to replace a degrading champion.",
+      "title": "Solution · auto-retrain",
+      "description": "Auto-retrain queued to replace a degrading champion model.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -746,7 +773,7 @@
         "h": 6,
         "w": 4,
         "x": 12,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -770,12 +797,12 @@
               "options": {
                 "1": {
                   "text": "QUEUED",
-                  "color": "yellow",
+                  "color": "#FF9830",
                   "index": 0
                 },
                 "0": {
                   "text": "idle",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 1
                 }
               }
@@ -816,7 +843,7 @@
       "id": 13,
       "type": "gauge",
       "title": "Drift share",
-      "description": "PROBLEM: input drift. SOLUTION: retrain re-fits.",
+      "description": "Share of features whose live distribution has drifted from training. Solution: a retrain re-fits the model.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -825,7 +852,7 @@
         "h": 6,
         "w": 4,
         "x": 16,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -837,15 +864,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 30
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 50
               }
             ]
@@ -881,7 +908,7 @@
       "id": 14,
       "type": "stat",
       "title": "Kelly throttle",
-      "description": "Size shrinks as confidence falls.",
+      "description": "Kelly size multiplier — position size shrinks toward zero as model confidence falls.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -890,7 +917,7 @@
         "h": 6,
         "w": 4,
         "x": 20,
-        "y": 7
+        "y": 10
       },
       "fieldConfig": {
         "defaults": {
@@ -915,7 +942,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -943,35 +970,35 @@
       "id": 15,
       "type": "stat",
       "title": "Model fallbacks",
-      "description": "Inference fell to the prior (fail-safe firing).",
+      "description": "Times inference fell back to the prior — the fail-safe firing.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 0,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 3
+                "color": "#FF9830",
+                "value": 1
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -985,7 +1012,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1012,36 +1039,36 @@
     {
       "id": 16,
       "type": "stat",
-      "title": "Infer faults",
-      "description": "Inference errors.",
+      "title": "Inference faults",
+      "description": "Inference errors raised by the model.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 4,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 3
+                "color": "#FF9830",
+                "value": 1
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -1055,7 +1082,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1082,36 +1109,36 @@
     {
       "id": 17,
       "type": "stat",
-      "title": "Contract fails",
-      "description": "Input outside contract.",
+      "title": "Contract failures",
+      "description": "Feature rows that fell outside the model input contract.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 8,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 3
+                "color": "#FF9830",
+                "value": 1
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -1125,7 +1152,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1153,35 +1180,35 @@
       "id": 18,
       "type": "stat",
       "title": "Retrain failures",
-      "description": "Auto-retrain crashed.",
+      "description": "Auto-retrain jobs that crashed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 12,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 3
+                "color": "#FF9830",
+                "value": 1
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -1195,7 +1222,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1223,16 +1250,16 @@
       "id": 19,
       "type": "stat",
       "title": "Calibration gap",
-      "description": "Miscalibration; ECE.",
+      "description": "Expected calibration error — the gap between predicted and realized win rates.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 16,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -1242,15 +1269,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 0.1
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 0.15
               }
             ]
@@ -1265,7 +1292,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1293,34 +1320,34 @@
       "id": 20,
       "type": "stat",
       "title": "Dirty rows dropped",
-      "description": "PROBLEM: legacy/imported non-finite rows. SOLUTION: the ML-015 load backstop drops them before they NaN a fit (0 = corpus clean by construction).",
+      "description": "Non-finite legacy rows dropped by the ML-015 load backstop before they NaN a fit; 0 means the corpus is clean by construction.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 20,
-        "y": 13
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 1
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 10
               }
             ]
@@ -1335,7 +1362,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1363,26 +1390,26 @@
       "id": 21,
       "type": "stat",
       "title": "Twin rows excluded",
-      "description": "Synthetic candidate twins of REAL trades excluded so a taken signal is never double-counted (realized label kept). Nonzero is healthy — it tracks taken teach-trades.",
+      "description": "Synthetic twins of real trades excluded so a taken signal is never double-counted; nonzero is healthy and tracks taken teach-trades.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
+        "h": 5,
         "w": 4,
         "x": 0,
-        "y": 17
+        "y": 21
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#5794F2",
                 "value": null
               }
             ]
@@ -1397,7 +1424,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -1430,24 +1457,24 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 26
       },
       "panels": []
     },
     {
       "id": 23,
       "type": "gauge",
-      "title": "PROBLEM: drawdown",
-      "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
+      "title": "Problem · drawdown",
+      "description": "Equity drawdown from peak. Solution: the drawdown throttle scales size down and a 15% hard-stop flattens.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 6,
-        "w": 5,
+        "w": 6,
         "x": 0,
-        "y": 22
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1459,15 +1486,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 8
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 12
               }
             ]
@@ -1500,155 +1527,19 @@
       ]
     },
     {
-      "id": 24,
-      "type": "stat",
-      "title": "Loss streak",
-      "description": "PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 5,
-        "y": 22
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 3
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_perf_cur_loss_streak{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false,
-          "legendFormat": ""
-        }
-      ]
-    },
-    {
-      "id": 25,
-      "type": "stat",
-      "title": "Breakers tripped",
-      "description": "Assets currently paused.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 9,
-        "y": 22
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_cb_tripped_count{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false,
-          "legendFormat": ""
-        }
-      ]
-    },
-    {
       "id": 26,
       "type": "gauge",
       "title": "Heat vs cap",
-      "description": "SOLUTION: heat throttled under the CVaR cap.",
+      "description": "Portfolio heat as a share of the CVaR cap. Solution: heat is throttled under the cap.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 6,
-        "w": 4,
-        "x": 12,
-        "y": 22
+        "w": 6,
+        "x": 6,
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1660,15 +1551,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 24.5
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 31.5
               }
             ]
@@ -1701,81 +1592,19 @@
       ]
     },
     {
-      "id": 27,
-      "type": "stat",
-      "title": "Taper mult",
-      "description": "SOLUTION: loss-budget taper shrinks size.",
+      "id": 28,
+      "type": "gauge",
+      "title": "Daily budget used",
+      "description": "Share of the daily loss budget consumed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 6,
-        "w": 4,
-        "x": 16,
-        "y": 22
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_rp_taper_mult{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": ""
-        }
-      ]
-    },
-    {
-      "id": 28,
-      "type": "gauge",
-      "title": "Daily budget used",
-      "description": "Daily loss budget consumed.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
         "w": 6,
-        "x": 0,
-        "y": 28
+        "x": 12,
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1787,15 +1616,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 60
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 90
               }
             ]
@@ -1831,16 +1660,16 @@
       "id": 29,
       "type": "gauge",
       "title": "Weekly budget used",
-      "description": "Weekly loss budget consumed.",
+      "description": "Share of the weekly loss budget consumed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
-        "x": 6,
-        "y": 28
+        "x": 18,
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -1852,15 +1681,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 60
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 90
               }
             ]
@@ -1893,19 +1722,221 @@
       ]
     },
     {
-      "id": 30,
-      "type": "table",
-      "title": "Circuit breaker — paused assets",
-      "description": "Per-asset breaker state; hours-left counts the cool-off.",
+      "id": 24,
+      "type": "stat",
+      "title": "Loss streak",
+      "description": "Current run of consecutive losing trades. Solution: the per-asset circuit breaker pauses the asset.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#73BF69",
+                "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 3
+              },
+              {
+                "color": "#F2495C",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_perf_cur_loss_streak{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Breakers tripped",
+      "description": "Assets currently paused by their circuit breaker.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#73BF69",
+                "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 1
+              },
+              {
+                "color": "#F2495C",
+                "value": 2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_cb_tripped_count{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Taper mult",
+      "description": "Loss-budget taper multiplier — shrinks size as the daily and weekly loss budget is spent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_rp_taper_mult{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Circuit breaker — paused assets",
+      "description": "Per-asset circuit-breaker state; hours-left counts down the cool-off.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
@@ -1939,15 +1970,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 3
                     },
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": 5
                     }
                   ]
@@ -1988,7 +2019,7 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "blue",
+                      "color": "#5794F2",
                       "value": null
                     }
                   ]
@@ -2078,21 +2109,21 @@
     {
       "id": 31,
       "type": "row",
-      "title": "🕵️ Manipulation, venue & integrity",
+      "title": "🕵️ Manipulation & venue integrity",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 39
       },
       "panels": []
     },
     {
       "id": 32,
       "type": "stat",
-      "title": "op-state",
-      "description": "Central fault authority: ARMED / DEGRADED / HALTED.",
+      "title": "Op-state",
+      "description": "Central fault authority: armed (trading), degraded (new risk curtailed), or halted.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2101,7 +2132,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -2125,22 +2156,22 @@
               "options": {
                 "0": {
                   "text": "ARMED",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 0
                 },
                 "1": {
                   "text": "DEGRADED",
-                  "color": "yellow",
+                  "color": "#FF9830",
                   "index": 1
                 },
                 "2": {
                   "text": "HALTED",
-                  "color": "red",
+                  "color": "#F2495C",
                   "index": 2
                 },
                 "-1": {
                   "text": "UNKNOWN",
-                  "color": "red",
+                  "color": "#F2495C",
                   "index": 3
                 }
               }
@@ -2181,7 +2212,7 @@
       "id": 33,
       "type": "stat",
       "title": "Latched faults",
-      "description": "Active latched faults.",
+      "description": "Faults currently latched active across the engine.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2190,22 +2221,26 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#FF9830",
                 "value": 1
+              },
+              {
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -2219,7 +2254,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -2247,7 +2282,7 @@
       "id": 34,
       "type": "stat",
       "title": "Firewall fault",
-      "description": "Risk-firewall latched fault (blocks new risk).",
+      "description": "Risk-firewall latched fault — when set it halts all new risk.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2256,7 +2291,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -2280,12 +2315,12 @@
               "options": {
                 "1": {
                   "text": "HALTED",
-                  "color": "red",
+                  "color": "#F2495C",
                   "index": 0
                 },
                 "0": {
                   "text": "clear",
-                  "color": "green",
+                  "color": "#73BF69",
                   "index": 1
                 }
               }
@@ -2326,7 +2361,7 @@
       "id": 35,
       "type": "stat",
       "title": "Cycle wedge",
-      "description": "PROBLEM: failing cycles. SOLUTION: runner wedge escalation.",
+      "description": "Consecutive failed decision cycles. Solution: the runner escalates wedge recovery.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2335,25 +2370,25 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 5
               }
             ]
@@ -2368,7 +2403,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -2396,7 +2431,7 @@
       "id": 36,
       "type": "stat",
       "title": "Exit-eval failures",
-      "description": "A position wedging its own exit path.",
+      "description": "Failures while evaluating a position's exit path — a position wedging its own escape. Exits are sacred, so any is red.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2405,21 +2440,21 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 1
               }
             ]
@@ -2434,7 +2469,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -2462,7 +2497,7 @@
       "id": 37,
       "type": "stat",
       "title": "Venue rejects",
-      "description": "OM-021 AddOrder rejects.",
+      "description": "Kraken AddOrder rejects (OM-021).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2471,26 +2506,26 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "short",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 3
+                "color": "#FF9830",
+                "value": 1
               },
               {
-                "color": "red",
-                "value": 5
+                "color": "#F2495C",
+                "value": 2
               }
             ]
           },
@@ -2504,7 +2539,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -2532,16 +2567,16 @@
       "id": 38,
       "type": "bargauge",
       "title": "Manipulation suspicion by asset",
-      "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size + down-weights those training rows.",
+      "description": "Per-asset manipulation suspicion (painted or spoofed books). Solution: THALES shades size and down-weights those training rows.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 12,
         "x": 0,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -2554,15 +2589,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#73BF69",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FF9830",
                 "value": 0.4
               },
               {
-                "color": "red",
+                "color": "#F2495C",
                 "value": 0.7
               }
             ]
@@ -2602,17 +2637,17 @@
     {
       "id": 39,
       "type": "table",
-      "title": "Firewall clamps/rejects by code",
-      "description": "Which firewall rule (FW-*) is clamping most.",
+      "title": "Firewall clamps by code",
+      "description": "Which firewall rule (FW-*) is clamping or rejecting most.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 12,
         "x": 12,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -2646,15 +2681,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#73BF69",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FF9830",
                       "value": 3
                     },
                     {
-                      "color": "red",
+                      "color": "#F2495C",
                       "value": 5
                     }
                   ]
