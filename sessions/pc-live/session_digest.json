@@ -1,37 +1,37 @@
 {
-  "generated_at": 1784641337.6840913,
+  "generated_at": 1784644938.3138044,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784641333.0,
-    "duration_h": 269.81
+    "end": 1784644934.0,
+    "duration_h": 270.81
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4991.65,
+    "equity_end": 4991.66,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -4.38,
-    "fees_paid_total": 9.3838,
-    "open_positions": 1,
-    "samples": 57469
+    "realized_pnl_total": -4.51,
+    "fees_paid_total": 9.4556,
+    "open_positions": 0,
+    "samples": 57697
   },
   "activity": {
-    "signal_rows_total": 2283,
-    "live_labeled_trades": 94,
-    "candidate_rows": 2189
+    "signal_rows_total": 2296,
+    "live_labeled_trades": 95,
+    "candidate_rows": 2201
   },
   "audit": {
-    "records": 1543,
-    "signal_records": 686,
+    "records": 1563,
+    "signal_records": 695,
     "by_src": {
-      "exploration": 918,
-      "ml_governor": 234,
-      "order_manager": 233,
-      "startup": 73,
-      "fault": 52,
+      "exploration": 933,
+      "ml_governor": 236,
+      "order_manager": 234,
+      "startup": 74,
+      "fault": 53,
       "engine": 23,
       "circuit_breaker": 9,
       "runner": 1
@@ -39,11 +39,11 @@
     "top_codes": [
       [
         "ML-070",
-        857
+        868
       ],
       [
         "OM-000",
-        224
+        225
       ],
       [
         "ML-031",
@@ -51,30 +51,30 @@
       ],
       [
         "CG-000",
-        73
+        74
       ],
       [
         "ML-072",
-        61
+        65
       ],
       [
         "FT-020",
-        52
+        53
       ],
       [
         "ML-041",
-        48
+        49
       ],
       [
         "ML-032",
         27
       ],
       [
-        "ML-042",
-        23
+        "ML-016",
+        24
       ],
       [
-        "ML-016",
+        "ML-042",
         23
       ],
       [
@@ -87,7 +87,7 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.327,
+    "dominant_frac": 0.324,
     "retrain_requests": 27,
     "kill_switch_events": 1,
     "chain_ok": false,
@@ -96,47 +96,47 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 14846,
+    "records": 16056,
     "by_level": {
-      "INFO": 14767,
-      "WARNING": 62,
-      "CRITICAL": 17
+      "INFO": 15965,
+      "WARNING": 71,
+      "CRITICAL": 20
     },
     "top_warnings": [
       [
         "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        8
+        10
       ],
       [
         "control: stop  -> ok (runner=RUNNING)",
-        5
+        6
       ],
       [
         "config: give_back.arm_gain_pct=0.6% arms inside the break-even buffer (86bps) - the locked share of such small moves is fee noise",
-        5
+        6
       ],
       [
         "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        5
+        6
       ],
       [
         "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        5
+        6
       ],
       [
         "ML-013: rejecting stale meta-model \u2014 feature-schema v6 != current v8; running on cold-start prior until a current-schema model is trained",
-        5
+        6
       ],
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        5
-      ],
-      [
-        "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
-        5
+        6
       ],
       [
         "TH-016: ETH: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        6
+      ],
+      [
+        "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
         5
       ],
       [
@@ -145,11 +145,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 6977,
-      "spoofy": 3748
+      "thin": 7602,
+      "spoofy": 3979
     },
-    "spoofy_frac": 0.349,
-    "cycles_estimate": 1447,
+    "spoofy_frac": 0.344,
+    "cycles_estimate": 1559,
     "feed_error_events": 0
   },
   "model": {
@@ -158,13 +158,13 @@
     "kelly_mult": 0.4,
     "champion_brier": 0.14407382263137833,
     "brier": "n/a",
-    "history_rows": 94,
+    "history_rows": 95,
     "cold": true
   },
   "postmortems": {
-    "count": 81,
+    "count": 82,
     "causes": {
-      "underperformance": 40,
+      "underperformance": 41,
       "cost_overrun": 37,
       "whipsaw": 2,
       "alpha_wrong": 2
@@ -185,13 +185,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=94, brier=n/a) yet retrain was requested 27x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 33% of the audit trail"
+      "detail": "model is cold (live training rows=95, brier=n/a) yet retrain was requested 27x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 32% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 33% of 686 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 32% of 695 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
