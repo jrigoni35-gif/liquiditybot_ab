@@ -7,8 +7,6 @@ confidence toward a floor while leaving concentrated conviction (or a strongly
 confident signal) untouched. DOWN-only, bounded, and DISABLED by default —
 enabling it is the gated promotion step, not a silent behavior change.
 """
-import math
-
 from strategies.signal_gates import concentration_conf_mult
 
 ON = {"enabled": True, "conc_pivot": 0.35, "max_atten": 0.15,

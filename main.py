@@ -793,8 +793,14 @@ class LiquidityBot:
         # snapshot was restored). Gating challengers against that ghost lets it
         # squat and reject every retrain forever (live: badge 0.1441 vs loaded
         # model 0.2259 -> model stuck KILLED). Realign the badge to the model
-        # actually loaded - badge only, never the governor level.
-        self.monitor.reconcile_champion_badge(self.meta.oof_brier)
+        # actually loaded - badge only, never the governor level. model_loaded
+        # (meta.trained) is the load-truth: a champion that failed the v8 width
+        # guard (a 58-feature logistic on a 62-feature schema, live 2026-07-21)
+        # never loads, so the badge is a ghost with nothing behind it and is
+        # reset to the no-champion default so a current-schema challenger can
+        # deploy and re-arm the governor.
+        self.monitor.reconcile_champion_badge(self.meta.oof_brier,
+                                              model_loaded=self.meta.trained)
 
         # central fault authority (op-state ledger + policy). Armed at the END
         # of a SUCCESSFUL construction: a bot that finished __init__ passed

@@ -49,6 +49,36 @@ def test_missing_or_bad_loaded_score_is_a_noop():
     assert m.champion_brier == 0.14
 
 
+def test_unloaded_model_discards_ghost_badge_to_no_champion_default():
+    # live root cause: the deployed champion (58-feature logistic) fails the v8
+    # width guard, so it never loads (meta.trained False, oof None). The badge
+    # then claims a champion that does not exist on this schema — a pure ghost
+    # that blocks every fresh challenger. With no backing model, reset it to the
+    # no-champion default so a current-schema challenger can finally deploy.
+    m = ModelMonitor(CFG)
+    m.champion_brier = 0.1441
+    assert m.reconcile_champion_badge(None, model_loaded=False) is True
+    assert m.champion_brier == 0.25
+    # should_deploy's no-champion clause now lets a real challenger through
+    assert m.should_deploy(0.20, n_oof=50) is True
+
+
+def test_unloaded_model_with_default_badge_is_noop():
+    m = ModelMonitor(CFG)
+    m.champion_brier = 0.25
+    assert m.reconcile_champion_badge(None, model_loaded=False) is False
+    assert m.champion_brier == 0.25
+
+
+def test_loaded_flag_defaults_true_keeps_conservative_noop_on_missing_oof():
+    # model_loaded defaults True -> a LOADED model with a transiently-missing oof
+    # stays conservative (no discard), preserving the original contract.
+    m = ModelMonitor(CFG)
+    m.champion_brier = 0.14
+    assert m.reconcile_champion_badge(None) is False
+    assert m.champion_brier == 0.14
+
+
 def test_reconcile_never_touches_governor_state():
     # a KILLED governor stays killed: reconcile fixes the badge ONLY, never the
     # level/kelly/use_model — re-arming must still be earned, not a boot side effect.

@@ -49,6 +49,11 @@ from ml.features import DRIFT_EXCLUDED_FEATURES
 
 log = logging.getLogger("liquiditybot.ml.monitor")
 
+# Brier of predicting the coin (0.5) forever — the champion_brier value that
+# means "no real champion". should_deploy's no-champion clause lets any
+# challenger better than this through, and the monitor initialises here.
+_NO_CHAMPION = 0.25
+
 
 def wilson_lcb(successes: int, n: int, z: float = 1.645) -> float:
     """One-sided 95% Wilson lower bound on a binomial proportion."""
@@ -495,27 +500,60 @@ class ModelMonitor:
                  "DEPLOY" if ok else "REJECT")
         return ok
 
-    def reconcile_champion_badge(self, loaded_oof_brier) -> bool:
+    def reconcile_champion_badge(self, loaded_oof_brier,
+                                 model_loaded: bool = True) -> bool:
         """Force the champion badge to track the model actually loaded (ML-076).
 
         A restored monitor snapshot can outlive its model — a newer artifact was
-        saved without a matching note_deployed, or a restart restored an older
-        monitor snapshot than the model on disk. The badge then claims a Brier
-        the loaded model cannot back up, and should_deploy gates challengers
-        against that ghost forever (measured live 2026-07-21: badge 0.1441 vs
-        loaded model 0.2259, every honest 0.189 challenger rejected -> model
-        stuck KILLED). Realign the badge UP to the loaded model's own OOF when
-        it is better than the model can justify. ONLY ever raises the bar to
-        honesty (never lowers a legitimately-harder badge), and NEVER touches
-        level/kelly/use_model/records — unlike note_deployed, a startup badge
-        fix must not silently un-kill a governed model. Returns True if realigned."""
+        saved without a matching note_deployed, a restart restored an older
+        snapshot than the model on disk, or (measured live 2026-07-21) the
+        deployed champion is a 58-feature logistic that fails the v8 width guard
+        and never loads at all. The badge then claims a Brier no loaded model can
+        back up, and should_deploy gates every challenger against that ghost —
+        the model stays KILLED forever (badge 0.1441, every honest challenger
+        rejected). Two repairs, keyed on whether a champion is actually loaded:
+
+          * NO backing model (`model_loaded` False): the badge is a ghost with
+            nothing behind it. Reset it to the no-champion default so a fresh,
+            current-schema challenger can deploy (should_deploy's no-champion
+            clause). This is what breaks the schema-mismatch deadlock.
+          * model loaded but badge better than its own OOF: realign the badge UP
+            to that honest score (never DOWN — that would re-open the squat).
+
+        NEVER touches level/kelly/use_model/records — a startup badge fix must
+        not silently un-kill a governed model. Returns True if the badge moved."""
         try:
             b = float(loaded_oof_brier)
+            b = b if (0.0 < b < 1.0) else None
         except (TypeError, ValueError):
+            b = None
+        # Case A: no champion actually loaded (schema-rejected / missing /
+        # untrained). Discard a ghost badge to the no-champion default.
+        if not model_loaded:
+            if self.champion_brier < _NO_CHAMPION - 1e-9:
+                old = self.champion_brier
+                self.champion_brier = _NO_CHAMPION
+                log.warning("ML-076: champion badge discarded %.4f -> %.2f — no "
+                            "backing model loaded (schema-rejected/missing); the "
+                            "ghost badge was squatting and rejecting every "
+                            "current-schema challenger", old, _NO_CHAMPION)
+                get_audit().log("ml_governor", Code.ML_CHAMP_BADGE_SYNC,
+                                f"badge discarded {old:.4f} -> {_NO_CHAMPION:.2f} "
+                                f"(no backing model)",
+                                {"old": round(old, 4), "new": _NO_CHAMPION,
+                                 "reason": "no_backing_model"})
+                return True
+            log.info("ML-076 reconcile: no-op (no backing model; badge %.4f "
+                     ">= no-champion default)", self.champion_brier)
             return False
-        if not (0.0 < b < 1.0):              # None/NaN/out-of-range -> no-op
+        # Case B: model loaded but its honest OOF is unavailable -> stay
+        # conservative (do not invent a realignment from a missing number).
+        if b is None:
+            log.info("ML-076 reconcile: no-op (model loaded, oof unavailable; "
+                     "badge %.4f kept)", self.champion_brier)
             return False
-        if self.champion_brier < b - 1e-9:   # badge claims better than reality
+        # Case C: model loaded, badge claims better than it can back up -> up.
+        if self.champion_brier < b - 1e-9:
             old = self.champion_brier
             self.champion_brier = b
             log.warning("ML-076: champion badge realigned to the loaded model "
@@ -527,6 +565,8 @@ class ModelMonitor:
                             f"(loaded-model sync)",
                             {"old": round(old, 4), "new": round(b, 4)})
             return True
+        log.info("ML-076 reconcile: no-op (badge %.4f consistent with loaded "
+                 "model oof %.4f)", self.champion_brier, b)
         return False
 
     def note_deployed(self, brier: float):
