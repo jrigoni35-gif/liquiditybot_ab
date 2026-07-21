@@ -116,14 +116,83 @@ def battery_passes(worktree: Path) -> bool:
     return p.returncode == 0
 
 
+# Deploy-restart escalation: a graceful 'stop' asks the runner to exit so the
+# supervisor relaunches it on new code. If the runner's command consumption is
+# wedged (seen live 2026-07-21: a long-lived runner ignored every 'stop', so the
+# repo advanced but the process kept running stale code), force-kill ITS pid
+# after a grace window so the deploy actually lands. Disable with
+# LB_NO_FORCE_KILL_RESTART=1.
+_FORCE_KILL_STUCK = os.environ.get("LB_NO_FORCE_KILL_RESTART") != "1"
+_FORCE_KILL_AFTER_SEC = float(os.environ.get("LB_FORCE_KILL_AFTER_SEC", "45"))
+_FORCE_KILL_POLL_SEC = 5.0
+
+
+def _runner_pid():
+    """The live runner's pid from its SingleInstanceLock, or None."""
+    try:
+        d = json.loads((OUT / "runner.lock").read_text(encoding="utf-8"))
+        pid = d.get("pid")
+        return pid if isinstance(pid, int) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _should_escalate(orig_pid, cur_pid) -> bool:
+    """Force-kill ONLY when the SAME pid still holds the lock after the grace
+    window (the soft stop was ignored). A changed or absent pid means the runner
+    already exited/relaunched — leave it alone."""
+    return orig_pid is not None and cur_pid == orig_pid
+
+
+def _force_kill(pid) -> None:
+    """Kill one pid, cross-platform, fail-safe (never raises into the deploy)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/PID", str(int(pid))],  # nosec B603 B607
+                           timeout=30, capture_output=True, **_NOWIN)
+        else:
+            import signal as _signal
+            os.kill(int(pid), _signal.SIGKILL)
+        log(f"force-killed stuck runner pid {pid} - supervisor relaunches on new code")
+    except Exception as e:                        # noqa: BLE001 - fail-safe
+        log(f"force-kill of pid {pid} failed ({e})")
+
+
+def _escalate_if_stuck(orig_pid, read_pid, wait_sec, poll_sec, kill_fn,
+                       sleep_fn=time.sleep, now_fn=time.time) -> str:
+    """Wait out the grace window; force-kill iff the same runner pid survives it.
+    Injectable timing/readers so the decision is unit-testable without sleeping.
+    Returns 'no_pid' | 'restarted' | 'force_killed'."""
+    if orig_pid is None:
+        return "no_pid"
+    deadline = now_fn() + wait_sec
+    while now_fn() < deadline:
+        sleep_fn(poll_sec)
+        if not _should_escalate(orig_pid, read_pid()):
+            return "restarted"
+    kill_fn(orig_pid)
+    return "force_killed"
+
+
 def _signal_restart() -> None:
-    """Graceful stop so the supervisor relaunches the runner on the new code."""
+    """Graceful stop so the supervisor relaunches the runner on the new code;
+    escalate to a targeted force-kill if the runner ignores the soft stop."""
+    orig_pid = _runner_pid()
     try:
         from core.runtime import ControlChannel
         ControlChannel(str(OUT / "control")).send("stop")
         log("sent stop - supervisor will relaunch on the new code")
     except Exception as e:                        # noqa: BLE001
         log(f"restart signal failed ({e}) - new code loads on the next restart")
+    if not _FORCE_KILL_STUCK:
+        return
+    outcome = _escalate_if_stuck(orig_pid, _runner_pid, _FORCE_KILL_AFTER_SEC,
+                                 _FORCE_KILL_POLL_SEC, _force_kill)
+    if outcome == "no_pid":
+        log("no runner.lock pid to watch - relying on the supervisor's "
+            "stale-heartbeat relaunch")
+    elif outcome == "restarted":
+        log("runner exited on the soft stop - clean restart")
 
 
 _BATTERY_DETAIL = ""            # failing-test detail from the last battery run
