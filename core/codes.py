@@ -142,6 +142,8 @@ class Code(str, Enum):
                                       # triple-barrier outcome — close it to
                                       # bank the live label + free a teach slot
     ML_PRIOR_SKEW = "ML-074"          # trailing-window label prior diverges
+    ML_SHADOW_RECOVER = "ML-075"      # killed champion re-armed 2->1 on a clean
+    #                                   telemetry-only shadow window (probation)
                                       # hard from the corpus prior (one-sided
                                       # batch, e.g. an all-zero quiet weekend):
                                       # calibration drift risk — detection only

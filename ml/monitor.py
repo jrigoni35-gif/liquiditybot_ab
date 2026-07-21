@@ -67,6 +67,14 @@ class ModelMonitor:
         cfg = config or {}
         self.window = int(cfg.get("window_trades", 30))
         self.min_trades = int(cfg.get("min_trades_to_judge", 15))
+        # ML-075 shadow-recovery: a KILLED model records model_scored=False on
+        # every close (main.py), so the model-scored window can never refill and
+        # only a retrained challenger can re-arm - a long stall on a young
+        # corpus. When enabled, the champion is scored in the background
+        # (telemetry-only, never traded) and the governor re-arms 2->1 on a
+        # clean shadow window that beats baseline on the IDENTICAL bar. 1->0 is
+        # still earned live. Default on; set false to keep the old kill lock.
+        self.shadow_recovery = bool(cfg.get("shadow_recovery", True))
         self.brier_margin = float(cfg.get("brier_margin", 0.01))
         self.calib_gap_max = float(cfg.get("calibration_gap_max", 0.15))
         self.hit_shortfall_max = float(cfg.get("hit_shortfall_max", 0.08))
@@ -100,6 +108,9 @@ class ModelMonitor:
         self.drift_share = 0.0
         self.drifting: list = []
         self._records: deque = deque(maxlen=self.window * 3)
+        # champion shadow scores (p, label) recorded ONLY while killed; used
+        # solely by _try_shadow_recovery, never by the kill path.
+        self._shadow_records: deque = deque(maxlen=self.window * 3)
         self._cause_tally: Counter = Counter()
         self._causes_window: deque = deque(maxlen=20)
         self._last_cause_ts = 0.0
@@ -146,11 +157,13 @@ class ModelMonitor:
         return p, y
 
     # ------------------------------------------------------------------
-    def _evaluate(self):
-        w = self._windows()
-        if w is None:
-            return
-        p, y = w
+    def _judge(self, p, y):
+        """Grade a (prediction, outcome) window against the base-rate baseline.
+        The SINGLE source of the degraded/failing verdict — _evaluate (live
+        model-scored window) and _try_shadow_recovery (killed champion shadow
+        window) both call it, so the re-arm bar is byte-identical to the kill
+        bar. Returns (degraded, failing, detail, model_brier, baseline_brier,
+        lcb, promised)."""
         n = len(y)
         base_rate = float(np.clip(y.mean(), 0.05, 0.95))
         model_brier = brier_score(y, p)
@@ -172,6 +185,21 @@ class ModelMonitor:
             (gap > self.calib_gap_max) or hit_deficit
         failing = model_brier > baseline_brier + 3 * self.brier_margin or \
             (hit_deficit and gap > self.calib_gap_max)
+        detail = {"brier": round(model_brier, 4),
+                  "baseline": round(baseline_brier, 4),
+                  "calib_gap": round(gap, 4),
+                  "hit_lcb": round(lcb, 3),
+                  "promised_p": round(promised, 3), "n": n}
+        return degraded, failing, detail, model_brier, baseline_brier, \
+            lcb, promised
+
+    def _evaluate(self):
+        w = self._windows()
+        if w is None:
+            return
+        p, y = w
+        degraded, failing, detail, model_brier, baseline_brier, lcb, promised \
+            = self._judge(p, y)
 
         prev = self.level
         if failing:
@@ -189,11 +217,6 @@ class ModelMonitor:
         # (calling it here too double-applied the bump once the Brier window
         # filled - see record_close).
         if self.level != prev:
-            detail = {"brier": round(model_brier, 4),
-                      "baseline": round(baseline_brier, 4),
-                      "calib_gap": round(gap, 4),
-                      "hit_lcb": round(lcb, 3),
-                      "promised_p": round(promised, 3), "n": n}
             log.warning("ML-030: governor level %d -> %d | %s | "
                         "shrinkage=%.2f kelly_mult=%.2f use_model=%s",
                         prev, self.level, detail, self.shrinkage,
@@ -202,10 +225,65 @@ class ModelMonitor:
                             Code.ML_KILL_SWITCH if self.level >= 2
                             else Code.ML_LEVEL_CHANGE,
                             f"level {prev} -> {self.level}", detail)
+            # a FRESH kill resets the shadow evidence so recovery is judged only
+            # on trades that happened AFTER the model was disabled (stale
+            # pre-kill shadow scores must not instantly re-arm it).
+            if prev < 2 and self.level >= 2:
+                self._shadow_records.clear()
         if self.level >= 2:
             self.request_retrain(f"brier {model_brier:.3f} vs baseline "
                                  f"{baseline_brier:.3f}, hit LCB {lcb:.2f} "
                                  f"vs promised {promised:.2f}")
+
+    # ---------------------------------------- ML-075 shadow-recovery -------
+    def record_shadow_close(self, shadow_p: float, label: int) -> None:
+        """Record the champion's telemetry-only score for a closed trade while
+        the model is KILLED. The champion is NEVER traded here (the position ran
+        on the prior); this only lets the governor observe whether the champion
+        WOULD have beaten baseline on the trades that actually happened, so it
+        can re-arm 2->1 on evidence instead of staying locked until a retrain.
+        No-op unless killed and shadow_recovery is enabled."""
+        if not self.shadow_recovery:
+            return
+        self._shadow_records.append((float(shadow_p), int(label)))
+        if self.level >= 2:
+            self._try_shadow_recovery()
+
+    def _shadow_window(self):
+        recs = list(self._shadow_records)[-self.window:]
+        if len(recs) < self.min_trades:
+            return None
+        p = np.array([r[0] for r in recs])
+        y = np.array([r[1] for r in recs])
+        return p, y
+
+    def _try_shadow_recovery(self):
+        """Re-arm a KILLED model one throttled step (2->1) when the champion's
+        shadow window cleanly beats baseline on the SAME bar the kill used.
+        Recovery-only: never raises the level, never steps below 1, never fires
+        below level 2. 1->0 is still earned live on model-scored trades."""
+        w = self._shadow_window()
+        if w is None:
+            return
+        p, y = w
+        degraded, _failing, detail, *_ = self._judge(p, y)
+        if degraded:
+            return                       # champion still not beating baseline
+        prev = self.level
+        self.level = 1                   # half-step: throttled, never to 0
+        self._level_streak = 0
+        # fresh probation window: the stale pre-kill model-scored records must
+        # not re-convict the re-armed model on its very next live close (same
+        # rationale as note_deployed clearing the window on a deploy).
+        self._records.clear()
+        self._shadow_records.clear()
+        self._apply_level()
+        log.warning("ML-075: shadow-recovery re-armed governor %d -> 1 | %s | "
+                    "kelly_mult=%.2f (champion beat baseline in shadow; "
+                    "probation - full trust earned live)",
+                    prev, detail, self.kelly_mult)
+        get_audit().log("ml_governor", Code.ML_SHADOW_RECOVER,
+                        f"shadow-recovery {prev} -> 1", detail)
 
     def _apply_level(self):
         if self.level == 0:
@@ -427,6 +505,7 @@ class ModelMonitor:
         # new model 0 -> 2 on evidence it never generated (observed live:
         # kelly_mult pinned at 0.7 through two deploys).
         self._records.clear()
+        self._shadow_records.clear()
         self._apply_level()
         self.flag_path.unlink(missing_ok=True)
 

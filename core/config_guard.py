@@ -577,6 +577,13 @@ def validate(config: dict) -> list:
              f"(null p95 ~28% at 40 rows vs the {float(_f(config, 'ml.monitor.drift_frac_features', 0.30)):.0%} "
              f"retrain trigger). Raise it so a fired ML-031 means a real shift.")
 
+    # ML-075 shadow-recovery is a bool feature flag; a non-bool would be
+    # coerced by bool() and silently mean something the operator didn't intend.
+    _sr = _f(config, "ml.monitor.shadow_recovery", True)
+    if not isinstance(_sr, bool):
+        advisory(f"ml.monitor.shadow_recovery={_sr!r} is not a boolean; it is "
+                 f"coerced by bool() - set true/false explicitly.")
+
     # --- post-hoc interpretability report (ml/interpret.py) ---------------
     # analysis knobs, not decision-path tunables — but nonsense values make
     # the report LIE (a background too thin makes interventional SHAP noise;

@@ -1504,9 +1504,15 @@ class LiquidityBot:
             _mk.poll(self.marks, now, is_fresh=self._mark_fresh)
         self.risk_protocols.observe(equity, self.marks, now)
         for cause, thesis in self.postmortem.poll(now):
+            won = int(thesis.realized_net_usd > 0)
             self.monitor.record_close(self._thesis_scored_p(thesis),
-                                    int(thesis.realized_net_usd > 0),
-                                    thesis.model_scored, cause)
+                                    won, thesis.model_scored, cause)
+            # ML-075: while KILLED the close above is model_scored=False, so the
+            # recovery window can never refill. Feed the champion's telemetry-
+            # only shadow score (captured at entry) so a killed model can re-arm
+            # on evidence. No-op when armed / when no shadow score exists.
+            if not thesis.model_scored and getattr(thesis, "shadow_p", -1.0) >= 0.0:
+                self.monitor.record_shadow_close(thesis.shadow_p, won)
 
         # Each position's stop/tier evaluation is ISOLATED: one position whose
         # state deterministically raises (a corrupt stop_price, a bad
@@ -2235,6 +2241,16 @@ class LiquidityBot:
             target_pct = self.sizer.b * stop_pct_eff
             ev_pct = (p_win * target_pct - (1 - p_win) * stop_pct_eff) - \
                 decision.est_cost_bps / 100.0
+            # ML-075 shadow score: the CHAMPION's armed prediction, captured even
+            # when the governor has KILLED the model (use_model=False) so it
+            # never reached the sizer. Telemetry-only - it changes no trade;
+            # it lets a killed model re-arm on evidence at close. When the model
+            # is live, model_p already IS the champion's call (no extra predict).
+            shadow_p = model_p if self.monitor.use_model else (
+                self.meta.p_win(feats, gate_conf,
+                                shrinkage=self.monitor.shrink_base,
+                                use_model=True)
+                if self.meta.trained else -1.0)
             self.postmortem.register_entry(TradeThesis(
                 position_id=position_id, asset=asset, symbol=symbol,
                 direction=signal.direction, entry_ts=now, p_win=p_win,
@@ -2254,7 +2270,7 @@ class LiquidityBot:
                 # small equity where exploration is most of the flow; the old
                 # not-explored exclusion starved the window and froze the
                 # governor (kelly pinned at 0.7, then a kill-switch deadlock).
-                model_p=model_p,
+                model_p=model_p, shadow_p=shadow_p,
                 model_scored=(self.monitor.use_model and self.meta.trained)))
             notional_usd = decision.size_units * entry_price
             if self.algo.should_engage(notional_usd):

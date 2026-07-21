@@ -479,7 +479,9 @@
       "hit_shortfall_max": 0.08,
       "retrain_min_rows": 60,
       "cause_stale_hours": 4.0,
-      "deploy_min_oof": 30
+      "deploy_min_oof": 30,
+      "shadow_recovery": true,
+      "_shadow_recovery_doc": "ML-075: while the governor has KILLED the model, score the champion in the background (telemetry-only, never traded) and re-arm one throttled step (level 2->1) when it WOULD have beaten baseline on the trades that actually happened, judged on the identical bar as the kill. Full trust (1->0) is still earned live on model-scored trades. Breaks the kill-recovery deadlock (a killed model records model_scored=False, so the recovery window could never refill and only a retrained challenger could re-arm - a long stall on a young corpus). false restores the old kill lock."
     },
     "postmortem": {
       "shortfall_ratio": 0.1,

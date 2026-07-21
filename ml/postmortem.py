@@ -124,6 +124,11 @@ class TradeThesis:
     # governor must grade the model on what it actually said, not on the
     # forced number. -1 = unknown (thesis predates this field).
     model_p: float = -1.0
+    # the CHAMPION's armed prediction, computed even when the governor has
+    # KILLED the model (use_model=False) so it never reached the sizer.
+    # Telemetry-only: feeds ML-075 shadow-recovery at close so a killed model
+    # can re-arm on evidence. -1 = unknown/not scored (predates field).
+    shadow_p: float = -1.0
     # filled at/after close
     fill_price: float = 0.0
     marks: list = field(default_factory=list)        # (ts, price) during hold
