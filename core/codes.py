@@ -171,6 +171,7 @@ class Code(str, Enum):
     TH_LAPSE = "TH-016"              # observation gap: continuity reset, advice muted through warmup
     TH_SPOOF_FLICKER = "TH-017"      # large top-of-book level pulled untraded: imbalance untrusted
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
+    TH_CONCENTRATION_SHADE = "TH-021"  # diffuse-and-marginal signal trimmed (averaging trap)
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
     RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue
     RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)

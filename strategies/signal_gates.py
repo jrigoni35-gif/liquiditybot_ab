@@ -25,6 +25,43 @@ def _f(value, default: Optional[float] = None) -> Optional[float]:
     return v if math.isfinite(v) else default
 
 
+def concentration_conf_mult(concentration, confidence, cfg) -> float:
+    """Down-only confidence multiplier for the 'averaging trap' (TH-021,
+    docs/THALES.md §Evidence concentration).
+
+    The fused evidence E = Σ wᵢ·sᵢ is a weighted SUM, so a DIFFUSE signal (many
+    weak factors averaged) can clear the same |E| bar as a PINPOINTED one where
+    one factor dominates. `concentration` (normalized Herfindahl, 0 diffuse .. 1
+    pinpointed) separates them; this trims confidence toward a floor ONLY when a
+    signal is BOTH diffuse AND marginal, leaving concentrated conviction (or an
+    already-strong signal) untouched. Returns a multiplier in
+    [1 - max_atten, 1.0]; never boosts (a false boost costs money, a false trim
+    costs opportunity). DISABLED by default — enabling it is the gated promotion
+    step, so the default return is an exact 1.0 (prior behavior)."""
+    cfg = cfg or {}
+    if not cfg.get("enabled", False):
+        return 1.0
+    conc = _f(concentration)
+    conf = _f(confidence)
+    if conc is None or conf is None:
+        return 1.0                            # degraded input -> no-op
+    conc = min(max(conc, 0.0), 1.0)
+
+    def _cf(key: str, default: float) -> float:      # finite config float
+        v = _f(cfg.get(key, default))
+        return default if v is None else v
+    pivot = _cf("conc_pivot", 0.35)
+    max_atten = min(max(_cf("max_atten", 0.15), 0.0), 0.5)
+    marg_hi = _cf("marginal_conf", 0.65)
+    floor = _cf("floor_conf", 0.50)
+    # diffuse: 1.0 at concentration 0, ramping to 0 once concentration >= pivot
+    diffuse = max(0.0, (pivot - conc) / pivot) if pivot > 0 else 0.0
+    # marginal: 1.0 at/below floor_conf, ramping to 0 at/above marginal_conf
+    span = marg_hi - floor
+    marginal = 1.0 if span <= 0 else min(max((marg_hi - conf) / span, 0.0), 1.0)
+    return 1.0 - max_atten * min(diffuse, 1.0) * marginal
+
+
 @dataclass
 class SignalResult:
     symbol: str                  # Kraken-tradeable pair, e.g. 'ETH/USD'

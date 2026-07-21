@@ -62,7 +62,8 @@ from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
 from strategies.liquidity_model import LiquidityModel
-from strategies.signal_gates import GateStats, SignalGateEngine
+from strategies.signal_gates import (GateStats, SignalGateEngine,
+                                     concentration_conf_mult)
 from risk.capital_manager import CapitalManager
 from risk.profit_tiers import ProfitTierEngine
 from execution.algos import ExecutionScheduler
@@ -592,6 +593,12 @@ class LiquidityBot:
         # bounded confidence shading only when influence=advise
         from strategies.thales import ThalesEngine
         self.thales = ThalesEngine(config.get("thales", {}))
+        # TH-021 evidence-concentration shade (docs/THALES.md §Evidence
+        # concentration): trims a DIFFUSE-and-marginal signal's confidence
+        # (the averaging trap). Disabled by default — a config-gated promotion,
+        # never a silent behavior change.
+        self._conc_shade_cfg = (config.get("thales", {})
+                                .get("evidence_concentration", {})) or {}
         # Smart Money Concepts structural features (docs/SMC.md): MTF
         # trend alignment, premium/discount zone, liquidity-pocket pull,
         # FVG pull/confluence, volume-profile POC/VA - additional signal
@@ -2028,6 +2035,23 @@ class LiquidityBot:
                 confidence=signal.confidence,
                 macro_label=self.macro.state(asset).label, now=now)
             signal.confidence = th.confidence
+            # TH-021 evidence-concentration shade: after the THALES footprint
+            # shade, trim a DIFFUSE-and-marginal signal (many weak factors
+            # averaged into a marginal pass) toward the floor; concentrated
+            # conviction is untouched. Down-only, bounded, disabled by default
+            # (mult==1.0 -> exact prior behavior). Never touches all_confirmed.
+            _cmult = concentration_conf_mult(
+                getattr(signal, "evidence_concentration", 0.0),
+                signal.confidence, self._conc_shade_cfg)
+            if _cmult < 1.0 - 1e-9:
+                _pre = signal.confidence
+                signal.confidence = _pre * _cmult
+                get_audit().log("thales", Code.TH_CONCENTRATION_SHADE,
+                                f"{asset} diffuse-marginal trim x{_cmult:.3f}",
+                                {"conc": round(float(getattr(
+                                    signal, "evidence_concentration", 0.0)), 3),
+                                 "conf": round(_pre, 3),
+                                 "mult": round(_cmult, 3)})
             # V2 vindication loop: remember which detectors shaded THIS
             # signal so a resulting position's close can grade them
             # (advise mode only — shadow advice never influenced the trade)

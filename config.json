@@ -646,6 +646,14 @@
     "description": "Lazy-bot insecurity model (docs/THALES.md): detects grid ladders, clock-driven MM quoting, significance-gated scheduled flow, and stop-cluster sweeps from public data. influence=shadow records advice without applying it; advise applies bounded confidence shading only.",
     "enabled": true,
     "influence": "shadow",
+    "evidence_concentration": {
+      "_doc": "TH-021 (docs/THALES.md §Evidence concentration): the fused evidence E = Σ wᵢ·sᵢ is a weighted SUM, so a DIFFUSE signal (many weak factors averaged) can clear the same |E| bar as a PINPOINTED one. This shade trims a signal's confidence toward the floor ONLY when it is BOTH diffuse (concentration < conc_pivot) AND marginal (confidence between floor_conf and marginal_conf); concentrated conviction or an already-strong signal is untouched. Down-only, bounded to [1-max_atten, 1.0]. enabled=false keeps EXACT prior behavior — flip true only after shadow hit-rate beats null and the OF/quant battery stays green (the doc's promotion bar).",
+      "enabled": false,
+      "conc_pivot": 0.35,
+      "max_atten": 0.15,
+      "marginal_conf": 0.65,
+      "floor_conf": 0.50
+    },
     "reliability": {
       "_doc": "V2 evidence-weighted gains: every closed advise-mode trade grades the detectors that shaded its entry (up-advice vindicated by a win, down-advice by a loss). Below min_fired grades a detector keeps its full configured gain (the hand-crafted prior rules cold start); after that the gain is scaled by max(0, 2*WilsonLCB90 - 1), so a detector that cannot beat a coin flip out-of-sample loses its voice. Weights ATTENUATE only, never amplify. feed_integrity is exempt (safety shade, not an alpha thesis).",
       "enabled": true,

@@ -1029,6 +1029,24 @@ def validate(config: dict) -> list:
     if th_infl == "advise" and th_shade == 1.0:
         warn("thales.influence=advise with max_conf_shade=1.0 is a no-op - "
              "advice can never move confidence")
+    # TH-021 evidence-concentration shade coherence (a DOWN-only trim of
+    # diffuse-and-marginal confidence). Nonsense bounds silently degrade it.
+    if bool(_f(config, "thales.evidence_concentration.enabled", False)):
+        ec_pivot = float(_f(config, "thales.evidence_concentration.conc_pivot", 0.35))
+        ec_atten = float(_f(config, "thales.evidence_concentration.max_atten", 0.15))
+        ec_hi = float(_f(config, "thales.evidence_concentration.marginal_conf", 0.65))
+        ec_lo = float(_f(config, "thales.evidence_concentration.floor_conf", 0.50))
+        if not (0.0 < ec_pivot <= 1.0):
+            fatal(f"thales.evidence_concentration.conc_pivot={ec_pivot} must be "
+                  f"in (0, 1] - it is the concentration BELOW which a signal "
+                  f"counts as diffuse")
+        if not (0.0 <= ec_atten <= 0.5):
+            fatal(f"thales.evidence_concentration.max_atten={ec_atten} must be "
+                  f"in [0, 0.5] - it is a bounded confidence TRIM, not a veto")
+        if not ec_hi > ec_lo:
+            fatal(f"thales.evidence_concentration.marginal_conf={ec_hi} must "
+                  f"exceed floor_conf={ec_lo} - the marginality ramp is "
+                  f"degenerate otherwise (every signal trimmed equally)")
     th_z = float(_f(config, "thales.clockwork.z_thr", 2.33))
     if th_z < 1.5:
         fatal(f"thales.clockwork.z_thr={th_z} below 1.5 disables the "

@@ -265,6 +265,15 @@ This is "process of elimination that never loses the bigger picture": the
 `evidence_threshold` still owns the bigger picture (is there enough total
 signal at all); concentration adds *how* that signal is composed.
 
+**Status (TH-021, wired):** the promotion mechanism now exists as a bounded,
+DOWN-only confidence shade (`concentration_conf_mult`, applied after the THALES
+footprint shade) that trims a signal only when it is BOTH diffuse
+(`concentration < conc_pivot`) AND marginal (`floor_conf ≤ conf < marginal_conf`);
+concentrated conviction and already-strong signals are untouched. It is
+**config-gated and disabled by default** (`thales.evidence_concentration.enabled`)
+— enabling it is the gated promotion step, taken only once shadow hit-rate beats
+null and the OF/quant battery stays green. Off, behavior is byte-identical.
+
 ## Lessons folded in from this session's errors
 
 - **NaN/inf never reaches the corpus** (ML-015): `float('nan')` parses
