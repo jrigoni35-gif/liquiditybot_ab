@@ -781,6 +781,13 @@ class LiquidityBot:
             self._resumed = self.store.restore(self)
             if self._resumed and not self.dry_run:
                 self._reconcile_live_on_resume()
+        # ML-076: the restored monitor snapshot can carry a champion badge from
+        # a model no longer on disk (a newer artifact was saved, or an older
+        # snapshot was restored). Gating challengers against that ghost lets it
+        # squat and reject every retrain forever (live: badge 0.1441 vs loaded
+        # model 0.2259 -> model stuck KILLED). Realign the badge to the model
+        # actually loaded - badge only, never the governor level.
+        self.monitor.reconcile_champion_badge(self.meta.oof_brier)
 
         # central fault authority (op-state ledger + policy). Armed at the END
         # of a SUCCESSFUL construction: a bot that finished __init__ passed

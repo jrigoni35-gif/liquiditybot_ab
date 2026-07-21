@@ -144,6 +144,8 @@ class Code(str, Enum):
     ML_PRIOR_SKEW = "ML-074"          # trailing-window label prior diverges
     ML_SHADOW_RECOVER = "ML-075"      # killed champion re-armed 2->1 on a clean
     #                                   telemetry-only shadow window (probation)
+    ML_CHAMP_BADGE_SYNC = "ML-076"    # champion badge realigned to the loaded
+    #                                   model at startup (stale snapshot ghost)
                                       # hard from the corpus prior (one-sided
                                       # batch, e.g. an all-zero quiet weekend):
                                       # calibration drift risk — detection only

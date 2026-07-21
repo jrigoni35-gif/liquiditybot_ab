@@ -495,6 +495,40 @@ class ModelMonitor:
                  "DEPLOY" if ok else "REJECT")
         return ok
 
+    def reconcile_champion_badge(self, loaded_oof_brier) -> bool:
+        """Force the champion badge to track the model actually loaded (ML-076).
+
+        A restored monitor snapshot can outlive its model — a newer artifact was
+        saved without a matching note_deployed, or a restart restored an older
+        monitor snapshot than the model on disk. The badge then claims a Brier
+        the loaded model cannot back up, and should_deploy gates challengers
+        against that ghost forever (measured live 2026-07-21: badge 0.1441 vs
+        loaded model 0.2259, every honest 0.189 challenger rejected -> model
+        stuck KILLED). Realign the badge UP to the loaded model's own OOF when
+        it is better than the model can justify. ONLY ever raises the bar to
+        honesty (never lowers a legitimately-harder badge), and NEVER touches
+        level/kelly/use_model/records — unlike note_deployed, a startup badge
+        fix must not silently un-kill a governed model. Returns True if realigned."""
+        try:
+            b = float(loaded_oof_brier)
+        except (TypeError, ValueError):
+            return False
+        if not (0.0 < b < 1.0):              # None/NaN/out-of-range -> no-op
+            return False
+        if self.champion_brier < b - 1e-9:   # badge claims better than reality
+            old = self.champion_brier
+            self.champion_brier = b
+            log.warning("ML-076: champion badge realigned to the loaded model "
+                        "%.4f -> %.4f (stale snapshot outlived its model; the "
+                        "old badge could squat and reject every challenger)",
+                        old, b)
+            get_audit().log("ml_governor", Code.ML_CHAMP_BADGE_SYNC,
+                            f"badge realigned {old:.4f} -> {b:.4f} "
+                            f"(loaded-model sync)",
+                            {"old": round(old, 4), "new": round(b, 4)})
+            return True
+        return False
+
     def note_deployed(self, brier: float):
         self.champion_brier = brier
         self.level = 0
