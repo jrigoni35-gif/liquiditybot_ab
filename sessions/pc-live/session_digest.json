@@ -1,35 +1,35 @@
 {
-  "generated_at": 1784630535.8178904,
+  "generated_at": 1784634136.4448721,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784630534.0,
-    "duration_h": 266.81
+    "end": 1784634129.0,
+    "duration_h": 267.81
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4992.18,
+    "equity_end": 4992.08,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -4.18,
-    "fees_paid_total": 9.0503,
-    "open_positions": 0,
-    "samples": 56776
+    "fees_paid_total": 9.0953,
+    "open_positions": 1,
+    "samples": 57013
   },
   "activity": {
-    "signal_rows_total": 2264,
+    "signal_rows_total": 2267,
     "live_labeled_trades": 92,
-    "candidate_rows": 2172
+    "candidate_rows": 2175
   },
   "audit": {
-    "records": 1486,
-    "signal_records": 667,
+    "records": 1493,
+    "signal_records": 669,
     "by_src": {
-      "exploration": 877,
+      "exploration": 883,
+      "order_manager": 229,
       "ml_governor": 229,
-      "order_manager": 228,
       "startup": 71,
       "fault": 50,
       "engine": 22,
@@ -39,11 +39,11 @@
     "top_codes": [
       [
         "ML-070",
-        819
+        824
       ],
       [
         "OM-000",
-        219
+        220
       ],
       [
         "ML-031",
@@ -55,7 +55,7 @@
       ],
       [
         "ML-072",
-        58
+        59
       ],
       [
         "FT-020",
@@ -87,7 +87,7 @@
       ]
     ],
     "dominant_code": "OM-000",
-    "dominant_frac": 0.328,
+    "dominant_frac": 0.329,
     "retrain_requests": 26,
     "kill_switch_events": 1,
     "chain_ok": false,
@@ -96,10 +96,10 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 11362,
+    "records": 12447,
     "by_level": {
-      "INFO": 11313,
-      "WARNING": 39,
+      "INFO": 12394,
+      "WARNING": 43,
       "CRITICAL": 10
     },
     "top_warnings": [
@@ -145,11 +145,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 5364,
-      "spoofy": 2846
+      "thin": 5891,
+      "spoofy": 3168
     },
-    "spoofy_frac": 0.347,
-    "cycles_estimate": 1104,
+    "spoofy_frac": 0.35,
+    "cycles_estimate": 1222,
     "feed_error_events": 0
   },
   "model": {
@@ -162,10 +162,10 @@
     "cold": true
   },
   "postmortems": {
-    "count": 76,
+    "count": 80,
     "causes": {
+      "underperformance": 39,
       "cost_overrun": 37,
-      "underperformance": 35,
       "whipsaw": 2,
       "alpha_wrong": 2
     },
@@ -191,7 +191,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 33% of 667 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 33% of 669 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
