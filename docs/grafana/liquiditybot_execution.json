@@ -90,8 +90,8 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Deployed model",
-      "description": "Model rung currently deployed (evidence-gated simplicity ladder).",
+      "title": "Model",
+      "description": "Deployed rung (evidence-gated).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -104,13 +104,13 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "",
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#5794F2",
+                "color": "blue",
                 "value": null
               }
             ]
@@ -153,26 +153,26 @@
       "id": 3,
       "type": "stat",
       "title": "Model in use",
-      "description": "Whether the trained model is sizing trades (YES) or the cold-start prior is (NO).",
+      "description": "Model sizes trades vs the cold-start prior.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
+        "w": 3,
         "x": 4,
         "y": 1
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "",
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#8E8E8E",
+                "color": "text",
                 "value": null
               }
             ]
@@ -186,12 +186,12 @@
               "options": {
                 "1": {
                   "text": "YES",
-                  "color": "#73BF69",
+                  "color": "green",
                   "index": 0
                 },
                 "0": {
                   "text": "NO",
-                  "color": "#F2495C",
+                  "color": "red",
                   "index": 1
                 }
               }
@@ -231,27 +231,27 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Governor state",
-      "description": "Risk governor: OK, DEGRADED (throttled), or KILLED (halted).",
+      "title": "Governor",
+      "description": "0 OK / 1 degraded / 2 killed.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 8,
+        "w": 3,
+        "x": 7,
         "y": 1
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "",
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#8E8E8E",
+                "color": "text",
                 "value": null
               }
             ]
@@ -265,17 +265,17 @@
               "options": {
                 "0": {
                   "text": "OK",
-                  "color": "#73BF69",
+                  "color": "green",
                   "index": 0
                 },
                 "1": {
                   "text": "DEGRADED",
-                  "color": "#FF9830",
+                  "color": "yellow",
                   "index": 1
                 },
                 "2": {
                   "text": "KILLED",
-                  "color": "#F2495C",
+                  "color": "red",
                   "index": 2
                 }
               }
@@ -316,36 +316,36 @@
       "id": 5,
       "type": "gauge",
       "title": "Calibration gap",
-      "description": "Expected calibration error (ECE) between forecast and realized win-rate; lower is better since Kelly reads probabilities literally.",
+      "description": "ECE; keep small — Kelly reads probs literally.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 12,
+        "w": 3,
+        "x": 10,
         "y": 1
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "percent",
           "min": 0,
           "max": 0.2,
-          "decimals": 1,
+          "decimals": 3,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 0.1
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 0.15
               }
             ]
@@ -380,16 +380,16 @@
     {
       "id": 6,
       "type": "gauge",
-      "title": "Feature drift share",
-      "description": "Share of input features whose PSI signals distribution drift vs training; lower is better.",
+      "title": "Drift share",
+      "description": "Feature PSI drift fraction.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 16,
+        "w": 3,
+        "x": 13,
         "y": 1
       },
       "fieldConfig": {
@@ -402,15 +402,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 30
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 50
               }
             ]
@@ -445,8 +445,8 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Kelly multiplier",
-      "description": "Kelly-fraction size throttle applied to entries (1.0 = full model-implied size).",
+      "title": "Kelly mult",
+      "description": "Size throttle.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -454,12 +454,12 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 20,
+        "x": 16,
         "y": 1
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
@@ -508,7 +508,7 @@
       "id": 8,
       "type": "stat",
       "title": "Live labels",
-      "description": "Realized ground-truth labels; more labels earn more model complexity.",
+      "description": "Ground truth that earns model complexity.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -517,29 +517,25 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 6
+        "y": 1
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#8E8E8E",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "#F2495C",
-                "value": 0
-              },
-              {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 30
               },
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": 60
               }
             ]
@@ -581,35 +577,35 @@
     {
       "id": 9,
       "type": "stat",
-      "title": "Brier score",
-      "description": "Rolling Brier score of probability forecasts (mean squared error); lower is better and must beat baseline.",
+      "title": "Brier",
+      "description": "Rolling outcome Brier (lower better; must beat baseline).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
+        "w": 6,
         "x": 0,
         "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 3,
+          "unit": "",
+          "decimals": 4,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 0.24
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 0.25
               }
             ]
@@ -651,22 +647,22 @@
     {
       "id": 10,
       "type": "stat",
-      "title": "Baseline Brier",
-      "description": "Reference Brier the live model must beat to stay deployed.",
+      "title": "Baseline",
+      "description": "Bar Brier must beat.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 4,
+        "w": 6,
+        "x": 6,
         "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 3,
+          "unit": "",
+          "decimals": 4,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -714,7 +710,7 @@
       "id": 11,
       "type": "stat",
       "title": "Champion Brier",
-      "description": "Brier score of the currently deployed champion model.",
+      "description": "Deployed champion badge.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -722,13 +718,13 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 8,
+        "x": 12,
         "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 3,
+          "unit": "",
+          "decimals": 4,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -776,7 +772,7 @@
       "id": 12,
       "type": "stat",
       "title": "Shrinkage",
-      "description": "Amount forecasts are shrunk toward the base rate (0 = trust model, 1 = ignore model); lower is better.",
+      "description": "Shrink toward base rate.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -784,27 +780,19 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 12,
+        "x": 16,
         "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "#FF9830",
-                "value": 0.5
-              },
-              {
-                "color": "#F2495C",
-                "value": 0.8
               }
             ]
           },
@@ -845,8 +833,8 @@
     {
       "id": 13,
       "type": "stat",
-      "title": "Stop-widen multiplier",
-      "description": "Governor stop-distance multiplier (1.0 = normal; >1 widens stops defensively).",
+      "title": "Stop widen",
+      "description": "Governor stop-distance multiplier.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -854,12 +842,12 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 16,
+        "x": 20,
         "y": 6
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
@@ -907,14 +895,14 @@
     {
       "id": 14,
       "type": "bargauge",
-      "title": "Delivered hit rate",
-      "description": "Realized win-rate on the judge window; higher is better.",
+      "title": "Promised vs delivered (hit rate)",
+      "description": "Delivered win rate on the judge window.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 8,
         "x": 0,
         "y": 11
@@ -922,8 +910,6 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "min": 0,
-          "max": 100.0,
           "decimals": 1,
           "color": {
             "mode": "thresholds"
@@ -932,19 +918,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#8E8E8E",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "#F2495C",
-                "value": 0
-              },
-              {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 45
               },
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": 55
               }
             ]
@@ -983,13 +965,13 @@
       "id": 15,
       "type": "table",
       "title": "Per-asset signal quality",
-      "description": "Per-asset decision-quality signals: confidence, concentration, urgency and manipulation suspicion.",
+      "description": "Signal decision quality per asset.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 8,
         "x": 8,
         "y": 11
@@ -998,7 +980,7 @@
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": false,
+            "filterable": true,
             "cellOptions": {
               "type": "auto"
             },
@@ -1026,15 +1008,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#FF9830",
+                      "color": "yellow",
                       "value": 0.4
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0.7
                     }
                   ]
@@ -1075,15 +1057,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#FF9830",
+                      "color": "yellow",
                       "value": 0.4
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0.7
                     }
                   ]
@@ -1140,15 +1122,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": null
                     },
                     {
-                      "color": "#FF9830",
+                      "color": "yellow",
                       "value": 0.4
                     },
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": 0.7
                     }
                   ]
@@ -1265,13 +1247,13 @@
       "id": 16,
       "type": "table",
       "title": "Learned gate weights",
-      "description": "Learned evidence weight assigned to each signal gate.",
+      "description": "Evidence weight per gate.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 8,
         "x": 16,
         "y": 11
@@ -1280,7 +1262,7 @@
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": false,
+            "filterable": true,
             "cellOptions": {
               "type": "auto"
             },
@@ -1308,15 +1290,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#FF9830",
+                      "color": "yellow",
                       "value": 0.4
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0.7
                     }
                   ]
@@ -1399,7 +1381,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 16
       },
       "panels": []
     },
@@ -1407,16 +1389,16 @@
       "id": 18,
       "type": "gauge",
       "title": "Gross exposure",
-      "description": "Gross notional as % of equity vs the 35% heat cap; lower is better.",
+      "description": "Gross notional %/equity vs the 35% heat cap.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
+        "w": 5,
         "x": 0,
-        "y": 18
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
@@ -1428,15 +1410,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 24.5
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 31.5
               }
             ]
@@ -1472,16 +1454,16 @@
       "id": 19,
       "type": "gauge",
       "title": "Portfolio heat",
-      "description": "Conditional-VaR portfolio heat as % of the cap; lower is better.",
+      "description": "CVaR portfolio heat vs cap.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 4,
-        "y": 18
+        "w": 5,
+        "x": 5,
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
@@ -1493,15 +1475,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 24.5
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 31.5
               }
             ]
@@ -1537,26 +1519,26 @@
       "id": 20,
       "type": "stat",
       "title": "Open positions",
-      "description": "Number of open positions (cap 5).",
+      "description": "Open count (max 5).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 8,
-        "y": 18
+        "w": 3,
+        "x": 10,
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "blue",
                 "value": null
               }
             ]
@@ -1599,20 +1581,20 @@
       "id": 21,
       "type": "stat",
       "title": "Open risk",
-      "description": "Dollars at risk to stops across open positions.",
+      "description": "$ at risk to stops.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 18
+        "w": 3,
+        "x": 13,
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
@@ -1661,7 +1643,7 @@
       "id": 22,
       "type": "stat",
       "title": "Open uPnL",
-      "description": "Unrealized P&L across open positions.",
+      "description": "Unrealized across positions.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1670,21 +1652,21 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 18
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": 0
               }
             ]
@@ -1727,7 +1709,7 @@
       "id": 23,
       "type": "stat",
       "title": "Gross exposure $",
-      "description": "Gross open notional in dollars.",
+      "description": "Gross notional $.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1736,11 +1718,11 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 18
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
@@ -1788,23 +1770,23 @@
     {
       "id": 24,
       "type": "table",
-      "title": "Open positions — net per instrument",
-      "description": "Open instruments with unrealized P&L, R-multiple and stop distance; green rows are working, red need managing.",
+      "title": "Open positions (net per instrument)",
+      "description": "Open instruments; green uPnL/R rows are working, red need managing.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 7,
+        "h": 5,
         "w": 12,
         "x": 0,
-        "y": 23
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": false,
+            "filterable": true,
             "cellOptions": {
               "type": "auto"
             },
@@ -1820,7 +1802,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "currencyUSD"
+                "value": "prefix:$"
               },
               {
                 "id": "decimals",
@@ -1832,11 +1814,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0
                     }
                   ]
@@ -1877,11 +1859,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0
                     }
                   ]
@@ -1922,11 +1904,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0
                     }
                   ]
@@ -1955,7 +1937,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "currencyUSD"
+                "value": "prefix:$"
               },
               {
                 "id": "decimals",
@@ -1983,15 +1965,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#FF9830",
+                      "color": "yellow",
                       "value": 0.4
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0.7
                     }
                   ]
@@ -2186,14 +2168,14 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 7,
+        "h": 5,
         "w": 12,
         "x": 12,
-        "y": 23
+        "y": 22
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 2,
           "color": {
             "mode": "thresholds"
@@ -2202,11 +2184,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": 0
               }
             ]
@@ -2251,7 +2233,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 27
       },
       "panels": []
     },
@@ -2259,16 +2241,16 @@
       "id": 27,
       "type": "gauge",
       "title": "Maker share",
-      "description": "Share of fills that were maker (passive, cheaper); higher is better.",
+      "description": "% fills that were maker (cheaper).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
+        "w": 5,
         "x": 0,
-        "y": 31
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -2276,28 +2258,24 @@
           "min": 0,
           "max": 100.0,
           "decimals": 1,
-          "noValue": "no fills yet",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#8E8E8E",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "#F2495C",
-                "value": 0
-              },
-              {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 60
               },
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": 80
               }
             ]
-          }
+          },
+          "noValue": "no fills yet"
         },
         "overrides": []
       },
@@ -2337,26 +2315,26 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 4,
-        "y": 31
+        "x": 5,
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: bps",
+          "unit": "short",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 3
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 8
               }
             ]
@@ -2369,7 +2347,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -2400,34 +2378,34 @@
       "id": 29,
       "type": "stat",
       "title": "Worst slippage",
-      "description": "Worst single implementation shortfall vs arrival in the window; lower is better.",
+      "description": "Worst single implementation shortfall vs arrival in the window.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 8,
-        "y": 31
+        "w": 3,
+        "x": 9,
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: bps",
+          "unit": "short",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 3
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 8
               }
             ]
@@ -2440,7 +2418,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -2471,7 +2449,7 @@
       "id": 30,
       "type": "stat",
       "title": "Venue RTT",
-      "description": "Private POST round-trip latency on the order path; lower is better.",
+      "description": "Private POST RTT (order path).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2480,7 +2458,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 31
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -2490,15 +2468,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 250
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 500
               }
             ]
@@ -2541,7 +2519,7 @@
       "id": 31,
       "type": "stat",
       "title": "Venue rejects",
-      "description": "AddOrder rejects from the venue (OM-021); lower is better.",
+      "description": "OM-021 AddOrder rejects.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2550,25 +2528,25 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 31
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 3
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 5
               }
             ]
@@ -2580,7 +2558,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
@@ -2611,7 +2589,7 @@
       "id": 32,
       "type": "stat",
       "title": "Dead-man failures",
-      "description": "Dead-man refresh failures leaving resting orders unguarded (OM-050); any non-zero is critical.",
+      "description": "OM-050 refresh failures — resting orders unguarded.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2620,21 +2598,21 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 31
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 1
               }
             ]
@@ -2677,20 +2655,20 @@
       "id": 33,
       "type": "stat",
       "title": "Maker fills",
-      "description": "Maker fills in the window.",
+      "description": "Maker fills in window.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 3,
         "x": 0,
-        "y": 36
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
@@ -2739,20 +2717,20 @@
       "id": 34,
       "type": "stat",
       "title": "Taker fills",
-      "description": "Taker fills (exit-ladder rung) in the window.",
+      "description": "Taker fills (exit-ladder rung).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 36
+        "w": 3,
+        "x": 3,
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
@@ -2808,13 +2786,13 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 36
+        "w": 4,
+        "x": 6,
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
@@ -2870,13 +2848,13 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 36
+        "w": 4,
+        "x": 10,
+        "y": 33
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "prefix:$",
           "decimals": 0,
           "thresholds": {
             "mode": "absolute",
@@ -2925,22 +2903,22 @@
       "id": 37,
       "type": "table",
       "title": "Post-fill mark-out (adverse selection)",
-      "description": "Price drift after our fills; persistently negative mark-out means we are being picked off.",
+      "description": "Price drift after our fill; persistently negative = picked off.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 7,
+        "h": 6,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "filterable": false,
+            "filterable": true,
             "cellOptions": {
               "type": "auto"
             },
@@ -2956,7 +2934,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "suffix: bps"
+                "value": "short"
               },
               {
                 "id": "decimals",
@@ -2968,11 +2946,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "#F2495C",
+                      "color": "red",
                       "value": null
                     },
                     {
-                      "color": "#73BF69",
+                      "color": "green",
                       "value": 0
                     }
                   ]
@@ -3050,21 +3028,21 @@
     {
       "id": 38,
       "type": "bargauge",
-      "title": "Average slippage vs arrival",
-      "description": "Implementation shortfall vs arrival mark, rolling avg bps (negative = price improvement).",
+      "title": "Slippage by fill quality — avg vs worst (bps)",
+      "description": "Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 7,
+        "h": 6,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 37
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "suffix: bps",
+          "unit": "short",
           "decimals": 1,
           "color": {
             "mode": "thresholds"
@@ -3073,15 +3051,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "green",
                 "value": null
               },
               {
-                "color": "#FF9830",
+                "color": "yellow",
                 "value": 3
               },
               {
-                "color": "#F2495C",
+                "color": "red",
                 "value": 8
               }
             ]

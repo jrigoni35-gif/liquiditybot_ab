@@ -366,6 +366,26 @@ def _author_command():
     stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 7, decimals=2,
          steps=PNL, desc="Avg trade in R-multiples.")
 
+    # Health strip sits directly under Performance: the operator's first glance
+    # answers "is the bot alive & safe" before "how are the pools doing".
+    row("🩺 Health")
+    state("Bot", M("liquiditybot_running"), 3, 4, UP_DOWN, desc="runner RUNNING.")
+    state("Governor", M("liquiditybot_monitor_level"), 3, 4, GOV,
+          desc="0 OK / 1 degraded / 2 killed.")
+    state("Entries", M("liquiditybot_entries_enabled"), 3, 4, ON_OFF,
+          desc="New-risk entries enabled (exits always allowed).")
+    state("Halted", M("liquiditybot_halted"), 3, 4, HALT, desc="Global halt.")
+    state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 3, 4, WS,
+          desc="Push book vs REST fallback.")
+    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 3, 4, unit="ms",
+         decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA.")
+    stat("Status age", M("liquiditybot_status_age_sec"), 3, 4, unit="s",
+         decimals=0, steps=[{"color": "green", "value": None},
+         {"color": "yellow", "value": 120}, {"color": "red", "value": 300}],
+         desc="Seconds since last status write.")
+    stat("Cycle", M("liquiditybot_cycle"), 3, 4, decimals=0, steps=BLUE,
+         desc="Fast-cycle counter (advancing = alive).")
+
     row("🏦 Profit pools & weekly rollover")
     stat("P&L this week", M("liquiditybot_weekly_pnl"), 5, 5, unit=USD,
          steps=PNL, desc="Realized P&L since the ISO-week open (Mon 00:00 "
@@ -394,24 +414,6 @@ def _author_command():
                       (M("liquiditybot_weekly_pnl"), "weekly P&L")],
                desc="Savings + reserve accrual and the week's running "
                     "realized P&L - the rollover ritual made visible.")
-
-    row("🩺 Health")
-    state("Bot", M("liquiditybot_running"), 3, 4, UP_DOWN, desc="runner RUNNING.")
-    state("Governor", M("liquiditybot_monitor_level"), 3, 4, GOV,
-          desc="0 OK / 1 degraded / 2 killed.")
-    state("Entries", M("liquiditybot_entries_enabled"), 3, 4, ON_OFF,
-          desc="New-risk entries enabled (exits always allowed).")
-    state("Halted", M("liquiditybot_halted"), 3, 4, HALT, desc="Global halt.")
-    state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 3, 4, WS,
-          desc="Push book vs REST fallback.")
-    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 3, 4, unit="ms",
-         decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA.")
-    stat("Status age", M("liquiditybot_status_age_sec"), 3, 4, unit="s",
-         decimals=0, steps=[{"color": "green", "value": None},
-         {"color": "yellow", "value": 120}, {"color": "red", "value": 300}],
-         desc="Seconds since last status write.")
-    stat("Cycle", M("liquiditybot_cycle"), 3, 4, decimals=0, steps=BLUE,
-         desc="Fast-cycle counter (advancing = alive).")
 
     row("🧠 Learning brain")
     timeseries("Learning rows by label (live vs candidate)",
@@ -665,6 +667,10 @@ def _author_execution():
 
 # ==================== board 3 · problem / solution =========================
 def _author_problem():
+    text("", "**Incident board — a calm board is all green.** Every tile is a "
+             "PROBLEM paired with the SOLUTION that fires automatically; any "
+             "non-zero / amber / red tile is a live incident worth a look. "
+             "Refresh 30s · window 24h.", 24, 3)
     row("📡 Feed & data integrity")
     stat("Stale status", M("liquiditybot_status_age_sec"), 4, 5, unit="s",
          decimals=0, mode="background", graph="none",
