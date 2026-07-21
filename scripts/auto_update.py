@@ -122,10 +122,15 @@ def battery_passes(worktree: Path) -> bool:
 
 def _replay_gate_passes(worktree: Path, py: str) -> bool:
     global _BATTERY_DETAIL
+    # force UTF-8 in the child + decode as UTF-8 here, so the gate's report text
+    # can never UnicodeEncodeError on a cp1252 Windows console and wedge the
+    # deploy (a crashed gate reads as a failed battery -> update refused).
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     try:
         g = subprocess.run([py, "scripts/replay_gate.py"],  # nosec B603
-                           cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200, **_NOWIN)
+                           cwd=str(worktree), capture_output=True,
+                           encoding="utf-8", errors="replace",
+                           timeout=1200, env=env, **_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"replay gate could not run ({e}) - refusing the update")
         _BATTERY_DETAIL = f"replay gate error: {e}"

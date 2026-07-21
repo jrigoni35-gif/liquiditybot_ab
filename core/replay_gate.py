@@ -127,7 +127,7 @@ def run_gate(rec_dir, replay_fn: Callable[[str], dict], *,
     """
     recs = discover_recordings(rec_dir)[:max_recordings]
     if not recs:
-        return GateResult("SKIP", 0, "no recordings present — gate dormant")
+        return GateResult("SKIP", 0, "no recordings present - gate dormant")
     details: list = []
     failed = False
     for rec in recs:

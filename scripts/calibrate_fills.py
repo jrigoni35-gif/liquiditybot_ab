@@ -247,21 +247,21 @@ def render_report(ledger: dict, results: list, sf_base_current: float,
                          f"{band} |")
         if misspec:
             lines += ["", f"> **{Code.XV_CALIB_MISSPECIFIED.value}**: "
-                      "per-distance buckets disagree — the exp(-d_bar) form is "
+                      "per-distance buckets disagree - the exp(-d_bar) form is "
                       "misspecified; treat any single number with suspicion."]
         if headline is None:
             lines += ["", f"**{Code.XV_CALIB_DEFERRED.value}**: no near-touch "
-                      "bucket is adequately powered yet — no recommendation."]
+                      "bucket is adequately powered yet - no recommendation."]
         elif headline.status == "NO_CHANGE":
             lines += ["", f"**Recommendation: no change.** current "
                       f"{sf_base_current:.3f} sits inside the sampling band "
                       f"{obj['headline']['band']}."]
         else:
             lines += ["", f"**{Code.XV_CALIB_RECOMMEND.value}**: recommend "
-                      f"`passive_base_prob` ≈ "
+                      f"`passive_base_prob` ~= "
                       f"**{headline.sf_base_star:.3f}** "
                       f"(band {obj['headline']['band']}, n={headline.n}). "
-                      "Analysis only — review before changing config."]
+                      "Analysis only - review before changing config."]
     return "\n".join(lines) + "\n", obj
 
 
