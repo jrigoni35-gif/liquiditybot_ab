@@ -102,7 +102,7 @@ def row(title):
 
 def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
          mode="value", mappings=None, text_mode="auto", graph="area",
-         no_value=None):
+         no_value=None, display_name=None):
     """KPI tile. graph='area' draws a sparkline behind the number (the default,
     for the professional look); graph='none' for pure state/count tiles.
     no_value: honest empty-state text for event-sparse series (fills,
@@ -115,6 +115,8 @@ def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
            "color": {"mode": "thresholds"}}
     if no_value:
         fld["noValue"] = no_value
+    if display_name:
+        fld["displayName"] = display_name
     if mappings:
         fld["mappings"] = mappings
     panels.append({
@@ -254,7 +256,10 @@ def table(title, w, h, cols, label_keys, sort=None, desc=""):
             {"id": "merge", "options": {}},
             {"id": "organize", "options": {
                 "excludeByName": {"Time": True, "job": True, "instance": True,
-                                  "__name__": True},
+                                  "__name__": True,
+                                  "service_name": True,
+                                  "service_namespace": True,
+                                  "deployment_environment": True},
                 "renameByName": rename, "indexByName": order}}]})
 
 
@@ -303,7 +308,7 @@ DRIFT = [{"color": "green", "value": None}, {"color": "yellow", "value": 0.3},
 BUDGET = [{"color": "green", "value": None}, {"color": "yellow", "value": 60},
           {"color": "red", "value": 90}]
 
-ON_OFF = {"1": ("YES", "green"), "0": ("NO", "red")}
+ON_OFF = {"1": ("YES", "green"), "0": ("NO", "#8E8E93")}
 UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
 WS = {"1": ("LIVE", "green"), "0": ("REST", "yellow")}
 HALT = {"1": ("HALTED", "red"), "0": ("clear", "green")}
@@ -562,33 +567,39 @@ def _author_execution():
     row("🧠 Decision model")
     stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)", 4, 5,
          text_mode="name", steps=BLUE, graph="none",
+         display_name="${__field.labels.kind}",
          desc="Deployed rung (evidence-gated).")
-    state("Model in use", M("liquiditybot_ml_use_model"), 3, 5, ON_OFF,
-          desc="Model sizes trades vs the cold-start prior.")
-    state("Governor", M("liquiditybot_monitor_level"), 3, 5, GOV,
+    state("Model in use", M("liquiditybot_ml_use_model"), 4, 5, ON_OFF,
+          desc="Model sizes trades vs the cold-start prior; NO is a "
+          "stand-down, not a fault.")
+    state("Governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 degraded / 2 killed.")
-    gauge("Calibration gap", M("liquiditybot_ml_calibration_gap"), 3, 5,
+    gauge("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
           mx=0.2, decimals=3, steps=CALIB, desc="ECE; keep small — Kelly reads "
           "probs literally.")
-    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 3, 5,
+    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="Feature PSI drift fraction.")
     stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 5, decimals=2,
          steps=GRN, desc="Size throttle.")
-    stat("Live labels", M('liquiditybot_ml_labels{source="live"}'), 4, 5,
-         decimals=0, steps=[{"color": "red", "value": None},
+    # the Brier trio is ONE comparison chart, not three scattered tiles —
+    # lower is better, live must undercut baseline (validated categorical set)
+    timeseries("Brier · live vs champion vs baseline",
+               M("liquiditybot_ml_brier"), 12, 6, legend="live",
+               decimals=4, calcs=["lastNotNull"],
+               extra=[(M("liquiditybot_ml_champion_brier"), "champion"),
+                      (M("liquiditybot_ml_baseline_brier"), "baseline")],
+               desc="Rolling outcome Brier: live vs deployed champion vs the "
+               "base-rate baseline. Lower is better.")
+    stat("Live labels",
+         'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
+         4, 6, decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
          desc="Ground truth that earns model complexity.")
-    stat("Brier", M("liquiditybot_ml_brier"), 6, 5, decimals=4, steps=BRIER,
-         desc="Rolling outcome Brier (lower better; must beat baseline).")
-    stat("Baseline", M("liquiditybot_ml_baseline_brier"), 6, 5, decimals=4,
-         steps=GRN, desc="Bar Brier must beat.")
-    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 5,
-         decimals=4, steps=GRN, desc="Deployed champion badge.")
-    stat("Shrinkage", M("liquiditybot_ml_shrinkage"), 4, 5, decimals=2,
+    stat("Shrinkage", M("liquiditybot_ml_shrinkage"), 4, 6, decimals=2,
          steps=GRN, desc="Shrink toward base rate.")
-    stat("Stop widen", M("liquiditybot_ml_stop_widen"), 4, 5, decimals=2,
+    stat("Stop widen", M("liquiditybot_ml_stop_widen"), 4, 6, decimals=2,
          steps=GRN, desc="Governor stop-distance multiplier.")
     bargauge("Promised vs delivered (hit rate)",
              _pa("liquiditybot_ml_hit_rate", "*100"), 8, 5, unit="percent",
@@ -606,13 +617,13 @@ def _author_execution():
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
 
     row("📦 Inventory & positioning")
-    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 5, 5, mx=35.0,
+    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5, mx=35.0,
           desc="Gross notional %/equity vs the 35% heat cap.")
-    gauge("Portfolio heat", M("liquiditybot_rp_heat_frac", "*100"), 5, 5,
+    gauge("Portfolio heat", M("liquiditybot_rp_heat_frac", "*100"), 4, 5,
           mx=35.0, desc="CVaR portfolio heat vs cap.")
-    stat("Open positions", M("liquiditybot_positions_open"), 3, 5, decimals=0,
+    stat("Open positions", M("liquiditybot_positions_open"), 4, 5, decimals=0,
          steps=BLUE, desc="Open count (max 5).")
-    stat("Open risk", M("liquiditybot_open_risk_usd"), 3, 5, unit=USD,
+    stat("Open risk", M("liquiditybot_open_risk_usd"), 4, 5, unit=USD,
          steps=GRN, desc="$ at risk to stops.")
     stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit=USD,
          steps=PNL, desc="Unrealized across positions.")
