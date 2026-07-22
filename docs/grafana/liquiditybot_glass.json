@@ -1,6 +1,6 @@
 {
   "uid": "liquiditybot-glass",
-  "title": "liquiditybot \u00b7 Liquid Glass",
+  "title": "liquiditybot · Liquid Glass",
   "description": "Apple Liquid Glass command board (v9). Curated to the ~22 panels a trading desk scans, top-down by decision urgency: vitals -> money -> risk heat -> the book -> execution -> model. Semantic-only color (Apple system palette). Beautiful natively on any Grafana Cloud; for the full frosted-glass DOM restyle, install the signed 'Business Text' panel (marcusolsson-dynamictext-panel) and move the CSS from the hidden injector tile into its afterRender JS (Cloud sanitizes native <style>). See docs/grafana/README_glass.md.",
   "tags": [
     "liquiditybot",
@@ -28,7 +28,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "VITALS \u00b7 Alive & Armed",
+      "title": "VITALS · Alive & Armed",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -513,7 +513,7 @@
     {
       "id": 8,
       "type": "row",
-      "title": "MONEY \u00b7 Equity & P&L Today",
+      "title": "MONEY · Equity & P&L Today",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -892,7 +892,7 @@
     {
       "id": 14,
       "type": "row",
-      "title": "RISK HEAT \u00b7 Exposure & Budget",
+      "title": "RISK HEAT · Exposure & Budget",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1177,7 +1177,7 @@
     {
       "id": 19,
       "type": "row",
-      "title": "THE BOOK \u00b7 Open Positions & R",
+      "title": "THE BOOK · Open Positions & R",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1190,7 +1190,7 @@
     {
       "id": 20,
       "type": "table",
-      "title": "Open Positions \u00b7 Book",
+      "title": "Open Positions · Book",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1542,7 +1542,7 @@
     {
       "id": 22,
       "type": "row",
-      "title": "EXECUTION \u00b7 Fill Quality & Adverse Selection",
+      "title": "EXECUTION · Fill Quality & Adverse Selection",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1555,7 +1555,7 @@
     {
       "id": 23,
       "type": "table",
-      "title": "Adverse Selection \u00b7 Markout (bps)",
+      "title": "Adverse Selection · Markout (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1831,7 +1831,7 @@
     {
       "id": 26,
       "type": "bargauge",
-      "title": "Makeability \u00b7 Spread (bps)",
+      "title": "Makeability · Spread (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1905,7 +1905,7 @@
     {
       "id": 27,
       "type": "row",
-      "title": "MODEL \u00b7 ML Governor Health",
+      "title": "MODEL · ML Governor Health",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1918,7 +1918,7 @@
     {
       "id": 28,
       "type": "timeseries",
-      "title": "Model Edge \u00b7 Brier trio (lower = better)",
+      "title": "Model Edge · Brier trio (lower = better)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2363,7 +2363,7 @@
       "transparent": true,
       "options": {
         "mode": "html",
-        "content": "<style id=\"lb-glass\">\n/* ===== liquiditybot \u00b7 Apple Liquid Glass skin ===================== */\n.main-view, .scrollbar-view { background: #000 !important; }\nhtml, body, .main-view, [class*=\"dashboard\"] {\n  font-family: -apple-system, \"SF Pro Text\", \"SF Pro Display\", \"Inter\",\n               system-ui, sans-serif !important;\n  -webkit-font-smoothing: antialiased;\n}\n/* every panel body -> frosted glass card (regular material, dark) */\n[data-testid=\"data-testid panel content\"] {\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\n              rgba(28,28,30,.50) 100%) !important;\n  backdrop-filter: blur(22px) saturate(180%);\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\n  border: .5px solid rgba(255,255,255,.12) !important;\n  border-radius: 20px !important;\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\n}\n.react-grid-item { background: transparent !important; }\n/* header chrome -> quiet uppercase eyebrow */\n[data-testid^=\"data-testid Panel header\"] { background: transparent !important;\n  border: 0 !important; }\n[data-testid=\"data-testid header-container\"] {\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\n/* row titles -> section labels */\n[data-testid^=\"data-testid dashboard-row-title-\"] {\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\n/* hide THIS injector's own tile */\n[data-viz-panel-key=\"panel-999\"] { display: none !important; }\n</style>\n<span id=\"lb-glass-marker\"></span>",
+        "content": "<style id=\"lb-glass\">\n/* ===== liquiditybot · Apple Liquid Glass skin ===================== */\n.main-view, .scrollbar-view { background: #000 !important; }\nhtml, body, .main-view, [class*=\"dashboard\"] {\n  font-family: -apple-system, \"SF Pro Text\", \"SF Pro Display\", \"Inter\",\n               system-ui, sans-serif !important;\n  -webkit-font-smoothing: antialiased;\n}\n/* every panel body -> frosted glass card (regular material, dark) */\n[data-testid=\"data-testid panel content\"] {\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\n              rgba(28,28,30,.50) 100%) !important;\n  backdrop-filter: blur(22px) saturate(180%);\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\n  border: .5px solid rgba(255,255,255,.12) !important;\n  border-radius: 20px !important;\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\n}\n.react-grid-item { background: transparent !important; }\n/* header chrome -> quiet uppercase eyebrow */\n[data-testid^=\"data-testid Panel header\"] { background: transparent !important;\n  border: 0 !important; }\n[data-testid=\"data-testid header-container\"] {\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\n/* row titles -> section labels */\n[data-testid^=\"data-testid dashboard-row-title-\"] {\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\n/* hide THIS injector's own tile */\n[data-viz-panel-key=\"panel-999\"] { display: none !important; }\n</style>\n<span id=\"lb-glass-marker\"></span>",
         "code": {
           "language": "html",
           "showLineNumbers": false,

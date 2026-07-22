@@ -1,6 +1,6 @@
 {
   "uid": "liquiditybot-exec",
-  "title": "liquiditybot \u2014 models \u00b7 inventory \u00b7 execution",
+  "title": "liquiditybot — models · inventory · execution",
   "description": "Decision-model health, inventory/positioning & heat, and execution fill quality (maker/taker, slippage, mark-out).",
   "tags": [
     "execution",
@@ -20,7 +20,7 @@
   },
   "links": [
     {
-      "title": "\u2318 Command",
+      "title": "⌘ Command",
       "type": "link",
       "url": "/d/liquiditybot-trading",
       "icon": "dashboard",
@@ -32,7 +32,7 @@
       "tags": []
     },
     {
-      "title": "\u2699 Models\u00b7Inv\u00b7Exec",
+      "title": "⚙ Models·Inv·Exec",
       "type": "link",
       "url": "/d/liquiditybot-exec",
       "icon": "dashboard",
@@ -44,7 +44,7 @@
       "tags": []
     },
     {
-      "title": "\ud83e\ude79 Problem/Solution",
+      "title": "🩹 Problem/Solution",
       "type": "link",
       "url": "/d/liquiditybot-problem-solution",
       "icon": "dashboard",
@@ -56,7 +56,7 @@
       "tags": []
     },
     {
-      "title": "\ud83d\udd0e Screening",
+      "title": "🔎 Screening",
       "type": "link",
       "url": "/d/liquiditybot-screening",
       "icon": "dashboard",
@@ -78,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "\ud83e\udde0 Decision model",
+      "title": "🧠 Decision model",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -317,7 +317,7 @@
       "id": 5,
       "type": "gauge",
       "title": "Calibration gap",
-      "description": "ECE; keep small \u2014 Kelly reads probs literally.",
+      "description": "ECE; keep small — Kelly reads probs literally.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1376,7 +1376,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "\ud83d\udce6 Inventory & positioning",
+      "title": "📦 Inventory & positioning",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2194,7 +2194,7 @@
               }
             ]
           },
-          "noValue": "flat \u2014 no open positions"
+          "noValue": "flat — no open positions"
         },
         "overrides": []
       },
@@ -2228,7 +2228,7 @@
     {
       "id": 26,
       "type": "row",
-      "title": "\u26a1 Execution quality",
+      "title": "⚡ Execution quality",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2590,7 +2590,7 @@
       "id": 32,
       "type": "stat",
       "title": "Dead-man failures",
-      "description": "OM-050 refresh failures \u2014 resting orders unguarded.",
+      "description": "OM-050 refresh failures — resting orders unguarded.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3029,7 +3029,7 @@
     {
       "id": 38,
       "type": "bargauge",
-      "title": "Slippage by fill quality \u2014 avg vs worst (bps)",
+      "title": "Slippage by fill quality — avg vs worst (bps)",
       "description": "Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).",
       "datasource": {
         "type": "prometheus",
@@ -3096,6 +3096,5 @@
         }
       ]
     }
-  ],
-  "version": 1
+  ]
 }

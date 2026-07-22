@@ -1,6 +1,6 @@
 {
   "uid": "liquiditybot-trading",
-  "title": "liquiditybot \u2014 command",
+  "title": "liquiditybot — command",
   "description": "Daily driver: performance, health, learning brain, per-asset edge, positions & risk.",
   "tags": [
     "command",
@@ -20,7 +20,7 @@
   },
   "links": [
     {
-      "title": "\u2318 Command",
+      "title": "⌘ Command",
       "type": "link",
       "url": "/d/liquiditybot-trading",
       "icon": "dashboard",
@@ -32,7 +32,7 @@
       "tags": []
     },
     {
-      "title": "\u2699 Models\u00b7Inv\u00b7Exec",
+      "title": "⚙ Models·Inv·Exec",
       "type": "link",
       "url": "/d/liquiditybot-exec",
       "icon": "dashboard",
@@ -44,7 +44,7 @@
       "tags": []
     },
     {
-      "title": "\ud83e\ude79 Problem/Solution",
+      "title": "🩹 Problem/Solution",
       "type": "link",
       "url": "/d/liquiditybot-problem-solution",
       "icon": "dashboard",
@@ -56,7 +56,7 @@
       "tags": []
     },
     {
-      "title": "\ud83d\udd0e Screening",
+      "title": "🔎 Screening",
       "type": "link",
       "url": "/d/liquiditybot-screening",
       "icon": "dashboard",
@@ -78,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "\ud83d\udcb9 Performance",
+      "title": "💹 Performance",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -481,7 +481,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Equity curve",
-      "description": "Account equity over time \u2014 exact dollars (no K-rounding); the legend table shows last/min/max to the cent.",
+      "description": "Account equity over time — exact dollars (no K-rounding); the legend table shows last/min/max to the cent.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -685,7 +685,7 @@
     {
       "id": 11,
       "type": "row",
-      "title": "\ud83e\ude7a Health",
+      "title": "🩺 Health",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1300,7 +1300,7 @@
     {
       "id": 20,
       "type": "row",
-      "title": "\ud83c\udfe6 Profit pools & weekly rollover",
+      "title": "🏦 Profit pools & weekly rollover",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1655,7 +1655,7 @@
     {
       "id": 26,
       "type": "row",
-      "title": "\ud83e\udde0 Learning brain",
+      "title": "🧠 Learning brain",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1669,7 +1669,7 @@
       "id": 27,
       "type": "timeseries",
       "title": "Learning rows by label (live vs candidate)",
-      "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time \u2014 the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved. Total training rows = the sum of the two.",
+      "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time — the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved. Total training rows = the sum of the two.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1733,7 +1733,7 @@
       "id": 28,
       "type": "stat",
       "title": "Live labels",
-      "description": "Ground-truth closed-trade labels \u2014 earns model complexity.",
+      "description": "Ground-truth closed-trade labels — earns model complexity.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2538,7 +2538,7 @@
       "id": 40,
       "type": "stat",
       "title": "Clean live labels",
-      "description": "Live rows surviving the hygiene pass \u2014 the count the evidence gate actually admits model complexity on.",
+      "description": "Live rows surviving the hygiene pass — the count the evidence gate actually admits model complexity on.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2678,7 +2678,7 @@
       "id": 42,
       "type": "stat",
       "title": "Batch prior skew",
-      "description": "ML-074: trailing-window label prior vs corpus prior \u2014 SKEWED = a one-sided batch (e.g. all-zero quiet weekend) is moving calibration; detection only, weights untouched.",
+      "description": "ML-074: trailing-window label prior vs corpus prior — SKEWED = a one-sided batch (e.g. all-zero quiet weekend) is moving calibration; detection only, weights untouched.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2756,7 +2756,7 @@
     {
       "id": 43,
       "type": "row",
-      "title": "\u2696\ufe0f Per-asset edge",
+      "title": "⚖️ Per-asset edge",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2770,7 +2770,7 @@
       "id": 44,
       "type": "bargauge",
       "title": "Net $ by asset",
-      "description": "Realized net per asset \u2014 where P&L actually comes from.",
+      "description": "Realized net per asset — where P&L actually comes from.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3560,7 +3560,7 @@
     {
       "id": 48,
       "type": "row",
-      "title": "\ud83c\udfdb\ufe0f THALES \u2014 footprint & manipulation defense",
+      "title": "🏛️ THALES — footprint & manipulation defense",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3583,7 +3583,7 @@
       "transparent": false,
       "options": {
         "mode": "markdown",
-        "content": "**THALES** is the bot's footprint & manipulation-defense layer \u2014 evidence-weighted detectors that shade sizing when a book looks *engineered* rather than organic. Every score is **0\u20131** (higher = more suspicious) and **reliability-weighted**: a detector only bites once it has proven itself on realized outcomes (Wilson-LCB), so it can't cry wolf.\n\n- **grid / metronome / clockwork** \u2014 periodicity footprints: grid-bot ladders, fixed-interval refills, time-of-day algo seasonality.\n- **stop-zone** \u2014 proximity to round-number stop clusters (stop-hunt zones).\n- **bar-close** \u2014 order-flow clustering at bar closes.\n- **spoof bid / ask** \u2014 flicker: large levels that appear then vanish without the mid ever crossing (**TH-017**).\n- **feed dirty / lapses / bar holes** \u2014 feed integrity; a dirty feed is quarantined, never traded.\n\nTHALES **never triggers a trade** \u2014 it only *attenuates*: shade the size, or down-weight that row in learning (a painted book teaches the painter's lesson, not the market's).",
+        "content": "**THALES** is the bot's footprint & manipulation-defense layer — evidence-weighted detectors that shade sizing when a book looks *engineered* rather than organic. Every score is **0–1** (higher = more suspicious) and **reliability-weighted**: a detector only bites once it has proven itself on realized outcomes (Wilson-LCB), so it can't cry wolf.\n\n- **grid / metronome / clockwork** — periodicity footprints: grid-bot ladders, fixed-interval refills, time-of-day algo seasonality.\n- **stop-zone** — proximity to round-number stop clusters (stop-hunt zones).\n- **bar-close** — order-flow clustering at bar closes.\n- **spoof bid / ask** — flicker: large levels that appear then vanish without the mid ever crossing (**TH-017**).\n- **feed dirty / lapses / bar holes** — feed integrity; a dirty feed is quarantined, never traded.\n\nTHALES **never triggers a trade** — it only *attenuates*: shade the size, or down-weight that row in learning (a painted book teaches the painter's lesson, not the market's).",
         "code": {
           "language": "plaintext",
           "showLineNumbers": false,
@@ -3595,7 +3595,7 @@
       "id": 50,
       "type": "table",
       "title": "THALES detector scorecard (higher = more suspicious)",
-      "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) \u2014 it never triggers a trade.",
+      "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -4282,7 +4282,7 @@
       "id": 51,
       "type": "bargauge",
       "title": "Spoof-flicker pressure (bid)",
-      "description": "TH-017 spoof EWMA per asset \u2014 higher = a book being painted; THALES shades size there.",
+      "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -4494,7 +4494,7 @@
     {
       "id": 54,
       "type": "row",
-      "title": "\ud83d\udee1\ufe0f Positions & risk",
+      "title": "🛡️ Positions & risk",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -4899,7 +4899,7 @@
       "id": 56,
       "type": "stat",
       "title": "Loss streak (now)",
-      "description": "Consecutive losers now \u2014 circuit-breaker input.",
+      "description": "Consecutive losers now — circuit-breaker input.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -5339,6 +5339,5 @@
         }
       ]
     }
-  ],
-  "version": 1
+  ]
 }

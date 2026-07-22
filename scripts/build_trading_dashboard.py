@@ -873,6 +873,48 @@ def _board(uid, title, desc, author, extra_tag):
             "panels": list(panels)}
 
 
+# ---- Apple system palette (Liquid Glass design language) --------------------
+# The whole suite shares one visual language with the Glass boards: Grafana's
+# named colors / stock hexes are remapped onto the Apple dark-variant system
+# palette at GENERATION time, so the shipped JSON == generator invariant holds
+# and the semantics (green nominal/profit, red loss/unsafe, orange watch,
+# blue neutral-info, indigo model domain) stay exactly as authored.
+_APPLE = {
+    "green": "#30D158", "dark-green": "#30D158", "semi-dark-green": "#30D158",
+    "light-green": "#30D158", "super-light-green": "#30D158",
+    "#73BF69": "#30D158", "#56A64B": "#30D158", "#37872D": "#30D158",
+    "red": "#FF453A", "dark-red": "#FF453A", "semi-dark-red": "#FF453A",
+    "light-red": "#FF453A", "#F2495C": "#FF453A", "#E02F44": "#FF453A",
+    "orange": "#FF9F0A", "dark-orange": "#FF9F0A",
+    "semi-dark-orange": "#FF9F0A", "light-orange": "#FF9F0A",
+    "#FF9830": "#FF9F0A", "#FA6400": "#FF9F0A",
+    "yellow": "#FFD60A", "dark-yellow": "#FFD60A",
+    "semi-dark-yellow": "#FFD60A", "light-yellow": "#FFD60A",
+    "#FADE2A": "#FFD60A", "#EAB839": "#FFD60A", "#F2CC0C": "#FFD60A",
+    "blue": "#0A84FF", "dark-blue": "#0A84FF", "semi-dark-blue": "#0A84FF",
+    "light-blue": "#40CBE0", "super-light-blue": "#40CBE0",
+    "#5794F2": "#0A84FF", "#3274D9": "#0A84FF", "#1F60C4": "#0A84FF",
+    "purple": "#5E5CE6", "dark-purple": "#5E5CE6",
+    "semi-dark-purple": "#5E5CE6", "light-purple": "#5E5CE6",
+    "#B877D9": "#5E5CE6", "#8F3BB8": "#5E5CE6",
+}
+
+
+def _apple_palette(obj):
+    """Recursively remap every color-bearing field onto the Apple palette."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in ("color", "fixedColor", "lineColor", "fillColor") \
+                    and isinstance(v, str):
+                obj[k] = _APPLE.get(v, v)
+            else:
+                _apple_palette(v)
+    elif isinstance(obj, list):
+        for x in obj:
+            _apple_palette(x)
+    return obj
+
+
 DASHBOARDS = {
     "liquiditybot_command.json": _board(
         "liquiditybot-trading", "liquiditybot — command",
@@ -894,6 +936,11 @@ DASHBOARDS = {
         "(book, regime, signal quality, result).", _author_screening,
         "screening"),
 }
+for _d in DASHBOARDS.values():
+    _apple_palette(_d)
+    _tags = set(_d.get("tags") or [])
+    _tags.add("liquid-glass")
+    _d["tags"] = sorted(_tags)
 
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "grafana"
 
