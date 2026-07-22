@@ -148,7 +148,8 @@
           "range": true,
           "legendFormat": ""
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 3,
@@ -210,7 +211,8 @@
           "range": true,
           "legendFormat": ""
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 4,
@@ -272,7 +274,8 @@
           "range": true,
           "legendFormat": ""
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 5,
@@ -337,7 +340,8 @@
           "instant": true,
           "range": false
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 6,
@@ -416,7 +420,8 @@
           "range": false,
           "legendFormat": ""
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 7,
@@ -461,10 +466,12 @@
         "overrides": []
       },
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -485,7 +492,8 @@
           "range": false,
           "legendFormat": "{{pair}}"
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 8,
@@ -504,6 +512,7 @@
       },
       "fieldConfig": {
         "defaults": {
+          "noValue": "·",
           "custom": {
             "align": "auto",
             "filterable": true,
@@ -585,21 +594,24 @@
       ],
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "joinByField",
+          "options": {
+            "byField": "pair",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(pair|Value.*)$"
+            }
+          }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true,
-              "service_name": true,
-              "service_namespace": true,
-              "deployment_environment": true
-            },
+            "excludeByName": {},
             "renameByName": {
               "Value #A": "Promoted"
             },
@@ -609,7 +621,8 @@
             }
           }
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 9,
@@ -641,6 +654,7 @@
       },
       "fieldConfig": {
         "defaults": {
+          "noValue": "·",
           "custom": {
             "align": "auto",
             "filterable": true,
@@ -971,8 +985,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
                 }
               }
             ]
@@ -1016,8 +1029,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
                 }
               }
             ]
@@ -1167,21 +1179,24 @@
       ],
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "joinByField",
+          "options": {
+            "byField": "asset",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(asset|Value.*)$"
+            }
+          }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true,
-              "service_name": true,
-              "service_namespace": true,
-              "deployment_environment": true
-            },
+            "excludeByName": {},
             "renameByName": {
               "Value #A": "Spread bps",
               "Value #B": "Vol %",
@@ -1209,7 +1224,8 @@
             }
           }
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 11,
@@ -1267,10 +1283,12 @@
         "overrides": []
       },
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1291,7 +1309,8 @@
           "range": false,
           "legendFormat": "{{asset}}"
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 13,
@@ -1328,10 +1347,12 @@
         "overrides": []
       },
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1352,7 +1373,8 @@
           "range": false,
           "legendFormat": "{{asset}}"
         }
-      ]
+      ],
+      "transparent": true
     },
     {
       "id": 14,
@@ -1371,6 +1393,7 @@
       },
       "fieldConfig": {
         "defaults": {
+          "noValue": "·",
           "custom": {
             "align": "auto",
             "filterable": true,
@@ -1384,7 +1407,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Mark-out bps"
+              "options": "5s bps"
             },
             "properties": [
               {
@@ -1420,8 +1443,95 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background",
-                  "mode": "gradient"
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30s bps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#FF453A",
+                      "value": null
+                    },
+                    {
+                      "color": "#30D158",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "60s bps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#FF453A",
+                      "value": null
+                    },
+                    {
+                      "color": "#30D158",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
                 }
               }
             ]
@@ -1436,7 +1546,7 @@
         },
         "sortBy": [
           {
-            "displayName": "Mark-out bps",
+            "displayName": "5s bps",
             "desc": true
           }
         ]
@@ -1448,7 +1558,29 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_markout_bps{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon_sec=\"5\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon_sec=\"30\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon_sec=\"60\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1456,32 +1588,62 @@
       ],
       "transformations": [
         {
-          "id": "merge",
-          "options": {}
+          "id": "joinByField",
+          "options": {
+            "byField": "asset",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(asset|Value.*)$"
+            }
+          }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "job": true,
-              "instance": true,
-              "__name__": true,
-              "service_name": true,
-              "service_namespace": true,
-              "deployment_environment": true
-            },
+            "excludeByName": {},
             "renameByName": {
-              "Value #A": "Mark-out bps"
+              "Value #A": "5s bps",
+              "Value #B": "30s bps",
+              "Value #C": "60s bps"
             },
             "indexByName": {
               "asset": 0,
-              "horizon_sec": 1,
-              "Mark-out bps": 2
+              "5s bps": 1,
+              "30s bps": 2,
+              "60s bps": 3
             }
           }
         }
-      ]
+      ],
+      "transparent": true
+    },
+    {
+      "id": 990,
+      "type": "text",
+      "title": "",
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 1,
+        "x": 0,
+        "y": 33
+      },
+      "transparent": true,
+      "options": {
+        "mode": "html",
+        "content": "<style id=\"lb-glass\">\n.main-view, .scrollbar-view { background: #000 !important; }\nhtml, body, .main-view, [class*=\"dashboard\"] {\n  font-family: -apple-system, \"SF Pro Text\", \"SF Pro Display\", \"Inter\",\n               system-ui, sans-serif !important;\n  -webkit-font-smoothing: antialiased;\n}\n[data-testid=\"data-testid panel content\"] {\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\n              rgba(28,28,30,.50) 100%) !important;\n  backdrop-filter: blur(22px) saturate(180%);\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\n  border: .5px solid rgba(255,255,255,.12) !important;\n  border-radius: 20px !important;\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\n}\n.react-grid-item { background: transparent !important; }\n[data-testid^=\"data-testid Panel header\"] { background: transparent !important;\n  border: 0 !important; }\n[data-testid=\"data-testid header-container\"] {\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\n[data-testid^=\"data-testid dashboard-row-title-\"] {\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\n[data-viz-panel-key=\"panel-990\"] { display: none !important; }\n</style>\n<span id=\"lb-glass-marker\"></span>",
+        "code": {
+          "language": "html",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        }
+      },
+      "pluginVersion": "11.1.0"
     }
   ]
 }

@@ -11,8 +11,11 @@ numbers. Grounded in referenced practice: Grafana's dashboard best practices
 (one purpose per board, most-important top-left, no orphan queries), the
 RED/USE methods for the ops rows (rate/errors/duration; utilization/
 saturation/errors), and Tufte's data-ink principle for the analytics panels
-(exact values beside every trend; no decoration that isn't data). A
-consistent visual language across four focused boards:
+(exact values beside every trend; no decoration that isn't data). One Liquid
+Glass visual language across four focused boards (transparent panels, Apple
+system palette, value-only state tiles, basic-mode bar gauges, outer-joined
+tables, a dormant frosted-skin CSS injector — see
+docs/grafana/README_glass.md):
   * ACCURACY FIRST: every money panel uses the non-scaling USD unit (see
     below) so the number displayed IS the number the bot holds — no "$5.00K"
     for $4,997.92; the equity curve carries a last/min/max legend table;
@@ -46,6 +49,54 @@ JOB = '{job="liquiditybot"}'
 # renders the raw value with the panel's decimals, no K/M scaling, so every
 # money panel shows true dollars.
 USD = "prefix:$"
+
+# ---- Apple Liquid Glass constants ------------------------------------------
+# Semantic palette (mapped over named colors by _apple_palette) plus the
+# dataviz-validated categorical series set for multi-line charts.
+GREEN = "#30D158"
+RED_HEX = "#FF453A"
+ORANGE_HEX = "#FF9F0A"
+INDIGO = "#5E5CE6"
+GRAY_HEX = "#8E8E93"
+CAT_TEAL = "#2596AB"
+CAT_PURPLE = "#BF5AF2"
+
+INJ_ID = 990          # fixed id on every board so the CSS can self-hide
+
+# Hidden frosted-glass skin. Grafana Cloud sanitizes native <style> until
+# the signed Business Text plugin is installed (Admin-only) — the tile
+# ships dormant; see docs/grafana/README_glass.md.
+GLASS_CSS = """<style id="lb-glass">
+.main-view, .scrollbar-view { background: #000 !important; }
+html, body, .main-view, [class*="dashboard"] {
+  font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
+               system-ui, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+}
+[data-testid="data-testid panel content"] {
+  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,
+              rgba(28,28,30,.50) 100%) !important;
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: .5px solid rgba(255,255,255,.12) !important;
+  border-radius: 20px !important;
+  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),
+              inset 0 -1px 1px 0 rgba(0,0,0,.30),
+              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;
+}
+.react-grid-item { background: transparent !important; }
+[data-testid^="data-testid Panel header"] { background: transparent !important;
+  border: 0 !important; }
+[data-testid="data-testid header-container"] {
+  font-weight: 600; letter-spacing: .4px; font-size: 11px;
+  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }
+[data-testid^="data-testid dashboard-row-title-"] {
+  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;
+  font-weight: 700; color: rgba(235,235,245,.55) !important; }
+[data-viz-panel-key="panel-990"] { display: none !important; }
+</style>
+<span id="lb-glass-marker"></span>"""
+
 panels: list = []
 
 _cur = {"x": 0, "y": 0, "row_h": 0}
@@ -131,12 +182,12 @@ def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
         "targets": [_t(expr, instant=(graph == "none"), legend="")]})
 
 
-def state(title, expr, w, h, mapping, desc=""):
+def state(title, expr, w, h, mapping, desc="", no_value=None):
     opts = {k: {"text": v[0], "color": v[1], "index": i}
             for i, (k, v) in enumerate(mapping.items())}
     stat(title, expr, w, h, desc=desc, mode="background", text_mode="value",
          graph="none", mappings=[{"type": "value", "options": opts}],
-         steps=[{"color": "text", "value": None}])
+         steps=[{"color": "text", "value": None}], no_value=no_value)
 
 
 def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
@@ -160,10 +211,10 @@ def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
 
 
 def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
-               calcs=None, decimals=None, extra=None):
-    """calcs (e.g. ["lastNotNull","min","max"]) upgrades the legend to a
-    table with those reductions — exact numbers beside the trend, so the
-    curve never has to be eyeballed off the axis (Tufte: show the data)."""
+               calcs=None, decimals=None, extra=None, colors=None):
+    """calcs upgrades the legend to a table of reductions (exact numbers
+    beside the trend). colors: {series_name: hex} pins each line to a
+    fixed validated color instead of palette-classic rotation."""
     x, y = _place(w, h)
     fld = {"unit": unit, "custom": {
         "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
@@ -174,10 +225,15 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
         "color": {"mode": "palette-classic"}}
     if decimals is not None:
         fld["decimals"] = decimals
+    overrides = []
+    for name, col in (colors or {}).items():
+        overrides.append({"matcher": {"id": "byName", "options": name},
+                          "properties": [{"id": "color", "value": {
+                              "mode": "fixed", "fixedColor": col}}]})
     panels.append({
         "id": _id(), "type": "timeseries", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": fld, "overrides": []},
+        "fieldConfig": {"defaults": fld, "overrides": overrides},
         # showLegend MUST be present: the bare {displayMode:"hidden"} shape
         # blanks the whole timeseries plugin on current Grafana Cloud.
         "options": {"legend": {"showLegend": True,
@@ -190,9 +246,12 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
 
 
 def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
-             legend="{{asset}}", desc="", mn=None, mx=None, no_value=None):
-    """Horizontal gradient bars, one per series (asset/pair) — a compact,
-    professional ranked comparison."""
+             legend="{{asset}}", desc="", mn=None, mx=None, no_value=None,
+             extra=None):
+    """Horizontal bars, one per series — basic mode colors each bar by its
+    value (gradient mode paints the whole threshold ramp inside every bar,
+    which reads as data that isn't there). extra: [(expr, legend)] extra
+    targets, for ranked comparisons across scalar metrics."""
     x, y = _place(w, h)
     fld = {"unit": unit, "decimals": decimals, "color": {"mode": "thresholds"},
            "thresholds": {"mode": "absolute",
@@ -207,16 +266,51 @@ def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
         "id": _id(), "type": "bargauge", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "fieldConfig": {"defaults": fld, "overrides": []},
-        "options": {"displayMode": "gradient", "orientation": "horizontal",
+        "options": {"displayMode": "basic", "orientation": "horizontal",
                     "showUnfilled": True, "valueMode": "color",
+                    "namePlacement": "left", "sizing": "auto",
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
                                       "values": False}},
-        "targets": [_t(expr, instant=True, legend=legend)]})
+        "targets": [_t(expr, instant=True, legend=legend)] + [
+            _t(e, ref=chr(ord("B") + i), instant=True, legend=lg)
+            for i, (e, lg) in enumerate(extra or [])]})
 
 
-def table(title, w, h, cols, label_keys, sort=None, desc=""):
-    """cols: (metric_or_expr, name, unit, decimals[, thresholds]). A 5th
-    threshold element renders that column as a gradient-colored heatmap cell."""
+def donut(title, slices, w, h, colors, desc="", no_value=None):
+    """2-4 slice composition donut. slices: [(expr, legend)]; colors:
+    {legend: hex} — color follows the ENTITY, fixed, never positional."""
+    x, y = _place(w, h)
+    overrides = [{"matcher": {"id": "byName", "options": name},
+                  "properties": [{"id": "color", "value": {
+                      "mode": "fixed", "fixedColor": col}}]}
+                 for name, col in colors.items()]
+    fld = {"unit": "percentunit", "decimals": 1, "mappings": [],
+           "color": {"mode": "palette-classic"}}
+    if no_value:
+        fld["noValue"] = no_value
+    panels.append({
+        "id": _id(), "type": "piechart", "title": title, "description": desc,
+        "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "fieldConfig": {"defaults": fld, "overrides": overrides},
+        "options": {"pieType": "donut",
+                    "displayLabels": ["name", "percent"],
+                    "legend": {"displayMode": "list", "placement": "bottom",
+                               "showLegend": True},
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
+                                      "values": False},
+                    "tooltip": {"mode": "single"}},
+        "targets": [_t(e, ref=chr(ord("A") + i), instant=True, legend=lg)
+                    for i, (e, lg) in enumerate(slices)]})
+
+
+def table(title, w, h, cols, label_keys, sort=None, desc="", drop=()):
+    """cols: (metric_or_expr, name, unit, decimals[, thresholds[, cell]]).
+    cell "bg" (default) = color-background gradient heatmap cell; "text" =
+    color-text — REQUIRED for signed/PNL columns, because an outer join
+    leaves legitimately-absent cells null and a null background paints the
+    BASE threshold color (alarm red on PNL scales — the 7/22 defect).
+    Frames join outer on label_keys[0]; other label columns ride along
+    from the join; drop lists post-join duplicate columns to exclude."""
     x, y = _place(w, h)
     refs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     targets, rename, order, overrides = [], {}, {}, []
@@ -225,6 +319,7 @@ def table(title, w, h, cols, label_keys, sort=None, desc=""):
     for i, col in enumerate(cols):
         metric, name, unit, dec = col[0], col[1], col[2], col[3]
         thr = col[4] if len(col) > 4 else None
+        cell = col[5] if len(col) > 5 else "bg"
         r = refs[i]
         expr = metric if "(" in metric or "{" in metric else f"{metric}{JOB}"
         targets.append(_t(expr, ref=r, fmt="table"))
@@ -233,18 +328,20 @@ def table(title, w, h, cols, label_keys, sort=None, desc=""):
         props = [{"id": "unit", "value": unit},
                  {"id": "decimals", "value": dec}]
         if thr:
+            cell_opts = {"type": "color-background", "mode": "gradient"} \
+                if cell == "bg" else {"type": "color-text"}
             props += [
                 {"id": "thresholds",
                  "value": {"mode": "absolute", "steps": thr}},
                 {"id": "color", "value": {"mode": "thresholds"}},
-                {"id": "custom.cellOptions",
-                 "value": {"type": "color-background", "mode": "gradient"}}]
+                {"id": "custom.cellOptions", "value": cell_opts}]
         overrides.append({"matcher": {"id": "byName", "options": name},
                           "properties": props})
+    include = "^(" + "|".join(label_keys) + r"|Value.*)$"
     panels.append({
         "id": _id(), "type": "table", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"custom": {
+        "fieldConfig": {"defaults": {"noValue": "·", "custom": {
             "align": "auto", "filterable": True, "cellOptions": {"type": "auto"},
             "lineWidth": 1}}, "overrides": overrides},
         "options": {"showHeader": True, "cellHeight": "sm",
@@ -253,13 +350,12 @@ def table(title, w, h, cols, label_keys, sort=None, desc=""):
                                 "desc": bool(sort)}]},
         "targets": targets,
         "transformations": [
-            {"id": "merge", "options": {}},
+            {"id": "joinByField",
+             "options": {"byField": label_keys[0], "mode": "outer"}},
+            {"id": "filterFieldsByName",
+             "options": {"include": {"pattern": include}}},
             {"id": "organize", "options": {
-                "excludeByName": {"Time": True, "job": True, "instance": True,
-                                  "__name__": True,
-                                  "service_name": True,
-                                  "service_namespace": True,
-                                  "deployment_environment": True},
+                "excludeByName": {d: True for d in drop},
                 "renameByName": rename, "indexByName": order}}]})
 
 
@@ -268,7 +364,7 @@ def text(title, md, w, h):
     x, y = _place(w, h)
     panels.append({
         "id": _id(), "type": "text", "title": title,
-        "gridPos": {"h": h, "w": w, "x": x, "y": y}, "transparent": False,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y}, "transparent": True,
         "options": {"mode": "markdown", "content": md,
                     "code": {"language": "plaintext", "showLineNumbers": False,
                              "showMiniMap": False}}})
@@ -429,11 +525,13 @@ def _author_command():
                     "learning loop turning. LIVE climbing past 35 = ML-073 "
                     "realizing ground truth; a flat LIVE line = the loop is "
                     "starved. Total training rows = the sum of the two.")
-    stat("Live labels", M('liquiditybot_ml_labels{source="live"}'), 4, 5,
-         decimals=0, steps=[{"color": "red", "value": None},
+    stat("Live labels",
+         'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
+         4, 5, decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
          desc="Ground-truth closed-trade labels — earns model complexity.")
-    stat("Candidate labels", M('liquiditybot_ml_labels{source="candidate"}'),
+    stat("Candidate labels",
+         'max(liquiditybot_ml_labels{source="candidate",job="liquiditybot"})',
          4, 5, decimals=0, steps=BLUE, desc="Triple-barrier proxy labels.")
     stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)", 4, 5,
          desc="Deployed rung on the simplicity ladder.", text_mode="name",
@@ -488,8 +586,8 @@ def _author_command():
              decimals=2, steps=HIGH_GOOD, mn=0, mx=1,
              desc="Model conviction per asset.")
     table("Asset scorecard", 24, 8,
-          cols=[("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU),
-                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL),
+          cols=[("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU, "text"),
+                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL, "text"),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0),
                 ("liquiditybot_perf_asset_cur_loss_streak", "Loss streak", "short", 0, STREAK),
                 ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
@@ -550,14 +648,15 @@ def _author_command():
 
 def _positions_table():
     table("Open positions (net per instrument)", 12, 5,
-          cols=[("liquiditybot_position_upnl_usd", "uPnL $", USD, 2, PNL),
-                ("liquiditybot_position_upnl_pct", "uPnL %", "percent", 2, PNL),
-                ("liquiditybot_position_r_multiple", "R", "short", 2, PNL),
+          cols=[("liquiditybot_position_upnl_usd", "uPnL $", USD, 2, PNL, "text"),
+                ("liquiditybot_position_upnl_pct", "uPnL %", "percent", 2, PNL, "text"),
+                ("liquiditybot_position_r_multiple", "R", "short", 2, PNL, "text"),
                 ("liquiditybot_position_notional_usd", "Notional $", USD, 0),
                 ("liquiditybot_position_conviction", "p_win", "percentunit", 2, HIGH_GOOD),
                 ("liquiditybot_position_stop_dist_pct", "Stop %", "percent", 2),
                 ("liquiditybot_position_age_hours", "Age h", "short", 1)],
           label_keys=["symbol", "side"], sort="uPnL $",
+          drop=tuple(f"side {i}" for i in range(2, 8)),
           desc="Open instruments; green uPnL/R rows are working, red need "
                "managing.")
 
@@ -666,9 +765,15 @@ def _author_execution():
     stat("Taker notional", M("liquiditybot_order_taker_notional_usd"), 4, 4,
          unit=USD, decimals=0, steps=GRN, desc="Taker-filled notional.")
     table("Post-fill mark-out (adverse selection)", 12, 6,
-          cols=[("liquiditybot_markout_bps", "Mark-out bps", "short", 2, PNL)],
-          label_keys=["asset", "horizon_sec"], sort="Mark-out bps",
-          desc="Price drift after our fill; persistently negative = picked off.")
+          cols=[('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="5"}',
+                 "5s bps", "short", 2, PNL, "text"),
+                ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="30"}',
+                 "30s bps", "short", 2, PNL, "text"),
+                ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="60"}',
+                 "60s bps", "short", 2, PNL, "text")],
+          label_keys=["asset"], sort="5s bps",
+          desc="Price drift after our fill at 5/30/60s; persistently "
+               "negative = picked off.")
     bargauge("Slippage by fill quality — avg vs worst (bps)",
              M("liquiditybot_order_avg_slip_bps"), 12, 6, unit="short",
              decimals=1, steps=SLIP, legend="avg slip",
@@ -834,8 +939,8 @@ def _author_screening():
                 ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
                 ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD),
                 ("liquiditybot_signal_urgency", "Urgency", "short", 2),
-                ("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU),
-                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL),
+                ("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU, "text"),
+                ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL, "text"),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0)],
           label_keys=["asset"], sort="Net $",
           desc="Screen an asset in one row: tight spread + low spoof/manip + "
@@ -850,8 +955,13 @@ def _author_screening():
              unit="percent", decimals=1, steps=BLUE,
              desc="Realized vol regime per asset.")
     table("Adverse selection (mark-out)", 8, 7,
-          cols=[("liquiditybot_markout_bps", "Mark-out bps", "short", 2, PNL)],
-          label_keys=["asset", "horizon_sec"], sort="Mark-out bps",
+          cols=[('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="5"}',
+                 "5s bps", "short", 2, PNL, "text"),
+                ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="30"}',
+                 "30s bps", "short", 2, PNL, "text"),
+                ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="60"}',
+                 "60s bps", "short", 2, PNL, "text")],
+          label_keys=["asset"], sort="5s bps",
           desc="Post-fill drift; persistently negative = the book picks us "
                "off — screen it down.")
 
@@ -871,11 +981,27 @@ def _links():
             for t, u in _NAV]
 
 
+def _injector():
+    return {"id": INJ_ID, "type": "text", "title": "", "datasource": None,
+            "gridPos": {"h": 1, "w": 1, "x": 0, "y": _cur["y"] + 1},
+            "transparent": True,
+            "options": {"mode": "html", "content": GLASS_CSS,
+                        "code": {"language": "html",
+                                 "showLineNumbers": False,
+                                 "showMiniMap": False}},
+            "pluginVersion": "11.1.0"}
+
+
 def _board(uid, title, desc, author, extra_tag):
     panels.clear()
     _cur.update(x=0, y=0, row_h=0)
     _pid["n"] = 0
     author()
+    _flush()
+    panels.append(_injector())
+    for p in panels:
+        if p["type"] != "row":
+            p["transparent"] = True
     return {"uid": uid, "title": title, "description": desc,
             "tags": _TAGS + [extra_tag], "schemaVersion": 39, "editable": True,
             "timezone": "browser", "refresh": "30s", "style": "dark",

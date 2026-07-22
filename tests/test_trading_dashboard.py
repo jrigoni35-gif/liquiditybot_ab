@@ -9,8 +9,8 @@ contract, CI-enforced:
   3. EVERY liquiditybot_* metric referenced by a panel query is actually
      emitted by scripts/gc_pusher.py — a renamed/removed metric breaks the
      build instead of silently blanking a panel ("code reacts to the panels");
-  4. it is a LOGISTICAL board: no time-series graphs (stat/state/table/gauge
-     only), the whole point of the condense.
+  4. only supported panel types (stat/state/table/gauge/bargauge/timeseries/
+     piechart/text) — the deprecated "graph" plugin is never allowed.
 """
 import json
 import time
@@ -150,7 +150,7 @@ def test_all_boards_use_supported_panel_types():
     # professional mix: stat (sparkline) / gauge / bargauge / timeseries /
     # color-coded table. The deprecated "graph" plugin is never allowed.
     allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge",
-               "text"}
+               "text", "piechart"}
     for fname in gen.DASHBOARDS:
         kinds = {p["type"] for p in _shipped(fname)["panels"]}
         assert "graph" not in kinds, f"{fname}: deprecated graph panel"
