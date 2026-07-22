@@ -393,7 +393,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -652,7 +652,7 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -720,7 +720,7 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -860,7 +860,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -1085,7 +1085,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -1149,7 +1149,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -1212,7 +1212,8 @@
           "expr": "liquiditybot_position_r_multiple{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "R"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "B",
@@ -1223,7 +1224,8 @@
           "expr": "liquiditybot_position_upnl_pct{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "uPNL %"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "C",
@@ -1234,7 +1236,8 @@
           "expr": "liquiditybot_position_stop_dist_pct{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "Stop %"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "D",
@@ -1245,7 +1248,8 @@
           "expr": "liquiditybot_position_age_hours{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "Age h"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "E",
@@ -1256,7 +1260,8 @@
           "expr": "liquiditybot_position_conviction{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "Conv"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "F",
@@ -1267,23 +1272,36 @@
           "expr": "liquiditybot_position_notional_usd{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "Notional $"
+          "format": "table",
+          "legendFormat": ""
         }
       ],
       "transformations": [
         {
-          "id": "joinByLabels",
+          "id": "joinByField",
           "options": {
-            "value": "asset"
+            "byField": "asset",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(asset|Value.*)$"
+            }
           }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "job": true
-            },
             "renameByName": {
+              "Value #A": "R",
+              "Value #B": "uPNL %",
+              "Value #C": "Stop %",
+              "Value #D": "Age h",
+              "Value #E": "Conv",
+              "Value #F": "Notional $",
               "asset": "Asset"
             }
           }
@@ -1498,7 +1516,7 @@
         }
       ],
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
@@ -1534,7 +1552,8 @@
           "min": -2.5,
           "max": 2.5,
           "decimals": 2,
-          "mappings": []
+          "mappings": [],
+          "displayName": "${__field.labels.asset}"
         },
         "overrides": []
       }
@@ -1577,7 +1596,8 @@
           "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon=\"5\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "5s"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "B",
@@ -1588,7 +1608,8 @@
           "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon=\"30\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "30s"
+          "format": "table",
+          "legendFormat": ""
         },
         {
           "refId": "C",
@@ -1599,23 +1620,33 @@
           "expr": "liquiditybot_markout_bps{job=\"liquiditybot\",horizon=\"60\"}",
           "instant": true,
           "range": false,
-          "legendFormat": "60s"
+          "format": "table",
+          "legendFormat": ""
         }
       ],
       "transformations": [
         {
-          "id": "joinByLabels",
+          "id": "joinByField",
           "options": {
-            "value": "asset"
+            "byField": "asset",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(asset|Value.*)$"
+            }
           }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "job": true
-            },
             "renameByName": {
+              "Value #A": "5s",
+              "Value #B": "30s",
+              "Value #C": "60s",
               "asset": "Asset"
             }
           }
@@ -1727,7 +1758,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -1799,7 +1830,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
@@ -1857,7 +1888,7 @@
         }
       ],
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
@@ -1897,7 +1928,8 @@
           "min": 0,
           "max": 50,
           "decimals": 1,
-          "mappings": []
+          "mappings": [],
+          "displayName": "${__field.labels.asset}"
         },
         "overrides": []
       }
@@ -1944,7 +1976,7 @@
         }
       ],
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
@@ -1980,7 +2012,8 @@
           "min": -12,
           "max": 12,
           "decimals": 2,
-          "mappings": []
+          "mappings": [],
+          "displayName": "${__field.labels.asset}"
         },
         "overrides": []
       }
@@ -2014,7 +2047,7 @@
         }
       ],
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
@@ -2046,7 +2079,8 @@
           "min": 0,
           "max": 1,
           "decimals": 2,
-          "mappings": []
+          "mappings": [],
+          "displayName": "${__field.labels.asset}"
         },
         "overrides": []
       }
@@ -2080,7 +2114,7 @@
         }
       ],
       "options": {
-        "displayMode": "gradient",
+        "displayMode": "basic",
         "orientation": "horizontal",
         "showUnfilled": true,
         "valueMode": "color",
@@ -2112,7 +2146,8 @@
           "min": 0,
           "max": null,
           "decimals": 0,
-          "mappings": []
+          "mappings": [],
+          "displayName": "${__field.labels.asset}"
         },
         "overrides": []
       }
@@ -2485,7 +2520,7 @@
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "orientation": "auto"
       },
