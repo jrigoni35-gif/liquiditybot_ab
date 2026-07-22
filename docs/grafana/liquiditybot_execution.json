@@ -1,12 +1,13 @@
 {
   "uid": "liquiditybot-exec",
-  "title": "liquiditybot — models · inventory · execution",
+  "title": "liquiditybot \u2014 models \u00b7 inventory \u00b7 execution",
   "description": "Decision-model health, inventory/positioning & heat, and execution fill quality (maker/taker, slippage, mark-out).",
   "tags": [
+    "execution",
+    "liquid-glass",
     "liquiditybot",
-    "trading",
     "paper-trading",
-    "execution"
+    "trading"
   ],
   "schemaVersion": 39,
   "editable": true,
@@ -19,7 +20,7 @@
   },
   "links": [
     {
-      "title": "⌘ Command",
+      "title": "\u2318 Command",
       "type": "link",
       "url": "/d/liquiditybot-trading",
       "icon": "dashboard",
@@ -31,7 +32,7 @@
       "tags": []
     },
     {
-      "title": "⚙ Models·Inv·Exec",
+      "title": "\u2699 Models\u00b7Inv\u00b7Exec",
       "type": "link",
       "url": "/d/liquiditybot-exec",
       "icon": "dashboard",
@@ -43,7 +44,7 @@
       "tags": []
     },
     {
-      "title": "🩹 Problem/Solution",
+      "title": "\ud83e\ude79 Problem/Solution",
       "type": "link",
       "url": "/d/liquiditybot-problem-solution",
       "icon": "dashboard",
@@ -55,7 +56,7 @@
       "tags": []
     },
     {
-      "title": "🔎 Screening",
+      "title": "\ud83d\udd0e Screening",
       "type": "link",
       "url": "/d/liquiditybot-screening",
       "icon": "dashboard",
@@ -77,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "🧠 Decision model",
+      "title": "\ud83e\udde0 Decision model",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -110,7 +111,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#0A84FF",
                 "value": null
               }
             ]
@@ -186,12 +187,12 @@
               "options": {
                 "1": {
                   "text": "YES",
-                  "color": "green",
+                  "color": "#30D158",
                   "index": 0
                 },
                 "0": {
                   "text": "NO",
-                  "color": "red",
+                  "color": "#FF453A",
                   "index": 1
                 }
               }
@@ -265,17 +266,17 @@
               "options": {
                 "0": {
                   "text": "OK",
-                  "color": "green",
+                  "color": "#30D158",
                   "index": 0
                 },
                 "1": {
                   "text": "DEGRADED",
-                  "color": "yellow",
+                  "color": "#FFD60A",
                   "index": 1
                 },
                 "2": {
                   "text": "KILLED",
-                  "color": "red",
+                  "color": "#FF453A",
                   "index": 2
                 }
               }
@@ -316,7 +317,7 @@
       "id": 5,
       "type": "gauge",
       "title": "Calibration gap",
-      "description": "ECE; keep small — Kelly reads probs literally.",
+      "description": "ECE; keep small \u2014 Kelly reads probs literally.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -337,15 +338,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 0.1
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 0.15
               }
             ]
@@ -402,15 +403,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 30
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 50
               }
             ]
@@ -527,15 +528,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 30
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 60
               }
             ]
@@ -597,15 +598,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 0.24
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 0.25
               }
             ]
@@ -918,15 +919,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 45
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 55
               }
             ]
@@ -1008,15 +1009,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -1057,15 +1058,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -1122,15 +1123,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": 0.7
                     }
                   ]
@@ -1290,15 +1291,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -1375,7 +1376,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "📦 Inventory & positioning",
+      "title": "\ud83d\udce6 Inventory & positioning",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1410,15 +1411,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 24.5
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 31.5
               }
             ]
@@ -1475,15 +1476,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 24.5
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 31.5
               }
             ]
@@ -1538,7 +1539,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#0A84FF",
                 "value": null
               }
             ]
@@ -1662,11 +1663,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 0
               }
             ]
@@ -1814,11 +1815,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -1859,11 +1860,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -1904,11 +1905,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -1965,15 +1966,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -2184,16 +2185,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 0
               }
             ]
           },
-          "noValue": "flat — no open positions"
+          "noValue": "flat \u2014 no open positions"
         },
         "overrides": []
       },
@@ -2227,7 +2228,7 @@
     {
       "id": 26,
       "type": "row",
-      "title": "⚡ Execution quality",
+      "title": "\u26a1 Execution quality",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2262,15 +2263,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 60
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 80
               }
             ]
@@ -2326,15 +2327,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 8
               }
             ]
@@ -2397,15 +2398,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 8
               }
             ]
@@ -2468,15 +2469,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 250
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 500
               }
             ]
@@ -2538,15 +2539,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 5
               }
             ]
@@ -2589,7 +2590,7 @@
       "id": 32,
       "type": "stat",
       "title": "Dead-man failures",
-      "description": "OM-050 refresh failures — resting orders unguarded.",
+      "description": "OM-050 refresh failures \u2014 resting orders unguarded.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2608,11 +2609,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 1
               }
             ]
@@ -2946,11 +2947,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -3028,7 +3029,7 @@
     {
       "id": 38,
       "type": "bargauge",
-      "title": "Slippage by fill quality — avg vs worst (bps)",
+      "title": "Slippage by fill quality \u2014 avg vs worst (bps)",
       "description": "Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).",
       "datasource": {
         "type": "prometheus",
@@ -3051,15 +3052,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 8
               }
             ]
@@ -3095,5 +3096,6 @@
         }
       ]
     }
-  ]
+  ],
+  "version": 1
 }

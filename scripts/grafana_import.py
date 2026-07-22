@@ -32,6 +32,9 @@ DASHBOARDS = [
     # ~22-panel top board, Apple system palette, semantic-only color. See
     # docs/grafana/README_glass.md for the optional frosted-skin upgrade.
     "liquiditybot_glass.json",
+    # phone-first companion (uid liquiditybot-glass-mobile): full-width
+    # stacked panels so Grafana's mobile grid scaling stays readable.
+    "liquiditybot_glass_mobile.json",
 ]
 
 

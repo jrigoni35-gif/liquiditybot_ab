@@ -1,12 +1,13 @@
 {
   "uid": "liquiditybot-screening",
-  "title": "liquiditybot — asset screening",
+  "title": "liquiditybot \u2014 asset screening",
   "description": "Asset screening: skimmer ranks + a per-asset tradeability scorecard (book, regime, signal quality, result).",
   "tags": [
+    "liquid-glass",
     "liquiditybot",
-    "trading",
     "paper-trading",
-    "screening"
+    "screening",
+    "trading"
   ],
   "schemaVersion": 39,
   "editable": true,
@@ -19,7 +20,7 @@
   },
   "links": [
     {
-      "title": "⌘ Command",
+      "title": "\u2318 Command",
       "type": "link",
       "url": "/d/liquiditybot-trading",
       "icon": "dashboard",
@@ -31,7 +32,7 @@
       "tags": []
     },
     {
-      "title": "⚙ Models·Inv·Exec",
+      "title": "\u2699 Models\u00b7Inv\u00b7Exec",
       "type": "link",
       "url": "/d/liquiditybot-exec",
       "icon": "dashboard",
@@ -43,7 +44,7 @@
       "tags": []
     },
     {
-      "title": "🩹 Problem/Solution",
+      "title": "\ud83e\ude79 Problem/Solution",
       "type": "link",
       "url": "/d/liquiditybot-problem-solution",
       "icon": "dashboard",
@@ -55,7 +56,7 @@
       "tags": []
     },
     {
-      "title": "🔎 Screening",
+      "title": "\ud83d\udd0e Screening",
       "type": "link",
       "url": "/d/liquiditybot-screening",
       "icon": "dashboard",
@@ -77,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "🔎 Skimmer — candidate universe",
+      "title": "\ud83d\udd0e Skimmer \u2014 candidate universe",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -110,7 +111,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#0A84FF",
                 "value": null
               }
             ]
@@ -234,7 +235,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#0A84FF",
                 "value": null
               }
             ]
@@ -298,15 +299,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 24.5
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 31.5
               }
             ]
@@ -375,12 +376,12 @@
               "options": {
                 "1": {
                   "text": "YES",
-                  "color": "green",
+                  "color": "#30D158",
                   "index": 0
                 },
                 "0": {
                   "text": "prior",
-                  "color": "yellow",
+                  "color": "#FFD60A",
                   "index": 1
                 }
               }
@@ -443,15 +444,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 0.4
               },
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": 0.7
               }
             ]
@@ -610,7 +611,7 @@
     {
       "id": 9,
       "type": "row",
-      "title": "📋 Tradeability scorecard",
+      "title": "\ud83d\udccb Tradeability scorecard",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -623,7 +624,7 @@
     {
       "id": 10,
       "type": "table",
-      "title": "Screen — book & regime vs signal & result",
+      "title": "Screen \u2014 book & regime vs signal & result",
       "description": "Screen an asset in one row: tight spread + low spoof/manip + high concentration + positive net = a tradeable edge; the color coding makes a good book jump out.",
       "datasource": {
         "type": "prometheus",
@@ -667,15 +668,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 3
                     },
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": 8
                     }
                   ]
@@ -732,15 +733,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": 0.7
                     }
                   ]
@@ -781,15 +782,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": 0.7
                     }
                   ]
@@ -830,15 +831,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -879,15 +880,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.4
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.7
                     }
                   ]
@@ -944,15 +945,15 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "yellow",
+                      "color": "#FFD60A",
                       "value": 0.45
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0.55
                     }
                   ]
@@ -993,11 +994,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -1207,7 +1208,7 @@
     {
       "id": 11,
       "type": "row",
-      "title": "🌡️ Regime context & adverse selection",
+      "title": "\ud83c\udf21\ufe0f Regime context & adverse selection",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1243,15 +1244,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#30D158",
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "#FFD60A",
                 "value": 3
               },
               {
-                "color": "red",
+                "color": "#FF453A",
                 "value": 8
               }
             ]
@@ -1312,7 +1313,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "#0A84FF",
                 "value": null
               }
             ]
@@ -1351,7 +1352,7 @@
       "id": 14,
       "type": "table",
       "title": "Adverse selection (mark-out)",
-      "description": "Post-fill drift; persistently negative = the book picks us off — screen it down.",
+      "description": "Post-fill drift; persistently negative = the book picks us off \u2014 screen it down.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1394,11 +1395,11 @@
                   "mode": "absolute",
                   "steps": [
                     {
-                      "color": "red",
+                      "color": "#FF453A",
                       "value": null
                     },
                     {
-                      "color": "green",
+                      "color": "#30D158",
                       "value": 0
                     }
                   ]
@@ -1473,5 +1474,6 @@
         }
       ]
     }
-  ]
+  ],
+  "version": 1
 }
