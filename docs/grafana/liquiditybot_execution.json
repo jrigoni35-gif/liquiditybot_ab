@@ -78,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "🧠 Decision model",
+      "title": "🧠 DECISION MODEL",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -515,7 +515,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Brier · live vs champion vs baseline",
+      "title": "Brier — live vs champion vs baseline (lower = better)",
       "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline. Lower is better.",
       "datasource": {
         "type": "prometheus",
@@ -549,7 +549,53 @@
           },
           "decimals": 4
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "live"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5E5CE6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "champion"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2596AB"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baseline"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#BF5AF2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -866,7 +912,7 @@
           "expr": "liquiditybot_ml_hit_rate{job=\"liquiditybot\"}*100",
           "instant": true,
           "range": false,
-          "legendFormat": "hit rate"
+          "legendFormat": "{{asset}}"
         }
       ],
       "transparent": true
@@ -1301,7 +1347,7 @@
     {
       "id": 15,
       "type": "row",
-      "title": "📦 Inventory & positioning",
+      "title": "📦 INVENTORY & POSITIONING",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2174,7 +2220,7 @@
     {
       "id": 24,
       "type": "row",
-      "title": "⚡ Execution quality",
+      "title": "⚡ EXECUTION QUALITY",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2186,55 +2232,82 @@
     },
     {
       "id": 25,
-      "type": "gauge",
-      "title": "Maker share",
-      "description": "% fills that were maker (cheaper).",
+      "type": "piechart",
+      "title": "Maker / taker mix",
+      "description": "Fill composition — maker is the cheap side; the exit ladder's final rung is the only taker path.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 5,
+        "h": 6,
+        "w": 6,
         "x": 0,
         "y": 29
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100.0,
+          "unit": "percentunit",
           "decimals": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#FF453A",
-                "value": null
-              },
-              {
-                "color": "#FFD60A",
-                "value": 60
-              },
-              {
-                "color": "#30D158",
-                "value": 80
-              }
-            ]
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
           },
           "noValue": "no fills yet"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maker"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2596AB"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "taker"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#BF5AF2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
+        "pieType": "donut",
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
           "values": false
+        },
+        "tooltip": {
+          "mode": "single"
         }
       },
       "targets": [
@@ -2244,32 +2317,47 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_order_maker_share{job=\"liquiditybot\"})*100",
+          "expr": "max(liquiditybot_order_maker_share{job=\"liquiditybot\"})",
           "instant": true,
-          "range": false
+          "range": false,
+          "legendFormat": "maker"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "1 - max(liquiditybot_order_maker_share{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "taker"
         }
       ],
       "transparent": true
     },
     {
       "id": 26,
-      "type": "stat",
-      "title": "Avg slippage",
-      "description": "Implementation shortfall vs the ARRIVAL mark, rolling avg bps (positive = paid worse than arrival; negative = improvement).",
+      "type": "bargauge",
+      "title": "Slippage vs arrival (bps)",
+      "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 5,
+        "h": 6,
+        "w": 6,
+        "x": 6,
         "y": 29
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2287,19 +2375,17 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
           "noValue": "no fills yet"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -2318,60 +2404,64 @@
           "expr": "max(liquiditybot_order_avg_slip_bps{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
+          "legendFormat": "avg"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_worst_slip_bps{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "worst"
         }
       ],
       "transparent": true
     },
     {
       "id": 27,
-      "type": "stat",
-      "title": "Worst slippage",
-      "description": "Worst single implementation shortfall vs arrival in the window.",
+      "type": "bargauge",
+      "title": "Fills — maker vs taker",
+      "description": "Fill counts in the window; taker fills are exit-ladder rungs.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 9,
+        "h": 6,
+        "w": 6,
+        "x": 12,
         "y": 29
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 1,
+          "unit": "",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "#30D158",
+                "color": "text",
                 "value": null
-              },
-              {
-                "color": "#FFD60A",
-                "value": 3
-              },
-              {
-                "color": "#FF453A",
-                "value": 8
               }
             ]
-          },
-          "color": {
-            "mode": "thresholds"
           },
           "noValue": "no fills yet"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -2387,16 +2477,103 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_order_worst_slip_bps{job=\"liquiditybot\"})",
+          "expr": "max(liquiditybot_order_maker_fills{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
+          "legendFormat": "maker fills"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_taker_fills{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "taker fills"
         }
       ],
       "transparent": true
     },
     {
       "id": 28,
+      "type": "bargauge",
+      "title": "Notional — maker vs taker ($)",
+      "description": "Filled notional split by liquidity side.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 29
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no fills yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_maker_notional_usd{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "maker $"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_taker_notional_usd{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "taker $"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 29,
       "type": "stat",
       "title": "Venue RTT",
       "description": "Private POST RTT (order path).",
@@ -2405,10 +2582,10 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 29
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -2467,7 +2644,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "stat",
       "title": "Venue rejects",
       "description": "OM-021 AddOrder rejects.",
@@ -2476,10 +2653,10 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 16,
-        "y": 29
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -2538,7 +2715,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "stat",
       "title": "Dead-man failures",
       "description": "OM-050 refresh failures — resting orders unguarded.",
@@ -2547,10 +2724,10 @@
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 29
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
@@ -2605,108 +2782,50 @@
       "transparent": true
     },
     {
-      "id": 31,
-      "type": "stat",
-      "title": "Maker fills",
-      "description": "Maker fills in window.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 0,
-        "y": 34
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_order_maker_fills{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
       "id": 32,
-      "type": "stat",
-      "title": "Taker fills",
-      "description": "Taker fills (exit-ladder rung).",
+      "type": "gauge",
+      "title": "Maker share",
+      "description": "% fills that were maker (cheaper).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 4,
-        "w": 3,
-        "x": 3,
-        "y": 34
+        "w": 6,
+        "x": 18,
+        "y": 35
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
-          "decimals": 0,
+          "unit": "percent",
+          "min": 0,
+          "max": 100.0,
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "#FF453A",
                 "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 60
+              },
+              {
+                "color": "#30D158",
+                "value": 80
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          }
+          "noValue": "no fills yet"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -2722,154 +2841,27 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_order_taker_fills{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": ""
+          "expr": "max(liquiditybot_order_maker_share{job=\"liquiditybot\"})*100",
+          "instant": true,
+          "range": false
         }
       ],
       "transparent": true
     },
     {
       "id": 33,
-      "type": "stat",
-      "title": "Maker notional",
-      "description": "Maker-filled notional.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 6,
-        "y": 34
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "prefix:$",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_order_maker_notional_usd{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 34,
-      "type": "stat",
-      "title": "Taker notional",
-      "description": "Taker-filled notional.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 10,
-        "y": 34
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "prefix:$",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_order_taker_notional_usd{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 35,
       "type": "table",
       "title": "Post-fill mark-out (adverse selection)",
-      "description": "Price drift after our fill at 5/30/60s; persistently negative = picked off.",
+      "description": "Price drift after our fill at 5/30/60s per asset; persistently negative = picked off. Absent cells (·) = no fills measured at that horizon yet.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 6,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 38
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -3103,79 +3095,6 @@
       "transparent": true
     },
     {
-      "id": 36,
-      "type": "bargauge",
-      "title": "Slippage by fill quality — avg vs worst (bps)",
-      "description": "Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 38
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 1,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#30D158",
-                "value": null
-              },
-              {
-                "color": "#FFD60A",
-                "value": 3
-              },
-              {
-                "color": "#FF453A",
-                "value": 8
-              }
-            ]
-          },
-          "noValue": "no fills yet"
-        },
-        "overrides": []
-      },
-      "options": {
-        "displayMode": "basic",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
-        "sizing": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_order_avg_slip_bps{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false,
-          "legendFormat": "avg slip"
-        }
-      ],
-      "transparent": true
-    },
-    {
       "id": 990,
       "type": "text",
       "title": "",
@@ -3184,7 +3103,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 45
+        "y": 46
       },
       "transparent": true,
       "options": {

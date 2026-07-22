@@ -677,9 +677,9 @@ def _positions_table():
 
 # ================= board 2 · models · inventory · execution ================
 def _author_execution():
-    row("🧠 Decision model")
-    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)", 4, 5,
-         text_mode="name", steps=BLUE, graph="none",
+    row("🧠 DECISION MODEL")
+    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)",
+         4, 5, text_mode="name", steps=BLUE, graph="none",
          display_name="${__field.labels.kind}",
          desc="Deployed rung (evidence-gated).")
     state("Model in use", M("liquiditybot_ml_use_model"), 4, 5, ON_OFF,
@@ -688,23 +688,23 @@ def _author_execution():
     state("Governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 degraded / 2 killed.")
     gauge("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
-          mx=0.2, decimals=3, steps=CALIB, desc="ECE; keep small — Kelly reads "
-          "probs literally.")
+          mx=0.2, decimals=3, steps=CALIB, desc="ECE; keep small — Kelly "
+          "reads probs literally.")
     gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="Feature PSI drift fraction.")
     stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 5, decimals=2,
          steps=GRN, desc="Size throttle.")
-    # the Brier trio is ONE comparison chart, not three scattered tiles —
-    # lower is better, live must undercut baseline (validated categorical set)
-    timeseries("Brier · live vs champion vs baseline",
+    timeseries("Brier — live vs champion vs baseline (lower = better)",
                M("liquiditybot_ml_brier"), 12, 6, legend="live",
                decimals=4, calcs=["lastNotNull"],
                extra=[(M("liquiditybot_ml_champion_brier"), "champion"),
                       (M("liquiditybot_ml_baseline_brier"), "baseline")],
-               desc="Rolling outcome Brier: live vs deployed champion vs the "
-               "base-rate baseline. Lower is better.")
+               colors={"live": INDIGO, "champion": CAT_TEAL,
+                       "baseline": CAT_PURPLE},
+               desc="Rolling outcome Brier: live vs deployed champion vs "
+               "the base-rate baseline. Lower is better.")
     stat("Live labels",
          'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
          4, 6, decimals=0, steps=[{"color": "red", "value": None},
@@ -716,7 +716,7 @@ def _author_execution():
          steps=GRN, desc="Governor stop-distance multiplier.")
     bargauge("Promised vs delivered (hit rate)",
              _pa("liquiditybot_ml_hit_rate", "*100"), 8, 5, unit="percent",
-             decimals=1, steps=WR100, legend="hit rate",
+             decimals=1, steps=WR100, legend="{{asset}}",
              desc="Delivered win rate on the judge window.")
     table("Per-asset signal quality", 8, 5,
           cols=[("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
@@ -729,9 +729,9 @@ def _author_execution():
           cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD)],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
 
-    row("📦 Inventory & positioning")
-    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5, mx=35.0,
-          desc="Gross notional %/equity vs the 35% heat cap.")
+    row("📦 INVENTORY & POSITIONING")
+    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5,
+          mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
     gauge("Portfolio heat", M("liquiditybot_rp_heat_frac", "*100"), 4, 5,
           mx=35.0, desc="CVaR portfolio heat vs cap.")
     stat("Open positions", M("liquiditybot_positions_open"), 4, 5, decimals=0,
@@ -748,37 +748,48 @@ def _author_execution():
              no_value="flat — no open positions",
              desc="Unrealized P&L ranked across open instruments.")
 
-    row("⚡ Execution quality")
-    gauge("Maker share", M("liquiditybot_order_maker_share", "*100"), 5, 5,
+    row("⚡ EXECUTION QUALITY")
+    donut("Maker / taker mix", [
+          (M("liquiditybot_order_maker_share"), "maker"),
+          ("1 - " + M("liquiditybot_order_maker_share"), "taker")],
+          6, 6, colors={"maker": CAT_TEAL, "taker": CAT_PURPLE},
+          no_value="no fills yet",
+          desc="Fill composition — maker is the cheap side; the exit "
+               "ladder's final rung is the only taker path.")
+    bargauge("Slippage vs arrival (bps)",
+             M("liquiditybot_order_avg_slip_bps"), 6, 6, unit="short",
+             decimals=1, steps=SLIP, legend="avg",
+             extra=[(M("liquiditybot_order_worst_slip_bps"), "worst")],
+             no_value="no fills yet",
+             desc="Implementation shortfall vs the ARRIVAL mark (positive "
+                  "= paid worse than arrival; negative = improvement).")
+    bargauge("Fills — maker vs taker",
+             M("liquiditybot_order_maker_fills"), 6, 6, decimals=0,
+             steps=GRN, legend="maker fills",
+             extra=[(M("liquiditybot_order_taker_fills"), "taker fills")],
+             no_value="no fills yet",
+             desc="Fill counts in the window; taker fills are exit-ladder "
+                  "rungs.")
+    bargauge("Notional — maker vs taker ($)",
+             M("liquiditybot_order_maker_notional_usd"), 6, 6, unit=USD,
+             decimals=0, steps=GRN, legend="maker $",
+             extra=[(M("liquiditybot_order_taker_notional_usd"), "taker $")],
+             no_value="no fills yet",
+             desc="Filled notional split by liquidity side.")
+    stat("Venue RTT", M("liquiditybot_order_latency_ms"), 6, 4, unit="ms",
+         decimals=0, steps=LAT, desc="Private POST RTT (order path).")
+    stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 6, 4,
+         decimals=0, steps=STREAK, graph="none", mode="background",
+         desc="OM-021 AddOrder rejects.")
+    stat("Dead-man failures", M("liquiditybot_order_deadman_failures"), 6, 4,
+         decimals=0, steps=ZERO_BAD, graph="none", mode="background",
+         desc="OM-050 refresh failures — resting orders unguarded.")
+    gauge("Maker share", M("liquiditybot_order_maker_share", "*100"), 6, 4,
           mx=100.0, steps=[{"color": "red", "value": None},
           {"color": "yellow", "value": 60}, {"color": "green", "value": 80}],
           no_value="no fills yet",
           desc="% fills that were maker (cheaper).")
-    stat("Avg slippage", M("liquiditybot_order_avg_slip_bps"), 4, 5,
-         unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
-         no_value="no fills yet",
-         desc="Implementation shortfall vs the ARRIVAL mark, rolling avg bps (positive = paid worse than arrival; negative = improvement).")
-    stat("Worst slippage", M("liquiditybot_order_worst_slip_bps"), 3, 5,
-         unit="short", decimals=1, steps=SLIP, mode="background", graph="none",
-         no_value="no fills yet",
-         desc="Worst single implementation shortfall vs arrival in the window.")
-    stat("Venue RTT", M("liquiditybot_order_latency_ms"), 4, 5, unit="ms",
-         decimals=0, steps=LAT, desc="Private POST RTT (order path).")
-    stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 4, 5,
-         decimals=0, steps=STREAK, graph="none", mode="background",
-         desc="OM-021 AddOrder rejects.")
-    stat("Dead-man failures", M("liquiditybot_order_deadman_failures"), 4, 5,
-         decimals=0, steps=ZERO_BAD, graph="none", mode="background",
-         desc="OM-050 refresh failures — resting orders unguarded.")
-    stat("Maker fills", M("liquiditybot_order_maker_fills"), 3, 4, decimals=0,
-         steps=GRN, desc="Maker fills in window.")
-    stat("Taker fills", M("liquiditybot_order_taker_fills"), 3, 4, decimals=0,
-         steps=GRN, desc="Taker fills (exit-ladder rung).")
-    stat("Maker notional", M("liquiditybot_order_maker_notional_usd"), 4, 4,
-         unit=USD, decimals=0, steps=GRN, desc="Maker-filled notional.")
-    stat("Taker notional", M("liquiditybot_order_taker_notional_usd"), 4, 4,
-         unit=USD, decimals=0, steps=GRN, desc="Taker-filled notional.")
-    table("Post-fill mark-out (adverse selection)", 12, 6,
+    table("Post-fill mark-out (adverse selection)", 24, 6,
           cols=[('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="5"}',
                  "5s bps", "short", 2, PNL, "text"),
                 ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="30"}',
@@ -786,13 +797,9 @@ def _author_execution():
                 ('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="60"}',
                  "60s bps", "short", 2, PNL, "text")],
           label_keys=["asset"], sort="5s bps",
-          desc="Price drift after our fill at 5/30/60s; persistently "
-               "negative = picked off.")
-    bargauge("Slippage by fill quality — avg vs worst (bps)",
-             M("liquiditybot_order_avg_slip_bps"), 12, 6, unit="short",
-             decimals=1, steps=SLIP, legend="avg slip",
-             no_value="no fills yet",
-             desc="Implementation shortfall vs arrival, rolling avg bps (negative = price improvement).")
+          desc="Price drift after our fill at 5/30/60s per asset; "
+               "persistently negative = picked off. Absent cells (·) = no "
+               "fills measured at that horizon yet.")
 
 
 # ==================== board 3 · problem / solution =========================
