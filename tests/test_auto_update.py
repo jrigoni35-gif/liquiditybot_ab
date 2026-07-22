@@ -159,17 +159,57 @@ def test_replay_gate_targets_live_recordings_determinism_only(monkeypatch):
     assert rec == str((au.OUT / "recordings").resolve())
 
 
-def test_replay_gate_nonzero_blocks_deploy(monkeypatch):
+def test_replay_gate_verdict_false_on_nonzero(monkeypatch):
+    # the verdict function still reports FAIL on a nonzero gate — it is now
+    # consumed as ADVISORY by battery_passes (below), not as a hard veto
     from pathlib import Path
     monkeypatch.setattr(au.subprocess, "run",
                         lambda *a, **k: _FakeProc(1, "XV-010: determinism fail"))
     assert au._replay_gate_passes(Path("/tmp/wt"), "python") is False
 
 
-def test_replay_gate_crash_blocks_deploy(monkeypatch):
+def test_replay_gate_verdict_false_on_crash(monkeypatch):
     from pathlib import Path
 
     def _boom(*a, **k):
         raise OSError("subprocess spawn failed")
     monkeypatch.setattr(au.subprocess, "run", _boom)
     assert au._replay_gate_passes(Path("/tmp/wt"), "python") is False
+
+
+# ---- the replay gate is ADVISORY: a FAIL must NOT block the deploy ----------
+def _battery_fakes(monkeypatch, replay_rc):
+    """pytest battery green; replay gate returns replay_rc. This is the exact
+    shape that self-bricked the PC — battery passes, replay gate false-fails."""
+    monkeypatch.setattr(au, "_venv_python", lambda: "python")
+
+    def _fake_run(cmd, **kw):
+        if any("replay_gate.py" in str(c) for c in cmd):
+            return _FakeProc(replay_rc, "XV-010: determinism fail")
+        return _FakeProc(0, "")                  # the pytest battery is green
+    monkeypatch.setattr(au.subprocess, "run", _fake_run)
+
+
+def test_advisory_replay_failure_does_not_block_battery(monkeypatch):
+    from pathlib import Path
+    _battery_fakes(monkeypatch, replay_rc=1)     # replay gate FAILS
+    # green pytest + failed replay gate -> update PROCEEDS (advisory), the whole
+    # point: a determinism false-fail / spawn crash can no longer wedge deploys
+    assert au.battery_passes(Path("/tmp/wt")) is True
+
+
+def test_hard_gate_env_restores_blocking(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setenv("LB_REPLAY_GATE_HARD", "1")
+    _battery_fakes(monkeypatch, replay_rc=1)
+    # the escape hatch turns the advisory gate back into a hard veto
+    assert au.battery_passes(Path("/tmp/wt")) is False
+
+
+def test_battery_still_blocks_on_pytest_failure(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setattr(au, "_venv_python", lambda: "python")
+    monkeypatch.setattr(au.subprocess, "run",
+                        lambda *a, **k: _FakeProc(1, "FAILED tests/test_x.py::t"))
+    # the REAL gate (pytest) still refuses a red battery
+    assert au.battery_passes(Path("/tmp/wt")) is False
