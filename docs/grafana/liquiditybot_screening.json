@@ -78,7 +78,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "🔎 Skimmer — candidate universe",
+      "title": "🔎 SKIMMER — candidate universe",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -346,8 +346,8 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Model in use",
-      "description": "Is the model sizing yet.",
+      "title": "Model sizing",
+      "description": "Whether promotions are sized by the model or the cold-start prior (PRIOR is a stand-down, not a fault).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -361,7 +361,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "",
-          "decimals": 0,
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -379,12 +379,12 @@
               "type": "value",
               "options": {
                 "1": {
-                  "text": "YES",
+                  "text": "MODEL",
                   "color": "#30D158",
                   "index": 0
                 },
                 "0": {
-                  "text": "prior",
+                  "text": "PRIOR",
                   "color": "#FFD60A",
                   "index": 1
                 }
@@ -398,7 +398,7 @@
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "auto",
-        "textMode": "auto",
+        "textMode": "value",
         "wideLayout": true,
         "reduceOptions": {
           "calcs": [
@@ -461,7 +461,9 @@
                 "value": 0.7
               }
             ]
-          }
+          },
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -627,7 +629,7 @@
     {
       "id": 9,
       "type": "row",
-      "title": "📋 Tradeability scorecard",
+      "title": "📋 TRADEABILITY SCORECARD",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -641,7 +643,7 @@
       "id": 10,
       "type": "table",
       "title": "Screen — book & regime vs signal & result",
-      "description": "Screen an asset in one row: tight spread + low spoof/manip + high concentration + positive net = a tradeable edge; the color coding makes a good book jump out.",
+      "description": "Screen an asset in one row: tight spread + low spoof/manip + high concentration + positive net = a tradeable edge. Absent cells (·) mean the asset hasn't traded yet — not a fault.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1230,7 +1232,7 @@
     {
       "id": 11,
       "type": "row",
-      "title": "🌡️ Regime context & adverse selection",
+      "title": "🌡️ REGIME CONTEXT & ADVERSE SELECTION",
       "collapsed": false,
       "gridPos": {
         "h": 1,

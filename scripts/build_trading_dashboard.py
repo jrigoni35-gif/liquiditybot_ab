@@ -929,30 +929,31 @@ def _author_problem():
 
 # ==================== board 4 · asset screening ============================
 def _author_screening():
-    row("🔎 Skimmer — candidate universe")
+    row("🔎 SKIMMER — candidate universe")
     stat("Candidates scanned", M("liquiditybot_skimmer_candidates"), 5, 5,
          decimals=0, steps=BLUE, desc="Off-universe pairs ranked.")
-    stat("Promoted", M("liquiditybot_skimmer_promoted_count"), 5, 5, decimals=0,
-         steps=GRN, desc="Pairs promoted into the tradeable set.")
+    stat("Promoted", M("liquiditybot_skimmer_promoted_count"), 5, 5,
+         decimals=0, steps=GRN, desc="Pairs promoted into the tradeable "
+         "set.")
     stat("Open slots", M("liquiditybot_positions_open"), 4, 5, decimals=0,
          steps=BLUE, desc="Slots in use (max 5).")
     gauge("Exposure headroom", M("liquiditybot_gross_exposure_pct"), 5, 5,
           mx=35.0, desc="Room left under the heat cap for a new name.")
-    stat("Model in use", M("liquiditybot_ml_use_model"), 5, 5, decimals=0,
-         mappings=[{"type": "value", "options": {
-             "1": {"text": "YES", "color": "green", "index": 0},
-             "0": {"text": "prior", "color": "yellow", "index": 1}}}],
-         mode="background", graph="none", desc="Is the model sizing yet.")
+    state("Model sizing", M("liquiditybot_ml_use_model"), 5, 5,
+          {"1": ("MODEL", "green"), "0": ("PRIOR", "yellow")},
+          desc="Whether promotions are sized by the model or the "
+               "cold-start prior (PRIOR is a stand-down, not a fault).")
     bargauge("Skimmer score (higher = better book)",
-             _pa("liquiditybot_skimmer_score"), 12, 8, decimals=3, steps=HIGH_GOOD,
-             legend="{{pair}}", desc="Composite liquidity/spread/depth score "
-             "per candidate pair.")
+             _pa("liquiditybot_skimmer_score"), 12, 8, decimals=3,
+             steps=HIGH_GOOD, mn=0, mx=1, legend="{{pair}}",
+             desc="Composite liquidity/spread/depth score per candidate "
+                  "pair.")
     table("Promoted pairs", 12, 8,
           cols=[("liquiditybot_skimmer_promoted_info", "Promoted", "short", 0, GRN)],
           label_keys=["pair"], sort="Promoted",
           desc="Pairs currently promoted into the tradeable universe.")
 
-    row("📋 Tradeability scorecard")
+    row("📋 TRADEABILITY SCORECARD")
     table("Screen — book & regime vs signal & result", 24, 9,
           cols=[("liquiditybot_regime_spread_bps", "Spread bps", "short", 1, SPREAD),
                 ("liquiditybot_regime_vol_pct", "Vol %", "percent", 1),
@@ -965,16 +966,18 @@ def _author_screening():
                 ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL, "text"),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0)],
           label_keys=["asset"], sort="Net $",
-          desc="Screen an asset in one row: tight spread + low spoof/manip + "
-               "high concentration + positive net = a tradeable edge; the "
-               "color coding makes a good book jump out.")
+          desc="Screen an asset in one row: tight spread + low spoof/manip "
+               "+ high concentration + positive net = a tradeable edge. "
+               "Absent cells (·) mean the asset hasn't traded yet — not a "
+               "fault.")
 
-    row("🌡️ Regime context & adverse selection")
+    row("🌡️ REGIME CONTEXT & ADVERSE SELECTION")
     bargauge("Spread by asset (bps, lower = tighter book)",
-             _pa("liquiditybot_regime_spread_bps"), 8, 7, decimals=1, steps=SPREAD,
-             desc="Cost of crossing; the screen's first filter.")
-    bargauge("Volatility by asset (%)", _pa("liquiditybot_regime_vol_pct"), 8, 7,
-             unit="percent", decimals=1, steps=BLUE,
+             _pa("liquiditybot_regime_spread_bps"), 8, 7, decimals=1,
+             steps=SPREAD, desc="Cost of crossing; the screen's first "
+             "filter.")
+    bargauge("Volatility by asset (%)", _pa("liquiditybot_regime_vol_pct"),
+             8, 7, unit="percent", decimals=1, steps=BLUE,
              desc="Realized vol regime per asset.")
     table("Adverse selection (mark-out)", 8, 7,
           cols=[('liquiditybot_markout_bps{job="liquiditybot",horizon_sec="5"}',
