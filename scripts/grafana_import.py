@@ -28,6 +28,10 @@ DASHBOARDS = [
     "liquiditybot_execution.json",
     "liquiditybot_problem_solution.json",
     "liquiditybot_screening.json",
+    # the Apple Liquid Glass command board (uid liquiditybot-glass): curated
+    # ~22-panel top board, Apple system palette, semantic-only color. See
+    # docs/grafana/README_glass.md for the optional frosted-skin upgrade.
+    "liquiditybot_glass.json",
 ]
 
 
