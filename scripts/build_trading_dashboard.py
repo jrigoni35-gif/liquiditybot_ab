@@ -444,140 +444,147 @@ def _pa(metric, suffix=""):
 
 # ========================= board 1 · command ===============================
 def _author_command():
-    row("💹 Performance")
-    stat("Equity", M("liquiditybot_equity"), 5, 5, unit=USD,
-         decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
-    stat("P&L today", M("liquiditybot_daily_pnl"), 4, 5, unit=USD,
-         steps=PNL, desc="Realized P&L since UTC midnight.")
-    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit=USD,
-         steps=PNL, desc="Unrealized across open positions.")
-    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 4, 5, mx=15.0, steps=DD,
-          desc="Peak-to-now; 15% is the hard stop.")
-    gauge("Win rate", M("liquiditybot_perf_win_rate", "*100"), 4, 5, mx=100.0,
-          steps=WR100, desc="Rolling closed-trade win rate.")
-    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 3, 5, mx=35.0,
-          desc="Gross notional %/equity vs the 35% heat cap.")
-    timeseries("Equity curve", M("liquiditybot_equity"), 16, 7,
-               unit=USD, legend="equity", decimals=2,
-               calcs=["lastNotNull", "min", "max"],
-               desc="Account equity over time — exact dollars (no K-rounding); "
-                    "the legend table shows last/min/max to the cent.")
-    stat("Profit factor", M("liquiditybot_perf_profit_factor"), 4, 7,
-         decimals=2, steps=PF, desc="Gross profit / gross loss.")
-    stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 7, decimals=2,
-         steps=PNL, desc="Avg trade in R-multiples.")
-
-    # Health strip sits directly under Performance: the operator's first glance
-    # answers "is the bot alive & safe" before "how are the pools doing".
-    row("🩺 Health")
-    state("Bot", M("liquiditybot_running"), 3, 4, UP_DOWN, desc="runner RUNNING.")
-    state("Governor", M("liquiditybot_monitor_level"), 3, 4, GOV,
-          desc="0 OK / 1 degraded / 2 killed.")
-    state("Entries", M("liquiditybot_entries_enabled"), 3, 4, ON_OFF,
+    row("🫀 VITALS — alive & armed")
+    state("Bot", M("liquiditybot_running"), 4, 4, UP_DOWN,
+          desc="runner RUNNING.")
+    state("Halted", M("liquiditybot_halted"), 4, 4, HALT, desc="Global halt.")
+    state("Entries", M("liquiditybot_entries_enabled"), 4, 4, ON_OFF,
           desc="New-risk entries enabled (exits always allowed).")
-    state("Halted", M("liquiditybot_halted"), 3, 4, HALT, desc="Global halt.")
-    state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 3, 4, WS,
+    state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 4, 4, WS,
           desc="Push book vs REST fallback.")
-    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 3, 4, unit="ms",
-         decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA.")
-    stat("Status age", M("liquiditybot_status_age_sec"), 3, 4, unit="s",
-         decimals=0, steps=[{"color": "green", "value": None},
-         {"color": "yellow", "value": 120}, {"color": "red", "value": 300}],
+    stat("Telemetry age", M("liquiditybot_status_age_sec"), 4, 4, unit="s",
+         decimals=0, mode="background", graph="none",
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 120},
+                {"color": "red", "value": 300}],
          desc="Seconds since last status write.")
-    stat("Cycle", M("liquiditybot_cycle"), 3, 4, decimals=0, steps=BLUE,
+    state("Governor", M("liquiditybot_monitor_level"), 4, 4, GOV,
+          desc="0 OK / 1 degraded / 2 killed.")
+    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 12, 3, unit="ms",
+         decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA.")
+    stat("Cycle", M("liquiditybot_cycle"), 12, 3, decimals=0, steps=BLUE,
          desc="Fast-cycle counter (advancing = alive).")
 
-    row("🏦 Profit pools & weekly rollover")
-    stat("P&L this week", M("liquiditybot_weekly_pnl"), 5, 5, unit=USD,
+    row("💹 MONEY — equity & P&L")
+    timeseries("Equity curve", M("liquiditybot_equity"), 12, 8,
+               unit=USD, legend="equity", decimals=2,
+               calcs=["lastNotNull", "min", "max"], colors={"equity": GREEN},
+               desc="Account equity over time — exact dollars (no "
+                    "K-rounding); the legend table shows last/min/max to "
+                    "the cent.")
+    stat("P&L today", M("liquiditybot_daily_pnl"), 6, 8, unit=USD,
+         steps=PNL, desc="Realized P&L since UTC midnight.")
+    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 6, 8, unit=USD,
+         steps=PNL, desc="Unrealized across open positions.")
+    stat("Equity", M("liquiditybot_equity"), 5, 5, unit=USD,
+         decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
+    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 5, 5, mx=15.0, steps=DD,
+          desc="Peak-to-now; 15% is the hard stop.")
+    gauge("Win rate", M("liquiditybot_perf_win_rate", "*100"), 5, 5, mx=100.0,
+          steps=WR100, desc="Rolling closed-trade win rate.")
+    stat("Profit factor", M("liquiditybot_perf_profit_factor"), 5, 5,
+         decimals=2, steps=PF, desc="Gross profit / gross loss.")
+    stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 5, decimals=2,
+         steps=PNL, desc="Avg trade in R-multiples.")
+
+    row("🏦 PROFIT POOLS — weekly rollover")
+    stat("P&L this week", M("liquiditybot_weekly_pnl"), 6, 5, unit=USD,
          steps=PNL, desc="Realized P&L since the ISO-week open (Mon 00:00 "
                          "UTC). Resets at the weekly close-out (RP-070); a "
                          "losing week is refilled from Reserve before the "
                          "working baseline shrinks.")
-    stat("Savings pool", M("liquiditybot_savings"), 5, 5, unit=USD,
+    stat("Savings pool", M("liquiditybot_savings"), 6, 5, unit=USD,
          decimals=2, steps=GRN,
          desc="20% of every realized win, locked away - never traded, "
               "never refilled from, only ever grows.")
-    stat("Reserve pool", M("liquiditybot_reserve"), 5, 5, unit=USD,
+    stat("Reserve pool", M("liquiditybot_reserve"), 6, 5, unit=USD,
          decimals=2, steps=GRN,
          desc="10% of every realized win - the drawdown shock absorber. "
               "At each weekly close a losing week's realized loss refills "
               "trading cash from here (reserve only ever moves INTO cash).")
     stat("Reinvested (cash)", "liquiditybot_equity" + A +
-         " - liquiditybot_savings" + A + " - liquiditybot_reserve" + A, 9, 5,
+         " - liquiditybot_savings" + A + " - liquiditybot_reserve" + A, 6, 5,
          unit=USD, decimals=2, steps=GRN,
          desc="Working trading capital: equity minus the two locked pools "
               "- the 70% share that compounds position sizing.")
     timeseries("Pools over time",
-               M("liquiditybot_savings"), 16, 7, unit=USD,
+               M("liquiditybot_savings"), 24, 7, unit=USD,
                legend="savings", decimals=2,
                calcs=["lastNotNull", "max"],
                extra=[(M("liquiditybot_reserve"), "reserve"),
                       (M("liquiditybot_weekly_pnl"), "weekly P&L")],
+               colors={"savings": GREEN, "reserve": CAT_TEAL,
+                       "weekly P&L": GRAY_HEX},
                desc="Savings + reserve accrual and the week's running "
                     "realized P&L - the rollover ritual made visible.")
 
-    row("🧠 Learning brain")
+    row("🧠 LEARNING BRAIN")
     timeseries("Learning rows by label (live vs candidate)",
-               'max by (source) (liquiditybot_ml_labels' + JOB + ')', 24, 7,
+               'max by (source) (liquiditybot_ml_labels' + JOB + ')', 12, 7,
                unit="short", legend="{{source}}",
-               desc="Ground-truth LIVE (real closed-trade) labels vs CANDIDATE "
-                    "(triple-barrier proxy) labels accruing over time — the "
-                    "learning loop turning. LIVE climbing past 35 = ML-073 "
-                    "realizing ground truth; a flat LIVE line = the loop is "
-                    "starved. Total training rows = the sum of the two.")
+               colors={"live": GREEN, "candidate": GRAY_HEX},
+               desc="Ground-truth LIVE (real closed-trade) labels vs "
+                    "CANDIDATE (triple-barrier proxy) labels accruing over "
+                    "time — the learning loop turning. LIVE climbing past "
+                    "35 = ML-073 realizing ground truth; a flat LIVE line "
+                    "= the loop is starved.")
+    timeseries("Brier — live vs champion vs baseline (lower = better)",
+               M("liquiditybot_ml_brier"), 12, 7, legend="live",
+               decimals=4, calcs=["lastNotNull"],
+               extra=[(M("liquiditybot_ml_champion_brier"), "champion"),
+                      (M("liquiditybot_ml_baseline_brier"), "baseline")],
+               colors={"live": INDIGO, "champion": CAT_TEAL,
+                       "baseline": CAT_PURPLE},
+               desc="Rolling outcome Brier: live vs deployed champion vs "
+                    "the base-rate baseline the model must undercut.")
     stat("Live labels",
          'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
-         4, 5, decimals=0, steps=[{"color": "red", "value": None},
+         4, 4, decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
          desc="Ground-truth closed-trade labels — earns model complexity.")
     stat("Candidate labels",
          'max(liquiditybot_ml_labels{source="candidate",job="liquiditybot"})',
-         4, 5, decimals=0, steps=BLUE, desc="Triple-barrier proxy labels.")
-    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)", 4, 5,
-         desc="Deployed rung on the simplicity ladder.", text_mode="name",
+         4, 4, decimals=0, steps=BLUE, desc="Triple-barrier proxy labels.")
+    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)",
+         4, 4, desc="Deployed rung on the simplicity ladder.",
+         text_mode="name", display_name="${__field.labels.kind}",
          steps=BLUE, graph="none")
-    state("Model in use", M("liquiditybot_ml_use_model"), 4, 5, ON_OFF,
-          desc="Governor lets the model size trades.")
-    state("Retrain", M("liquiditybot_ml_retrain_flag"), 4, 5, RETRAIN,
+    state("Model in use", M("liquiditybot_ml_use_model"), 4, 4, ON_OFF,
+          desc="Governor lets the model size trades; NO is a stand-down, "
+               "not a fault.")
+    state("Retrain", M("liquiditybot_ml_retrain_flag"), 4, 4, RETRAIN,
           desc="Auto-retrain queued.")
-    stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 5, decimals=2,
+    stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 4, decimals=2,
          steps=GRN, desc="Governor size throttle.")
-    stat("Brier", M("liquiditybot_ml_brier"), 5, 5, decimals=4, steps=BRIER,
-         desc="Rolling outcome Brier (lower better; must beat baseline).")
-    stat("Baseline Brier", M("liquiditybot_ml_baseline_brier"), 4, 5,
-         decimals=4, steps=GRN, desc="Base-rate bar the model must beat.")
-    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
+    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4,
          decimals=3, steps=CALIB, desc="ECE; Kelly reads probs literally.")
-    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 5,
-         decimals=4, steps=GRN, desc="Deployed champion badge.")
-    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
+    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 4,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="Fraction of features past the PSI threshold.")
-    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 3, 5,
+    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 4, 4,
          unit="percent", decimals=1, steps=GRN, desc="Wilson lower bound.")
-    # AFML corpus-quality tiles (docs/learning/2026-07-19_weekend_labels.md):
-    # is the corpus counting evidence honestly, not just accumulating rows
-    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 5,
+    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 4,
          decimals=0, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
-         desc="Live rows surviving the hygiene pass — the count the evidence "
-              "gate actually admits model complexity on.")
-    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 5,
+         desc="Live rows surviving the hygiene pass — the count the "
+              "evidence gate actually admits model complexity on.")
+    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 4,
          decimals=3, steps=[{"color": "red", "value": None},
          {"color": "yellow", "value": 0.05}, {"color": "green", "value": 0.15}],
          desc="Mean average-uniqueness (AFML ch.4): 1 = every label an "
               "independent fact; near 0 = heavily overlapping horizons "
               "(weights redistribute so overlap can't double-count).")
-    state("Batch prior skew", M("liquiditybot_ml_prior_skew"), 4, 5,
+    state("Batch prior skew", M("liquiditybot_ml_prior_skew"), 4, 4,
           {"0": ("OK", "green"), "1": ("SKEWED", "yellow")},
-          desc="ML-074: trailing-window label prior vs corpus prior — SKEWED "
-               "= a one-sided batch (e.g. all-zero quiet weekend) is moving "
-               "calibration; detection only, weights untouched.")
+          no_value="no batch yet",
+          desc="ML-074: trailing-window label prior vs corpus prior — "
+               "SKEWED = a one-sided batch (e.g. all-zero quiet weekend) "
+               "is moving calibration; detection only, weights untouched.")
 
-    row("⚖️ Per-asset edge")
+    row("⚖️ EDGE — per-asset performance")
     bargauge("Net $ by asset", _pa("liquiditybot_perf_asset_net_usd"), 8, 8,
-             unit=USD, decimals=2, steps=PNL,
+             unit=USD, decimals=2, steps=PNL, mn=-12, mx=12,
              desc="Realized net per asset — where P&L actually comes from.")
     bargauge("Signal concentration", _pa("liquiditybot_signal_concentration"),
              8, 8, decimals=2, steps=HIGH_GOOD, mn=0, mx=1,
@@ -597,8 +604,10 @@ def _author_command():
                 ("liquiditybot_regime_spread_bps", "Spread bps", "short", 1, SPREAD),
                 ("liquiditybot_regime_vol_pct", "Vol %", "percent", 1)],
           label_keys=["asset"], sort="Net $",
-          desc="One row per asset; color-coded so a green row (positive net, "
-               "high concentration, low manip, tight spread) reads instantly.")
+          desc="One row per asset; color-coded so a green row (positive "
+               "net, high concentration, low manip, tight spread) reads "
+               "instantly. Absent cells (·) mean the asset hasn't traded "
+               "yet — not a fault.")
 
     row("🏛️ THALES — footprint & manipulation defense")
     text("What THALES is", _THALES_MD, 8, 9)
@@ -614,22 +623,23 @@ def _author_command():
                 ("liquiditybot_thales_lapses", "Lapses", "short", 0, STREAK),
                 ("liquiditybot_thales_bar_holes", "Bar holes", "short", 0, STREAK)],
           label_keys=["asset"], sort="Spoof bid",
-          desc="Per-asset footprint scores (0-1) + feed-integrity counters. "
-               "THALES only ATTENUATES (shade size / down-weight the training "
-               "row) — it never triggers a trade.")
+          desc="Per-asset footprint scores (0-1) + feed-integrity "
+               "counters. THALES only ATTENUATES (shade size / down-weight "
+               "the training row) — it never triggers a trade.")
     bargauge("Spoof-flicker pressure (bid)",
              _pa("liquiditybot_thales_spoof_bid"), 8, 6, decimals=2,
              steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
-             desc="TH-017 spoof EWMA per asset — higher = a book being painted; "
-             "THALES shades size there.")
+             desc="TH-017 spoof EWMA per asset — higher = a book being "
+                  "painted; THALES shades size there.")
     bargauge("Stop-hunt zone proximity", _pa("liquiditybot_thales_stop_zone"),
              8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
              desc="Proximity to round-number stop clusters per asset.")
     bargauge("Manipulation suspicion", _pa("liquiditybot_manip_suspect"),
              8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
-             desc="Parameter-free max of the manipulation footprints per asset.")
+             desc="Parameter-free max of the manipulation footprints per "
+                  "asset.")
 
-    row("🛡️ Positions & risk")
+    row("🛡️ POSITIONS & RISK")
     _positions_table()
     stat("Loss streak (now)", M("liquiditybot_perf_cur_loss_streak"), 4, 5,
          decimals=0, steps=STREAK, graph="none", mode="background",
@@ -644,6 +654,10 @@ def _author_command():
     table("Learned gate weights", 6, 5,
           cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD)],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
+    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 6, 5,
+          mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
+    stat("Positions open", M("liquiditybot_positions_open"), 6, 5, decimals=0,
+         steps=BLUE, graph="none", desc="Open count (max 5).")
 
 
 def _positions_table():
