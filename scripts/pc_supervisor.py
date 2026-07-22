@@ -34,7 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from core.runtime import SingleInstanceLock  # noqa: E402
+from core.runtime import SingleInstanceLock, read_json  # noqa: E402
 
 OUT = ROOT / "outputs"
 CHECK_SEC = 30.0
@@ -147,16 +147,57 @@ def _spawn(argv: list, own_log: bool = True) -> None:
     mutually exclusive and DETACHED wins, leaving the child with NO console;
     any console-subsystem grandchild spawned without flags would then pop a
     VISIBLE window. CREATE_NO_WINDOW instead gives the child a HIDDEN
-    console that every descendant inherits — the whole tree stays silent."""
+    console that every descendant inherits — the whole tree stays silent.
+
+    CREATE_BREAKAWAY_FROM_JOB (0x01000000): Task Scheduler wraps the task's
+    process in a JOB OBJECT and every spawned child inherits it, so the task
+    instance reads "Running" while ANY runner/pusher lives — IgnoreNew then
+    silently DROPS every Start request and RestartOnFailure never fires,
+    because the instance never "ends" (observed live 2026-07-21 22:01: dead
+    supervisor, living children, and no way to restart it via the task).
+    Breaking children out of the job makes the task track the SUPERVISOR
+    alone. Fall back to in-job spawn when the job forbids breakaway."""
     kwargs: dict = {"cwd": str(ROOT)}
-    if IS_WIN:
-        kwargs["creationflags"] = 0x08000000 | 0x00000200
-    else:
-        kwargs["start_new_session"] = True          # setsid-equivalent
     out = (open(OUT / (Path(argv[1]).stem + ".log"), "a", encoding="utf-8")
            if own_log else subprocess.DEVNULL)
-    subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,  # nosec B603
-                     stdin=subprocess.DEVNULL, **kwargs)
+    if not IS_WIN:
+        subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,  # nosec B603
+                         stdin=subprocess.DEVNULL, start_new_session=True,
+                         **kwargs)
+        return
+    base = 0x08000000 | 0x00000200
+    for flags in (base | 0x01000000, base):     # breakaway, then in-job
+        try:
+            subprocess.Popen(argv, stdout=out,               # nosec B603
+                             stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL,
+                             creationflags=flags, **kwargs)
+            return
+        except OSError:
+            continue        # job denies breakaway -> retry inside the job
+    log(f"spawn failed for {argv[1]!r} (both flag sets refused)")
+
+
+# boot-grace spawn throttle: a freshly spawned runner takes minutes to boot
+# before its heartbeat freshens, and the old per-tick stale check respawned it
+# every 30s meanwhile (observed live 2026-07-21 21:58-22:01: 2x runner + 2x
+# every pusher from one supervisor). One spawn per child per grace window;
+# the heartbeat check still governs WHETHER a spawn is needed at all.
+try:
+    BOOT_GRACE_SEC = float(os.environ.get("LB_BOOT_GRACE_SEC", "180"))
+except ValueError:
+    BOOT_GRACE_SEC = 180.0
+_last_spawn: dict = {}
+
+
+def _spawn_gated(key: str, argv: list, own_log: bool = True) -> bool:
+    """_spawn, at most once per BOOT_GRACE_SEC per child. True if spawned."""
+    now = time.time()
+    if now - _last_spawn.get(key, 0.0) < BOOT_GRACE_SEC:
+        return False
+    _last_spawn[key] = now
+    _spawn(argv, own_log)
+    return True
 
 
 def _auto_update_due() -> bool:
@@ -360,21 +401,24 @@ def _maybe_launch_opend() -> str:
 
 
 def tick() -> None:
-    # 1) runner — the bot itself
-    if not _fresh(OUT / "status.json", key="written_at"):
+    # 1) runner — the bot itself (boot-grace gated: one spawn per window,
+    # however long the stale heartbeat lingers while the child boots)
+    if not _fresh(OUT / "status.json", key="written_at") and \
+            _spawn_gated("runner", [PY, "runner.py"]):
         log("runner stale/absent -> relaunching")
-        _spawn([PY, "runner.py"])
     # 2) telemetry pushers (optional; only if a token is configured)
     if _telemetry_ready():
-        if not _fresh(OUT / "gc_pusher.log"):
+        if not _fresh(OUT / "gc_pusher.log") and \
+                _spawn_gated("gc_pusher", [PY, "scripts/gc_pusher.py"]):
             log("metrics pusher stale/absent -> relaunching")
-            _spawn([PY, "scripts/gc_pusher.py"])
-        if not _fresh(OUT / "gc_log_pusher.log"):
+        if not _fresh(OUT / "gc_log_pusher.log") and \
+                _spawn_gated("gc_log_pusher",
+                             [PY, "scripts/gc_log_pusher.py"]):
             log("log pusher stale/absent -> relaunching")
-            _spawn([PY, "scripts/gc_log_pusher.py"])
-        if not _fresh(OUT / "gc_trace_pusher.log"):
+        if not _fresh(OUT / "gc_trace_pusher.log") and \
+                _spawn_gated("gc_trace_pusher",
+                             [PY, "scripts/gc_trace_pusher.py"]):
             log("trace pusher stale/absent -> relaunching")
-            _spawn([PY, "scripts/gc_trace_pusher.py"])
     # 3) moomoo OpenD data gateway (optional): start it with the bot and keep it
     # alive. moomoo is a read-only optional feed — a failure here never affects
     # trading.
@@ -483,16 +527,49 @@ def _source_changed() -> bool:
 # heartbeat lock the runner uses; stale_after matches STALE_SEC so a crashed
 # supervisor is replaced within one liveness window.
 _LOCK: SingleInstanceLock | None = None
+LOCK_POLL_SEC = 5.0        # heartbeat-watch cadence while another lock exists
+
+
+def _acquire_or_wait(lock: SingleInstanceLock,
+                     poll_sec: float = 5.0) -> bool:
+    """True when WE end up holding the lock; False only against a peer that
+    is PROVABLY alive (its heartbeat MOVED while we watched).
+
+    Exit-on-sight refusal had a liveness hole: a force-killed supervisor
+    leaves a frozen-but-recent heartbeat, so any relaunch inside the stale
+    window (Task Scheduler's 1-min RestartOnFailure, a quick manual start)
+    saw a "live" peer, refused with rc 0, and Task Scheduler read the clean
+    exit as success — leaving NO supervisor at all until a human noticed
+    (observed live 2026-07-21 ~22:02). A dead pid cannot advance its
+    heartbeat, so movement — not age — is the only honest liveness signal:
+    frozen past the stale window -> take over; advancing -> genuine double
+    -> back off."""
+    holder = lock.acquire()
+    if holder is None:
+        return True
+    last_hb = float(holder.get("heartbeat", 0) or 0)
+    deadline = time.time() + lock.stale_after + 2 * poll_sec
+    log(f"supervisor lock held by pid {holder.get('pid')} — watching its "
+        f"heartbeat for up to {lock.stale_after + 2 * poll_sec:.0f}s")
+    while time.time() < deadline:
+        time.sleep(poll_sec)
+        cur = read_json(lock.path)
+        hb = float(cur.get("heartbeat", 0) or 0) \
+            if isinstance(cur, dict) else 0.0
+        if hb > last_hb + 1e-6:
+            return False                    # heartbeat MOVED: live peer
+        if lock.acquire() is None:          # stale/vanished -> reclaimed
+            return True
+    return lock.acquire() is None           # final verdict at the deadline
 
 
 def main() -> None:
     global _LOCK
     _LOCK = SingleInstanceLock(path=str(OUT / "pc_supervisor.lock"),
                                stale_after_sec=STALE_SEC)
-    holder = _LOCK.acquire()
-    if holder is not None:
-        log(f"another supervisor is live (pid {holder.get('pid')}) — "
-            f"refusing to double, exiting")
+    if not _acquire_or_wait(_LOCK, poll_sec=LOCK_POLL_SEC):
+        log("another supervisor is live (heartbeat advancing) — "
+            "refusing to double, exiting")
         return
     log(f"start (python={PY}, check={CHECK_SEC:.0f}s, stale={STALE_SEC:.0f}s, "
         f"lock pid={os.getpid()})")
