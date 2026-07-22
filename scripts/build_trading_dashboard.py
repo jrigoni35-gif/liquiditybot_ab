@@ -804,122 +804,123 @@ def _author_execution():
 
 # ==================== board 3 · problem / solution =========================
 def _author_problem():
-    text("", "**Incident board — a calm board is all green.** Every tile is a "
-             "PROBLEM paired with the SOLUTION that fires automatically; any "
-             "non-zero / amber / red tile is a live incident worth a look. "
-             "Refresh 30s · window 24h.", 24, 3)
-    row("📡 Feed & data integrity")
+    text("", "**Incident board — a calm board is all green.** Every tile is "
+             "a PROBLEM paired with the SOLUTION that fires automatically; "
+             "any non-zero / amber / red panel is a live incident worth a "
+             "look. Counter families are ranked bars — the tallest bar is "
+             "the incident. Refresh 30s · window 24h.", 24, 3)
+    row("📡 FEED & DATA INTEGRITY")
     stat("Stale status", M("liquiditybot_status_age_sec"), 4, 5, unit="s",
          decimals=0, mode="background", graph="none",
-         steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 120},
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 120},
                 {"color": "red", "value": 300}],
          desc="PROBLEM: runner frozen. SOLUTION: wedge-guard escalates; "
               "supervisor revives a dead runner.")
     state("Kraken WS", M("liquiditybot_ws_kraken_connected"), 4, 5, WS,
-          desc="SOLUTION: on drop the engine falls back to REST — trading continues.")
+          desc="SOLUTION: on drop the engine falls back to REST — trading "
+               "continues.")
     stat("Stale marks", M("liquiditybot_marks_age_sec"), 4, 5, unit="s",
          decimals=0, mode="background", graph="none",
-         steps=[{"color": "green", "value": None}, {"color": "yellow", "value": 30},
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 30},
                 {"color": "red", "value": 90}],
          desc="PROBLEM: old prices. SOLUTION: mark-freshness gate holds "
               "non-escape risk; stops still run.")
-    stat("Stale assets held", M("liquiditybot_watchdog_stale_assets"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=ZERO_BAD,
-         desc="Watchdog quarantined assets — entries blocked until feed heals.")
-    stat("Entries blocked", M("liquiditybot_watchdog_entries_blocked"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=ZERO_BAD,
-         desc="Feed watchdog blocking new entries (a solution firing).")
-    stat("Divergent feeds", M("liquiditybot_watchdog_divergent"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=ZERO_BAD,
-         desc="Cross-venue book divergence count.")
+    bargauge("Watchdog — blocked / stale / divergent",
+             M("liquiditybot_watchdog_entries_blocked"), 12, 5, decimals=0,
+             steps=ZERO_BAD, legend="entries blocked",
+             extra=[(M("liquiditybot_watchdog_stale_assets"), "stale assets held"),
+                    (M("liquiditybot_watchdog_divergent"), "divergent feeds")],
+             desc="PROBLEM: rotten feed. SOLUTION: the watchdog quarantines "
+                  "stale assets and blocks new entries until the feed "
+                  "heals; exits always run. Any bar above zero is a "
+                  "solution actively firing.")
 
-    row("🧠 Model health")
-    stat("PROBLEM: model Brier", M("liquiditybot_ml_brier"), 4, 6, decimals=4,
+    row("🧠 MODEL HEALTH")
+    stat("PROBLEM: model Brier", M("liquiditybot_ml_brier"), 4, 5, decimals=4,
          mode="background", graph="none", steps=BRIER,
          desc="Detector. SOLUTION: the governor kills the model + queues a "
               "retrain when Brier crosses baseline.")
-    stat("vs baseline", M("liquiditybot_ml_baseline_brier"), 4, 6, decimals=4,
+    stat("vs baseline", M("liquiditybot_ml_baseline_brier"), 4, 5, decimals=4,
          steps=GRN, graph="none", desc="The bar Brier must stay under.")
-    state("SOLUTION: governor", M("liquiditybot_monitor_level"), 4, 6, GOV,
+    state("SOLUTION: governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 shrink+throttle / 2 model killed to the prior.")
-    state("SOLUTION: retrain", M("liquiditybot_ml_retrain_flag"), 4, 6, RETRAIN,
-          desc="Auto-retrain queued to replace a degrading champion.")
-    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 6,
+    state("SOLUTION: retrain", M("liquiditybot_ml_retrain_flag"), 4, 5,
+          RETRAIN, desc="Auto-retrain queued to replace a degrading "
+          "champion.")
+    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
           desc="PROBLEM: input drift. SOLUTION: retrain re-fits.")
-    stat("Kelly throttle", M("liquiditybot_ml_kelly_mult"), 4, 6, decimals=2,
-         steps=GRN, graph="none", desc="Size shrinks as confidence falls.")
-    stat("Model fallbacks", M("liquiditybot_ml_model_fallbacks"), 4, 4,
-         decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="Inference fell to the prior (fail-safe firing).")
-    stat("Infer faults", M("liquiditybot_ml_infer_faults"), 4, 4, decimals=0,
-         mode="background", graph="none", steps=STREAK, desc="Inference errors.")
-    stat("Contract fails", M("liquiditybot_ml_contract_failed"), 4, 4,
-         decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="Input outside contract.")
-    stat("Retrain failures", M("liquiditybot_ml_retrain_failures"), 4, 4,
-         decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="Auto-retrain crashed.")
-    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4,
+    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
          decimals=3, mode="background", graph="none", steps=CALIB,
          desc="Miscalibration; ECE.")
-    stat("Dirty rows dropped", M("liquiditybot_ml_dropped_dirty"), 4, 4,
-         decimals=0, mode="background", graph="none",
-         steps=[{"color": "green", "value": None},
-                {"color": "yellow", "value": 1}, {"color": "red", "value": 10}],
-         desc="PROBLEM: legacy/imported non-finite rows. SOLUTION: the "
-              "ML-015 load backstop drops them before they NaN a fit "
-              "(0 = corpus clean by construction).")
-    stat("Twin rows excluded", M("liquiditybot_ml_dropped_clash"), 4, 4,
+    bargauge("Fail-safe counters (any bar = a guard firing)",
+             M("liquiditybot_ml_model_fallbacks"), 12, 6, decimals=0,
+             steps=STREAK, legend="model fallbacks",
+             extra=[(M("liquiditybot_ml_infer_faults"), "infer faults"),
+                    (M("liquiditybot_ml_contract_failed"), "contract fails"),
+                    (M("liquiditybot_ml_retrain_failures"), "retrain failures"),
+                    (M("liquiditybot_ml_dropped_dirty"), "dirty rows dropped")],
+             desc="PROBLEM: inference/training faults. SOLUTION: every "
+                  "fault path falls back to the prior (fail-safe), dirty "
+                  "rows are dropped before they NaN a fit (ML-015).")
+    stat("Kelly throttle", M("liquiditybot_ml_kelly_mult"), 6, 6, decimals=2,
+         steps=GRN, graph="none", desc="SOLUTION: size shrinks as "
+         "confidence falls.")
+    stat("Twin rows excluded", M("liquiditybot_ml_dropped_clash"), 6, 6,
          decimals=0, graph="none", steps=BLUE,
-         desc="Synthetic candidate twins of REAL trades excluded so a taken "
-              "signal is never double-counted (realized label kept). "
+         desc="Synthetic candidate twins of REAL trades excluded so a "
+              "taken signal is never double-counted (realized label kept). "
               "Nonzero is healthy — it tracks taken teach-trades.")
 
-    row("💰 Capital & drawdown")
+    row("💰 CAPITAL & DRAWDOWN")
     gauge("PROBLEM: drawdown", M("liquiditybot_drawdown_pct"), 5, 6, mx=15.0,
-          steps=DD, desc="SOLUTION: drawdown throttle + 15% hard-stop flatten.")
+          steps=DD, desc="SOLUTION: drawdown throttle + 15% hard-stop "
+          "flatten.")
     stat("Loss streak", M("liquiditybot_perf_cur_loss_streak"), 4, 6,
          decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.")
+         desc="PROBLEM: consecutive losers. SOLUTION: per-asset circuit "
+              "breaker.")
     stat("Breakers tripped", M("liquiditybot_cb_tripped_count"), 3, 6,
          decimals=0, mode="background", graph="none", steps=ZERO_BAD,
          desc="Assets currently paused.")
-    gauge("Heat vs cap", M("liquiditybot_rp_heat_frac", "*100"), 4, 6, mx=35.0,
-          desc="SOLUTION: heat throttled under the CVaR cap.")
+    gauge("Heat vs cap", M("liquiditybot_rp_heat_frac", "*100"), 4, 6,
+          mx=35.0, desc="SOLUTION: heat throttled under the CVaR cap.")
     stat("Taper mult", M("liquiditybot_rp_taper_mult"), 4, 6, decimals=2,
          steps=GRN, desc="SOLUTION: loss-budget taper shrinks size.")
-    gauge("Daily budget used", M("liquiditybot_rp_daily_budget_used_frac", "*100"),
-          6, 5, mx=100.0, steps=BUDGET, desc="Daily loss budget consumed.")
-    gauge("Weekly budget used", M("liquiditybot_rp_weekly_budget_used_frac", "*100"),
-          6, 5, mx=100.0, steps=BUDGET, desc="Weekly loss budget consumed.")
+    gauge("Daily budget used",
+          M("liquiditybot_rp_daily_budget_used_frac", "*100"), 4, 6,
+          mx=100.0, steps=BUDGET, desc="Daily loss budget consumed.")
+    gauge("Weekly budget used",
+          M("liquiditybot_rp_weekly_budget_used_frac", "*100"), 12, 5,
+          mx=100.0, steps=BUDGET, desc="Weekly loss budget consumed.")
     table("Circuit breaker — paused assets", 12, 5,
           cols=[("liquiditybot_cb_loss_streak", "Loss streak", "short", 0, STREAK),
                 ("liquiditybot_cb_paused_hours_left", "Hours left", "short", 1, BLUE)],
           label_keys=["asset"], sort="Loss streak",
           desc="Per-asset breaker state; hours-left counts the cool-off.")
 
-    row("🕵️ Manipulation, venue & integrity")
+    row("🕵️ MANIPULATION, VENUE & INTEGRITY")
     state("op-state", M("liquiditybot_op_state"), 4, 5, OPSTATE,
           desc="Central fault authority: ARMED / DEGRADED / HALTED.")
-    stat("Latched faults", M("liquiditybot_fault_count"), 4, 5, decimals=0,
-         mode="background", graph="none", steps=ZERO_BAD, desc="Active latched faults.")
     state("Firewall fault", M("liquiditybot_firewall_fault"), 4, 5, HALT,
           desc="Risk-firewall latched fault (blocks new risk).")
-    stat("Cycle wedge", M("liquiditybot_cycle_consecutive_failures"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="PROBLEM: failing cycles. SOLUTION: runner wedge escalation.")
-    stat("Exit-eval failures", M("liquiditybot_exit_eval_failures"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=ZERO_BAD,
-         desc="A position wedging its own exit path.")
-    stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 4, 5,
-         decimals=0, mode="background", graph="none", steps=STREAK,
-         desc="OM-021 AddOrder rejects.")
+    bargauge("Integrity counters (any bar = an incident)",
+             M("liquiditybot_fault_count"), 16, 5, decimals=0,
+             steps=ZERO_BAD, legend="latched faults",
+             extra=[(M("liquiditybot_cycle_consecutive_failures"), "cycle wedge"),
+                    (M("liquiditybot_exit_eval_failures"), "exit-eval failures"),
+                    (M("liquiditybot_order_venue_rejects"), "venue rejects")],
+             desc="PROBLEM: wedged cycles / unguarded exits / venue "
+                  "rejects. SOLUTION: runner wedge escalation, exit-path "
+                  "isolation, OM-021 reject handling.")
     bargauge("Manipulation suspicion by asset",
-             _pa("liquiditybot_manip_suspect"), 12, 6, decimals=2, steps=LOW_GOOD,
-             mn=0, mx=1, desc="PROBLEM: painted/spoofed books. SOLUTION: THALES "
-             "shades size + down-weights those training rows.")
+             _pa("liquiditybot_manip_suspect"), 12, 6, decimals=2,
+             steps=LOW_GOOD, mn=0, mx=1,
+             desc="PROBLEM: painted/spoofed books. SOLUTION: THALES shades "
+                  "size + down-weights those training rows.")
     table("Firewall clamps/rejects by code", 12, 6,
           cols=[("liquiditybot_firewall_count", "Count", "short", 0, STREAK)],
           label_keys=["code"], sort="Count",
