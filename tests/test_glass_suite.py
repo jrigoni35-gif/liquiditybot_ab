@@ -102,3 +102,34 @@ def test_bargauges_basic_mode():
             if p["type"] == "bargauge":
                 assert p["options"]["displayMode"] == "basic", \
                     f'{d["uid"]}: {p["title"]}'
+
+
+def test_signed_table_columns_use_color_text():
+    # an outer join leaves legitimately-absent cells null, and a null
+    # color-background cell paints the BASE threshold color - alarm red
+    # on PNL scales (the 7/22 defect). Signed columns must color TEXT.
+    for d in _boards():
+        for p in d["panels"]:
+            if p["type"] != "table":
+                continue
+            for o in p["fieldConfig"]["overrides"]:
+                props = {pr["id"]: pr["value"] for pr in o["properties"]}
+                thr = props.get("thresholds") or {}
+                steps = thr.get("steps") or []
+                if not steps or steps[0].get("color") != "#FF453A":
+                    continue
+                cell = props.get("custom.cellOptions") or {}
+                assert cell.get("type") == "color-text", (
+                    f'{d["uid"]}: table {p["title"]!r} column '
+                    f'{o["matcher"]["options"]!r} has a red-based scale '
+                    "but paints cell backgrounds")
+
+
+def test_uids_and_nav_links_pinned():
+    uids = {d["uid"] for d in _boards()}
+    assert uids == {"liquiditybot-trading", "liquiditybot-exec",
+                    "liquiditybot-problem-solution",
+                    "liquiditybot-screening"}
+    for d in _boards():
+        nav = {ln["url"] for ln in d["links"]}
+        assert nav == {f"/d/{u}" for u in uids}, d["uid"]

@@ -22,7 +22,7 @@ docs/grafana/README_glass.md):
   * KPI tiles are stat panels with an AREA SPARKLINE (trend at a glance) and
     threshold color;
   * bounded ratios (exposure, heat, win rate, drawdown) are GAUGES;
-  * per-entity comparisons are horizontal gradient BAR GAUGES (one bar per
+  * per-entity comparisons are horizontal basic-mode BAR GAUGES (one bar per
     asset/pair) — the eye ranks them instantly;
   * a couple of real TIME-SERIES carry the trends that matter (equity, Brier);
   * dense detail lives in COLOR-CODED tables (heatmap cells);
@@ -597,8 +597,8 @@ def _author_command():
                 ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL, "text"),
                 ("liquiditybot_perf_asset_trades", "Trades", "short", 0),
                 ("liquiditybot_perf_asset_cur_loss_streak", "Loss streak", "short", 0, STREAK),
-                ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
-                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD),
+                ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD, "text"),
+                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD, "text"),
                 ("liquiditybot_signal_urgency", "Urgency", "short", 2),
                 ("liquiditybot_manip_suspect", "Manip", "short", 2, LOW_GOOD),
                 ("liquiditybot_regime_spread_bps", "Spread bps", "short", 1, SPREAD),
@@ -652,7 +652,7 @@ def _author_command():
           cols=[("liquiditybot_code_count_detail", "Count", "short", 0, BLUE)],
           label_keys=["code"], sort="Count", desc="Why entries fired/vetoed.")
     table("Learned gate weights", 6, 5,
-          cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD)],
+          cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD, "text")],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 6, 5,
           mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
@@ -666,7 +666,7 @@ def _positions_table():
                 ("liquiditybot_position_upnl_pct", "uPnL %", "percent", 2, PNL, "text"),
                 ("liquiditybot_position_r_multiple", "R", "short", 2, PNL, "text"),
                 ("liquiditybot_position_notional_usd", "Notional $", USD, 0),
-                ("liquiditybot_position_conviction", "p_win", "percentunit", 2, HIGH_GOOD),
+                ("liquiditybot_position_conviction", "p_win", "percentunit", 2, HIGH_GOOD, "text"),
                 ("liquiditybot_position_stop_dist_pct", "Stop %", "percent", 2),
                 ("liquiditybot_position_age_hours", "Age h", "short", 1)],
           label_keys=["symbol", "side"], sort="uPnL $",
@@ -719,14 +719,14 @@ def _author_execution():
              decimals=1, steps=WR100, legend="{{asset}}",
              desc="Delivered win rate on the judge window.")
     table("Per-asset signal quality", 8, 5,
-          cols=[("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
-                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD),
+          cols=[("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD, "text"),
+                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD, "text"),
                 ("liquiditybot_signal_urgency", "Urgency", "short", 2),
                 ("liquiditybot_manip_suspect", "Manip", "short", 2, LOW_GOOD)],
           label_keys=["asset"], sort="Concentration",
           desc="Signal decision quality per asset.")
     table("Learned gate weights", 8, 5,
-          cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD)],
+          cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD, "text")],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
 
     row("📦 INVENTORY & POSITIONING")
@@ -959,8 +959,8 @@ def _author_screening():
                 ("liquiditybot_regime_vol_pct", "Vol %", "percent", 1),
                 ("liquiditybot_regime_spoof", "Spoof", "short", 2, LOW_GOOD),
                 ("liquiditybot_manip_suspect", "Manip", "short", 2, LOW_GOOD),
-                ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD),
-                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD),
+                ("liquiditybot_signal_confidence", "Confidence", "short", 2, HIGH_GOOD, "text"),
+                ("liquiditybot_signal_concentration", "Concentration", "short", 2, HIGH_GOOD, "text"),
                 ("liquiditybot_signal_urgency", "Urgency", "short", 2),
                 ("liquiditybot_perf_asset_win_rate", "Win rate", "percentunit", 2, WRU, "text"),
                 ("liquiditybot_perf_asset_net_usd", "Net $", USD, 2, PNL, "text"),

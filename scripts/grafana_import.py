@@ -33,16 +33,22 @@ DASHBOARDS = [
     "liquiditybot_screening.json",
 ]
 
+# Boards retired 2026-07-22 — deleted from the instance on every run so a
+# re-import can never leave a dead board (with its fixed defects) live.
+# DELETE is idempotent here: 404 = already gone, which is success.
+RETIRED_UIDS = ["liquiditybot-glass", "liquiditybot-glass-mobile"]
 
-def _req(url: str, token: str, payload: dict | None = None):
+
+def _req(url: str, token: str, payload: dict | None = None, method=None):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode() if payload is not None else None,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"},
-        method="POST" if payload is not None else "GET")
+        method=method or ("POST" if payload is not None else "GET"))
     with urllib.request.urlopen(req, timeout=30) as r:  # nosec B310 - https
-        return json.load(r)
+        body = r.read()
+        return json.loads(body) if body else {}
 
 
 def ensure_folder(base: str, token: str, folder_uid: str) -> str:
@@ -92,6 +98,17 @@ def main() -> int:
         except urllib.error.HTTPError as e:
             failures += 1
             print(f"  FAIL {name}: HTTP {e.code} {e.read()[:200]!r}")
+
+    for uid in RETIRED_UIDS:
+        try:
+            _req(f"{base}/api/dashboards/uid/{uid}", token, method="DELETE")
+            print(f"  RETIRED {uid}: deleted")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                print(f"  RETIRED {uid}: already gone")
+            else:
+                failures += 1
+                print(f"  FAIL retire {uid}: HTTP {e.code}")
     return 1 if failures else 0
 
 
