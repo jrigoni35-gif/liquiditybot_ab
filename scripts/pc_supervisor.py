@@ -33,6 +33,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.runtime import SingleInstanceLock  # noqa: E402
+
 OUT = ROOT / "outputs"
 CHECK_SEC = 30.0
 STALE_SEC = 120.0          # a heartbeat older than this = process is gone
@@ -446,11 +449,16 @@ def tick() -> None:
     # 6) self-restart on source change: the auto-updater bounces the RUNNER,
     # but this process would keep the pre-update supervisor in memory until
     # the next reboot (observed live 2026-07-17: new tick steps sat dormant).
-    # When our own file changes on disk, hand over to a fresh copy and exit —
-    # children are detached and survive; the brief two-supervisor overlap is
-    # harmless (relaunches are heartbeat-gated, the updater holds a lock).
+    # When our own file changes on disk, hand over to a fresh copy and exit.
+    # The lock is RELEASED FIRST so the replacement can acquire it cleanly —
+    # the pre-lock handoff spawned a task-UNtracked copy that Task Scheduler
+    # could not see, so IgnoreNew/RestartOnFailure/logon each added another
+    # (observed live 2026-07-22: TWO full supervisor+runner stacks, the
+    # source of the audit trail's concurrent-writer seams).
     if _source_changed():
         log("pc_supervisor.py changed on disk -> restarting on the new code")
+        if _LOCK is not None:
+            _LOCK.release()
         _spawn([PY, str(_SELF)])
         raise SystemExit(0)
 
@@ -466,17 +474,46 @@ def _source_changed() -> bool:
         return False
 
 
+# single-instance lock: only ONE supervisor may drive an outputs/ dir, no
+# matter how it was launched (Task Scheduler, RestartOnFailure, the source-
+# change handoff, restart.bat, a manual start). Task Scheduler's IgnoreNew
+# only dedups instances IT started — the handoff spawns a detached copy the
+# task cannot see, so every OS-level path was adding a second full stack
+# (2x supervisor -> 2x runner -> audit writer-seam forks). Same hardened
+# heartbeat lock the runner uses; stale_after matches STALE_SEC so a crashed
+# supervisor is replaced within one liveness window.
+_LOCK: SingleInstanceLock | None = None
+
+
 def main() -> None:
-    log(f"start (python={PY}, check={CHECK_SEC:.0f}s, stale={STALE_SEC:.0f}s)")
+    global _LOCK
+    _LOCK = SingleInstanceLock(path=str(OUT / "pc_supervisor.lock"),
+                               stale_after_sec=STALE_SEC)
+    holder = _LOCK.acquire()
+    if holder is not None:
+        log(f"another supervisor is live (pid {holder.get('pid')}) — "
+            f"refusing to double, exiting")
+        return
+    log(f"start (python={PY}, check={CHECK_SEC:.0f}s, stale={STALE_SEC:.0f}s, "
+        f"lock pid={os.getpid()})")
     _materialise_token()
     if not _telemetry_ready():
         log("no GC_OTLP_URL/GC_INSTANCE_ID/token — running bot only, no push")
-    while True:
-        try:
-            tick()
-        except Exception as e:                       # fail-safe: never wedge
-            log(f"tick error (continuing): {e}")
-        time.sleep(CHECK_SEC)
+    try:
+        while True:
+            try:
+                tick()
+            except SystemExit:
+                raise                                # handoff already released
+            except Exception as e:                   # fail-safe: never wedge
+                log(f"tick error (continuing): {e}")
+            if not _LOCK.refresh() and _LOCK.forfeited:
+                log("lost the supervisor lock to a live peer — exiting")
+                return                               # peer owns outputs/ now
+            time.sleep(CHECK_SEC)
+    finally:
+        _LOCK.release()                              # ownership-aware: never
+                                                     # deletes a peer's lock
 
 
 if __name__ == "__main__":

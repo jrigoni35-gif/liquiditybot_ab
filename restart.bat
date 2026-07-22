@@ -16,8 +16,11 @@ echo [restart] pulling latest code (fast-forward only)...
 git pull --ff-only
 
 echo [restart] force-killing the runner (supervisor relaunches it on the new code)...
+REM match python.exe AND pythonw.exe: the hidden supervisor launches the runner
+REM under pythonw, so the old python.exe-only filter silently killed NOTHING on
+REM an autostart install (the deploy never actually bounced the runner).
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$p = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*runner.py*' };" ^
+  "$p = Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | Where-Object { $_.CommandLine -like '*runner.py*' };" ^
   "if ($p) { $p | ForEach-Object { Write-Host ('  killing runner pid ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force } }" ^
   "else { Write-Host '  no runner.py process found (supervisor will start one)' }"
 
