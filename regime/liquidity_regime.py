@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing import Optional
 
+from core.codes import Code, tag
+
 log = logging.getLogger("liquiditybot.regime.liquidity")
 
 EPS = 1e-9
@@ -44,6 +46,11 @@ class LiquidityState:
     depth_top10_usd: float = 0.0     # Kraken two-sided depth
     depth_ratio: float = 1.0         # vs trailing median depth
     imbalance_whiplash: float = 0.0  # std of imbalance ratio, recent window
+    imbalance_ratio: float = 1.0     # decayed Kraken-book imbalance (the flow
+                                     # scalar; surfaced to the view so the alpha
+                                     # can evaluate Kraken-only listings — v9)
+    tier: str = "core"               # liquidity cap-tier (core|mid|micro),
+                                     # derived from trailing-median depth (v9)
     spoof_score: float = 0.0         # 0..1
     spoof_events_total: int = 0
     size_mult: float = 1.0           # applied by sizer
@@ -147,11 +154,65 @@ class LiquidityRegimeEngine:
         # 0 disables (exact legacy equal-weight). Ratio is shape-invariant
         # under symmetric books, so the whiplash calibration above holds.
         self.imbalance_decay_bps = float(cfg.get("imbalance_decay_bps", 15.0))
+
+        # --- v9 liquidity-tier isolation ---------------------------------
+        # An asset is classified into a cap-tier from its OWN trailing-median
+        # Kraken top-10 depth; the tier scales ONLY the two categorical
+        # executability floors (depth / spread). CORE reproduces the legacy
+        # flat floors byte-identically, so ETH/BTC — and quant_trials /
+        # overfit — never move; MID/MICRO lower the ceilings so a low-volume
+        # asset is judged on its own scale and REACHES the honest EV gate
+        # (which stays flat). Tier is a DERIVED category (median depth vs the
+        # tier floors), never a hardcoded symbol map — overfit discipline.
+        tcfg = cfg.get("tiers") or {}
+        self.tiers_enabled = bool(tcfg.get("enabled", False))
+        order = tcfg.get("order") or ["core", "mid", "micro"]
+        tiers = []
+        for name in order:
+            t = tcfg.get(name) or {}
+            tiers.append((
+                str(name),
+                float(t.get("min_depth_usd", self.min_depth_usd)),
+                float(t.get("max_spread_bps", self.max_spread_bps)),
+            ))
+        tiers.sort(key=lambda x: x[1], reverse=True)   # richest tier first
+        self._tiers = tiers if (self.tiers_enabled and tiers) else [
+            ("core", self.min_depth_usd, self.max_spread_bps)]
+        # hysteresis dead-band: once assigned, a tier is only vacated when the
+        # median clears the relevant boundary by this fraction — so an asset
+        # whose median drifts across a boundary does not flicker its tier (and
+        # its size_mult / spread ceiling / LT-010 log) cycle-to-cycle.
+        self.tier_hysteresis_frac = max(float(tcfg.get("hysteresis_frac", 0.15)),
+                                        0.0)
+
         self._trk: dict = {}
         self._states: dict = {}
 
     def state(self, asset: str) -> LiquidityState:
         return self._states.get(asset) or LiquidityState(asset=asset)
+
+    def _tier_for(self, median_depth_usd: float,
+                  prev: Optional[str] = None) -> tuple:
+        """(name, min_depth_usd, max_spread_bps) for the RICHEST tier whose
+        depth floor the asset's trailing-median depth clears. The thinnest
+        tier is the fallback, so a sub-floor asset is still judged on the
+        gentlest scale rather than the majors'.
+
+        With a prior tier and a hysteresis band, the asset STAYS in `prev`
+        until the median clears the boundary by tier_hysteresis_frac — the
+        dead-band that stops boundary-hugging assets from flickering tiers."""
+        raw = next((e for e in self._tiers                 # descending floor
+                    if median_depth_usd >= e[1]), self._tiers[-1])
+        if prev is None or self.tier_hysteresis_frac <= 0.0:
+            return raw
+        prev_entry = next((e for e in self._tiers if e[0] == prev), None)
+        if prev_entry is None or raw[0] == prev_entry[0]:
+            return raw
+        h = self.tier_hysteresis_frac
+        if raw[1] > prev_entry[1]:            # promotion: clear richer floor +h
+            return raw if median_depth_usd >= raw[1] * (1.0 + h) else prev_entry
+        # demotion: drop below prev's OWN floor by -h before giving up the tier
+        return raw if median_depth_usd < prev_entry[1] * (1.0 - h) else prev_entry
 
     # ------------------------------------------------------------------
     def update(self, asset: str, combined_book: dict, kraken_book: dict,
@@ -168,9 +229,28 @@ class LiquidityRegimeEngine:
         st.combined_crossed = bool(_cb and _ca and _cb[0][0] >= _ca[0][0])
         st.depth_top10_usd = _depth_usd(exec_book)
 
-        trk.depth_hist.append(st.depth_top10_usd)
+        # only REAL depth observations feed the trailing median: appending the
+        # 0.0 of an empty/stale book would drag an asset's structural depth
+        # (and thus its tier) down during an outage and keep it there until the
+        # zeros flush — relaxing a major's floor exactly in the volatile
+        # recovery window. The instantaneous reading below still flags collapse.
+        if st.depth_top10_usd > 0.0:
+            trk.depth_hist.append(st.depth_top10_usd)
         med = float(np.median(trk.depth_hist)) if trk.depth_hist else 0.0
         st.depth_ratio = st.depth_top10_usd / (med + EPS) if med > 0 else 1.0
+
+        # v9 cap-tier from the STRUCTURAL (trailing-median) depth, not the
+        # instantaneous depth — an asset's tier must not flip snapshot to
+        # snapshot; "is depth unusually low right now" is depth_ratio's job.
+        # Hysteresis (prev tier) pins a boundary-hugging asset against flicker.
+        prev_tier = st.tier
+        tier_name, tier_min_depth, tier_max_spread = self._tier_for(med, prev_tier)
+        st.tier = tier_name
+        if self.tiers_enabled and tier_name != prev_tier:
+            log.info("%s", tag(Code.LT_TIER_ASSIGNED,
+                     f"{asset} {prev_tier}->{tier_name} "
+                     f"(median depth ${med:,.0f}; floor "
+                     f"${tier_min_depth:,.0f}/{tier_max_spread:.0f}bps)"))
 
         # imbalance / whiplash / mid-track / spoof all read the EXECUTION book
         # (Kraken), NOT the combined book. combined_book price-sorts OKX-USDT
@@ -184,6 +264,7 @@ class LiquidityRegimeEngine:
         # is both correct and on-distribution. Depth (a USD sum, USDT~USD) and
         # combined_spread_bps stay on the combined book as informational.
         imb = _imbalance(exec_book, decay_bps=self.imbalance_decay_bps)
+        st.imbalance_ratio = imb          # the flow scalar the alpha reads
         trk.imb_hist.append(imb)
         st.imbalance_whiplash = float(np.std(trk.imb_hist)) if len(trk.imb_hist) >= 5 else 0.0
 
@@ -202,7 +283,7 @@ class LiquidityRegimeEngine:
         if st.spoof_score >= self.spoof_score_threshold or \
         st.imbalance_whiplash >= self.whiplash_threshold:
             st.label, st.size_mult, st.reduce_only = "spoofy", 0.0, True
-        elif st.depth_top10_usd < self.min_depth_usd or st.spread_bps > self.max_spread_bps:
+        elif st.depth_top10_usd < tier_min_depth or st.spread_bps > tier_max_spread:
             st.label, st.size_mult, st.reduce_only = "thin", 0.5, False
         else:
             st.label, st.size_mult, st.reduce_only = "liquid", 1.0, False

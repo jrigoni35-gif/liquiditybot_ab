@@ -917,6 +917,93 @@ def validate(config: dict) -> list:
              f"the healthy-book median (p50~1.1) - manip_suspect will read "
              f"elevated on ordinary quiet books")
 
+    # --- v9 liquidity-tier isolation coherence ----------------------------
+    # The cap-tiers scale ONLY the categorical executability floors. Two
+    # invariants keep them coherent: CORE must reproduce the legacy flat floors
+    # exactly (else enabling tiers silently retunes ETH/BTC and quant_trials/
+    # overfit), and a THINNER tier must never be STRICTER than a richer one
+    # (lower depth floor => wider spread ceiling), else the isolation gates
+    # low-volume assets harder than the majors — the opposite of its purpose.
+    lr = config.get("liquidity_regime", {}) or {}
+    tcfg = lr.get("tiers") or {}
+    if tcfg.get("enabled"):
+        base_depth = float(lr.get("min_depth_usd", 150_000))
+        base_spread = float(lr.get("max_spread_bps", 12.0))
+        order = tcfg.get("order") or ["core", "mid", "micro"]
+        rows = [(str(n),
+                 float((tcfg.get(n) or {}).get("min_depth_usd", base_depth)),
+                 float((tcfg.get(n) or {}).get("max_spread_bps", base_spread)))
+                for n in order]
+        core = next((r for r in rows if r[0] == "core"), None)
+        if core is None:
+            fatal("liquidity_regime.tiers.enabled but no 'core' tier defined - "
+                  "core anchors the majors to the legacy floors")
+        elif abs(core[1] - base_depth) > 1e-6 or \
+                abs(core[2] - base_spread) > 1e-6:
+            fatal(f"liquidity_regime.tiers.core "
+                  f"({core[1]:.0f}/{core[2]:.0f}) must equal the legacy flat "
+                  f"floors min_depth_usd/max_spread_bps "
+                  f"({base_depth:.0f}/{base_spread:.0f}) - core is the majors' "
+                  f"anchor; drift here silently retunes ETH/BTC")
+        if any(r[1] <= 0 or r[2] <= 0 for r in rows):
+            fatal("liquidity_regime.tiers floors must be positive")
+        srt = sorted(rows, key=lambda r: r[1], reverse=True)
+        for a, b in zip(srt, srt[1:], strict=False):
+            if b[2] < a[2] - 1e-6:
+                fatal(f"liquidity_regime.tiers: tier '{b[0]}' has a thinner "
+                      f"depth floor than '{a[0]}' but a TIGHTER spread ceiling "
+                      f"({b[2]:.0f} < {a[2]:.0f}); a thinner tier must allow a "
+                      f"WIDER spread, else isolation is incoherent")
+
+    # pretrade per-tier spread ceiling: core must match the flat cap, and the
+    # ceiling must not tighten as tiers thin (mirror of the depth-tier rule).
+    pt = config.get("pretrade", {}) or {}
+    pt_tms = pt.get("tier_max_spread_bps") or {}
+    if pt_tms:
+        pt_base = float(pt.get("max_spread_bps", 15.0))
+        vals = {str(k): float(v) for k, v in pt_tms.items()
+                if not str(k).startswith("_")}
+        if "core" in vals and abs(vals["core"] - pt_base) > 1e-6:
+            fatal(f"pretrade.tier_max_spread_bps.core ({vals['core']:.0f}) must "
+                  f"equal pretrade.max_spread_bps ({pt_base:.0f}) - core is the "
+                  f"majors' spread ceiling")
+        if any(v <= 0 for v in vals.values()):
+            fatal("pretrade.tier_max_spread_bps values must be positive")
+        # monotonicity is FATAL here (unlike the size-only depth-tier ordering):
+        # this ceiling is the LIVE-ORDER veto (PT-021). Check it against the SAME
+        # depth-tier order the classifier uses, generically over whatever tiers
+        # are declared (not hardcoded core/mid/micro), and flag any declared
+        # liquidity tier missing a pretrade cap (it silently falls back to flat).
+        lr_tiers = lr.get("tiers") or {}
+        if lr_tiers.get("enabled"):
+            lr_base_depth = float(lr.get("min_depth_usd", 150_000))
+            t_order = lr_tiers.get("order") or ["core", "mid", "micro"]
+            depth_of = {n: float((lr_tiers.get(n) or {}).get(
+                "min_depth_usd", lr_base_depth)) for n in t_order}
+            richest_first = sorted(t_order, key=lambda n: depth_of[n],
+                                   reverse=True)
+            prev_n, prev_cap = None, None
+            for n in richest_first:
+                cap = vals.get(n)
+                if cap is None:
+                    warn(f"pretrade.tier_max_spread_bps has no entry for tier "
+                         f"'{n}' (declared in liquidity_regime.tiers) — it falls "
+                         f"back to the flat max_spread_bps={pt_base:.0f}, which "
+                         f"may gate that tier's assets too hard")
+                    continue
+                if prev_cap is not None and cap < prev_cap - 1e-6:
+                    fatal(f"pretrade.tier_max_spread_bps: tier '{n}' is thinner "
+                          f"than '{prev_n}' but has a TIGHTER spread ceiling "
+                          f"({cap:.0f} < {prev_cap:.0f}) — the live-order veto "
+                          f"would gate low-volume assets HARDER than the majors")
+                prev_n, prev_cap = n, cap
+        else:
+            c, m, mi = vals.get("core"), vals.get("mid"), vals.get("micro")
+            if c is not None and m is not None and mi is not None \
+                    and not (mi >= m >= c):
+                warn(f"pretrade.tier_max_spread_bps not monotonic "
+                     f"core<=mid<=micro ({c:.0f}/{m:.0f}/{mi:.0f})")
+
     # --- rev-5 adaptive blocks: aggression / gate learning / exit coupling
     ia = _f(config, "position_sizer.inventory_aggression", {}) or {}
     if isinstance(ia, dict) and ia.get("enabled"):

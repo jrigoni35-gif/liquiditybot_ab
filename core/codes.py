@@ -19,6 +19,7 @@ Prefix map (subsystem of origin):
   TH  strategies.thales (lazy-bot insecurity detectors / advice)
   RC  scripts.remote_control (git command-bus dispositions)
   XV  execution-truth harness (replay gate + fill-model calibration)
+  LT  regime.liquidity_regime (asset liquidity-tier isolation)
 """
 
 from enum import Enum
@@ -186,6 +187,13 @@ class Code(str, Enum):
     XV_CALIB_DEFERRED = "XV-020"     # fill calibration underpowered/not-near-touch: no recommendation
     XV_CALIB_RECOMMEND = "XV-021"    # fill calibration recommends a passive_base_prob change
     XV_CALIB_MISSPECIFIED = "XV-022"  # per-distance buckets disagree: forward model misspecified
+
+    # ---- liquidity-tier isolation (LT) — regime/liquidity_regime.py ------
+    LT_TIER_ASSIGNED = "LT-010"      # asset (re)classified into a liquidity
+                                     # cap-tier from its trailing-median depth;
+                                     # the tier scales the executability floors
+                                     # (depth / spread) so a low-volume asset is
+                                     # judged on its own scale, never ETH/BTC's
 
 
 def tag(code: Code, detail: str) -> str:

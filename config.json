@@ -258,6 +258,15 @@
   "liquidity_regime": {
     "min_depth_usd": 150000,
     "max_spread_bps": 12,
+    "tiers": {
+      "_doc": "v9 liquidity-tier isolation. An asset is classified into a cap-tier from its OWN trailing-median Kraken top-10 depth (a DERIVED category, never a hardcoded symbol map - overfit discipline), and the tier scales ONLY the two categorical executability floors (depth / spread). CORE reproduces the legacy flat floors (min_depth_usd 150000 / max_spread_bps 12) byte-identically, so ETH/BTC - and quant_trials / overfit - never move; MID/MICRO lower the floors so a low-volume asset (SUI/ARB/MINA/FLOW) is judged on its own scale and REACHES the honest edge/cost EV gate, which stays FLAT for every tier. Tier = the richest tier whose depth floor the median depth clears; a sub-floor asset falls to the thinnest tier. Bands are broad round numbers (category, not peak-fit); re-calibrate from observed per-asset depth once real recordings arm (Bucket C). enabled=false collapses every asset to CORE (exact legacy behavior). config_guard enforces monotonic floors and core==legacy.",
+      "enabled": true,
+      "order": ["core", "mid", "micro"],
+      "hysteresis_frac": 0.15,
+      "core":  {"min_depth_usd": 150000, "max_spread_bps": 12},
+      "mid":   {"min_depth_usd": 40000,  "max_spread_bps": 25},
+      "micro": {"min_depth_usd": 12000,  "max_spread_bps": 45}
+    },
     "spoof_size_mult": 8,
     "spoof_max_lifetime_sec": 90,
     "spoof_score_threshold": 0.45,
@@ -300,6 +309,12 @@
     "adv_haircut": 0.1,
     "adv_floor_usd": 1000000,
     "max_spread_bps": 15,
+    "tier_max_spread_bps": {
+      "_doc": "v9 per-tier spread CEILING (the sole categorical veto that scales by cap-tier; keyed by the liquidity_regime tier carried on the pretrade context). core == max_spread_bps (15) exactly, so majors are unchanged; MID/MICRO widen the ceiling so the flat cap can't veto a low-volume asset BEFORE the honest edge/cost EV gate weighs its real spread. This is NOT a profitability concession: the EV gate (min_edge_cost_ratio, unchanged, flat) still requires edge to clear the wider round-trip cost, so an alt trades only when its edge genuinely covers its spread. A missing tier falls back to max_spread_bps. config_guard enforces core==max_spread_bps and micro>=mid>=core.",
+      "core": 15,
+      "mid": 30,
+      "micro": 55
+    },
     "max_data_staleness_ms": 4000,
     "max_participation_of_depth": 0.15,
     "min_order_usd": 15,

@@ -61,7 +61,7 @@ from data.ws_feed import (KrakenV2BookStream, LiveMarketCache,
 from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
-from strategies.liquidity_model import LiquidityModel
+from strategies.liquidity_model import LiquidityModel, extract_base_asset
 from strategies.signal_gates import (GateStats, SignalGateEngine,
                                      concentration_conf_mult)
 from risk.capital_manager import CapitalManager
@@ -446,6 +446,18 @@ class LiquidityBot:
 
         # --- v1 core ---
         self.liquidity_model = LiquidityModel(config)
+        # base assets with a real external (OKX/Binance.US) cross-venue feed —
+        # the ONLY assets that get an external imbalance from build_view. Used
+        # to decide whether to surface the Kraken exec-book imbalance (v9 flow
+        # unlock): a genuinely Kraken-only listing (SUI/ARB/MINA/FLOW) gets it;
+        # a major (ETH/BTC) never does, even on a cycle its external feed drops.
+        self._external_bases = set()
+        for _ex in ("okx", "binanceus"):
+            for _s in (config.get("exchanges", {}).get(_ex, {})
+                       .get("symbols", []) or []):
+                _b = extract_base_asset(_s)
+                if _b:
+                    self._external_bases.add(_b)
         engine_kind = (config.get("strategies") or {}).get("engine",
                                                           "five_gate")
         if engine_kind == "informed_flow":
@@ -1897,6 +1909,22 @@ class LiquidityBot:
             # signals are evaluated, and a defense gauge that freezes on
             # its last value is blind exactly when the operator watches it
             ls = self.liq.state(asset)
+            # v9 flow unlock: Kraken-only listings (SUI/ARB/MINA/FLOW) carry no
+            # external cross-venue imbalance from build_view, so the alpha's
+            # flow gate read a defaulted 1.0 (s_flow==0) and could NEVER confirm
+            # — the true reason only ETH/BTC ever filled. Surface the exec-book
+            # imbalance the regime engine already computed so those assets can
+            # finally generate a signal. Guarded three ways so it never feeds
+            # the alpha a bad number: (1) only assets with NO external venue
+            # (a major keeps its external imbalance even on a cycle its feed
+            # drops); (2) only a FRESH Kraken book (kbook is {} past critical
+            # staleness — never surface a frozen book); (3) only a two-sided,
+            # measurable book (spread<900 sentinel — a one-sided book's 3.0
+            # imbalance sentinel would fabricate a max-long signal).
+            if (v.get("imbalance_ratio") is None
+                    and asset not in self._external_bases
+                    and bool(kbook) and ls.spread_bps < 900.0):
+                v["imbalance_ratio"] = ls.imbalance_ratio
             # cross-venue divergence: Kraken (exec) vs the COHERENT per-venue
             # composite, not the mixed-unit merged book (SD-003). No external
             # book this cycle -> composite is unmeasurable, so mirror
@@ -2251,6 +2279,7 @@ class LiquidityBot:
                 liq_label=liq_state.label,
                 spread_bps=liq_state.spread_bps,
                 staleness_ms=(now - self.book_ts.get(asset, 0.0)) * 1000.0,
+                tier=liq_state.tier,
             )
             decision = self.pretrade.evaluate(
                 side, sized.units, entry_price,

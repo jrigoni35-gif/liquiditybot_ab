@@ -49,6 +49,9 @@ class PreTradeContext:
     spread_bps: float
     staleness_ms: float
     reduce_only_ok: bool = False
+    tier: str = "core"               # liquidity cap-tier from the regime engine
+                                     # (core|mid|micro): scales ONLY the hard
+                                     # spread-ceiling veto, never the EV test
 
 
 @dataclass
@@ -72,6 +75,17 @@ class PreTradeGate:
         self.impact_eta = float(cfg.get("impact_eta", 0.8))
         self.min_edge_cost_ratio = float(cfg.get("min_edge_cost_ratio", 1.3))
         self.max_spread_bps = float(cfg.get("max_spread_bps", 15.0))
+        # v9 per-tier spread CEILING (the only categorical veto that scales by
+        # cap-tier). core == max_spread_bps exactly, so majors are unchanged; a
+        # wider ceiling for MID/MICRO stops the flat cap from vetoing a
+        # low-volume asset BEFORE the honest edge/cost EV gate — which stays
+        # flat for every tier — can weigh its (wider) real spread. A missing
+        # tier falls back to max_spread_bps (never looser than core by default).
+        _tms = cfg.get("tier_max_spread_bps") or {}
+        self.tier_max_spread_bps = {
+            str(k): float(v) for k, v in _tms.items()
+            if not str(k).startswith("_")}      # skip the _doc annotation
+        self.tier_max_spread_bps.setdefault("core", self.max_spread_bps)
         self.max_staleness_ms = float(cfg.get("max_data_staleness_ms", 4000.0))
         self.max_participation = float(cfg.get("max_participation_of_depth",
                                                0.15))
@@ -165,10 +179,11 @@ class PreTradeGate:
             d.reasons.append(tag(Code.PT_STALE_DATA,
                                  f"{ctx.staleness_ms:.0f}ms"))
             return d
-        if ctx.spread_bps > self.max_spread_bps:
+        spread_cap = self.tier_max_spread_bps.get(ctx.tier, self.max_spread_bps)
+        if ctx.spread_bps > spread_cap:
             d.reasons.append(tag(Code.PT_SPREAD_WIDE,
                                  f"{ctx.spread_bps:.1f}bps > "
-                                 f"{self.max_spread_bps:.0f}"))
+                                 f"{spread_cap:.0f} ({ctx.tier})"))
             return d
         if ctx.liq_label == "spoofy" and not ctx.reduce_only_ok:
             d.reasons.append(tag(Code.PT_SPOOFY_REGIME,
