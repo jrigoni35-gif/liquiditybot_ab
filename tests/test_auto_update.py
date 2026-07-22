@@ -36,6 +36,80 @@ def test_new_commits_clean_tree_gates_on_battery():
     assert decide("abc123", "def456", False) == "test"
 
 
+def test_local_ahead_of_remote_is_never_deployed():
+    # live 2026-07-21: the box was deliberately on a feature-branch tip while
+    # the updater compared against origin/main (an ANCESTOR). local != remote
+    # -> "test" every 15 min -> full battery + a NO-OP ff + a runner bounce,
+    # forever — an endless reboot loop that starved signal persistence.
+    # Ahead-of-remote must be a clean no-op, and it wins over dirty (no
+    # deploy is contemplated at all, so local edits are irrelevant).
+    assert decide("abc123", "def456", False, remote_is_ancestor=True) == "ahead"
+    assert decide("abc123", "def456", True, remote_is_ancestor=True) == "ahead"
+    assert "ahead" in au.OK_OUTCOMES              # supervisor: nothing wrong
+
+
+def test_deploy_branch_follows_checkout_and_falls_back_detached(monkeypatch):
+    monkeypatch.setattr(au, "_git",
+                        lambda *a, **k: (0, "claude/some-feature"))
+    assert au._deploy_branch() == "claude/some-feature"
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "HEAD"))   # detached
+    assert au._deploy_branch() == au.BRANCH
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (1, "boom"))
+    assert au._deploy_branch() == au.BRANCH
+
+
+def test_update_once_ahead_never_runs_battery_or_restart(tmp_path,
+                                                         monkeypatch):
+    monkeypatch.setattr(au, "OUT", tmp_path)
+    calls = []
+
+    def fake_git(*args, cwd=None, timeout=120):
+        calls.append(args)
+        if args[0] == "rev-parse" and args[1] == "--abbrev-ref":
+            return 0, "feature"
+        if args == ("rev-parse", "HEAD"):
+            return 0, "tip_local"
+        if args[0] == "rev-parse":
+            return 0, "old_remote"                 # origin/feature is behind
+        if args[0] == "merge-base":
+            return 0, ""                           # remote IS our ancestor
+        return 0, ""
+    monkeypatch.setattr(au, "_git", fake_git)
+    monkeypatch.setattr(au, "battery_passes",
+                        lambda wt: (_ for _ in ()).throw(
+                            AssertionError("battery must not run when ahead")))
+    monkeypatch.setattr(au, "_signal_restart",
+                        lambda: (_ for _ in ()).throw(
+                            AssertionError("runner must not bounce when ahead")))
+    assert au.update_once() == "ahead"
+    assert not any(c[0] in ("worktree", "merge") for c in calls)
+    # and the fetch targeted the CHECKED-OUT branch, not hardcoded main
+    assert ("fetch", "origin", "feature") in calls
+
+
+def test_noop_fast_forward_never_bounces_the_runner(tmp_path, monkeypatch):
+    # belt to the ancestor guard's braces: even if the deploy path is
+    # reached, an "Already up to date" ff (HEAD unchanged) must not restart
+    monkeypatch.setattr(au, "OUT", tmp_path)
+
+    def fake_git(*args, cwd=None, timeout=120):
+        if args[0] == "rev-parse" and args[1] == "--abbrev-ref":
+            return 0, "feature"
+        if args == ("rev-parse", "HEAD"):
+            return 0, "same_head"                  # never moves
+        if args[0] == "rev-parse":
+            return 0, "different_remote"
+        if args[0] == "merge-base":
+            return 1, ""                           # NOT ancestor -> deploy path
+        return 0, ""
+    monkeypatch.setattr(au, "_git", fake_git)
+    monkeypatch.setattr(au, "battery_passes", lambda wt: True)
+    monkeypatch.setattr(au, "_signal_restart",
+                        lambda: (_ for _ in ()).throw(
+                            AssertionError("no-op ff must not bounce the runner")))
+    assert au.update_once() == "current"
+
+
 def test_new_commits_dirty_tree_is_skipped():
     # operator has uncommitted edits (e.g. the debug flag) -> protect them
     assert decide("abc123", "def456", True) == "dirty"

@@ -32,7 +32,25 @@ sys.path.insert(0, str(ROOT))
 from core.runtime import SingleInstanceLock  # noqa: E402
 
 OUT = ROOT / "outputs"
+# Fallback deploy branch for a DETACHED checkout. A box deliberately operated
+# on a feature branch follows THAT branch (see _deploy_branch) — the old
+# hardcoded "main" made a branch-checked-out box permanently "different from
+# remote", so every 15-min cycle ran the full battery, "updated" via a NO-OP
+# fast-forward (the remote tip was an ancestor), and soft-stopped the runner
+# for nothing — an endless reboot loop that starved signal persistence
+# (observed live 2026-07-21 22:41-22:44, auto_update.log).
 BRANCH = "main"
+
+
+def _deploy_branch() -> str:
+    """The branch this checkout deploys from: the CURRENT branch, so the
+    updater always converges toward what the operator checked out; detached
+    HEAD (or any probe failure) falls back to BRANCH."""
+    rc, name = _git("rev-parse", "--abbrev-ref", "HEAD")
+    name = (name or "").strip()
+    if rc != 0 or not name or name == "HEAD":
+        return BRANCH
+    return name
 # One updater at a time: the supervisor's fast cadence plus a manual run could
 # otherwise stack two 20-min batteries and race the fast-forward. Staleness
 # must outlive the worst case with margin. battery_passes now chains TWO 1200s
@@ -42,7 +60,7 @@ BRANCH = "main"
 # would let a second updater start concurrently and race the fast-forward).
 LOCK_STALE_SEC = 3900.0
 # Outcomes that exit 0 ("nothing wrong"), vs real failures that exit 1.
-OK_OUTCOMES = ("updated", "current", "dirty", "disabled", "busy")
+OK_OUTCOMES = ("updated", "current", "ahead", "dirty", "disabled", "busy")
 
 
 def log(msg: str) -> None:
@@ -83,11 +101,16 @@ def _venv_python() -> str:
     return sys.executable
 
 
-def decide(local: str, remote: str, dirty: bool) -> str:
-    """Pure decision (unit-testable): 'current' (nothing to do), 'dirty' (local
-    edits, skip), or 'test' (new code -> gate on the battery)."""
+def decide(local: str, remote: str, dirty: bool,
+           remote_is_ancestor: bool = False) -> str:
+    """Pure decision (unit-testable): 'current' (nothing to do), 'ahead'
+    (local is AHEAD of the remote tip — deploying would be a no-op or a
+    rollback; never act), 'dirty' (local edits, skip), or 'test' (new code
+    -> gate on the battery)."""
     if not remote or remote == local:
         return "current"
+    if remote_is_ancestor:
+        return "ahead"
     if dirty:
         return "dirty"
     return "test"
@@ -334,28 +357,39 @@ def update_once() -> str:
 
 def _update_locked() -> str:
     """The update body; caller holds the single-updater lock."""
-    rc, _ = _git("fetch", "origin", BRANCH, timeout=120)
+    branch = _deploy_branch()
+    rc, _ = _git("fetch", "origin", branch, timeout=120)
     if rc != 0:
         log("git fetch failed - skipping (offline?)")
         return "fetch_failed"
     _, local = _git("rev-parse", "HEAD")
-    _, remote = _git("rev-parse", f"origin/{BRANCH}")
+    _, remote = _git("rev-parse", f"origin/{branch}")
     # --untracked-files=no: only TRACKED modifications are operator edits a
     # fast-forward could clobber. Untracked files (e.g. a .claude/skills/
     # dir the desktop app drops) blocked updates forever — and git stash
     # can't even clear them, so the operator had no way out (live 2026-07-17).
     _, porcelain = _git("status", "--porcelain", "--untracked-files=no")
-    action = decide(local, remote, bool(porcelain.strip()))
+    # local AHEAD of the remote tip (remote is an ancestor): deploying would
+    # be a no-op ff — the old path still ran the battery and BOUNCED THE
+    # RUNNER every cycle, an endless pointless reboot loop.
+    rc_anc, _ = _git("merge-base", "--is-ancestor", f"origin/{branch}", "HEAD")
+    ahead = (local != remote) and bool(remote) and rc_anc == 0
+    action = decide(local, remote, bool(porcelain.strip()),
+                    remote_is_ancestor=ahead)
     if action == "current":
         log("already up to date")
         return "current"
+    if action == "ahead":
+        log(f"local is AHEAD of origin/{branch} - nothing to deploy, "
+            f"runner untouched")
+        return "ahead"
     if action == "dirty":
         log("local uncommitted changes present - NOT auto-updating (your edits "
             "are safe); pull by hand when ready")
         return "dirty"
 
-    _, behind = _git("rev-list", "--count", f"HEAD..origin/{BRANCH}")
-    log(f"{behind} new commit(s) on {BRANCH} - testing the incoming code first")
+    _, behind = _git("rev-list", "--count", f"HEAD..origin/{branch}")
+    log(f"{behind} new commit(s) on {branch} - testing the incoming code first")
     # reclaim EVERY stale _update_wt_* (any pid): a crashed updater's full
     # checkout otherwise sat under outputs/ forever — `worktree prune` skips
     # it because the directory exists (audit C-F11). Concurrent updaters are
@@ -363,7 +397,7 @@ def _update_locked() -> str:
     for stale_wt in OUT.glob("_update_wt_*"):
         _git("worktree", "remove", "--force", str(stale_wt))
     wt = OUT / f"_update_wt_{os.getpid()}"
-    rc, err = _git("worktree", "add", "--detach", str(wt), f"origin/{BRANCH}")
+    rc, err = _git("worktree", "add", "--detach", str(wt), f"origin/{branch}")
     if rc != 0:
         log(f"could not create test worktree ({err}) - skipping")
         return "worktree_failed"
@@ -374,11 +408,18 @@ def _update_locked() -> str:
     if not ok:
         log("incoming code FAILED the battery - staying on current code")
         return "rejected"
-    rc, err = _git("merge", "--ff-only", f"origin/{BRANCH}")
+    rc, err = _git("merge", "--ff-only", f"origin/{branch}")
     if rc != 0:
         log(f"fast-forward failed ({err}) - not updated")
         return "ff_failed"
-    log(f"updated {local[:8]} -> {remote[:8]} (battery-verified)")
+    # only bounce the runner when HEAD genuinely moved: an "Already up to
+    # date" ff exits 0 too, and restarting on a no-op is how the endless
+    # reboot loop happened (belt to the ancestor guard's braces).
+    _, new_head = _git("rev-parse", "HEAD")
+    if new_head == local:
+        log("fast-forward was a no-op (HEAD unchanged) - runner untouched")
+        return "current"
+    log(f"updated {local[:8]} -> {new_head[:8]} (battery-verified)")
     _signal_restart()
     return "updated"
 
