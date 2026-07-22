@@ -887,6 +887,16 @@
     },
     "_rev3": "continuous evidence fusion; rollback via strategies.engine=five_gate"
   },
+  "grid_ladder": {
+    "_doc": "v10 logistic-armed grid entry ladder (execution/grid_ladder.py). When a confirmed signal's meta p(win) clears p_win_arm, the single sizer-approved entry is split into `rungs` resting maker limits stepped away from the quote: rung 0 AT the pretrade-approved price, deeper rungs spacing_vol_mult x sigma_bar_bps apart (floored at min_spacing_bps), sizes decay-weighted (size_decay^k, normalized) so the LADDER TOTAL EXACTLY EQUALS the sized single-entry units - the risk stack's approval is split, never multiplied. Deeper rungs sit strictly further from fair value than the EV-gated rung-0 price, so the gate's verdict is monotone down the ladder. Hysteresis: armed ladders persist until p(win) < p_win_disarm (must be < p_win_arm) - no flapping at the bar. Retraction on spoofy book / manip veto / direction flip; resting rungs die on the OrderManager's own short timeout, so no rung outlives its thesis. Rung count is capped live by free position slots and the per-asset same-side inventory cap. Knobs are execution-shape (category round numbers, config-lifted, guarded), not fitted alpha: the EV gate still prices every entry. enabled=false is the exact legacy single-entry path.",
+    "enabled": true,
+    "rungs": 3,
+    "spacing_vol_mult": 0.35,
+    "min_spacing_bps": 8.0,
+    "size_decay": 0.7,
+    "p_win_arm": 0.6,
+    "p_win_disarm": 0.55
+  },
   "execution_tactics": {
     "enabled": true,
     "allow_taker": true,

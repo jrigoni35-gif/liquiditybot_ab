@@ -20,6 +20,7 @@ Prefix map (subsystem of origin):
   RC  scripts.remote_control (git command-bus dispositions)
   XV  execution-truth harness (replay gate + fill-model calibration)
   LT  regime.liquidity_regime (asset liquidity-tier isolation)
+  GL  execution.grid_ladder (logistic-armed grid entry ladder)
 """
 
 from enum import Enum
@@ -194,6 +195,15 @@ class Code(str, Enum):
                                      # the tier scales the executability floors
                                      # (depth / spread) so a low-volume asset is
                                      # judged on its own scale, never ETH/BTC's
+
+    # ---- logistic-armed grid entry ladder (GL) — execution/grid_ladder.py -
+    GL_PLANNED = "GL-000"            # ladder planned: N decay-sized maker rungs
+    GL_ARMED = "GL-010"              # p(win) cleared the arm bar: laddering on
+    GL_RETRACTED = "GL-011"          # ladder retracted (disarm / spoofy / manip
+                                     # / direction flip / invalid inputs)
+    GL_BELOW_ARM = "GL-020"          # single-entry fallback: p(win) below arm
+    GL_RUNG_CAPPED = "GL-021"        # rung count capped by free position slots
+                                     # / per-asset same-side inventory cap
 
 
 def tag(code: Code, detail: str) -> str:

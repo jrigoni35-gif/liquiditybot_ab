@@ -1004,6 +1004,39 @@ def validate(config: dict) -> list:
                 warn(f"pretrade.tier_max_spread_bps not monotonic "
                      f"core<=mid<=micro ({c:.0f}/{m:.0f}/{mi:.0f})")
 
+    # --- v10 grid ladder coherence ----------------------------------------
+    gl = config.get("grid_ladder", {}) or {}
+    if gl.get("enabled"):
+        gl_rungs = int(gl.get("rungs", 3))
+        gl_decay = float(gl.get("size_decay", 0.7))
+        gl_arm = float(gl.get("p_win_arm", 0.60))
+        gl_disarm = float(gl.get("p_win_disarm", 0.55))
+        gl_mult = float(gl.get("spacing_vol_mult", 0.35))
+        gl_floor = float(gl.get("min_spacing_bps", 8.0))
+        if not (1 <= gl_rungs <= 6):
+            fatal(f"grid_ladder.rungs={gl_rungs} out of [1, 6] - a deeper "
+                  f"ladder than the position-slot budget (5) can never fill "
+                  f"and only bloats the resting book")
+        if not (0.0 < gl_decay <= 1.0):
+            fatal(f"grid_ladder.size_decay={gl_decay} must be in (0, 1] - "
+                  f">1 loads the LARGEST size furthest from the signal")
+        if not (gl_disarm < gl_arm <= 1.0):
+            fatal(f"grid_ladder p_win_disarm={gl_disarm} must be strictly "
+                  f"below p_win_arm={gl_arm} (<= 1) - equal/inverted bars "
+                  f"remove the hysteresis and the ladder flaps every cycle")
+        if gl_mult <= 0.0 or gl_floor <= 0.0:
+            fatal("grid_ladder spacing (spacing_vol_mult, min_spacing_bps) "
+                  "must be positive - zero spacing stacks every rung at one "
+                  "price (a single entry pretending to be a ladder)")
+        gl_min_pwin = float(_f(config, "position_sizer.min_p_win", 0.55))
+        if gl_arm < gl_min_pwin:
+            # config-honesty note, not an operational concern (the bot trades
+            # correctly): the sizer's own p(win) floor screens entries first,
+            # so an arm bar below it simply arms on every approved entry.
+            advisory(f"grid_ladder.p_win_arm={gl_arm} sits below the sizer's "
+                     f"entry floor ({gl_min_pwin}) - the ladder arms on "
+                     f"every approved entry (hysteresis still applies)")
+
     # --- rev-5 adaptive blocks: aggression / gate learning / exit coupling
     ia = _f(config, "position_sizer.inventory_aggression", {}) or {}
     if isinstance(ia, dict) and ia.get("enabled"):

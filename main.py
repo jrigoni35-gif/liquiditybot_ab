@@ -81,6 +81,7 @@ from execution.order_manager import OrderManager
 from execution.hedging import HedgeEngine
 from execution.markout import MarkoutTracker
 from execution.tactics import ExecutionPlanner
+from execution.grid_ladder import GridLadderEngine
 from ml.features import FEATURE_NAMES, build_features
 from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
@@ -467,6 +468,7 @@ class LiquidityBot:
             self.gates = SignalGateEngine(config)
         log.info(f"signal engine: {engine_kind}")
         self.tactics = ExecutionPlanner(config.get("execution_tactics", {}))
+        self.ladder = GridLadderEngine(config.get("grid_ladder", {}))
         self.capital = CapitalManager(config.get("capital_management", {}))
         self.tiers_base = config.get("profit_taking", {})
         self._tier_engines = {}
@@ -1909,22 +1911,7 @@ class LiquidityBot:
             # signals are evaluated, and a defense gauge that freezes on
             # its last value is blind exactly when the operator watches it
             ls = self.liq.state(asset)
-            # v9 flow unlock: Kraken-only listings (SUI/ARB/MINA/FLOW) carry no
-            # external cross-venue imbalance from build_view, so the alpha's
-            # flow gate read a defaulted 1.0 (s_flow==0) and could NEVER confirm
-            # — the true reason only ETH/BTC ever filled. Surface the exec-book
-            # imbalance the regime engine already computed so those assets can
-            # finally generate a signal. Guarded three ways so it never feeds
-            # the alpha a bad number: (1) only assets with NO external venue
-            # (a major keeps its external imbalance even on a cycle its feed
-            # drops); (2) only a FRESH Kraken book (kbook is {} past critical
-            # staleness — never surface a frozen book); (3) only a two-sided,
-            # measurable book (spread<900 sentinel — a one-sided book's 3.0
-            # imbalance sentinel would fabricate a max-long signal).
-            if (v.get("imbalance_ratio") is None
-                    and asset not in self._external_bases
-                    and bool(kbook) and ls.spread_bps < 900.0):
-                v["imbalance_ratio"] = ls.imbalance_ratio
+            self._surface_kraken_imbalance(asset, v, kbook, ls)
             # cross-venue divergence: Kraken (exec) vs the COHERENT per-venue
             # composite, not the mixed-unit merged book (SD-003). No external
             # book this cycle -> composite is unmeasurable, so mirror
@@ -2366,6 +2353,26 @@ class LiquidityBot:
                         self.state, reserved_entries):
                     can_enter = False
                 continue
+            # ---- v10 logistic-armed grid ladder ------------------------
+            # split the ONE sizer-approved entry into decay-sized maker
+            # rungs when p(win) clears the arm bar; ladder total == the
+            # sized units exactly, rung count capped by free slots + the
+            # per-asset same-side inventory cap so fills can't breach
+            # either. Not handled -> the legacy single-entry path below.
+            reserved_entries, can_enter, handled = self._ladder_entry(
+                position_id=position_id, asset=asset, symbol=symbol,
+                side=side, signal=signal, entry_price=entry_price,
+                decision=decision, sized=sized, lev=lev_decision,
+                equity=equity, vol_state=vol_state, fv_state=fv_state,
+                macro_state=macro_state, liq_state=liq_state,
+                verdict=verdict, feats=feats, explored=explored,
+                p_win=p_win, model_p=model_p, shadow_p=shadow_p,
+                ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
+                target_pct=target_pct, now=now,
+                reserved_entries=reserved_entries, can_enter=can_enter)
+            if handled:
+                continue
+
             order = self.orders.submit(
                 asset=asset, symbol=symbol,
                 pair=self.kraken.kraken_pair(symbol), side=side,
@@ -2401,6 +2408,143 @@ class LiquidityBot:
                     f"p={p_win:.2f} edge={decision.est_edge_bps:.0f}bps "
                     f"cost={decision.est_cost_bps:.0f}bps regime={macro_state.label} "
                     f"narrative={verdict.label}")
+
+    def _surface_kraken_imbalance(self, asset: str, v: dict, kbook: dict,
+                                  ls) -> None:
+        """v9 flow unlock: Kraken-only listings (SUI/ARB/MINA/FLOW) carry no
+        external cross-venue imbalance from build_view, so the alpha's flow
+        gate read a defaulted 1.0 (s_flow==0) and could NEVER confirm — the
+        true reason only ETH/BTC ever filled. Surface the exec-book imbalance
+        the regime engine already computed so those assets can generate a
+        signal. Guarded three ways so it never feeds the alpha a bad number:
+        (1) only assets with NO external venue (a major keeps its external
+        imbalance even on a cycle its feed drops); (2) only a FRESH Kraken
+        book (kbook is {} past critical staleness — never surface a frozen
+        book); (3) only a two-sided, measurable book (spread<900 sentinel —
+        a one-sided book's 3.0 imbalance sentinel would fabricate a max-long
+        signal)."""
+        if (v.get("imbalance_ratio") is None
+                and asset not in self._external_bases
+                and bool(kbook) and ls.spread_bps < 900.0):
+            v["imbalance_ratio"] = ls.imbalance_ratio
+
+    def _ladder_entry(self, *, position_id, asset, symbol, side, signal,
+                      entry_price, decision, sized, lev, equity, vol_state,
+                      fv_state, macro_state, liq_state, verdict, feats,
+                      explored, p_win, model_p, shadow_p, ev_pct,
+                      stop_pct_eff, target_pct, now, reserved_entries,
+                      can_enter):
+        """v10 ladder pathway for one approved entry. Returns the updated
+        (reserved_entries, can_enter, handled): handled=True means the ladder
+        placed (or consciously consumed) this entry and the caller skips the
+        single-entry path; False means fall through unchanged."""
+        lplan = self.ladder.plan(
+            asset, signal.direction, entry_price, vol_state.sigma_bar_pct,
+            decision.size_units, p_win, liq_label=liq_state.label,
+            max_rungs=self._ladder_rung_budget(asset, signal.direction,
+                                               reserved_entries))
+        if not lplan.armed or len(lplan.rungs) < 2:
+            return reserved_entries, can_enter, False
+        placed = self._place_ladder(
+            lplan, position_id=position_id, asset=asset, symbol=symbol,
+            side=side, signal=signal, decision=decision, lev=lev,
+            equity=equity, vol_state=vol_state, fv_state=fv_state,
+            macro_state=macro_state, liq_state=liq_state, verdict=verdict,
+            feats=feats, explored=explored, p_win=p_win, model_p=model_p,
+            shadow_p=shadow_p, ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
+            target_pct=target_pct, now=now)
+        reserved_entries += placed             # each rung holds a slot
+        if placed:
+            self.sizer.note_entry(asset, now)
+            self._mark_cand(asset, signal.direction, "entered")
+            self._last_entry_admit_ts = now
+            step_bps = lplan.rungs[-1].offset_bps / \
+                max(len(lplan.rungs) - 1, 1)
+            log.info(
+                f"ENTRY-LADDER {signal.direction} {symbol}: "
+                f"{placed}/{len(lplan.rungs)} rungs, ${sized.usd:,.0f} "
+                f"total | p={p_win:.2f} spacing={step_bps:.1f}bps | "
+                f"{lplan.reason}")
+            if not self.capital.can_open_new_position(self.state,
+                                                      reserved_entries):
+                can_enter = False
+        return reserved_entries, can_enter, True
+
+    def _place_ladder(self, lplan, *, position_id, asset, symbol, side,
+                      signal, decision, lev, equity, vol_state, fv_state,
+                      macro_state, liq_state, verdict, feats, explored,
+                      p_win, model_p, shadow_p, ev_pct, stop_pct_eff,
+                      target_pct, now) -> int:
+        """Submit an armed ladder's rungs as maker-only limit entries through
+        the FULL existing rail (firewall, collar, venue minimums). Every rung
+        is its own position with its own postmortem thesis, so labels stay
+        honest per fill. Returns rungs actually placed (each holds a slot)."""
+        placed = 0
+        for rung in lplan.rungs:
+            rid = position_id if rung.idx == 0 else \
+                f"{position_id}-r{rung.idx}"
+            if rung.idx > 0:
+                self.postmortem.register_entry(TradeThesis(
+                    position_id=rid, asset=asset, symbol=symbol,
+                    direction=signal.direction, entry_ts=now, p_win=p_win,
+                    expected_ret_pct=ev_pct,
+                    expected_cost_bps=decision.est_cost_bps,
+                    stop_pct=stop_pct_eff, target_pct=target_pct,
+                    entry_regime=macro_state.label,
+                    entry_liq=liq_state.label,
+                    narrative_label=verdict.label,
+                    fair_value=fv_state.fair_value,
+                    quote_price=rung.price,
+                    price_decimals=_price_decimals(
+                        getattr(self.orders, "pair_meta", {}),
+                        self.kraken.kraken_pair(symbol), rung.price),
+                    model_p=model_p, shadow_p=shadow_p,
+                    model_scored=(self.monitor.use_model
+                                  and self.meta.trained)))
+            rung_order = self.orders.submit(
+                asset=asset, symbol=symbol,
+                pair=self.kraken.kraken_pair(symbol), side=side,
+                price=rung.price, size=rung.size_units, purpose="entry",
+                position_id=rid,
+                post_only=True,              # grid rungs are maker-only
+                leverage=lev.allowed_leverage,
+                ref_price=self.marks.get(symbol) or fv_state.fair_value,
+                equity=equity,
+                book=self.kraken_books.get(asset) or {},
+                sigma_bar_pct=vol_state.sigma_bar_pct,
+                meta={"p_win": p_win,
+                      # deeper rungs rest strictly further from fair value:
+                      # their edge grows by the offset
+                      "edge_bps": decision.est_edge_bps + rung.offset_bps,
+                      "features": feats, "probe": explored,
+                      "ladder_rung": rung.idx,
+                      "thales_fired": self._thales_fired.get(asset) or []},
+                now=now)
+            if rung_order:
+                placed += 1
+        return placed
+
+    def _ladder_rung_budget(self, asset: str, direction: str,
+                            reserved_entries: int) -> int:
+        """How many grid rungs may rest for this asset+side RIGHT NOW without
+        the fills being able to breach either the global concurrency cap or
+        the per-asset same-side inventory cap. Both caps are normally checked
+        per ENTRY DECISION; a ladder turns one decision into several
+        potential positions, so the same books must be balanced here."""
+        slots = self.capital.max_concurrent_positions - \
+            self.state.open_position_count() - reserved_entries
+        same = sum(1 for pos in self.state.open_positions()
+                   if (pos.symbol.split("/")[0] if "/" in pos.symbol
+                       else pos.symbol) == asset
+                   and pos.direction == direction
+                   and not getattr(pos, "is_hedge", False))
+        side_left = self.inventory.max_same_side - same
+        budget = max(1, min(slots, side_left))
+        if self.ladder.enabled and budget < self.ladder.max_rungs:
+            log.info("%s", tag(Code.GL_RUNG_CAPPED,
+                               f"{asset} {direction}: {budget} rung(s) "
+                               f"(slots={slots}, same_side_left={side_left})"))
+        return budget
 
     def _grade_period_goal(self, period: str, actual: float, goal_key: str,
                            reserve_refill: float = 0.0) -> dict:
