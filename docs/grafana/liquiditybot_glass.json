@@ -1,6 +1,6 @@
 {
   "uid": "liquiditybot-glass",
-  "title": "liquiditybot · Liquid Glass",
+  "title": "liquiditybot \u00b7 Liquid Glass",
   "description": "Apple Liquid Glass command board (v9). Curated to the ~22 panels a trading desk scans, top-down by decision urgency: vitals -> money -> risk heat -> the book -> execution -> model. Semantic-only color (Apple system palette). Beautiful natively on any Grafana Cloud; for the full frosted-glass DOM restyle, install the signed 'Business Text' panel (marcusolsson-dynamictext-panel) and move the CSS from the hidden injector tile into its afterRender JS (Cloud sanitizes native <style>). See docs/grafana/README_glass.md.",
   "tags": [
     "liquiditybot",
@@ -28,7 +28,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "VITALS · Alive & Armed",
+      "title": "VITALS \u00b7 Alive & Armed",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -513,7 +513,7 @@
     {
       "id": 8,
       "type": "row",
-      "title": "MONEY · Equity & P&L Today",
+      "title": "MONEY \u00b7 Equity & P&L Today",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -892,7 +892,7 @@
     {
       "id": 14,
       "type": "row",
-      "title": "RISK HEAT · Exposure & Budget",
+      "title": "RISK HEAT \u00b7 Exposure & Budget",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1177,7 +1177,7 @@
     {
       "id": 19,
       "type": "row",
-      "title": "THE BOOK · Open Positions & R",
+      "title": "THE BOOK \u00b7 Open Positions & R",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1190,7 +1190,7 @@
     {
       "id": 20,
       "type": "table",
-      "title": "Open Positions · Book",
+      "title": "Open Positions \u00b7 Book",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1531,8 +1531,8 @@
             ]
           },
           "unit": "none",
-          "min": -2,
-          "max": 3,
+          "min": -2.5,
+          "max": 2.5,
           "decimals": 2,
           "mappings": []
         },
@@ -1542,7 +1542,7 @@
     {
       "id": 22,
       "type": "row",
-      "title": "EXECUTION · Fill Quality & Adverse Selection",
+      "title": "EXECUTION \u00b7 Fill Quality & Adverse Selection",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1555,7 +1555,7 @@
     {
       "id": 23,
       "type": "table",
-      "title": "Adverse Selection · Markout (bps)",
+      "title": "Adverse Selection \u00b7 Markout (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1673,12 +1673,12 @@
                       "value": null
                     },
                     {
-                      "color": "#FF9F0A",
-                      "value": -1.0
+                      "color": "#6E6E73",
+                      "value": -0.5
                     },
                     {
                       "color": "#30D158",
-                      "value": 0
+                      "value": 0.5
                     }
                   ]
                 }
@@ -1831,7 +1831,7 @@
     {
       "id": 26,
       "type": "bargauge",
-      "title": "Makeability · Spread (bps)",
+      "title": "Makeability \u00b7 Spread (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1905,7 +1905,7 @@
     {
       "id": 27,
       "type": "row",
-      "title": "MODEL · ML Governor Health",
+      "title": "EDGE \u00b7 Per-Asset Performance",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1917,8 +1917,327 @@
     },
     {
       "id": 28,
+      "type": "bargauge",
+      "title": "Net P&L by Asset ($)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 38
+      },
+      "transparent": true,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_perf_asset_net_usd{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF453A",
+                "value": null
+              },
+              {
+                "color": "#30D158",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none",
+          "min": -12,
+          "max": 12,
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 29,
+      "type": "bargauge",
+      "title": "Win Rate by Asset",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 38
+      },
+      "transparent": true,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_perf_asset_win_rate{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 30,
+      "type": "bargauge",
+      "title": "Trades by Asset",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 16,
+        "y": 38
+      },
+      "transparent": true,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_perf_asset_trades{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "min": 0,
+          "max": null,
+          "decimals": 0,
+          "mappings": []
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 31,
+      "type": "piechart",
+      "title": "Maker / Taker Mix",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 20,
+        "y": 38
+      },
+      "transparent": true,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_maker_share{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "maker"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "1 - max(liquiditybot_order_maker_share{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "taker"
+        }
+      ],
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "decimals": 1,
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maker"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2596AB"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "taker"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#BF5AF2"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "type": "row",
+      "title": "MODEL \u00b7 ML Governor Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": []
+    },
+    {
+      "id": 33,
       "type": "timeseries",
-      "title": "Model Edge · Brier trio (lower = better)",
+      "title": "Model Edge \u00b7 Brier trio (lower = better)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1927,7 +2246,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 46
       },
       "transparent": true,
       "targets": [
@@ -2032,7 +2351,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#40CBE0"
+                  "fixedColor": "#2596AB"
                 }
               }
             ]
@@ -2047,7 +2366,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#8E8E93"
+                  "fixedColor": "#BF5AF2"
                 }
               }
             ]
@@ -2056,7 +2375,7 @@
       }
     },
     {
-      "id": 29,
+      "id": 34,
       "type": "gauge",
       "title": "Calibration Gap",
       "datasource": {
@@ -2067,7 +2386,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 38
+        "y": 46
       },
       "transparent": true,
       "targets": [
@@ -2128,7 +2447,7 @@
       }
     },
     {
-      "id": 30,
+      "id": 35,
       "type": "stat",
       "title": "Kelly Mult",
       "datasource": {
@@ -2139,7 +2458,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 38
+        "y": 46
       },
       "transparent": true,
       "targets": [
@@ -2192,7 +2511,7 @@
       }
     },
     {
-      "id": 31,
+      "id": 36,
       "type": "stat",
       "title": "Model Live",
       "datasource": {
@@ -2203,7 +2522,7 @@
         "h": 3,
         "w": 6,
         "x": 12,
-        "y": 42
+        "y": 50
       },
       "transparent": true,
       "targets": [
@@ -2271,7 +2590,7 @@
       }
     },
     {
-      "id": 32,
+      "id": 37,
       "type": "stat",
       "title": "Retrain Flag",
       "datasource": {
@@ -2282,7 +2601,7 @@
         "h": 3,
         "w": 6,
         "x": 18,
-        "y": 42
+        "y": 50
       },
       "transparent": true,
       "targets": [
@@ -2358,12 +2677,12 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "transparent": true,
       "options": {
         "mode": "html",
-        "content": "<style id=\"lb-glass\">\n/* ===== liquiditybot · Apple Liquid Glass skin ===================== */\n.main-view, .scrollbar-view { background: #000 !important; }\nhtml, body, .main-view, [class*=\"dashboard\"] {\n  font-family: -apple-system, \"SF Pro Text\", \"SF Pro Display\", \"Inter\",\n               system-ui, sans-serif !important;\n  -webkit-font-smoothing: antialiased;\n}\n/* every panel body -> frosted glass card (regular material, dark) */\n[data-testid=\"data-testid panel content\"] {\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\n              rgba(28,28,30,.50) 100%) !important;\n  backdrop-filter: blur(22px) saturate(180%);\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\n  border: .5px solid rgba(255,255,255,.12) !important;\n  border-radius: 20px !important;\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\n}\n.react-grid-item { background: transparent !important; }\n/* header chrome -> quiet uppercase eyebrow */\n[data-testid^=\"data-testid Panel header\"] { background: transparent !important;\n  border: 0 !important; }\n[data-testid=\"data-testid header-container\"] {\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\n/* row titles -> section labels */\n[data-testid^=\"data-testid dashboard-row-title-\"] {\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\n/* hide THIS injector's own tile */\n[data-viz-panel-key=\"panel-999\"] { display: none !important; }\n</style>\n<span id=\"lb-glass-marker\"></span>",
+        "content": "<style id=\"lb-glass\">\n/* ===== liquiditybot \u00b7 Apple Liquid Glass skin ===================== */\n.main-view, .scrollbar-view { background: #000 !important; }\nhtml, body, .main-view, [class*=\"dashboard\"] {\n  font-family: -apple-system, \"SF Pro Text\", \"SF Pro Display\", \"Inter\",\n               system-ui, sans-serif !important;\n  -webkit-font-smoothing: antialiased;\n}\n/* every panel body -> frosted glass card (regular material, dark) */\n[data-testid=\"data-testid panel content\"] {\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\n              rgba(28,28,30,.50) 100%) !important;\n  backdrop-filter: blur(22px) saturate(180%);\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\n  border: .5px solid rgba(255,255,255,.12) !important;\n  border-radius: 20px !important;\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\n}\n.react-grid-item { background: transparent !important; }\n/* header chrome -> quiet uppercase eyebrow */\n[data-testid^=\"data-testid Panel header\"] { background: transparent !important;\n  border: 0 !important; }\n[data-testid=\"data-testid header-container\"] {\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\n/* row titles -> section labels */\n[data-testid^=\"data-testid dashboard-row-title-\"] {\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\n/* hide THIS injector's own tile */\n[data-viz-panel-key=\"panel-999\"] { display: none !important; }\n</style>\n<span id=\"lb-glass-marker\"></span>",
         "code": {
           "language": "html",
           "showLineNumbers": false,

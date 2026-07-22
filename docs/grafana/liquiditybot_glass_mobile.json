@@ -1,6 +1,6 @@
 {
   "uid": "liquiditybot-glass-mobile",
-  "title": "liquiditybot · Glass Mobile",
+  "title": "liquiditybot \u00b7 Glass Mobile",
   "description": "Phone-first companion to the Liquid Glass board: the ~13 numbers a trader checks from a pocket, full-width stacked so Grafana's mobile scaling keeps them readable. Same Apple semantic palette.",
   "tags": [
     "liquiditybot",
@@ -839,6 +839,76 @@
     },
     {
       "id": 12,
+      "type": "bargauge",
+      "title": "Net P&L by Asset ($)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 7
+      },
+      "transparent": true,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_perf_asset_net_usd{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{asset}}"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF453A",
+                "value": null
+              },
+              {
+                "color": "#30D158",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none",
+          "min": -12,
+          "max": 12,
+          "decimals": 2,
+          "mappings": []
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
       "type": "stat",
       "title": "Positions",
       "datasource": {
@@ -847,7 +917,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 45,
         "w": 8,
         "h": 4
       },
@@ -902,7 +972,7 @@
       }
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "stat",
       "title": "Avg Slip bps",
       "datasource": {
@@ -911,7 +981,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 38,
+        "y": 45,
         "w": 8,
         "h": 4
       },
@@ -974,16 +1044,16 @@
       }
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "stat",
-      "title": "Kelly ×",
+      "title": "Kelly \u00d7",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "x": 16,
-        "y": 38,
+        "y": 45,
         "w": 8,
         "h": 4
       },
