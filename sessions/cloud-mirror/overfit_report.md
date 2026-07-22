@@ -1,22 +1,22 @@
-# Overfit audit — 2026-07-22 01:58 UTC
+# Overfit audit — 2026-07-22 06:54 UTC
 
-Dataset: live history (2373 rows)
+Dataset: live history (2436 rows)
 
-- **FAIL** gap[logistic]: OOF gap within memorization band — train_auc=0.762 oof_auc=0.456 gap=+0.307
-- **FAIL** gap[gbt]: OOF gap within memorization band — train_auc=0.748 oof_auc=0.405 gap=+0.343
-- **FAIL** gap[mlp]: OOF gap within memorization band — train_auc=0.664 oof_auc=0.472 gap=+0.192
-- **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.511 z=1.4 (limit 3.0)
+- **FAIL** gap[logistic]: OOF gap within memorization band — train_auc=0.763 oof_auc=0.480 gap=+0.283
+- **FAIL** gap[gbt]: OOF gap within memorization band — train_auc=0.722 oof_auc=0.465 gap=+0.257
+- **FAIL** gap[mlp]: OOF gap within memorization band — train_auc=0.635 oof_auc=0.480 gap=+0.155
+- **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.492 z=1.0 (limit 3.0)
 - **INFO** pbo space — ml.adaptive_gbt.enabled=true — the adaptive rung is IN the measured selection space
-- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.16 over 6 configs / 70 splits (mean winner: gbt_d2_lr05)
-- **INFO** pbo argmax stress — raw argmax selection pbo=0.23 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
+- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.17 over 6 configs / 70 splits (mean winner: gbt_d2_lr05)
+- **INFO** pbo argmax stress — raw argmax selection pbo=0.13 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
 - **PASS** purge: never manufactures out-of-sample edge — unpurged=0.486 purged=0.492 leak_closed=-0.006
 - **INFO** purge note — expanding-window design keeps boundary leak ~0 by construction; shuffle-null [OF-2] is the leak gate
-- **PASS** dof: not starved (>=10 rows per feature) — rows/feature=38.3 (2373 rows / 62 features)
-- **FAIL** dof: dead-feature fraction under 55% (live data) — dead_frac=0.81 (50 near-zero-importance features)
-- **INFO** dof note — low/zero-importance: ['gate_confidence', 'funding_dist', 'mtf_align', 'mom_dir', 'basis_dir', 'depth_log'] ...
+- **PASS** dof: not starved (>=10 rows per feature) — rows/feature=39.3 (2436 rows / 62 features)
+- **FAIL** dof: dead-feature fraction under 55% (live data) — dead_frac=0.77 (48 near-zero-importance features)
+- **INFO** dof note — low/zero-importance: ['mom_dir', 'pat_marubozu_dir', 'pd_zone', 'ret_48_dir', 'th_stopzone', 'liq_pocket_pull'] ...
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
-- **INFO** dsr — DEFERRED — 4 conviction-marked live trades < 30 (mixed n=106); mixed-sample dsr=0.000 sr=-0.69; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** dsr — DEFERRED — 4 conviction-marked live trades < 30 (mixed n=115); mixed-sample dsr=0.000 sr=-0.72; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 
-4 passed, 4 failed (67s)
+4 passed, 4 failed (38s)
