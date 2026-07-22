@@ -1,69 +1,69 @@
 {
-  "generated_at": 1784738589.8121397,
+  "generated_at": 1784742190.708029,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784738586.0,
-    "duration_h": 296.82
+    "end": 1784742177.0,
+    "duration_h": 297.82
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4980.98,
+    "equity_end": 4980.11,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -8.42,
-    "fees_paid_total": 22.7552,
-    "open_positions": 4,
-    "samples": 63391
+    "realized_pnl_total": -9.71,
+    "fees_paid_total": 23.55,
+    "open_positions": 5,
+    "samples": 63617
   },
   "activity": {
-    "signal_rows_total": 2846,
-    "live_labeled_trades": 165,
-    "candidate_rows": 2681
+    "signal_rows_total": 2860,
+    "live_labeled_trades": 169,
+    "candidate_rows": 2691
   },
   "audit": {
-    "records": 3044,
-    "signal_records": 1217,
+    "records": 3135,
+    "signal_records": 1246,
     "by_src": {
-      "exploration": 1977,
-      "order_manager": 486,
-      "ml_governor": 303,
-      "startup": 121,
-      "fault": 100,
+      "exploration": 2048,
+      "order_manager": 501,
+      "ml_governor": 304,
+      "startup": 122,
+      "fault": 101,
       "engine": 38,
-      "circuit_breaker": 18,
+      "circuit_breaker": 20,
       "runner": 1
     },
     "top_codes": [
       [
         "ML-070",
-        1827
+        1889
       ],
       [
         "OM-000",
-        390
+        399
       ],
       [
         "ML-072",
-        150
+        159
       ],
       [
         "CG-000",
-        121
+        122
       ],
       [
         "ML-031",
         112
       ],
       [
-        "FT-020",
-        100
+        "OM-040",
+        102
       ],
       [
-        "OM-040",
-        96
+        "FT-020",
+        101
       ],
       [
         "ML-041",
@@ -96,13 +96,45 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 4618,
+    "records": 5723,
     "by_level": {
-      "INFO": 4583,
-      "WARNING": 32,
-      "CRITICAL": 3
+      "INFO": 5671,
+      "WARNING": 47,
+      "CRITICAL": 5
     },
     "top_warnings": [
+      [
+        "control: stop  -> ok (runner=RUNNING)",
+        2
+      ],
+      [
+        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+        2
+      ],
+      [
+        "config: give_back.arm_gain_pct=0.6% arms inside the break-even buffer (86bps) - the locked share of such small moves is fee noise",
+        2
+      ],
+      [
+        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
+        2
+      ],
+      [
+        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
+        2
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
+        2
+      ],
+      [
+        "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        2
+      ],
+      [
+        "TH-016: ETH: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        2
+      ],
       [
         "exit ESCALATION SUI/USD attempt 2: slip cap 1.00% (tier 1)",
         1
@@ -110,61 +142,29 @@
       [
         "ML-073: realizing DOGE/USD c2806dca - 2.1h > 2.0h label horizon; banking live label",
         1
-      ],
-      [
-        "POSTMORTEM DOT/USD 2ff4eed2: underperformance \u2014 realized -0.89% vs expected -0.07% -> outputs\\postmortems\\20260722_125701_DOT_2ff4eed2.md",
-        1
-      ],
-      [
-        "exit ESCALATION DOGE/USD attempt 2: slip cap 1.00% (tier 1)",
-        1
-      ],
-      [
-        "ML-073: realizing MINA/USD 0c213ca5 - 2.2h > 2.0h label horizon; banking live label",
-        1
-      ],
-      [
-        "auto-retrain: 2676 rows (59 new)",
-        1
-      ],
-      [
-        "ML-031: feature drift 26/58 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
-        1
-      ],
-      [
-        "POSTMORTEM MINA/USD a51ca48c: underperformance \u2014 realized -1.07% vs expected -0.08% -> outputs\\postmortems\\20260722_132009_MINA_a51ca48c.md",
-        1
-      ],
-      [
-        "circuit breaker TRIPPED for BTC: 4 consecutive losses \u2014 new entries blocked for 6.0h (exits unaffected)",
-        1
-      ],
-      [
-        "control: stop  -> ok (runner=RUNNING)",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 823,
-      "thin": 251
+      "spoofy": 1017,
+      "thin": 340
     },
-    "spoofy_frac": 0.766,
-    "cycles_estimate": 377,
+    "spoofy_frac": 0.749,
+    "cycles_estimate": 488,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 2,
     "use_model": false,
     "kelly_mult": 0.4,
-    "champion_brier": 0.14408369299460022,
+    "champion_brier": 0.19010705737572497,
     "brier": "n/a",
-    "history_rows": 165,
+    "history_rows": 169,
     "cold": true
   },
   "postmortems": {
-    "count": 134,
+    "count": 138,
     "causes": {
-      "underperformance": 92,
+      "underperformance": 96,
       "cost_overrun": 37,
       "whipsaw": 2,
       "alpha_wrong": 2,
@@ -186,19 +186,19 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=165, brier=n/a) yet retrain was requested 31x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 32% of the audit trail"
+      "detail": "model is cold (live training rows=169, brier=n/a) yet retrain was requested 31x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 32% of the audit trail"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 77% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 75% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 32% of 1217 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 32% of 1246 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
