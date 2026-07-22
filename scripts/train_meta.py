@@ -54,7 +54,8 @@ log = logging.getLogger("train_meta")
 
 
 def _deploy_challenger(config: dict, model, challenger_brier: float,
-                       extra: dict, model_path: str) -> bool:
+                       extra: dict, model_path: str,
+                       n_oof: int | None = None) -> bool:
     """Champion/challenger deploy gate for a manually-trained model. Mirrors
     the gate main.py's in-process auto-retrain already enforces (ModelMonitor
     .should_deploy/.note_deployed) so a CLI retrain cannot silently swap in
@@ -73,7 +74,10 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
         monitor.restore(state_data.get("monitor") or {})
     prev_champion = monitor.champion_brier
 
-    if not monitor.should_deploy(challenger_brier):
+    # LP-6: pass the OOF count so the deploy_min_oof evidence floor binds
+    # for CLI retrains exactly as it does for the runner's auto path - a
+    # Brier on a handful of points beats a coin by luck, never by skill.
+    if not monitor.should_deploy(challenger_brier, n_oof=n_oof):
         log.error(f"REJECTED: challenger OOF Brier {challenger_brier:.4f} "
                   f"does not beat champion {prev_champion:.4f} by the "
                   f"required margin ({monitor.deploy_margin:.4f}) - "
@@ -245,7 +249,8 @@ def main():
                  X, int(ml_cfg.get("interpret", {})
                         .get("background_rows", 64)))}
     deployed = _deploy_challenger(config, results["model"], oof_brier,
-                                  extra, model_path)
+                                  extra, model_path,
+                                  n_oof=int(len(oof_cal)))
     from ml.retrain_log import append_retrain, retrain_record
     append_retrain(
         ml_cfg.get("retrain_history_path",

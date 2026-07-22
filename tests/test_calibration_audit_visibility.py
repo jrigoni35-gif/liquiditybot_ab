@@ -42,7 +42,14 @@ def _write_history_csv(path, n_rows=60):
 def _write_config(path, history_path, model_path):
     cfg = {
         "ml": {"min_train_rows": 20, "history_path": str(history_path),
-              "model_path": str(model_path)},
+              "model_path": str(model_path),
+              # this test's subject is the ML-014 skipped-calibration audit,
+              # exercised via a deliberately tiny (12-point) OOF set. The
+              # LP-6 evidence floor (deploy_min_oof, default 30) would now
+              # correctly refuse that deploy - opt out so the calibration
+              # path still completes; the floor has its own pins in
+              # tests/test_audit_batch_51.py.
+              "monitor": {"deploy_min_oof": 0}},
         "system": {"state_path": str(model_path.parent / "state.json")},
     }
     path.write_text(json.dumps(cfg), encoding="utf-8")

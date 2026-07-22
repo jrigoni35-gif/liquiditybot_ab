@@ -47,6 +47,7 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Optional
 
 from core.codes import Code, tag
 from risk.protocols import give_back_stop
@@ -178,15 +179,22 @@ class ProfitTierEngine:
         fees = current_price * close_size * (self.est_fee_bps / 1e4)
         return gross - fees
 
-    def _bars_in_trade(self, position) -> float:
+    def _bars_in_trade(self, position, now: Optional[float] = None) -> float:
+        """Bars since entry. `now` (epoch seconds) is the engine's injected
+        clock — the LAST wall-clock read in the exit path (EX-8/DL-5): under
+        replay, datetime.now here made trail-tightening depend on when the
+        replay RAN, not on recorded time. None falls back to wall clock
+        (standalone/legacy callers only)."""
         opened = getattr(position, "opened_at", None)
         if opened is None:
             return 0.0
         try:
             if opened.tzinfo is None:
                 opened = opened.replace(tzinfo=timezone.utc)
-            age_min = (datetime.now(timezone.utc) - opened).total_seconds() / 60.0
-        except (TypeError, AttributeError):
+            ref = (datetime.fromtimestamp(now, tz=timezone.utc)
+                   if now is not None else datetime.now(timezone.utc))
+            age_min = (ref - opened).total_seconds() / 60.0
+        except (TypeError, AttributeError, OSError, OverflowError, ValueError):
             return 0.0
         return max(age_min / _BAR_MINUTES, 0.0)
 
@@ -215,7 +223,8 @@ class ProfitTierEngine:
         position.high_water = best
 
     def _trail_distance_frac(self, position, sigma_bar_pct,
-                             decay_mult: float = 1.0) -> float:
+                             decay_mult: float = 1.0,
+                             now: Optional[float] = None) -> float:
         legacy = max(_f(self.trailing_stop_config.get("trail_pct", 1.0), 1.0),
                      0.01) / 100.0
         dist = legacy
@@ -225,7 +234,7 @@ class ProfitTierEngine:
                 dist = max(legacy,
                            self.chandelier_k * sig *
                            math.sqrt(self.chandelier_bars))
-        bars = self._bars_in_trade(position)
+        bars = self._bars_in_trade(position, now)
         if bars > self.tighten_after_bars:
             decay = self.tighten_factor ** ((bars - self.tighten_after_bars)
                                             / 48.0)
@@ -339,7 +348,8 @@ class ProfitTierEngine:
         return float(give_back_stop(e, hw, long, frac))
 
     def _exit_floor_hit(self, position, px: float, sigma_bar_pct,
-                        signal_alive=None) -> bool:
+                        signal_alive=None,
+                        now: Optional[float] = None) -> bool:
         ts_cfg = self.trailing_stop_config
         activate_after = int(ts_cfg.get("activate_after_tier", 2))
         trail_on = bool(ts_cfg.get("enabled", False)) and \
@@ -387,7 +397,7 @@ class ProfitTierEngine:
             # decay: both are tighten-only factors <= 1.0.
             decay_mult *= self._conviction_trail_mult(position)
             dist = self._trail_distance_frac(position, sigma_bar_pct,
-                                             decay_mult)
+                                             decay_mult=decay_mult, now=now)
             anchor = _f(getattr(position, "high_water", None),
                         position.entry_price) or position.entry_price
             cand = anchor * (1.0 - dist) if position.direction == "long" \
@@ -405,7 +415,8 @@ class ProfitTierEngine:
     # ------------------------------------------------------------------
     def evaluate(self, position, current_price: float,
                  sigma_bar_pct=None, signal_alive=None,
-                 inventory_pressure: float = 0.0) -> TierAction:
+                 inventory_pressure: float = 0.0,
+                 now: Optional[float] = None) -> TierAction:
         """Next unfired tier first, then the ratcheting exit floor
         (break-even + chandelier). One action max per cycle.
 
@@ -453,7 +464,7 @@ class ProfitTierEngine:
                                   is_profit_take=True)
 
         if self._exit_floor_hit(position, px, sigma_bar_pct,
-                                signal_alive=signal_alive):
+                                signal_alive=signal_alive, now=now):
             pnl = self._estimate_realized_pnl(position, px, 100.0)
             log.info("Exit floor hit for %s at %s (stop=%.6g, hw=%.6g)",
                      position.symbol, px,

@@ -354,7 +354,20 @@ def push_pc_status(root: Path = ROOT) -> str:
             deploy["auto_update"] = json.loads(au.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
         pass
-    envelope = {"pushed_at": time.time(), "host": socket.gethostname(),
+    # DL-6: a frozen bot would otherwise be republished every cycle with a
+    # FRESH pushed_at, masquerading as live off-box. Stamp the staleness so
+    # every consumer (Grafana, session digests, operators) reads it without
+    # doing its own written_at arithmetic. Alarm-only: the push still
+    # happens — a stale status is exactly what the off-box channel must
+    # show, loudly, when the runner is wedged.
+    push_ts = time.time()
+    try:
+        _age = push_ts - float(status.get("written_at", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        _age = -1.0
+    envelope = {"pushed_at": push_ts, "host": socket.gethostname(),
+                "status_age_sec": round(_age, 1),
+                "status_stale": bool(_age > 300.0 or _age < 0.0),
                 "status": status, "deploy": deploy,
                 "remote_commands": consumed[-20:]}
     deletes = [f"{QUEUE_DIR}/{e['id']}.json" for e in consumed

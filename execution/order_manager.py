@@ -29,6 +29,7 @@ for every submit/reject/terminal, bounded terminal-order history, and
 venue-reject accounting surfaced in status().
 """
 
+import decimal
 import hashlib
 import logging
 import math
@@ -42,6 +43,7 @@ import numpy as np
 
 from core.audit import get_audit
 from core.codes import Code, tag
+from core.sanitize import is_finite as _fin
 from core.sanitize import is_finite_pos as _fin_pos, safe_float
 
 log = logging.getLogger("liquiditybot.execution.order_manager")
@@ -238,12 +240,33 @@ class OrderManager:
                 del self._orders[old_id]
 
     # ------------------------------------------------------------------
-    def _fmt_price(self, pair: str, price: float) -> str:
+    def _fmt_price(self, pair: str, price: float,
+                   side: Optional[str] = None) -> str:
+        """Venue price string, SIDE-AWARE (MP-5): symmetric round-half-even
+        could nudge a buy limit UP (or a sell DOWN) through the touch — a
+        post-only reject live, or an unintended cross. Buys floor, sells
+        ceil: rounding only ever moves the price AWAY from aggression.
+        side=None keeps the legacy symmetric rounding (logs/display)."""
         d = int((self.pair_meta.get(pair) or {}).get("price_decimals", 2))
+        if side in ("buy", "sell") and _fin(price):
+            q = decimal.Decimal(str(price)).quantize(
+                decimal.Decimal(1).scaleb(-d),
+                rounding=(decimal.ROUND_FLOOR if side == "buy"
+                          else decimal.ROUND_CEILING))
+            return f"{q:.{d}f}"
         return f"{price:.{d}f}"
 
     def _fmt_volume(self, pair: str, size: float) -> str:
+        """Venue volume string, ALWAYS floored (MP-5): round-half-even could
+        round the submitted size UP past what the sizer approved — on an exit
+        that is an oversell the venue may reject (or worse, fill). Truncation
+        is safe: positions are born from fills at this same lot precision, so
+        flooring a full-position exit is a no-op, never stranded dust."""
         d = int((self.pair_meta.get(pair) or {}).get("lot_decimals", 8))
+        if _fin(size):
+            q = decimal.Decimal(str(size)).quantize(
+                decimal.Decimal(1).scaleb(-d), rounding=decimal.ROUND_FLOOR)
+            return f"{q:.{d}f}"
         return f"{size:.{d}f}"
 
     def _ordermin(self, pair: str) -> float:
@@ -550,7 +573,9 @@ class OrderManager:
             "userref": self._userref(order.order_id),
         }
         if ordertype == "limit":
-            data["price"] = self._fmt_price(pair, price)
+            # side-aware (MP-5): the SUBMITTED price never rounds toward
+            # crossing — buys floor, sells ceil at the pair's precision
+            data["price"] = self._fmt_price(pair, price, side=side)
         if order.post_only:
             data["oflags"] = "post"
         if leverage and leverage > 1.0:

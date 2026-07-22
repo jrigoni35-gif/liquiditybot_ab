@@ -1696,7 +1696,10 @@ class LiquidityBot:
                 pos, px,
                 sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
                 signal_alive=signal_alive,
-                inventory_pressure=min(inv_ratio, 1.0))
+                inventory_pressure=min(inv_ratio, 1.0),
+                # EX-8/DL-5: the engine's injected clock reaches the trail's
+                # time-tightening - the last wall-clock read in the exit path
+                now=now)
             if action.should_close_partial and action.close_pct > 0:
                 self._submit_exit(pos, action.close_pct,
                                 f"tier {action.tier_fired or 'trail'}",

@@ -563,8 +563,33 @@ def _acquire_or_wait(lock: SingleInstanceLock,
     return lock.acquire() is None           # final verdict at the deadline
 
 
+def _stagger_stamps() -> None:
+    """C-F10: the four git sidecars (remote-cmd poll, status push, corpus
+    sync, telemetry backup) are all stamp-gated and all default-due on a
+    fresh boot, and their periods share divisors (600 | 3600) — so every
+    hour the whole set fires on ONE tick and contends for git/network at
+    once. Seed ABSENT stamps with phase offsets (fractions of each period)
+    so the cadences interleave; periods are unchanged, so the phase holds
+    forever after. Existing stamps are never touched."""
+    for stamp, period, frac in (
+            (_REMOTE_CMD_STAMP, REMOTE_CMD_SEC, 0.0),      # due immediately
+            (_STATUS_PUSH_STAMP, STATUS_PUSH_SEC, 0.5),
+            (_CORPUS_SYNC_STAMP, CORPUS_SYNC_SEC, 0.25),
+            (_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC, 0.75)):
+        if stamp.exists():
+            continue
+        try:
+            OUT.mkdir(exist_ok=True)
+            stamp.touch()
+            age = period * (1.0 - frac)      # first due after frac*period
+            os.utime(stamp, (time.time() - age, time.time() - age))
+        except OSError:
+            pass                             # stagger is best-effort
+
+
 def main() -> None:
     global _LOCK
+    _stagger_stamps()
     _LOCK = SingleInstanceLock(path=str(OUT / "pc_supervisor.lock"),
                                stale_after_sec=STALE_SEC)
     if not _acquire_or_wait(_LOCK, poll_sec=LOCK_POLL_SEC):
