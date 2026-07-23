@@ -490,8 +490,22 @@ class ProfitTierEngine:
         high_water via _mfe_pct - no parallel tracker. A missing/legacy
         tier-1 trigger (non-finite) has no reference to judge progress
         against, so this stays inert rather than guessing (matches the
-        cost-floor's own "0 est_cost_bps is exactly inert" discipline)."""
-        if not self.ts_enabled:
+        cost-floor's own "0 est_cost_bps is exactly inert" discipline).
+
+        VIRGIN-ONLY GATE (P2 review fix, 2026-07-23): only ever fires when
+        position.tier_closed == 0. Tier-1's vol-scaled trigger RECLAMPS
+        every cycle from the CURRENT sigma_bar_pct - it is not a one-time
+        snapshot of the value tier 1 actually fired under. A vol spike
+        arriving AFTER tier 1 already banked can reclamp the effective
+        trigger well above the MFE that was locked in under the (lower)
+        vol regime tier 1 fired under; an ungated check would then
+        full-close (PT-060) a position that already took profit -
+        contradicting the lever's premise ("trades that never work"). A
+        position with tier_closed > 0 has, by definition, already shown
+        favorable progress (it fired at least one tier), so it is
+        categorically exempt rather than re-judged against a moving
+        target."""
+        if not self.ts_enabled or position.tier_closed != 0:
             return False
         bars = self._bars_in_trade(position, now)
         if bars < self.ts_max_bars_no_progress:

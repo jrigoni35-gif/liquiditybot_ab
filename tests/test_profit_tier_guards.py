@@ -325,3 +325,56 @@ def test_pt_060_registered_and_carried_on_action():
     floor_action = trail_eng.evaluate(p, 108.5)
     assert floor_action.should_close_partial is True
     assert floor_action.reason_code == ""
+
+
+# ============================================================================
+# P2 review fix: time-stop must be gated to VIRGIN positions
+# (position.tier_closed == 0). Tier-1's vol-scaled trigger RECLAMPS every
+# cycle from CURRENT sigma_bar_pct (not a one-time snapshot at the moment
+# tier 1 fired), so a vol spike arriving AFTER tier 1 already banked can
+# reclamp the effective trigger above the MFE that was locked in under the
+# (lower) vol regime tier 1 actually fired under. An ungated check then
+# full-closes (PT-060) a position that already took profit -- contradicting
+# the lever's premise ("trades that never work"). Reviewer repro: tier
+# fires at low-vol trigger 1.0%; 40 bars later vol spikes -> trigger
+# reclamps to 6.0% -> time-stop (pre-fix) fires with close_pct=100.
+# ============================================================================
+
+def _ts_cfg_vol(**overrides):
+    ts = {"enabled": True, "max_bars_no_progress": 36,
+          "min_mfe_frac_of_tier1": 0.5}
+    ts.update(overrides)
+    return {"tier_1": {"trigger_pct_gain": 2.0, "trigger_vol_mult": 2.0,
+                       "close_pct_of_position": 25},
+            "time_stop": ts}
+
+
+# -- 37. reviewer repro: banked tier 1 + post-bank vol spike reclamp must
+# NOT scratch the remainder ------------------------------------------------
+def test_time_stop_does_not_fire_after_tier1_banked_then_vol_spike_reclamps():
+    eng = ProfitTierEngine(_ts_cfg_vol())
+    # tier 1 already closed (banked at the low-vol ~1.0% trigger); high_water
+    # locked at peak_pct=1.0% favorable excursion -- comfortably past the
+    # low-vol trigger, well short of the post-spike reclamped one.
+    p = _ts_pos(40, peak_pct=1.0)
+    p.tier_closed = 1
+    # vol spike: trigger_vol_mult(2.0) * sigma_bar_pct(3.0) = 6.0%, clamped
+    # to [0.5x, 3.0x] of legacy 2.0% -> stays at 6.0% (the reviewer's repro
+    # number). min_mfe_frac(0.5) * 6.0% = 3.0% > locked MFE 1.0%, which is
+    # exactly the condition that (pre-fix) fires the scratch.
+    action = eng.evaluate(p, 100.0, sigma_bar_pct=3.0, now=_TS_NOW)
+    assert action.should_close_partial is False
+    assert action.reason_code != Code.PT_TIME_STOP.value
+    assert action.close_pct == pytest.approx(0.0)
+
+
+# -- 38. complementary pin: identical conditions but VIRGIN (tier_closed=0)
+# still fires -- guards the fix from over-gating -----------------------------
+def test_time_stop_fires_for_virgin_position_same_vol_spike_conditions():
+    eng = ProfitTierEngine(_ts_cfg_vol())
+    p = _ts_pos(40, peak_pct=1.0)
+    assert p.tier_closed == 0
+    action = eng.evaluate(p, 100.0, sigma_bar_pct=3.0, now=_TS_NOW)
+    assert action.should_close_partial is True
+    assert action.close_pct == pytest.approx(100.0)
+    assert action.reason_code == Code.PT_TIME_STOP.value
