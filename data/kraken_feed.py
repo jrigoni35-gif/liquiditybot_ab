@@ -67,6 +67,21 @@ FORBIDDEN_PRIVATE_ENDPOINTS = frozenset({
 })
 
 
+def _pct_str_to_bps(raw) -> Optional[float]:
+    """Kraken's TradeVolume 'fee' field is a PERCENT string (e.g. "0.2600"
+    = 0.26% = 26 bps): percent -> bps is x100. Returns None (never a
+    fabricated 0.0) on anything that isn't a finite, non-negative number -
+    a garbage/absent fee must skip the comparison, not silently compare
+    against a fictitious zero-fee tier."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v < 0:
+        return None
+    return v * 100.0
+
+
 class KrakenFeed(ThrottledRestClient):
     def __init__(self, config: dict):
         super().__init__(config.get("rate_limit_per_sec", 1))
@@ -136,8 +151,18 @@ class KrakenFeed(ThrottledRestClient):
             return None
         return data.get("result")
 
+    def has_private_credentials(self) -> bool:
+        """True once both API key and secret are resolved (a non-base64
+        secret is already cleared in __init__, so this stays False for it
+        too). Single home for the credential check _private_post makes
+        LOUDLY (ERROR) on every genuine attempt - callers that want a
+        private call to skip QUIETLY when the bot simply has no keys
+        (read-only checks like fee reconciliation) should ask here FIRST
+        rather than absorb that ERROR log on every interval."""
+        return bool(self.api_key and self.api_secret)
+
     def _private_post(self, endpoint: str, data: Optional[dict] = None) -> Optional[dict]:
-        if not self.api_key or not self.api_secret:
+        if not self.has_private_credentials():
             log.error(f"Kraken private call to {endpoint} blocked: no API credentials configured.")
             return None
 
@@ -329,6 +354,61 @@ class KrakenFeed(ThrottledRestClient):
     def get_open_orders(self) -> Optional[dict]:
         result = self._private_post("OpenOrders")
         return result.get("open") if result else None
+
+    def get_trade_volume(self, pairs: list) -> Optional[dict]:
+        """TradeVolume: the account's raw current-tier fee schedule. `pair`
+        is comma-separated (same convention as Ticker/Depth/OHLC). Response
+        is keyed by Kraken's OWN internal pair name (legacy pairs: e.g.
+        XETHZUSD, not the altname requested) and carries 'fees' (taker
+        schedule) and 'fees_maker' (maker schedule), each a
+        {internal_pair: {"fee": "<percent string>", ...}} map at the
+        account's current 30-day volume tier. Read-only account state -
+        same private-post plumbing/deny-list as every other private call
+        here (TradeVolume is not, and must never be, on that deny list)."""
+        if not pairs:
+            return None
+        return self._private_post("TradeVolume", {"pair": ",".join(pairs)})
+
+    def get_trade_fee_tiers(self, pairs: list) -> Optional[dict]:
+        """Account's ACTUAL current maker/taker fee, in bps, for each of
+        `pairs` (our compact pair strings, e.g. 'ETHUSD') - the W2-9
+        remainder's read side. Resolves TradeVolume's internal-pair-keyed
+        response back to our pair strings via the same _internal_to_alt map
+        AssetPairs populates for get_tickers (newer listings already have
+        internal == altname, so an empty/stale map still degrades safely).
+        Returns {pair: {"maker_bps": float, "taker_bps": float}} for every
+        pair TradeVolume actually reported and could be parsed cleanly - a
+        pair the account never traded, or one whose fee string doesn't
+        parse, is simply ABSENT (never fabricated, never defaulted).
+        None on missing credentials, a transport failure, or a response
+        that isn't shaped like TradeVolume at all (no 'fees'/'fees_maker'
+        maps) - the caller treats None as "skip this reconciliation"."""
+        if not pairs:
+            return None
+        result = self.get_trade_volume(pairs)
+        if not isinstance(result, dict):
+            return None
+        taker_fees = result.get("fees")
+        maker_fees = result.get("fees_maker")
+        if not isinstance(taker_fees, dict) or not isinstance(maker_fees, dict):
+            return None
+        want = set(pairs)
+        out: dict = {}
+        for internal, info in taker_fees.items():
+            alt = self._internal_to_alt.get(internal, internal)
+            if alt not in want or not isinstance(info, dict):
+                continue
+            taker_bps = _pct_str_to_bps(info.get("fee"))
+            if taker_bps is None:
+                continue
+            maker_info = maker_fees.get(internal)
+            if not isinstance(maker_info, dict):
+                continue
+            maker_bps = _pct_str_to_bps(maker_info.get("fee"))
+            if maker_bps is None:
+                continue
+            out[alt] = {"maker_bps": maker_bps, "taker_bps": taker_bps}
+        return out if out else None
 
     # --- Venue-level safety endpoints -------------------------------------
     def cancel_all_orders_after(self, timeout_sec: int) -> bool:

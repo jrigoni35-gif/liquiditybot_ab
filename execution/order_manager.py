@@ -125,6 +125,19 @@ class OrderManager:
         self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
         self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
         self.deadman_sec = int(cfg.get("deadman_timeout_sec", 60))
+        # W2-9 remainder: periodic REPORT-ONLY reconciliation of the fees
+        # ABOVE against the account's ACTUAL Kraken fee tier (TradeVolume).
+        # config_guard enforces tolerance_bps in (0, 50], interval_hours in
+        # [1, 168]. See check_fee_reconciliation for the fail-safe contract.
+        fr_cfg = cfg.get("fee_recon", {}) or {}
+        self.fee_recon_enabled = bool(fr_cfg.get("enabled", True))
+        self.fee_recon_tolerance_bps = float(fr_cfg.get("tolerance_bps", 1.0))
+        self.fee_recon_interval_hours = float(fr_cfg.get("interval_hours", 24.0))
+        # None = "never run yet" (distinct from 0.0), so the very first
+        # opportunity fires regardless of what `now` happens to be, then
+        # every subsequent call is gated on the real elapsed interval.
+        self._fee_recon_last_ts: Optional[float] = None
+        self._fee_recon_result: Optional[dict] = None
         # fills booked OUTSIDE poll() (cancel-time final reconciliation)
         # queue here and are delivered by the next poll(), so every fill
         # still flows through the engine's single _handle_fill path
@@ -469,7 +482,94 @@ class OrderManager:
                 "taker_notional_usd": round(self.taker_notional_usd, 2),
                 "avg_slip_bps": round(sum(slips) / len(slips), 2)
                 if slips else None,
-                "worst_slip_bps": round(max(slips), 2) if slips else None}
+                "worst_slip_bps": round(max(slips), 2) if slips else None,
+                # W2-9 remainder: last fee-tier reconciliation result (None
+                # until the first one runs) -> status.json -> telemetry.
+                "fee_recon": self._fee_recon_result}
+
+    def check_fee_reconciliation(self, now: float) -> None:
+        """W2-9 remainder: periodic REPORT-ONLY comparison of the configured
+        maker/taker bps above against the account's ACTUAL Kraken fee tier
+        (TradeVolume). Timed off `now` as INJECTED by main.hourly_cycle -
+        never a wall-clock read here (EX-8). A mismatch only ever WARNs and
+        emits one registered audit event (OM-080); it never mutates
+        config.json at runtime (lifted-threshold discipline - the operator
+        re-tunes the configured bps consciously).
+
+        Fail-safe (never raises into hourly_cycle, never spams):
+          - disabled, or still inside the interval -> silent return.
+          - the interval is claimed BEFORE the venue call, so a repeated
+            failure (no creds, network, garbage response) retries at most
+            once per interval, never every hourly_cycle tick.
+          - no resolved Kraken credentials (DRY_RUN or live, doesn't
+            matter - this is a read-only account query) -> debug skip.
+          - TradeVolume unreachable / unparseable -> debug skip; the last
+            good result (if any) is left untouched in stats.
+          - any other exception (network, malformed response, a partial
+            stub in tests) -> caught here, debug-logged, skipped.
+        """
+        try:
+            if not self.fee_recon_enabled:
+                return
+            interval_sec = self.fee_recon_interval_hours * 3600.0
+            if (self._fee_recon_last_ts is not None
+                    and now - self._fee_recon_last_ts < interval_sec):
+                return
+            self._fee_recon_last_ts = now
+            if not self.feed.has_private_credentials():
+                log.debug("fee reconciliation skipped: no Kraken API "
+                         "credentials configured")
+                return
+            pairs = sorted(self.pair_meta.keys())
+            if not pairs:
+                log.debug("fee reconciliation skipped: no pairs configured")
+                return
+            tiers = self.feed.get_trade_fee_tiers(pairs)
+            if not tiers:
+                log.debug("fee reconciliation skipped: TradeVolume "
+                         "unavailable or unparseable")
+                return
+            pair_results = {}
+            mismatched = []
+            for pair, actual in tiers.items():
+                actual_maker = actual["maker_bps"]
+                actual_taker = actual["taker_bps"]
+                # dangerous direction (configured < actual: the EV gate is
+                # underestimating cost) flags regardless of tolerance;
+                # otherwise only a divergence PAST tolerance in either
+                # direction is worth an operator's attention.
+                maker_bad = (self.maker_fee_bps < actual_maker
+                            or abs(self.maker_fee_bps - actual_maker)
+                            > self.fee_recon_tolerance_bps)
+                taker_bad = (self.taker_fee_bps < actual_taker
+                            or abs(self.taker_fee_bps - actual_taker)
+                            > self.fee_recon_tolerance_bps)
+                pair_results[pair] = {
+                    "maker_configured_bps": self.maker_fee_bps,
+                    "maker_actual_bps": round(actual_maker, 4),
+                    "taker_configured_bps": self.taker_fee_bps,
+                    "taker_actual_bps": round(actual_taker, 4),
+                    "mismatch": bool(maker_bad or taker_bad),
+                }
+                if maker_bad or taker_bad:
+                    mismatched.append(pair)
+            self._fee_recon_result = {"ts": now,
+                                      "verdict": "mismatch" if mismatched
+                                      else "ok",
+                                      "pairs": pair_results}
+            if mismatched:
+                msg = tag(Code.OM_FEE_RECON_MISMATCH,
+                         f"configured vs actual Kraken fee tier diverged "
+                         f"on {mismatched} (tolerance="
+                         f"{self.fee_recon_tolerance_bps}bps): {pair_results}")
+                log.warning(msg)
+                get_audit().log("order_manager", Code.OM_FEE_RECON_MISMATCH,
+                                msg, {"pairs": pair_results,
+                                      "tolerance_bps":
+                                      self.fee_recon_tolerance_bps})
+        except Exception:                            # noqa: BLE001
+            log.debug("fee reconciliation skipped: unexpected error",
+                     exc_info=True)
 
     def _timed_private(self, endpoint: str, data: dict):
         t0 = time.monotonic()

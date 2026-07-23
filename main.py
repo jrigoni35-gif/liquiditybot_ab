@@ -3147,6 +3147,19 @@ class LiquidityBot:
             self.margin_level_pct = self.kraken.get_margin_level_pct()
         if not self.dry_run:
             self._check_equity_truth()
+        # W2-9 remainder: periodic fee-tier reconciliation (report-only).
+        # Read-only regardless of dry_run (a credential check, not a live-
+        # trading gate, decides whether it can run at all). Isolated at
+        # THIS call site too, like every other hourly peer above/below -
+        # check_fee_reconciliation is internally fail-safe already, but a
+        # raise from an incompletely-stubbed self.orders (tests) or any
+        # other surprise here must never starve the retrain/drift work
+        # that follows.
+        try:
+            self.orders.check_fee_reconciliation(now)
+        except Exception:
+            log.debug("fee reconciliation call skipped: unexpected error",
+                     exc_info=True)
 
         # adopt an EXTERNALLY-retrained model (scripts/train_meta.py run
         # against a LIVE bot writes outputs/meta_model.json + a champion_brier

@@ -128,6 +128,35 @@ def validate(config: dict) -> list:
     if pt_taker < pt_maker:
         warn("taker fee below maker fee - unusual; double-check the tier")
 
+    # --- fee-tier reconciliation (W2-9 remainder) -----------------------
+    # order_manager.fee_recon periodically compares the CONFIGURED bps
+    # above against Kraken's ACTUAL account fee tier (TradeVolume) and is
+    # report-only (never mutates config). Bounds guard the two knobs that
+    # govern it, checked whenever it's enabled (default True, matching the
+    # shipped config) regardless of dry_run - both are structural config-
+    # nonsense checks, same class as tier1_cost_floor's own bounds.
+    fr = config.get("order_manager", {}).get("fee_recon", {}) or {}
+    if fr.get("enabled", True):
+        fr_tol = float(_f(config, "order_manager.fee_recon.tolerance_bps",
+                          1.0))
+        if not (0.0 < fr_tol <= 50.0):
+            fatal(f"order_manager.fee_recon.tolerance_bps={fr_tol} must be "
+                  f"in (0, 50] - at/below 0 the check would flag ordinary "
+                  f"float noise every interval (drowning the one genuine "
+                  f"dangerous case in duplicate WARNs); above 50bps it can "
+                  f"no longer catch a real Kraken tier jump. 1.0 bps = the "
+                  f"smallest Kraken tier step matters at our 20.5 bps "
+                  f"measured cost stack (P1, 2026-07-23 P&L diagnosis)")
+        fr_hrs = float(_f(config, "order_manager.fee_recon.interval_hours",
+                          24.0))
+        if not (1.0 <= fr_hrs <= 168.0):
+            fatal(f"order_manager.fee_recon.interval_hours={fr_hrs} must be "
+                  f"in [1, 168] - below hourly the private TradeVolume call "
+                  f"would out-cadence hourly_cycle itself (the only place "
+                  f"it's driven from); above a week (168h) a real tier "
+                  f"change (the account crossing a 30-day volume threshold) "
+                  f"could go undetected for a full trading week")
+
     # --- pretrade EV gate / participation clamp / staleness ----------------
     # min_edge_cost_ratio gates PT-041 as `edge < ratio * cost`; edge is a
     # sum of two max(., 0) terms so it is never negative, meaning ratio=0

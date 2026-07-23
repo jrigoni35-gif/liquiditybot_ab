@@ -95,6 +95,12 @@ class Code(str, Enum):
     OM_FILL_APPLY_FAILED = "OM-070"  # _handle_fill raised on one poll event; the
                                      # rest of the batch is still applied and
                                      # snapshotted (no book/venue desync, no lost fill)
+    OM_FEE_RECON_MISMATCH = "OM-080" # W2-9 remainder: periodic TradeVolume check
+                                     # found the account's ACTUAL Kraken fee tier
+                                     # diverging from configured maker/taker bps
+                                     # (configured < actual, or |diff| beyond
+                                     # tolerance) - REPORT-ONLY, never mutates
+                                     # config.json; the operator re-tunes it
 
     # ---- sizer (SZ) ---------------------------------------------------
     SZ_INVALID_INPUT = "SZ-010"
