@@ -85,8 +85,8 @@ class ModelMonitor:
         self.calib_gap_max = float(cfg.get("calibration_gap_max", 0.15))
         self.hit_shortfall_max = float(cfg.get("hit_shortfall_max", 0.08))
         self.retrain_cooldown_s = float(
-            cfg.get("retrain_cooldown_hours", 12)) * 3600
-        self.retrain_min_new_rows = int(cfg.get("retrain_min_new_rows", 40))
+            cfg.get("retrain_cooldown_hours", 6)) * 3600
+        self.retrain_min_new_rows = int(cfg.get("retrain_min_new_rows", 25))
         self.retrain_min_rows = int(cfg.get("retrain_min_rows", 60))
         self.deploy_margin = float(cfg.get("challenger_brier_margin", 0.005))
         self.deploy_min_oof = int(cfg.get("deploy_min_oof", 30))

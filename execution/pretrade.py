@@ -89,7 +89,7 @@ class PreTradeGate:
         self.max_staleness_ms = float(cfg.get("max_data_staleness_ms", 4000.0))
         self.max_participation = float(cfg.get("max_participation_of_depth",
                                                0.15))
-        self.min_order_usd = float(cfg.get("min_order_usd", 25.0))
+        self.min_order_usd = float(cfg.get("min_order_usd", 15.0))
         # rev 2 profit terms (all bounded, all default-gentle)
         self.as_kappa = min(max(float(cfg.get("adverse_selection_kappa",
                                               0.35)), 0.0), 2.0)

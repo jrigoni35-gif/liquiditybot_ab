@@ -828,6 +828,11 @@ def test_persistence_roundtrip():
     # config_guard requires creds in live mode; this test isn't about that
     cfg_live["exchanges"]["kraken"]["api_key"] = "x"
     cfg_live["exchanges"]["kraken"]["api_secret"] = "eA=="  # nosec B105 - dummy test secret
+    # cfg weakened min_edge_cost_ratio to 0.1 above to force the synthetic
+    # entry through the EV gate (persistence is the subject, not cost
+    # policy) - now FATAL in live mode (W2-7 guard). This test is about the
+    # dry/live resume mismatch, not the EV gate, so restore a valid ratio.
+    cfg_live["pretrade"]["min_edge_cost_ratio"] = 1.3
     bot3 = LiquidityBot(cfg_live, okx=MockOKX(prices),
                         binanceus=MockBinanceUS(prices),
                         kraken=MockKraken(prices), resume=True)

@@ -39,7 +39,7 @@ class HedgeEngine:
         self.max_net_delta_pct = float(cfg.get("max_net_delta_pct_of_equity", 20.0))
         self.rebalance_band_pct = float(cfg.get("rebalance_band_pct", 8.0))
         self.min_corr = float(cfg.get("min_hedge_correlation", 0.55))
-        self.min_hedge_usd = float(cfg.get("min_hedge_usd", 50.0))
+        self.min_hedge_usd = float(cfg.get("min_hedge_usd", 15.0))
         # betas below beta_floor are treated as unreliable -> hedge 1:1;
         # a single hedge never exceeds max_equity_frac of equity.
         # Lifted to config (identical defaults) per overfit discipline.

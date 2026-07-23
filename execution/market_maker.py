@@ -55,7 +55,7 @@ class AvellanedaStoikovQuoter:
         self.k_intensity = max(float(cfg.get("k_intensity", 1.5)), 1e-3)
         self.tau_bars = max(float(cfg.get("tau_bars", 6.0)), 0.1)
         self.min_half_spread_bps = max(float(
-            cfg.get("min_half_spread_bps", 4.0)), 0.0)
+            cfg.get("min_half_spread_bps", 26.0)), 0.0)
         self.max_half_spread_bps = max(float(
             cfg.get("max_half_spread_bps", 60.0)), self.min_half_spread_bps)
         # structural profitability floor: a passive round trip must clear

@@ -114,7 +114,7 @@ class ProfitTierEngine:
         self.tiers = [cfg.get("tier_1", {}), cfg.get("tier_2", {}),
                       cfg.get("tier_3", {}), cfg.get("tier_4", {})]
         self.trailing_stop_config = cfg.get("trailing_stop", {})
-        self.vol_scaled = bool(cfg.get("vol_scaled", False))
+        self.vol_scaled = bool(cfg.get("vol_scaled", True))
         self.be_after_tier = int(cfg.get("be_after_tier", 1))
         self.be_buffer_bps = _f(cfg.get("be_buffer_bps", 6.0), 6.0)
         self.est_fee_bps = max(_f(cfg.get("est_fee_bps", 0.0)), 0.0)

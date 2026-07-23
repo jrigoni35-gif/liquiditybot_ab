@@ -99,10 +99,14 @@ def validate(config: dict) -> list:
     dry_run = bool(_f(config, "system.dry_run", True))
 
     # --- fees ----------------------------------------------------------
-    pt_maker = float(_f(config, "pretrade.maker_fee_bps", 16.0))
-    pt_taker = float(_f(config, "pretrade.taker_fee_bps", 26.0))
-    om_maker = float(_f(config, "order_manager.maker_fee_bps", 16.0))
-    om_taker = float(_f(config, "order_manager.taker_fee_bps", 26.0))
+    # defaults mirror the read-sites' shipped values (execution/pretrade.py,
+    # execution/order_manager.py both default 25/40 bps) - a stale 16/26
+    # fallback here would silently pass a config that DELETED the fee keys
+    # even though the modules it validates against actually run at 25/40.
+    pt_maker = float(_f(config, "pretrade.maker_fee_bps", 25.0))
+    pt_taker = float(_f(config, "pretrade.taker_fee_bps", 40.0))
+    om_maker = float(_f(config, "order_manager.maker_fee_bps", 25.0))
+    om_taker = float(_f(config, "order_manager.taker_fee_bps", 40.0))
     allow_low = bool(_f(config, "pretrade.allow_sub_floor_fees", False))
 
     if min(pt_maker, pt_taker, om_maker, om_taker) < 0:
@@ -123,6 +127,36 @@ def validate(config: dict) -> list:
         (fatal if not dry_run else warn)(msg)
     if pt_taker < pt_maker:
         warn("taker fee below maker fee - unusual; double-check the tier")
+
+    # --- pretrade EV gate / participation clamp / staleness ----------------
+    # min_edge_cost_ratio gates PT-041 as `edge < ratio * cost`; edge is a
+    # sum of two max(., 0) terms so it is never negative, meaning ratio=0
+    # makes `edge < 0` impossible and the entire edge-vs-cost gate silently
+    # never fires. max_participation_of_depth=0 doesn't veto - it makes
+    # max_units = depth_units * 0 = 0, which SKIPS the clamp on a size that
+    # sizes to zero rather than blocking the order, the opposite of caution.
+    pt_ratio = float(_f(config, "pretrade.min_edge_cost_ratio", 1.3))
+    if pt_ratio < 1.0:
+        fatal(f"pretrade.min_edge_cost_ratio={pt_ratio} must be >= 1 - below "
+              f"1x the edge/cost gate (PT-041) can approve trades whose "
+              f"edge doesn't even cover cost, and at 0 the gate never fires "
+              f"at all (edge is a sum of max(.,0) terms, never negative)")
+    pt_part = float(_f(config, "pretrade.max_participation_of_depth", 0.15))
+    if not (0.0 < pt_part <= 1.0):
+        fatal(f"pretrade.max_participation_of_depth={pt_part} must be in "
+              f"(0, 1] - 0 zeroes the depth-participation clamp itself "
+              f"(silently sizing to zero instead of blocking), and >1 is "
+              f"not a fraction of depth")
+    pt_stale = float(_f(config, "pretrade.max_data_staleness_ms", 4000.0))
+    if pt_stale <= 0:
+        fatal(f"pretrade.max_data_staleness_ms={pt_stale} must be positive "
+              f"- a non-positive staleness gate rejects every quote as "
+              f"stale (or trusts a permanently dead one, at exactly 0)")
+    pt_impact_eta = float(_f(config, "pretrade.impact_eta", 0.8))
+    if pt_impact_eta < 0:
+        fatal(f"pretrade.impact_eta={pt_impact_eta} must be >= 0 - it "
+              f"scales the market-impact cost term; negative would PAY the "
+              f"entry for taking liquidity")
 
     # label cost coherence: the triple-barrier win/loss label subtracts a
     # round-trip cost. If it sits below the maker round-trip, labels call
@@ -265,6 +299,80 @@ def validate(config: dict) -> list:
         if pm < 10:
             fatal(f"ml.sample_weights.prior_skew_min_rows ({pm}) < 10 - the "
                   f"window prior is meaningless on fewer rows")
+
+    # --- markout: post-fill mark-out measurement (execution/markout.py) ---
+    # window <= 0 makes MarkoutTracker's _obs a deque(maxlen<=0): 0 is a
+    # silent blackhole (every observation discarded on append, the tracker
+    # runs but never accumulates); a negative maxlen isn't validated by
+    # collections.deque until the FIRST lazy defaultdict access mid-cycle,
+    # where it raises ValueError - a crash-loop discovered only in
+    # production, not at boot. horizons_sec must be non-empty with every
+    # entry positive when the tracker is enabled, or record_fill/poll are
+    # no-ops that silently measure nothing.
+    mk = config.get("markout", {}) or {}
+    if bool(mk.get("enabled", True)):
+        mk_window = int(mk.get("window", 200))
+        if mk_window < 1:
+            fatal(f"markout.window={mk_window} must be >= 1 - 0 silently "
+                  f"discards every observation (a blackhole deque), "
+                  f"negative raises ValueError lazily on first mid-cycle "
+                  f"access")
+        mk_hz = mk.get("horizons_sec", [5.0, 30.0, 60.0]) or []
+        if not mk_hz:
+            fatal("markout.enabled but horizons_sec is empty - nothing to "
+                  "measure")
+        elif any(not isinstance(h, (int, float)) or float(h) <= 0
+                 for h in mk_hz):
+            fatal(f"markout.horizons_sec={mk_hz!r} has a non-positive entry "
+                  f"- every horizon must be > 0 seconds")
+        mk_grace = float(mk.get("grace_sec", 15.0))
+        if mk_grace < 0:
+            fatal(f"markout.grace_sec={mk_grace} must be >= 0")
+
+    # --- watchdog: tail-event sentry (core/watchdog.py) --------------------
+    # inverted/equal warn-vs-critical un-blocks entries on a dead feed: the
+    # critical trip (operator alert, "stops are blind") can only ever fire
+    # AFTER the warn trip in evaluate(), so warn >= critical means critical
+    # never has room to fire above warn (or fires simultaneously, which is
+    # not "graduated" tail handling - it's a single silent step). The pnl-
+    # velocity/tick-quarantine/equity-drift knobs are all rate/magnitude
+    # gates that must be positive or the corresponding trip either fires on
+    # every cycle (0 threshold) or never resets (0 cooldown).
+    wd = config.get("watchdog", {}) or {}
+    if bool(wd.get("enabled", True)):
+        wd_warn = float(wd.get("stale_warn_sec", 30))
+        wd_crit = float(wd.get("stale_critical_sec", 120))
+        if not (0.0 < wd_warn < wd_crit):
+            fatal(f"watchdog stale thresholds incoherent: stale_warn_sec="
+                  f"{wd_warn} must be > 0 and strictly below "
+                  f"stale_critical_sec={wd_crit} - inverted/equal leaves the "
+                  f"critical trip (operator alert, stops blind) unable to "
+                  f"fire after the warn trip")
+        wd_vel_window = float(wd.get("pnl_velocity_window_sec", 900))
+        if wd_vel_window <= 0:
+            fatal(f"watchdog.pnl_velocity_window_sec={wd_vel_window} must be "
+                  f"positive - it is the rolling window the velocity trip "
+                  f"measures equity drop over")
+        wd_vel_drop = float(wd.get("pnl_velocity_max_drop_pct", 6.0))
+        if wd_vel_drop <= 0:
+            fatal(f"watchdog.pnl_velocity_max_drop_pct={wd_vel_drop} must be "
+                  f"positive - <= 0 trips the velocity halt on ordinary "
+                  f"equity noise")
+        wd_vel_cd = float(wd.get("pnl_velocity_cooldown_sec", 1800))
+        if wd_vel_cd <= 0:
+            fatal(f"watchdog.pnl_velocity_cooldown_sec={wd_vel_cd} must be "
+                  f"positive - <= 0 means the velocity trip never latches "
+                  f"(re-arms on the very next healthy tick)")
+        wd_tick = float(wd.get("tick_jump_quarantine_pct", 8.0))
+        if wd_tick <= 0:
+            fatal(f"watchdog.tick_jump_quarantine_pct={wd_tick} must be "
+                  f"positive - <= 0 quarantines every tick, holding stops "
+                  f"one cycle forever")
+        wd_drift = float(wd.get("max_equity_drift_pct", 2.0))
+        if wd_drift <= 0:
+            fatal(f"watchdog.max_equity_drift_pct={wd_drift} must be "
+                  f"positive - <= 0 flags the live equity-truth check on "
+                  f"ordinary rounding noise")
 
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
@@ -420,8 +528,8 @@ def validate(config: dict) -> list:
     # untradeable-by-construction check: if the largest permitted position
     # is below every minimum ticket, the bot will veto 100% of entries and
     # burn API quota doing nothing. Not dangerous - just pointless.
-    min_ticket = max(float(_f(config, "position_sizer.min_ticket_usd", 25)),
-                     float(_f(config, "pretrade.min_order_usd", 25)))
+    min_ticket = max(float(_f(config, "position_sizer.min_ticket_usd", 15)),
+                     float(_f(config, "pretrade.min_order_usd", 15)))
     if start_cap > 0:
         max_ticket = start_cap * max_pos / 100.0
         if max_ticket < min_ticket:
@@ -480,11 +588,67 @@ def validate(config: dict) -> list:
         warn(f"system.cycle_fail_halt={cfh}: halting new risk after so few "
              f"consecutive failures will trip on a transient feed blip")
 
+    # main.py does `self._cycle % self.slow_every` every fast cycle - 0
+    # raises ZeroDivisionError on the very first cycle, every cycle after.
+    slow_every = int(_f(config, "system.slow_cycle_every_n", 6))
+    if slow_every < 1:
+        fatal(f"system.slow_cycle_every_n={slow_every} must be >= 1 - 0 "
+              f"raises ZeroDivisionError on `cycle % slow_cycle_every_n` "
+              f"every cycle")
+
+    # order_manager.order_timeout_sec must exceed the poll cadence: an order
+    # is only checked for timeout when the runner polls, so a timeout at or
+    # below the cadence expires the order before it can ever be evaluated
+    # once (born already dead).
+    om_timeout = float(_f(config, "order_manager.order_timeout_sec", 25.0))
+    if om_timeout <= poll:
+        fatal(f"order_manager.order_timeout_sec ({om_timeout}) must exceed "
+              f"system.polling_interval_sec ({poll}) - at/below the poll "
+              f"cadence every order expires before the runner can check it "
+              f"even once")
+    om_reprices = int(_f(config, "order_manager.max_reprices", 1))
+    if om_reprices < 0:
+        fatal(f"order_manager.max_reprices={om_reprices} must be >= 0")
+    om_fill_ratio = float(_f(config, "order_manager.min_fill_ratio", 0.10))
+    if not (0.0 <= om_fill_ratio <= 1.0):
+        fatal(f"order_manager.min_fill_ratio={om_fill_ratio} must be in "
+              f"[0, 1] - it is graded against a filled/requested ratio")
+
     lev = float(_f(config, "leverage.region_max_leverage", 10))
     if lev < 1:
         fatal("leverage.region_max_leverage below 1")
-    if bool(_f(config, "leverage.use_margin", False)) and dry_run is False:
+    lev_use_margin = bool(_f(config, "leverage.use_margin", False))
+    if lev_use_margin and dry_run is False:
         warn("margin ENABLED in live config - confirm this is intentional")
+    # target_vol_annual_pct feeds `lev = target_vol/vol` BEFORE the
+    # use_margin branch even runs (risk/leverage.py allowed_leverage) - at 0
+    # every allowed-leverage computation floors to 0 and every entry is
+    # silently blocked regardless of margin being on or off. min_leverage
+    # is a floor applied to that same pre-margin ladder, so it must not be
+    # negative either. Unconditional (not gated on use_margin), matching
+    # the code path both actually run on.
+    lev_target_vol = float(_f(config, "leverage.target_vol_annual_pct", 35.0))
+    if lev_target_vol <= 0:
+        fatal(f"leverage.target_vol_annual_pct={lev_target_vol} must be "
+              f"positive - lev = target_vol/realized_vol runs regardless of "
+              f"use_margin; 0 zeroes allowed leverage and silently blocks "
+              f"every entry")
+    lev_min = float(_f(config, "leverage.min_leverage", 0.25))
+    if lev_min < 0:
+        fatal(f"leverage.min_leverage={lev_min} must be >= 0")
+    # margin_scale_below_pct/margin_block_below_pct are read ONLY inside the
+    # `elif self.use_margin:` branch (risk/leverage.py) - gate this check on
+    # use_margin so a purely-spot config with stale/unused margin fields
+    # isn't flagged for a band that code path never reads.
+    if lev_use_margin:
+        m_scale = float(_f(config, "leverage.margin_scale_below_pct", 200))
+        m_block = float(_f(config, "leverage.margin_block_below_pct", 150))
+        if m_block >= m_scale:
+            fatal(f"leverage.margin_block_below_pct ({m_block}) must be "
+                  f"below margin_scale_below_pct ({m_scale}) - an inverted/"
+                  f"equal band divides by zero in the scaling fraction (at "
+                  f"equal) or creates a leverage cliff at the margin "
+                  f"boundary (inverted)")
 
     # --- live credentials -------------------------------------------------
     if not dry_run:
@@ -547,6 +711,31 @@ def validate(config: dict) -> list:
     mult = float(esc.get("widen_mult", 2.0))
     if mult < 1.0:
         fatal("risk.exit_escalation.widen_mult must be >= 1")
+    # the escalation ladder computes slip_pct = min(base * widen_mult**n,
+    # cap); if cap sits BELOW the base max_slippage_pct, even attempt 0
+    # clamps to the cap - an exit that should be marketable at the ordinary
+    # slippage tolerance instead pins at a TIGHTER (unfillable) price than
+    # a normal order would ever use.
+    esc_cap = float(esc.get("max_slippage_cap_pct", 3.0))
+    base_slip = float(_f(config, "risk.max_slippage_pct", 0.5))
+    if esc_cap < base_slip:
+        fatal(f"risk.exit_escalation.max_slippage_cap_pct ({esc_cap}) must "
+              f"be >= risk.max_slippage_pct ({base_slip}) - a cap below the "
+              f"base tolerance pins every escalated exit at a TIGHTER "
+              f"(less fillable) price than an ordinary order ever uses")
+    esc_market_after = int(esc.get("market_after_attempts", 3))
+    if not (0 <= esc_market_after <= 20):
+        fatal(f"risk.exit_escalation.market_after_attempts="
+              f"{esc_market_after} must be in [0, 20] - negative is not an "
+              f"attempt count, and past ~20 the ladder never reaches its "
+              f"market-order failsafe rung within a position's lifetime")
+    mark_stale = float(_f(config, "risk.mark_stale_sec", 20.0))
+    if mark_stale <= 0:
+        fatal(f"risk.mark_stale_sec={mark_stale} must be positive - at 0, "
+              f"`(now - mark_ts) <= 0` is false for every mark except the "
+              f"exact instant it was stamped, so every mark reads STALE "
+              f"permanently (profit tiers, inventory derisk and the "
+              f"equity-peak/hard-stop all lose their trusted mark)")
 
     # --- anti-scalp manip gate (new-entry downsize/veto band) --------------
     mg = _f(config, "risk.manip_gate", {}) or {}
@@ -596,6 +785,45 @@ def validate(config: dict) -> list:
               f"the L0<->L1 flap on window-churn noise), >10 leaves a "
               f"recovered model throttled long past the evidence")
 
+    # --- model governor judge window / shrinkage-kelly-stop ordering ------
+    # _windows() slices `recs = [...][-window_trades:]` then requires
+    # `len(recs) >= min_trades_to_judge` - recs can never exceed
+    # window_trades, so min_trades_to_judge > window_trades makes the
+    # governor NEVER judge (never escalates OR de-escalates on live
+    # evidence). shrinkage ramps base (healthy) -> max (killed) as level
+    # rises (_evaluate); an inverted pair reverses that ramp. kelly_mult
+    # starts at 1.0 and floors at kelly_mult_min as level rises; stop_widen
+    # starts at 1.0 and ceilings at stop_widen_max.
+    mon_window = int(_f(config, "ml.monitor.window_trades", 30))
+    mon_min_judge = int(_f(config, "ml.monitor.min_trades_to_judge", 15))
+    if mon_window < 1:
+        fatal(f"ml.monitor.window_trades={mon_window} must be >= 1")
+    if mon_min_judge > mon_window:
+        fatal(f"ml.monitor.min_trades_to_judge ({mon_min_judge}) must be <= "
+              f"window_trades ({mon_window}) - the judged window is capped "
+              f"at window_trades, so a higher min can never be reached and "
+              f"the governor never judges")
+    mon_shrink_base = float(_f(config, "ml.monitor.shrinkage_base", 0.35))
+    mon_shrink_max = float(_f(config, "ml.monitor.shrinkage_max", 0.70))
+    if not (0.0 <= mon_shrink_base <= mon_shrink_max <= 1.0):
+        fatal(f"ml.monitor shrinkage bounds incoherent: need 0 <= "
+              f"shrinkage_base ({mon_shrink_base}) <= shrinkage_max "
+              f"({mon_shrink_max}) <= 1 - shrinkage ramps base (healthy) up "
+              f"to max (killed) as the governor escalates; inverted reverses "
+              f"that ramp")
+    mon_kelly_min = float(_f(config, "ml.monitor.kelly_mult_min", 0.40))
+    if not (0.0 < mon_kelly_min <= 1.0):
+        fatal(f"ml.monitor.kelly_mult_min={mon_kelly_min} must be in "
+              f"(0, 1] - kelly_mult starts at 1.0 (healthy) and floors here "
+              f"as the governor escalates; 0 would zero every sized entry "
+              f"at the worst level")
+    mon_stop_widen_max = float(_f(config, "ml.monitor.stop_widen_max", 1.5))
+    if mon_stop_widen_max < 1.0:
+        fatal(f"ml.monitor.stop_widen_max={mon_stop_widen_max} must be >= 1 "
+              f"- stop_widen starts at 1.0 and ceilings here; below 1 it "
+              f"would TIGHTEN the stop on a degrading model instead of "
+              f"widening it")
+
     # --- post-hoc interpretability report (ml/interpret.py) ---------------
     # analysis knobs, not decision-path tunables — but nonsense values make
     # the report LIE (a background too thin makes interventional SHAP noise;
@@ -636,6 +864,38 @@ def validate(config: dict) -> list:
         fatal("webdata fear/euphoria thresholds must satisfy "
               f"0 <= fear_max({fmax}) < euphoria_min({emin}) <= 100 - "
               "inverted thresholds make sentiment context fire backwards")
+
+    # --- vol_regime / sentiment ordering (shading-only paths) --------------
+    # Mirrors the webdata fear/euphoria check above, but WARN not FATAL: a
+    # miscalibrated percentile/threshold band here mis-classifies a regime
+    # or a mood, it does not open the bot to a hard failure mode (the trade
+    # path still executes correctly) - a FATAL would be disproportionate to
+    # a shading-only misconfiguration, so it is caught loud without
+    # refusing to start.
+    vr_low = float(_f(config, "vol_regime.low_pct", 30.0))
+    vr_elev = float(_f(config, "vol_regime.elevated_pct", 70.0))
+    vr_ext = float(_f(config, "vol_regime.extreme_pct", 90.0))
+    if not (0.0 <= vr_low < vr_elev < vr_ext <= 100.0):
+        warn(f"vol_regime percentile thresholds incoherent: need 0 <= "
+             f"low_pct({vr_low}) < elevated_pct({vr_elev}) < "
+             f"extreme_pct({vr_ext}) <= 100 - inverted/equal bands "
+             f"misclassify the vol regime shading")
+    se_calm = float(_f(config, "sentiment.filter.stress_calm_threshold", 0.3))
+    se_confirm = float(_f(config,
+                          "sentiment.filter.stress_confirm_threshold", 0.6))
+    if se_calm > se_confirm:
+        warn(f"sentiment.filter.stress_calm_threshold ({se_calm}) must be "
+             f"<= stress_confirm_threshold ({se_confirm}) - inverted "
+             f"hysteresis makes the stress filter confirm before it can "
+             f"even calm")
+    se_fear = float(_f(config, "sentiment.fear_threshold", -0.35))
+    se_euphoria = float(_f(config, "sentiment.euphoria_threshold", 0.45))
+    if not (se_fear < 0.0 < se_euphoria):
+        warn(f"sentiment fear_threshold ({se_fear}) / euphoria_threshold "
+             f"({se_euphoria}) must satisfy fear_threshold < 0 < "
+             f"euphoria_threshold - a wrong-signed threshold fires the "
+             f"fear/euphoria spike flags backwards")
+
     a = float(_f(config, "risk_protocols.cvar.alpha", 0.975))
     if not (0.5 < a < 1.0):
         fatal("risk_protocols.cvar.alpha must be in (0.5, 1) - it is a "
