@@ -1,85 +1,85 @@
 {
-  "generated_at": 1784814216.053889,
+  "generated_at": 1784817817.0743463,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784814205.0,
-    "duration_h": 317.83
+    "end": 1784817805.0,
+    "duration_h": 318.83
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4970.06,
+    "equity_end": 4968.91,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -15.91,
-    "fees_paid_total": 30.0875,
+    "realized_pnl_total": -17.91,
+    "fees_paid_total": 31.403,
     "open_positions": 4,
-    "samples": 68116
+    "samples": 68343
   },
   "activity": {
-    "signal_rows_total": 3340,
-    "live_labeled_trades": 214,
-    "candidate_rows": 3126
+    "signal_rows_total": 3364,
+    "live_labeled_trades": 217,
+    "candidate_rows": 3147
   },
   "audit": {
-    "records": 3920,
-    "signal_records": 1588,
+    "records": 3965,
+    "signal_records": 1612,
     "by_src": {
-      "exploration": 2554,
-      "order_manager": 649,
-      "ml_governor": 367,
-      "startup": 148,
-      "fault": 127,
-      "engine": 46,
-      "circuit_breaker": 28,
+      "exploration": 2578,
+      "order_manager": 661,
+      "ml_governor": 372,
+      "startup": 149,
+      "fault": 128,
+      "engine": 47,
+      "circuit_breaker": 29,
       "runner": 1
     },
     "top_codes": [
       [
         "ML-070",
-        2332
+        2353
       ],
       [
         "OM-000",
-        489
+        497
       ],
       [
         "ML-072",
-        222
+        225
       ],
       [
         "OM-040",
-        160
+        164
       ],
       [
         "CG-000",
-        148
+        149
       ],
       [
         "FT-020",
-        127
+        128
       ],
       [
         "ML-031",
-        121
+        122
       ],
       [
         "ML-041",
-        76
+        77
       ],
       [
         "ML-016",
-        53
+        54
       ],
       [
         "ML-042",
-        49
+        50
       ],
       [
         "ML-073",
-        46
+        47
       ],
       [
         "ML-032",
@@ -96,11 +96,11 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 5979,
+    "records": 7154,
     "by_level": {
-      "INFO": 5955,
-      "WARNING": 23,
-      "CRITICAL": 1
+      "INFO": 7111,
+      "WARNING": 40,
+      "CRITICAL": 3
     },
     "top_warnings": [
       [
@@ -145,26 +145,26 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1303,
-      "thin": 362
+      "spoofy": 1509,
+      "thin": 434
     },
-    "spoofy_frac": 0.783,
-    "cycles_estimate": 646,
+    "spoofy_frac": 0.777,
+    "cycles_estimate": 757,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 2,
     "use_model": false,
     "kelly_mult": 0.4,
-    "champion_brier": 0.11743319820364327,
+    "champion_brier": 0.19010705737572497,
     "brier": "n/a",
-    "history_rows": 214,
+    "history_rows": 217,
     "cold": true
   },
   "postmortems": {
-    "count": 180,
+    "count": 182,
     "causes": {
-      "underperformance": 132,
+      "underperformance": 134,
       "cost_overrun": 37,
       "alpha_wrong": 6,
       "whipsaw": 3,
@@ -186,7 +186,7 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=214, brier=n/a) yet retrain was requested 34x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 31% of the audit trail"
+      "detail": "model is cold (live training rows=217, brier=n/a) yet retrain was requested 34x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 31% of the audit trail"
     },
     {
       "id": "SD-003",
@@ -198,7 +198,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 31% of 1588 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 31% of 1612 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
