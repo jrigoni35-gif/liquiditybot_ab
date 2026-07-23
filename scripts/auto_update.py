@@ -343,12 +343,21 @@ def _record_outcome(outcome: str) -> None:
     which; the PC's deploy state was a blind spot. Fail-safe: never let
     telemetry break the update itself. On a 'rejected' outcome the stamp
     also carries which test(s) failed the battery, so a Windows-only
-    failure is diagnosable from the cloud."""
+    failure is diagnosable from the cloud.
+
+    W2-21: 'remote' is resolved against _deploy_branch() — the SAME branch
+    the update body follows — not a hardcoded origin/main. The stamp also
+    names remote_branch so a reader can tell which branch 'remote' refers
+    to; on a branch-checked-out box the old hardcode compared against a
+    branch the box never fetches (permanently "different from remote", and
+    silently empty when origin/main was never fetched)."""
     try:
+        branch = _deploy_branch()
         _, head = _git("rev-parse", "--short", "HEAD")
-        _, remote = _git("rev-parse", "--short", f"origin/{BRANCH}")
+        _, remote = _git("rev-parse", "--short", f"origin/{branch}")
         state = {"ts": time.time(), "outcome": outcome,
-                 "head": head.strip(), "remote": remote.strip()}
+                 "head": head.strip(), "remote": remote.strip(),
+                 "remote_branch": branch}
         if outcome == "rejected" and _BATTERY_DETAIL:
             state["battery_detail"] = _BATTERY_DETAIL[:500]
         p = OUT / "auto_update_state.json"

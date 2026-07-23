@@ -47,6 +47,7 @@ CLI:
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess  # nosec B404 - fixed argv git calls, no shell
 import sys
@@ -89,18 +90,31 @@ if _bad:
 # 120s git poll was the worst offender). CREATE_NO_WINDOW keeps them silent.
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
+# W2-25: git occasionally echoes the remote URL it tried into stderr (e.g.
+# an auth failure names the URL it hit), and every caller logs that text
+# verbatim to outputs/remote_control.log — gitignored but readable on the
+# box. A remote configured with an embedded credential
+# (https://user:token@host/...) would leak the token into that local log.
+# Strip userinfo from any URL before it is ever returned/logged.
+_URL_USERINFO_RE = re.compile(r"://[^/@\s]+@")
+
+
+def _redact(text: str) -> str:
+    return _URL_USERINFO_RE.sub("://***@", text)
+
 
 def _git(*args, cwd, timeout=120):
     """Run a git command; return (rc, stdout.strip()). Never raises —
-    every caller degrades to a disposition string on failure."""
+    every caller degrades to a disposition string on failure. Any URL
+    userinfo (embedded credentials) in the output is redacted."""
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
                            capture_output=True, text=True, timeout=timeout,
                            **_NOWIN)
         out = (p.stdout or "").strip() or (p.stderr or "").strip()
-        return p.returncode, out
+        return p.returncode, _redact(out)
     except Exception as e:                       # noqa: BLE001
-        return 1, f"error: {e}"
+        return 1, _redact(f"error: {e}")
 
 
 def _log(msg: str) -> None:

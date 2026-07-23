@@ -302,3 +302,26 @@ def test_status_push_carries_deploy_observable(repos):
     env = json.loads(_branch_file(bare, "control/pc_status.json"))
     assert env["deploy"]["auto_update"]["outcome"] == "dirty"
     assert env["deploy"]["head"]                  # real rev-parse of root
+
+
+def test_git_redacts_credentials_in_returned_stderr(monkeypatch, tmp_path):
+    """W2-25: _git falls back to stderr when stdout is empty, and callers
+    log that text verbatim (fetch_failed / worktree_failed / commit_failed
+    / push_failed). git occasionally echoes the remote URL it tried into
+    stderr, which can carry an embedded credential (https://user:token@
+    host/...) straight into a local gitignored log. The token must never
+    reach the returned/logged text."""
+    class _FakeCompleted:
+        returncode = 128
+        stdout = ""
+        stderr = ("fatal: unable to access "
+                  "'https://alice:sekrit-token-xyz@github.com/org/repo.git/'"
+                  ": The requested URL returned error: 403")
+
+    monkeypatch.setattr(rc.subprocess, "run",
+                        lambda *a, **k: _FakeCompleted())
+    code, out = rc._git("fetch", "origin", "main", cwd=tmp_path)
+    assert code == 128
+    assert "sekrit-token-xyz" not in out
+    assert "alice" not in out
+    assert "https://***@github.com/org/repo.git" in out

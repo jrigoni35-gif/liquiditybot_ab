@@ -65,11 +65,13 @@ def gauge(name: str, value: float, attrs: dict | None = None,
 
 
 def _num(x, default: float = 0.0) -> float:
-    """Safe float: None / non-numeric / NaN -> default. status.json can carry a
-    null upnl (bad_entry) or mark, which must not poison an aggregate sum."""
+    """Safe float: None / non-numeric / NaN / inf -> default. status.json can
+    carry a null upnl (bad_entry) or mark, which must not poison an aggregate
+    sum; a JSON Infinity must not reach int() at a call site either (that
+    raised OverflowError and blacked out the whole metric batch)."""
     try:
         v = float(x)
-        return v if v == v else default          # NaN guard
+        return v if math.isfinite(v) else default   # NaN/inf guard
     except (TypeError, ValueError):
         return default
 
@@ -263,7 +265,13 @@ def collect(status_path: str) -> list:
         if isinstance(v, (int, float)):
             m.append(gauge(f"liquiditybot_ml_{key}", v, ts=ts))
     for asset, v in (s.get("manip_suspect") or {}).items():
-        m.append(gauge("liquiditybot_manip_suspect", v, {"asset": asset}, ts))
+        # DL-1: this was the ONLY per-asset loop with no isinstance-numeric
+        # guard; one non-numeric value raised inside collect() and blacked
+        # out the ENTIRE metric batch (including the alarm gauges) every
+        # tick — matches the guard every sibling per-asset loop already has.
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            m.append(gauge("liquiditybot_manip_suspect", v,
+                           {"asset": asset}, ts))
     for asset, sig in (s.get("signals") or {}).items():
         if isinstance(sig, dict):
             # concentration (0 diffuse .. 1 pinpointed): the per-asset

@@ -122,6 +122,26 @@ def log(msg: str) -> None:
         pass
 
 
+# W2-13: a backwards clock step (RTC fast at boot, then a time service
+# steps it back) makes a heartbeat/stamp mtime read from the FUTURE, so
+# `time.time() - mtime` goes negative — comparing only `age < threshold`
+# then reads every cadence as fresh/not-due for as long as the clock lags
+# the stamp, including blocking a dead runner's relaunch. A small negative
+# age (ordinary NTP jitter, a few seconds) is not a clock step and must
+# stay fresh/not-due; only a jump beyond this allowance is suspect. ~120s
+# comfortably exceeds normal jitter while still catching a real step-back.
+CLOCK_SKEW_ALLOWANCE_SEC = 120.0
+
+
+def _stale_or_due(age: float, threshold: float,
+                  skew_allowance: float = CLOCK_SKEW_ALLOWANCE_SEC) -> bool:
+    """True when `age` (seconds since a stamp's mtime) means STALE/DUE:
+    ordinary staleness (age >= threshold) OR a backwards clock step that
+    makes the mtime read from the future (age < -skew_allowance). Age
+    inside [-skew_allowance, threshold) is fresh/not-due."""
+    return age < -skew_allowance or age >= threshold
+
+
 def _fresh(path: Path, key: str | None = None) -> bool:
     """True if `path` is a heartbeat fresher than STALE_SEC. When `key` is
     given, read that numeric epoch field from a JSON file; else use mtime."""
@@ -132,7 +152,7 @@ def _fresh(path: Path, key: str | None = None) -> bool:
                 ts = float(json.load(fh).get(key, 0.0))
         else:
             ts = path.stat().st_mtime
-        return (time.time() - ts) < STALE_SEC
+        return not _stale_or_due(time.time() - ts, STALE_SEC)
     except (OSError, ValueError, TypeError):
         return False
 
@@ -206,7 +226,8 @@ def _auto_update_due() -> bool:
     if os.environ.get("LB_NO_AUTO_UPDATE"):
         return False
     try:
-        return (time.time() - _UPDATE_STAMP.stat().st_mtime) >= UPDATE_SEC
+        return _stale_or_due(time.time() - _UPDATE_STAMP.stat().st_mtime,
+                             UPDATE_SEC)
     except OSError:
         return True          # no stamp yet -> due (check once on first boot)
 
@@ -220,11 +241,11 @@ def _mark_update_checked() -> None:
 
 
 def _stamp_due(stamp: Path, period_sec: float) -> bool:
-    """True when `stamp` is absent or older than period_sec; touches it on
-    True so each caller runs at most once per period (same contract as the
-    auto-update stamp, generalized)."""
+    """True when `stamp` is absent, older than period_sec, or clock-stepped
+    into the future; touches it on True so each caller runs at most once
+    per period (same contract as the auto-update stamp, generalized)."""
     try:
-        if (time.time() - stamp.stat().st_mtime) < period_sec:
+        if not _stale_or_due(time.time() - stamp.stat().st_mtime, period_sec):
             return False
     except OSError:
         pass                       # no stamp yet -> due
@@ -290,7 +311,8 @@ def _port_open(host: str, port: int, timeout: float = 1.0) -> bool:
 
 def _opend_relaunch_due() -> bool:
     try:
-        return (time.time() - _OPEND_STAMP.stat().st_mtime) >= OPEND_RELAUNCH_SEC
+        return _stale_or_due(time.time() - _OPEND_STAMP.stat().st_mtime,
+                             OPEND_RELAUNCH_SEC)
     except OSError:
         return True          # never launched -> due
 

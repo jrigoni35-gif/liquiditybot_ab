@@ -270,6 +270,33 @@ def test_outcome_stamp_written_and_fail_safe(monkeypatch, tmp_path):
     au._record_outcome("current")            # must not raise
 
 
+def test_record_outcome_uses_deploy_branch_not_hardcoded_main(monkeypatch,
+                                                               tmp_path):
+    """W2-21: _record_outcome stamped 'remote' from origin/{BRANCH}
+    (BRANCH='main') unconditionally, while the deploy path follows
+    _deploy_branch(). On a branch-checked-out box the stamped remote rev
+    came from a branch the box never even fetches (permanently diverging
+    from the deploy observable's 'head' rev — reads off-box as a stuck
+    deploy) and an unfetched origin/main returns silently empty."""
+    import scripts.auto_update as au
+    monkeypatch.setattr(au, "OUT", tmp_path)
+    monkeypatch.setattr(au, "_deploy_branch", lambda: "claude/feature-x")
+
+    def _fake_git(*args, **kwargs):
+        if args == ("rev-parse", "--short", "HEAD"):
+            return (0, "aaa1111")
+        if args == ("rev-parse", "--short", "origin/claude/feature-x"):
+            return (0, "bbb2222")
+        if args == ("rev-parse", "--short", "origin/main"):
+            return (0, "ccc3333")      # wrong branch's rev - must not be used
+        return (1, "unexpected")
+    monkeypatch.setattr(au, "_git", _fake_git)
+    au._record_outcome("updated")
+    st = json.loads((tmp_path / "auto_update_state.json").read_text())
+    assert st["remote"] == "bbb2222"
+    assert st.get("remote_branch") == "claude/feature-x"
+
+
 # ---- the pre-deploy replay gate: targets LIVE recordings, fails safe --------
 class _FakeProc:
     def __init__(self, rc, out=""):

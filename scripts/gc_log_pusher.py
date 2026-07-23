@@ -138,6 +138,12 @@ def tick(cfg: dict) -> int:
                 if rec is not None:
                     batch.append(rec)
                 consumed = fh.tell()
+            if consumed > offset and not batch:
+                # progress with no records (junk/malformed lines only):
+                # advance past them so they are not re-parsed every tick
+                offset = consumed
+                _save_state(cfg["state"], inode, offset)
+                continue
             if not batch:
                 break
             _push(cfg, batch)             # raises on failure -> no advance

@@ -392,3 +392,41 @@ def test_collect_handles_missing_fault_blocks(tmp_path):
     # brier is only pushed when the judge window is full; a status with no
     # monitor block must NOT emit it (so the outcome alert stays OK, not firing)
     assert "liquiditybot_ml_brier" not in names
+
+
+def test_collect_manip_suspect_garbage_value_does_not_black_out_batch(tmp_path):
+    # W2-14-guards: manip_suspect is the ONLY per-asset loop with no
+    # isinstance-numeric guard; one non-numeric value must be skipped, not
+    # raise and black out the whole metric batch (including alarm gauges).
+    status = {"written_at": time.time(),
+              "halted": True,
+              "manip_suspect": {"BTC": "garbage", "ETH": 0.42}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise on BTC='garbage'
+    assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
+    eth = _by_name(m, "liquiditybot_manip_suspect")
+    assert len(eth) == 1
+    assert eth[0]["gauge"]["dataPoints"][0]["attributes"][0]["value"][
+        "stringValue"] == "ETH"
+
+
+def test_num_rejects_infinity_like_nan():
+    assert gp._num(float("inf")) == 0.0
+    assert gp._num(float("-inf")) == 0.0
+    assert gp._num(float("nan")) == 0.0
+    assert gp._num(float("inf"), default=5.0) == 5.0
+
+
+def test_collect_tiers_fired_infinity_does_not_crash(tmp_path):
+    # W2-14-guards: _num guards NaN but not inf; int(_num(tiers_fired)) at
+    # the position-aggregation site raised OverflowError on a JSON Infinity.
+    status = {"written_at": time.time(),
+              "positions": [{"symbol": "BTC", "direction": "long",
+                            "entry": 100.0, "mark": 101.0, "size": 1.0,
+                            "stop": 95.0, "tiers_fired": float("inf")}]}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise OverflowError
+    tier = _by_name(m, "liquiditybot_position_tiers_fired")
+    assert tier and tier[0]["gauge"]["dataPoints"][0]["asDouble"] == 0.0
