@@ -11,10 +11,11 @@ entry price must degrade safely (fall back to the current price), never
 detonate the exit path.
 """
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from core.codes import Code
 from core.state import Position
 from risk.profit_tiers import ProfitTierEngine
 
@@ -195,3 +196,132 @@ def test_invariant5_give_back_exit_fires_with_no_entries_flag_consulted():
     action = eng.evaluate(p, 100.9)   # retrace below the locked 50% floor
     assert action.should_close_partial is True
     assert action.close_pct == pytest.approx(100.0)
+
+
+# ============================================================================
+# Task 2 (P2): time-stop — PT-060 "no favorable progress" scratch
+#
+# A position that has not reached min_mfe_frac_of_tier1 (shipped 0.5) of the
+# tier-1 EFFECTIVE trigger (post vol-scaling/clamp/cost-floor — the exact
+# number tier 1 fires on) within max_bars_no_progress (shipped 36 bars = 3h
+# at 5m bars) is scratched full-close. Derivation (2026-07-23 P&L diagnosis):
+# the no-progress cohort measured MFE 0.16% vs MAE -1.44% and
+# recovered_after_stop 0/17 — trades with no early favorable excursion
+# overwhelmingly resolve to full-stop losses; scratching them converts a
+# -1.4%-class loss into a ~-0.2%-class scratch.
+# ============================================================================
+
+_TS_NOW = 1_700_000_000.0     # frozen replay clock (EX-8 discipline)
+
+
+def _ts_cfg(**overrides):
+    ts = {"enabled": True, "max_bars_no_progress": 36,
+          "min_mfe_frac_of_tier1": 0.5}
+    ts.update(overrides)
+    return {"tier_1": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25},
+            "time_stop": ts}
+
+
+def _ts_pos(bars_age, peak_pct=0.0, direction="long", entry=100.0):
+    """A position aged exactly `bars_age` bars (5-minute bars) as of
+    _TS_NOW, with high_water pre-set to `peak_pct`% favorable excursion
+    (reuses the give-back block's _pos_with_peak — the SAME high-water
+    machinery, no parallel MFE tracker)."""
+    p = _pos_with_peak(peak_pct, direction, entry)
+    p.opened_at = (datetime.fromtimestamp(_TS_NOW, tz=timezone.utc)
+                  - timedelta(minutes=bars_age * 5.0))
+    return p
+
+
+# -- 30. fires exactly at the bar boundary when MFE < frac x tier-1 ---------
+def test_time_stop_fires_exactly_at_boundary_with_no_progress():
+    eng = ProfitTierEngine(_ts_cfg())
+    at = eng.evaluate(_ts_pos(36, peak_pct=0.0), 100.0, now=_TS_NOW)
+    assert at.should_close_partial is True
+    assert at.close_pct == pytest.approx(100.0)
+    assert at.is_profit_take is False
+    assert at.reason_code == Code.PT_TIME_STOP.value
+
+    just_before = eng.evaluate(_ts_pos(35.999, peak_pct=0.0), 100.0,
+                               now=_TS_NOW)
+    assert just_before.should_close_partial is False
+
+
+# -- 31. does NOT fire once MFE clears the fraction, even if bars exceeded -
+def test_time_stop_does_not_fire_once_mfe_clears_fraction():
+    eng = ProfitTierEngine(_ts_cfg())
+    # threshold = 0.5 * 2.0% = 1.0% of the tier-1 effective trigger
+    at_threshold = eng.evaluate(_ts_pos(200, peak_pct=1.0), 100.0,
+                                now=_TS_NOW)
+    assert at_threshold.should_close_partial is False   # MFE == threshold, no fire
+    just_below = eng.evaluate(_ts_pos(200, peak_pct=0.9999), 100.0,
+                              now=_TS_NOW)
+    assert just_below.should_close_partial is True
+    assert just_below.reason_code == Code.PT_TIME_STOP.value
+
+
+# -- 32. short-side symmetry --------------------------------------------------
+def test_time_stop_short_side_mirrors_long():
+    eng = ProfitTierEngine(_ts_cfg())
+    long_action = eng.evaluate(_ts_pos(36, peak_pct=0.0, direction="long"),
+                               100.0, now=_TS_NOW)
+    short_action = eng.evaluate(_ts_pos(36, peak_pct=0.0, direction="short"),
+                                100.0, now=_TS_NOW)
+    assert short_action.should_close_partial is True
+    assert short_action.close_pct == pytest.approx(long_action.close_pct)
+    assert short_action.reason_code == Code.PT_TIME_STOP.value
+
+
+# -- 33. deterministic under injected now (replay discipline, EX-8) --------
+def test_time_stop_deterministic_under_injected_now():
+    eng = ProfitTierEngine(_ts_cfg())
+    pos = _ts_pos(36, peak_pct=0.0)
+    first = eng.evaluate(pos, 100.0, now=_TS_NOW)
+    # same position, same injected now — later in WALL time must not change
+    # the answer (this is exactly the determinism contract the injected
+    # clock exists to guarantee)
+    second = eng.evaluate(pos, 100.0, now=_TS_NOW)
+    assert (first.should_close_partial, first.close_pct, first.tier_fired,
+           first.reason_code) == (second.should_close_partial,
+                                   second.close_pct, second.tier_fired,
+                                   second.reason_code)
+
+
+# -- 34. invariant 5: fires with no entries/disarm/fault flag consulted ----
+def test_time_stop_fires_with_no_entries_flag_consulted():
+    """Same engine-level pin as the give-back invariant-5 test above:
+    evaluate() takes no entries_enabled/disarm/fault-latch flag anywhere, so
+    a no-progress position past max_bars_no_progress is scratched
+    unconditionally. The time-stop is an EXIT — it must fire under a
+    disarmed / fault-latched posture exactly like every other protective
+    close in this module (never gated by anything that blocks NEW risk)."""
+    eng = ProfitTierEngine(_ts_cfg())
+    action = eng.evaluate(_ts_pos(50, peak_pct=0.0), 100.0, now=_TS_NOW)
+    assert action.should_close_partial is True
+    assert action.close_pct == pytest.approx(100.0)
+
+
+# -- 35. enabled: false is fully inert ---------------------------------------
+def test_time_stop_disabled_is_fully_inert():
+    eng = ProfitTierEngine(_ts_cfg(enabled=False))
+    action = eng.evaluate(_ts_pos(500, peak_pct=0.0), 100.0, now=_TS_NOW)
+    assert action.should_close_partial is False
+    assert action.reason_code == ""
+
+
+# -- 36. PT-060 is registered and carried on the fired action only ----------
+def test_pt_060_registered_and_carried_on_action():
+    assert Code.PT_TIME_STOP.value == "PT-060"
+    eng = ProfitTierEngine(_ts_cfg())
+    action = eng.evaluate(_ts_pos(36, peak_pct=0.0), 100.0, now=_TS_NOW)
+    assert action.reason_code == Code.PT_TIME_STOP.value
+
+    # a floor/trail close (not a time-stop) never carries this code
+    trail_cfg = {"trailing_stop": {"enabled": True, "activate_after_tier": 0,
+                                   "trail_pct": 1.0}, "be_after_tier": 99}
+    trail_eng = ProfitTierEngine(trail_cfg)
+    p = _pos(entry=100.0)
+    trail_eng.evaluate(p, 110.0)
+    floor_action = trail_eng.evaluate(p, 108.5)
+    assert floor_action.should_close_partial is True
+    assert floor_action.reason_code == ""

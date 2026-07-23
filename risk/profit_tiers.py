@@ -40,6 +40,18 @@ distance regime-aware:
       pretrade round-trip cost estimate, bps -> pct). RAISE-only; 0.0
       est_cost_bps (legacy/restored positions) is exactly inert. Governs
       tier 1 only — tiers 2-4 are unaffected.
+  TIME-STOP (PT-060)   (P2, 2026-07-23 P&L diagnosis) a position that has
+      NOT reached min_mfe_frac_of_tier1 (shipped 0.5) of tier 1's
+      EFFECTIVE trigger (the SAME post vol-scaling/clamp/cost-floor
+      number tier 1 fires on, always tier index 0) within
+      max_bars_no_progress (shipped 36 bars = 3h at 5m bars) bars is
+      scratched full-close. Derivation: the no-progress cohort measured
+      MFE 0.16% vs MAE -1.44% and recovered_after_stop 0/17 — a trade
+      showing no early favorable excursion overwhelmingly resolves to a
+      full-stop loss; scratching it converts a -1.4%-class loss into a
+      ~-0.2%-class scratch. Reuses _bars_in_trade (EX-8 injected `now`,
+      never wall clock) and the persisted high_water — no parallel
+      tracker. Code default disabled; config.json turns it on.
 
 Single-action-per-cycle contract preserved: at most one TierAction
 with should_close_partial=True per evaluate(). realized_pnl estimates
@@ -112,6 +124,13 @@ class TierAction:
     # it must NOT get maker-first resting treatment. Default False preserves
     # the interface (invariant 7).
     is_profit_take: bool = False
+    # Registered core/codes.py reason code carried on THIS specific close
+    # (currently: Code.PT_TIME_STOP.value on a fired time-stop scratch).
+    # Empty string ("") for every other disposition (profit take, floor/
+    # trail/BE, give-back) - default preserves the interface (invariant 7)
+    # and lets a caller distinguish a time-stop scratch from every other
+    # full-close without string-matching the log line.
+    reason_code: str = ""
 
 
 class ProfitTierEngine:
@@ -219,6 +238,26 @@ class ProfitTierEngine:
         # restored positions, making the floor exactly inert for them.
         self.min_trigger_cost_mult = min(max(
             _f(cfg.get("min_trigger_cost_mult", 3.0), 3.0), 1.0), 10.0)
+        # TIME-STOP (P2, 2026-07-23 P&L diagnosis): a position that has NOT
+        # reached min_mfe_frac_of_tier1 of the tier-1 EFFECTIVE trigger (the
+        # SAME vol-scaled + cost-floored number tier 1 fires on -
+        # _tier_trigger_pct, tier_index=0) within max_bars_no_progress bars
+        # is scratched full-close (PT-060). Derivation: the 2026-07-23
+        # no-progress cohort measured MFE 0.16% vs MAE -1.44% and
+        # recovered_after_stop 0/17 - a position that never shows early
+        # favorable excursion overwhelmingly resolves to a full-stop loss;
+        # scratching it here converts a -1.4%-class loss into a
+        # ~-0.2%-class scratch. Reuses _bars_in_trade (EX-8 injected-now
+        # discipline) and the persisted high_water (via _mfe_pct) - no
+        # parallel tracker. Code default disabled (bare ProfitTierEngine({})
+        # stays byte-identical legacy); config.json turns it on. Bounds
+        # [6, 500] / (0, 1] mirrored FATAL in core/config_guard.py.
+        ts = cfg.get("time_stop", {}) or {}
+        self.ts_enabled = bool(ts.get("enabled", False))
+        self.ts_max_bars_no_progress = max(
+            int(_f(ts.get("max_bars_no_progress", 36), 36)), 1)
+        self.ts_min_mfe_frac = min(max(
+            _f(ts.get("min_mfe_frac_of_tier1", 0.5), 0.5), 0.0), 1.0)
 
     # ------------------------------------------------------------------
     def _estimate_realized_pnl(self, position, current_price: float,
@@ -394,6 +433,21 @@ class ProfitTierEngine:
             if cur is None or candidate < cur:
                 position.trailing_stop_price = candidate
 
+    @staticmethod
+    def _mfe_pct(position) -> float:
+        """Maximum favorable excursion so far, as a % of entry - the peak
+        open gain from the persisted high_water (Position.high_water, the
+        SAME ratchet _update_high_water/_give_back_candidate use). No
+        parallel tracker: this only ever READS the one high-water mark
+        already maintained per-position. 0.0 for an unusable entry_price
+        (mirrors _update_high_water's own fallback)."""
+        e = _f(position.entry_price)
+        if e <= 0:
+            return 0.0
+        hw = _f(getattr(position, "high_water", None), e)
+        long = position.direction == "long"
+        return ((hw - e) if long else (e - hw)) / e * 100.0
+
     def _give_back_candidate(self, position, sigma_bar_pct=None):
         """Stop that locks (1 - frac) of the PEAK move once armed by the
         peak gain itself. Returns a price or None while disarmed. Pure
@@ -405,7 +459,7 @@ class ProfitTierEngine:
             return None
         hw = _f(getattr(position, "high_water", None), e)
         long = position.direction == "long"
-        peak_gain = ((hw - e) if long else (e - hw)) / e * 100.0
+        peak_gain = self._mfe_pct(position)
         arm = self.gb_arm_gain_pct
         if self.gb_arm_vol_mult > 0.0 and sigma_bar_pct is not None:
             sig = _f(sigma_bar_pct)
@@ -423,6 +477,31 @@ class ProfitTierEngine:
                      "the move", position.symbol, peak_gain,
                      (1.0 - frac) * 100.0)
         return float(give_back_stop(e, hw, long, frac))
+
+    def _time_stop_hit(self, position, sigma_bar_pct,
+                       now: Optional[float] = None) -> bool:
+        """PT-060 time-stop: True once a position has spent
+        max_bars_no_progress bars (EX-8 injected `now`, never wall clock)
+        without reaching min_mfe_frac_of_tier1 of tier-1's EFFECTIVE
+        trigger - the exact post vol-scaling/clamp/cost-floor number tier 1
+        fires on (_tier_trigger_pct, tier_index=0, ALWAYS index 0 - "half
+        the tier-1 trigger" is a fixed reference point regardless of how
+        many tiers this position has already closed). Reuses the persisted
+        high_water via _mfe_pct - no parallel tracker. A missing/legacy
+        tier-1 trigger (non-finite) has no reference to judge progress
+        against, so this stays inert rather than guessing (matches the
+        cost-floor's own "0 est_cost_bps is exactly inert" discipline)."""
+        if not self.ts_enabled:
+            return False
+        bars = self._bars_in_trade(position, now)
+        if bars < self.ts_max_bars_no_progress:
+            return False
+        trigger1 = self._tier_trigger_pct(
+            self.tiers[0], sigma_bar_pct, tier_index=0,
+            est_cost_bps=_f(getattr(position, "est_cost_bps", 0.0)))
+        if not math.isfinite(trigger1):
+            return False
+        return self._mfe_pct(position) < self.ts_min_mfe_frac * trigger1
 
     def _exit_floor_hit(self, position, px: float, sigma_bar_pct,
                         signal_alive=None,
@@ -549,6 +628,23 @@ class ProfitTierEngine:
                 return TierAction(True, close_pct, pnl,
                                   tier_fired=next_tier_index + 1,
                                   is_profit_take=True)
+
+        # PT-060 time-stop: checked BEFORE the exit floor so a no-progress
+        # scratch never depends on (or is masked by) the floor/trail/
+        # give-back ratchet's own side effects this cycle - and never
+        # gated by anything that blocks NEW risk (invariant 5: this is an
+        # EXIT, it fires under disarm/fault-latch exactly like every other
+        # protective close in this module).
+        if self._time_stop_hit(position, sigma_bar_pct, now=now):
+            pnl = self._estimate_realized_pnl(position, px, 100.0)
+            bars = self._bars_in_trade(position, now)
+            mfe = self._mfe_pct(position)
+            log.info(tag(Code.PT_TIME_STOP,
+                         f"{position.symbol} time-stop: no favorable "
+                         f"progress ({bars:.0f} bars, MFE {mfe:.2f}%) - "
+                         f"scratching full close"))
+            return TierAction(True, 100.0, pnl, tier_fired=next_tier_index,
+                              reason_code=Code.PT_TIME_STOP.value)
 
         if self._exit_floor_hit(position, px, sigma_bar_pct,
                                 signal_alive=signal_alive, now=now):

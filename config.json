@@ -157,6 +157,12 @@
       "neutral_conf": 0.70,
       "min_conf": 0.55,
       "min_trail_mult": 0.6
+    },
+    "time_stop": {
+      "_doc": "P2 (2026-07-23 P&L diagnosis, PT-060): the no-progress cohort measured MFE 0.16% vs MAE -1.44% and recovered_after_stop 0/17 - trades showing no early favorable excursion overwhelmingly resolve to full-stop losses. A position that has NOT reached min_mfe_frac_of_tier1 of tier-1's EFFECTIVE trigger (the same vol-scaled/clamped/cost-floored number tier 1 fires on) within max_bars_no_progress bars is scratched full-close, converting a -1.4%-class loss into a ~-0.2%-class scratch. Reuses the persisted high_water (MFE) and the injected-now bars-in-trade clock (EX-8) - no parallel tracker, never reads wall clock. config_guard enforces FATAL max_bars_no_progress outside [6, 500] and min_mfe_frac_of_tier1 outside (0, 1] while enabled; WARN if max_bars_no_progress sits below tighten_after_bars (the time-stop then shadows that trail-decay window for exactly the no-progress trade class it targets - the shipped 36 vs 96 sits inside this band deliberately).",
+      "enabled": true,
+      "max_bars_no_progress": 36,
+      "min_mfe_frac_of_tier1": 0.5
     }
   },
   "capital_management": {

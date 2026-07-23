@@ -60,6 +60,15 @@ class Code(str, Enum):
     PT_EXPLORE_BYPASS = "PT-050"     # dry-run exploration bypassed the profit-EV
                                      # gate to acquire a real-fill label
     PT_APPROVED = "PT-000"
+    PT_TIME_STOP = "PT-060"          # risk.profit_tiers time-stop (P2, 2026-07-23
+                                     # P&L diagnosis): a position that never
+                                     # reached min_mfe_frac_of_tier1 of the
+                                     # tier-1 effective trigger within
+                                     # max_bars_no_progress bars is scratched
+                                     # full-close - continues the PT numbering
+                                     # (next open decade after PT-050) per the
+                                     # P2 task spec, even though it fires from
+                                     # the exit path, not execution.pretrade
 
     # ---- venue adapters (VN) -----------------------------------------
     VN_REGISTERED = "VN-000"         # adapter registered (may be disabled)

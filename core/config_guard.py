@@ -595,6 +595,49 @@ def validate(config: dict) -> list:
               f"1x the floor can't even guarantee covering one cost unit, "
               f"above 10x tier-1 would almost never fire")
 
+    # time-stop (P2, 2026-07-23 P&L diagnosis, PT-060): scratches a
+    # position that has NOT reached min_mfe_frac_of_tier1 of tier-1's
+    # effective trigger within max_bars_no_progress bars. Derivation: the
+    # no-progress cohort measured MFE 0.16% vs MAE -1.44% and
+    # recovered_after_stop 0/17 - no early favorable excursion
+    # overwhelmingly resolves to a full-stop loss. Bounds only bind while
+    # the knob is armed (disabled = fully inert, same as give_back/
+    # signal_decay above).
+    if bool(_f(config, "profit_taking.time_stop.enabled", False)):
+        ts_bars = float(_f(config,
+                          "profit_taking.time_stop.max_bars_no_progress", 36))
+        if not (6 <= ts_bars <= 500):
+            fatal(f"profit_taking.time_stop.max_bars_no_progress "
+                  f"({ts_bars}) must be in [6, 500] - below 6 bars scratches "
+                  f"a position before even one confirmable bar of adverse "
+                  f"noise settles; above 500 bars (~41h at 5m bars) "
+                  f"'no progress' stops meaning anything distinct from "
+                  f"'very patient'")
+        ts_frac = float(_f(config,
+                          "profit_taking.time_stop.min_mfe_frac_of_tier1",
+                          0.5))
+        if not (0.0 < ts_frac <= 1.0):
+            fatal(f"profit_taking.time_stop.min_mfe_frac_of_tier1 "
+                  f"({ts_frac}) must be in (0, 1] - <= 0 inverts the whole "
+                  f"test (any MFE, even negative, would 'clear' it); above "
+                  f"1 demands MORE favorable excursion than tier 1's own "
+                  f"trigger, which tier 1 would already have closed on")
+        # coherence: the time-stop scratches a no-progress position before
+        # the trail's own time-tightening decay window (TIME TIGHTENING,
+        # risk/profit_tiers.py: tighten_after_bars) ever gets a chance to
+        # engage for it. Informational only - the shipped defaults (36 vs
+        # 96) sit inside this band deliberately.
+        tighten_after = float(_f(config, "profit_taking.tighten_after_bars",
+                                 96))
+        if ts_bars < tighten_after:
+            warn(f"profit_taking.time_stop.max_bars_no_progress "
+                 f"({ts_bars:.0f}) sits below profit_taking."
+                 f"tighten_after_bars ({tighten_after:.0f}) - the "
+                 f"time-stop shadows tighten_after_bars for exactly the "
+                 f"no-progress trade class it targets (scratched before "
+                 f"the trail's own time-tightening window ever engages); "
+                 f"confirm this overlap is intended")
+
     # --- stops / slippage / cadence --------------------------------------
     if float(_f(config, "risk.stop_loss_pct", 2.0)) <= 0:
         fatal("risk.stop_loss_pct must be positive")
