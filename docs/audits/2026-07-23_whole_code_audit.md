@@ -131,3 +131,10 @@ W2-26 MED execution/pretrade.py book_walk_bps — returns 0.0 (not the
   against a fully one-sided book gets a zero walk cost instead of the
   PT-023 veto (found by the W1-6 fixer, 2026-07-23). Repro + fail-closed
   sentinel needed.
+
+W2-27 MED main.py:1522-1528 — with W1-1's isolation, a persistently
+  raising watchdog.evaluate no longer trips the wedge guard, and
+  entries proceed on the FROZEN prior entries_blocked value (fails
+  open on the entries side during the one incident that breaks the
+  watchdog). Follow-up: treat a raised watchdog.evaluate as
+  entries_blocked=True for that cycle (whole-wave review, 2026-07-23).
