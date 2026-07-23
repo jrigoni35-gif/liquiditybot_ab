@@ -213,12 +213,19 @@ class ProfitTierEngine:
 
     # ---- exit-floor machinery (break-even + chandelier, ratchet-only) ----
     def _update_high_water(self, position, px: float) -> None:
+        # entry_price sanitized: NaN wins both max() and min(), so a
+        # corrupt/restored entry_price (feed glitch, bad snapshot) must
+        # never enter the comparison raw or high_water is poisoned to NaN
+        # on the very first evaluate() and the trailing floor never fires
+        # again. Falls back to the current price when entry is unusable.
+        e = _f(position.entry_price)
+        if e <= 0:
+            e = px
         hw = getattr(position, "high_water", None)
         if position.direction == "long":
-            best = max(_f(hw, position.entry_price), px, position.entry_price)
+            best = max(_f(hw, e), px, e)
         else:
-            base = _f(hw, position.entry_price) if hw is not None \
-                else position.entry_price
+            base = _f(hw, e) if hw is not None else e
             best = min(base, px)
         position.high_water = best
 
@@ -398,8 +405,16 @@ class ProfitTierEngine:
             decay_mult *= self._conviction_trail_mult(position)
             dist = self._trail_distance_frac(position, sigma_bar_pct,
                                              decay_mult=decay_mult, now=now)
-            anchor = _f(getattr(position, "high_water", None),
-                        position.entry_price) or position.entry_price
+            # same NaN-entry guard as _update_high_water: the chandelier
+            # anchor must never fall back to a raw, possibly-NaN
+            # entry_price (which _magnet_grid's round(math.log10(...))
+            # can't even accept), so it collapses to the live px instead.
+            e = _f(position.entry_price)
+            if e <= 0:
+                e = px
+            anchor = _f(getattr(position, "high_water", None), e) or e
+            if anchor <= 0:
+                anchor = px
             cand = anchor * (1.0 - dist) if position.direction == "long" \
                 else anchor * (1.0 + dist)
             self._ratchet_stop(position, cand)

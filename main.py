@@ -1051,6 +1051,10 @@ class LiquidityBot:
             now=now)
         self.state.remove_position(pos.position_id)
         self._exit_attempts.pop(pos.position_id, None)
+        # v10 ladder: a fully-closed position drops the armed state so
+        # re-entry needs the full p_win_arm bar again, not the lower
+        # disarm bar an in-flight position was allowed to hold at.
+        self.ladder.note_exit(asset)
 
     def _mark_cand(self, asset: str, direction: str, code: str) -> None:
         """Stamp the newest open candidate with the pipeline's final verdict
@@ -2441,6 +2445,13 @@ class LiquidityBot:
         (reserved_entries, can_enter, handled): handled=True means the ladder
         placed (or consciously consumed) this entry and the caller skips the
         single-entry path; False means fall through unchanged."""
+        # the ladder is a MAKER strategy (every rung rests post_only=True);
+        # a taker-urgent entry (ExecutionPlanner decided urgency cleared
+        # taker_at, so pretrade evaluated it with taker=True — echoed onto
+        # the approved decision) must never be forced to rest — fall
+        # through to the legacy path, which honors plan.post_only.
+        if decision.taker:
+            return reserved_entries, can_enter, False
         lplan = self.ladder.plan(
             asset, signal.direction, entry_price, vol_state.sigma_bar_pct,
             decision.size_units, p_win, liq_label=liq_state.label,
@@ -2456,21 +2467,25 @@ class LiquidityBot:
             feats=feats, explored=explored, p_win=p_win, model_p=model_p,
             shadow_p=shadow_p, ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
             target_pct=target_pct, now=now)
+        if not placed:
+            # every rung rejected (firewall/collar/venue-min) — the
+            # approved entry must fall back to the legacy single-entry
+            # path, not vanish silently.
+            return reserved_entries, can_enter, False
         reserved_entries += placed             # each rung holds a slot
-        if placed:
-            self.sizer.note_entry(asset, now)
-            self._mark_cand(asset, signal.direction, "entered")
-            self._last_entry_admit_ts = now
-            step_bps = lplan.rungs[-1].offset_bps / \
-                max(len(lplan.rungs) - 1, 1)
-            log.info(
-                f"ENTRY-LADDER {signal.direction} {symbol}: "
-                f"{placed}/{len(lplan.rungs)} rungs, ${sized.usd:,.0f} "
-                f"total | p={p_win:.2f} spacing={step_bps:.1f}bps | "
-                f"{lplan.reason}")
-            if not self.capital.can_open_new_position(self.state,
-                                                      reserved_entries):
-                can_enter = False
+        self.sizer.note_entry(asset, now)
+        self._mark_cand(asset, signal.direction, "entered")
+        self._last_entry_admit_ts = now
+        step_bps = lplan.rungs[-1].offset_bps / \
+            max(len(lplan.rungs) - 1, 1)
+        log.info(
+            f"ENTRY-LADDER {signal.direction} {symbol}: "
+            f"{placed}/{len(lplan.rungs)} rungs, ${sized.usd:,.0f} "
+            f"total | p={p_win:.2f} spacing={step_bps:.1f}bps | "
+            f"{lplan.reason}")
+        if not self.capital.can_open_new_position(self.state,
+                                                  reserved_entries):
+            can_enter = False
         return reserved_entries, can_enter, True
 
     def _place_ladder(self, lplan, *, position_id, asset, symbol, side,
@@ -2486,24 +2501,6 @@ class LiquidityBot:
         for rung in lplan.rungs:
             rid = position_id if rung.idx == 0 else \
                 f"{position_id}-r{rung.idx}"
-            if rung.idx > 0:
-                self.postmortem.register_entry(TradeThesis(
-                    position_id=rid, asset=asset, symbol=symbol,
-                    direction=signal.direction, entry_ts=now, p_win=p_win,
-                    expected_ret_pct=ev_pct,
-                    expected_cost_bps=decision.est_cost_bps,
-                    stop_pct=stop_pct_eff, target_pct=target_pct,
-                    entry_regime=macro_state.label,
-                    entry_liq=liq_state.label,
-                    narrative_label=verdict.label,
-                    fair_value=fv_state.fair_value,
-                    quote_price=rung.price,
-                    price_decimals=_price_decimals(
-                        getattr(self.orders, "pair_meta", {}),
-                        self.kraken.kraken_pair(symbol), rung.price),
-                    model_p=model_p, shadow_p=shadow_p,
-                    model_scored=(self.monitor.use_model
-                                  and self.meta.trained)))
             rung_order = self.orders.submit(
                 asset=asset, symbol=symbol,
                 pair=self.kraken.kraken_pair(symbol), side=side,
@@ -2523,8 +2520,32 @@ class LiquidityBot:
                       "ladder_rung": rung.idx,
                       "thales_fired": self._thales_fired.get(asset) or []},
                 now=now)
-            if rung_order:
-                placed += 1
+            if not rung_order:
+                continue
+            placed += 1
+            # honest-labels doctrine: a thesis is registered only for a
+            # rung that actually rested — a rejected rung (firewall/
+            # collar/venue-min) must never leave an orphan postmortem
+            # thesis. Rung 0's thesis is registered by the caller before
+            # the ladder pathway even runs (it IS the approved entry).
+            if rung.idx > 0:
+                self.postmortem.register_entry(TradeThesis(
+                    position_id=rid, asset=asset, symbol=symbol,
+                    direction=signal.direction, entry_ts=now, p_win=p_win,
+                    expected_ret_pct=ev_pct,
+                    expected_cost_bps=decision.est_cost_bps,
+                    stop_pct=stop_pct_eff, target_pct=target_pct,
+                    entry_regime=macro_state.label,
+                    entry_liq=liq_state.label,
+                    narrative_label=verdict.label,
+                    fair_value=fv_state.fair_value,
+                    quote_price=rung.price,
+                    price_decimals=_price_decimals(
+                        getattr(self.orders, "pair_meta", {}),
+                        self.kraken.kraken_pair(symbol), rung.price),
+                    model_p=model_p, shadow_p=shadow_p,
+                    model_scored=(self.monitor.use_model
+                                  and self.meta.trained)))
         return placed
 
     def _ladder_rung_budget(self, asset: str, direction: str,
