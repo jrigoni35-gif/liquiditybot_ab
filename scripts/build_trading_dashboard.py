@@ -37,6 +37,7 @@ Boards:
   liquiditybot_execution.json        — models · inventory · execution
   liquiditybot_problem_solution.json — problem / solution diagnostics
   liquiditybot_screening.json        — asset screening
+  liquiditybot_pulse.json            — one full-width Business Text hero
 """
 import json
 from pathlib import Path
@@ -998,12 +999,252 @@ def _author_screening():
                "off — screen it down.")
 
 
+# ==================== board 5 · pulse ======================================
+# ONE full-width Business Text panel: the whole board is a single live
+# "one screen, one truth" readout (marcusolsson-dynamictext-panel). Data is
+# read via renderMode "data" — `data.[i]` is query i's frame (refId order
+# A..Q below), `.[0].Value` the single instant value; the range frame is
+# iterated for the sparkline. Every value carries a "--" empty-state.
+#
+# Sparkline strategy = PURE HANDLEBARS + inline SVG (NO helpers / NO
+# afterRender): the sanitizer keeps SVG primitives, so this renders even if
+# panel JS were ever locked down on the Cloud tenant (Brief 1 §5 "reliable"
+# path). The plugin ships no math helpers, so ALL arithmetic is pushed into
+# PromQL: x = {{@index}} against a fixed 575-wide viewBox; y = the NEGATED
+# equity value (so higher equity sits higher), mapped by a viewBox whose
+# y-origin (-max) and height (max-min, clamped) come from sibling
+# min/max_over_time instant queries — zero per-point math in the template.
+_PULSE_CONTENT = """\
+<style>
+.pulse-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,\
+system-ui,sans-serif;color:#F5F5F7;max-width:26rem;margin:0 auto;\
+box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;\
+justify-content:center;\
+padding:2.6rem 1.25rem 1.4rem;text-align:center;-webkit-font-smoothing:antialiased;}
+.pulse-state{display:flex;align-items:center;justify-content:center;\
+flex-wrap:wrap;gap:.5em;font-size:11px;font-weight:600;text-transform:uppercase;\
+letter-spacing:.14em;color:#86868B;font-variant-numeric:tabular-nums;\
+margin-bottom:2.1rem;}
+.pulse-state .sep{opacity:.45;}
+.pulse-state.stale{color:#FF9F0A;}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:#30D158;\
+box-shadow:0 0 0 4px rgba(48,209,88,.16);}
+.pulse-state.stale .pulse-dot{background:#FF9F0A;\
+box-shadow:0 0 0 4px rgba(255,159,10,.16);}
+.pulse-state.idle .pulse-dot{background:#8E8E93;\
+box-shadow:0 0 0 4px rgba(142,142,147,.16);}
+.pulse-hero{font-size:clamp(3.4rem,17vw,5.4rem);font-weight:600;\
+letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;}
+.pulse-cur{color:#86868B;font-weight:500;font-size:.4em;vertical-align:.42em;\
+margin-right:.05em;}
+.pulse-cents{color:#86868B;font-weight:500;font-size:.42em;}
+.pulse-pnl{margin-top:1.05rem;font-size:1.05rem;font-variant-numeric:tabular-nums;\
+letter-spacing:-.01em;}
+.pulse-pnl .gain{color:#30D158;}
+.pulse-pnl .loss{color:#FF453A;}
+.pulse-pnl .flat{color:#86868B;}
+.pulse-pnl .wk{color:#86868B;margin-left:.7em;}
+.pulse-spark{margin:1.7rem 0 1.9rem;line-height:0;}
+.pulse-spark svg{display:block;width:100%;height:42px;overflow:visible;}
+.pulse-nohist{line-height:1.4;font-size:11px;color:#6E6E73;text-transform:uppercase;\
+letter-spacing:.08em;padding:.9rem 0;}
+.pulse-rows{border-top:1px solid rgba(242,242,244,.13);text-align:left;}
+.pulse-row{display:flex;align-items:baseline;justify-content:space-between;\
+gap:1rem;padding:.9rem .15rem;border-bottom:1px solid rgba(242,242,244,.13);}
+.pulse-row:last-child{border-bottom:0;}
+.pulse-row .lab{font-size:15px;font-weight:500;color:#F5F5F7;}
+.pulse-row .exp{display:block;font-size:15px;font-weight:400;color:#86868B;\
+margin-top:.18rem;}
+.pulse-row .val{font-size:17px;font-variant-numeric:tabular-nums;color:#F5F5F7;\
+white-space:nowrap;text-align:right;}
+.pulse-row .val .sub{display:block;font-size:11px;font-weight:500;color:#86868B;\
+text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem;}
+.pulse-foot{margin-top:1.9rem;font-size:11px;color:#6E6E73;\
+text-transform:uppercase;letter-spacing:.1em;}
+</style>
+<div class="pulse-wrap">
+<div class="pulse-state{{#if data.[2].[0].Value}} stale\
+{{else}}{{#unless data.[0].[0].Value}} idle{{/unless}}{{/if}}">\
+<span class="pulse-dot"></span>\
+{{#if data.[2].[0].Value}}<span>Stale</span>\
+{{#with data.[1].[0]}}<span class="sep">&middot;</span>\
+<span>{{toFixed Value 0}}s ago</span>{{/with}}\
+{{else}}<span>{{#if data.[0].[0].Value}}Running{{else}}Idle{{/if}}</span>\
+<span class="sep">&middot;</span><span>Paper</span>\
+<span class="sep">&middot;</span>\
+{{#with data.[1].[0]}}<span>{{toFixed Value 0}}s ago</span>\
+{{else}}<span>-- ago</span>{{/with}}{{/if}}</div>
+<div class="pulse-hero">{{#if data.[3].[0]}}<span class="pulse-cur">$</span>\
+{{#if data.[15].[0].Value}}{{toFixed data.[15].[0].Value 0}},\
+{{#with (split (toFixed data.[16].[0].Value 0) "") as |d|}}\
+{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}\
+{{else}}{{lookup (split (toFixed data.[3].[0].Value 2) ".") 0}}{{/if}}\
+<span class="pulse-cents">.{{lookup (split (toFixed data.[3].[0].Value 2) ".") 1}}\
+</span>{{else}}--{{/if}}</div>
+<div class="pulse-pnl">{{#with data.[4].[0]}}\
+{{#if (eq (toFixed Value 2) "0.00")}}<span class="flat">$0.00 today</span>\
+{{else}}{{#if (eq (toFixed Value 2) "-0.00")}}<span class="flat">$0.00 today</span>\
+{{else}}{{#if (startsWith (toFixed Value 2) "-")}}\
+<span class="loss">-${{#if data.[17].[0].Value}}{{toFixed data.[17].[0].Value 0}},\
+{{#with (split (toFixed data.[18].[0].Value 0) "") as |d|}}\
+{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}\
+{{else}}{{lookup (split (lookup (split (toFixed Value 2) "-") 1) ".") 0}}{{/if}}\
+.{{lookup (split (toFixed Value 2) ".") 1}} today</span>\
+{{else}}<span class="gain">+${{#if data.[17].[0].Value}}{{toFixed data.[17].[0].Value 0}},\
+{{#with (split (toFixed data.[18].[0].Value 0) "") as |d|}}\
+{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}\
+{{else}}{{lookup (split (toFixed Value 2) ".") 0}}{{/if}}\
+.{{lookup (split (toFixed Value 2) ".") 1}} today</span>{{/if}}{{/if}}{{/if}}\
+{{else}}<span class="flat">-- today</span>{{/with}}\
+{{#with data.[5].[0]}}<span class="wk">\
+{{#if (eq (toFixed Value 2) "0.00")}}$0.00 this week\
+{{else}}{{#if (eq (toFixed Value 2) "-0.00")}}$0.00 this week\
+{{else}}{{#if (startsWith (toFixed Value 2) "-")}}-${{#if data.[19].[0].Value}}\
+{{toFixed data.[19].[0].Value 0}},{{#with (split (toFixed data.[20].[0].Value 0) "") as |d|}}\
+{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}\
+{{else}}{{lookup (split (lookup (split (toFixed Value 2) "-") 1) ".") 0}}{{/if}}\
+.{{lookup (split (toFixed Value 2) ".") 1}} this week\
+{{else}}+${{#if data.[19].[0].Value}}{{toFixed data.[19].[0].Value 0}},\
+{{#with (split (toFixed data.[20].[0].Value 0) "") as |d|}}\
+{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}\
+{{else}}{{lookup (split (toFixed Value 2) ".") 0}}{{/if}}\
+.{{lookup (split (toFixed Value 2) ".") 1}} this week{{/if}}{{/if}}{{/if}}\
+</span>{{else}}<span class="wk">-- this week</span>{{/with}}</div>
+<div class="pulse-spark">{{#if data.[12].[0]}}\
+<svg viewBox="0 {{data.[13].[0].Value}} 575 {{data.[14].[0].Value}}" \
+preserveAspectRatio="none"><polyline fill="none" stroke="#86868B" \
+stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" \
+vector-effect="non-scaling-stroke" points="\
+{{#each data.[12]}}{{@index}},{{Value}} {{/each}}"/>\
+{{#each data.[12]}}{{#if @last}}<line x1="{{@index}}" y1="{{Value}}" \
+x2="{{@index}}" y2="{{Value}}" stroke="#F5F5F7" stroke-width="4.5" \
+stroke-linecap="round" vector-effect="non-scaling-stroke"/>{{/if}}{{/each}}\
+</svg>{{else}}<div class="pulse-nohist">no equity history yet</div>{{/if}}</div>
+<div class="pulse-rows">
+<div class="pulse-row"><span class="lab">Time-stop scratches\
+<span class="exp">Trades the max-hold clock closed flat &mdash; patience, \
+not conviction</span></span>\
+<span class="val">{{#with data.[6].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}\
+</span></div>
+<div class="pulse-row"><span class="lab">Probes held back\
+<span class="exp">Entries the sizer judged too small to be worth the risk\
+</span></span>\
+<span class="val">{{#with data.[7].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}\
+</span></div>
+<div class="pulse-row"><span class="lab">Learning corpus\
+<span class="exp">Labelled trades feeding the model</span></span>\
+<span class="val">{{#with data.[8].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}\
+<span class="sub">{{#with data.[9].[0]}}{{toFixed Value 0}} live\
+{{else}}-- live{{/with}}</span></span></div>
+<div class="pulse-row"><span class="lab">Model\
+<span class="exp">Whether the model is sizing trades or standing aside\
+</span></span>\
+<span class="val">{{#if data.[10].[0]}}\
+{{#if (eq data.[10].[0].Value 2)}}watching\
+{{else}}{{#if data.[11].[0].Value}}driving{{else}}standing by{{/if}}{{/if}}\
+{{else}}--{{/if}}</span></div>
+</div>
+<div class="pulse-foot">Live &middot; refreshes with the bot's telemetry</div>
+</div>"""
+
+_PULSE_DEFAULT = ('<div class="pulse-wrap"><div class="pulse-foot">'
+                  'waiting for telemetry&hellip;</div></div>')
+
+
+def _author_pulse():
+    """The single full-width Business Text tile — no row header, the tile IS
+    the screen (the shared nav already names it). refId order below == the
+    `data.[i]` frame index the template reads."""
+    x, y = _place(24, 28)
+    inst = [
+        ("A", 'max(liquiditybot_running{job="liquiditybot"})'),
+        ("B", 'max(liquiditybot_status_age_sec{job="liquiditybot"})'),
+        ("C", 'max(liquiditybot_status_stale{job="liquiditybot"})'),
+        ("D", 'max(liquiditybot_equity{job="liquiditybot"})'),
+        ("E", 'max(liquiditybot_daily_pnl{job="liquiditybot"})'),
+        ("F", 'max(liquiditybot_weekly_pnl{job="liquiditybot"})'),
+        ("G", 'max(liquiditybot_code_count_detail'
+              '{job="liquiditybot",code="PT-060"})'),
+        ("H", 'max(liquiditybot_code_count_detail'
+              '{job="liquiditybot",code="SZ-047"})'),
+        ("I", 'sum(liquiditybot_ml_labels{job="liquiditybot"})'),
+        ("J", 'max(liquiditybot_ml_labels{job="liquiditybot",source="live"})'),
+        ("K", 'max(liquiditybot_monitor_level{job="liquiditybot"})'),
+        ("L", 'max(liquiditybot_ml_use_model{job="liquiditybot"})'),
+    ]
+    targets = [_t(e, ref=r, instant=True) for r, e in inst]
+    # M: 48h equity sparkline series (NEGATED so up = higher equity). maxData
+    # Points 576 => ~5m step over the board's default now-48h range, and x =
+    # {{@index}} 0..575 fills the fixed 575-wide viewBox.
+    # NOTE (design M4, left by design): on a cold start (<48h history) the
+    # polyline occupies only the left fraction of the 575-wide box. Both
+    # reviewer-suggested fixes are infeasible under the plugin's constraints:
+    # per-point x-scaling needs a math helper (none ships), and pinning the
+    # viewBox width to the point count needs an array-length helper (none) or
+    # a PromQL point-count — but the range step is Grafana-adaptive (the
+    # keepTime nav can carry a non-48h range here), so any fixed-window count
+    # (count_over_time / subquery) would MIS-scale the axis at steady state,
+    # i.e. worse than the honest cosmetic compression. Kept as-is.
+    tM = _t('0 - max(liquiditybot_equity{job="liquiditybot"})', ref="M",
+            instant=False)
+    tM["maxDataPoints"] = 576
+    targets.append(tM)
+    # N/O: viewBox y-origin (-max) and height (max-min, clamped>0) — the pure-
+    # PromQL bounds the sparkline normalizes against (no template math).
+    targets.append(_t(
+        '0 - max_over_time(liquiditybot_equity{job="liquiditybot"}[48h])',
+        ref="N", instant=True))
+    targets.append(_t(
+        'clamp_min(max_over_time(liquiditybot_equity{job="liquiditybot"}[48h])'
+        ' - min_over_time(liquiditybot_equity{job="liquiditybot"}[48h]), '
+        '0.01)', ref="O", instant=True))
+    # P/Q: thousands-separator for the equity hero (design C1). The plugin
+    # ships no math helpers, so grouping is arithmetic in PromQL: P = whole
+    # thousands (its Handlebars truthiness gates the comma; 0 => no group), and
+    # Q = 1000 + (integer % 1000) so `toFixed`->`split ""` yields the ZERO-
+    # PADDED low three digits at char positions 1..3 (covers up to 6 figures).
+    targets.append(_t(
+        'floor(max(liquiditybot_equity{job="liquiditybot"}) / 1000)',
+        ref="P", instant=True))
+    targets.append(_t(
+        '1000 + (floor(max(liquiditybot_equity{job="liquiditybot"})) % 1000)',
+        ref="Q", instant=True))
+    # R/S (daily) + T/U (weekly): the SAME thousands-grouping companions for
+    # the P&L strings (design C1 — grouping applies everywhere money renders,
+    # not just the hero). abs() strips the sign (rendered in-template via
+    # startsWith), so R/T = whole thousands (truthiness gates the comma) and
+    # S/U = 1000 + (|pnl| % 1000) => the zero-padded low three digits.
+    targets.append(_t(
+        'floor(abs(max(liquiditybot_daily_pnl{job="liquiditybot"})) / 1000)',
+        ref="R", instant=True))
+    targets.append(_t(
+        '1000 + (floor(abs(max(liquiditybot_daily_pnl{job="liquiditybot"}))) '
+        '% 1000)', ref="S", instant=True))
+    targets.append(_t(
+        'floor(abs(max(liquiditybot_weekly_pnl{job="liquiditybot"})) / 1000)',
+        ref="T", instant=True))
+    targets.append(_t(
+        '1000 + (floor(abs(max(liquiditybot_weekly_pnl{job="liquiditybot"}))) '
+        '% 1000)', ref="U", instant=True))
+    panels.append({
+        "id": _id(), "type": "marcusolsson-dynamictext-panel",
+        "title": "", "description": "Live single-screen truth.",
+        "datasource": DS, "gridPos": {"h": 28, "w": 24, "x": x, "y": y},
+        "fieldConfig": {"defaults": {}, "overrides": []},
+        "options": {"renderMode": "data", "content": _PULSE_CONTENT,
+                    "defaultContent": _PULSE_DEFAULT, "editors": [],
+                    "helpers": "", "afterRender": "", "styles": "",
+                    "wrap": False, "externalStyles": [], "contentPartials": []},
+        "targets": targets, "pluginVersion": "6.3.0"})
+
+
 # ============================ assemble =====================================
 _TAGS = ["liquiditybot", "trading", "paper-trading"]
 _NAV = [("⌘ Command", "liquiditybot-trading"),
         ("⚙ Models·Inv·Exec", "liquiditybot-exec"),
         ("🩹 Problem/Solution", "liquiditybot-problem-solution"),
-        ("🔎 Screening", "liquiditybot-screening")]
+        ("🔎 Screening", "liquiditybot-screening"),
+        ("🧭 Pulse", "liquiditybot-pulse")]
 
 
 def _links():
@@ -1034,7 +1275,7 @@ def _injector():
             "pluginVersion": "6.3.0"}
 
 
-def _board(uid, title, desc, author, extra_tag):
+def _board(uid, title, desc, author, extra_tag, time_from="now-24h"):
     panels.clear()
     _cur.update(x=0, y=0, row_h=0)
     _pid["n"] = 0
@@ -1047,7 +1288,7 @@ def _board(uid, title, desc, author, extra_tag):
     return {"uid": uid, "title": title, "description": desc,
             "tags": _TAGS + [extra_tag], "schemaVersion": 39, "editable": True,
             "timezone": "browser", "refresh": "30s", "style": "dark",
-            "time": {"from": "now-24h", "to": "now"}, "links": _links(),
+            "time": {"from": time_from, "to": "now"}, "links": _links(),
             "templating": {"list": []}, "annotations": {"list": []},
             "panels": list(panels)}
 
@@ -1114,6 +1355,11 @@ DASHBOARDS = {
         "Asset screening: skimmer ranks + a per-asset tradeability scorecard "
         "(book, regime, signal quality, result).", _author_screening,
         "screening"),
+    "liquiditybot_pulse.json": _board(
+        "liquiditybot-pulse", "Pulse",
+        "One screen, one truth: live equity, P&L, a 48h sparkline and the "
+        "few numbers that say whether the bot is healthy — a single Business "
+        "Text panel.", _author_pulse, "pulse", time_from="now-48h"),
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)

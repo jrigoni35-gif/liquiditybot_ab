@@ -14,11 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_retired_glass_boards_stay_retired():
-    four = {"liquiditybot_command.json", "liquiditybot_execution.json",
-            "liquiditybot_problem_solution.json",
-            "liquiditybot_screening.json"}
-    assert set(gi.DASHBOARDS) == four
-    assert set(gen.DASHBOARDS) == four
+    boards = {"liquiditybot_command.json", "liquiditybot_execution.json",
+              "liquiditybot_problem_solution.json",
+              "liquiditybot_screening.json", "liquiditybot_pulse.json"}
+    assert set(gi.DASHBOARDS) == boards
+    assert set(gen.DASHBOARDS) == boards
     for name in ("liquiditybot_glass.json", "liquiditybot_glass_mobile.json"):
         assert not (ROOT / "docs" / "grafana" / name).exists(), \
             f"{name} was retired on 2026-07-22 — do not resurrect"
@@ -41,11 +41,14 @@ def test_injector_present_and_self_hiding():
     # Business Text panel — Grafana Cloud sanitizes <style> in native text,
     # so the CSS is injected into document.head by the plugin's afterRender
     # hook instead (plugin installed by the operator; README_glass.md).
+    # id 990 is the CSS injector; the Pulse board carries a SECOND Business
+    # Text panel (its whole-screen content tile), so select the injector by
+    # its fixed id rather than by plugin type.
     for d in _boards():
         inj = [p for p in d["panels"]
-               if p["type"] == "marcusolsson-dynamictext-panel"]
+               if p["type"] == "marcusolsson-dynamictext-panel"
+               and p["id"] == 990]
         assert len(inj) == 1, f'{d["uid"]}: exactly one CSS injector'
-        assert inj[0]["id"] == 990
         opts = inj[0]["options"]
         assert "afterRender" in opts.get("editors", []), \
             "afterRender editor must be enabled for the hook to run"
@@ -140,7 +143,7 @@ def test_uids_and_nav_links_pinned():
     uids = {d["uid"] for d in _boards()}
     assert uids == {"liquiditybot-trading", "liquiditybot-exec",
                     "liquiditybot-problem-solution",
-                    "liquiditybot-screening"}
+                    "liquiditybot-screening", "liquiditybot-pulse"}
     for d in _boards():
         nav = {ln["url"] for ln in d["links"]}
         assert nav == {f"/d/{u}" for u in uids}, d["uid"]

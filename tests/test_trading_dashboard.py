@@ -120,7 +120,8 @@ def test_generator_matches_shipped_json():
 def test_expected_boards_present():
     assert set(gen.DASHBOARDS) == {
         "liquiditybot_command.json", "liquiditybot_execution.json",
-        "liquiditybot_problem_solution.json", "liquiditybot_screening.json"}
+        "liquiditybot_problem_solution.json", "liquiditybot_screening.json",
+        "liquiditybot_pulse.json"}
 
 
 def test_importable_shape_and_layout_per_board():

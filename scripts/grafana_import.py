@@ -22,15 +22,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARDS = [
-    # the four banner-linked Liquid Glass boards — generator-owned by
+    # the five banner-linked Liquid Glass boards — generator-owned by
     # scripts/build_trading_dashboard.py (the command board keeps uid
     # liquiditybot-trading, replacing the old monolith). The dedicated
     # glass + mobile boards were retired 2026-07-22; the glass treatment
-    # lives in the four boards themselves (docs/grafana/README_glass.md).
+    # lives in the boards themselves (docs/grafana/README_glass.md). Pulse
+    # (2026-07-23) is the single-panel "one screen, one truth" hero.
     "liquiditybot_command.json",
     "liquiditybot_execution.json",
     "liquiditybot_problem_solution.json",
     "liquiditybot_screening.json",
+    "liquiditybot_pulse.json",
 ]
 
 # Boards retired 2026-07-22 — deleted from the instance on every run so a
