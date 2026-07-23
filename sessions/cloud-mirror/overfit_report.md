@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-23 19:15 UTC
+# Overfit audit — 2026-07-23 19:36 UTC
 
 Dataset: live history (3395 rows)
 
@@ -19,5 +19,14 @@ Dataset: live history (3395 rows)
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — DEFERRED — 4 conviction-marked live trades < 30 (mixed n=231); mixed-sample dsr=0.000 sr=-0.68; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** regime[bull_quiet] — n=0 — absent from corpus
+- **INFO** regime[bull_vol] — n=0 — absent from corpus
+- **INFO** regime[range] — n=3381 (candidate=3154 live=227) base_rate=0.220
+- **INFO** regime[range] oof — oof_n=2754 auc=0.556 (pooled 0.528, delta_auc=+0.028) brier=0.2400 (pooled 0.2403, delta_brier=-0.0003)
+- **INFO** regime[bear] — n=90 (candidate=86 live=4) base_rate=0.289
+- **INFO** regime[bear] FLAG — insufficient live coverage (4 live < 30) — operator rationale for #103 T4's regime-coverage probe term
+- **INFO** regime[bear] oof — oof_n=71 auc=0.552 (pooled 0.528, delta_auc=+0.025) brier=0.2530 (pooled 0.2403, delta_brier=+0.0127)
+- **INFO** regime[crisis] — n=0 — absent from corpus
+- **INFO** regime[unknown] — n=0 — absent from corpus
 
-3 passed, 5 failed (59s)
+3 passed, 5 failed (60s)
