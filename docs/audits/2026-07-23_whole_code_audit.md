@@ -125,3 +125,9 @@ audit-chain healing + seam classification, position/order round-trip
 fidelity, remote-command surface, supervisor lock liveness (modulo
 W2-13), sanitize boundary, THALES clamps, exploration/give-back blocks,
 walk-forward purging, calibration OOF discipline, evidence floors.
+
+W2-26 MED execution/pretrade.py book_walk_bps — returns 0.0 (not the
+  1e6 sentinel) when the walked side is WHOLLY empty, so a taker entry
+  against a fully one-sided book gets a zero walk cost instead of the
+  PT-023 veto (found by the W1-6 fixer, 2026-07-23). Repro + fail-closed
+  sentinel needed.
