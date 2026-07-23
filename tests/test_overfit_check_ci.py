@@ -10,7 +10,12 @@ mirroring how tests/test_quant_trials.py binds the G1-G5 quant gates.
 Invoked via subprocess (not imported) because scripts/overfit_check.py's
 main() carries module-level PASS_N/FAIL_N/REPORT globals that are never
 reset between calls - a fresh process is the simplest way to get a clean
-run every time, and it's also exactly what a human/CI runner invokes.
+run every time, and it's also exactly what a human/CI runner invokes. A
+few tests below (the ones that need to run main() TWICE in one process to
+diff its own behavior against itself, or that call regime_diagnostic /
+regime_corpus_stats directly) import scripts.overfit_check instead and
+explicitly reset PASS_N/FAIL_N/REPORT themselves — see
+`_run_overfit_main`'s docstring.
 
 --force-synthetic pins the ML-layer dataset to the deterministic planted-
 signal benchmark regardless of how much live history has accrued in
@@ -24,6 +29,8 @@ outputs/overfit_report.md.
 import subprocess
 import sys
 from pathlib import Path
+
+import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,45 +86,172 @@ def test_regime_diagnostic_section_present_report_only(tmp_path):
     for line in text.splitlines():
         if "regime[" in line:
             assert line.startswith("- **INFO**"), line
+    # #103 T3 review Important #3: the stratum-AUC-vs-pooled statistical
+    # caveat must land WHERE THE OPERATOR READS THEM — in the emitted
+    # report — not only in a code comment. (This run is --force-synthetic,
+    # i.e. on_synthetic=True, so regime_corpus_stats never runs and the
+    # separate n=/oof_n= counting-pass caveat is correctly absent here; see
+    # test_regime_diagnostic_emits_corpus_caveat_on_live_path below for
+    # that one, which only applies on the non-synthetic path.)
+    assert "concatenated-OOF" in text and "MEAN-OF-FOLDS" in text
 
 
-def test_regime_diagnostic_does_not_change_verdicts_or_exit_code(tmp_path):
+def test_regime_diagnostic_emits_corpus_caveat_on_live_path(tmp_path):
+    """#103 T3 review Important #3, second caveat: n= (regime_corpus_stats'
+    raw signal_history.csv count) vs oof_n= (the deduped/purged X actually
+    OOF-scored) are two different counting passes, and that must be visible
+    in the report too — but only reachable on the non-synthetic path (real
+    live history clearing load_dataset's min_rows), which needs hundreds of
+    real feature rows to exercise through full main(). Calls
+    regime_diagnostic directly (on_synthetic=False) with a small valid
+    corpus fixture instead."""
+    from ml.features import FEATURE_NAMES
+    import scripts.overfit_check as oc
+
+    n = 40
+    rng = np.random.default_rng(3)
+    X = np.zeros((n, len(FEATURE_NAMES)))
+    X[:, FEATURE_NAMES.index("regime_range")] = 1.0  # every row -> 'range'
+    y = (rng.random(n) < 0.5).astype(float)
+    gaps = {"gbt": {"oof_idx": np.arange(n), "oof_pred": rng.random(n),
+                    "oof_auc": 0.55, "oof_brier": 0.24}}
+
+    header = (["label"] + [f"regime_{s}" for s in oc.REGIME_STRATA] +
+              ["source"])
+    lines = [",".join(header)]
+    for i in range(n):
+        row = ["1" if y[i] else "0"]
+        row += ["1" if s == "range" else "0" for s in oc.REGIME_STRATA]
+        row.append("live")
+        lines.append(",".join(row))
+    csv_path = tmp_path / "signal_history.csv"
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    oc.REPORT.clear()
+    oc.regime_diagnostic(gaps, X, y, False, str(csv_path))
+    detail_texts = " ".join(detail for _, _, detail in oc.REPORT)
+    assert "raw signal_history.csv count" in detail_texts
+    assert "regime[range]" in [name for _, name, _ in oc.REPORT]
+
+
+def _run_overfit_main(monkeypatch, cwd: Path, report_path: Path,
+                      patches: dict | None = None) -> int:
+    """Run scripts/overfit_check.py's main() IN-PROCESS (not via subprocess)
+    against the CURRENT tree, resetting the module-level PASS_N/FAIL_N/
+    REPORT accumulators first (main() itself never resets them between
+    calls — see the module docstring above on why every OTHER test in this
+    file uses a fresh subprocess instead) and swapping in any of
+    `patches` (name -> replacement callable) as module attributes for the
+    duration of the call via monkeypatch (auto-restored at test teardown).
+
+    Used only by tests that need to run the CURRENT revision of main()
+    twice in one process and diff its own behavior against itself — no git
+    history involved, so the comparison can never go stale."""
+    import scripts.overfit_check as oc
+    monkeypatch.setattr(oc, "PASS_N", 0)
+    monkeypatch.setattr(oc, "FAIL_N", 0)
+    monkeypatch.setattr(oc, "REPORT", [])
+    for attr, fn in (patches or {}).items():
+        monkeypatch.setattr(oc, attr, fn)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["overfit_check.py", "--quick", "--force-synthetic",
+         "--report-path", str(report_path)])
+    return oc.main()
+
+
+def test_regime_diagnostic_does_not_change_verdicts_or_exit_code(
+        tmp_path, monkeypatch):
     """THE CRITICAL invariant (#103 T3 hard constraint): appending the
     regime-stratified section must not move a single existing OF-1..OF-7
-    verdict or the exit code. Baseline = the actual pre-task HEAD revision
-    of scripts/overfit_check.py (git show), run byte-for-byte the same way
-    on the same deterministic synthetic corpus as the current tree."""
-    baseline_src = subprocess.run(
-        ["git", "show", "HEAD:scripts/overfit_check.py"],
-        cwd=str(_ROOT), capture_output=True, text=True, check=True).stdout
-    baseline_script = _ROOT / "scripts" / "_t3_baseline_snapshot.py"
-    baseline_script.write_text(baseline_src, encoding="utf-8")
-    try:
-        report_before = tmp_path / "before.md"
-        report_after = tmp_path / "after.md"
-        before = subprocess.run(
-            [sys.executable, str(baseline_script), "--quick",
-             "--force-synthetic", "--report-path", str(report_before)],
-            cwd=str(tmp_path), capture_output=True, text=True, timeout=120)
-        after = subprocess.run(
-            [sys.executable, str(_ROOT / "scripts" / "overfit_check.py"),
-             "--quick", "--force-synthetic", "--report-path",
-             str(report_after)],
-            cwd=str(tmp_path), capture_output=True, text=True, timeout=120)
-    finally:
-        baseline_script.unlink(missing_ok=True)
+    verdict or the exit code.
 
-    assert before.returncode == 0, f"{before.stdout}\n{before.stderr}"
-    assert after.returncode == before.returncode, (
-        f"exit code moved: before={before.returncode} "
-        f"after={after.returncode}\n{after.stdout}\n{after.stderr}")
-    before_text = report_before.read_text(encoding="utf-8")
-    after_text = report_after.read_text(encoding="utf-8")
-    assert _pass_fail_lines(before_text) == _pass_fail_lines(after_text)
-    # and the diagnostic really is present in "after" (else the comparison
-    # above would be vacuous — same script running twice)
-    assert "regime[" in after_text
-    assert "regime[" not in before_text
+    Revision-independent by design. The prior version of this test diffed
+    against `git show HEAD:scripts/overfit_check.py` as the "before"
+    baseline — but the moment this task's own commit becomes HEAD, that
+    "before" snapshot already contains the diagnostic, so before_text ==
+    after_text and the test's own anti-tautology guard
+    (`"regime[" not in before_text`) fails permanently (confirmed: this is
+    the #103 T3 review's Critical finding, reproduced RED against the
+    committed tree before this rewrite — see task-t3-report.md's Fix pass).
+
+    Fix: run the CURRENT tree's main() TWICE in this process on the same
+    deterministic synthetic corpus — once with the diagnostic active, once
+    with regime_diagnostic (and regime_corpus_stats, the function it calls)
+    monkeypatched to a no-op — and assert the PASS/FAIL line set and exit
+    code are IDENTICAL. This never goes stale and needs no git history."""
+    report_active = tmp_path / "active.md"
+    report_neutered = tmp_path / "neutered.md"
+
+    rc_active = _run_overfit_main(monkeypatch, tmp_path, report_active)
+    rc_neutered = _run_overfit_main(
+        monkeypatch, tmp_path, report_neutered,
+        patches={"regime_diagnostic": lambda *a, **k: None,
+                "regime_corpus_stats": lambda *a, **k: {}})
+
+    assert rc_active == 0, rc_active
+    assert rc_neutered == rc_active, (
+        f"exit code moved: neutered={rc_neutered} active={rc_active}")
+    active_text = report_active.read_text(encoding="utf-8")
+    neutered_text = report_neutered.read_text(encoding="utf-8")
+    assert _pass_fail_lines(active_text) == _pass_fail_lines(neutered_text)
+    # anti-tautology guard: proves the neutering actually took effect, i.e.
+    # this isn't a vacuous same-run-twice comparison
+    assert "regime[" in active_text
+    assert "regime[" not in neutered_text
+
+
+def test_regime_corpus_stats_survives_non_utf8_file(tmp_path):
+    """#103 T3 review Important #2, the demonstrated repro: a non-UTF8 byte
+    in signal_history.csv raises UnicodeDecodeError (a ValueError subclass)
+    out of csv.DictReader mid-iteration. Pre-fix, regime_corpus_stats caught
+    only OSError, so this propagated straight out of the function. Confirms
+    the broadened (OSError, ValueError) catch returns {} instead of
+    raising."""
+    import scripts.overfit_check as oc
+    bad = tmp_path / "signal_history.csv"
+    bad.write_bytes(
+        b"position_id,label,regime_bull_quiet,regime_bull_vol,regime_range,"
+        b"regime_bear,regime_crisis,source\n"
+        b"p1,1,\xff\xfe1,0,0,0,0,live\n")
+    assert oc.regime_corpus_stats(str(bad)) == {}
+
+
+def test_regime_diagnostic_exception_is_isolated_report_only(
+        tmp_path, monkeypatch):
+    """#103 T3 review Important #2: REPORT-ONLY must hold in the failure
+    path too. Pre-fix, a raising regime_diagnostic call (e.g. the
+    UnicodeDecodeError demonstrated in
+    test_regime_corpus_stats_survives_non_utf8_file above, or — #103 T3
+    review Minor — a renamed FEATURE_NAMES regime column raising out of
+    regime_diagnostic's own FEATURE_NAMES.index(...) call) propagated out
+    of main() uncaught, suppressing the whole report write and changing the
+    exit code. This proves the call-site try/except added in main() absorbs
+    ANY exception from the diagnostic section — the specific cause doesn't
+    matter, which is also why no separate fix was needed for the Minor
+    finding beyond this isolation."""
+    report_ok = tmp_path / "ok.md"
+    report_raises = tmp_path / "raises.md"
+
+    rc_ok = _run_overfit_main(monkeypatch, tmp_path, report_ok)
+
+    def _boom(*_a, **_k):
+        raise ValueError("simulated: renamed FEATURE_NAMES regime column")
+
+    rc_raises = _run_overfit_main(monkeypatch, tmp_path, report_raises,
+                                  patches={"regime_diagnostic": _boom})
+
+    assert rc_raises == rc_ok, (
+        f"exit code moved: raises={rc_raises} ok={rc_ok}")
+    ok_text = report_ok.read_text(encoding="utf-8")
+    raises_text = report_raises.read_text(encoding="utf-8")
+    assert _pass_fail_lines(ok_text) == _pass_fail_lines(raises_text), (
+        "battery verdicts moved when the diagnostic raised")
+    assert raises_text  # report still written
+    assert ("regime diagnostic skipped: ValueError: simulated" in
+            raises_text)
+    assert "regime[" not in raises_text
 
 
 def test_dsr_is_informational_not_gating_during_exploration(tmp_path):

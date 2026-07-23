@@ -284,9 +284,15 @@ def regime_corpus_stats(path) -> dict:
     purged X), this counts every candidate + live row, answering "how much
     do we even have per regime". Same argmax-of-one-hots stratification as
     the OOF side (regime_stratum_labels), just applied to the raw file
-    directly. Missing/unreadable file, or a schema without the regime/label
-    columns (e.g. a minimal live-only CI fixture) -> {} — reported and
-    skipped, never a crash, same convention as OF-5's own raw CSV scan."""
+    directly. Missing/unreadable file (OSError) or one that is present but
+    unparseable as UTF-8 CSV (ValueError — e.g. a non-UTF8 byte, which
+    surfaces as UnicodeDecodeError, a ValueError subclass), or a schema
+    without the regime/label columns (e.g. a minimal live-only CI fixture)
+    -> {} — reported and skipped, never a crash from this function; same
+    (OSError, ValueError) convention as OF-5's own raw CSV scan. The CALLER
+    (regime_diagnostic, via main()) additionally wraps the whole diagnostic
+    section in its own broad except, so an exception type this function
+    doesn't anticipate still can't take down the battery."""
     import csv
     cols = [f"regime_{s}" for s in REGIME_STRATA]
     one_hot, source, label = [], [], []
@@ -301,7 +307,7 @@ def regime_corpus_stats(path) -> dict:
                 one_hot.append(oh)
                 source.append(row.get("source") or "unknown")
                 label.append(lab)
-    except OSError:
+    except (OSError, ValueError):
         return {}
     if not one_hot:
         return {}
@@ -332,6 +338,12 @@ def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
     for OF-1's gbt candidate above — no separate fit, same folds, same
     numbers OF-1's pooled gap[gbt] line reports.
 
+    This function itself does not blanket-catch every exception (e.g. a
+    renamed FEATURE_NAMES regime column still raises out of the
+    FEATURE_NAMES.index(...) call below) — main()'s call site wraps this
+    whole call in a broad except so a failure here degrades to a single
+    "regime diagnostic skipped" info line rather than crashing the battery.
+
     Stratum = argmax of the five regime one-hot FEATURE_NAMES columns per
     row (rows with all-zero one-hots -> "unknown"); a stratum's OOF AUC/
     Brier are computed ONLY when its OOF-scored row count clears
@@ -356,6 +368,11 @@ def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
                                       pooled_auc=pooled_auc,
                                       pooled_brier=pooled_brier,
                                       min_n=REGIME_MIN_N)
+    info("regime diagnostic caveat",
+         "stratum auc/brier below are concatenated-OOF over all scored "
+         "rows, while the pooled figures they're compared against are "
+         "MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, "
+         "not a rebasing of the same statistic")
     if on_synthetic:
         info("regime diagnostic", "SYNTHETIC benchmark dataset — "
              "candidate/live split & base rate n/a (no signal_history.csv "
@@ -364,6 +381,10 @@ def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
         corpus: dict = {}
     else:
         corpus = regime_corpus_stats(csv_path)
+        info("regime diagnostic caveat",
+             "n= below is a raw signal_history.csv count (candidate+live); "
+             "oof_n= is the deduped/purged X actually OOF-scored — two "
+             "different counting passes over related but non-identical data")
 
     for s in (*REGIME_STRATA, "unknown"):
         c = corpus.get(s)
@@ -616,7 +637,17 @@ def main() -> int:
 
     # ---- regime-stratified OOF diagnostic (#103 T3, report-only) ---------
     print("[diagnostic] regime-stratified OOF (report-only, no gate)")
-    regime_diagnostic(gaps, X, y, source.startswith("SYNTHETIC"), store.path)
+    # Exception-isolated like OF-4's replay harness above: this section is
+    # REPORT-ONLY (info() only, never check()) precisely so a raising
+    # diagnostic (a corrupt/non-UTF8 signal_history.csv past what
+    # regime_corpus_stats' own catch anticipates, a renamed FEATURE_NAMES
+    # regime column, anything) degrades to a single skip line instead of
+    # taking the whole battery's report and exit code down with it.
+    try:
+        regime_diagnostic(gaps, X, y, source.startswith("SYNTHETIC"),
+                          store.path)
+    except Exception as e:                                    # noqa: BLE001
+        info(f"regime diagnostic skipped: {type(e).__name__}: {e}")
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)
