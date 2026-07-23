@@ -21,6 +21,7 @@ Prefix map (subsystem of origin):
   XV  execution-truth harness (replay gate + fill-model calibration)
   LT  regime.liquidity_regime (asset liquidity-tier isolation)
   GL  execution.grid_ladder (logistic-armed grid entry ladder)
+  HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
 """
 
 from enum import Enum
@@ -207,6 +208,15 @@ class Code(str, Enum):
     GL_BELOW_ARM = "GL-020"          # single-entry fallback: p(win) below arm
     GL_RUNG_CAPPED = "GL-021"        # rung count capped by free position slots
                                      # / per-asset same-side inventory cap
+
+    # ---- hedge-open new-risk gate (HG) — main._hedge_actions ------------
+    HG_OPEN_BLOCKED = "HG-010"       # hedge OPEN refused: a hedge open is NEW
+                                     # risk (invariant #5), so it is held to
+                                     # the same bar as entries - stale mark,
+                                     # halt, fault manager, watchdog data-
+                                     # quality block, or the entries kill
+                                     # switch. Unwind/trim are risk reduction
+                                     # and are never gated here.
 
 
 def tag(code: Code, detail: str) -> str:

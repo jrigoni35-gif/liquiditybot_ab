@@ -1647,6 +1647,26 @@ class LiquidityBot:
                                           f"hedge trim: {act.reason}", now=now)
             elif act.kind == "open" and not self.orders.has_open(act.asset, "hedge") \
                     and self._live_order_allowed("hedge"):
+                # A hedge OPEN is NEW risk (invariant #5): hold it to the
+                # exact bar entries clear, not the looser bar unwind/trim
+                # (risk REDUCTION, never gated) get above. Freshness first -
+                # a frozen mark on the symbol being hedged must never price
+                # or size a live order (mirrors the tier/derisk/equity-peak
+                # trusted-mark gate) - then every new-risk authority entries
+                # consult: the operator kill switch, the watchdog data-
+                # quality block, and the fault manager/halt (DEGRADED/HALTED
+                # refuses new risk; the entries gate's exact expression).
+                fm = getattr(self, "fault", None)
+                if not (self._mark_fresh(act.symbol, now)
+                        and self._stop_ok.get(act.asset, True)) \
+                        or not self.entries_enabled \
+                        or self.watchdog.state.entries_blocked \
+                        or self._halted \
+                        or (fm is not None and not fm.allow_new_risk()):
+                    log.info(tag(Code.HG_OPEN_BLOCKED,
+                                f"{act.symbol} hedge open blocked: stale "
+                                f"mark or new-risk gate closed ({act.reason})"))
+                    continue
                 px = self.marks.get(act.symbol)
                 book = self.kraken_books.get(act.asset) or {}
                 if not px:
