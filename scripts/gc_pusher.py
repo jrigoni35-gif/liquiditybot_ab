@@ -81,8 +81,23 @@ STALE_AFTER_SEC = 120.0    # runner writes ~2s cadence; 120s = frozen/dead
 
 
 def collect(status_path: str) -> list:
-    with open(status_path, encoding="utf-8") as fh:
-        s = json.load(fh)
+    # W2-14 re-decision (2026-07-23, operator-delegated): a missing or
+    # unreadable status file used to raise out of here and abort the push
+    # entirely — total telemetry silence, indistinguishable in Grafana from
+    # a dead pusher or a cut network. Runner-not-writing is the single most
+    # alarming state this plane can report, so it pushes the DL-6
+    # alarm-only shape plus an explicit status_missing flag instead. (The
+    # git-plane push_pc_status "no_status" noop is intentionally unchanged:
+    # that plane has nothing to publish and its envelope's pushed_at age is
+    # its own staleness signal — see test_remote_control.py.)
+    try:
+        with open(status_path, encoding="utf-8") as fh:
+            s = json.load(fh)
+    except (OSError, ValueError):
+        now = time.time()
+        return [gauge("liquiditybot_status_missing", 1.0, ts=now),
+                gauge("liquiditybot_running", 0.0, ts=now),
+                gauge("liquiditybot_status_stale", 1.0, ts=now)]
     ts = float(s.get("written_at") or time.time())
     m = []
     # stamped with NOW, not written_at: a frozen runner (or stale file)
@@ -95,6 +110,9 @@ def collect(status_path: str) -> list:
     # Past the staleness threshold push the ALARM-ONLY batch: age,
     # running=0, and an explicit stale flag. No stale gauge ever masquerades
     # as current market/PnL state again.
+    # status_missing=0 whenever the file was readable (stale or fresh) so
+    # the alert rule can distinguish "runner frozen" from "file gone"
+    m.append(gauge("liquiditybot_status_missing", 0.0, ts=time.time()))
     if age > STALE_AFTER_SEC:
         m.append(gauge("liquiditybot_running", 0.0, ts=time.time()))
         m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))

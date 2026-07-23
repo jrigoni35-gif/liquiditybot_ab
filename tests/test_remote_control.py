@@ -269,6 +269,12 @@ def test_status_push_survives_already_gcd_consumed_delete(repos):
 
 
 def test_status_push_without_status_is_a_noop(repos):
+    # W2-14 re-decision (2026-07-23): this git-plane noop is KEPT — with no
+    # status file there is nothing to publish, and the pc_status envelope's
+    # pushed_at age is this plane's own staleness signal. The METRICS plane
+    # (gc_pusher.collect) is where missing-status is loud: it pushes the
+    # alarm batch with status_missing=1 (test_data_layer_batch.py). Do not
+    # re-flag this pin as a blackout — the two planes split deliberately.
     root, _ = repos
     (root / "outputs" / "status.json").unlink()
     assert rc.push_pc_status(root=root) == "no_status"

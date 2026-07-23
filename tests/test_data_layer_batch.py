@@ -106,6 +106,46 @@ def test_stale_status_pushes_alarm_only(tmp_path):
     assert running and "1" not in str(running[0]).split("running")[1][:20]
 
 
+# --- W2-14 re-decision (2026-07-23): missing status is LOUD, not silent ----
+def test_missing_status_pushes_alarm_batch(tmp_path):
+    # a missing status.json used to raise out of collect() and abort the
+    # push entirely — total silence, indistinguishable in Grafana from a
+    # dead pusher or a network cut. Runner-not-writing is the single most
+    # alarming state the metrics plane can report: alarm batch, always.
+    import gc_pusher
+    metrics = gc_pusher.collect(str(tmp_path / "absent.json"))
+    joined = "\n".join(str(m) for m in metrics)
+    assert "liquiditybot_status_missing" in joined
+    assert "liquiditybot_status_stale" in joined
+    assert "liquiditybot_equity" not in joined
+    running = [m for m in metrics if "liquiditybot_running" in str(m)]
+    assert running and "1" not in str(running[0]).split("running")[1][:20]
+
+
+def test_unreadable_status_pushes_alarm_batch(tmp_path):
+    import gc_pusher
+    p = tmp_path / "status.json"
+    p.write_text("{not json", encoding="utf-8")
+    joined = "\n".join(str(m) for m in gc_pusher.collect(str(p)))
+    assert "liquiditybot_status_missing" in joined
+    assert "liquiditybot_equity" not in joined
+
+
+def test_present_status_reports_missing_zero(tmp_path):
+    # steady state and DL-6 stale state both carry status_missing=0 so the
+    # alert rule can distinguish "runner frozen" from "file gone"
+    import json as _json
+    import time as _time
+
+    import gc_pusher
+    for written_at in (_time.time(), _time.time() - 600):
+        p = tmp_path / "status.json"
+        p.write_text(_json.dumps({"written_at": written_at,
+                                  "equity": 5000.0}), encoding="utf-8")
+        assert "liquiditybot_status_missing" in \
+            "\n".join(str(m) for m in gc_pusher.collect(str(p)))
+
+
 def test_fresh_status_pushes_the_full_batch(tmp_path):
     import json as _json
     import time as _time
