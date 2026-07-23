@@ -557,7 +557,8 @@ def _author_command():
     stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 4, decimals=2,
          steps=GRN, desc="Governor size throttle.")
     stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4,
-         decimals=3, steps=CALIB, desc="ECE; Kelly reads probs literally.")
+         decimals=3, steps=CALIB, no_value="not scoring — model shadowed",
+         desc="ECE; Kelly reads probs literally.")
     gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 4,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
@@ -688,8 +689,9 @@ def _author_execution():
     state("Governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 degraded / 2 killed.")
     gauge("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
-          mx=0.2, decimals=3, steps=CALIB, desc="ECE; keep small — Kelly "
-          "reads probs literally.")
+          mx=0.2, decimals=3, steps=CALIB,
+          no_value="not scoring — model shadowed",
+          desc="ECE; keep small — Kelly reads probs literally.")
     gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
           mx=100.0, steps=[{"color": "green", "value": None},
           {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
@@ -840,10 +842,13 @@ def _author_problem():
     row("🧠 MODEL HEALTH")
     stat("PROBLEM: model Brier", M("liquiditybot_ml_brier"), 4, 5, decimals=4,
          mode="background", graph="none", steps=BRIER,
+         no_value="not scoring — model shadowed",
          desc="Detector. SOLUTION: the governor kills the model + queues a "
               "retrain when Brier crosses baseline.")
     stat("vs baseline", M("liquiditybot_ml_baseline_brier"), 4, 5, decimals=4,
-         steps=GRN, graph="none", desc="The bar Brier must stay under.")
+         steps=GRN, graph="none",
+         no_value="not scoring — model shadowed",
+         desc="The bar Brier must stay under.")
     state("SOLUTION: governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 shrink+throttle / 2 model killed to the prior.")
     state("SOLUTION: retrain", M("liquiditybot_ml_retrain_flag"), 4, 5,
@@ -855,6 +860,7 @@ def _author_problem():
           desc="PROBLEM: input drift. SOLUTION: retrain re-fits.")
     stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
          decimals=3, mode="background", graph="none", steps=CALIB,
+         no_value="not scoring — model shadowed",
          desc="Miscalibration; ECE.")
     bargauge("Fail-safe counters (any bar = a guard firing)",
              M("liquiditybot_ml_model_fallbacks"), 12, 6, decimals=0,
