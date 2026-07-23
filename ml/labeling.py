@@ -250,7 +250,12 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     not a residual. The time-stop (P2) needed no such residual: every input
     it needs (bar index, running MFE, the cost-floored tier-1 trigger)
     already exists in this replay, so it is a TRUE mirror, not an
-    approximation. Intra-bar
+    approximation — with one live-only exception (a SIXTH divergence class,
+    benign by direction): the live engine defers a due PT-060 by one cycle
+    while a resting maker tier-1 take is open (#103 T5, main.py), a
+    microstructure guard this bar replay structurally cannot model (no order
+    book); it only ever converts a would-be scratch label into an honest
+    profit-take. Intra-bar
     path is unknown, so — like the triple barrier — the ADVERSE extreme is
     checked before the favorable one each bar (conservative; Lopez de Prado).
     Returns net-of-cost label + realized signed return %."""

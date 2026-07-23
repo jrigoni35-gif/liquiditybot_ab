@@ -7,10 +7,16 @@ RiskProtocolStack, ProfitTierEngine, or Position that erodes the gates
 fails pytest instead of waiting for someone to run the script by hand.
 
 Small-N, fixed-seed (80 paths x 1000 bars, seed 7): deterministic,
-~2s, verified to pass every gate with >=15% margin on G1 at commit
+~2s, verified to pass every gate with ~10% margin on G1 at commit
 time. If a legitimate protocol change moves the numbers, rerun the
 full script (200x1200) and re-baseline consciously — do not widen the
 gates to make CI quiet.
+
+WARNING (#103 T6, 2026-07-23): this small-N pin is NOT a reliable
+early-warning for full-scale G1 movement — under the deployed-geometry
+enablement experiment it stayed green while its G1 margin collapsed to
+~1% and the 200x1200 run failed G1 outright. Judge geometry changes at
+200x1200 only; see docs/quant/2026-07-23_harness_enablement_finding.md.
 """
 import importlib.util
 import pathlib
