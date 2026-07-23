@@ -564,9 +564,16 @@ class LiquidityBot:
                                              "lot_decimals": 8,
                                              "ordermin": 0.0})
                          for p in pairs}
+        # fee-tier reconciliation (OM-080) must catch the pretrade EV gate's
+        # cost stack underestimating fees, not just OrderManager's own
+        # booking bps - both config blocks are in scope here, _pt_cfg reused
+        # from above.
         self.orders = OrderManager(self.kraken, config.get("order_manager", {}),
                                 dry_run=self.dry_run,
-                                firewall=self.firewall, pair_meta=pair_meta)
+                                firewall=self.firewall, pair_meta=pair_meta,
+                                pretrade_fee_bps=(
+                                    float(_pt_cfg.get("maker_fee_bps", 25.0)),
+                                    float(_pt_cfg.get("taker_fee_bps", 40.0))))
         self.lev_gov = LeverageGovernor(config.get("leverage", {}))
         self.risk_protocols = RiskProtocolStack(
             config.get("risk_protocols", {}))

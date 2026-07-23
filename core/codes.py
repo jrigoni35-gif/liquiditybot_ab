@@ -97,7 +97,10 @@ class Code(str, Enum):
                                      # snapshotted (no book/venue desync, no lost fill)
     OM_FEE_RECON_MISMATCH = "OM-080" # W2-9 remainder: periodic TradeVolume check
                                      # found the account's ACTUAL Kraken fee tier
-                                     # diverging from configured maker/taker bps
+                                     # diverging from EITHER configured source -
+                                     # order_manager.maker/taker_fee_bps (what OM
+                                     # books fees at) OR pretrade.maker/
+                                     # taker_fee_bps (the EV gate's cost stack) -
                                      # (configured < actual, or |diff| beyond
                                      # tolerance) - REPORT-ONLY, never mutates
                                      # config.json; the operator re-tunes it

@@ -114,7 +114,8 @@ class FillEvent:
 class OrderManager:
     def __init__(self, feed, config: dict, dry_run: bool = True,
                  seed: int = 42, firewall=None,
-                 pair_meta: Optional[dict] = None):
+                 pair_meta: Optional[dict] = None,
+                 pretrade_fee_bps: Optional[tuple[float, float]] = None):
         self.feed = feed
         self.dry_run = dry_run
         cfg = config or {}
@@ -125,14 +126,29 @@ class OrderManager:
         self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
         self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
         self.deadman_sec = int(cfg.get("deadman_timeout_sec", 60))
-        # W2-9 remainder: periodic REPORT-ONLY reconciliation of the fees
-        # ABOVE against the account's ACTUAL Kraken fee tier (TradeVolume).
-        # config_guard enforces tolerance_bps in (0, 50], interval_hours in
-        # [1, 168]. See check_fee_reconciliation for the fail-safe contract.
+        # W2-9 remainder: periodic REPORT-ONLY reconciliation of the venue's
+        # ACTUAL Kraken fee tier (TradeVolume) against BOTH configured bps
+        # sources: order_manager.maker_fee_bps/taker_fee_bps ABOVE (what this
+        # class actually books fees at) AND pretrade.maker_fee_bps/
+        # taker_fee_bps (the pretrade EV gate's cost stack - the dangerous
+        # side, since an underestimate there lets a net-losing trade look
+        # profitable). `pretrade_fee_bps` is threaded in by main.py, which
+        # has both config blocks in scope; a caller that omits it (legacy/
+        # test construction) falls back to comparing the order_manager pair
+        # against itself, so the pretrade dimension is inert rather than
+        # silently wrong. config_guard enforces tolerance_bps in (0, 50],
+        # interval_hours in [1, 168]. See check_fee_reconciliation for the
+        # fail-safe contract.
         fr_cfg = cfg.get("fee_recon", {}) or {}
         self.fee_recon_enabled = bool(fr_cfg.get("enabled", True))
         self.fee_recon_tolerance_bps = float(fr_cfg.get("tolerance_bps", 1.0))
         self.fee_recon_interval_hours = float(fr_cfg.get("interval_hours", 24.0))
+        if pretrade_fee_bps is not None:
+            self.pretrade_maker_fee_bps = float(pretrade_fee_bps[0])
+            self.pretrade_taker_fee_bps = float(pretrade_fee_bps[1])
+        else:
+            self.pretrade_maker_fee_bps = self.maker_fee_bps
+            self.pretrade_taker_fee_bps = self.taker_fee_bps
         # None = "never run yet" (distinct from 0.0), so the very first
         # opportunity fires regardless of what `now` happens to be, then
         # every subsequent call is gated on the real elapsed interval.
@@ -488,13 +504,18 @@ class OrderManager:
                 "fee_recon": self._fee_recon_result}
 
     def check_fee_reconciliation(self, now: float) -> None:
-        """W2-9 remainder: periodic REPORT-ONLY comparison of the configured
-        maker/taker bps above against the account's ACTUAL Kraken fee tier
-        (TradeVolume). Timed off `now` as INJECTED by main.hourly_cycle -
-        never a wall-clock read here (EX-8). A mismatch only ever WARNs and
-        emits one registered audit event (OM-080); it never mutates
-        config.json at runtime (lifted-threshold discipline - the operator
-        re-tunes the configured bps consciously).
+        """W2-9 remainder: periodic REPORT-ONLY comparison of the account's
+        ACTUAL Kraken fee tier (TradeVolume) against BOTH configured bps
+        sources - order_manager.maker_fee_bps/taker_fee_bps (self.*_fee_bps,
+        what this class books fees at) AND pretrade.maker_fee_bps/
+        taker_fee_bps (self.pretrade_*_fee_bps, the pretrade EV gate's cost
+        stack - the semantically critical pair, since an underestimate there
+        is what lets a net-losing trade clear the gate). A mismatch on
+        EITHER source, for EITHER maker or taker, flags. Timed off `now` as
+        INJECTED by main.hourly_cycle - never a wall-clock read here (EX-8).
+        A mismatch only ever WARNs and emits one registered audit event
+        (OM-080); it never mutates config.json at runtime (lifted-threshold
+        discipline - the operator re-tunes the configured bps consciously).
 
         Fail-safe (never raises into hourly_cycle, never spams):
           - disabled, or still inside the interval -> silent return.
@@ -531,37 +552,58 @@ class OrderManager:
                 return
             pair_results = {}
             mismatched = []
+            worst_delta_bps = 0.0
             for pair, actual in tiers.items():
                 actual_maker = actual["maker_bps"]
                 actual_taker = actual["taker_bps"]
-                # dangerous direction (configured < actual: the EV gate is
-                # underestimating cost) flags regardless of tolerance;
-                # otherwise only a divergence PAST tolerance in either
-                # direction is worth an operator's attention.
-                maker_bad = (self.maker_fee_bps < actual_maker
-                            or abs(self.maker_fee_bps - actual_maker)
-                            > self.fee_recon_tolerance_bps)
-                taker_bad = (self.taker_fee_bps < actual_taker
-                            or abs(self.taker_fee_bps - actual_taker)
-                            > self.fee_recon_tolerance_bps)
+                # dangerous direction (configured < actual: the relevant
+                # gate is underestimating cost) flags regardless of
+                # tolerance; otherwise only a divergence PAST tolerance in
+                # either direction is worth an operator's attention. Each
+                # side is checked against BOTH configured sources
+                # independently - a mismatch on either flags the pair.
+                checks = (
+                    ("maker_om", self.maker_fee_bps, actual_maker),
+                    ("maker_pretrade", self.pretrade_maker_fee_bps,
+                     actual_maker),
+                    ("taker_om", self.taker_fee_bps, actual_taker),
+                    ("taker_pretrade", self.pretrade_taker_fee_bps,
+                     actual_taker),
+                )
+                mismatch_sources = []
+                for label, configured, actual_bps in checks:
+                    delta = abs(configured - actual_bps)
+                    if configured < actual_bps or delta \
+                            > self.fee_recon_tolerance_bps:
+                        mismatch_sources.append(label)
+                        worst_delta_bps = max(worst_delta_bps, delta)
                 pair_results[pair] = {
-                    "maker_configured_bps": self.maker_fee_bps,
+                    "maker_configured_om_bps": self.maker_fee_bps,
+                    "maker_configured_pretrade_bps":
+                        self.pretrade_maker_fee_bps,
                     "maker_actual_bps": round(actual_maker, 4),
-                    "taker_configured_bps": self.taker_fee_bps,
+                    "taker_configured_om_bps": self.taker_fee_bps,
+                    "taker_configured_pretrade_bps":
+                        self.pretrade_taker_fee_bps,
                     "taker_actual_bps": round(actual_taker, 4),
-                    "mismatch": bool(maker_bad or taker_bad),
+                    "mismatch": bool(mismatch_sources),
+                    "mismatch_sources": mismatch_sources,
                 }
-                if maker_bad or taker_bad:
+                if mismatch_sources:
                     mismatched.append(pair)
             self._fee_recon_result = {"ts": now,
                                       "verdict": "mismatch" if mismatched
                                       else "ok",
                                       "pairs": pair_results}
             if mismatched:
+                # compact human summary (pair count + worst delta) - the
+                # full per-pair/per-source detail lives in the audit
+                # PAYLOAD only, so this line can't grow with pair count.
                 msg = tag(Code.OM_FEE_RECON_MISMATCH,
                          f"configured vs actual Kraken fee tier diverged "
-                         f"on {mismatched} (tolerance="
-                         f"{self.fee_recon_tolerance_bps}bps): {pair_results}")
+                         f"on {len(mismatched)} pair(s) (worst delta "
+                         f"{worst_delta_bps:.2f}bps, tolerance="
+                         f"{self.fee_recon_tolerance_bps}bps)")
                 log.warning(msg)
                 get_audit().log("order_manager", Code.OM_FEE_RECON_MISMATCH,
                                 msg, {"pairs": pair_results,

@@ -39,14 +39,15 @@ def _feed(tiers=None, has_creds=True, calls=None):
 
 
 def _om(feed, tolerance_bps=1.0, interval_hours=24.0, enabled=True,
-       maker_fee_bps=25.0, taker_fee_bps=40.0, pairs=("ETHUSD",)):
+       maker_fee_bps=25.0, taker_fee_bps=40.0, pairs=("ETHUSD",),
+       pretrade_fee_bps=None):
     cfg = {"maker_fee_bps": maker_fee_bps, "taker_fee_bps": taker_fee_bps,
            "fee_recon": {"enabled": enabled, "tolerance_bps": tolerance_bps,
                         "interval_hours": interval_hours}}
     pair_meta = {p: {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.0}
                 for p in pairs}
     return OrderManager(feed=feed, config=cfg, dry_run=True,
-                        pair_meta=pair_meta)
+                        pair_meta=pair_meta, pretrade_fee_bps=pretrade_fee_bps)
 
 
 def _audit_mark():
@@ -220,8 +221,103 @@ def test_status_dict_carries_last_reconciliation_result():
     st = om.status()["fee_recon"]
     assert st["ts"] == 1_000.0
     assert st["verdict"] == "mismatch"
-    assert st["pairs"]["ETHUSD"]["maker_configured_bps"] == 25.0
+    assert st["pairs"]["ETHUSD"]["maker_configured_om_bps"] == 25.0
+    assert st["pairs"]["ETHUSD"]["maker_configured_pretrade_bps"] == 25.0
     assert st["pairs"]["ETHUSD"]["maker_actual_bps"] == 22.0
+
+
+# --------------------------------------------------------------------------
+# BOTH configured sources are compared, disambiguated, and a mismatch on
+# EITHER flags (the Important review finding: the pretrade EV gate's
+# maker_fee_bps/taker_fee_bps is the semantically critical pair, since an
+# underestimate there is what lets a net-losing trade clear the EV gate).
+# --------------------------------------------------------------------------
+def test_pretrade_divergence_flagged_even_when_order_manager_matches_venue():
+    # actual == order_manager's own configured bps exactly (no OM-side
+    # divergence at all); pretrade's maker bps is configured well BELOW
+    # actual - the dangerous direction - and must still flag, naming the
+    # pretrade source specifically (not the OM source, which matches).
+    tiers = {"ETHUSD": {"maker_bps": 25.0, "taker_bps": 40.0}}
+    feed, _calls = _feed(tiers=tiers)
+    om = _om(feed, tolerance_bps=1.0, maker_fee_bps=25.0, taker_fee_bps=40.0,
+             pretrade_fee_bps=(20.0, 40.0))
+
+    mark = _audit_mark()
+    om.check_fee_reconciliation(now=1_000.0)
+
+    assert Code.OM_FEE_RECON_MISMATCH.value in _audit_new_codes(mark)
+    pr = om._fee_recon_result["pairs"]["ETHUSD"]
+    assert pr["mismatch"] is True
+    assert "maker_pretrade" in pr["mismatch_sources"]
+    assert "maker_om" not in pr["mismatch_sources"]
+    assert pr["maker_configured_om_bps"] == 25.0
+    assert pr["maker_configured_pretrade_bps"] == 20.0
+
+
+def test_order_manager_divergence_flagged_even_when_pretrade_matches_venue():
+    # mirror case: pretrade's configured bps match the venue exactly, but
+    # order_manager's own maker_fee_bps is configured well below actual -
+    # must still flag, naming the OM source specifically (not pretrade).
+    tiers = {"ETHUSD": {"maker_bps": 25.0, "taker_bps": 40.0}}
+    feed, _calls = _feed(tiers=tiers)
+    om = _om(feed, tolerance_bps=1.0, maker_fee_bps=20.0, taker_fee_bps=40.0,
+             pretrade_fee_bps=(25.0, 40.0))
+
+    mark = _audit_mark()
+    om.check_fee_reconciliation(now=1_000.0)
+
+    assert Code.OM_FEE_RECON_MISMATCH.value in _audit_new_codes(mark)
+    pr = om._fee_recon_result["pairs"]["ETHUSD"]
+    assert pr["mismatch"] is True
+    assert "maker_om" in pr["mismatch_sources"]
+    assert "maker_pretrade" not in pr["mismatch_sources"]
+    assert pr["maker_configured_om_bps"] == 20.0
+    assert pr["maker_configured_pretrade_bps"] == 25.0
+
+
+def test_unwired_pretrade_fee_bps_falls_back_to_order_manager_pair():
+    # legacy/test construction that omits pretrade_fee_bps entirely must not
+    # silently under-check: it compares the OM pair against itself on both
+    # sides, so behavior for callers that haven't wired main.py's arg yet
+    # matches the pre-fix single-source check exactly.
+    tiers = {"ETHUSD": {"maker_bps": 22.0, "taker_bps": 40.0}}
+    feed, _calls = _feed(tiers=tiers)
+    om = _om(feed, tolerance_bps=1.0)   # pretrade_fee_bps=None (default)
+
+    assert om.pretrade_maker_fee_bps == om.maker_fee_bps
+    assert om.pretrade_taker_fee_bps == om.taker_fee_bps
+
+    om.check_fee_reconciliation(now=1_000.0)
+    pr = om._fee_recon_result["pairs"]["ETHUSD"]
+    assert pr["maker_configured_om_bps"] == pr["maker_configured_pretrade_bps"]
+    assert set(pr["mismatch_sources"]) == {"maker_om", "maker_pretrade"}
+
+
+# --------------------------------------------------------------------------
+# the OM-080 human log string stays compact (pair count + worst delta) even
+# with multiple mismatched pairs - the full per-pair detail lives only in
+# the audit payload, not the WARN string (Minor #2).
+# --------------------------------------------------------------------------
+def test_warn_message_is_compact_summary_not_full_pair_dict(caplog):
+    import logging as _logging
+    tiers = {"ETHUSD": {"maker_bps": 22.0, "taker_bps": 40.0},
+             "XBTUSD": {"maker_bps": 21.0, "taker_bps": 40.0}}
+    feed, _calls = _feed(tiers=tiers)
+    om = _om(feed, tolerance_bps=1.0, pairs=("ETHUSD", "XBTUSD"))
+
+    with caplog.at_level(_logging.WARNING,
+                        logger="liquiditybot.execution.order_manager"):
+        om.check_fee_reconciliation(now=1_000.0)
+
+    warn_lines = [r.message for r in caplog.records
+                 if r.levelno == _logging.WARNING]
+    assert len(warn_lines) == 1
+    msg = warn_lines[0]
+    assert "2 pair" in msg
+    assert "worst delta" in msg
+    # the full pair-keyed detail must NOT be inlined into the human string
+    assert "maker_configured_om_bps" not in msg
+    assert "ETHUSD" not in msg
 
 
 # --------------------------------------------------------------------------
