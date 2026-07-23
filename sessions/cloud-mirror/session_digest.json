@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784778188.1992226,
+  "generated_at": 1784779991.271602,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
-    "end": 1784646783.011,
-    "duration_h": 196.67
+    "end": 1784778775.423,
+    "duration_h": 233.33
   },
   "pnl": {
     "starting_capital": 5000.0,
@@ -24,15 +24,15 @@
     "candidate_rows": 2862
   },
   "audit": {
-    "records": 1404,
-    "signal_records": 769,
+    "records": 1527,
+    "signal_records": 892,
     "by_src": {
       "exploration": 651,
       "order_manager": 355,
       "firewall": 165,
+      "ml_governor": 141,
       "startup": 128,
       "fault": 73,
-      "ml_governor": 18,
       "engine": 14
     },
     "top_codes": [
@@ -57,6 +57,10 @@
         128
       ],
       [
+        "ML-032",
+        120
+      ],
+      [
         "FT-020",
         73
       ],
@@ -69,26 +73,22 @@
         13
       ],
       [
+        "ML-030",
+        7
+      ],
+      [
         "ML-040",
         4
       ],
       [
-        "ML-032",
+        "ML-050",
         3
-      ],
-      [
-        "ML-030",
-        3
-      ],
-      [
-        "ML-014",
-        2
       ]
     ],
     "dominant_code": "OM-040",
-    "dominant_frac": 0.26,
-    "retrain_requests": 3,
-    "kill_switch_events": 1,
+    "dominant_frac": 0.224,
+    "retrain_requests": 120,
+    "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
     "chain_tamper": false,
@@ -184,6 +184,12 @@
       "severity": "error",
       "title": "postmortem realized% contradicts its own excursions",
       "detail": "1 of 17 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
+    },
+    {
+      "id": "SD-002",
+      "severity": "warn",
+      "title": "model starvation loop",
+      "detail": "model is cold (live training rows=192, brier=n/a) yet retrain was requested 120x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 22% of the audit trail"
     },
     {
       "id": "SD-010",
