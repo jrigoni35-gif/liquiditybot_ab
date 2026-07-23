@@ -32,6 +32,7 @@ import json
 import logging
 import threading
 import time
+import zlib
 from typing import Callable, Optional
 
 from core.sanitize import clean_book
@@ -118,6 +119,15 @@ class LiveMarketCache:
             return None
         return px
 
+    def invalidate(self, venue: str, symbol: str) -> None:
+        """Drop the cached book + mark for (venue, symbol) so the next read
+        is a cache miss -> caller falls back to REST (writer: websocket
+        handler thread, e.g. on a Kraken checksum mismatch that means local
+        state can no longer be trusted until it resyncs)."""
+        with self._lock:
+            self._books.pop((venue, symbol), None)
+            self._marks.pop((venue, symbol), None)
+
     def age(self, venue: str, symbol: str) -> Optional[float]:
         """Seconds since the last book write, or None if never written."""
         with self._lock:
@@ -164,6 +174,7 @@ class ResilientWebSocket:
         # guards no secret, so the non-crypto PRNG is the right tool
         self._rng = rng or (lambda: random.uniform(0.0, 1.0))  # nosec B311
         self._stop = threading.Event()
+        self._resync = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.connected = False
         self.reconnects = 0
@@ -200,6 +211,15 @@ class ResilientWebSocket:
             t.join(timeout=timeout)
         self.connected = False
 
+    def request_reconnect(self):
+        """Ask the reader to drop the current connection and reconnect
+        immediately (no backoff) - the existing connect/subscribe flow then
+        re-sends `subscribe` fresh, which is exactly how a caller (e.g. a
+        Kraken checksum-mismatch resync) asks for a clean resubscribe
+        without a parallel protocol path. Safe from any thread; a no-op if
+        not currently connected (the next connect subscribes anyway)."""
+        self._resync.set()
+
     def _run_loop(self):
         import asyncio
         try:
@@ -234,6 +254,11 @@ class ResilientWebSocket:
                         except Exception:
                             log.debug("ws frame handler error - skipped",
                                       exc_info=True)
+                        if self._resync.is_set():
+                            self._resync.clear()
+                            log.info("ws resubscribe requested - "
+                                     "reconnecting now")
+                            break
             except Exception as e:
                 self.connected = False
                 if self._stop.is_set():
@@ -327,6 +352,15 @@ class BinanceUSDepthStream:
         self.cache.update_book(self.VENUE, symbol, bids, asks)
 
 
+def _kraken_ck_token(raw) -> str:
+    """One price/qty value formatted for Kraken's v2 checksum: the exact
+    wire digit string with the decimal point removed and leading zeros
+    stripped (e.g. "0.00100000" -> "000100000" -> "100000")."""
+    s = raw if isinstance(raw, str) else str(raw)
+    s = s.replace(".", "").lstrip("0")
+    return s or "0"
+
+
 class KrakenV2BookStream:
     """Venue adapter: Kraken v2 public `book` channel -> LiveMarketCache.
 
@@ -337,13 +371,26 @@ class KrakenV2BookStream:
     caller's Kraken REST *pair* (e.g. 'BTCUSD'), so a cache read lines up
     with get_order_book(pair) exactly like the Binance adapter's symbol key.
 
-    Correctness without checksums: within one connection websocket delivery
-    is ordered and lossless, so applying every update in order reproduces
-    Kraken's book. A dropped connection makes ResilientWebSocket re-send the
-    subscribe; Kraken answers with a fresh snapshot, and `snapshot` RESETS
-    local state - so a reconnect can never leave a drifted book. Reads are
-    still staleness-gated and clean_book-sanitised, so a crossed/degenerate
-    book degrades to None -> REST, same as every other cache read.
+    Checksum-verified: every frame that carries Kraken's CRC32 `checksum`
+    (top-10-per-side, price+qty with the decimal point and leading zeros
+    stripped, asks-then-bids, per Kraken's v2 spec) is checked against the
+    freshly-applied local book after every snapshot/update. Ordered,
+    lossless websocket delivery keeps the two in sync in the common case,
+    but a self-inflicted gap (e.g. one unparseable level in a frame being
+    skipped while the rest of the frame still applies) can silently drift
+    local state without ever tripping the staleness gate - the cache
+    timestamp keeps refreshing even though the book itself is wrong. A
+    checksum mismatch is treated as exactly that: local state for the
+    symbol is dropped, the published cache entry is invalidated (forcing
+    REST fallback), and a resubscribe is requested (reusing
+    ResilientWebSocket's own reconnect -> subscribe flow - Kraken answers a
+    fresh subscribe with a new `snapshot`, which resets local state, same
+    as the natural reconnect path). Frames without a `checksum` field, and
+    frames while `depth` < 10 (too few retained levels to reconstruct
+    Kraken's top-10 checksum window), skip verification - never treated as
+    a mismatch. Reads are still staleness-gated and clean_book-sanitised on
+    top of this, so a crossed/degenerate book degrades to None -> REST,
+    same as every other cache read.
 
     READ-ONLY public market data. Kraken execution stays exclusively on the
     hardened REST order path (invariant 3)."""
@@ -357,8 +404,17 @@ class KrakenV2BookStream:
         self.sym_to_pair = dict(sym_to_pair or {})
         self._symbols = list(self.sym_to_pair.keys())
         self.depth = max(int(depth), 1)
-        # v2 symbol -> {'bids': {price: qty}, 'asks': {price: qty}}
+        # v2 symbol -> {'bids': {price: (price_raw, qty_raw)}, 'asks': {...}}
+        # price is the float dict key (math/sort/dedup); price_raw/qty_raw
+        # are the EXACT wire strings (see handle()'s parse_float=str) so the
+        # checksum can be reconstructed byte-for-byte against Kraken's own
+        # pair-precision formatting without needing pair-precision metadata.
         self._state: dict = {}
+        # telemetry: count of checksum mismatches observed (desync events)
+        self.checksum_failures = 0
+        # wired by WebSocketFeedManager.start() to ResilientWebSocket's
+        # request_reconnect - left None (no-op) when used standalone/tested
+        self.request_resubscribe: Optional[Callable[[], None]] = None
 
     def url(self) -> str:
         """Adapter interface: the Kraken v2 public websocket URL."""
@@ -395,15 +451,23 @@ class KrakenV2BookStream:
         asks = sorted(st["asks"].items())[:self.depth]
         if not bids or not asks:
             return
-        self.cache.update_book(self.VENUE, pair,
-                               [[p, q] for p, q in bids],
-                               [[p, q] for p, q in asks])
+        self.cache.update_book(
+            self.VENUE, pair,
+            [[p, float(raw[1])] for p, raw in bids],
+            [[p, float(raw[1])] for p, raw in asks])
 
     def handle(self, text: str):
         """Apply one book frame. Never raises: a malformed frame is dropped
-        and the cache keeps its last good snapshot until staleness expires."""
+        and the cache keeps its last good snapshot until staleness expires.
+
+        Parses with `parse_float=str`: Kraken sends price/qty as bare JSON
+        numbers (not strings), formatted wire-side to each pair's exact
+        decimal precision (e.g. qty "0.00100000") - a plain `json.loads`
+        collapses that through a Python float and loses the trailing
+        zeros/precision the checksum needs, so the raw digit string is
+        captured here, before any float conversion."""
         try:
-            msg = json.loads(text)
+            msg = json.loads(text, parse_float=str)
         except (ValueError, TypeError):
             return
         if not isinstance(msg, dict) or msg.get("channel") != "book":
@@ -432,17 +496,74 @@ class KrakenV2BookStream:
                         # price is the dict key: Kraken echoes each level's
                         # price string identically between set and its later
                         # qty=0 delete, so the float round-trip matches for
-                        # pop(); staleness + reconnect-snapshot bound any drift
-                        px = float(lvl["price"])
-                        qty = float(lvl["qty"])
+                        # pop(); staleness + reconnect-snapshot + checksum
+                        # verification bound any drift
+                        price_raw = lvl["price"]
+                        qty_raw = lvl["qty"]
+                        px = float(price_raw)
+                        qty = float(qty_raw)
                     except (KeyError, TypeError, ValueError):
                         continue
                     if qty <= 0.0:
                         book_side.pop(px, None)   # qty 0 removes the level
                     else:
-                        book_side[px] = qty
+                        book_side[px] = (price_raw, qty_raw)
             self._trim(st)                        # bound to top-N (no phantoms)
             self._publish(sym)
+            self._verify_checksum(sym, st, d.get("checksum"))
+
+    def _checksum(self, st: dict) -> int:
+        """Kraken v2 book checksum: top-10 asks ascending then top-10 bids
+        descending, each level as price-then-qty with the decimal point and
+        any leading zeros stripped, all concatenated and CRC32'd (unsigned).
+        Verified byte-for-byte against Kraken's own published worked example
+        (see tests)."""
+        asks = sorted(st["asks"].items())[:10]
+        bids = sorted(st["bids"].items(), reverse=True)[:10]
+        parts = []
+        for _, (price_raw, qty_raw) in asks:
+            parts.append(_kraken_ck_token(price_raw))
+            parts.append(_kraken_ck_token(qty_raw))
+        for _, (price_raw, qty_raw) in bids:
+            parts.append(_kraken_ck_token(price_raw))
+            parts.append(_kraken_ck_token(qty_raw))
+        return zlib.crc32("".join(parts).encode("ascii"))
+
+    def _verify_checksum(self, sym: str, st: dict, expected) -> None:
+        """Validate the frame's `checksum` (if present) against the local
+        book just applied. A mismatch means local state has desynced from
+        Kraken's real book (e.g. a skipped unparseable level) - the failure
+        is silent otherwise, since the cache timestamp keeps refreshing and
+        the staleness gate never fires on a drifted-but-plausible book.
+
+        On mismatch: drop local state for the symbol, invalidate the
+        published cache entry (forces REST fallback until resynced), and
+        request a resubscribe (reuses ResilientWebSocket's own
+        reconnect -> subscribe flow; Kraken answers a fresh subscribe with a
+        `snapshot`, which resets state exactly like a natural reconnect).
+
+        Skipped (never a mismatch) when: no checksum on the frame, or
+        `depth` < 10 - too few retained levels to reconstruct Kraken's
+        top-10 checksum window, so any comparison would be meaningless."""
+        if expected is None or self.depth < 10:
+            return
+        try:
+            expected_int = int(expected)
+        except (TypeError, ValueError):
+            return
+        if self._checksum(st) == expected_int:
+            return
+        self.checksum_failures += 1
+        pair = self.sym_to_pair.get(sym)
+        log.warning(
+            "kraken book checksum mismatch for %s (pair %s) - local book "
+            "desynced, dropping state + cache, requesting resubscribe",
+            sym, pair)
+        self._state.pop(sym, None)
+        if pair is not None:
+            self.cache.invalidate(self.VENUE, pair)
+        if self.request_resubscribe is not None:
+            self.request_resubscribe()
 
 
 class WebSocketFeedManager:
@@ -487,6 +608,14 @@ class WebSocketFeedManager:
                                       subscribe=self.adapter.subscribe_msg(),
                                       backoff_cap=float(
                                           self.max_age_s * 15))
+        # wire adapter-initiated resync (e.g. Kraken checksum mismatch) to
+        # this socket's own reconnect->subscribe flow; adapters without a
+        # request_resubscribe hook (Binance.US) are left untouched. setattr
+        # (not a plain attribute assignment) since self.adapter's static
+        # type spans adapters that don't declare this attribute.
+        if hasattr(self.adapter, "request_resubscribe"):
+            setattr(self.adapter, "request_resubscribe",  # noqa: B010
+                    self._ws.request_reconnect)
         self._ws.start()
         log.info("ws feed started: %s %s", self.venue, self._symbols)
 
@@ -520,6 +649,8 @@ class WebSocketFeedManager:
             "enabled": self.enabled,
             "connected": bool(self._ws and self._ws.connected),
             "reconnects": self._ws.reconnects if self._ws else 0,
+            "checksum_failures": getattr(self.adapter,
+                                         "checksum_failures", 0),
             "lib_available": ResilientWebSocket.available(),
             **self.cache.stats(),
         }
