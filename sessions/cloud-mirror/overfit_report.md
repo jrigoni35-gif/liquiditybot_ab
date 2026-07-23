@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-23 19:36 UTC
+# Overfit audit — 2026-07-23 20:11 UTC
 
 Dataset: live history (3395 rows)
 
@@ -19,6 +19,8 @@ Dataset: live history (3395 rows)
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — DEFERRED — 4 conviction-marked live trades < 30 (mixed n=231); mixed-sample dsr=0.000 sr=-0.68; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
+- **INFO** regime diagnostic caveat — n= below is a raw signal_history.csv count (candidate+live); oof_n= is the deduped/purged X actually OOF-scored — two different counting passes over related but non-identical data
 - **INFO** regime[bull_quiet] — n=0 — absent from corpus
 - **INFO** regime[bull_vol] — n=0 — absent from corpus
 - **INFO** regime[range] — n=3381 (candidate=3154 live=227) base_rate=0.220
@@ -29,4 +31,4 @@ Dataset: live history (3395 rows)
 - **INFO** regime[crisis] — n=0 — absent from corpus
 - **INFO** regime[unknown] — n=0 — absent from corpus
 
-3 passed, 5 failed (60s)
+3 passed, 5 failed (61s)
