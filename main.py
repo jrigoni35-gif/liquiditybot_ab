@@ -937,6 +937,7 @@ class LiquidityBot:
             sigma_bar_pct=vol_state.sigma_bar_pct,
             meta={"p_win": meta_t.get("p_win", 0.0),
                   "edge_bps": meta_t.get("edge_bps", 0.0),
+                  "est_cost_bps": meta_t.get("est_cost_bps", 0.0),
                   "features": meta_t.get("features"),
                   "probe": bool(meta_t.get("probe", False)),
                   "candidate_id": meta_t.get("candidate_id") or "",
@@ -1112,6 +1113,7 @@ class LiquidityBot:
                     is_probe=bool(order.meta.get("probe", False)),
                     confidence=order.meta.get("p_win", 0.0),
                     edge_bps=order.meta.get("edge_bps", 0.0),
+                    est_cost_bps=order.meta.get("est_cost_bps", 0.0),
                     leverage=order.leverage,
                 )
                 pos.stop_price = self._stop_price_for(
@@ -2467,6 +2469,7 @@ class LiquidityBot:
                 self.sizer.note_entry(asset, now)
                 self._algo_meta[parent.parent_id] = {
                     "p_win": p_win, "edge_bps": decision.est_edge_bps,
+                    "est_cost_bps": decision.est_cost_bps,
                     "features": feats, "leverage":
                         lev_decision.allowed_leverage,
                     "post_only": plan.post_only,
@@ -2521,6 +2524,7 @@ class LiquidityBot:
                 book=self.kraken_books.get(asset) or {},
                 sigma_bar_pct=vol_state.sigma_bar_pct,
                 meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
+                    "est_cost_bps": decision.est_cost_bps,
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or []},
@@ -2665,6 +2669,12 @@ class LiquidityBot:
                       # deeper rungs rest strictly further from fair value:
                       # their edge grows by the offset
                       "edge_bps": decision.est_edge_bps + rung.offset_bps,
+                      # est_cost_bps is rung 0's gate-approved cost stack,
+                      # unchanged across rungs (only edge grows with offset,
+                      # W2-10) - threaded onto every rung's Position so the
+                      # tier-1 cost floor (P1) sees the same cost every rung
+                      # of this entry was actually approved against.
+                      "est_cost_bps": decision.est_cost_bps,
                       "features": feats, "probe": explored,
                       "ladder_rung": rung.idx,
                       "candidate_id": cand_id or "",

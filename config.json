@@ -124,6 +124,8 @@
     "tighten_after_bars": 96,
     "tighten_factor": 0.85,
     "tighten_floor": 0.45,
+    "min_trigger_cost_mult": 3.0,
+    "_min_trigger_cost_mult_doc": "P1 (2026-07-23 P&L diagnosis, 209 live closes): avg win $0.05 vs avg loss $0.19, measured cost overrun ~20.5bps - tier-1 was banking LESS than one round-trip cost unit. Floors tier-1's effective trigger (post vol-scaling/clamp) at mult x the entry's own estimated round-trip cost (Position.est_cost_bps, threaded from execution/pretrade.py's PreTradeDecision at fill time). 3.0x makes the first take bank >= 2 net cost-units after paying one. RAISE-only (never lowers an already-clear trigger); 0.0 est_cost_bps (legacy/restored positions) is exactly inert. Governs tier 1 only. config_guard enforces FATAL outside [1.0, 10.0].",
     "_rollback": "set vol_scaled=false for exact rev-2 fixed-% behavior",
     "stop_magnet": {
       "band_bps": 25.0,

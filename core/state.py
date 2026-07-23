@@ -33,6 +33,14 @@ class Position:
     high_water: Optional[float] = None  # best favorable price since entry (chandelier anchor)
     is_probe: bool = False            # PT-050 exploration probe (EV gate bypassed to buy a
                                       # label) - OF-5 grades conviction trades separately
+    # P1 (2026-07-23 P&L diagnosis): the pretrade gate's estimated round-trip
+    # cost (maker entry leg + exit leg + spread, execution/pretrade.py's
+    # PreTradeDecision.est_cost_bps) at the moment this position was opened.
+    # Threaded onto the Position so risk/profit_tiers.py can floor tier-1's
+    # trigger at a guarded multiple of the entry's OWN cost stack. Default 0.0
+    # -> the floor is exactly inert for legacy/restored positions that predate
+    # this field.
+    est_cost_bps: float = 0.0
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
         """Unrealized PnL in PERCENT of entry price, sign-correct for

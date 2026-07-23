@@ -34,6 +34,12 @@ distance regime-aware:
       fully reconstructible from high_water after a restart — no new
       persisted state. Composes with break-even and chandelier through
       the same ratchet (max of all floors long / min short).
+  TIER-1 COST FLOOR   (P1, 2026-07-23 P&L diagnosis) tier 1's effective
+      trigger (post vol-scaling/clamp) is floored at
+      min_trigger_cost_mult · Position.est_cost_bps (the entry's own
+      pretrade round-trip cost estimate, bps -> pct). RAISE-only; 0.0
+      est_cost_bps (legacy/restored positions) is exactly inert. Governs
+      tier 1 only — tiers 2-4 are unaffected.
 
 Single-action-per-cycle contract preserved: at most one TierAction
 with should_close_partial=True per evaluate(). realized_pnl estimates
@@ -197,6 +203,22 @@ class ProfitTierEngine:
         self.gb_tight_frac = min(max(_f(gb.get("tight_frac", 0.25), 0.25),
                                      0.05), self.gb_frac)
         self._gb_armed_log = set()
+        # TIER-1 COST-MULTIPLE FLOOR (P1, 2026-07-23 P&L diagnosis): the
+        # 2026-07-23 live-close audit (209 closes) measured avg win $0.05 vs
+        # avg loss $0.19 and a measured cost overrun of ~20.5bps - tier-1
+        # was firing UNDER 1x the entry's own estimated round-trip cost
+        # stack (est_cost_bps, execution/pretrade.py's
+        # PreTradeDecision.est_cost_bps, threaded onto Position.est_cost_bps
+        # at fill time - see main.py's entry paths). min_trigger_cost_mult
+        # floors the FIRST tier's effective trigger (after vol scaling and
+        # its own clamps) at mult * est_cost_bps, so tier 1 always banks
+        # >= (mult - 1) net cost-units after paying the one it spends to
+        # get there. Clamp-only: RAISES a too-cheap trigger, never lowers
+        # one already clear of the floor. Bounds [1.0, 10.0] mirrored FATAL
+        # in core/config_guard.py. est_cost_bps defaults to 0.0 on legacy/
+        # restored positions, making the floor exactly inert for them.
+        self.min_trigger_cost_mult = min(max(
+            _f(cfg.get("min_trigger_cost_mult", 3.0), 3.0), 1.0), 10.0)
 
     # ------------------------------------------------------------------
     def _estimate_realized_pnl(self, position, current_price: float,
@@ -228,18 +250,33 @@ class ProfitTierEngine:
             return 0.0
         return max(age_min / _BAR_MINUTES, 0.0)
 
-    def _tier_trigger_pct(self, tier: dict, sigma_bar_pct) -> float:
+    def _tier_trigger_pct(self, tier: dict, sigma_bar_pct,
+                         tier_index: int = 0,
+                         est_cost_bps: float = 0.0) -> float:
         legacy = tier.get("trigger_pct_gain")
         if legacy is None:
             return float("inf")
         legacy = _f(legacy, float("inf"))
         if not self.vol_scaled or sigma_bar_pct is None:
-            return legacy
-        sig = _f(sigma_bar_pct)
-        mult = _f(tier.get("trigger_vol_mult", 0.0))
-        if sig <= 0 or mult <= 0:
-            return legacy                       # vol feed absent -> exact rev-2
-        return min(max(mult * sig, 0.5 * legacy), 3.0 * legacy)
+            trigger = legacy
+        else:
+            sig = _f(sigma_bar_pct)
+            mult = _f(tier.get("trigger_vol_mult", 0.0))
+            if sig <= 0 or mult <= 0:
+                trigger = legacy                # vol feed absent -> exact rev-2
+            else:
+                trigger = min(max(mult * sig, 0.5 * legacy), 3.0 * legacy)
+        # tier-1 cost-multiple floor (P1): tier_index is the position's
+        # tier_closed count, so index 0 means tier 1 - the ONLY tier this
+        # floor governs. bps -> pct: est_cost_bps / 100. RAISE-only (never
+        # lowers a trigger already clear of the floor); 0 est_cost_bps
+        # (unset/legacy Position) makes the floor 0 -> exactly inert.
+        if tier_index == 0:
+            cost_floor_pct = self.min_trigger_cost_mult * \
+                max(_f(est_cost_bps), 0.0) / 100.0
+            if cost_floor_pct > trigger:
+                trigger = cost_floor_pct
+        return trigger
 
     # ---- exit-floor machinery (break-even + chandelier, ratchet-only) ----
     def _update_high_water(self, position, px: float) -> None:
@@ -485,7 +522,9 @@ class ProfitTierEngine:
 
         if next_tier_index < len(self.tiers):
             tier = self.tiers[next_tier_index]
-            trigger = self._tier_trigger_pct(tier, sigma_bar_pct)
+            trigger = self._tier_trigger_pct(
+                tier, sigma_bar_pct, tier_index=next_tier_index,
+                est_cost_bps=_f(getattr(position, "est_cost_bps", 0.0)))
             close_pct = _f(tier.get("close_pct_of_position", 0.0))
             if close_pct > 0 and gain_pct >= trigger:
                 boost_note = ""

@@ -578,6 +578,23 @@ def validate(config: dict) -> list:
              f"the last tier - confirm that floor is tight enough to protect a "
              f"runner that large.")
 
+    # tier-1 cost-multiple floor (P1, 2026-07-23 P&L diagnosis): floors
+    # tier-1's effective trigger at mult x the entry's own estimated
+    # round-trip cost (Position.est_cost_bps). Derivation: the 2026-07-23
+    # live-close audit (209 closes) measured avg win $0.05 vs avg loss $0.19
+    # and a ~20.5bps cost overrun - tier-1 was banking LESS than one
+    # round-trip cost unit. Shipped 3.0x makes the first take bank >= 2 net
+    # cost-units after paying one. Below 1.0x the floor could not even
+    # guarantee covering a single cost unit (defeats its own purpose);
+    # above 10.0x tier-1 would almost never fire in an ordinary vol regime.
+    mtcm = float(_f(config, "profit_taking.min_trigger_cost_mult", 3.0))
+    if not (1.0 <= mtcm <= 10.0):
+        fatal(f"profit_taking.min_trigger_cost_mult ({mtcm}) must be in "
+              f"[1.0, 10.0] - it floors tier-1's effective trigger at mult x "
+              f"the entry's estimated round-trip cost (est_cost_bps); below "
+              f"1x the floor can't even guarantee covering one cost unit, "
+              f"above 10x tier-1 would almost never fire")
+
     # --- stops / slippage / cadence --------------------------------------
     if float(_f(config, "risk.stop_loss_pct", 2.0)) <= 0:
         fatal("risk.stop_loss_pct must be positive")

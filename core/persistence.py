@@ -62,6 +62,7 @@ def position_to_dict(pos) -> dict:
         "leverage": pos.leverage,
         "high_water": pos.high_water,
         "is_probe": pos.is_probe,
+        "est_cost_bps": pos.est_cost_bps,
     }
 
 
@@ -83,6 +84,10 @@ def position_from_dict(d: dict):
         leverage=float(d.get("leverage", 1.0)),
         high_water=(None if d.get("high_water") is None else float(d["high_water"])),
         is_probe=bool(d.get("is_probe", False)),
+        # P1: pre-P1 snapshots lack this key -> defaults 0.0, which keeps
+        # risk/profit_tiers.py's tier-1 cost floor exactly inert for a
+        # restored legacy position.
+        est_cost_bps=float(d.get("est_cost_bps", 0.0)),
     )
 
 
