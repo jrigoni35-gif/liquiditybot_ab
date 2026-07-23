@@ -22,7 +22,9 @@ from typing import Optional
 
 import numpy as np
 
-from risk.profit_tiers import conviction_runner_params, conviction_trail_mult
+from risk.profit_tiers import (conviction_runner_params, conviction_trail_mult,
+                              tier1_cost_floor_mult, tier1_cost_floor_pct,
+                              time_stop_fires, time_stop_params)
 
 EPS = 1e-12
 
@@ -32,7 +34,7 @@ class BarrierOutcome:
     label: int          # 1 = win (net of costs), 0 = loss/scratch
     ret_pct: float      # signed trade return, %
     bars_held: int
-    barrier: str        # pt | sl | time | tier | trail | floor
+    barrier: str        # pt | sl | time | tier | trail | floor | time_stop
     # True when the trade fully RESOLVED before running out of bars (a decisive
     # exit, not the vertical/time cutoff). The candidate labeler uses this for
     # EARLY decidability: a resolved outcome inside the available window is
@@ -77,6 +79,18 @@ class ExitPolicy:
     cr_neutral_conf: float = 0.70
     cr_min_conf: float = 0.55
     cr_min_trail_mult: float = 0.60
+    # TIER-1 COST FLOOR (P1) + TIME-STOP (P2, PT-060) parity insert (P3.5):
+    # min_trigger_cost_mult is the SAME parse+clamp the live engine uses (via
+    # tier1_cost_floor_mult); it floors tier 1's effective trigger (tier_index
+    # 0 only, in ExitPolicy._tier_trigger) whenever a caller supplies a real
+    # est_cost_bps to simulate_exit_policy. ts_* mirror profit_taking.time_stop
+    # (via time_stop_params) and gate simulate_exit_policy's own PT-060 check.
+    # Defaults (3.0 / disabled) match the live engine's code defaults, so a
+    # bare ExitPolicy() and every legacy caller stay byte-identical.
+    min_trigger_cost_mult: float = 3.0
+    ts_enabled: bool = False
+    ts_max_bars_no_progress: int = 36
+    ts_min_mfe_frac: float = 0.5
 
     @staticmethod
     def from_config(config: dict) -> "ExitPolicy":
@@ -85,6 +99,7 @@ class ExitPolicy:
         gb = pt.get("give_back", {}) or {}
         tr = pt.get("trailing_stop", {}) or {}
         cr = conviction_runner_params(pt)    # SAME parse+clamp as the live engine
+        ts_enabled, ts_max_bars, ts_min_mfe = time_stop_params(pt)  # ditto (P2)
         tiers = []
         for i in range(1, 5):
             t = pt.get(f"tier_{i}")
@@ -116,15 +131,48 @@ class ExitPolicy:
             gb_tighten_frac=float(gb.get("tighten_gain_pct", 4.0)) / 100.0,
             gb_tight_frac=float(gb.get("tight_frac", 0.25)),
             cr_enabled=cr[0], cr_neutral_conf=cr[1],
-            cr_min_conf=cr[2], cr_min_trail_mult=cr[3])
+            cr_min_conf=cr[2], cr_min_trail_mult=cr[3],
+            min_trigger_cost_mult=tier1_cost_floor_mult(pt),
+            ts_enabled=ts_enabled, ts_max_bars_no_progress=ts_max_bars,
+            ts_min_mfe_frac=ts_min_mfe)
 
     def _tier_trigger(self, legacy: float, vol_mult: float,
-                      sigma_bar: float) -> float:
-        """Vol-scaled tier trigger fraction, clamped to [0.5×,3×] legacy —
-        mirrors ProfitTierEngine._tier_trigger_pct."""
+                      sigma_bar: float, tier_index: int = 0,
+                      est_cost_bps: float = 0.0) -> float:
+        """Vol-scaled tier trigger fraction, clamped to [0.5×,3×] legacy,
+        THEN (tier_index == 0 only) floored at the SAME tier-1 cost-multiple
+        floor the live engine applies (P1, `ProfitTierEngine._tier_trigger_pct`)
+        via the shared `tier1_cost_floor_pct` helper — a TRUE mirror for every
+        input this function is actually given (P3.5), never a copied formula.
+
+        `est_cost_bps` is the candidate's entry round-trip cost estimate
+        (execution/pretrade.py's `PreTradeDecision.est_cost_bps`). DOCUMENTED
+        RESIDUAL: it is genuinely UNAVAILABLE at the only
+        `CandidateLabeler.register()` call site (main.py) — the pretrade
+        decision is computed by `PreTradeGate.evaluate()` well AFTER that
+        signal has already been registered as a candidate (sizing + quoting,
+        which the cost stack depends on, have not happened yet), so every
+        real candidate/bootstrap caller passes the default 0.0 and this floor
+        stays exactly inert in production — the same "genuinely unavailable"
+        residual class as the conviction-runner leash's bootstrap path (W2-1).
+        A caller that CAN supply a real value (tests, or a future caller with
+        the pretrade decision already in hand) gets the true floored trigger,
+        byte-identical to the live engine's."""
         if not self.vol_scaled or sigma_bar <= 0 or vol_mult <= 0:
-            return legacy
-        return min(max(vol_mult * sigma_bar, 0.5 * legacy), 3.0 * legacy)
+            trigger = legacy
+        else:
+            trigger = min(max(vol_mult * sigma_bar, 0.5 * legacy), 3.0 * legacy)
+        if tier_index == 0:
+            # tier1_cost_floor_pct returns a PCT number (mult × bps/100, e.g.
+            # 0.6 = 0.6%); this policy's triggers are FRACTIONS (0.01 = 1%,
+            # same convention `from_config` already applies to every other
+            # pct-based config value) — the extra /100.0 is that conversion,
+            # not a second formula.
+            floor_frac = tier1_cost_floor_pct(self.min_trigger_cost_mult,
+                                              est_cost_bps) / 100.0
+            if floor_frac > trigger:
+                trigger = floor_frac
+        return trigger
 
 
 def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
@@ -132,13 +180,14 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
                          sigma_bar: float, policy: ExitPolicy,
                          max_bars: int = 96,
                          cost_pct: float = 0.5,
-                         conviction: Optional[float] = None) -> BarrierOutcome:
+                         conviction: Optional[float] = None,
+                         est_cost_bps: float = 0.0) -> BarrierOutcome:
     """Label a candidate by REPLAYING the live exit policy over the candles,
     instead of a single symmetric triple barrier. This makes the counterfactual
     label answer the SAME question a live trade poses (net PnL sign under the
-    real stop + tiered scale-outs + give-back/trailing runner), so the
-    predominantly-candidate training set stops being trained on a different bet
-    than it is traded on.
+    real stop + tiered scale-outs + give-back/trailing runner + cost floor +
+    time-stop), so the predominantly-candidate training set stops being
+    trained on a different bet than it is traded on.
 
     ``conviction`` (default None) is the candidate's entry meta p(win). When
     supplied AND the policy's conviction-runner is enabled, the trailing-floor
@@ -149,6 +198,31 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     unknown/high conviction) is a full-leash no-op — every legacy caller and the
     bootstrap path (EMA-cross pseudo-signals carry no meta p(win)) are unchanged.
 
+    ``est_cost_bps`` (default 0.0) is the candidate's entry round-trip cost
+    estimate; when supplied it floors tier 1's effective trigger at
+    ``min_trigger_cost_mult × est_cost_bps`` (P1), the SAME shared
+    ``risk.profit_tiers.tier1_cost_floor_pct`` the live engine applies to tier
+    1 only (see ``ExitPolicy._tier_trigger``). DOCUMENTED RESIDUAL (P3.5):
+    genuinely UNAVAILABLE at the candidate-registration call site (main.py's
+    `CandidateLabeler.register()` runs before `PreTradeGate.evaluate()`
+    computes the cost stack) and at the bootstrap path (no pretrade decision
+    exists at all for an EMA-cross pseudo-signal) — every real caller passes
+    the default 0.0 and the floor stays exactly inert in production, the same
+    residual class as the conviction leash's bootstrap path (W2-1). A caller
+    that CAN supply a real value (tests; a future caller with the pretrade
+    decision in hand) gets the true floored trigger.
+
+    The time-stop (P2, PT-060, ``policy.ts_enabled``) is also mirrored: a
+    candidate that has not reached ``ts_min_mfe_frac`` of tier 1's EFFECTIVE
+    (cost-floored) trigger within ``ts_max_bars_no_progress`` bars is scratched
+    full-close, via the SAME shared ``risk.profit_tiers.time_stop_fires``
+    predicate the live engine's ``_time_stop_hit`` uses. VIRGIN-ONLY GATE: a
+    candidate is virgin (no tier fired) by construction the entire time this
+    replay's ``tier_idx == 0`` — the identical condition the live engine's
+    ``position.tier_closed == 0`` gate enforces — so once ANY tier fires in
+    this replay the time-stop can never fire again for it, exactly mirroring
+    the P2 review fix.
+
     Faithful to the dominant economics; deliberately omits three live inputs
     that cannot exist for a counterfactual signal (documented, all 2nd order):
       * time-based trail tightening (needs wall-clock bars_in_trade),
@@ -157,15 +231,22 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     The conviction-runner leash was a FOURTH such divergence; it is now mirrored
     wherever a conviction is threaded (candidate path) and a documented residual
     (full leash) only where the entry conviction is genuinely unavailable
-    (bootstrap). Intra-bar path is unknown, so — like the triple barrier — the
-    ADVERSE extreme is checked before the favorable one each bar (conservative;
-    Lopez de Prado). Returns net-of-cost label + realized signed return %."""
+    (bootstrap). The tier-1 cost floor is a FIFTH: mirrored via a shared helper
+    whenever a caller supplies est_cost_bps, documented-inert (residual) where
+    it is genuinely unavailable (candidate registration; bootstrap) — see
+    above. The time-stop (P2) needed no such residual: every input it needs
+    (bar index, running MFE, the cost-floored tier-1 trigger) already exists
+    in this replay, so it is a TRUE mirror, not an approximation. Intra-bar
+    path is unknown, so — like the triple barrier — the ADVERSE extreme is
+    checked before the favorable one each bar (conservative; Lopez de Prado).
+    Returns net-of-cost label + realized signed return %."""
     entry = closes[i]
     if entry <= EPS:
         return BarrierOutcome(0, 0.0, 0, "time")
     stop_frac = max(policy.base_stop_frac, policy.stop_vol_mult * sigma_bar)
-    triggers = [(policy._tier_trigger(leg, vm, sigma_bar), cf)
-                for (leg, vm, cf) in policy.tiers]
+    triggers = [(policy._tier_trigger(leg, vm, sigma_bar, tier_index=idx,
+                                      est_cost_bps=est_cost_bps), cf)
+                for idx, (leg, vm, cf) in enumerate(policy.tiers)]
     # entry-conviction runner leash: a multiplicative tighten on the trailing
     # floor ONLY (mirrors the live engine, where it multiplies decay_mult into
     # _trail_distance_frac and touches neither break-even nor give-back). 1.0
@@ -212,6 +293,25 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
                 return BarrierOutcome(
                     int(realized * 100.0 - cost_pct > 0),
                     realized * 100.0, j - i, "tier")
+        # 2.5) PT-060 time-stop (P2/P3.5 parity): checked AFTER the tier fire
+        # (mirrors evaluate()'s ordering: next-tier first, time-stop second,
+        # exit floor third) and BEFORE the floor ratchet below, so a
+        # no-progress scratch never depends on this bar's own floor update.
+        # VIRGIN-ONLY: tier_idx == 0 means no tier has fired in THIS replay
+        # yet — candidates are virgin by construction for the entire window
+        # this check can fire in (the identical gate the live engine's
+        # position.tier_closed == 0 enforces; P2 review fix). j - i is bars
+        # since entry, the same 5-minute-bar unit _bars_in_trade measures
+        # live. triggers[0][0] is tier 1's effective (vol-scaled +
+        # cost-floored) trigger, computed above by the SAME sub-task-A
+        # helper the live engine uses — a true mirror, not a re-derivation.
+        if time_stop_fires(policy.ts_enabled, tier_idx == 0, j - i,
+                           policy.ts_max_bars_no_progress, peak_gain,
+                           policy.ts_min_mfe_frac,
+                           triggers[0][0] if triggers else float("inf")):
+            realized += _favorable_gain(closes[j]) * remaining
+            return BarrierOutcome(int(realized * 100.0 - cost_pct > 0),
+                                  realized * 100.0, j - i, "time_stop")
         # 3) ratchet the exit floor to the tightest armed protection
         floor = stop_level
         if tier_idx >= policy.be_after_tier:

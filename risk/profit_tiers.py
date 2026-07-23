@@ -90,6 +90,79 @@ def conviction_runner_params(cfg: dict) -> tuple[bool, float, float, float]:
     return enabled, neutral, min_conf, min_trail
 
 
+def tier1_cost_floor_mult(cfg: dict) -> float:
+    """Parse + clamp ``profit_taking.min_trigger_cost_mult`` into [1.0, 10.0]
+    (P1) — the ONE place the knob is read and bounded, shared by the live
+    ``ProfitTierEngine`` and ml.labeling's ``ExitPolicy.from_config`` (P3.5),
+    mirroring ``conviction_runner_params``'s role for the conviction-runner
+    knob. Bounds mirror core/config_guard.py's FATAL check."""
+    return min(max(_f((cfg or {}).get("min_trigger_cost_mult", 3.0), 3.0),
+                   1.0), 10.0)
+
+
+def tier1_cost_floor_pct(min_trigger_cost_mult: float,
+                        est_cost_bps: float) -> float:
+    """Pure tier-1 cost-multiple floor (P1): ``min_trigger_cost_mult ×
+    est_cost_bps`` converted bps -> pct. THE SINGLE implementation shared by
+    the live engine (``ProfitTierEngine._tier_trigger_pct``) and the label
+    sim (``ml.labeling.ExitPolicy._tier_trigger`` / ``simulate_exit_policy``,
+    P3.5) — same pattern as ``conviction_trail_mult`` (W2-1), so a candidate
+    whose configured trigger sits below the entry's own cost floor is
+    labeled at the SAME floored number the live tier fires on.
+    ``est_cost_bps <= 0`` (unset/unavailable — legacy/restored Position, or a
+    label-sim caller that has no pretrade cost estimate) is exactly inert
+    (returns 0.0, which can never raise a trigger already > 0)."""
+    return min_trigger_cost_mult * max(_f(est_cost_bps), 0.0) / 100.0
+
+
+def time_stop_params(cfg: dict) -> tuple[bool, int, float]:
+    """Parse + clamp ``profit_taking.time_stop`` into ``(enabled,
+    max_bars_no_progress, min_mfe_frac_of_tier1)`` (P2, PT-060) — the ONE
+    place read by the live ``ProfitTierEngine`` and ml.labeling's
+    ``ExitPolicy.from_config`` (P3.5), mirroring ``conviction_runner_params``'s
+    role for the conviction-runner knob so the sim can never drift from the
+    live parse. Bounds mirror core/config_guard.py's FATAL checks (enforced
+    there only while ``enabled``): max_bars_no_progress in [6, 500],
+    min_mfe_frac_of_tier1 in (0, 1]; this clamp is defense-in-depth, same as
+    every other ``cfg.get(...)`` parse in this module."""
+    ts = (cfg or {}).get("time_stop", {}) or {}
+    enabled = bool(ts.get("enabled", False))
+    max_bars = max(int(_f(ts.get("max_bars_no_progress", 36), 36)), 1)
+    min_frac = min(max(_f(ts.get("min_mfe_frac_of_tier1", 0.5), 0.5),
+                       0.0), 1.0)
+    return enabled, max_bars, min_frac
+
+
+def time_stop_fires(enabled: bool, is_virgin: bool, bars_in_trade: float,
+                    max_bars_no_progress: int, mfe: float,
+                    min_mfe_frac: float, trigger1: float) -> bool:
+    """Pure PT-060 time-stop predicate (P2) — THE SINGLE implementation
+    shared by the live engine (``ProfitTierEngine._time_stop_hit``) and the
+    label sim (``ml.labeling.simulate_exit_policy``, P3.5), same pattern as
+    ``conviction_trail_mult`` (W2-1): a candidate's time-stop label fires
+    under EXACTLY the condition a live position would be scratched under.
+
+    ``is_virgin`` is the VIRGIN-ONLY gate (P2 review fix): True only for a
+    position/candidate that has not yet closed any tier — live:
+    ``position.tier_closed == 0``; the label sim: no tier has fired yet in
+    THIS replay (``tier_idx == 0``), true by construction the whole time the
+    time-stop window is open (a candidate cannot be non-virgin before its
+    first tier fires). ``trigger1`` must be the SAME effective (vol-scaled +
+    cost-floored, tier_index=0) tier-1 trigger tier 1 itself fires on —
+    non-finite (no tier-1 trigger configured/available) is inert, never
+    firing, matching the cost-floor's own "0 est_cost_bps is exactly inert"
+    discipline. ``mfe``/``trigger1`` only need to agree in UNITS with each
+    other (both the live engine's pct-number scale, or both the sim's
+    fraction scale) — the comparison is a pure ratio, scale-invariant."""
+    if not enabled or not is_virgin:
+        return False
+    if bars_in_trade < max_bars_no_progress:
+        return False
+    if not math.isfinite(trigger1):
+        return False
+    return mfe < min_mfe_frac * trigger1
+
+
 def conviction_trail_mult(conf: float, enabled: bool, neutral_conf: float,
                           min_conf: float, min_trail_mult: float) -> float:
     """Pure entry-conviction runner-leash multiplier in (0, 1] — the SINGLE
@@ -236,8 +309,7 @@ class ProfitTierEngine:
         # one already clear of the floor. Bounds [1.0, 10.0] mirrored FATAL
         # in core/config_guard.py. est_cost_bps defaults to 0.0 on legacy/
         # restored positions, making the floor exactly inert for them.
-        self.min_trigger_cost_mult = min(max(
-            _f(cfg.get("min_trigger_cost_mult", 3.0), 3.0), 1.0), 10.0)
+        self.min_trigger_cost_mult = tier1_cost_floor_mult(cfg)
         # TIME-STOP (P2, 2026-07-23 P&L diagnosis): a position that has NOT
         # reached min_mfe_frac_of_tier1 of the tier-1 EFFECTIVE trigger (the
         # SAME vol-scaled + cost-floored number tier 1 fires on -
@@ -252,12 +324,8 @@ class ProfitTierEngine:
         # parallel tracker. Code default disabled (bare ProfitTierEngine({})
         # stays byte-identical legacy); config.json turns it on. Bounds
         # [6, 500] / (0, 1] mirrored FATAL in core/config_guard.py.
-        ts = cfg.get("time_stop", {}) or {}
-        self.ts_enabled = bool(ts.get("enabled", False))
-        self.ts_max_bars_no_progress = max(
-            int(_f(ts.get("max_bars_no_progress", 36), 36)), 1)
-        self.ts_min_mfe_frac = min(max(
-            _f(ts.get("min_mfe_frac_of_tier1", 0.5), 0.5), 0.0), 1.0)
+        (self.ts_enabled, self.ts_max_bars_no_progress,
+         self.ts_min_mfe_frac) = time_stop_params(cfg)
 
     # ------------------------------------------------------------------
     def _estimate_realized_pnl(self, position, current_price: float,
@@ -307,12 +375,14 @@ class ProfitTierEngine:
                 trigger = min(max(mult * sig, 0.5 * legacy), 3.0 * legacy)
         # tier-1 cost-multiple floor (P1): tier_index is the position's
         # tier_closed count, so index 0 means tier 1 - the ONLY tier this
-        # floor governs. bps -> pct: est_cost_bps / 100. RAISE-only (never
-        # lowers a trigger already clear of the floor); 0 est_cost_bps
-        # (unset/legacy Position) makes the floor 0 -> exactly inert.
+        # floor governs. RAISE-only (never lowers a trigger already clear
+        # of the floor); 0 est_cost_bps (unset/legacy Position) makes the
+        # floor 0 -> exactly inert. Computed via the shared tier1_cost_floor_pct
+        # helper (P3.5) so the label sim's ExitPolicy._tier_trigger applies
+        # THE SAME formula, never a copied constant.
         if tier_index == 0:
-            cost_floor_pct = self.min_trigger_cost_mult * \
-                max(_f(est_cost_bps), 0.0) / 100.0
+            cost_floor_pct = tier1_cost_floor_pct(self.min_trigger_cost_mult,
+                                                  est_cost_bps)
             if cost_floor_pct > trigger:
                 trigger = cost_floor_pct
         return trigger
@@ -479,18 +549,20 @@ class ProfitTierEngine:
         return float(give_back_stop(e, hw, long, frac))
 
     def _time_stop_hit(self, position, sigma_bar_pct,
-                       now: Optional[float] = None) -> bool:
-        """PT-060 time-stop: True once a position has spent
-        max_bars_no_progress bars (EX-8 injected `now`, never wall clock)
-        without reaching min_mfe_frac_of_tier1 of tier-1's EFFECTIVE
-        trigger - the exact post vol-scaling/clamp/cost-floor number tier 1
-        fires on (_tier_trigger_pct, tier_index=0, ALWAYS index 0 - "half
-        the tier-1 trigger" is a fixed reference point regardless of how
-        many tiers this position has already closed). Reuses the persisted
-        high_water via _mfe_pct - no parallel tracker. A missing/legacy
-        tier-1 trigger (non-finite) has no reference to judge progress
-        against, so this stays inert rather than guessing (matches the
-        cost-floor's own "0 est_cost_bps is exactly inert" discipline).
+                       now: Optional[float] = None) -> tuple[bool, float]:
+        """PT-060 time-stop: returns ``(fired, bars_in_trade)``. ``fired`` is
+        True once a position has spent max_bars_no_progress bars (EX-8
+        injected `now`, never wall clock) without reaching
+        min_mfe_frac_of_tier1 of tier-1's EFFECTIVE trigger - the exact post
+        vol-scaling/clamp/cost-floor number tier 1 fires on
+        (_tier_trigger_pct, tier_index=0, ALWAYS index 0 - "half the tier-1
+        trigger" is a fixed reference point regardless of how many tiers
+        this position has already closed). The pass/fail decision itself is
+        delegated to the module-level ``time_stop_fires`` (P3.5) so the live
+        engine and the label sim provably share ONE predicate. Reuses the
+        persisted high_water via _mfe_pct - no parallel tracker. Returning
+        bars_in_trade lets evaluate()'s log line reuse it instead of calling
+        _bars_in_trade a second time (P2 review minor).
 
         VIRGIN-ONLY GATE (P2 review fix, 2026-07-23): only ever fires when
         position.tier_closed == 0. Tier-1's vol-scaled trigger RECLAMPS
@@ -506,16 +578,18 @@ class ProfitTierEngine:
         categorically exempt rather than re-judged against a moving
         target."""
         if not self.ts_enabled or position.tier_closed != 0:
-            return False
+            return False, 0.0
         bars = self._bars_in_trade(position, now)
         if bars < self.ts_max_bars_no_progress:
-            return False
+            return False, bars
         trigger1 = self._tier_trigger_pct(
             self.tiers[0], sigma_bar_pct, tier_index=0,
             est_cost_bps=_f(getattr(position, "est_cost_bps", 0.0)))
-        if not math.isfinite(trigger1):
-            return False
-        return self._mfe_pct(position) < self.ts_min_mfe_frac * trigger1
+        fired = time_stop_fires(self.ts_enabled, True, bars,
+                                self.ts_max_bars_no_progress,
+                                self._mfe_pct(position), self.ts_min_mfe_frac,
+                                trigger1)
+        return fired, bars
 
     def _exit_floor_hit(self, position, px: float, sigma_bar_pct,
                         signal_alive=None,
@@ -649,13 +723,14 @@ class ProfitTierEngine:
         # gated by anything that blocks NEW risk (invariant 5: this is an
         # EXIT, it fires under disarm/fault-latch exactly like every other
         # protective close in this module).
-        if self._time_stop_hit(position, sigma_bar_pct, now=now):
+        ts_fired, ts_bars = self._time_stop_hit(position, sigma_bar_pct,
+                                                now=now)
+        if ts_fired:
             pnl = self._estimate_realized_pnl(position, px, 100.0)
-            bars = self._bars_in_trade(position, now)
             mfe = self._mfe_pct(position)
             log.info(tag(Code.PT_TIME_STOP,
                          f"{position.symbol} time-stop: no favorable "
-                         f"progress ({bars:.0f} bars, MFE {mfe:.2f}%) - "
+                         f"progress ({ts_bars:.0f} bars, MFE {mfe:.2f}%) - "
                          f"scratching full close"))
             return TierAction(True, 100.0, pnl, tier_fired=next_tier_index,
                               reason_code=Code.PT_TIME_STOP.value)

@@ -1274,9 +1274,15 @@ class LiquidityBot:
 
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
                  tier_fired: int = 0, now: Optional[float] = None,
-                 profit_take: bool = False) -> None:
+                 profit_take: bool = False, reason_code: str = "") -> None:
         """Risk-reduction exit: marketable limit, slippage-capped, never
         blocked by the pre-trade edge gate (exits are risk management).
+
+        `reason_code` (default "" — every legacy caller unchanged) is a
+        registered core/codes.py Code carried on THIS specific close (e.g.
+        Code.PT_TIME_STOP.value on a PT-060 scratch, threaded from
+        TierAction.reason_code); it rides in order.meta["reason_code"] so a
+        disposition is identifiable without string-matching `reason`.
 
         ESCALATION LADDER (expect the market to gap): each time an exit
         for this position expires unfilled, the next attempt widens its
@@ -1394,7 +1400,8 @@ class LiquidityBot:
             ref_price=ref, equity=self._equity(),  # type: ignore[arg-type]
             book=book, sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
             meta={"reason": reason, "attempt": attempts + 1,
-                  "tier_fired": int(tier_fired)},
+                  "tier_fired": int(tier_fired),
+                  "reason_code": reason_code},
             now=now,
         )
         if order is None:
@@ -1882,7 +1889,8 @@ class LiquidityBot:
                 self._submit_exit(pos, action.close_pct,
                                 f"tier {action.tier_fired or 'trail'}",
                                 tier_fired=action.tier_fired, now=now,
-                                profit_take=action.is_profit_take)
+                                profit_take=action.is_profit_take,
+                                reason_code=action.reason_code)
 
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline

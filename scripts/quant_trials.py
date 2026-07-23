@@ -48,6 +48,19 @@ HARD_STOP_PCT = 2.0        # both arms: protective stop distance
 ENTRY_FRAC = 0.25          # both arms: proposed fraction per entry
 SIG_THRESH = 0.55          # both arms: entry threshold on the signal
 
+# COVERAGE BOUNDARY (P3.5, 2026-07-23): TIER_CFG exercises NEITHER the P1
+# tier-1 cost-multiple floor NOR the P2 time-stop (PT-060).
+#   - P1 floor: inert here because the harness's Position (below, `run_arm`)
+#     never sets est_cost_bps — it defaults to 0.0, which the floor treats as
+#     exactly inert (0 est_cost_bps -> 0 floor, same discipline the live
+#     engine/label sim both use for legacy/unavailable positions).
+#   - P2 time-stop: TIER_CFG carries no "time_stop" key at all, so
+#     ProfitTierEngine.__init__ reads the code default (disabled) and
+#     _time_stop_hit never fires.
+# This is a KNOWN, ACCEPTED gap, not an oversight: enabling either lever here
+# changes G1-G5's simulated economics and is a CONSCIOUS RE-BASELINE decision
+# for P4 adjudication, not something to flip in this commit. Do NOT enable
+# them here.
 TIER_CFG = {
     "tier_1": {"trigger_pct_gain": 1.0, "close_pct_of_position": 25},
     "tier_2": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25},
