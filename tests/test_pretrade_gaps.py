@@ -215,3 +215,55 @@ def test_pretrade_evaluate_has_a_single_call_site_in_entry_pipeline():
     assert "slow_cycle" in lines[enclosing], (
         "pretrade.evaluate moved out of the entry-candidate slow_cycle "
         f"section into {lines[enclosing].strip()!r}")
+
+
+# ---------------------------------------------------------------------------
+# 20. W1-6: one-sided Kraken book on the MAKER path must fail closed, not
+# approve with the optimistic p0 baseline / a silently-skipped participation
+# clamp. Taker path is unaffected (its own book-walk veto already exists).
+# ---------------------------------------------------------------------------
+def test_one_sided_kraken_book_vetoes_the_maker_path():
+    # bids healthy, asks EMPTY -- a buy's maker leg has no ask touch to
+    # distance-decay p_fill from. Everything else is approvable (huge alpha,
+    # tight nominal spread, deep ADV) so only the one-sided book can veto.
+    book = {"bids": [[99.0, 1000.0]], "asks": []}
+    ctx = _ctx(spread=5.0, book=book, adv=1e6)
+    d = _gate().evaluate("buy", 1.0, 100.0, exp_alpha_bps=500.0,
+                        fv_edge_bps=0.0, ctx=ctx, taker=False)
+    assert not d.approved
+    assert Code.PT_BOOK_SHALLOW.value in _reasons(d)
+    # pre-fix this approved with the OPTIMISTIC baseline (mid=0.0 ->
+    # dist_bps=0.0 -> p_fill == maker_fill_p0), never the honest floor.
+    assert d.p_fill != pytest.approx(0.45)
+
+
+def test_one_sided_kraken_book_oversized_order_is_not_left_unclamped():
+    # same one-sided book, but the order is grossly oversized relative to the
+    # (healthy) bid side. Pre-fix, depth_units off the EMPTY ask side is 0.0,
+    # so max_units == 0.0 fails the `> EPS` test and the participation clamp
+    # is silently skipped -- the size would ride through unclamped.
+    book = {"bids": [[99.0, 1000.0]], "asks": []}
+    ctx = _ctx(spread=5.0, book=book, adv=1e6)
+    d = _gate(max_participation_of_depth=0.15).evaluate(
+        "buy", 500.0, 100.0, exp_alpha_bps=500.0, fv_edge_bps=0.0,
+        ctx=ctx, taker=False)
+    assert not d.approved
+    assert Code.PT_BOOK_SHALLOW.value in _reasons(d)
+    assert d.size_units == 0.0          # never the raw 500.0 oversized request
+
+
+def test_negative_spread_cannot_reduce_the_cost_stack():
+    # a negative ctx.spread_bps (inverted/garbage book upstream) must not
+    # REDUCE spread_cost or exit_leg below their spread=0 values -- fail
+    # closed, either by flooring consumption or rejecting the input outright.
+    gate = _gate(price_exit_leg=True)
+    ctx_neg = _ctx(spread=-5.0, adv=1e6)
+    ctx_zero = _ctx(spread=0.0, adv=1e6)
+    d_neg = gate.evaluate("buy", 1.0, 100.0, exp_alpha_bps=1000.0,
+                         fv_edge_bps=0.0, ctx=ctx_neg, taker=True)
+    d_zero = gate.evaluate("buy", 1.0, 100.0, exp_alpha_bps=1000.0,
+                          fv_edge_bps=0.0, ctx=ctx_zero, taker=True)
+    if d_neg.approved:
+        assert d_neg.est_cost_bps >= d_zero.est_cost_bps
+    else:
+        assert Code.PT_INVALID_INPUT.value in _reasons(d_neg)

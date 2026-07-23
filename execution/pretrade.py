@@ -173,6 +173,10 @@ class PreTradeGate:
                 d.reasons.append(tag(Code.PT_INVALID_INPUT,
                                      f"non-finite {name}={v!r}"))
                 return d
+        if ctx.spread_bps < 0.0:
+            d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                 f"negative spread={ctx.spread_bps!r}"))
+            return d
 
         # ---- hard vetoes ------------------------------------------------
         if ctx.staleness_ms > self.max_staleness_ms:
@@ -228,6 +232,16 @@ class PreTradeGate:
             fee = self.maker_fee_bps
             spread_cost = 0.0
             walk = 0.0
+            # a one-sided Kraken book (empty bids or asks) cannot price a
+            # maker fill: no touch to distance-decay p_fill from, and the
+            # participation clamp's depth read (the trade-direction side)
+            # goes to 0 and silently no-ops. Fail closed like the taker
+            # path's own shallow-book veto -- same code, same meaning.
+            if not (ctx.kraken_book.get("bids") and ctx.kraken_book.get("asks")):
+                d.reasons.append(tag(Code.PT_BOOK_SHALLOW,
+                                     "one-sided Kraken book: maker needs "
+                                     "both sides to price a fill"))
+                return d
             # adverse selection: conditional on a passive fill, expected
             # short-horizon move against us ~ kappa x per-bar vol
             as_penalty = self.as_kappa * sigma_bar_bps
