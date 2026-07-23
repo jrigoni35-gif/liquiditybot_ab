@@ -58,9 +58,15 @@ SIG_THRESH = 0.55          # both arms: entry threshold on the signal
 #     ProfitTierEngine.__init__ reads the code default (disabled) and
 #     _time_stop_hit never fires.
 # This is a KNOWN, ACCEPTED gap, not an oversight: enabling either lever here
-# changes G1-G5's simulated economics and is a CONSCIOUS RE-BASELINE decision
-# for P4 adjudication, not something to flip in this commit. Do NOT enable
-# them here.
+# changes G1-G5's simulated economics and is a CONSCIOUS RE-BASELINE decision,
+# not something to flip in a passing commit. Do NOT enable them here.
+# ADJUDICATED #103 T6 (2026-07-23): enablement was built, run at 200x1200,
+# and REVERTED — the deployed geometry fails G1 in this harness's high-cost
+# world (floor delays partial-take de-risking; the floor also raises the
+# time-stop's scratch bar via the shared trigger1). Full numbers, ablations,
+# mechanism, and the re-enablement recipe:
+# docs/quant/2026-07-23_harness_enablement_finding.md. Re-enable only after
+# the paper-telemetry floor review resolves, and re-baseline at 200x1200.
 TIER_CFG = {
     "tier_1": {"trigger_pct_gain": 1.0, "close_pct_of_position": 25},
     "tier_2": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25},
