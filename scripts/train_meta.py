@@ -74,6 +74,18 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
         monitor.restore(state_data.get("monitor") or {})
     prev_champion = monitor.champion_brier
 
+    # W2-2 stale-gate CAS: snapshot the on-disk champion's identity right
+    # here, before the gate decision - the runner's in-process auto-retrain
+    # can be racing this exact deploy against the SAME champion. save_model()
+    # re-checks this immediately before its write and refuses if a
+    # concurrent writer already deployed since.
+    from ml.registry import sha256_file
+    _model_path_p = Path(model_path)
+    try:
+        _prior_hash = sha256_file(_model_path_p) if _model_path_p.exists() else None
+    except OSError:
+        _prior_hash = None
+
     # LP-6: pass the OOF count so the deploy_min_oof evidence floor binds
     # for CLI retrains exactly as it does for the runner's auto path - a
     # Brier on a handful of points beats a coin by luck, never by skill.
@@ -85,7 +97,15 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
                   f"own auto-retrain deploy gate.")
         return False
 
-    save_model(model, model_path, extra=extra)
+    if not save_model(model, model_path, extra=extra,
+                      expect_prior_sha256=_prior_hash):
+        log.error(f"REJECTED: a concurrent writer (the running bot's own "
+                  f"auto-retrain, or another CLI run) already deployed to "
+                  f"{model_path} since this gate read the champion - "
+                  f"discarding this challenger rather than clobbering the "
+                  f"newer artifact. Re-run against the current champion if "
+                  f"this challenger should still compete.")
+        return False
     monitor.note_deployed(challenger_brier)
     if state_data is not None:
         state_data["monitor"] = monitor.to_dict()

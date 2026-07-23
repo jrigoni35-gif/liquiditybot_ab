@@ -331,11 +331,52 @@ class EnsembleMLP:
         return e
 
 
-def save_model(model, path: str, extra: dict | None = None):
+_NOT_GIVEN = object()  # sentinel: expect_prior_sha256 not passed at all
+
+
+def save_model(model, path: str, extra: dict | None = None,
+              expect_prior_sha256=_NOT_GIVEN) -> bool:
     """Persist the artifact AND register it (Assurance Build): SHA-256
     identity, immutable archive copy, model card in the append-only
-    registry ledger. Registration failure never blocks the save."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    registry ledger. Registration failure never blocks the save.
+
+    W2-2: the write is ATOMIC — temp file in the same directory + os.replace
+    via core.runtime.atomic_write_json (the repo's own atomic-write pattern,
+    already used for status.json/runner.lock) — so a crash or a transient
+    Windows PermissionError mid-write can never leave a torn/truncated
+    artifact on disk; the destination holds either the old bytes or the new
+    ones, never a mix.
+
+    `expect_prior_sha256` is a stale-gate CAS: the runner's in-process
+    auto-retrain and a CLI scripts/train_meta.py run can both gate a
+    challenger against the CURRENT champion and then race the write — the
+    slower one to finish must not silently clobber the other's already-
+    deployed artifact with a decision made against a champion that no
+    longer exists on disk. Pass the sha256 of the artifact your deploy gate
+    read (ml.registry.sha256_file), captured immediately before the gate
+    decision — or None if the gate saw no artifact at all (cold start).
+    Immediately before the write, the CURRENT on-disk hash is re-checked
+    against it; a mismatch means another writer already deployed since your
+    gate read, and the write is refused (logged loud, artifact untouched)
+    rather than overwriting the newer one. Omit the parameter entirely to
+    skip the check (single-writer callers, most tests) — the default
+    preserves the old unconditional-write behavior exactly.
+
+    Returns True on a completed save, False only on a CAS refusal."""
+    if expect_prior_sha256 is not _NOT_GIVEN:
+        from ml.registry import sha256_file
+        p = Path(path)
+        try:
+            current = sha256_file(p) if p.exists() else None
+        except OSError:
+            current = None
+        if current != expect_prior_sha256:
+            log.error(
+                "W2-2 CAS refused: %s changed since the deploy gate read it "
+                "(gate expected %s, on-disk is %s) — a concurrent writer "
+                "already deployed; keeping the newer artifact instead of "
+                "clobbering it", path, expect_prior_sha256, current)
+            return False
     d = model.to_dict()
     if extra:
         d.update(extra)
@@ -345,8 +386,8 @@ def save_model(model, path: str, extra: dict | None = None):
     # running code's schema IS the artifact's schema at save time.
     from ml.contracts import SCHEMA_VERSION
     d["feature_schema_version"] = SCHEMA_VERSION
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(d, f)
+    from core.runtime import atomic_write_json
+    atomic_write_json(Path(path), d)
     log.info(f"model saved -> {path}")
     try:
         from ml.registry import get_registry
@@ -364,6 +405,7 @@ def save_model(model, path: str, extra: dict | None = None):
     except Exception:
         log.exception("model registry registration failed — artifact "
                       "saved but has no pedigree")
+    return True
 
 
 def load_model(path: str):

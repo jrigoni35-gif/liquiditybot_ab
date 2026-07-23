@@ -873,13 +873,24 @@ def test_monitor_ladder():
     check("monitor: floors kelly", m.kelly_mult <= 0.41)
     check("monitor: retrain flag written",
           Path(str(TMP / "smoke_retrain.flag")).exists())
-    # recovery: model behaves (p matches outcomes)
-    rng = np.random.default_rng(3)
-    for _ in range(70):
-        p = float(rng.uniform(0.45, 0.75))
-        m.record_close(p, int(rng.random() < p), model_scored=True)
+    # recovery: model behaves (p matches outcomes). W2-17 gates de-escalation
+    # on `deescalate_healthy_windows` (default 3) CONSECUTIVE healthy windows,
+    # so the fixture must be UNAMBIGUOUSLY well-calibrated, not just
+    # noisily-honest-on-average (a uniform-random p vs Bernoulli(p) outcome
+    # hovers within brier_margin of the baseline and can sit degraded
+    # forever on pure sampling noise - which is exactly the flap the fix
+    # exists to stop rewarding). A clean, deterministic, clearly-calibrated
+    # block (matches tests/test_monitor_shadow_recovery.py) repeated enough
+    # times to clear the streak requirement proves genuine recovery.
+    def _clean_block():
+        for k in range(5):
+            m.record_close(0.8, 1 if k < 4 else 0, model_scored=True)
+        for k in range(5):
+            m.record_close(0.2, 1 if k < 1 else 0, model_scored=True)
+    for _ in range(8):
+        _clean_block()
     check("monitor: recovers when predictions become honest",
-          m.level <= 1, f"level={m.level}")
+          m.level == 0, f"level={m.level}")
     # recurring whipsaw causes widen stops (bounded)
     m2 = ModelMonitor({"min_trades_to_judge": 999,
                        "retrain_flag_path": str(TMP / "smoke_m2.flag")})

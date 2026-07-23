@@ -12,16 +12,16 @@ import json
 import numpy as np
 
 from core.persistence import StateStore
-from ml.models import GradientBoostedStumps, load_model
+from ml.models import GradientBoostedStumps, load_model, save_model
 from ml.monitor import ModelMonitor
 from scripts.train_meta import _deploy_challenger
 
 
-def _fitted_gbt():
-    rng = np.random.default_rng(3)
+def _fitted_gbt(seed=3):
+    rng = np.random.default_rng(seed)
     X = rng.normal(size=(120, 4))
     y = (X[:, 0] + 0.3 * rng.normal(size=120) > 0).astype(float)
-    return GradientBoostedStumps(seed=3).fit(X, y)
+    return GradientBoostedStumps(seed=seed).fit(X, y)
 
 
 def _seed_state(state_path, champion_brier: float) -> dict:
@@ -78,3 +78,57 @@ def test_no_existing_snapshot_still_deploys_without_creating_one(tmp_path):
     assert deployed is True
     assert model_path.exists()
     assert not state_path.exists()   # no partial/synthetic snapshot written
+
+
+# --------------------------------------------------------- W2-2 stale-gate CAS
+def test_concurrent_writer_race_is_refused_not_clobbered(tmp_path, monkeypatch):
+    """A CLI _deploy_challenger run and the runner's in-process auto-retrain
+    can race a deploy: both gate a challenger against the SAME on-disk
+    champion, then whichever finishes last must not silently overwrite the
+    other's already-deployed artifact with a decision made against a
+    champion that no longer exists. Here, another writer deploys ITS OWN
+    challenger the instant this gate's should_deploy() runs - i.e. strictly
+    between this call's prior-hash read and its save."""
+    model_path = tmp_path / "meta_model.json"
+    state_path = tmp_path / "state.json"
+    _seed_state(state_path, champion_brier=0.30)
+    config = {"ml": {"monitor": {}}, "system": {"state_path": str(state_path)}}
+
+    concurrent_model = _fitted_gbt(seed=99)
+    real_should_deploy = ModelMonitor.should_deploy
+
+    def racing_should_deploy(self, challenger_brier, n_oof=None):
+        # a concurrent writer deploys first, strictly after this call's
+        # prior-artifact hash was already captured
+        save_model(concurrent_model, str(model_path))
+        return real_should_deploy(self, challenger_brier, n_oof=n_oof)
+    monkeypatch.setattr(ModelMonitor, "should_deploy", racing_should_deploy)
+
+    deployed = _deploy_challenger(config, _fitted_gbt(seed=5),
+                                  challenger_brier=0.10, extra={},
+                                  model_path=str(model_path), n_oof=50)
+
+    assert deployed is False, \
+        "a stale-gate race must be refused, not silently deployed"
+    on_disk = load_model(str(model_path))
+    assert on_disk.importance_ == concurrent_model.importance_, \
+        "the concurrent writer's artifact must survive untouched"
+    # the stale writer must not have touched the persisted champion baseline
+    still = json.loads(state_path.read_text(encoding="utf-8"))
+    assert still["monitor"]["champion_brier"] == 0.30
+
+
+def test_uncontested_deploy_unaffected_by_the_cas_wiring(tmp_path):
+    """Sanity: with no race, the same CAS-aware code path still deploys."""
+    model_path = tmp_path / "meta_model.json"
+    state_path = tmp_path / "state.json"
+    _seed_state(state_path, champion_brier=0.30)
+    config = {"ml": {"monitor": {}}, "system": {"state_path": str(state_path)}}
+
+    deployed = _deploy_challenger(config, _fitted_gbt(seed=5),
+                                  challenger_brier=0.10, extra={},
+                                  model_path=str(model_path), n_oof=50)
+
+    assert deployed is True
+    updated = json.loads(state_path.read_text(encoding="utf-8"))
+    assert updated["monitor"]["champion_brier"] == 0.10

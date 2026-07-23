@@ -122,6 +122,16 @@ class ModelMonitor:
         self._last_cause_ts = 0.0
         self.level = 0
         self._level_streak = 0
+        # W2-17: de-escalation deadband. Brier hovering within noise of
+        # baseline+brier_margin flips degraded on/off from pure window churn,
+        # so a single healthy evaluation dropping the level immediately
+        # flapped kelly_mult/shrinkage every other trade. Escalation
+        # (_level_streak, above) already had streak discipline; this is the
+        # matching guard for the downward direction only - fail toward
+        # caution stays immediate.
+        self.deescalate_healthy_windows = int(
+            cfg.get("deescalate_healthy_windows", 3))
+        self._healthy_streak = 0
         self._last_retrain_request = 0.0
         self._rows_at_last_request = 0
         self.champion_brier: float = 0.25
@@ -219,12 +229,28 @@ class ModelMonitor:
         if failing:
             self._level_streak = self._level_streak + 1 if prev >= 1 else 1
             self.level = 2 if (prev >= 1 or self._level_streak >= 2) else 1
+            self._healthy_streak = 0
         elif degraded:
             self.level = max(1, min(prev, 2)) if prev >= 1 else 1
             self._level_streak = 0
+            self._healthy_streak = 0
         else:
-            self.level = max(prev - 1, 0)
             self._level_streak = 0
+            # W2-17 deadband: a downward step (de-escalation) only fires
+            # after `deescalate_healthy_windows` CONSECUTIVE healthy
+            # evaluations - one healthy trade no longer unwinds a level
+            # gained on real evidence. prev==0 has nothing to de-escalate
+            # from and never needs the streak.
+            if prev == 0:
+                self.level = 0
+                self._healthy_streak = 0
+            else:
+                self._healthy_streak += 1
+                if self._healthy_streak >= self.deescalate_healthy_windows:
+                    self.level = prev - 1
+                    self._healthy_streak = 0
+                else:
+                    self.level = prev
 
         self._apply_level()
         # NOTE: cause adjustments are applied once in record_close, NOT here

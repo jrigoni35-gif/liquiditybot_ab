@@ -585,6 +585,17 @@ def validate(config: dict) -> list:
         advisory(f"ml.monitor.shadow_recovery={_sr!r} is not a boolean; it is "
                  f"coerced by bool() - set true/false explicitly.")
 
+    # W2-17: de-escalation deadband. Below 1 the deadband is disabled outright
+    # (every healthy window de-escalates instantly - reopens the L0<->1 flap
+    # the knob exists to fix); above 10 a genuinely recovered model stays
+    # throttled far longer than the evidence warrants.
+    dhw = int(_f(config, "ml.monitor.deescalate_healthy_windows", 3))
+    if not (1 <= dhw <= 10):
+        fatal(f"ml.monitor.deescalate_healthy_windows ({dhw}) must be in "
+              f"[1, 10] - <1 disables the de-escalation deadband (reopens "
+              f"the L0<->L1 flap on window-churn noise), >10 leaves a "
+              f"recovered model throttled long past the evidence")
+
     # --- post-hoc interpretability report (ml/interpret.py) ---------------
     # analysis knobs, not decision-path tunables — but nonsense values make
     # the report LIE (a background too thin makes interventional SHAP noise;

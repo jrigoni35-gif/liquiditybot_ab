@@ -2963,6 +2963,18 @@ class LiquidityBot:
                 log.warning("external meta-model change detected but the "
                             "artifact was rejected (schema/integrity) - staying "
                             "on the cold-start prior")
+            # W2-3: reconcile_champion_badge was only ever called at
+            # __init__/resume (see the ML-076 comment above), never here - a
+            # REJECTED reload flips meta.trained False but left the badge
+            # untouched, so a ghost champion_brier could squat and reject
+            # every honest challenger forever (the exact ML-076 deadlock,
+            # just reachable through this call site instead). Mirror the
+            # __init__ call's arguments in BOTH branches: accepted syncs to
+            # the new artifact's own oof (a no-op after note_deployed already
+            # set it exactly); rejected discards a ghost badge that no longer
+            # has a backing model.
+            self.monitor.reconcile_champion_badge(
+                self.meta.oof_brier, model_loaded=self.meta.trained)
         self._maybe_auto_retrain()
         self.monitor.check_drift(self.meta.feature_deciles, FEATURE_NAMES)
 
@@ -3158,6 +3170,20 @@ class LiquidityBot:
                          "OOF, rows beyond its training horizon)",
                          self.monitor.champion_brier, champ_fresh)
                 self.monitor.champion_brier = champ_fresh
+            # W2-2 stale-gate CAS: snapshot the on-disk champion's identity
+            # right before the gate decision. A CLI scripts/train_meta.py run
+            # can race this in-process retrain — both gate a challenger
+            # against the CURRENT champion; whichever writes last must not
+            # silently clobber the other's already-deployed artifact with a
+            # decision made against a champion that no longer exists on
+            # disk. save_model() re-checks this immediately before its write.
+            from ml.registry import sha256_file
+            _model_path_p = Path(self.meta.model_path)
+            try:
+                _prior_hash = (sha256_file(_model_path_p)
+                              if _model_path_p.exists() else None)
+            except OSError:
+                _prior_hash = None
             _deploy_ok = self.monitor.should_deploy(challenger_brier,
                                                     n_oof=len(oof_cal))
             # continuous learning curve: one history row per retrain,
@@ -3174,7 +3200,7 @@ class LiquidityBot:
                 return
             from ml.interpret import background_sample
             from ml.registry import sha256_array
-            save_model(results["model"], self.meta.model_path,
+            saved = save_model(results["model"], self.meta.model_path,
                     extra={"calibration": cal.to_dict(),
                             "oof_brier": challenger_brier,
                             "feature_deciles": feature_deciles(X),
@@ -3194,7 +3220,21 @@ class LiquidityBot:
                             "wf_importance": results.get("importance", []),
                             "rows": int(len(X)),
                             "class_balance": round(float(y.mean()), 3),
-                            "train_data_sha": sha256_array(X)})
+                            "train_data_sha": sha256_array(X)},
+                    expect_prior_sha256=_prior_hash)
+            if not saved:
+                # W2-2: a concurrent writer (CLI train_meta.py) already
+                # deployed to model_path since this gate read the champion -
+                # this challenger was gated against a champion that no
+                # longer exists on disk. Discard it rather than clobber the
+                # newer artifact; the next cycle re-gates against whatever
+                # actually landed.
+                log.warning("auto-retrain challenger gated OK but a "
+                           "concurrent writer already deployed to %s since "
+                           "the gate read - discarding this challenger "
+                           "instead of overwriting the newer artifact",
+                           self.meta.model_path)
+                return
             self.meta.reload()
             self.monitor.note_deployed(challenger_brier)
             log.warning(f"auto-retrain DEPLOYED {results['selected']} "
