@@ -475,8 +475,14 @@ class StateStore:
         except Exception:
             log.exception("history section malformed - skipped")
 
-        bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
-        bot._pos_realized.update(data.get("pos_realized", {}))
+        try:
+            bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
+        except (TypeError, ValueError):
+            log.warning("sizer_last_entry section malformed - skipped")
+        try:
+            bot._pos_realized.update(data.get("pos_realized", {}))
+        except (TypeError, ValueError):
+            log.warning("pos_realized section malformed - skipped")
         try:
             if hasattr(bot, "_exit_attempts"):
                 bot._exit_attempts.update(
@@ -518,21 +524,47 @@ class StateStore:
         # (rows at launch), the old behavior
         if data.get("rows_at_last_train") is not None:
             bot._rows_at_last_train = int(data["rows_at_last_train"])
+        # each subsystem restores in its own try/except: a raise in one (e.g.
+        # a malformed monitor section) must never skip the others - a breaker
+        # trip or risk_protocols loss-budget anchor laundered by a reboot is
+        # exactly the failure mode risk/circuit_breaker.py's docstring exists
+        # to prevent.
         try:
             bot.monitor.restore(data.get("monitor"))
+        except Exception:
+            log.exception("monitor section malformed - skipped")
+        try:
             bot.postmortem.restore(data.get("postmortem"))
+        except Exception:
+            log.exception("postmortem section malformed - skipped")
+        try:
             if getattr(bot, "perf", None) is not None:
                 bot.perf.restore(data.get("performance"))
+        except Exception:
+            log.exception("performance section malformed - skipped")
+        try:
             if getattr(bot, "breaker", None) is not None:
                 bot.breaker.restore(data.get("circuit_breaker"))
+        except Exception:
+            log.exception("circuit_breaker section malformed - skipped")
+        try:
             bot.candidates.restore(data.get("candidates"))
+        except Exception:
+            log.exception("candidates section malformed - skipped")
+        try:
             bot.gate_stats.restore(data.get("gate_stats"))
+        except Exception:
+            log.exception("gate_stats section malformed - skipped")
+        try:
             bot._stop_hit.update(data.get("stop_hit", {}))
+        except (TypeError, ValueError):
+            log.warning("stop_hit section malformed - skipped")
+        try:
             rp = data.get("risk_protocols")
             if rp and getattr(bot, "risk_protocols", None) is not None:
                 bot.risk_protocols.from_dict(rp)
         except Exception:
-            log.exception("monitor/postmortem/candidate sections malformed - skipped")
+            log.exception("risk_protocols section malformed - skipped")
 
         age_min = (time.time() - data.get("saved_at", 0)) / 60.0
         log.info(f"resumed from snapshot ({age_min:.1f} min old): "
