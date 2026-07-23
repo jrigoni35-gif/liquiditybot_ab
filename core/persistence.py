@@ -130,6 +130,27 @@ def _feature_schema_version() -> int:
     return FEATURE_SCHEMA_VERSION
 
 
+def _restore_fault_section(bot, data: dict) -> None:
+    """W2-15: isolated so a malformed section can't skip anything else in
+    restore(), and so this doesn't add to restore()'s own branch count
+    (pyproject.toml's C901 ceiling is a frozen regression stop, not a
+    target - do not grow restore() toward it)."""
+    try:
+        if getattr(bot, "fault", None) is not None:
+            bot.fault.restore(data.get("fault"))
+    except Exception:
+        log.exception("fault section malformed - skipped")
+
+
+def _restore_markout_section(bot, data: dict) -> None:
+    """W2-16: same isolation rationale as _restore_fault_section above."""
+    try:
+        if getattr(bot, "markout", None) is not None:
+            bot.markout.restore(data.get("markout"))
+    except Exception:
+        log.exception("markout section malformed - skipped")
+
+
 def order_from_dict(d: dict):
     from execution.order_manager import ManagedOrder
     o = ManagedOrder(
@@ -250,6 +271,12 @@ class StateStore:
                 "thales_reliability": bot.thales.reliability_to_dict()
                 if getattr(bot, "thales", None) is not None else {},
                 "halted": bot._halted,
+                # W2-15: latched faults survive a restart, except the
+                # RECOVERABLE_FAULTS keys core/fault.py's restore() drops
+                # (currently "cycle_wedged" - runner.py's documented
+                # restart-recoverable wedge). See core/fault.py docstring.
+                "fault": bot.fault.to_dict()
+                if getattr(bot, "fault", None) is not None else {},
                 # NOTE: THALES detector state is deliberately NOT
                 # snapshotted - TH-016's restart safety relies on
                 # last_fast_ts==0 cold-starting fresh (docs/THALES.md).
@@ -262,6 +289,11 @@ class StateStore:
                 # a restart must not launder an active per-asset trip
                 "circuit_breaker": bot.breaker.to_dict()
                 if getattr(bot, "breaker", None) is not None else {},
+                # W2-16: pure telemetry (no trading decision) - a deploy
+                # restart used to wipe the adverse-selection window entirely,
+                # and under deploy cadence the window could never accumulate.
+                "markout": bot.markout.to_dict()
+                if getattr(bot, "markout", None) is not None else {},
                 "candidates": bot.candidates.to_dict(),
                 "gate_stats": bot.gate_stats.to_dict(),
                 "stop_hit": dict(bot._stop_hit),
@@ -520,6 +552,11 @@ class StateStore:
         except (TypeError, ValueError):
             log.warning("thales V2 sections malformed - skipped")
         bot._halted = bool(data.get("halted", False))
+        # W2-15: latched faults re-latch on top of the FaultManager's
+        # already-armed state (main.py calls fault.arm() BEFORE store.restore()
+        # specifically so this composes - see core/fault.py docstring).
+        # RECOVERABLE_FAULTS keys (cycle_wedged) are dropped inside restore().
+        _restore_fault_section(bot, data)
         # absent in pre-upgrade snapshots -> starts counting from now
         bot._cycle_lifetime = int(data.get("cycle_lifetime", 0) or 0)
         # regime ages survive restarts; if the label changed while we were
@@ -558,6 +595,7 @@ class StateStore:
                 bot.breaker.restore(data.get("circuit_breaker"))
         except Exception:
             log.exception("circuit_breaker section malformed - skipped")
+        _restore_markout_section(bot, data)
         try:
             bot.candidates.restore(data.get("candidates"))
         except Exception:

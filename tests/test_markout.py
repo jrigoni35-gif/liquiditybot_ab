@@ -115,6 +115,45 @@ def test_duplicate_record_fill_is_not_deduped():
     assert t.snapshot()["by_asset"]["ETH"]["5"]["n"] == 2
 
 
+# ---- W2-16: pending + rolling observations survive a restart --------------
+
+def test_pending_and_obs_survive_snapshot_restore_roundtrip():
+    t = _mk(horizons=(5, 30))
+    t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=0.0)
+    t.poll({"ETH/USD": 101.0}, now=6.0)      # h5 resolves, h30 still pending
+    assert t.snapshot()["pending"] == 1
+    d = t.to_dict()
+
+    t2 = _mk(horizons=(5, 30))
+    t2.restore(d)
+    assert t2.snapshot()["pending"] == 1, "in-flight fill must survive restore"
+    assert t2.snapshot()["by_asset"]["ETH"]["5"]["markout_bps"] == 100.0, \
+        "resolved observation must survive restore"
+    # the restored pending record still resolves normally afterwards
+    t2.poll({"ETH/USD": 103.0}, now=31.0)
+    assert t2.snapshot()["by_asset"]["ETH"]["30"]["markout_bps"] == 300.0
+    assert t2.snapshot()["pending"] == 0
+
+
+def test_restore_rebuilds_obs_with_current_window_truncating_oldest():
+    t = _mk(horizons=(5,), window=5)
+    for i in range(5):
+        t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=float(i * 100))
+        t.poll({"ETH/USD": 100.0 + i + 1}, now=float(i * 100 + 6))
+    dq = t._obs[("ETH", 5.0)]
+    assert len(dq) == 5
+    original_values = list(dq)
+    d = t.to_dict()
+
+    t2 = _mk(horizons=(5,), window=2)     # config window shrunk on restore
+    t2.restore(d)                          # must not crash
+    dq2 = t2._obs[("ETH", 5.0)]
+    assert dq2.maxlen == 2
+    assert len(dq2) == 2
+    assert list(dq2) == original_values[-2:], \
+        "shrunk window must keep the newest observations, drop oldest"
+
+
 def test_nan_price_fill_is_noop_and_nan_mark_defers_never_pollutes():
     t = _mk(horizons=(5,), grace_sec=15)
     t.record_fill("ETH/USD", "ETH", "buy", float("nan"), now=0.0)

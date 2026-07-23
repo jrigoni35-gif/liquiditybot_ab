@@ -805,6 +805,20 @@ class LiquidityBot:
         self.sim = SimOverrides()       # dry-run condition injection
         self._live_block_logged = 0.0
 
+        # central fault authority (op-state ledger + policy). Constructed and
+        # armed BEFORE store.restore() below (W2-15): arm() promotes a clean
+        # FaultManager INIT -> ARMED, which is correct for a bot that finished
+        # __init__ up to this point (enforce_config above raises on a live
+        # FATAL, so startup validation already passed). restore() then
+        # re-latches any fault that survived a prior run - composing on top
+        # of ARMED via the normal latch() transition rules (see core/fault.py
+        # docstring for why this order, not the reverse, is required).
+        # Driven by the halt conditions (catastrophe hard-stop here, the
+        # runner wedge in runner.py); allow_new_risk() gates NEW entries —
+        # exits are NEVER gated (invariant #5).
+        self.fault = FaultManager(alerts=self.alerts)
+        self.fault.arm()
+
         # --- pause/resume ---
         self.store = StateStore(sys_cfg.get("state_path", "outputs/state.json"))
         self._resumed = False
@@ -825,16 +839,6 @@ class LiquidityBot:
         # deploy and re-arm the governor.
         self.monitor.reconcile_champion_badge(self.meta.oof_brier,
                                               model_loaded=self.meta.trained)
-
-        # central fault authority (op-state ledger + policy). Armed at the END
-        # of a SUCCESSFUL construction: a bot that finished __init__ passed
-        # startup validation (enforce_config above raises on a live FATAL), so
-        # ARMED is correct. Driven by the halt conditions (catastrophe hard-stop
-        # here, the runner wedge in runner.py); allow_new_risk() gates NEW
-        # entries — exits are NEVER gated (invariant #5). Faults are process-
-        # scoped and latch until an operator clears them or restarts.
-        self.fault = FaultManager(alerts=self.alerts)
-        self.fault.arm()
 
     def _reconcile_live_on_resume(self) -> None:
         """Live resume: restored resting orders reconcile through the normal

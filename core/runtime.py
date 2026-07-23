@@ -54,26 +54,35 @@ def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
     # parse. A per-writer tmp keeps each publish atomic and un-interleaved
     # (last writer wins the destination, but never a torn file).
     tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, default=str)
-        # fsync the tmp before the rename publishes it: without this a power
-        # loss can leave the destination (status.json, or runner.lock) torn or
-        # zero-length, and a restart then reads runner.lock as "no owner".
-        f.flush()
-        os.fsync(f.fileno())
-    # Windows: os.replace raises PermissionError (WinError 5) when a READER
-    # (the dashboard or a monitor) has the destination open - the file lock is
-    # transient (readers hold it for microseconds), so retry with a short
-    # backoff instead of letting the whole cycle error out and status.json go
-    # stale. POSIX rename never hits this. Last attempt re-raises.
-    for attempt in range(_retries):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == _retries - 1:
-                raise
-            time.sleep(0.02 * (attempt + 1))
+    # W2-20: unlink the tmp on EVERY exit path (json.dump raising mid-write,
+    # or the retry loop below exhausting on a persistent PermissionError) -
+    # a fixed 476-collision storm precedent already showed orphaned tmp
+    # litter is a real failure mode (persistence.py's _seal_and_write uses
+    # the same finally-unlink). A successful os.replace already renamed the
+    # tmp away, so unlink(missing_ok=True) is a no-op on the happy path.
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, default=str)
+            # fsync the tmp before the rename publishes it: without this a power
+            # loss can leave the destination (status.json, or runner.lock) torn or
+            # zero-length, and a restart then reads runner.lock as "no owner".
+            f.flush()
+            os.fsync(f.fileno())
+        # Windows: os.replace raises PermissionError (WinError 5) when a READER
+        # (the dashboard or a monitor) has the destination open - the file lock is
+        # transient (readers hold it for microseconds), so retry with a short
+        # backoff instead of letting the whole cycle error out and status.json go
+        # stale. POSIX rename never hits this. Last attempt re-raises.
+        for attempt in range(_retries):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == _retries - 1:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def read_json(path: Path):

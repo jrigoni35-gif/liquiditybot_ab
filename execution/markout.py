@@ -24,7 +24,15 @@ status.json and as metrics. It reads only the trusted mark handed in by the
 caller (an is_fresh predicate defers measurement on a stale/dark feed rather
 than fabricating a mark-out off a frozen price).
 """
+import logging
 from collections import defaultdict, deque
+
+log = logging.getLogger("liquiditybot.execution.markout")
+
+# separator for the (asset, horizon) obs-dict composite key on the wire - an
+# asset symbol is never expected to contain this, but if one somehow did the
+# rpartition below still resolves correctly (splits on the LAST occurrence).
+_OBS_KEY_SEP = "\u0001"
 
 
 class MarkoutTracker:
@@ -117,3 +125,48 @@ class MarkoutTracker:
             if worst_asset is None or m < worst_bps:
                 worst_asset, worst_bps = asset, m
         return (worst_asset, round(worst_bps, 2))
+
+    # ------------------------------------------------------------------
+    # W2-16: persistence. Pure telemetry (no trading decision, invariant #6
+    # doesn't apply) - a deploy restart used to wipe the adverse-selection
+    # window entirely, and under deploy cadence the window could never
+    # accumulate. Kept separate from snapshot() (status.json telemetry).
+    def to_dict(self) -> dict:
+        return {
+            "pending": [
+                {"symbol": symbol, "asset": asset, "sgn": sgn,
+                 "price": price, "t0": t0, "done": sorted(done)}
+                for symbol, asset, sgn, price, t0, done in self._pending
+            ],
+            "obs": {f"{asset}{_OBS_KEY_SEP}{h}": list(dq)
+                    for (asset, h), dq in self._obs.items() if dq},
+        }
+
+    def restore(self, d: dict | None) -> None:
+        """Rebuild in-flight fills + rolling observations from a prior run.
+        Best-effort, each section its own try/except (persistence.py's
+        per-section pattern) - malformed input is logged and skipped, never
+        raised; this module takes no trading decision so there is nothing
+        unsafe about starting a section clean. Obs deques rebuild against the
+        CURRENT config window: a changed window must not crash, and a
+        shrunk window keeps the newest observations (deque(maxlen=) drops
+        the oldest first when constructed from a longer iterable)."""
+        if not d:
+            return
+        try:
+            for p in d.get("pending", []):
+                self._pending.append([
+                    str(p["symbol"]), str(p["asset"]), float(p["sgn"]),
+                    float(p["price"]), float(p["t0"]),
+                    set(p.get("done", []))])
+        except (KeyError, TypeError, ValueError):
+            log.warning("markout pending section malformed - skipped")
+        try:
+            for key, vals in (d.get("obs") or {}).items():
+                asset, _sep, h_str = str(key).rpartition(_OBS_KEY_SEP)
+                if not _sep:
+                    continue           # malformed key: no separator found
+                self._obs[(asset, float(h_str))] = deque(
+                    (float(v) for v in vals), maxlen=self.window)
+        except (KeyError, TypeError, ValueError):
+            log.warning("markout obs section malformed - skipped")

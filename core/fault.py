@@ -23,6 +23,22 @@ DEGRADED. clear_fault() requires the operator to name the fault key —
 "clear everything" is deliberately not an API. Every transition and
 latch is written to the audit chain.
 
+Persistence (W2-15): latched faults survive a restart via to_dict()/
+restore(), wired into core/persistence.py's per-section pattern, EXCEPT
+keys in RECOVERABLE_FAULTS below - those are deliberately dropped on
+restore because they exist to self-heal across exactly this kind of
+restart (currently: "cycle_wedged", runner.py's documented restart-
+recoverable cycle wedge). Without this, a future CRITICAL latch that
+doesn't also mirror into the persisted `_halted` flag would be silently
+re-armed by a routine deploy restart - the promise this module's
+docstring makes ("future faults refuse new risk without a code change")
+would be false. Boot order: main.py constructs the FaultManager, calls
+arm() (INIT -> ARMED when clean), THEN restore() runs - restore()'s
+re-latch composes correctly on top of ARMED (latch() transitions
+ARMED -> DEGRADED/HALTED as appropriate) whereas restoring faults
+BEFORE arm() would leave a non-critical FAULT-severity restore stuck in
+INIT forever (arm()'s guard requires `not self._faults`).
+
 This module is pure bookkeeping: no network, no exceptions escape.
 """
 
@@ -57,6 +73,12 @@ class FaultRecord:
     detail: str
     ts_wall: float = 0.0
     count: int = 1
+
+
+# keys that self-heal by design across a restart and must NOT be re-latched
+# from a persisted snapshot - seed with "cycle_wedged" (runner.py's
+# documented restart-recoverable cycle wedge; see module docstring).
+RECOVERABLE_FAULTS = frozenset({"cycle_wedged"})
 
 
 class FaultManager:
@@ -149,3 +171,56 @@ class FaultManager:
                     "faults": {k: {"severity": f.severity.value,
                                    "detail": f.detail, "count": f.count}
                                for k, f in self._faults.items()}}
+
+    # ------------------------------------------------------------------
+    # persistence (W2-15) - see module docstring for the boot-order contract
+    # and the RECOVERABLE_FAULTS exception.
+    def to_dict(self) -> dict:
+        with self._lock:
+            return {
+                "faults": {k: {"severity": f.severity.value,
+                               "detail": f.detail, "count": f.count,
+                               "ts_wall": f.ts_wall}
+                           for k, f in self._faults.items()},
+            }
+
+    def restore(self, d: dict | None) -> None:
+        """Re-latch every persisted fault EXCEPT RECOVERABLE_FAULTS keys.
+        Must be called AFTER arm() (module docstring). Reuses latch() so
+        severity ordering, the audit trail, and the op-state transition all
+        follow the exact same rules as a live latch - a restored CRITICAL
+        fault forces HALTED, a restored FAULT forces DEGRADED, regardless of
+        call order, but arm() must run first so a CLEAN restore still
+        promotes INIT -> ARMED. Malformed input is logged and skipped, never
+        raised (restore is best-effort per section, like every other
+        persisted subsystem)."""
+        if not d:
+            return
+        try:
+            faults = d.get("faults") or {}
+            for key, f in faults.items():
+                if key in RECOVERABLE_FAULTS:
+                    continue
+                try:
+                    severity = Severity(str(f.get("severity")))
+                except ValueError:
+                    log.warning("fault restore: unknown severity for %s - "
+                               "skipped", key)
+                    continue
+                detail = str(f.get("detail", "restored fault"))
+                self.latch(key, severity, detail)
+                with self._lock:
+                    rec = self._faults.get(key)
+                    if rec is not None:
+                        try:
+                            rec.count = max(rec.count, int(f.get("count", 1)))
+                        except (TypeError, ValueError):
+                            pass
+                        ts = f.get("ts_wall")
+                        if ts:
+                            try:
+                                rec.ts_wall = float(ts)
+                            except (TypeError, ValueError):
+                                pass
+        except (TypeError, AttributeError):
+            log.warning("fault section malformed - skipped")

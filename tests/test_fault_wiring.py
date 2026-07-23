@@ -140,3 +140,71 @@ def test_no_hard_stop_stays_armed():
     b = _fast_bot(hard_stop=False)
     b.fast_cycle(1000.0)
     assert b.fault.state is OpState.ARMED and b._halted is False
+
+
+# --- W2-15: latched faults survive a restart via core/persistence ----------
+def _persistable_bot():
+    """Minimal bot double covering every attribute StateStore.snapshot()/
+    restore() touches, following the SimpleNamespace idiom used across the
+    persistence test suite (test_storm_hardening.py, test_restore_isolation.py)."""
+    b = types.SimpleNamespace()
+    b.dry_run = True
+    b.state = PortfolioState(starting_capital=800.0)
+    b.orders = types.SimpleNamespace(open_orders=lambda: [], _orders={})
+    b.history = types.SimpleNamespace(_pending={})
+    b.sizer = types.SimpleNamespace(_last_entry={})
+    b._pos_realized = {}
+    b._halted = False
+    b._stop_hit = {}
+    hollow = types.SimpleNamespace(to_dict=lambda: {}, restore=lambda d: None)
+    b.monitor = hollow
+    b.postmortem = hollow
+    b.candidates = hollow
+    b.gate_stats = hollow
+    b.risk_protocols = None
+    b.fault = FaultManager()
+    b.fault.arm()
+    return b
+
+
+def test_critical_fault_survives_restart_via_persistence():
+    from core.persistence import StateStore
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        store = StateStore(f"{td}/state.json")
+        bot = _persistable_bot()
+        bot.fault.latch("synthetic_critical", Severity.CRITICAL,
+                        "synthetic test latch")
+        assert bot.fault.state is OpState.HALTED
+        assert store.snapshot(bot)
+
+        revived = _persistable_bot()
+        assert revived.fault.allow_new_risk() is True   # clean before restore
+        assert store.restore(revived)
+        assert "synthetic_critical" in revived.fault.status()["faults"], \
+            "a latched CRITICAL fault must survive a restart (W2-15)"
+        assert revived.fault.state is OpState.HALTED
+        assert revived.fault.allow_new_risk() is False
+        assert revived.fault.allow_exits() is True      # invariant #5 always
+
+
+def test_cycle_wedged_is_restart_recoverable_exception():
+    """cycle_wedged is DOCUMENTED restart-recoverable (runner.py) - it must
+    be the one key that does NOT survive a restore, so a restart still
+    gives the wedge a clean slate to self-heal from."""
+    from core.persistence import StateStore
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        store = StateStore(f"{td}/state.json")
+        bot = _persistable_bot()
+        bot.fault.latch("cycle_wedged", Severity.CRITICAL, "wedge test")
+        assert store.snapshot(bot)
+
+        revived = _persistable_bot()
+        assert store.restore(revived)
+        assert "cycle_wedged" not in revived.fault.status()["faults"], \
+            "cycle_wedged must NOT be restored (recoverable exception)"
+        assert revived.fault.allow_new_risk() is True
+        assert revived.fault.state is OpState.ARMED

@@ -39,6 +39,26 @@ def test_persistent_lock_eventually_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(rt.time, "sleep", lambda s: None)
     with pytest.raises(PermissionError):
         rt.atomic_write_json(p, {"ok": 1}, _retries=3)
+    # W2-20: a fully-exhausted retry must not leave its PID-scoped tmp behind
+    # (the documented 476-collision storm precedent for status.json litter).
+    assert not list(tmp_path.glob("*.tmp")), \
+        "tmp file orphaned when os.replace retries were exhausted"
+
+
+def test_json_dump_failure_mid_write_cleans_tmp(tmp_path, monkeypatch):
+    """checkpoint-A reviewer note: json.dump itself raising mid-write (a
+    non-serializable payload) must also leave no tmp behind, not just the
+    os.replace retry-exhaustion path above."""
+    p = tmp_path / "status.json"
+
+    def boom(*a, **k):
+        raise ValueError("cannot serialize payload")
+
+    monkeypatch.setattr(rt.json, "dump", boom)
+    with pytest.raises(ValueError):
+        rt.atomic_write_json(p, {"ok": 1})
+    assert not list(tmp_path.glob("*.tmp")), \
+        "tmp file orphaned when json.dump raised mid-write"
 
 
 def test_normal_write_is_unaffected(tmp_path):
