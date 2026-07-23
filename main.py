@@ -2619,8 +2619,31 @@ class LiquidityBot:
         the FULL existing rail (firewall, collar, venue minimums). Every rung
         is its own position with its own postmortem thesis, so labels stay
         honest per fill. Returns rungs actually placed (each holds a slot)."""
+        book = self.kraken_books.get(asset) or {}
+        # W2-10: rung 0 already cleared PreTradeGate.evaluate() (this whole
+        # pathway only runs off an APPROVED decision) -- no double-charge,
+        # it is never re-checked. But rungs 1..n rest strictly further from
+        # the mid than rung 0's own price, and the gate's maker EV term is
+        # p_fill-weighted with p_fill DECAYING in that distance
+        # (grid_ladder's "monotone by construction" docstring covers only
+        # the edge-ratio, never this). Re-run the gate's own arithmetic at
+        # each deeper rung's actual offset before submitting it.
+        sigma_bar_bps = self.pretrade.sigma_bar_bps(vol_state.sigma_daily_pct)
         placed = 0
         for rung in lplan.rungs:
+            if rung.idx > 0:
+                dist_bps = self.pretrade.maker_dist_bps(book, rung.price)
+                rung_edge_bps = decision.est_edge_bps + rung.offset_bps
+                p_fill, ev = self.pretrade.maker_p_fill_ev(
+                    rung_edge_bps, decision.est_cost_bps, dist_bps,
+                    sigma_bar_bps)
+                if ev < self.pretrade.ev_min_bps:
+                    log.info("%s", tag(
+                        Code.GL_RUNG_EV_VETO,
+                        f"{asset} rung {rung.idx}: EV {ev:+.2f}bps @ "
+                        f"p_fill {p_fill:.2f} dist {dist_bps:.1f}bps < "
+                        f"{self.pretrade.ev_min_bps:.2f} floor"))
+                    continue
             rid = position_id if rung.idx == 0 else \
                 f"{position_id}-r{rung.idx}"
             rung_order = self.orders.submit(
@@ -2632,7 +2655,7 @@ class LiquidityBot:
                 leverage=lev.allowed_leverage,
                 ref_price=self.marks.get(symbol) or fv_state.fair_value,
                 equity=equity,
-                book=self.kraken_books.get(asset) or {},
+                book=book,
                 sigma_bar_pct=vol_state.sigma_bar_pct,
                 meta={"p_win": p_win,
                       # deeper rungs rest strictly further from fair value:

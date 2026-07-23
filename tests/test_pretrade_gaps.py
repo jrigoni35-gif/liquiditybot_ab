@@ -252,6 +252,31 @@ def test_one_sided_kraken_book_oversized_order_is_not_left_unclamped():
     assert d.size_units == 0.0          # never the raw 500.0 oversized request
 
 
+# ---------------------------------------------------------------------------
+# 21. W2-26: book_walk_bps on a WHOLLY empty side must return the 1e6
+# shallow-book sentinel, never 0.0 -- a fully one-sided Kraken book gives a
+# taker entry zero walk cost instead of the PT-023 veto (thin-but-present
+# books already hit the sentinel via the "clean" empty-after-filter path;
+# this is the "no levels at all" path, found by the W1-6 fixer).
+# ---------------------------------------------------------------------------
+def test_taker_wholly_empty_ask_side_vetoes_pt023_not_zero_cost():
+    book = {"bids": [[99.0, 1000.0]], "asks": []}
+    ctx = _ctx(spread=5.0, book=book, adv=1e6)
+    d = _gate().evaluate("buy", 1.0, 100.0, exp_alpha_bps=500.0,
+                        fv_edge_bps=0.0, ctx=ctx, taker=True)
+    assert not d.approved
+    assert Code.PT_BOOK_SHALLOW.value in _reasons(d)
+
+
+def test_taker_wholly_empty_bid_side_vetoes_pt023_not_zero_cost():
+    book = {"bids": [], "asks": [[100.0, 1000.0]]}
+    ctx = _ctx(spread=5.0, book=book, adv=1e6)
+    d = _gate().evaluate("sell", 1.0, 100.0, exp_alpha_bps=500.0,
+                        fv_edge_bps=0.0, ctx=ctx, taker=True)
+    assert not d.approved
+    assert Code.PT_BOOK_SHALLOW.value in _reasons(d)
+
+
 def test_negative_spread_cannot_reduce_the_cost_stack():
     # a negative ctx.spread_bps (inverted/garbage book upstream) must not
     # REDUCE spread_cost or exit_leg below their spread=0 values -- fail

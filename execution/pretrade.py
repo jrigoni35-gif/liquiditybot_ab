@@ -108,8 +108,14 @@ class PreTradeGate:
         levels are skipped (fail-closed: they provide no liquidity)."""
         levels = (book.get("asks") if side == "buy"
                   else book.get("bids")) or []
-        if not levels or size_units <= EPS:
+        if size_units <= EPS:
             return 0.0
+        if not levels:
+            # a WHOLLY empty side (not just thin) provides no liquidity to
+            # walk at all -- fail closed with the same 1e6 shallow-book
+            # sentinel a thin-but-present side hits below, never the
+            # zero-cost default (W2-26).
+            return 1e6
         clean = []
         for row in levels:
             try:
@@ -133,6 +139,47 @@ class PreTradeGate:
         avg = cost / size_units
         slip = (avg - touch) / touch if side == "buy" else (touch - avg) / touch
         return max(slip, 0.0) * 1e4
+
+    @staticmethod
+    def sigma_bar_bps(sigma_daily_pct: float) -> float:
+        """Per-5m-bar vol in bps from a daily-vol input. Pulled out of
+        evaluate() so any per-rung caller (the grid ladder, W2-10) derives
+        the SAME per-bar figure the gate used at approval time instead of
+        re-deriving its own (and silently drifting from it)."""
+        return max(sigma_daily_pct * 100.0 / math.sqrt(288.0), 1.0)
+
+    @staticmethod
+    def maker_dist_bps(book: dict, price: float) -> float:
+        """Distance in bps from the live Kraken mid to `price`. Same
+        best-effort mid (0.0 / not-finite -> 0.0 distance, i.e. "at the
+        money") evaluate() itself falls back to when the book can't
+        produce one."""
+        bids = book.get("bids") or []
+        asks = book.get("asks") or []
+        mid = 0.0
+        try:
+            if bids and asks:
+                mid = 0.5 * (float(bids[0][0]) + float(asks[0][0]))
+        except (TypeError, ValueError, IndexError):
+            mid = 0.0
+        return abs(mid - price) / mid * 1e4 if _fin(mid) and mid > 0 else 0.0
+
+    def maker_p_fill_ev(self, edge_bps: float, cost_bps: float,
+                        dist_bps: float, sigma_bar_bps: float) -> tuple:
+        """Fill-probability-weighted EV for a maker order resting
+        `dist_bps` away from the current mid, given a per-bar vol estimate
+        `sigma_bar_bps`. THE gate's own arithmetic (not a copy): evaluate()
+        calls this for rung 0's distance and the grid ladder (W2-10) calls
+        it again per deeper rung at that rung's own (larger) offset, so a
+        rung's true fill-probability-weighted EV can never silently drift
+        from what this exact formula would say if the gate re-evaluated it.
+        Returns (p_fill, ev_bps)."""
+        p_fill = max(self.maker_fill_p0 *
+                     math.exp(-dist_bps / max(sigma_bar_bps, EPS)),
+                     self.p_fill_floor)
+        ev = p_fill * (edge_bps - cost_bps) - (1.0 - p_fill) * \
+            self.miss_cost_bps
+        return p_fill, ev
 
     def impact_bps(self, order_usd: float, sigma_daily_pct: float,
                    adv_usd: float) -> float:
@@ -218,8 +265,7 @@ class PreTradeGate:
             return d
 
         # ---- cost stack ---------------------------------------------------
-        sigma_bar_bps = max(ctx.sigma_daily_pct * 100.0 / math.sqrt(288.0),
-                            1.0)                     # 5m bars per day
+        sigma_bar_bps = self.sigma_bar_bps(ctx.sigma_daily_pct)
         if taker:
             fee = self.taker_fee_bps
             spread_cost = 0.5 * ctx.spread_bps
@@ -270,20 +316,9 @@ class PreTradeGate:
         if taker:
             p_fill, ev = 1.0, edge - cost
         else:
-            mid = 0.0
-            bids = ctx.kraken_book.get("bids") or []
-            asks = ctx.kraken_book.get("asks") or []
-            try:
-                if bids and asks:
-                    mid = 0.5 * (float(bids[0][0]) + float(asks[0][0]))
-            except (TypeError, ValueError, IndexError):
-                mid = 0.0
-            dist_bps = abs(mid - ref_price) / mid * 1e4 \
-                if _fin(mid) and mid > 0 else 0.0
-            p_fill = max(self.maker_fill_p0 *
-                         math.exp(-dist_bps / sigma_bar_bps),
-                         self.p_fill_floor)
-            ev = p_fill * (edge - cost) - (1.0 - p_fill) * self.miss_cost_bps
+            dist_bps = self.maker_dist_bps(ctx.kraken_book, ref_price)
+            p_fill, ev = self.maker_p_fill_ev(edge, cost, dist_bps,
+                                              sigma_bar_bps)
         d.p_fill, d.ev_bps = float(p_fill), float(ev)
         if ev < self.ev_min_bps and not exploring:
             d.reasons.append(tag(Code.PT_EV_NEGATIVE,

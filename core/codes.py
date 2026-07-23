@@ -212,6 +212,11 @@ class Code(str, Enum):
     GL_BELOW_ARM = "GL-020"          # single-entry fallback: p(win) below arm
     GL_RUNG_CAPPED = "GL-021"        # rung count capped by free position slots
                                      # / per-asset same-side inventory cap
+    GL_RUNG_EV_VETO = "GL-022"       # W2-10: a rung past rung 0 re-checked the
+                                     # gate's own p_fill-weighted EV at its
+                                     # actual (deeper) offset distance and
+                                     # came back below the floor -- skipped,
+                                     # shallower already-accepted rungs stand
 
     # ---- hedge-open new-risk gate (HG) — main._hedge_actions ------------
     HG_OPEN_BLOCKED = "HG-010"       # hedge OPEN refused: a hedge open is NEW
