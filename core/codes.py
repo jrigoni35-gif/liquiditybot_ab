@@ -111,6 +111,12 @@ class Code(str, Enum):
     SZ_EXPLORE_FLOOR = "SZ-044"      # exploration ticket floored to min ticket (label acquisition)
     SZ_MANIP_SUSPECT = "SZ-045"      # entry downsized/vetoed under manipulation suspicion
     SZ_CIRCUIT_BREAKER = "SZ-046"    # asset paused: consecutive-loss circuit breaker
+    SZ_PROBE_THROTTLED = "SZ-047"    # P3 (2026-07-23 P&L diagnosis): exploration
+                                     # probe denied - rolling share cap over the
+                                     # last probe_share_window entry admissions,
+                                     # or corpus-decayed admission rate; falls
+                                     # through as an ordinary (conviction) entry
+                                     # attempt, never a hard veto of the signal
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_INV_SKEW = "SZ-061"           # A-S reservation skew: signed-inventory-increasing entry scaled

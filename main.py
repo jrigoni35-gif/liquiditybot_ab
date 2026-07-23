@@ -35,9 +35,10 @@ import os
 import random
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Deque, Optional
 
 import numpy as np
 
@@ -226,6 +227,22 @@ def pick_label_mature_unwind(positions: list, rows: int, until_live_rows: int,
     if not mature:
         return None
     return max(mature, key=lambda p: now - p.opened_at.timestamp())
+
+
+def probe_corpus_decay_factor(live_labels: int, corpus_target_live: int,
+                              floor_frac: float) -> float:
+    """P3 corpus-aware probe throttle, pure decay math (2026-07-23 P&L
+    diagnosis): probes are 69% of live closes and -$22.87 of -$31.68
+    measured net PnL, while the corpus (3.3k rows / 214 live) has grown
+    past the point marginal probe value justifies the base admission
+    rate. effective_rate = base_rate x clip(corpus_target_live /
+    max(live_labels, 1), floor_frac, 1.0) - decays the exploration
+    epsilon toward `floor_frac` (never to zero: the learner keeps a
+    trickle) as live_labels grows past corpus_target_live. `live_labels`
+    is the SAME live-row count _exploration_active/ML-071/ML-073 already
+    read via HistoryStore.source_counts() - never re-counted here."""
+    raw = corpus_target_live / max(live_labels, 1)
+    return min(max(raw, floor_frac), 1.0)
 
 
 def nudge_stop_off_round_number(stop: float, direction: str,
@@ -658,6 +675,46 @@ class LiquidityBot:
         self.explore_max_asset_share = min(max(
             float(_ex.get("max_asset_share", 0.5)), 0.0), 1.0)
         self.explore_share_min_rows = int(_ex.get("share_min_rows", 10))
+        # P3 corpus-aware probe throttle (2026-07-23 P&L diagnosis): probes
+        # were 69% of live closes and -$22.87 of -$31.68 measured net PnL -
+        # the corpus (3.3k rows / 214 live) has grown past the point
+        # marginal probe value justifies the base admission rate. TWO
+        # throttles, both toward a floor/cap rather than to zero (the
+        # learner keeps a trickle): (a) a rolling SHARE CAP over the last
+        # probe_share_window entry ADMISSIONS (probes+conviction), see
+        # _probe_share_would_deny; (b) CORPUS DECAY folded into
+        # _exploration_active's own epsilon roll, see
+        # probe_corpus_decay_factor. Denials emit Code.SZ_PROBE_THROTTLED
+        # (SZ-047). Conviction entries are never throttled by this lever -
+        # the decision method takes no sizing argument (pinned in
+        # tests/test_probe_throttle.py).
+        self._probe_max_share = min(max(
+            float(_ex.get("max_probe_share", 0.35)), 0.0), 1.0)
+        self._probe_share_window = max(
+            int(_ex.get("probe_share_window", 40)), 1)
+        _cd = _ex.get("corpus_decay", {}) or {}
+        self._corpus_target_live = int(_cd.get("corpus_target_live", 300))
+        self._corpus_floor_frac = min(max(
+            float(_cd.get("floor_frac", 0.25)), 0.0), 1.0)
+        # rolling window of the last probe_share_window entry ADMISSIONS
+        # (True=probe, False=conviction). RESTART STATE: persisted (see
+        # core/persistence.py snapshot/restore "probe_admissions") rather
+        # than reset-on-restart. Reasoning: unlike risk/circuit_breaker.py's
+        # trip state (persisted so "a trip can't be laundered by a
+        # reboot"), a reset here can only ever ADMIT more probes than a
+        # persisted window would have (the share-cap denominator is the
+        # FIXED configured window size, never the deque's current fill -
+        # see _probe_share_would_deny), never fewer - so it is a safe
+        # direction of error in isolation. But this codebase's own
+        # documented deploy pattern (core/persistence.py: "the auto-updater
+        # restarts the bot on every deploy") means an UNPERSISTED window
+        # would reset on every single deploy, not just rare crashes -
+        # making a 40-admission cap nearly inert in production. Persisting
+        # it (cheap: a plain bool list, same shape as _stop_hit) keeps the
+        # cap meaningful across the routine restart cadence this bot
+        # actually runs under.
+        self._probe_admissions: Deque[bool] = deque(
+            maxlen=self._probe_share_window)
         self._entry_rotation = 0            # round-robin offset, see _entry_assets
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
@@ -1842,6 +1899,21 @@ class LiquidityBot:
                 and manip <= self._explore_aggr_max_manip
                 and regime_label != "crisis")
 
+    def _live_label_count(self) -> int:
+        """Live (real closed-trade) row count the corpus has actually
+        accrued - the SAME basis _exploration_active / ML-071 / ML-073 /
+        the P3 probe throttle all graduate/decay on. The corpus is
+        dominated by candidate (triple-barrier PROXY) labels, so counting
+        all rows once retired exploration at 1370 total while only ~35
+        real fill outcomes existed — silently starving the model of the
+        live-outcome data it actually needs (2026-07-18: OF-1 gap 0.44,
+        exploration off). Falls back to total rows only when the source
+        split is unavailable (legacy HistoryStore)."""
+        _sc_fn: Optional[Callable[[], dict]] = getattr(
+            self.history, "source_counts", None)
+        _sc = _sc_fn() if callable(_sc_fn) else {}
+        return _sc.get("live", 0) if _sc else self.history.row_count()
+
     def _exploration_active(self, now: float,
                             asset: Optional[str] = None) -> bool:
         """True only when it is safe and useful to take a paper exploration
@@ -1850,25 +1922,25 @@ class LiquidityBot:
         can then be trusted to gate on its own). When `asset` is given, an
         asset already holding >= max_asset_share of the labeled history is
         skipped (variety: the most active pair otherwise hogs every learning
-        slot and quiet pairs never accrue fill labels)."""
+        slot and quiet pairs never accrue fill labels). The epsilon roll
+        itself is corpus-decayed (P3, probe_corpus_decay_factor) - a mature
+        corpus (live_labels past corpus_target_live) admits probes at a
+        scaled-down rate, floored at floor_frac so the learner keeps a
+        trickle rather than starving entirely."""
         if not self.dry_run:
             return False                        # never in live - hard-gated
         if not self.explore_enabled:
             return False
-        # Graduate on REAL closed-trade (LIVE) rows, not total. The corpus is
-        # dominated by candidate (triple-barrier PROXY) labels, so counting
-        # all rows retired exploration at 1370 total while only ~35 real fill
-        # outcomes existed — silently starving the model of the live-outcome
-        # data it actually needs for OOS edge (2026-07-18: OF-1 gap 0.44,
-        # exploration off). Honors the config key's own name (until_LIVE_rows).
-        # Falls back to total rows only when the source split is unavailable.
-        _sc_fn: Optional[Callable[[], dict]] = getattr(
-            self.history, "source_counts", None)
-        _sc = _sc_fn() if callable(_sc_fn) else {}
-        _grad_rows = _sc.get("live", 0) if _sc else self.history.row_count()
+        # Honors the config key's own name (until_LIVE_rows): graduate on
+        # REAL closed-trade rows, never the proxy-inflated total.
+        _grad_rows = self._live_label_count()
         if _grad_rows >= self.explore_until_rows:
             return False                        # enough REAL data: trust the model
-        if self._explore_rng.random() >= self.explore_epsilon:
+        _eff_epsilon = self.explore_epsilon * probe_corpus_decay_factor(
+            _grad_rows,
+            getattr(self, "_corpus_target_live", 300),
+            getattr(self, "_corpus_floor_frac", 0.25))
+        if self._explore_rng.random() >= _eff_epsilon:
             return False
         if asset is not None and self.explore_max_asset_share < 1.0:
             counts = self.history.asset_counts()
@@ -1891,6 +1963,61 @@ class LiquidityBot:
                              self.explore_max_asset_share * 100,
                              (1.0 - share) * 100)
                     return False
+        return True
+
+    def _probe_share_would_deny(self) -> bool:
+        """P3 rolling SHARE CAP: would admitting ONE more probe push the
+        probe share - over the last probe_share_window entry ADMISSIONS
+        (probes+conviction) - above max_probe_share? The denominator is
+        the FIXED configured window size, never the deque's current fill,
+        so a freshly-reset or partially-filled window (restart) is at
+        most as permissive as a fully-populated one, never MORE
+        restrictive (see __init__'s restart-state note). Admission-COUNT
+        keyed, never time - deterministic under replay."""
+        probes = sum(1 for p in self._probe_admissions if p)
+        return (probes + 1) / self._probe_share_window > self._probe_max_share
+
+    def _record_probe_admission(self, is_probe: bool) -> None:
+        """Feed one ADMITTED entry (an order actually placed, on any of the
+        direct/algo/ladder entry paths) into the rolling share-cap window.
+        Called for BOTH conviction (False) and probe (True) admissions -
+        the share cap denominator counts every admission, not just probes.
+        Self-healing (getattr, lazy-init) rather than requiring __init__:
+        integration tests exercise _ladder_entry/_place_ladder directly off
+        a minimal LiquidityBot.__new__() stub that never runs __init__."""
+        admissions = getattr(self, "_probe_admissions", None)
+        if admissions is None:
+            admissions = deque(maxlen=getattr(self, "_probe_share_window", 40))
+            self._probe_admissions = admissions
+        admissions.append(bool(is_probe))
+
+    def _probe_admission_decision(self, now: float, asset: str) -> bool:
+        """Single throttle decision point for whether this cycle's signal
+        is admitted as a PROBE (True) or falls through as an ordinary
+        conviction attempt (False - conviction entries are NEVER
+        throttled by this lever: this method takes no p_win/size argument
+        and cannot touch sizing: it only gates whether the exploration
+        BUMP is applied, never the signal's own on-the-merits evaluation).
+        Corpus decay already lives inside _exploration_active (scales the
+        base epsilon roll); the rolling share cap is enforced here, AFTER
+        _exploration_active's own roll decided a probe is wanted, so a
+        denial changes nothing about how a non-exploring signal is
+        evaluated - the caller just skips the bump block."""
+        if not self._exploration_active(now, asset):
+            return False
+        if self._probe_share_would_deny():
+            get_audit().log(
+                "exploration", Code.SZ_PROBE_THROTTLED,
+                f"probe throttled {asset}: rolling share cap "
+                f"({self._probe_max_share:.0%} of last "
+                f"{self._probe_share_window} admissions) would be exceeded",
+                {"asset": asset, "window": self._probe_share_window,
+                 "max_share": self._probe_max_share})
+            log.info("[%s] probe THROTTLED: rolling share cap (%.0f%% of "
+                     "last %d admissions) - falling through as an ordinary "
+                     "(conviction) entry attempt", asset,
+                     self._probe_max_share * 100, self._probe_share_window)
+            return False
         return True
 
     def _entry_assets(self) -> list:
@@ -2256,7 +2383,7 @@ class LiquidityBot:
             # routed to the algo slicer uses "algo-<parent>" instead - the
             # probe flag still reaches its position via _algo_meta.
             pid = str(uuid.uuid4())
-            if can_enter and self._exploration_active(now, asset):
+            if can_enter and self._probe_admission_decision(now, asset):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale
@@ -2477,6 +2604,7 @@ class LiquidityBot:
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or []}
                 self._mark_cand(asset, signal.direction, "entered")
+                self._record_probe_admission(explored)
                 self._submit_algo_child(parent, now)   # first slice now
                 log.info(
                     f"ENTRY-ALGO {signal.direction} {symbol} "
@@ -2533,6 +2661,7 @@ class LiquidityBot:
             if order:
                 self.sizer.note_entry(asset, now)
                 self._mark_cand(asset, signal.direction, "entered")
+                self._record_probe_admission(explored)
                 self._last_entry_admit_ts = now        # ML-073 drought clock
                 reserved_entries += 1                  # committed a slot
                 if not self.capital.can_open_new_position(
@@ -2605,6 +2734,7 @@ class LiquidityBot:
         reserved_entries += placed             # each rung holds a slot
         self.sizer.note_entry(asset, now)
         self._mark_cand(asset, signal.direction, "entered")
+        self._record_probe_admission(explored)
         self._last_entry_admit_ts = now
         step_bps = lplan.rungs[-1].offset_bps / \
             max(len(lplan.rungs) - 1, 1)

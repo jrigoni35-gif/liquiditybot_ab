@@ -503,6 +503,39 @@ def validate(config: dict) -> list:
             fatal(f"ml.exploration.realize_drought_h ({rdh}) must be 0 "
                   f"(disabled) or in [0.25, 24] hours")
 
+    # P3 corpus-aware probe throttle (2026-07-23 P&L diagnosis, SZ-047):
+    # probes were 69% of live closes and -$22.87 of -$31.68 measured net
+    # PnL - the corpus (3.3k rows / 214 live) has grown past the point
+    # marginal probe value justifies the base admission rate. TWO
+    # throttles, both toward a floor/cap (never to zero - the learner
+    # keeps a trickle): a rolling SHARE CAP over the last
+    # probe_share_window entry admissions, and a CORPUS DECAY scaling the
+    # base epsilon down as live_labels grows past corpus_target_live.
+    mps = float(_f(config, "ml.exploration.max_probe_share", 0.35))
+    if not (0.0 < mps <= 1.0):
+        fatal(f"ml.exploration.max_probe_share ({mps}) must be in (0, 1] - "
+              f"at 0 the share cap denies every probe outright; 1 disables "
+              f"the cap entirely")
+    psw = int(_f(config, "ml.exploration.probe_share_window", 40))
+    if not (10 <= psw <= 500):
+        fatal(f"ml.exploration.probe_share_window ({psw}) must be in "
+              f"[10, 500] - below 10 admissions the share binds/releases on "
+              f"noise; above 500 it takes too many admissions to react to a "
+              f"real change in probe demand")
+    cff = float(_f(config, "ml.exploration.corpus_decay.floor_frac", 0.25))
+    if not (0.0 < cff <= 1.0):
+        fatal(f"ml.exploration.corpus_decay.floor_frac ({cff}) must be in "
+              f"(0, 1] - at 0 a mature corpus fully starves exploration "
+              f"(the learner must keep a trickle); 1 disables the decay")
+    ctl = int(_f(config, "ml.exploration.corpus_decay.corpus_target_live",
+                300))
+    dmo = int(_f(config, "ml.monitor.deploy_min_oof", 30))
+    if ctl < dmo:
+        warn(f"ml.exploration.corpus_decay.corpus_target_live ({ctl}) is "
+             f"below ml.monitor.deploy_min_oof ({dmo}) - the probe throttle "
+             f"would already be decaying admission below the model's own "
+             f"OOF deploy floor; confirm this is intended")
+
     # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
     # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
     # bar noise (churn); above 6 sigma it can never arm on a real move.

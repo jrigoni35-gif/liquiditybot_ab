@@ -480,7 +480,14 @@
         "max_manip": 0.6,
         "sizing_p": 0.72,
         "_doc": "conviction-scaled aggressive exploration (dry-run only). Normal exploration always min-sizes, so the model only sees fill outcomes on timid marginal trades. With probability frac, when the model conviction (real model_p) >= min_conviction AND manip_suspect <= max_manip AND the regime is not crisis, take a FULL-conviction ticket (size on sizing_p, no size shrink, no min-ticket floor) so the model learns from confident calls at real size. Still bounded by every risk-stack veto (CVaR/heat/budget/inventory/leverage), the manip gate, and kelly_cap. Labels stay honest (real fill + real outcome)."
-      }
+      },
+      "max_probe_share": 0.35,
+      "probe_share_window": 40,
+      "corpus_decay": {
+        "corpus_target_live": 300,
+        "floor_frac": 0.25
+      },
+      "_probe_throttle_doc": "P3 (2026-07-23 P&L diagnosis): probes were 69% of live closes and accounted for -$22.87 of -$31.68 measured net PnL - marginal probe value has fallen while its cost has not. TWO throttles, both bounding toward a floor/cap rather than to zero (the learner keeps a trickle): (a) rolling SHARE CAP - probes may not exceed max_probe_share of the last probe_share_window entry ADMISSIONS (probes+conviction, counted by admission order, never wall-clock; main.py._probe_share_would_deny); (b) CORPUS DECAY - effective_rate = base epsilon x clip(corpus_target_live / max(live_labels, 1), floor_frac, 1.0), folded into the same epsilon roll _exploration_active already gates on (corpus measured 3.3k rows / 214 live 2026-07-23). Denials emit Code.SZ_PROBE_THROTTLED (SZ-047); conviction entries are NEVER throttled by this lever. config_guard enforces: max_probe_share FATAL outside (0, 1]; probe_share_window FATAL outside [10, 500]; corpus_decay.floor_frac FATAL outside (0, 1]; corpus_decay.corpus_target_live WARN coherence if below ml.monitor.deploy_min_oof."
     },
     "monitor": {
       "window_trades": 30,

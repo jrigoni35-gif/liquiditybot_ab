@@ -156,6 +156,21 @@ def _restore_markout_section(bot, data: dict) -> None:
         log.exception("markout section malformed - skipped")
 
 
+def _restore_probe_admissions_section(bot, data: dict) -> None:
+    """P3 probe throttle rolling share-cap window (main.py
+    _probe_admissions): same isolation rationale as
+    _restore_fault_section above - keeps restore()'s own branch count
+    from growing toward pyproject.toml's frozen C901 ceiling."""
+    try:
+        if hasattr(bot, "_probe_admissions"):
+            pa = data.get("probe_admissions")
+            if isinstance(pa, list):
+                bot._probe_admissions.clear()
+                bot._probe_admissions.extend(bool(x) for x in pa)
+    except (TypeError, ValueError, AttributeError):
+        log.warning("probe_admissions section malformed - skipped")
+
+
 def order_from_dict(d: dict):
     from execution.order_manager import ManagedOrder
     o = ManagedOrder(
@@ -312,6 +327,14 @@ class StateStore:
                 "risk_protocols": getattr(bot, "risk_protocols",
                                           None) and
                 bot.risk_protocols.to_dict(),
+                # P3 probe throttle rolling share-cap window (main.py
+                # _probe_admissions): the auto-updater restarts the bot on
+                # every deploy (see the RESTART-COUPLING note above), so an
+                # unpersisted window would reset every deploy, not just rare
+                # crashes, making a 40-admission cap nearly inert in
+                # production. Plain bool list, same shape as stop_hit.
+                "probe_admissions": [bool(x) for x in
+                                    getattr(bot, "_probe_admissions", [])],
             }
             return self._seal_and_write(data)
         except Exception:
@@ -613,6 +636,7 @@ class StateStore:
             bot._stop_hit.update(data.get("stop_hit", {}))
         except (TypeError, ValueError):
             log.warning("stop_hit section malformed - skipped")
+        _restore_probe_admissions_section(bot, data)
         try:
             rp = data.get("risk_protocols")
             if rp and getattr(bot, "risk_protocols", None) is not None:
