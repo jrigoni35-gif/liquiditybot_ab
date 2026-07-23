@@ -102,15 +102,28 @@ def _venv_python() -> str:
 
 
 def decide(local: str, remote: str, dirty: bool,
-           remote_is_ancestor: bool = False) -> str:
+           remote_is_ancestor: bool = False,
+           local_is_ancestor: bool = True) -> str:
     """Pure decision (unit-testable): 'current' (nothing to do), 'ahead'
     (local is AHEAD of the remote tip — deploying would be a no-op or a
-    rollback; never act), 'dirty' (local edits, skip), or 'test' (new code
-    -> gate on the battery)."""
+    rollback; never act), 'diverged' (histories split: local has commits the
+    remote lacks AND the remote has commits local lacks, so neither is an
+    ancestor of the other — no fast-forward is possible and the battery
+    would just repeat forever with the same inputs; W1-7), 'dirty' (local
+    edits, skip), or 'test' (new code -> gate on the battery).
+
+    local_is_ancestor: whether HEAD is an ancestor of the remote tip (a
+    fast-forward is possible). Defaults True so every existing caller/test
+    that never passes it reproduces the EXACT pre-W1-7 branch table
+    (CLAUDE.md invariant 7: extend signatures without changing behavior for
+    existing callers) — only an explicit local_is_ancestor=False can
+    produce 'diverged'."""
     if not remote or remote == local:
         return "current"
     if remote_is_ancestor:
         return "ahead"
+    if not local_is_ancestor:
+        return "diverged"
     if dirty:
         return "dirty"
     return "test"
@@ -202,14 +215,29 @@ def _replay_gate_passes(worktree: Path, py: str) -> bool:
 _FORCE_KILL_STUCK = os.environ.get("LB_NO_FORCE_KILL_RESTART") != "1"
 _FORCE_KILL_AFTER_SEC = float(os.environ.get("LB_FORCE_KILL_AFTER_SEC", "45"))
 _FORCE_KILL_POLL_SEC = 5.0
+# W1-8: mirrors remote_control._runner_alive's freshness bound (scripts/
+# remote_control.py:253-256) — a lock is only trusted to name the LIVE
+# runner while its heartbeat is this fresh. Windows recycles PIDs: a stale
+# heartbeat means the runner that wrote this pid is crashed/boot-looping
+# (or long gone), and by the time the force-kill grace window elapses that
+# pid can belong to any other process on the box.
+_HEARTBEAT_FRESH_SEC = 60.0
 
 
 def _runner_pid():
-    """The live runner's pid from its SingleInstanceLock, or None."""
+    """The live runner's pid from its SingleInstanceLock, or None if the
+    lock is missing/unparseable/stale (heartbeat older than
+    _HEARTBEAT_FRESH_SEC — a recycled PID must never be handed back as a
+    kill target; see _HEARTBEAT_FRESH_SEC)."""
     try:
         d = json.loads((OUT / "runner.lock").read_text(encoding="utf-8"))
         pid = d.get("pid")
-        return pid if isinstance(pid, int) else None
+        if not isinstance(pid, int):
+            return None
+        age = time.time() - float(d.get("heartbeat", 0) or 0)
+        if age >= _HEARTBEAT_FRESH_SEC:
+            return None
+        return pid
     except (OSError, ValueError, TypeError):
         return None
 
@@ -221,8 +249,40 @@ def _should_escalate(orig_pid, cur_pid) -> bool:
     return orig_pid is not None and cur_pid == orig_pid
 
 
+def _pid_is_runner(pid) -> bool:
+    """W1-8 defense-in-depth: does this pid's OWN command line still name
+    runner.py, right before we kill it? The fresh-heartbeat guard in
+    _runner_pid() closes the coarse case (a long-stale lock); this closes
+    the fine one — Windows can recycle a pid in the narrow gap between
+    reading the lock and taskkill actually firing 45s later. ANY failure to
+    positively confirm identity (spawn error, pid gone, no match) fails
+    toward False: a missed kill is safe (the supervisor's stale-heartbeat
+    relaunch still recovers a genuinely stuck runner); a wrong-process kill
+    has no such backstop."""
+    try:
+        if os.name == "nt":
+            cmd = ["wmic", "process", "where", f"ProcessId={int(pid)}",
+                   "get", "CommandLine"]
+        else:                        # test/dev path only - prod is Windows
+            cmd = ["ps", "-p", str(int(pid)), "-o", "command="]
+        p = subprocess.run(cmd, timeout=15, capture_output=True,  # nosec B603 B607
+                           text=True, **_NOWIN)
+        return "runner.py" in (p.stdout or "")
+    except Exception:                              # noqa: BLE001 - fail-safe
+        return False
+
+
 def _force_kill(pid) -> None:
-    """Kill one pid, cross-platform, fail-safe (never raises into the deploy)."""
+    """Kill one pid, cross-platform, fail-safe (never raises into the
+    deploy). Verifies process identity first (_pid_is_runner) — a recycled
+    pid that no longer names runner.py is NEVER killed; the runner-down
+    case is already handled by the supervisor's relaunch, so a missed kill
+    here costs nothing but a wrong kill would."""
+    if not _pid_is_runner(pid):
+        log(f"pid {pid} no longer identifies as runner.py - NOT force-"
+            f"killing (possible PID reuse); relying on the supervisor's "
+            f"stale-heartbeat relaunch instead")
+        return
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/F", "/PID", str(int(pid))],  # nosec B603 B607
@@ -374,8 +434,17 @@ def _update_locked() -> str:
     # RUNNER every cycle, an endless pointless reboot loop.
     rc_anc, _ = _git("merge-base", "--is-ancestor", f"origin/{branch}", "HEAD")
     ahead = (local != remote) and bool(remote) and rc_anc == 0
+    # W1-7: the REVERSE probe. If HEAD is NOT an ancestor of origin/<branch>
+    # either, the histories have DIVERGED (PC-side commits, or an upstream
+    # force-push) — a fast-forward is impossible no matter how many times
+    # the battery runs. Without this probe, diverged inputs fell through to
+    # "test" every cadence: full battery green, then `git merge --ff-only`
+    # always failed ("ff_failed"), forever, at full CPU, deploying nothing.
+    rc_fwd, _ = _git("merge-base", "--is-ancestor", "HEAD", f"origin/{branch}")
+    local_is_ancestor = rc_fwd == 0
     action = decide(local, remote, bool(porcelain.strip()),
-                    remote_is_ancestor=ahead)
+                    remote_is_ancestor=ahead,
+                    local_is_ancestor=local_is_ancestor)
     if action == "current":
         log("already up to date")
         return "current"
@@ -383,6 +452,12 @@ def _update_locked() -> str:
         log(f"local is AHEAD of origin/{branch} - nothing to deploy, "
             f"runner untouched")
         return "ahead"
+    if action == "diverged":
+        log(f"HEAD and origin/{branch} have DIVERGED (local commits AND new "
+            f"remote commits, neither is an ancestor of the other) - no "
+            f"fast-forward is possible; skipping the battery entirely and "
+            f"waiting for the operator to resolve this by hand (git status)")
+        return "diverged"
     if action == "dirty":
         log("local uncommitted changes present - NOT auto-updating (your edits "
             "are safe); pull by hand when ready")

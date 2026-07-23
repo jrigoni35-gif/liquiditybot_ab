@@ -48,6 +48,31 @@ def test_local_ahead_of_remote_is_never_deployed():
     assert "ahead" in au.OK_OUTCOMES              # supervisor: nothing wrong
 
 
+def test_diverged_histories_produce_new_outcome():
+    # W1-7: PC-side commits (or an upstream force-push) can leave local and
+    # remote with NEITHER an ancestor of the other. This must NOT fall
+    # through to "test" - that gated the battery every 15 min forever (green
+    # battery, then git merge --ff-only always fails: "ff_failed"), an
+    # endless full-CPU loop that never deploys anything.
+    assert decide("abc123", "def456", False,
+                  remote_is_ancestor=False, local_is_ancestor=False) == "diverged"
+    # dirty-or-not is irrelevant once diverged - no ff is even attemptable
+    assert decide("abc123", "def456", True,
+                  remote_is_ancestor=False, local_is_ancestor=False) == "diverged"
+
+
+def test_diverged_is_not_an_ok_outcome():
+    assert "diverged" not in au.OK_OUTCOMES
+
+
+def test_local_is_ancestor_default_preserves_existing_callers():
+    # every pre-existing call site omits local_is_ancestor - the default
+    # must reproduce EXACT pre-fix behavior (CLAUDE.md invariant 7: extend
+    # signatures without changing behavior for existing callers)
+    assert decide("abc123", "def456", False) == "test"
+    assert decide("abc123", "def456", True) == "dirty"
+
+
 def test_deploy_branch_follows_checkout_and_falls_back_detached(monkeypatch):
     monkeypatch.setattr(au, "_git",
                         lambda *a, **k: (0, "claude/some-feature"))
@@ -87,6 +112,38 @@ def test_update_once_ahead_never_runs_battery_or_restart(tmp_path,
     assert ("fetch", "origin", "feature") in calls
 
 
+def test_update_once_diverged_never_runs_battery_or_ff(tmp_path, monkeypatch):
+    # W1-7 end-to-end: diverged histories must short-circuit BEFORE the
+    # worktree/battery/merge machinery ever runs - the whole point is to stop
+    # burning a full 1200s+ battery every cadence on inputs that can never
+    # change the outcome.
+    monkeypatch.setattr(au, "OUT", tmp_path)
+    calls = []
+
+    def fake_git(*args, cwd=None, timeout=120):
+        calls.append(args)
+        if args[0] == "rev-parse" and args[1] == "--abbrev-ref":
+            return 0, "main"
+        if args == ("rev-parse", "HEAD"):
+            return 0, "local_sha"
+        if args[0] == "rev-parse":
+            return 0, "remote_sha"
+        if args[0] == "status":
+            return 0, ""                       # clean tree
+        if args[0] == "merge-base":
+            return 1, ""                       # neither direction is ancestor
+        return 0, ""
+    monkeypatch.setattr(au, "_git", fake_git)
+    monkeypatch.setattr(au, "battery_passes",
+                        lambda wt: (_ for _ in ()).throw(
+                            AssertionError("battery must not run when diverged")))
+    monkeypatch.setattr(au, "_signal_restart",
+                        lambda: (_ for _ in ()).throw(
+                            AssertionError("runner must not bounce when diverged")))
+    assert au.update_once() == "diverged"
+    assert not any(c[0] in ("worktree", "merge") for c in calls)
+
+
 def test_noop_fast_forward_never_bounces_the_runner(tmp_path, monkeypatch):
     # belt to the ancestor guard's braces: even if the deploy path is
     # reached, an "Already up to date" ff (HEAD unchanged) must not restart
@@ -99,8 +156,11 @@ def test_noop_fast_forward_never_bounces_the_runner(tmp_path, monkeypatch):
             return 0, "same_head"                  # never moves
         if args[0] == "rev-parse":
             return 0, "different_remote"
+        if args[0] == "merge-base" and args[2] == "HEAD":
+            return 0, ""                           # HEAD IS ancestor of origin
+                                                    # (legit ff, not diverged)
         if args[0] == "merge-base":
-            return 1, ""                           # NOT ancestor -> deploy path
+            return 1, ""                           # origin NOT ancestor -> deploy path
         return 0, ""
     monkeypatch.setattr(au, "_git", fake_git)
     monkeypatch.setattr(au, "battery_passes", lambda wt: True)
