@@ -138,3 +138,9 @@ W2-27 MED main.py:1522-1528 — with W1-1's isolation, a persistently
   open on the entries side during the one incident that breaks the
   watchdog). Follow-up: treat a raised watchdog.evaluate as
   entries_blocked=True for that cycle (whole-wave review, 2026-07-23).
+
+W2-28 LOW data/ws_feed.py — checksum-mismatch resubscribe reconnects
+  with no consecutive-failure backoff; a systematic mismatch would churn
+  reconnects with zero delay (read-only public WS; REST fail-over keeps
+  books flowing). Add a consecutive-failures backoff (checkpoint-B
+  review, 2026-07-23).
