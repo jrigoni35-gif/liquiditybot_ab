@@ -803,7 +803,13 @@ class LiquidityBot:
             _kcache = LiveMarketCache()
             _kadapter = KrakenV2BookStream(
                 _sym_to_pair, _kcache,
-                depth=int(_kws.get("kraken_depth", 10)))
+                depth=int(_kws.get("kraken_depth", 10)),
+                # W2-28: consecutive checksum-mismatch resubscribe backoff -
+                # see KrakenV2BookStream.__init__'s derivation comment
+                ck_backoff_base_s=float(
+                    _kws.get("kraken_checksum_backoff_base_s", 1.0)),
+                ck_backoff_cap_s=float(
+                    _kws.get("kraken_checksum_backoff_cap_s", 60.0)))
             self.kraken_ws = WebSocketFeedManager(
                 {"enabled": True,
                  "max_book_age_sec": float(
@@ -977,7 +983,10 @@ class LiquidityBot:
         hardened path: fresh AS quote + tactics for placement, then
         order_manager (pre-trade already approved the parent's edge;
         the firewall re-checks every child)."""
-        meta_t = self._algo_meta.get(parent.parent_id) or {}
+        # setdefault (not .get(...) or {}): the "_admission_recorded" flag
+        # set below must persist on THIS SAME dict across every child of
+        # this parent, not a fresh throwaway {} each call.
+        meta_t = self._algo_meta.setdefault(parent.parent_id, {})
         asset = parent.asset
         v = self.view.get(asset) or {}
         vol_cum = sum(max(float(c.get("volume") or 0.0), 0.0)
@@ -1029,6 +1038,19 @@ class LiquidityBot:
         )
         if order:
             self.algo.note_child_order(parent.parent_id, position_id)
+            if not meta_t.get("_admission_recorded"):
+                # first successful child EVER landed for this parent: this
+                # is where "an order actually went out" first became true
+                # for the parent as a whole - record the ONE probe
+                # admission here (was previously recorded at parent
+                # creation, before any child could be rejected). getattr-
+                # guarded: unit tests exercise this off a minimal stub
+                # `self` that may not define _record_probe_admission at all.
+                meta_t["_admission_recorded"] = True
+                record_admission = getattr(self, "_record_probe_admission",
+                                          None)
+                if callable(record_admission):
+                    record_admission(bool(meta_t.get("probe", False)))
             self._last_entry_admit_ts = now            # ML-073 drought clock
             log.info(f"ALGO-CHILD {child.seq}/{child.n_total} "
                      f"{parent.side} {child.units:.6f} {parent.symbol} "
@@ -1869,6 +1891,10 @@ class LiquidityBot:
         asset = self._asset_of(symbol)
 
         # 1) hard protective stop (v2: enforced every cycle).
+        # (exits are always allowed - invariant 5 - and this branch runs
+        # unconditionally, before the tier engine below is even consulted;
+        # the PT-060 reclamp-sliver suppression added below is scoped to
+        # the tier-engine branch ONLY and can never reach here.)
         # A quarantined tick (single anomalous print) holds stop
         # evaluation for exactly one cycle; confirmation fires it.
         if pos.stop_price and self._stop_ok.get(asset, True) and (
@@ -1911,11 +1937,46 @@ class LiquidityBot:
                 # time-tightening - the last wall-clock read in the exit path
                 now=now)
             if action.should_close_partial and action.close_pct > 0:
-                self._submit_exit(pos, action.close_pct,
-                                f"tier {action.tier_fired or 'trail'}",
-                                tier_fired=action.tier_fired, now=now,
-                                profit_take=action.is_profit_take,
-                                reason_code=action.reason_code)
+                is_time_stop = action.reason_code == Code.PT_TIME_STOP.value
+                # sub-25s reclamp sliver (whole-program review Minor #6): a
+                # resting maker tier-1 take on a still-virgin position
+                # (tier_closed increments on FILL, not on submit) can be
+                # preempted by PT-060 if a vol spike reclamps the tier-1
+                # trigger during the submission-to-fill window - the tier
+                # engine can't see this (tier_closed reads 0 either way);
+                # the ORDER BOOK can. Suppressed for exactly one cycle: a
+                # resting take that dies unfilled lets the time-stop fire
+                # at the next evaluation. Scoped to the PT-060 branch ONLY
+                # - every other exit (hard stop above, floor/trail/give-
+                # back below) is untouched; exits stay always-allowed.
+                suppress_pt060 = is_time_stop and \
+                    self._has_resting_profit_take(pos)
+                if not suppress_pt060:
+                    # PT-060 review fix: a time-stop scratch previously
+                    # logged as "tier trail" via the tier_fired-or-'trail'
+                    # fallback (tier_fired==0 on a time-stop) - correct for
+                    # a floor/trail close but wrong for a scratch. The
+                    # meta["reason_code"] wiring below is unchanged; only
+                    # the human-readable reason string is reason-aware.
+                    reason = ("time-stop scratch" if is_time_stop
+                             else f"tier {action.tier_fired or 'trail'}")
+                    self._submit_exit(pos, action.close_pct, reason,
+                                    tier_fired=action.tier_fired, now=now,
+                                    profit_take=action.is_profit_take,
+                                    reason_code=action.reason_code)
+
+    def _has_resting_profit_take(self, pos: Position) -> bool:
+        """True iff `pos` already has an OPEN resting (post-only) profit-
+        take exit order working. _submit_exit's maker-first leg is the
+        ONLY path that ever posts an exit order with post_only=True -
+        every risk-off exit (hard stop, fault, derisk, hedge unwind,
+        protective floor/trail/BE) stays marketable-first by construction
+        (see _submit_exit's maker_first gate). So an open exit order for
+        this position with post_only=True IS, by construction, a resting
+        profit-take - no new state needed (P2 review Minor #6, sub-25s
+        reclamp sliver)."""
+        return any(o.purpose == "exit" and o.position_id == pos.position_id
+                  and o.post_only for o in self.orders.open_orders())
 
     # ------------------------------------------------------------------
     # SLOW cycle - data refresh + entry pipeline
@@ -2682,7 +2743,14 @@ class LiquidityBot:
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or []}
                 self._mark_cand(asset, signal.direction, "entered")
-                self._record_probe_admission(explored)
+                # admission-record asymmetry fix (post-program review): the
+                # probe-share window records "an order actually went out" -
+                # the SAME semantic the direct path uses below (recorded
+                # only on a successful order.submit). Recording HERE, before
+                # any child order is even attempted, meant a parent whose
+                # first child got rejected still filled the share window.
+                # _submit_algo_child now records the ONE admission for this
+                # parent on its FIRST successful child submit.
                 self._submit_algo_child(parent, now)   # first slice now
                 log.info(
                     f"ENTRY-ALGO {signal.direction} {symbol} "

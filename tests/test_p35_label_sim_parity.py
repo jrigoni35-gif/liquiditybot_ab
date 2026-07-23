@@ -382,6 +382,12 @@ def test_manage_open_position_threads_tier_action_reason_code_end_to_end():
     # caller -> _submit_exit -> orders.submit) is exercised, not just the caller
     fake._submit_exit = types.MethodType(main_mod.LiquidityBot._submit_exit,
                                         fake)
+    # T5 sub-25s reclamp sliver: the caller now also consults this predicate
+    # before a PT-060 submission (empty open_orders() above -> never
+    # suppressed here; the suppression itself is pinned in
+    # tests/test_t5_riding_minors.py)
+    fake._has_resting_profit_take = types.MethodType(
+        main_mod.LiquidityBot._has_resting_profit_take, fake)
     pos = Position(position_id="p1", symbol="ETH/USD", direction="long",
                   entry_price=100.0, size=1.0, original_size=1.0,
                   tier_closed=0, high_water=100.0,

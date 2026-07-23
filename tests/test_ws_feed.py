@@ -9,6 +9,8 @@ source of truth)."""
 import json
 import zlib
 
+import pytest
+
 from data.ws_feed import (BinanceUSDepthStream, KrakenV2BookStream,
                            LiveMarketCache, ResilientWebSocket,
                            WebSocketFeedManager, _backoff_delay)
@@ -220,9 +222,11 @@ def _ck(bids: dict, asks: dict) -> int:
     return zlib.crc32("".join(parts).encode("ascii"))
 
 
-def _kstream(cache, depth=10):
+def _kstream(cache, depth=10, now=None):
     # v2 symbol 'BTC/USD' caches under the REST pair 'BTCUSD'
-    return KrakenV2BookStream({"BTC/USD": "BTCUSD"}, cache, depth=depth)
+    kwargs = {} if now is None else {"now": now}
+    return KrakenV2BookStream({"BTC/USD": "BTCUSD"}, cache, depth=depth,
+                             **kwargs)
 
 
 def test_kraken_snapshot_caches_under_rest_pair():
@@ -492,3 +496,106 @@ def test_health_reports_checksum_failures():
     assert m.health()["checksum_failures"] == 0
     adapter.checksum_failures = 3
     assert m.health()["checksum_failures"] == 3
+
+
+# --- W2-28: checksum-mismatch resubscribe backoff -------------------------
+# A systematic checksum mismatch (not a one-off transient drift) previously
+# called request_resubscribe() at ZERO delay on every single mismatched
+# frame, churning reconnects. The backoff paces the RESUBSCRIBE REQUEST
+# only - state-drop + cache-invalidate (the correctness half of the fix)
+# stay unconditional on every mismatch, exactly as before; only how often
+# we actually ask for a resubscribe is bounded. Doubling from 1s, capped at
+# 60s, reset to the base delay by the next clean verified frame.
+def test_checksum_mismatch_backoff_spaces_out_resubscribe_requests():
+    clk = _Clock()
+    cache = LiveMarketCache(now=clk)
+    s = _kstream(cache, now=clk)
+    fire_times = []
+    s.request_resubscribe = lambda: fire_times.append(clk.t)
+    bogus = 999999999
+
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)], checksum=bogus))
+    assert fire_times == [1000.0]              # 1st mismatch fires immediately
+
+    clk.t = 1000.5                              # +0.5s: inside the 1s window
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0]              # suppressed - too soon
+
+    clk.t = 1001.0                              # exactly at the 1s boundary
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0, 1001.0]      # 2nd fires; next gap doubles to 2s
+
+    clk.t = 1002.9                              # inside the new 2s window
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0, 1001.0]      # suppressed
+
+    clk.t = 1003.0                              # 2s boundary
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0, 1001.0, 1003.0]   # 3rd fires; next gap 4s
+
+    assert s.checksum_failures == 5             # every mismatch still counted
+
+
+def test_checksum_mismatch_backoff_caps_at_60s():
+    clk = _Clock()
+    cache = LiveMarketCache(now=clk)
+    s = _kstream(cache, now=clk)
+    fire_times = []
+    s.request_resubscribe = lambda: fire_times.append(clk.t)
+    bogus = 999999999
+
+    # drive the schedule 1,2,4,8,16,32,60(capped),60,60... by always landing
+    # exactly on the next boundary
+    delay = 1.0
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)], checksum=bogus))
+    for _ in range(8):
+        clk.t += delay
+        delay = min(delay * 2.0, 60.0)
+        s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    # the last two gaps must both be capped at 60s, never exceeding it
+    gaps = [b - a for a, b in zip(fire_times, fire_times[1:])]
+    assert gaps[-1] == pytest.approx(60.0)
+    assert gaps[-2] == pytest.approx(60.0)
+    assert max(gaps) == pytest.approx(60.0)
+
+
+def test_verified_frame_resets_the_checksum_backoff():
+    clk = _Clock()
+    cache = LiveMarketCache(now=clk)
+    s = _kstream(cache, now=clk)
+    fire_times = []
+    s.request_resubscribe = lambda: fire_times.append(clk.t)
+    bogus = 999999999
+
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)], checksum=bogus))
+    clk.t = 1001.0
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0, 1001.0]      # streak=2, next allowed at 1003.0
+
+    # a CLEAN verified frame arrives - resets the backoff entirely. Re-
+    # snapshot to a known-good book first (state was dropped by the last
+    # mismatch above).
+    clk.t = 1001.1
+    good_ck = _ck({100.0: 1.0}, {101.0: 1.0})
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)], checksum=good_ck))
+    assert fire_times == [1000.0, 1001.0]      # no resubscribe - it was clean
+
+    # a fresh mismatch immediately after fires WITHOUT waiting out the
+    # pre-reset 4s window - proof the streak/backoff was reset, not just
+    # coincidentally already elapsed
+    clk.t = 1001.2
+    s.handle(_upd("BTC/USD", [], [], checksum=bogus))
+    assert fire_times == [1000.0, 1001.0, 1001.2]
+
+
+def test_checksum_backoff_defaults_fire_immediately_when_unwired():
+    # regression guard: a fresh adapter's first-ever mismatch must never be
+    # gated by a stale default clock - matches the pre-existing repro test
+    # (test_kraken_checksum_mismatch_drops_state_cache_and_resubscribes)
+    # which constructs a stream WITHOUT an injected clock at all.
+    cache = LiveMarketCache(now=_Clock())
+    s = _kstream(cache)
+    resubscribed = []
+    s.request_resubscribe = lambda: resubscribed.append(True)
+    s.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)], checksum=1))
+    assert resubscribed == [True]

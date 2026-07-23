@@ -396,8 +396,14 @@ def test_engine_wires_the_throttle_at_the_explore_decision_point():
     # the current macro regime is threaded into the throttle (Task 4, #103)
     assert "regime_label=macro_state.label" in src
     # every entry path that actually places an order feeds the rolling
-    # window (both conviction and probe admissions) - one call per path
-    assert src.count("self._record_probe_admission(explored)") == 3
+    # window (both conviction and probe admissions) - one call per path.
+    # The direct and ladder paths record inline on their own successful
+    # submit; the algo path (T5 admission-asymmetry fix) instead records
+    # inside _submit_algo_child, gated on the parent's FIRST successful
+    # child submit ("_admission_recorded" flag) rather than at parent
+    # creation before any child could be rejected.
+    assert src.count("self._record_probe_admission(explored)") == 2
+    assert "_admission_recorded" in src
 
 
 def test_conviction_never_reaches_the_share_cap_or_decay():

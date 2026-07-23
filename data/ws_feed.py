@@ -398,7 +398,10 @@ class KrakenV2BookStream:
     VENUE = "kraken"
 
     def __init__(self, sym_to_pair: dict, cache: LiveMarketCache,
-                 depth: int = 10):
+                 depth: int = 10,
+                 ck_backoff_base_s: float = 1.0,
+                 ck_backoff_cap_s: float = 60.0,
+                 now: Callable[[], float] = time.monotonic):
         self.cache = cache
         # v2 symbol ('BTC/USD') -> cache key = Kraken REST pair ('BTCUSD')
         self.sym_to_pair = dict(sym_to_pair or {})
@@ -415,6 +418,28 @@ class KrakenV2BookStream:
         # wired by WebSocketFeedManager.start() to ResilientWebSocket's
         # request_reconnect - left None (no-op) when used standalone/tested
         self.request_resubscribe: Optional[Callable[[], None]] = None
+        # W2-28: consecutive checksum-mismatch backoff on the RESUBSCRIBE
+        # REQUEST itself only - never on data correctness. A mismatch still
+        # drops local state + invalidates the cache on EVERY occurrence
+        # (forcing an instant REST fallback read); only how often we
+        # actually ASK for a resubscribe is paced. Derivation: this is
+        # read-only public market data (invariant 3) and REST fail-over
+        # already keeps books flowing through any gap, so a systematic
+        # mismatch (e.g. a persistently malformed venue frame) would
+        # otherwise churn reconnects at zero delay forever for no
+        # corresponding gain in data availability - doubling 1s -> 60s
+        # bounds that churn while a one-off transient mismatch still
+        # resyncs promptly (first mismatch always fires immediately).
+        # Monotonic clock (injectable for tests): this is sidecar/data
+        # code, not the engine - no replay/injected-`now` discipline
+        # applies here, only the file's own reconnect-timing convention
+        # (see _backoff_delay above).
+        self._ck_backoff_base_s = max(float(ck_backoff_base_s), 0.01)
+        self._ck_backoff_cap_s = max(float(ck_backoff_cap_s),
+                                     self._ck_backoff_base_s)
+        self._ck_fail_streak = 0        # consecutive fired requests
+        self._ck_next_resub_ok_ts = 0.0  # gate open until real time clears this
+        self._ck_now = now
 
     def url(self) -> str:
         """Adapter interface: the Kraken v2 public websocket URL."""
@@ -544,7 +569,12 @@ class KrakenV2BookStream:
 
         Skipped (never a mismatch) when: no checksum on the frame, or
         `depth` < 10 - too few retained levels to reconstruct Kraken's
-        top-10 checksum window, so any comparison would be meaningless."""
+        top-10 checksum window, so any comparison would be meaningless.
+
+        W2-28: the resubscribe REQUEST (not the state-drop/cache-
+        invalidate above it) is paced by a consecutive-failure backoff -
+        see __init__'s derivation. A clean verified frame (this method's
+        early return below) resets that backoff entirely."""
         if expected is None or self.depth < 10:
             return
         try:
@@ -552,6 +582,10 @@ class KrakenV2BookStream:
         except (TypeError, ValueError):
             return
         if self._checksum(st) == expected_int:
+            # clean verified frame: only a SUSTAINED (consecutive) desync
+            # escalates the resubscribe backoff, so recovery resets it
+            self._ck_fail_streak = 0
+            self._ck_next_resub_ok_ts = 0.0
             return
         self.checksum_failures += 1
         pair = self.sym_to_pair.get(sym)
@@ -563,7 +597,18 @@ class KrakenV2BookStream:
         if pair is not None:
             self.cache.invalidate(self.VENUE, pair)
         if self.request_resubscribe is not None:
-            self.request_resubscribe()
+            now_ts = self._ck_now()
+            if now_ts >= self._ck_next_resub_ok_ts:
+                self.request_resubscribe()
+                self._ck_next_resub_ok_ts = now_ts + _backoff_delay(
+                    self._ck_fail_streak, self._ck_backoff_base_s,
+                    self._ck_backoff_cap_s, 0.0)
+                self._ck_fail_streak += 1
+            else:
+                log.info(
+                    "kraken checksum mismatch resubscribe suppressed for "
+                    "%s - backoff active (%.1fs remaining)",
+                    sym, self._ck_next_resub_ok_ts - now_ts)
 
 
 class WebSocketFeedManager:

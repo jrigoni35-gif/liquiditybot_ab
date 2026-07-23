@@ -1832,6 +1832,28 @@ def validate(config: dict) -> list:
             fatal(f"websockets.kraken_depth={k_depth} must be one of "
                   f"10/25/100/500/1000 - the Kraken v2 book channel only "
                   f"offers those depths")
+        # W2-28 checksum-mismatch resubscribe backoff knobs (see
+        # KrakenV2BookStream.__init__'s derivation): bounds RECONNECT
+        # CHURN only, never data availability - a non-positive base would
+        # resubscribe at zero delay again (the exact bug this fixes), and
+        # a cap below base would make the "doubling" schedule shrink.
+        ck_base = float(_f(config, "websockets.kraken_checksum_backoff_base_s",
+                          1.0))
+        ck_cap = float(_f(config, "websockets.kraken_checksum_backoff_cap_s",
+                         60.0))
+        if ck_base <= 0:
+            fatal(f"websockets.kraken_checksum_backoff_base_s={ck_base} must "
+                  f"be > 0 - a non-positive base resubscribes at zero delay "
+                  f"again, the exact churn this backoff exists to bound")
+        if ck_cap < ck_base:
+            fatal(f"websockets.kraken_checksum_backoff_cap_s={ck_cap} must "
+                  f"be >= kraken_checksum_backoff_base_s={ck_base} - the "
+                  f"doubling schedule cannot shrink")
+        if ck_cap > 300.0:
+            findings.append(("WARN",
+                             f"websockets.kraken_checksum_backoff_cap_s="
+                             f"{ck_cap} exceeds 300s - a systematic desync "
+                             f"could go uncorrected for a long time"))
 
     # --- moomoo equities context (optional, read-only) -------------------
     # Degrades to neutral on any failure, so bad config can't stop the bot -
