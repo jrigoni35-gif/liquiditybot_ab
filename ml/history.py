@@ -772,11 +772,20 @@ class CandidateLabeler:
 
         `conviction` (the candidate's entry meta p(win)) is threaded only into
         the exit-policy sim, where it mirrors the live conviction-runner trail
-        (W2-1); triple_barrier has no such geometry and ignores it."""
+        (W2-1); triple_barrier has no such geometry and ignores it.
+
+        `cost` (the candidate's own round-trip cost, from `_cost_pct`) is ALSO
+        threaded into the tier-1 cost floor as `est_cost_bps = cost * 100.0`
+        (pct -> bps, the exact inverse of the conversion `tier1_cost_floor_pct`
+        applies) — the SAME cost basis that already drives the net-of-cost
+        label now drives the floor too (Task 1, #103), closing the P3.5
+        documented residual: this register-time estimate is a real caller
+        that CAN supply est_cost_bps."""
         if self.label_mode == "exit_policy" and self.exit_policy is not None:
             return simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
                                         self.exit_policy, max_bars=self.horizon,
-                                        cost_pct=cost, conviction=conviction)
+                                        cost_pct=cost, conviction=conviction,
+                                        est_cost_bps=cost * 100.0)
         return triple_barrier(closes, highs, lows, i, side, sigma_bar,
                               self.pt, self.sl, self.horizon, cost_pct=cost)
 
@@ -935,10 +944,13 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         side = 1 if crossed_up else -1
         sigma_bar = float(rets[max(i - 60, 0):i].std() + 1e-6)
         # `exit_policy is not None` is implied by use_policy (line above);
-        # restated inline so the type checker narrows the Optional
+        # restated inline so the type checker narrows the Optional. Same
+        # cost basis threaded into the tier-1 floor as the candidate path
+        # (Task 1, #103): est_cost_bps = cost_pct * 100.0 (pct -> bps).
         out = simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
                                    exit_policy, max_bars=max_bars,
-                                   cost_pct=cost_pct) \
+                                   cost_pct=cost_pct,
+                                   est_cost_bps=cost_pct * 100.0) \
             if use_policy and exit_policy is not None \
             else triple_barrier(closes, highs, lows, i, side, sigma_bar,
                                 pt_mult, sl_mult, max_bars, cost_pct=cost_pct)

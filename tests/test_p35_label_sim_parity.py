@@ -5,12 +5,17 @@ reach the exit order's meta.
 
 Sub-task A (P1 cost floor): risk/profit_tiers.tier1_cost_floor_pct is the
 SINGLE implementation ProfitTierEngine._tier_trigger_pct and
-ml.labeling.ExitPolicy._tier_trigger both call. est_cost_bps is genuinely
+ml.labeling.ExitPolicy._tier_trigger both call. The live engine's own
+estimate (execution/pretrade.py's PreTradeDecision.est_cost_bps) is genuinely
 UNAVAILABLE at the only CandidateLabeler.register() call site (main.py: it
 runs before execution/pretrade.py's PreTradeGate.evaluate() computes the cost
-stack) and at the bootstrap path (no pretrade decision exists for an EMA-cross
-pseudo-signal) — every real caller passes the default 0.0 (floor inert); a
-caller that CAN supply a real value gets the true floored trigger.
+stack) and at the bootstrap path (no pretrade decision exists for an
+EMA-cross pseudo-signal). These pins exercise the mechanism directly via
+explicit est_cost_bps kwargs (default 0.0 = the pre-Task-1 shipped state).
+Task 1 (#103, tests/test_t1_label_cost_floor_input.py) closes the input gap
+at both real call sites with a register-time cost estimate instead — see
+that file for the caller-side wiring and the ml.labeling docstrings for the
+current (post-Task-1) documented approximation.
 
 Sub-task B (P2 time-stop): risk/profit_tiers.time_stop_fires is the SINGLE
 predicate ProfitTierEngine._time_stop_hit and ml.labeling.simulate_exit_policy

@@ -145,19 +145,24 @@ class ExitPolicy:
         via the shared `tier1_cost_floor_pct` helper — a TRUE mirror for every
         input this function is actually given (P3.5), never a copied formula.
 
-        `est_cost_bps` is the candidate's entry round-trip cost estimate
-        (execution/pretrade.py's `PreTradeDecision.est_cost_bps`). DOCUMENTED
-        RESIDUAL: it is genuinely UNAVAILABLE at the only
-        `CandidateLabeler.register()` call site (main.py) — the pretrade
+        `est_cost_bps` is the candidate's entry round-trip cost estimate. The
+        live engine's own estimate — execution/pretrade.py's
+        `PreTradeDecision.est_cost_bps` — is genuinely UNAVAILABLE at the only
+        `CandidateLabeler.register()` call site (main.py): the pretrade
         decision is computed by `PreTradeGate.evaluate()` well AFTER that
         signal has already been registered as a candidate (sizing + quoting,
-        which the cost stack depends on, have not happened yet), so every
-        real candidate/bootstrap caller passes the default 0.0 and this floor
-        stays exactly inert in production — the same "genuinely unavailable"
-        residual class as the conviction-runner leash's bootstrap path (W2-1).
-        A caller that CAN supply a real value (tests, or a future caller with
-        the pretrade decision already in hand) gets the true floored trigger,
-        byte-identical to the live engine's."""
+        which the cost stack depends on, have not happened yet). CLOSED
+        (Task 1, #103): both real callers (`CandidateLabeler._label` and
+        `bootstrap_dataset`) now thread their OWN register-time cost estimate
+        instead — `CandidateLabeler._cost_pct(cand)` (fee floor + the
+        candidate's own capped spread) converted pct -> bps, the SAME basis
+        already used for the net-of-cost label. DOCUMENTED APPROXIMATION (not
+        a residual): the live `PreTradeDecision.est_cost_bps` additionally
+        carries impact/queue terms computed post-sizing, structurally
+        unavailable at register time — the label estimate is therefore a
+        conservative LOWER BOUND on the live floor, never an over-floor, and
+        it is the same cost basis the label's own net-of-cost subtraction
+        already uses (one cost stack, two consumers)."""
         if not self.vol_scaled or sigma_bar <= 0 or vol_mult <= 0:
             trigger = legacy
         else:
@@ -202,15 +207,22 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     estimate; when supplied it floors tier 1's effective trigger at
     ``min_trigger_cost_mult × est_cost_bps`` (P1), the SAME shared
     ``risk.profit_tiers.tier1_cost_floor_pct`` the live engine applies to tier
-    1 only (see ``ExitPolicy._tier_trigger``). DOCUMENTED RESIDUAL (P3.5):
+    1 only (see ``ExitPolicy._tier_trigger``). The live engine's own estimate
+    — execution/pretrade.py's ``PreTradeDecision.est_cost_bps`` — is
     genuinely UNAVAILABLE at the candidate-registration call site (main.py's
-    `CandidateLabeler.register()` runs before `PreTradeGate.evaluate()`
+    ``CandidateLabeler.register()`` runs before ``PreTradeGate.evaluate()``
     computes the cost stack) and at the bootstrap path (no pretrade decision
-    exists at all for an EMA-cross pseudo-signal) — every real caller passes
-    the default 0.0 and the floor stays exactly inert in production, the same
-    residual class as the conviction leash's bootstrap path (W2-1). A caller
-    that CAN supply a real value (tests; a future caller with the pretrade
-    decision in hand) gets the true floored trigger.
+    exists at all for an EMA-cross pseudo-signal). CLOSED (Task 1, #103):
+    both real callers now thread their OWN register-time cost estimate
+    instead — ``CandidateLabeler._cost_pct(cand)`` (fee floor + the
+    candidate's own capped spread) and bootstrap's ``cost_pct`` argument,
+    each converted pct -> bps (``* 100.0``) — the SAME basis already used for
+    the net-of-cost label (one cost stack, two consumers: the P&L
+    subtraction and the trigger floor). DOCUMENTED APPROXIMATION (not a
+    residual): this register-time estimate omits the impact/queue terms the
+    live decision adds post-sizing (structurally unavailable this early), so
+    it is a conservative LOWER BOUND on the true live floor, never an
+    over-floor.
 
     The time-stop (P2, PT-060, ``policy.ts_enabled``) is also mirrored: a
     candidate that has not reached ``ts_min_mfe_frac`` of tier 1's EFFECTIVE
@@ -231,12 +243,14 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     The conviction-runner leash was a FOURTH such divergence; it is now mirrored
     wherever a conviction is threaded (candidate path) and a documented residual
     (full leash) only where the entry conviction is genuinely unavailable
-    (bootstrap). The tier-1 cost floor is a FIFTH: mirrored via a shared helper
-    whenever a caller supplies est_cost_bps, documented-inert (residual) where
-    it is genuinely unavailable (candidate registration; bootstrap) — see
-    above. The time-stop (P2) needed no such residual: every input it needs
-    (bar index, running MFE, the cost-floored tier-1 trigger) already exists
-    in this replay, so it is a TRUE mirror, not an approximation. Intra-bar
+    (bootstrap). The tier-1 cost floor is a FIFTH: mirrored via a shared helper,
+    now fed a real register-time cost estimate at BOTH real call sites
+    (candidate registration and bootstrap — Task 1, #103) — see above for why
+    that estimate is a documented approximation (conservative lower bound),
+    not a residual. The time-stop (P2) needed no such residual: every input
+    it needs (bar index, running MFE, the cost-floored tier-1 trigger)
+    already exists in this replay, so it is a TRUE mirror, not an
+    approximation. Intra-bar
     path is unknown, so — like the triple barrier — the ADVERSE extreme is
     checked before the favorable one each bar (conservative; Lopez de Prado).
     Returns net-of-cost label + realized signed return %."""
