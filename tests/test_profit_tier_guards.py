@@ -13,6 +13,8 @@ detonate the exit path.
 import math
 from datetime import datetime, timezone
 
+import pytest
+
 from core.state import Position
 from risk.profit_tiers import ProfitTierEngine
 
@@ -52,3 +54,144 @@ def test_nan_entry_price_with_stop_magnet_does_not_raise():
     p = _nan_entry_pos()
     eng.evaluate(p, 100.0)
     eng.evaluate(p, 101.0)   # would raise ValueError: cannot convert NaN to int
+
+
+# ---- task #89 coverage-pin batch -------------------------------------------
+
+def _pos(direction="long", entry=100.0, tier_closed=0, confidence=0.0,
+        opened_at=None):
+    return Position(
+        position_id=f"p-{direction}", symbol="ETH/USD", direction=direction,
+        entry_price=entry, size=1.0, original_size=1.0,
+        opened_at=opened_at or datetime.now(timezone.utc),
+        confidence=confidence)
+
+
+# -- 23. short-side tier take mirrors the long side's magnitude -------------
+def test_short_side_tier_take_mirrors_long_magnitude():
+    cfg = {"tier_1": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25}}
+    long_action = ProfitTierEngine(cfg).evaluate(_pos("long"), 102.0)
+    short_action = ProfitTierEngine(cfg).evaluate(_pos("short"), 98.0)
+    assert short_action.should_close_partial and short_action.is_profit_take
+    assert short_action.tier_fired == 1
+    assert short_action.close_pct == pytest.approx(long_action.close_pct)
+    assert short_action.realized_pnl == pytest.approx(long_action.realized_pnl)
+
+
+# -- 24. give-back exact boundaries: arm and tighten thresholds -------------
+def _gb_engine(arm=1.5, frac=0.40, tighten=4.0, tight_frac=0.25):
+    return ProfitTierEngine({"give_back": {
+        "enabled": True, "arm_gain_pct": arm, "giveback_frac": frac,
+        "tighten_gain_pct": tighten, "tight_frac": tight_frac}})
+
+
+def _pos_with_peak(peak_pct, direction="long", entry=100.0):
+    p = _pos(direction, entry)
+    delta = entry * peak_pct / 100.0
+    if direction == "long":
+        p.high_water = entry + delta
+    else:
+        p.high_water = entry - delta
+    return p
+
+
+def test_give_back_arms_exactly_at_the_threshold():
+    eng = _gb_engine(arm=1.5)
+    below = eng._give_back_candidate(_pos_with_peak(1.4999999999))
+    at = eng._give_back_candidate(_pos_with_peak(1.5))
+    assert below is None
+    assert at is not None
+
+
+def test_give_back_uses_tighter_frac_exactly_at_tighten_threshold():
+    eng = _gb_engine(arm=1.5, frac=0.40, tighten=4.0, tight_frac=0.25)
+    entry = 100.0
+    just_below_hw = entry + entry * 3.9999999999 / 100.0
+    just_below = eng._give_back_candidate(
+        _pos_with_peak(3.9999999999))
+    at_tighten_hw = entry + entry * 4.0 / 100.0
+    at_tighten = eng._give_back_candidate(_pos_with_peak(4.0))
+    # below the tighten bar: the LOOSER frac locks (1 - 0.40) of the move
+    assert just_below == pytest.approx(entry + 0.60 * (just_below_hw - entry))
+    # AT the tighten bar (inclusive): the TIGHTER frac locks (1 - 0.25)
+    assert at_tighten == pytest.approx(entry + 0.75 * (at_tighten_hw - entry))
+
+
+# -- 25. _bars_in_trade clock-skew guards ------------------------------------
+def test_bars_in_trade_future_opened_at_clamps_to_zero():
+    eng = ProfitTierEngine({})
+    opened = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    p = _pos(opened_at=opened)
+    now_before_open = opened.timestamp() - 3600.0    # 1h BEFORE opened_at
+    assert eng._bars_in_trade(p, now=now_before_open) == 0.0
+
+
+def test_bars_in_trade_non_datetime_opened_at_is_zero_not_raise():
+    eng = ProfitTierEngine({})
+    p = _pos()
+    p.opened_at = "not-a-datetime"          # type: ignore[assignment]
+    assert eng._bars_in_trade(p, now=1000.0) == 0.0
+
+
+# -- 26. exact tier-trigger equality fires (inclusive >=) --------------------
+def test_tier_trigger_fires_on_exact_equality():
+    cfg = {"tier_1": {"trigger_pct_gain": 3.0, "close_pct_of_position": 50}}
+    at = ProfitTierEngine(cfg).evaluate(_pos(entry=100.0), 103.0)
+    assert at.should_close_partial and at.is_profit_take
+    assert at.tier_fired == 1
+    below = ProfitTierEngine(cfg).evaluate(_pos(entry=100.0), 102.9999)
+    assert not below.should_close_partial
+
+
+# -- 27. tier_closed beyond the ladder falls through to pure trail ----------
+def test_tier_closed_beyond_ladder_falls_through_to_pure_trail_no_indexerror():
+    cfg = {"trailing_stop": {"enabled": True, "activate_after_tier": 0,
+                             "trail_pct": 1.0}}
+    eng = ProfitTierEngine(cfg)
+    p = _pos(entry=100.0)
+    p.tier_closed = 7                        # beyond the 4-tier ladder
+    eng.evaluate(p, 110.0)                   # sets high_water/stop; no raise
+    action = eng.evaluate(p, 108.5)          # 1% trail below hw 110 -> 108.9
+    assert action.tier_fired == 7
+    assert action.should_close_partial
+    assert not action.is_profit_take         # protective floor, not a take
+
+
+# -- 28. negative confidence mirrors the 0.0 full-leash noop ----------------
+def test_negative_confidence_is_full_leash_noop():
+    cfg = {"trailing_stop": {"enabled": True, "activate_after_tier": 1,
+                             "trail_pct": 1.0},
+           "be_after_tier": 99}
+    cr = {"conviction_runner": {"enabled": True, "neutral_conf": 0.70,
+                                "min_conf": 0.55, "min_trail_mult": 0.6}}
+    on = ProfitTierEngine({**cfg, **cr})
+    off = ProfitTierEngine(cfg)
+
+    def _conf_pos(conf):
+        p = _pos(confidence=conf)
+        p.tier_closed = 4
+        p.high_water = 110.0
+        return p
+
+    px = 109.2   # between the full-leash stop (108.9) and tightened (109.34)
+    assert on.evaluate(_conf_pos(-1.0), px).should_close_partial is False
+    assert off.evaluate(_conf_pos(-1.0), px).should_close_partial is False
+
+
+# -- 29. invariant 5: the exit action fires with no entries/disarm flag ----
+def test_invariant5_give_back_exit_fires_with_no_entries_flag_consulted():
+    """Engine-level pin (full-bot wiring judged disproportionate here):
+    ProfitTierEngine.evaluate()'s signature and body (risk/profit_tiers.py)
+    consult no entries_enabled/disarm/kill-switch flag anywhere -- confirmed
+    by reading the module -- so a position past its give-back floor produces
+    the exit action unconditionally. main.py's _manage_open_position (the
+    only caller) likewise never gates this call on entries_enabled, only on
+    stop_ok / mark-freshness -- exits are never blocked (invariant 5)."""
+    eng = ProfitTierEngine({"give_back": {"enabled": True,
+                                          "arm_gain_pct": 1.0,
+                                          "giveback_frac": 0.5}})
+    p = _pos(entry=100.0)
+    eng.evaluate(p, 102.0)            # peak +2% arms the give-back floor
+    action = eng.evaluate(p, 100.9)   # retrace below the locked 50% floor
+    assert action.should_close_partial is True
+    assert action.close_pct == pytest.approx(100.0)

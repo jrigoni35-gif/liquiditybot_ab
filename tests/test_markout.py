@@ -93,3 +93,38 @@ def test_disabled_and_bad_inputs_are_noops():
     t.record_fill("ETH/USD", "ETH", "buy", None, now=0.0)      # non-numeric
     t.poll({"ETH/USD": 101.0}, now=6.0)
     assert t.snapshot()["pending"] == 0 and t.snapshot()["by_asset"] == {}
+
+
+# ---- task #89 coverage-pin batch: exact boundary / dup / NaN ---------------
+
+def test_resolves_exactly_at_horizon_age_inclusive():
+    t = _mk(horizons=(5,))
+    t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=0.0)
+    t.poll({"ETH/USD": 101.0}, now=5.0)              # age == h exactly
+    snap = t.snapshot()
+    assert snap["by_asset"]["ETH"]["5"]["markout_bps"] == 100.0
+    assert snap["pending"] == 0
+
+
+def test_duplicate_record_fill_is_not_deduped():
+    t = _mk(horizons=(5,))
+    t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=0.0)
+    t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=0.0)
+    assert len(t._pending) == 2
+    t.poll({"ETH/USD": 101.0}, now=6.0)
+    assert t.snapshot()["by_asset"]["ETH"]["5"]["n"] == 2
+
+
+def test_nan_price_fill_is_noop_and_nan_mark_defers_never_pollutes():
+    t = _mk(horizons=(5,), grace_sec=15)
+    t.record_fill("ETH/USD", "ETH", "buy", float("nan"), now=0.0)
+    assert len(t._pending) == 0                      # NaN price: no-op
+    t.record_fill("ETH/USD", "ETH", "buy", 100.0, now=0.0)
+    assert len(t._pending) == 1
+    t.poll({"ETH/USD": float("nan")}, now=6.0)        # NaN mark: defer only
+    snap = t.snapshot()
+    assert snap["by_asset"] == {} and snap["pending"] == 1
+    t.poll({"ETH/USD": 101.0}, now=7.0)               # real mark arrives
+    snap2 = t.snapshot()
+    assert snap2["by_asset"]["ETH"]["5"]["markout_bps"] == 100.0
+    assert snap2["pending"] == 0

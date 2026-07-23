@@ -163,3 +163,42 @@ def test_guard_silent_when_disabled():
            "grid_ladder": {"enabled": False, "rungs": 99, "size_decay": 7}}
     assert not any("grid_ladder" in m for s, m in validate(cfg)
                    if s == "FATAL")
+
+
+# ---- task #89 coverage-pin batch: exact boundaries + isolation -------------
+
+def test_arm_boundary_is_exact_and_disarm_requires_strictly_below():
+    eng = _eng()
+    armed_at_bar = _plan(eng, p_win=0.60)
+    assert armed_at_bar.armed                       # 0.60 == arm bar: ARMS
+    held_at_disarm_bar = _plan(eng, p_win=0.55)
+    assert held_at_disarm_bar.armed                  # 0.55 == disarm bar: HOLDS
+
+
+def test_per_asset_isolation_garbage_on_one_asset_leaves_another_untouched():
+    eng = _eng()
+    btc = eng.plan("BTC", "long", 100.0, 0.30, 3.0, 0.65)
+    assert btc.armed
+    eth_garbage = eng.plan("ETH", "long", float("nan"), 0.30, 3.0, 0.65)
+    assert not eth_garbage.armed
+    assert eng._armed.get("BTC") == "long"           # BTC state untouched
+    btc_again = eng.plan("BTC", "long", 100.0, 0.30, 3.0, 0.65)
+    assert btc_again.armed
+    assert [(r.price, r.size_units) for r in btc_again.rungs] == \
+           [(r.price, r.size_units) for r in btc.rungs]
+
+
+def test_garbage_on_the_same_asset_retracts_its_own_arm():
+    eng = _eng()
+    assert _plan(eng, p_win=0.65).armed
+    assert not _plan(eng, quote=float("nan")).armed
+    assert eng._armed.get("SUI") is None
+
+
+def test_sigma_zero_and_negative_do_not_raise_and_floor_at_min_spacing():
+    eng = _eng()
+    zero = _plan(eng, sigma=0.0)
+    neg = _plan(eng, sigma=-5.0)
+    assert zero.armed and neg.armed
+    assert math.isclose(zero.rungs[1].offset_bps, 8.0, rel_tol=1e-9)
+    assert math.isclose(neg.rungs[1].offset_bps, 8.0, rel_tol=1e-9)
