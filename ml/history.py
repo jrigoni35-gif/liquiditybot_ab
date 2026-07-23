@@ -573,12 +573,18 @@ class CandidateLabeler:
 
     def register(self, asset: str, direction: str, features: np.ndarray,
                 sigma_bar: float, bar_time, gates_passed=None,
-                spread_bps: float = 0.0) -> bool:
+                spread_bps: float = 0.0,
+                confidence: "float | None" = None) -> bool:
         """Returns True when a candidate row was actually appended -
         the SCS latch must only be consumed by a REAL append (a dedup
         no-op would silently discard the state-change lesson the
         sampler exists to capture). Interface extended, not changed:
-        legacy callers ignored the None return."""
+        legacy callers ignored the None return.
+
+        `confidence` is the candidate's entry meta p(win); when present it lets
+        the exit-policy labeler mirror the live conviction-runner trail (W2-1).
+        None (the default) preserves every legacy caller and yields the
+        full-leash label as before."""
         if self._last_reg.get((asset, direction)) == bar_time:
             return False                # same signal, same candle: no duplicate
         self._last_reg[(asset, direction)] = bar_time
@@ -600,6 +606,12 @@ class CandidateLabeler:
                             # asset's execution spread at signal time, folded
                             # into the label's round-trip cost at poll time
                             "spread_bps": float(max(spread_bps, 0.0)),
+                            # entry meta p(win): threaded into the exit-policy
+                            # label sim so a borderline-confidence candidate is
+                            # labeled with the SAME trail the live runner gives
+                            # it (W2-1). None -> full-leash label (unchanged).
+                            "confidence": (float(confidence)
+                                           if confidence is not None else None),
                             # which gates passed at signal time (JSON-safe
                             # bools); the labeled outcome feeds per-gate stats
                             "gates": {str(g): bool(v) for g, v in
@@ -662,7 +674,8 @@ class CandidateLabeler:
                 # full window: finish shadows, label if still unlabeled
                 if not cand.get("labeled"):
                     out = self._label(closes, highs, lows, i, side,
-                                      cand["sigma_bar"], cost)
+                                      cand["sigma_bar"], cost,
+                                      conviction=cand.get("confidence"))
                     written += self._emit_label(cand, out)
                 self._record_shadow_horizons(cand, closes, highs, lows, i,
                                              side, cost)
@@ -671,7 +684,8 @@ class CandidateLabeler:
             if cand.get("labeled"):
                 continue                    # waiting only for shadows now
             out = self._label(closes, highs, lows, i, side,
-                              cand["sigma_bar"], cost)
+                              cand["sigma_bar"], cost,
+                              conviction=cand.get("confidence"))
             if out.final:                   # resolved inside the window -> final
                 written += self._emit_label(cand, out)
                 cand["labeled"] = True
@@ -688,14 +702,19 @@ class CandidateLabeler:
                      written, self.label_mode)
         return written
 
-    def _label(self, closes, highs, lows, i, side, sigma_bar, cost):
+    def _label(self, closes, highs, lows, i, side, sigma_bar, cost,
+               conviction=None):
         """Dispatch to the configured labeler. exit_policy replays the live
         exit engine (matches how the signal is actually traded); triple_barrier
-        is the legacy symmetric pt/sl. Same signature, same BarrierOutcome."""
+        is the legacy symmetric pt/sl. Same signature, same BarrierOutcome.
+
+        `conviction` (the candidate's entry meta p(win)) is threaded only into
+        the exit-policy sim, where it mirrors the live conviction-runner trail
+        (W2-1); triple_barrier has no such geometry and ignores it."""
         if self.label_mode == "exit_policy" and self.exit_policy is not None:
             return simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
                                         self.exit_policy, max_bars=self.horizon,
-                                        cost_pct=cost)
+                                        cost_pct=cost, conviction=conviction)
         return triple_barrier(closes, highs, lows, i, side, sigma_bar,
                               self.pt, self.sl, self.horizon, cost_pct=cost)
 
@@ -822,6 +841,13 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
     the candidate labeler; "triple_barrier" is the legacy symmetric pt/sl.
     Defaults to triple_barrier so existing callers are behavior-exact until
     they opt in.
+
+    DOCUMENTED RESIDUAL (W2-1): these EMA-cross pseudo-signals carry no meta
+    p(win), so no conviction is threaded into the exit-policy sim — bootstrap
+    labels run on the FULL runner leash (conviction unavailable, not ignored).
+    The live candidate path threads the real entry conviction; the bootstrap
+    prior stays full-leash, an accepted 2nd-order approximation for a cold-start
+    calibration set.
 
     Microstructure/regime/sentiment features are unavailable historically
     and set to neutral; only price/vol/momentum features vary. Good

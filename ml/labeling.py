@@ -18,8 +18,11 @@ onto an existing rule engine.
 """
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 import numpy as np
+
+from risk.profit_tiers import conviction_runner_params, conviction_trail_mult
 
 EPS = 1e-12
 
@@ -64,6 +67,16 @@ class ExitPolicy:
     gb_frac: float = 0.40                # give_back.giveback_frac (lock 1-frac)
     gb_tighten_frac: float = 0.040       # give_back.tighten_gain_pct
     gb_tight_frac: float = 0.25          # give_back.tight_frac (lock 1-frac)
+    # CONVICTION RUNNER (rev 6): the live engine tightens the chandelier trail
+    # multiplicatively for a low-entry-conviction position. Populated from
+    # profit_taking.conviction_runner (SAME parse+clamp the engine uses, via
+    # conviction_runner_params); the tighten is applied only when a per-signal
+    # conviction is threaded into simulate_exit_policy. Defaults = OFF so a bare
+    # ExitPolicy() and every conviction-less caller stay byte-identical.
+    cr_enabled: bool = False
+    cr_neutral_conf: float = 0.70
+    cr_min_conf: float = 0.55
+    cr_min_trail_mult: float = 0.60
 
     @staticmethod
     def from_config(config: dict) -> "ExitPolicy":
@@ -71,6 +84,7 @@ class ExitPolicy:
         pt = (config or {}).get("profit_taking", {}) or {}
         gb = pt.get("give_back", {}) or {}
         tr = pt.get("trailing_stop", {}) or {}
+        cr = conviction_runner_params(pt)    # SAME parse+clamp as the live engine
         tiers = []
         for i in range(1, 5):
             t = pt.get(f"tier_{i}")
@@ -100,7 +114,9 @@ class ExitPolicy:
             gb_arm_vol_mult=float(gb.get("arm_vol_mult", 0.0)),
             gb_frac=float(gb.get("giveback_frac", 0.4)),
             gb_tighten_frac=float(gb.get("tighten_gain_pct", 4.0)) / 100.0,
-            gb_tight_frac=float(gb.get("tight_frac", 0.25)))
+            gb_tight_frac=float(gb.get("tight_frac", 0.25)),
+            cr_enabled=cr[0], cr_neutral_conf=cr[1],
+            cr_min_conf=cr[2], cr_min_trail_mult=cr[3])
 
     def _tier_trigger(self, legacy: float, vol_mult: float,
                       sigma_bar: float) -> float:
@@ -115,7 +131,8 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
                          lows: np.ndarray, i: int, side: int,
                          sigma_bar: float, policy: ExitPolicy,
                          max_bars: int = 96,
-                         cost_pct: float = 0.5) -> BarrierOutcome:
+                         cost_pct: float = 0.5,
+                         conviction: Optional[float] = None) -> BarrierOutcome:
     """Label a candidate by REPLAYING the live exit policy over the candles,
     instead of a single symmetric triple barrier. This makes the counterfactual
     label answer the SAME question a live trade poses (net PnL sign under the
@@ -123,13 +140,25 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     predominantly-candidate training set stops being trained on a different bet
     than it is traded on.
 
+    ``conviction`` (default None) is the candidate's entry meta p(win). When
+    supplied AND the policy's conviction-runner is enabled, the trailing-floor
+    distance is tightened by the SAME multiplier the live engine applies
+    (``risk.profit_tiers.conviction_trail_mult``, one shared implementation),
+    so a borderline-confidence signal (p_win in [min_conf, neutral_conf)) is no
+    longer labeled on a wider leash than the live position gets (W2-1). None (or
+    unknown/high conviction) is a full-leash no-op — every legacy caller and the
+    bootstrap path (EMA-cross pseudo-signals carry no meta p(win)) are unchanged.
+
     Faithful to the dominant economics; deliberately omits three live inputs
     that cannot exist for a counterfactual signal (documented, all 2nd order):
       * time-based trail tightening (needs wall-clock bars_in_trade),
       * the signal-decay leash (needs a live signal snapshot),
       * inventory-pressure tier boost (needs live book state).
-    Intra-bar path is unknown, so — like the triple barrier — the ADVERSE
-    extreme is checked before the favorable one each bar (conservative;
+    The conviction-runner leash was a FOURTH such divergence; it is now mirrored
+    wherever a conviction is threaded (candidate path) and a documented residual
+    (full leash) only where the entry conviction is genuinely unavailable
+    (bootstrap). Intra-bar path is unknown, so — like the triple barrier — the
+    ADVERSE extreme is checked before the favorable one each bar (conservative;
     Lopez de Prado). Returns net-of-cost label + realized signed return %."""
     entry = closes[i]
     if entry <= EPS:
@@ -137,6 +166,14 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
     stop_frac = max(policy.base_stop_frac, policy.stop_vol_mult * sigma_bar)
     triggers = [(policy._tier_trigger(leg, vm, sigma_bar), cf)
                 for (leg, vm, cf) in policy.tiers]
+    # entry-conviction runner leash: a multiplicative tighten on the trailing
+    # floor ONLY (mirrors the live engine, where it multiplies decay_mult into
+    # _trail_distance_frac and touches neither break-even nor give-back). 1.0
+    # (no-op) when conviction is None/unknown/high or the runner is disabled.
+    conv_mult = (conviction_trail_mult(
+        float(conviction), policy.cr_enabled, policy.cr_neutral_conf,
+        policy.cr_min_conf, policy.cr_min_trail_mult)
+        if conviction is not None else 1.0)
     end = min(i + max_bars, len(closes) - 1)
 
     remaining = 1.0                       # fraction of the position still open
@@ -190,7 +227,10 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
                            else policy.gb_frac))
             floor = max(floor, lock * peak_gain)             # give-back lock
         if tier_idx >= policy.trail_after_tier:
-            floor = max(floor, peak_gain - policy.trail_frac)  # trailing
+            # conviction-tightened trail distance (conv_mult <= 1.0 shrinks the
+            # leash, ratcheting the floor CLOSER to the peak -> exits sooner),
+            # mirroring the live chandelier's decay_mult composition
+            floor = max(floor, peak_gain - policy.trail_frac * conv_mult)
         stop_level = max(stop_level, floor)         # ratchet-only
 
     # vertical barrier: close the remainder at the final bar (NOT final — more

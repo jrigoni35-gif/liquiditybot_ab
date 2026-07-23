@@ -58,6 +58,42 @@ log = logging.getLogger("liquiditybot.risk.profit_tiers")
 _BAR_MINUTES = 5.0     # matches the data feeds' candle interval
 
 
+def conviction_runner_params(cfg: dict) -> tuple[bool, float, float, float]:
+    """Parse + clamp the ``profit_taking.conviction_runner`` block into
+    ``(enabled, neutral_conf, min_conf, min_trail_mult)``. The ONE place the
+    knob is read and bounded, shared by the live ``ProfitTierEngine`` and
+    ml.labeling's exit-policy label sim (via ``ExitPolicy.from_config``) so both
+    interpret the same config identically — no parallel parse to drift."""
+    cr = (cfg or {}).get("conviction_runner", {}) or {}
+    enabled = bool(cr.get("enabled", False))
+    neutral = min(max(_f(cr.get("neutral_conf", 0.70), 0.70), 0.5), 1.0)
+    min_conf = min(max(_f(cr.get("min_conf", 0.55), 0.55), 0.0), neutral)
+    min_trail = min(max(_f(cr.get("min_trail_mult", 0.60), 0.60), 0.1), 1.0)
+    return enabled, neutral, min_conf, min_trail
+
+
+def conviction_trail_mult(conf: float, enabled: bool, neutral_conf: float,
+                          min_conf: float, min_trail_mult: float) -> float:
+    """Pure entry-conviction runner-leash multiplier in (0, 1] — the SINGLE
+    implementation shared by the live engine
+    (``ProfitTierEngine._conviction_trail_mult``) and the counterfactual label
+    sim (``ml.labeling.simulate_exit_policy``), so a borderline-confidence
+    candidate is labeled with EXACTLY the trail the live trade would get.
+
+    Full leash (1.0) when disabled, conviction unknown (``conf <= 0``, e.g. a
+    restored/synthetic Position) or high (``>= neutral_conf``); shrinks linearly
+    to ``min_trail_mult`` as conviction falls to ``min_conf``. Tighten-only by
+    construction (result ``<= 1.0``), so it can only ever bring an exit SOONER."""
+    if not enabled:
+        return 1.0
+    c = _f(conf)
+    if c <= 0.0 or c >= neutral_conf:
+        return 1.0
+    span = max(neutral_conf - min_conf, 1e-9)
+    t = min(max((neutral_conf - c) / span, 0.0), 1.0)
+    return 1.0 - (1.0 - min_trail_mult) * t
+
+
 @dataclass
 class TierAction:
     should_close_partial: bool
@@ -119,14 +155,8 @@ class ProfitTierEngine:
         # never loosens a stop. confidence >= neutral_conf, or <= 0 (unknown /
         # restored / synthetic e.g. quant-trial Positions), is a full-leash no-op,
         # so deployed behavior is byte-identical wherever conviction is unknown.
-        cr = cfg.get("conviction_runner", {}) or {}
-        self.cr_enabled = bool(cr.get("enabled", False))
-        self.cr_neutral_conf = min(max(
-            _f(cr.get("neutral_conf", 0.70), 0.70), 0.5), 1.0)
-        self.cr_min_conf = min(max(
-            _f(cr.get("min_conf", 0.55), 0.55), 0.0), self.cr_neutral_conf)
-        self.cr_min_trail_mult = min(max(
-            _f(cr.get("min_trail_mult", 0.60), 0.60), 0.1), 1.0)
+        (self.cr_enabled, self.cr_neutral_conf, self.cr_min_conf,
+         self.cr_min_trail_mult) = conviction_runner_params(cfg)
         self._cr_logged = set()
         # STOP-MAGNET NUDGE (v8, Osler 2003/2005): stop clusters sit just
         # past round numbers, and sweep wicks overshoot the level then
@@ -253,22 +283,25 @@ class ProfitTierEngine:
         (0, 1]: 1.0 (full leash) for high conviction (>= neutral_conf) or unknown
         conviction (<= 0, e.g. a restored/synthetic Position), shrinking linearly
         to min_trail_mult as conviction falls to min_conf. Tighten-only, so a
-        low-conviction winner banks sooner while a high-conviction one runs."""
-        if not self.cr_enabled:
-            return 1.0
+        low-conviction winner banks sooner while a high-conviction one runs.
+
+        Delegates the arithmetic to the module-level ``conviction_trail_mult``
+        so the live engine and ml.labeling's label sim provably share ONE
+        implementation (W2-1)."""
         conf = _f(getattr(position, "confidence", 0.0))
-        if conf <= 0.0 or conf >= self.cr_neutral_conf:
-            return 1.0
-        span = max(self.cr_neutral_conf - self.cr_min_conf, 1e-9)
-        t = min(max((self.cr_neutral_conf - conf) / span, 0.0), 1.0)
-        mult = 1.0 - (1.0 - self.cr_min_trail_mult) * t
-        pid = getattr(position, "position_id", position.symbol)
-        if pid not in self._cr_logged:
-            self._cr_logged.add(pid)
-            log.info(tag(Code.TP_CONVICTION_LEASH,
-                         f"{position.symbol} low entry-conviction {conf:.2f} "
-                         f"(< {self.cr_neutral_conf:.2f}) — runner trail "
-                         f"tightened x{mult:.2f}"))
+        mult = conviction_trail_mult(conf, self.cr_enabled, self.cr_neutral_conf,
+                                     self.cr_min_conf, self.cr_min_trail_mult)
+        # log once per position only when the leash actually tightens (the same
+        # condition the old early-returns implied: enabled + informative,
+        # sub-neutral conviction)
+        if self.cr_enabled and 0.0 < conf < self.cr_neutral_conf:
+            pid = getattr(position, "position_id", position.symbol)
+            if pid not in self._cr_logged:
+                self._cr_logged.add(pid)
+                log.info(tag(Code.TP_CONVICTION_LEASH,
+                             f"{position.symbol} low entry-conviction {conf:.2f} "
+                             f"(< {self.cr_neutral_conf:.2f}) — runner trail "
+                             f"tightened x{mult:.2f}"))
         return mult
 
     @staticmethod

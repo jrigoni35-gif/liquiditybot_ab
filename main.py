@@ -2291,7 +2291,8 @@ class LiquidityBot:
                                         vol_state.sigma_bar_pct / 100.0,
                                         v["candles"][-1]["time"],
                                         gates_passed=signal.gates_passed,
-                                        spread_bps=liq_state.spread_bps):
+                                        spread_bps=liq_state.spread_bps,
+                                        confidence=model_p):  # W2-1: honest p(win)
                     # consume the latch ONLY on a real append: a same-
                     # candle dedup no-op keeps the event pending so the
                     # state-change lesson registers at the next bar
