@@ -217,7 +217,12 @@ class StateStore:
                           # signal time (4th slot; older 3-tuples lack it)
                           "signal_ts": float(e[3]) if len(e) > 3 else None,
                           # PT-050 probe flag (5th slot; older tuples lack it)
-                          "probe": bool(e[4]) if len(e) > 4 else False}
+                          "probe": bool(e[4]) if len(e) > 4 else False,
+                          # W2-4 lineage: candidate id this position's
+                          # signal was registered as (6th slot; older
+                          # tuples lack it) - the twin-dedup join key
+                          "candidate_id": (e[5] if len(e) > 5 and e[5]
+                                           else None)}
                     for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
@@ -476,7 +481,8 @@ class StateStore:
                         np.array(h["features"], dtype=float),
                         float(h["signal_ts"]) if h.get("signal_ts")
                         else time.time(),
-                        bool(h.get("probe", False)))
+                        bool(h.get("probe", False)),
+                        h.get("candidate_id") or "")
         except Exception:
             log.exception("history section malformed - skipped")
 

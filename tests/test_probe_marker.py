@@ -83,7 +83,7 @@ def test_engine_threads_the_marker_end_to_end():
     src = (ROOT / "main.py").read_text(encoding="utf-8")
     assert '"position_id": pid,' in src          # ML-070 audit names the probe
     assert 'is_probe=bool(order.meta.get("probe", False)),' in src
-    assert 'probe=pos.is_probe)' in src          # pending tuple gets it
+    assert 'probe=pos.is_probe,' in src          # pending tuple gets it
     # direct entry + algo meta + v10 grid-ladder rungs: every path that
     # creates an entry order must thread the exploration marker, or probe
     # fills would masquerade as conviction trades in the OF-5 ledger

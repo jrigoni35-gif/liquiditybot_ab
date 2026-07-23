@@ -935,6 +935,7 @@ class LiquidityBot:
                   "edge_bps": meta_t.get("edge_bps", 0.0),
                   "features": meta_t.get("features"),
                   "probe": bool(meta_t.get("probe", False)),
+                  "candidate_id": meta_t.get("candidate_id") or "",
                   "algo_parent": parent.parent_id,
                   "algo_child_seq": child.seq},
             now=now,
@@ -1120,7 +1121,9 @@ class LiquidityBot:
                 if not pos.is_hedge and "features" in order.meta:
                     self.history.log_entry(position_id, self._asset_of(pos.symbol),
                                         pos.direction, order.meta["features"],
-                                        probe=pos.is_probe)
+                                        probe=pos.is_probe,
+                                        candidate_id=order.meta.get(
+                                            "candidate_id"))
                 log.info(f"OPEN {pos.direction} {pos.size:.6f} {pos.symbol} "
                         f"@ {self._px(pos.symbol, pos.entry_price)} "
                         f"(p={pos.confidence:.2f}, "
@@ -2403,6 +2406,13 @@ class LiquidityBot:
             # the id pre-assigned before the ML-070 audit IS the position
             # id - the audited probe and the eventual position correlate 1:1
             position_id = pid
+            # W2-4 lineage: id of this signal's already-registered candidate
+            # row (if any), read-only peek - threaded into every entry
+            # path's meta so the live row can join back to its candidate
+            # twin by id, not by an exact feature match that funding_dist's
+            # cross-cycle clock drift can silently defeat.
+            cand_id = self.candidates.open_candidate_id(asset,
+                                                        signal.direction)
             # thesis for the postmortem engine: what did we expect and why
             stop_pct_eff = max(self.base_stop_pct,
                                self.stop_vol_mult * vol_state.sigma_bar_pct) * \
@@ -2457,6 +2467,7 @@ class LiquidityBot:
                         lev_decision.allowed_leverage,
                     "post_only": plan.post_only,
                     "probe": explored,
+                    "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or []}
                 self._mark_cand(asset, signal.direction, "entered")
                 self._submit_algo_child(parent, now)   # first slice now
@@ -2485,7 +2496,8 @@ class LiquidityBot:
                 p_win=p_win, model_p=model_p, shadow_p=shadow_p,
                 ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
                 target_pct=target_pct, now=now,
-                reserved_entries=reserved_entries, can_enter=can_enter)
+                reserved_entries=reserved_entries, can_enter=can_enter,
+                cand_id=cand_id)
             if handled:
                 continue
 
@@ -2506,6 +2518,7 @@ class LiquidityBot:
                 sigma_bar_pct=vol_state.sigma_bar_pct,
                 meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
                     "features": feats, "probe": explored,
+                    "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or []},
                 now=now,
             )
@@ -2549,7 +2562,7 @@ class LiquidityBot:
                       fv_state, macro_state, liq_state, verdict, feats,
                       explored, p_win, model_p, shadow_p, ev_pct,
                       stop_pct_eff, target_pct, now, reserved_entries,
-                      can_enter):
+                      can_enter, cand_id=None):
         """v10 ladder pathway for one approved entry. Returns the updated
         (reserved_entries, can_enter, handled): handled=True means the ladder
         placed (or consciously consumed) this entry and the caller skips the
@@ -2575,7 +2588,7 @@ class LiquidityBot:
             macro_state=macro_state, liq_state=liq_state, verdict=verdict,
             feats=feats, explored=explored, p_win=p_win, model_p=model_p,
             shadow_p=shadow_p, ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
-            target_pct=target_pct, now=now)
+            target_pct=target_pct, now=now, cand_id=cand_id)
         if not placed:
             # every rung rejected (firewall/collar/venue-min) — the
             # approved entry must fall back to the legacy single-entry
@@ -2601,7 +2614,7 @@ class LiquidityBot:
                       signal, decision, lev, equity, vol_state, fv_state,
                       macro_state, liq_state, verdict, feats, explored,
                       p_win, model_p, shadow_p, ev_pct, stop_pct_eff,
-                      target_pct, now) -> int:
+                      target_pct, now, cand_id=None) -> int:
         """Submit an armed ladder's rungs as maker-only limit entries through
         the FULL existing rail (firewall, collar, venue minimums). Every rung
         is its own position with its own postmortem thesis, so labels stay
@@ -2627,6 +2640,7 @@ class LiquidityBot:
                       "edge_bps": decision.est_edge_bps + rung.offset_bps,
                       "features": feats, "probe": explored,
                       "ladder_rung": rung.idx,
+                      "candidate_id": cand_id or "",
                       "thales_fired": self._thales_fired.get(asset) or []},
                 now=now)
             if not rung_order:

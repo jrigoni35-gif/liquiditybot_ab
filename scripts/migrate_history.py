@@ -101,7 +101,11 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # explicit "0" toward the conviction sample)
                     r.get("probe") or "",
                     # disp joined 2026-07-20 (pipeline disposition)
-                    r.get("disp") or ""])
+                    r.get("disp") or "",
+                    # candidate_id joined 2026-07-23 (W2-4 twin-dedup
+                    # lineage join key) - pre-bump rows carry no lineage,
+                    # the clash guard falls back to exact-vector match
+                    r.get("candidate_id") or ""])
     return out, padded
 
 

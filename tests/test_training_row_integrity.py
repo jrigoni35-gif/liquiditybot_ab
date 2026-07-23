@@ -108,6 +108,40 @@ def test_synthetic_candidate_never_clashes_with_its_real_live_twin(tmp_path):
         "surviving synthetic row keeps its down-weight; real row full weight"
 
 
+def test_synthetic_twin_still_dropped_when_funding_dist_drifts_across_cycles(
+        tmp_path):
+    """W2-4. funding_dist (ml/features.py) is a continuous function of
+    wall-clock ts, recomputed FRESH every cycle (main.py extras['ts']=now).
+    register() only dedups repeats within the SAME 5m bar - so a signal
+    confirmed on cycle 1 (candidate row written with feats_A) whose entry
+    is deferred by a veto that clears on cycle 2+ gets a live order whose
+    meta['features'] is recomputed later (feats_B != feats_A, funding_dist
+    drifted). The OLD exact-6-decimal clash guard then fails to match: both
+    the counterfactual candidate label and the real fill label survive as
+    a near-duplicate - the exact 'coin-flip at that exact X' the guard's
+    own comment warns about. Lineage (shared candidate id) must catch what
+    an exact vector match cannot."""
+    store = HistoryStore(str(tmp_path / "h.csv"))
+    feats_a = np.arange(len(FEATURE_NAMES), dtype=float)
+    feats_b = feats_a.copy()
+    fd_idx = FEATURE_NAMES.index("funding_dist")
+    feats_b[fd_idx] += 1e-4                       # cross-cycle clock drift
+
+    # cycle 1: candidate registered under its own id, feats_A
+    store._append_row("cand-drift-1", "BTC", "long", feats_a, 1, 0.0,
+                      "candidate", signal_ts=1000.0)
+    # cycle 2+: veto clears, live order fills with recomputed feats_B, but
+    # threads the candidate id it descends from (W2-4 lineage join key)
+    store._append_row("live-drift-1", "BTC", "long", feats_b, 0, -4.0,
+                      "live", signal_ts=1000.0, candidate_id="cand-drift-1")
+
+    X, y, w = store.load_training_data(candidate_weight=0.4)
+    assert len(X) == 1, (
+        "the drifted synthetic twin must still be dropped via lineage, "
+        "not an exact-vector match that clock drift defeats")
+    assert y[0] == 0.0, "the realized (live) label wins"
+
+
 def test_untaken_candidates_are_fully_kept_when_no_live_rows_exist(tmp_path):
     """Pure-shadow phase (no trades taken yet): every candidate must load -
     the clash guard must not eat synthetic data when there's nothing real to

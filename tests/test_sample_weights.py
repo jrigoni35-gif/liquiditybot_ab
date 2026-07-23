@@ -43,9 +43,10 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         header = f.readline().strip().split(",")
         row = f.readline().strip().split(",")
-    assert header[-3] == "barrier" and row[-3] == "time"
-    assert header[-2] == "probe" and row[-2] == ""   # candidates: unmarked
-    assert header[-1] == "disp" and row[-1] == ""    # no pipeline verdict
+    assert header[-4] == "barrier" and row[-4] == "time"
+    assert header[-3] == "probe" and row[-3] == ""   # candidates: unmarked
+    assert header[-2] == "disp" and row[-2] == ""    # no pipeline verdict
+    assert header[-1] == "candidate_id" and row[-1] == ""  # no lineage set
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -56,9 +57,10 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         f.readline()
         tail = f.readline().strip().split(",")
-        assert tail[-3] == "realized"
-        assert tail[-2] == "0"        # un-flagged live close = conviction
-        assert tail[-1] == "entered"  # a live row IS an entered trade
+        assert tail[-4] == "realized"
+        assert tail[-3] == "0"        # un-flagged live close = conviction
+        assert tail[-2] == "entered"  # a live row IS an entered trade
+        assert tail[-1] == ""         # no matching candidate -> no lineage
 
 
 # ---- average uniqueness ----------------------------------------------------

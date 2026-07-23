@@ -90,9 +90,11 @@ def test_history_header_contract_is_stable(tmp_path):
     # migration-backed schema extension, appended last so meta order is stable
     # probe joined 2026-07-20 (task #48): bookkeeping-only marker so OF-5
     # can grade the conviction-only sample mid-exploration — appended last
+    # candidate_id joined 2026-07-23 (W2-4): twin-dedup lineage join key —
+    # appended last so meta order (and every past bump) stays stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                "barrier", "probe", "disp"]
+                "barrier", "probe", "disp", "candidate_id"]
     assert hs._header == expected
 
 

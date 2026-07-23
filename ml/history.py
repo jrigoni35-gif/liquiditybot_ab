@@ -45,7 +45,7 @@ class HistoryStore:
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                        "barrier", "probe", "disp"]
+                        "barrier", "probe", "disp", "candidate_id"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -58,6 +58,17 @@ class HistoryStore:
         # probe rows keep FULL live training weight (a probe's outcome is
         # honest ground truth); OF-5 uses it to grade the conviction-only
         # sample while exploration still mixes EV-negative probes in.
+        # candidate_id (W2-4, 2026-07-23): on a LIVE row, the position_id of
+        # the "candidate" row this trade was registered as at signal time
+        # (CandidateLabeler.open_candidate_id) - "" when no matching open
+        # candidate was found, or on rows written before this field existed.
+        # This is the twin-dedup JOIN KEY: funding_dist (ml/features.py) is
+        # a continuous function of wall-clock ts, recomputed fresh every
+        # cycle, so a deferred entry's live features can drift off its
+        # candidate's by more than the exact-vector match's 6-decimal
+        # precision. Lineage catches what the vector match cannot; the
+        # vector match stays as the fallback for legacy rows with no
+        # recorded lineage. BOOKKEEPING ONLY - never a feature.
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -83,17 +94,20 @@ class HistoryStore:
             csv.writer(f).writerow(self._header)
 
     def log_entry(self, position_id: str, asset: str, direction: str,
-                features: np.ndarray, probe: bool = False):
+                features: np.ndarray, probe: bool = False,
+                candidate_id: "str | None" = None):
         # signal time captured HERE: rows are appended at label time, and
         # the purged walk-forward must order/purge by when the SIGNAL
         # happened, not when its barrier resolved
         self._pending[position_id] = (asset, direction, features.copy(),
-                                      time.time(), bool(probe))
+                                      time.time(), bool(probe),
+                                      candidate_id or "")
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
-                    barrier: str = "", probe: str = "", disp: str = ""):
+                    barrier: str = "", probe: str = "", disp: str = "",
+                    candidate_id: str = ""):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -101,7 +115,7 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 8 != len(self._header):
+        if 3 + len(feats) + 9 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
@@ -131,14 +145,17 @@ class HistoryStore:
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier, probe, disp])
+                                    barrier, probe, disp, candidate_id])
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
         if entry is None:
             return
         probe = False
-        if len(entry) == 5:
+        cand_id = ""
+        if len(entry) == 6:
+            asset, direction, feats, sig_ts, probe, cand_id = entry
+        elif len(entry) == 5:
             asset, direction, feats, sig_ts, probe = entry
         elif len(entry) == 4:
             asset, direction, feats, sig_ts = entry
@@ -149,7 +166,8 @@ class HistoryStore:
         self._append_row(position_id, asset, direction, feats, label,
                         net_pnl_usd, "live", signal_ts=sig_ts,
                         barrier="realized",
-                        probe="1" if probe else "0", disp="entered")
+                        probe="1" if probe else "0", disp="entered",
+                        candidate_id=cand_id or "")
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 
@@ -251,19 +269,39 @@ class HistoryStore:
         # SYNTHETIC-vs-REAL clash guard. A taken trade is written TWICE: once
         # as a live row (realized close = REAL label, full weight) and once as
         # the candidate it was registered as at signal time (triple-barrier
-        # counterfactual = SYNTHETIC label, candidate_weight). Identical
-        # features (same feats object flows to both), possibly CONTRADICTORY
-        # labels (a stop-out realizes 0 while the barrier said 1). Training on
-        # both double-counts the taken signal and teaches the model a
-        # coin-flip at that exact X. Ground truth wins: drop the synthetic
-        # twin of any real row. Untaken-signal candidates (no live twin) stay
-        # fully usable - the model still learns from all the shadow data, it
-        # just never CLASHES with what actually happened.
+        # counterfactual = SYNTHETIC label, candidate_weight). Possibly
+        # CONTRADICTORY labels (a stop-out realizes 0 while the barrier said
+        # 1). Training on both double-counts the taken signal and teaches
+        # the model a coin-flip at that exact X. Ground truth wins: drop the
+        # synthetic twin of any real row. Untaken-signal candidates (no live
+        # twin) stay fully usable - the model still learns from all the
+        # shadow data, it just never CLASHES with what actually happened.
+        #
+        # W2-4: matching used to be BY EXACT FEATURE VECTOR alone (6-decimal
+        # string equality). funding_dist (ml/features.py) is a continuous
+        # function of wall-clock ts, recomputed fresh every cycle - a signal
+        # confirmed on cycle 1 (candidate row written with feats_A) whose
+        # entry is deferred by a veto that clears on cycle 2+ gets a live
+        # order whose features are recomputed later (feats_B != feats_A).
+        # The exact-vector match then silently fails and BOTH rows survive
+        # as a contradictory near-duplicate - precisely the failure this
+        # guard exists to prevent. LINEAGE fixes it: the live row threads the
+        # id of the candidate it descends from (candidate_id column,
+        # CandidateLabeler.open_candidate_id); that id is definitive proof
+        # of correlation regardless of feature drift, and is tried FIRST.
+        # The exact-vector match remains as the fallback for legacy rows
+        # written before candidate_id existed (no lineage recorded either
+        # side) - never a numeric tolerance, which would risk merging
+        # genuinely distinct signals.
         live_keys = set()
+        live_cand_ids = set()
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 if row.get("source") == "candidate":
                     continue
+                cid = (row.get("candidate_id") or "").strip()
+                if cid:
+                    live_cand_ids.add(cid)
                 try:
                     live_keys.add((row["asset"], row["side"],
                                    tuple(row[n] for n in FEATURE_NAMES)))
@@ -276,12 +314,17 @@ class HistoryStore:
         dropped_dirty = 0
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
-                if row.get("source") == "candidate" and live_keys:
+                if row.get("source") == "candidate" and \
+                        (live_keys or live_cand_ids):
+                    self_id = (row.get("position_id") or "").strip()
+                    if self_id and self_id in live_cand_ids:
+                        dropped_clash += 1
+                        continue     # W2-4: lineage match - definitive
                     try:
                         if (row["asset"], row["side"],
                                 tuple(row[n] for n in FEATURE_NAMES)) in live_keys:
                             dropped_clash += 1
-                            continue     # synthetic twin of a real trade
+                            continue     # legacy fallback: exact-vector match
                     except KeyError:
                         pass
                 # ATOMIC per row: build every column into a local first, and
@@ -618,6 +661,25 @@ class CandidateLabeler:
                                       gates_passed.items()}
                             if isinstance(gates_passed, dict) else None})
         return True
+
+    def open_candidate_id(self, asset: str, direction: str) -> "str | None":
+        """Read-only peek at the id of the newest OPEN candidate for
+        (asset, direction) - the same match mark_disposition uses, but
+        non-mutating. Lets the caller thread the candidate's identity into
+        the live order's meta BEFORE knowing whether the entry will
+        actually succeed (a peek never stamps disposition; mark_disposition
+        still does that, only on the confirmed outcome).
+
+        This is the W2-4 lineage join key: the live row's candidate_id and
+        the candidate row's own position_id let load_training_data
+        correlate a taken signal's two rows even when its features drift
+        across cycles (funding_dist is a clock function recomputed fresh
+        every cycle - a deferred entry's live features can differ from its
+        candidate's by more than an exact-vector match would tolerate)."""
+        for cand in reversed(self._cands):
+            if cand.get("asset") == asset and cand.get("direction") == direction:
+                return cand.get("id")
+        return None
 
     def mark_disposition(self, asset: str, direction: str, code: str):
         """Stamp the NEWEST open candidate for (asset, direction) with the
