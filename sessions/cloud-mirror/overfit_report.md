@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-23 06:05 UTC
+# Overfit audit — 2026-07-23 06:41 UTC
 
 Dataset: live history (2997 rows)
 
@@ -20,4 +20,4 @@ Dataset: live history (2997 rows)
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** dsr — DEFERRED — 4 conviction-marked live trades < 30 (mixed n=192); mixed-sample dsr=0.000 sr=-0.72; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 
-3 passed, 5 failed (59s)
+3 passed, 5 failed (51s)
