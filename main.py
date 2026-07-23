@@ -2020,7 +2020,7 @@ class LiquidityBot:
             if kbook and (now - self.book_ts.get(asset, 0.0)) > \
                     self.watchdog.stale_critical_sec:
                 kbook = {}
-            self.fv.update(asset, [v.get("order_book") or {}], kbook)
+            self.fv.update(asset, [v.get("order_book") or {}], kbook, now)
             self.vol.update(asset, v.get("candles") or [],
                             self.daily_candles.get(asset) or [])
             self.liq.update(asset, v.get("order_book") or {}, kbook, now)

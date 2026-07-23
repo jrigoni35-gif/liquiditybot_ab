@@ -202,7 +202,8 @@ def interval_str_to_sec(interval: str) -> float:
 
 
 def drop_forming_candles(candles: list, interval_sec: float,
-                         now: Optional[float] = None) -> list:
+                         now: Optional[float] = None,
+                         committed_upto: Optional[float] = None) -> list:
     """Keep committed bars only: drop any bar whose window is still open
     (time + interval > now). Venues serve the currently-forming candle as
     the last row and its high/low/close keep mutating; an append-only
@@ -210,8 +211,20 @@ def drop_forming_candles(candles: list, interval_sec: float,
     range (missed triple-barrier touches, crushed ATR/sigma). Also sheds
     future-timestamped bars from clock skew or a venue glitch. A zero or
     unknown interval passes the list through untouched - better the old
-    behavior than silently dropping everything."""
+    behavior than silently dropping everything.
+
+    committed_upto: when the venue hands back its OWN authoritative
+    committed-boundary timestamp (Kraken OHLC's `last` field - "id to be
+    used as since when polling for new, committed OHLC data"), bars are
+    cut against THAT instead of the local clock (W2-22). The local-clock
+    heuristic has zero skew tolerance: a locally-fast clock can push
+    `now - interval_sec` past a bar's open ts in the final skew-seconds of
+    that bar's still-open window, admitting a forming bar the venue has not
+    committed yet. committed_upto is exact - no skew is possible - so bars
+    with time <= committed_upto are kept, all others dropped."""
     if not isinstance(candles, list) or not candles or interval_sec <= 0:
         return candles if isinstance(candles, list) else []
+    if committed_upto is not None:
+        return [c for c in candles if safe_float(c.get("time"), 0.0) <= committed_upto]
     cutoff = (time.time() if now is None else now) - interval_sec
     return [c for c in candles if safe_float(c.get("time"), 0.0) <= cutoff]

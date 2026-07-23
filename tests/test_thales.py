@@ -175,6 +175,67 @@ def test_sweep_and_revert_shades_the_fade_direction_up():
     assert chase.mult <= 1.0                    # never boosts the chase
 
 
+def test_sweep_fence_uses_bar_close_not_bar_open():
+    """W2-24: `ts` on the sweep candle is its bar-OPEN timestamp, but
+    sweep_fence_ts is stamped from wall-clock `now` at lapse recovery.
+    Comparing them directly fences a sweep whose bar opened just BEFORE
+    the fence but only closed (and so became detectable at all) AFTER
+    it — a legitimate post-lapse sweep. The fence must compare against
+    the bar's CLOSE (ts + bar_spacing)."""
+    eng = ThalesEngine(_cfg())
+    bars = [{"ts": 300.0 * i, "open": 100.0, "close": 100.0,
+             "high": 100.5, "low": 99.5} for i in range(1, 6)]
+    # final bar sweeps the lows then closes back inside
+    bars.append({"ts": 300.0 * 6, "open": 99.8, "close": 99.9,
+                 "high": 100.1, "low": 99.0})
+    eng.observe_candles("BTC", bars, now=2000.0)
+    st = eng._st("BTC")
+    assert st.bar_spacing == 300.0
+    sweep_ts = bars[-1]["ts"]                  # 1800.0, bar-OPEN
+    bar_close = sweep_ts + st.bar_spacing      # 2100.0, bar-CLOSE
+    st.marks.append((sweep_ts, 99.7))          # off round numbers
+
+    # a lapse recovered strictly BETWEEN this bar's open and close - the
+    # sweep only became visible once the bar closed, which is AFTER the
+    # fence, so it must survive.
+    st.sweep_fence_ts = sweep_ts + 150.0       # 1950.0
+
+    out = eng.shade_confidence("BTC", "long", 0.0, 0.5, "range",
+                               now=bar_close + 1.0)
+    assert any("TH-013" in n for n in out.notes), (
+        "legitimate post-lapse sweep wrongly fenced by bar-open ts")
+    assert out.would_mult > 1.0
+
+
+def test_sweep_decay_ages_from_bar_close_not_bar_open():
+    """W2-24: `now - sweep['ts']` overstates a sweep's age by a full bar
+    duration when ts is bar-OPEN — a sweep bar exactly one bar_spacing
+    old (i.e. detected the instant it closed) reads as ALREADY past the
+    decay window under the bug, silently dropping the revert advice the
+    instant it becomes available. Age must be measured from bar CLOSE."""
+    eng = ThalesEngine(_cfg(stops={"revert_decay_sec": 1800.0}))
+    bars = [{"ts": 1800.0 * i, "open": 100.0, "close": 100.0,
+             "high": 100.5, "low": 99.5} for i in range(1, 6)]
+    # final bar sweeps the lows then closes back inside; bar_spacing ends
+    # up EXACTLY equal to the decay window (1800s), the sharpest case.
+    bars.append({"ts": 1800.0 * 6, "open": 99.8, "close": 99.9,
+                 "high": 100.1, "low": 99.0})
+    eng.observe_candles("BTC", bars, now=2000.0)
+    st = eng._st("BTC")
+    assert st.bar_spacing == 1800.0
+    sweep_ts = bars[-1]["ts"]                  # 10800.0, bar-OPEN
+    bar_close = sweep_ts + st.bar_spacing      # 12600.0, bar-CLOSE
+    st.marks.append((sweep_ts, 99.7))          # off round numbers
+
+    # 1 second after the bar CLOSED - the sweep should read as freshly
+    # confirmed, not (now - bar_open) = 1801s > the 1800s decay window.
+    out = eng.shade_confidence("BTC", "long", 0.0, 0.5, "range",
+                               now=bar_close + 1.0)
+    assert any("TH-013" in n for n in out.notes), (
+        "fresh post-close sweep wrongly read as already decayed")
+    assert out.would_mult > 1.0
+
+
 def test_stop_cluster_proximity_shades_down():
     eng = ThalesEngine(_cfg())
     eng._st("BTC").marks.append((100.0, 100.0))   # dead on a round number

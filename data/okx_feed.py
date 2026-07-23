@@ -111,6 +111,13 @@ class OKXFeed(ThrottledRestClient):
         out = clean_candles(raw)
         if include_forming:
             return out
+        # W2-22: `confirm` (row[8]) is already part of every row this
+        # endpoint returns - exact committed/forming ground truth, no clock
+        # skew possible. Use it when present; fall back to the clock
+        # heuristic only if the response omits it.
+        if data and len(data[0]) > 8:
+            committed_ts = {int(row[0]) // 1000 for row in data if str(row[8]) == "1"}
+            return [c for c in out if c.get("time") in committed_ts]
         return drop_forming_candles(out, interval_str_to_sec(bar))
 
     def get_daily_candles(self, symbol: str, limit: int = 300) -> list:

@@ -29,7 +29,9 @@ Public surface unchanged: FairValueEngine(config).state(asset) /
 """
 
 import logging
+import time
 from dataclasses import dataclass
+from typing import Optional
 
 from core.sanitize import is_finite_pos as _finite_pos
 
@@ -51,6 +53,11 @@ class FVState:
     fv_sigma_bps: float = 0.0        # EWMA innovation dispersion (noise floor)
     innovation_bps: float = 0.0      # last raw-vs-smoothed innovation
     edge_haircut_z: float = 1.0      # injected by engine from config
+    kraken_touch_ts: float = 0.0     # wall-clock ts of the last FRESH Kraken
+                                     # touch (W2-23 age-stamp)
+    kraken_fresh: bool = True        # False once the touch is older than the
+                                     # staleness bound - basis_bps/edge_bps
+                                     # read neutral/zero while this is False
 
     def edge_bps(self, side: str) -> float:
         """Uncertainty-discounted edge of executing at the Kraken touch
@@ -118,6 +125,13 @@ class FairValueEngine:
         self.haircut_z = max(float(cfg.get("edge_haircut_z", 1.0)), 0.0)
         self.sigma_lambda = min(max(float(
             cfg.get("sigma_lambda", 0.90)), 0.5), 0.999)
+        # W2-23: how long a Kraken touch may hold after Kraken stops voting
+        # before basis_bps/edge_bps must go neutral rather than fabricate a
+        # signal off a frozen touch vs a still-updating fair value. Default
+        # mirrors core/watchdog.py's stale_critical_sec (120s) - the same
+        # "past this, treat as absent" bound the rest of the book-freshness
+        # stack already uses; lifted here rather than duplicated.
+        self.kraken_stale_sec = max(float(cfg.get("kraken_stale_sec", 120.0)), 0.0)
         self._states: dict = {}
 
     def state(self, asset: str) -> FVState:
@@ -125,7 +139,9 @@ class FairValueEngine:
             asset=asset, edge_haircut_z=self.haircut_z)
 
     # ------------------------------------------------------------------
-    def update(self, asset: str, venue_books: list, kraken_book: dict) -> FVState:
+    def update(self, asset: str, venue_books: list, kraken_book: dict,
+            now: Optional[float] = None) -> FVState:
+        now = time.time() if now is None else now
         st = self._states.get(asset) or FVState(
             asset=asset, edge_haircut_z=self.haircut_z)
         st.edge_haircut_z = self.haircut_z
@@ -147,10 +163,22 @@ class FairValueEngine:
             if _finite_pos(kbid) and _finite_pos(kask) and kask >= kbid:
                 st.kraken_bid, st.kraken_ask = kbid, kask
                 st.kraken_mid = 0.5 * (kbid + kask)
+                st.kraken_touch_ts = now
+                st.kraken_fresh = True
                 mp = microprice(kraken_book)
                 if mp > 0:
                     mps.append(mp)
                     weights.append(max(_depth_usd(kraken_book), 1.0))
+
+        # W2-23: a Kraken touch that did NOT vote this cycle (outage, or a
+        # kraken_book that failed the finite/crossed checks above) ages from
+        # its last real touch_ts. Past kraken_stale_sec it is zeroed rather
+        # than left frozen - fair_value keeps blending from external books
+        # regardless, so a frozen touch vs a drifting fair_value fabricates
+        # basis/edge that grows for the entire outage if left unchecked.
+        if st.kraken_mid > 0 and (now - st.kraken_touch_ts) > self.kraken_stale_sec:
+            st.kraken_bid = st.kraken_ask = st.kraken_mid = 0.0
+            st.kraken_fresh = False
 
         if not mps:
             st.updated = False
@@ -186,6 +214,8 @@ class FairValueEngine:
         if st.kraken_mid > 0:
             st.basis_bps = (st.fair_value - st.kraken_mid) / \
                 st.kraken_mid * 1e4
+        else:
+            st.basis_bps = 0.0   # W2-23: no fresh touch -> no basis, never stale
         st.updated = True
         self._states[asset] = st
         return st

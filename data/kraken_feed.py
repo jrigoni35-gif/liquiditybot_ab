@@ -14,6 +14,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import math
 import os
 import time
 import urllib.parse
@@ -286,7 +287,15 @@ class KrakenFeed(ThrottledRestClient):
         ])
         if include_forming:
             return out
-        return drop_forming_candles(out, interval * 60)
+        # W2-22: cut on Kraken's own committed-boundary timestamp when
+        # present rather than the local clock - exact, no skew tolerance
+        # needed. Falls back to the clock heuristic if `last` is absent
+        # or unparsable.
+        last = result.get("last")
+        committed_upto = safe_float(last, default=float("nan")) if last is not None else None
+        if committed_upto is not None and math.isnan(committed_upto):
+            committed_upto = None
+        return drop_forming_candles(out, interval * 60, committed_upto=committed_upto)
 
     def get_daily_candles(self, pair: str, limit: int = 720) -> list:
         """Daily OHLCV, oldest-first (Kraken caps OHLC history at 720 rows).

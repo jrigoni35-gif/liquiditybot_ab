@@ -374,6 +374,16 @@ def validate(config: dict) -> list:
                   f"positive - <= 0 flags the live equity-truth check on "
                   f"ordinary rounding noise")
 
+    # --- fair_value: Kraken-touch staleness bound (W2-23) ------------------
+    # at 0, `(now - kraken_touch_ts) > 0` is true on every cycle except the
+    # exact instant the touch was stamped, so the touch never holds even
+    # across a single missed poll - zeroing basis_bps/edge_bps constantly.
+    fv_stale = float(_f(config, "fair_value.kraken_stale_sec", 120.0))
+    if fv_stale <= 0:
+        fatal(f"fair_value.kraken_stale_sec={fv_stale} must be positive - "
+              f"at 0 the Kraken touch never holds across even a single "
+              f"missed poll, so basis_bps/edge_bps read zero every cycle")
+
     # --- capital / risk ladder ------------------------------------------
     start_cap = float(_f(config, "capital_management.starting_capital_usd", 0))
     if start_cap <= 0 and not dry_run:

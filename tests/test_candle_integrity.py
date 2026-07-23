@@ -82,6 +82,29 @@ def test_kraken_drops_forming_bar_by_default(monkeypatch):
     assert len(raw) == 3
 
 
+def test_kraken_committed_cut_uses_venue_last_not_local_clock(monkeypatch):
+    """W2-22: committed-vs-forming must cut on Kraken's authoritative `last`
+    field when present, not the local clock. A locally-fast clock can claim
+    a bar committed (cutoff = skewed_now - interval_sec >= bar time) in the
+    last skew-seconds of that bar's window, even though the venue's own
+    `last` says the bar has not closed yet (still equal to the PRIOR bar's
+    open ts). Trusting the clock leaks the still-forming bar into the
+    append-only candle cache, understating its high/low forever."""
+    feed = KrakenFeed({"trading_pairs": []})
+    # last committed bar opened at 700; the newest returned row (1000) is
+    # still forming per the venue (last stays at 700, not 1000).
+    rows = [[700, "10", "11", "9", "10.5", "10", "1", 5],
+            [1000, "10", "11", "9", "10.5", "10", "1", 5]]
+    monkeypatch.setattr(feed, "_public_get",
+                        lambda *a, **k: {"XBTUSD": rows, "last": 700})
+    # local clock is fast: claims now=1301 (1s past the naive 1000+300=1300
+    # window close) - the OLD local-clock-only cutoff (now - interval_sec =
+    # 1001 >= 1000) would wrongly admit the still-forming bar.
+    monkeypatch.setattr("core.sanitize.time.time", lambda: 1301.0)
+    out = feed.get_candles("XBTUSD", interval=5)
+    assert [c["time"] for c in out] == [700]
+
+
 def test_kraken_daily_keeps_todays_partial_bar(monkeypatch):
     feed = KrakenFeed({"trading_pairs": []})
     rows = _now_aligned_kraken_rows(1440)
@@ -95,12 +118,32 @@ def test_okx_drops_forming_bar_by_default(monkeypatch):
     feed = OKXFeed({})
     now = time.time()
     start = int(now - now % 300)
+    # newest-first like OKX; confirm (row[8]) is "0" only on the newest
+    # (still-forming) row - the real API contract this pins.
     data = [[str((start - k * 300) * 1000), "10", "11", "9", "10.5", "1",
-             "0", "0", "1"] for k in range(0, 3)]   # newest-first like OKX
+             "0", "0", "0" if k == 0 else "1"] for k in range(0, 3)]
     monkeypatch.setattr(feed, "_get", lambda *a, **k: data)
     out = feed.get_candles("BTC-USDT", bar="5m")
     assert len(out) == 2
     assert max(b["time"] for b in out) == start - 300
+
+
+def test_okx_committed_cut_uses_confirm_flag_not_local_clock(monkeypatch):
+    """W2-22: OKX's `confirm` flag (already present in every candle row,
+    row[8]) is exact ground truth for committed-vs-forming - no clock skew
+    possible. A locally-fast clock must not override it."""
+    feed = OKXFeed({})
+    data = [
+        [str(1000 * 1000), "10", "11", "9", "10.5", "1", "0", "0", "0"],
+        [str(700 * 1000), "10", "11", "9", "10.5", "1", "0", "0", "1"],
+        [str(400 * 1000), "10", "11", "9", "10.5", "1", "0", "0", "1"],
+    ]
+    monkeypatch.setattr(feed, "_get", lambda *a, **k: data)
+    # skewed-fast local clock: old clock-only cutoff (1301-300=1001) would
+    # wrongly admit the ts=1000 row, which confirm="0" says is still forming.
+    monkeypatch.setattr("core.sanitize.time.time", lambda: 1301.0)
+    out = feed.get_candles("BTC-USDT", bar="5m")
+    assert [c["time"] for c in out] == [400, 700]
 
 
 def test_binance_drops_forming_bar_by_default(monkeypatch):

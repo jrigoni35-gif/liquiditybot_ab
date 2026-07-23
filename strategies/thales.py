@@ -564,11 +564,25 @@ class ThalesEngine:
                 sweep = +1        # swept the highs, closed back inside
             elif lo < prior_lo and c > prior_lo:
                 sweep = -1        # swept the lows, closed back inside
-            if sweep and ts < st.sweep_fence_ts:
+            # W2-24: `ts` is the sweep bar's OPEN timestamp, but the sweep
+            # pattern (hi/lo vs prior extremes, close back inside) is only
+            # OBSERVABLE once the bar CLOSES — one bar_spacing later.
+            # sweep_fence_ts is a wall-clock stamp (set at lapse recovery,
+            # _check_lapse). Comparing it against bar-OPEN ts fences a
+            # legitimate sweep whose bar opened just before the fence but
+            # closed (and so became detectable) after it. bar_spacing
+            # defaults to 0.0 until 3+ candles seed it, so this is a no-op
+            # until then (identical to the old comparison).
+            bar_close_ts = ts + st.bar_spacing
+            if sweep and bar_close_ts < st.sweep_fence_ts:
                 sweep = 0         # TH-016: pre-lapse sweep bar re-derived
                                   # from surviving candle_hist - never latch
             if sweep:
-                st.last_sweep = {"dir": sweep, "ts": ts}
+                # store bar-CLOSE, not bar-open: shade_confidence's decay
+                # read (`now - sweep["ts"]`) must measure age from when the
+                # sweep became confirmable, not from when its bar opened -
+                # otherwise every sweep is born already bar_spacing "stale".
+                st.last_sweep = {"dir": sweep, "ts": bar_close_ts}
         return prox, sweep
 
     # ------------------------------------------------------------------

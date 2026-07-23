@@ -66,6 +66,10 @@ class _AssetTracker:
     large_levels: dict = field(default_factory=dict)
     spoof_ewma: float = 0.0
     events: int = 0
+    # W2-11: was the PRIOR cycle a fresh-Kraken observation? Used to reseed
+    # large_levels on recovery from a no-Kraken gap instead of diffing the
+    # recovered book against whatever was tracked before/through the gap.
+    kraken_fresh_prev: bool = True
 
 
 def _spread_bps(book: dict) -> float:
@@ -221,7 +225,18 @@ class LiquidityRegimeEngine:
         trk = self._trk.setdefault(asset, _AssetTracker())
         st = self._states.get(asset) or LiquidityState(asset=asset)
 
-        exec_book = kraken_book if (kraken_book and kraken_book.get("bids")) else combined_book
+        # W2-11: kraken_fresh gates every STATEFUL history below. main.py
+        # (DL-10) hands us kraken_book={} once the Kraken book passes
+        # watchdog.stale_critical_sec, with external feeds (OKX/Binance.US)
+        # still live in combined_book. A no-fresh-Kraken cycle is a
+        # NO-OBSERVATION cycle for depth_hist/imb_hist/mid_hist/large_levels —
+        # the combined book is a different venue mix (external-scale depth,
+        # different quote/perp-spot basis) and must never be treated as an
+        # exec-book sample. exec_book itself still falls back to combined_book
+        # so spread/depth/tier stay informative (display/label) during the
+        # gap, exactly as before.
+        kraken_fresh = bool(kraken_book and kraken_book.get("bids"))
+        exec_book = kraken_book if kraken_fresh else combined_book
         st.spread_bps = _spread_bps(exec_book)
         st.combined_spread_bps = _spread_bps(combined_book)
         _cb, _ca = (combined_book.get("bids") or []), \
@@ -234,7 +249,10 @@ class LiquidityRegimeEngine:
         # (and thus its tier) down during an outage and keep it there until the
         # zeros flush — relaxing a major's floor exactly in the volatile
         # recovery window. The instantaneous reading below still flags collapse.
-        if st.depth_top10_usd > 0.0:
+        # A no-fresh-Kraken cycle is likewise skipped outright (no-observation,
+        # W2-11): the "REAL depth" requirement means a real KRAKEN depth, not
+        # combined-book notional standing in for it.
+        if kraken_fresh and st.depth_top10_usd > 0.0:
             trk.depth_hist.append(st.depth_top10_usd)
         med = float(np.median(trk.depth_hist)) if trk.depth_hist else 0.0
         st.depth_ratio = st.depth_top10_usd / (med + EPS) if med > 0 else 1.0
@@ -263,17 +281,35 @@ class LiquidityRegimeEngine:
         # calibrated on single-venue books anyway, so the coherent exec book
         # is both correct and on-distribution. Depth (a USD sum, USDT~USD) and
         # combined_spread_bps stay on the combined book as informational.
-        imb = _imbalance(exec_book, decay_bps=self.imbalance_decay_bps)
-        st.imbalance_ratio = imb          # the flow scalar the alpha reads
-        trk.imb_hist.append(imb)
-        st.imbalance_whiplash = float(np.std(trk.imb_hist)) if len(trk.imb_hist) >= 5 else 0.0
+        #
+        # W2-11: without a fresh Kraken touch there is no exec-book sample at
+        # all this cycle. imb_hist/mid_hist/large_levels hold their prior
+        # state untouched (no-observation) rather than absorb the combined
+        # book's different-venue imbalance/levels; imbalance_ratio and
+        # imbalance_whiplash likewise hold their last real-Kraken reading.
+        if kraken_fresh:
+            imb = _imbalance(exec_book, decay_bps=self.imbalance_decay_bps)
+            st.imbalance_ratio = imb      # the flow scalar the alpha reads
+            trk.imb_hist.append(imb)
+            st.imbalance_whiplash = float(np.std(trk.imb_hist)) if len(trk.imb_hist) >= 5 else 0.0
 
-        bids = (exec_book.get("bids") or [])
-        asks = (exec_book.get("asks") or [])
-        if bids and asks:
-            trk.mid_hist.append(0.5 * (bids[0][0] + asks[0][0]))
+            bids = (exec_book.get("bids") or [])
+            asks = (exec_book.get("asks") or [])
+            if bids and asks:
+                trk.mid_hist.append(0.5 * (bids[0][0] + asks[0][0]))
 
-        spoof_events = self._detect_spoof_events(trk, exec_book, now)
+            if not trk.kraken_fresh_prev:
+                # recovering from a no-Kraken gap: reseed large-level tracking
+                # from the fresh book instead of diffing it against whatever
+                # was tracked through the gap (never combined-era in the fixed
+                # code, but reseeding is the honest recovery contract either
+                # way — no vanish-events fabricated off a stale reference).
+                trk.large_levels = {}
+            spoof_events = self._detect_spoof_events(trk, exec_book, now)
+        else:
+            spoof_events = 0
+        trk.kraken_fresh_prev = kraken_fresh
+
         trk.spoof_ewma = (1 - self.ewma_alpha) * trk.spoof_ewma + self.ewma_alpha * spoof_events
         trk.events += spoof_events
         st.spoof_score = float(1.0 - np.exp(-3.0 * trk.spoof_ewma))
