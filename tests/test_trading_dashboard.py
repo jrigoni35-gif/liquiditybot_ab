@@ -149,8 +149,11 @@ def test_importable_shape_and_layout_per_board():
 def test_all_boards_use_supported_panel_types():
     # professional mix: stat (sparkline) / gauge / bargauge / timeseries /
     # color-coded table. The deprecated "graph" plugin is never allowed.
+    # marcusolsson-dynamictext-panel: the Business Text CSS injector —
+    # deliberately supported since 2026-07-23 (operator installed the
+    # signed plugin; test_glass_suite pins exactly one per board)
     allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge",
-               "text", "piechart"}
+               "text", "piechart", "marcusolsson-dynamictext-panel"}
     for fname in gen.DASHBOARDS:
         kinds = {p["type"] for p in _shipped(fname)["panels"]}
         assert "graph" not in kinds, f"{fname}: deprecated graph panel"

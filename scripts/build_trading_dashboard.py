@@ -14,7 +14,7 @@ saturation/errors), and Tufte's data-ink principle for the analytics panels
 (exact values beside every trend; no decoration that isn't data). One Liquid
 Glass visual language across four focused boards (transparent panels, Apple
 system palette, value-only state tiles, basic-mode bar gauges, outer-joined
-tables, a dormant frosted-skin CSS injector — see
+tables, a Business Text frosted-skin CSS injector — see
 docs/grafana/README_glass.md):
   * ACCURACY FIRST: every money panel uses the non-scaling USD unit (see
     below) so the number displayed IS the number the bot holds — no "$5.00K"
@@ -63,10 +63,12 @@ CAT_PURPLE = "#BF5AF2"
 
 INJ_ID = 990          # fixed id on every board so the CSS can self-hide
 
-# Hidden frosted-glass skin. Grafana Cloud sanitizes native <style> until
-# the signed Business Text plugin is installed (Admin-only) — the tile
-# ships dormant; see docs/grafana/README_glass.md.
-GLASS_CSS = """<style id="lb-glass">
+# Frosted-glass skin, ACTIVE since 2026-07-23: the operator installed the
+# signed Business Text plugin (Admin-only step), so the injector tile is a
+# marcusolsson-dynamictext-panel whose afterRender hook appends these rules
+# to document.head — the route Grafana Cloud's <style> sanitizer (which kept
+# the old native-text tile dormant) does not touch. README_glass.md.
+GLASS_RULES = """\
 .main-view, .scrollbar-view { background: #000 !important; }
 html, body, .main-view, [class*="dashboard"] {
   font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
@@ -94,8 +96,7 @@ html, body, .main-view, [class*="dashboard"] {
   text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;
   font-weight: 700; color: rgba(235,235,245,.55) !important; }
 [data-viz-panel-key="panel-990"] { display: none !important; }
-</style>
-<span id="lb-glass-marker"></span>"""
+"""
 
 panels: list = []
 
@@ -1013,14 +1014,24 @@ def _links():
 
 
 def _injector():
-    return {"id": INJ_ID, "type": "text", "title": "", "datasource": None,
+    # json.dumps embeds the rules as a JS string literal — no escaping
+    # hazards, and the guard keeps re-renders / cross-board SPA navigation
+    # from stacking duplicate <style> nodes.
+    marker = '<span id="lb-glass-marker"></span>'
+    js = ("if (!document.getElementById('lb-glass')) { "
+          "var s = document.createElement('style'); s.id = 'lb-glass'; "
+          f"s.textContent = {json.dumps(GLASS_RULES)}; "
+          "document.head.appendChild(s); }")
+    return {"id": INJ_ID, "type": "marcusolsson-dynamictext-panel",
+            "title": "", "datasource": None,
             "gridPos": {"h": 1, "w": 1, "x": 0, "y": _cur["y"] + 1},
             "transparent": True,
-            "options": {"mode": "html", "content": GLASS_CSS,
-                        "code": {"language": "html",
-                                 "showLineNumbers": False,
-                                 "showMiniMap": False}},
-            "pluginVersion": "11.1.0"}
+            "options": {"renderMode": "data", "content": marker,
+                        "defaultContent": marker,
+                        "editors": ["afterRender"], "afterRender": js,
+                        "helpers": "", "styles": "", "wrap": False,
+                        "externalStyles": [], "contentPartials": []},
+            "pluginVersion": "6.3.0"}
 
 
 def _board(uid, title, desc, author, extra_tag):

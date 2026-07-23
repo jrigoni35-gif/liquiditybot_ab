@@ -11,18 +11,18 @@ over the dark ground, Apple system palette (semantic color only), value-
 only state tiles, basic-mode bar gauges, joined tables, donut
 composition.
 
-## Frosted-blur upgrade (optional, needs Admin once)
+## Frosted-blur skin — ACTIVE (2026-07-23)
 
-Grafana Cloud sanitizes `<style>` in native text panels, so each board
-ships a hidden 1x1 CSS-injector tile that stays dormant. To activate the
-full frosted-glass skin:
+Grafana Cloud sanitizes `<style>` in native text panels, so the skin
+originally shipped as a dormant 1x1 native-text tile. The operator
+installed the signed **Business Text** plugin
+(marcusolsson-dynamictext-panel, Admin-only — the Editor service-account
+token gets HTTP 403 on plugin endpoints, and its `/api/plugins` LIST is
+core-filtered, so never conclude "not installed" from that list; probe
+`/public/plugins/<id>/plugin.json` instead, 307→CDN = installed) and the
+injector is now a Business Text panel whose `afterRender` hook appends
+the rules to `document.head` — the route the sanitizer does not touch.
 
-1. Log in to Grafana as **Admin** → Administration → Plugins.
-2. Search **"Business Text"** (marcusolsson-dynamictext-panel), Install.
-   (The Editor service-account token gets HTTP 403 on plugin install —
-   this step needs the human Admin login.)
-3. Tell the bot session: it will move the injector CSS into a Business
-   Text panel (afterRender) and re-import. No other changes needed.
-
-The CSS itself lives in the generator (`GLASS_CSS`), so it is versioned
-with everything else.
+The CSS itself lives in the generator (`GLASS_RULES`), so it is
+versioned with everything else; `test_glass_suite.py` pins exactly one
+self-hiding injector per board.

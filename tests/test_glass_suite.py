@@ -37,14 +37,25 @@ def test_all_panels_transparent():
 
 
 def test_injector_present_and_self_hiding():
+    # 2026-07-23: injector promoted from the dormant native text tile to a
+    # Business Text panel — Grafana Cloud sanitizes <style> in native text,
+    # so the CSS is injected into document.head by the plugin's afterRender
+    # hook instead (plugin installed by the operator; README_glass.md).
     for d in _boards():
-        inj = [p for p in d["panels"] if p["type"] == "text"
-               and p.get("options", {}).get("mode") == "html"]
+        inj = [p for p in d["panels"]
+               if p["type"] == "marcusolsson-dynamictext-panel"]
         assert len(inj) == 1, f'{d["uid"]}: exactly one CSS injector'
         assert inj[0]["id"] == 990
-        css = inj[0]["options"]["content"]
-        assert "panel-990" in css          # hides its own tile
-        assert "backdrop-filter" in css    # the frosted skin
+        opts = inj[0]["options"]
+        assert "afterRender" in opts.get("editors", []), \
+            "afterRender editor must be enabled for the hook to run"
+        js = opts["afterRender"]
+        assert "lb-glass" in js            # idempotence guard + style id
+        assert "panel-990" in js           # hides its own tile
+        assert "backdrop-filter" in js     # the frosted skin
+        # no native text injector left behind (would be sanitized anyway)
+        assert not [p for p in d["panels"] if p["type"] == "text"
+                    and p.get("options", {}).get("mode") == "html"]
 
 
 def test_state_tiles_never_print_query_text():
