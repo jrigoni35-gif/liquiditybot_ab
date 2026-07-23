@@ -39,6 +39,7 @@ import math
 import time
 from collections import Counter, deque
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -135,13 +136,21 @@ class ModelMonitor:
 
     # ------------------------------------------------------------------
     def record_close(self, p_predicted: float, label: int,
-                     model_scored: bool, cause: str = ""):
+                     model_scored: bool, cause: str = "",
+                     now: Optional[float] = None):
         self._records.append((float(p_predicted), int(label),
                               bool(model_scored)))
         if cause:
             self._cause_tally[cause] += 1
             self._causes_window.append(cause)
-            self._last_cause_ts = time.time()
+            # W2-18: stamp the caller's own clock when it has one (replay
+            # parity) - decay_stale_causes(now) always compares against
+            # the engine's injected `now`, so sampling time.time() here
+            # under replay never converges with it and the stale-cause
+            # decay this method exists to unblock (see decay_stale_causes)
+            # never fires. Falls back to wall clock for every existing
+            # caller that doesn't pass one (behaviour-preserving).
+            self._last_cause_ts = now if now is not None else time.time()
         # exactly ONCE per close, after the causes window is updated and
         # independent of the Brier window: _evaluate() used to call this a
         # SECOND time, so once >= min_trades model-scored closes existed a

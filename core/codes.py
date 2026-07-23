@@ -218,6 +218,14 @@ class Code(str, Enum):
                                      # switch. Unwind/trim are risk reduction
                                      # and are never gated here.
 
+    # ---- config guard (CG) — main.LiquidityBot.__init__ session start ---
+    CG_SESSION_START = "CG-000"      # session fingerprint: config passed
+                                     # enforce_config() and was armed under
+                                     # this sha256/dry_run/fee combination
+                                     # (W2-19: was a bare "CG-000" string,
+                                     # unregistered despite the prefix map
+                                     # advertising CG)
+
 
 def tag(code: Code, detail: str) -> str:
     """Canonical 'CODE: detail' string used in reasons lists and audit. Also

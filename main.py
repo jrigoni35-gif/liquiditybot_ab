@@ -390,7 +390,8 @@ class LiquidityBot:
             cfg_sha = hashlib.sha256(json.dumps(
                 config, sort_keys=True, default=str).encode()).hexdigest()
             get_audit().log(
-                "startup", "CG-000", "session start: config fingerprint",
+                "startup", Code.CG_SESSION_START,
+                "session start: config fingerprint",
                 {"config_sha256": cfg_sha[:16], "dry_run": self.dry_run,
                  "maker_fee_bps": config.get("pretrade", {})
                  .get("maker_fee_bps"),
@@ -763,9 +764,17 @@ class LiquidityBot:
             esc.get("maker_first_profit_exits", True))
         self._exit_attempts: dict = {}      # position_id -> failed attempts
         # last time the entry pipeline ADMITTED an order (signal passed the
-        # gates and a submit succeeded) — the ML-073 drought clock. Starts
-        # at boot so a restart never instantly declares a drought.
-        self._last_entry_admit_ts: float = time.time()
+        # gates and a submit succeeded) — the ML-073 drought clock. Left
+        # unseeded (None) here and lazily seeded from the first INJECTED
+        # `now` fast_cycle sees (W2-18): seeding with time.time() at
+        # construction made `now - _last_entry_admit_ts` go wildly negative
+        # under replay, where the injected now is historical and almost
+        # always far behind the real wall clock — the drought fastpath
+        # could never arm. A restore (core/persistence.py) sets a concrete
+        # float before the first cycle and is never clobbered by the lazy
+        # seed; a fresh boot's first fast_cycle seeds it exactly once, so a
+        # restart still never instantly declares a drought.
+        self._last_entry_admit_ts: Optional[float] = None
         self._stop_ok: dict = {}            # asset -> stop eval allowed this cycle
         self._equity_drift_pct: float = 0.0
 
@@ -1336,6 +1345,15 @@ class LiquidityBot:
     # FAST cycle
     # ------------------------------------------------------------------
     def fast_cycle(self, now: float) -> None:
+        if getattr(self, "_last_entry_admit_ts", None) is None:
+            # W2-18: seed the ML-073 drought clock from the first now this
+            # engine ever actually sees (replay parity) rather than
+            # time.time() at construction; a restore already set a
+            # concrete float before the first cycle, so this never fires
+            # after a restart with continuity data. getattr-guarded: test
+            # doubles built via LiquidityBot.__new__() may never have set
+            # this attribute at all - that is the same "unseeded" case.
+            self._last_entry_admit_ts = now
         # marks + books from the execution venue; every mark passes the
         # tick quarantine so one anomalous print can't fire every stop.
         # Marks fetch in ONE batched Ticker call (6 pairs -> 1 request)
@@ -1525,7 +1543,15 @@ class LiquidityBot:
                 equity, self.state.open_position_count(), self.dry_run)
         except Exception:
             self._exit_eval_failures += 1
-            log.exception("watchdog.evaluate raised - isolated; stop loop still runs")
+            # W2-27: isolating the raise must not fail the ENTRIES side
+            # OPEN on the frozen prior state - evaluate() only assigns
+            # self.state at its end, so a raise partway through never
+            # reassigns it. Force entries_blocked for as long as evaluate()
+            # keeps failing; exits below never consult this flag.
+            self.watchdog.note_evaluation_failure(
+                "watchdog.evaluate raised - entries forced closed pending recovery")
+            log.exception("watchdog.evaluate raised - isolated; stop loop still "
+                          "runs, entries forced closed for this cycle")
 
         # the TRIGGER stays gated on all-marks-confirmed (a quarantined or
         # stale print must never fabricate the drawdown that liquidates the
@@ -1718,7 +1744,8 @@ class LiquidityBot:
             for cause, thesis in self.postmortem.poll(now):
                 won = int(thesis.realized_net_usd > 0)
                 self.monitor.record_close(self._thesis_scored_p(thesis),
-                                        won, thesis.model_scored, cause)
+                                        won, thesis.model_scored, cause,
+                                        now=now)
                 # ML-075: while KILLED the close above is model_scored=False, so
                 # the recovery window can never refill. Feed the champion's
                 # telemetry-only shadow score (captured at entry) so a killed
@@ -2826,10 +2853,17 @@ class LiquidityBot:
         _open = self.state.open_positions()
         _reserved = sum(1 for o in self.orders.open_orders()
                         if o.purpose == "entry")
+        # defensive: fast_cycle always seeds _last_entry_admit_ts before
+        # slow_cycle (this method's caller) runs in the same cycle_once, so
+        # this is never unset in normal operation; a zero-elapsed fallback
+        # (not a crash) if this is ever called in isolation.
+        _admit_ts = getattr(self, "_last_entry_admit_ts", None)
+        if _admit_ts is None:
+            _admit_ts = now
         _spans = effective_realize_spans(
             _spans, float(cfg.get("realize_fastpath_spans", 0.0)),
             len(_open) + _reserved, self.capital.max_concurrent_positions,
-            drought_h=(now - self._last_entry_admit_ts) / 3600.0,
+            drought_h=(now - _admit_ts) / 3600.0,
             drought_after_h=float(cfg.get("realize_drought_h", 0.0)))
         mature_h = _spans * _bars * BAR_SECONDS / 3600.0
         # graduate on LIVE rows (real closed trades), same basis as exploration

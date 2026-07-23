@@ -169,6 +169,13 @@ class StateStore:
     def snapshot(self, bot) -> bool:
         try:
             state = bot.state
+            # W2-18: _last_entry_admit_ts is None until the engine's first
+            # fast_cycle lazily seeds it (replay parity) - a manual
+            # "snapshot" control command fired before that first cycle
+            # must not crash the whole snapshot over one unseeded field.
+            _admit_ts = getattr(bot, "_last_entry_admit_ts", None)
+            if _admit_ts is None:
+                _admit_ts = time.time()
             data = {
                 "version": SNAPSHOT_VERSION,
                 "saved_at": time.time(),
@@ -225,9 +232,7 @@ class StateStore:
                 # per restart). Downtime does not count toward the drought:
                 # elapsed RUNNING time is stored, not the wall timestamp.
                 "exit_attempts": dict(getattr(bot, "_exit_attempts", {})),
-                "drought_elapsed_s": max(
-                    0.0, time.time() - getattr(bot, "_last_entry_admit_ts",
-                                               time.time())),
+                "drought_elapsed_s": max(0.0, time.time() - _admit_ts),
                 "scs": (bot.scs.to_dict()
                         if getattr(bot, "scs", None) is not None else {}),
                 # V2 vindication continuity: fired-detector maps for OPEN

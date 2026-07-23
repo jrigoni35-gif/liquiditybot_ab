@@ -198,6 +198,24 @@ class Watchdog:
         return st
 
     # ------------------------------------------------------------------
+    def note_evaluation_failure(self, reason: str) -> None:
+        """The caller (main.py) isolates a raise out of evaluate() so exits
+        never starve on a broken watchdog (invariant #5) - but evaluate()
+        only assigns `self.state` at its very end, so a raise partway
+        through leaves the PRIOR state in place. If that prior state was
+        healthy (entries_blocked=False), every consumer of
+        watchdog.state.entries_blocked (algo-child stepping, hedge-open,
+        the entry-scan hard return) would fail OPEN during the one
+        incident that breaks the watchdog itself. Force the entries side
+        closed for as long as evaluate() keeps failing: this flips
+        entries_blocked in place (exits never consult it) and stays
+        flipped until the NEXT evaluate() call fully succeeds and
+        computes a fresh state."""
+        self.state.entries_blocked = True
+        if reason not in self.state.reasons:
+            self.state.reasons.append(reason)
+
+    # ------------------------------------------------------------------
     def status(self) -> dict:
         s = self.state
         return {"entries_blocked": s.entries_blocked,
