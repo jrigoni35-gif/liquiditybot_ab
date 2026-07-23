@@ -78,6 +78,9 @@ class Code(str, Enum):
     OM_TIMEOUT_CANCEL = "OM-040"
     OM_DEADMAN_FAIL = "OM-050"
     OM_EXIT_PREEMPT = "OM-060"       # risk-off exit cancelled a resting maker take
+    OM_FILL_APPLY_FAILED = "OM-070"  # _handle_fill raised on one poll event; the
+                                     # rest of the batch is still applied and
+                                     # snapshotted (no book/venue desync, no lost fill)
 
     # ---- sizer (SZ) ---------------------------------------------------
     SZ_INVALID_INPUT = "SZ-010"

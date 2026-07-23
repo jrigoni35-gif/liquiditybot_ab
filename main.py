@@ -666,11 +666,12 @@ class LiquidityBot:
         self._last_imb: dict = {}           # asset -> last log-imbalance
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
-        # cumulative count of per-position exit/stop evaluations that RAISED
-        # and were isolated (surfaced in status). One position that
-        # deterministically errors must never starve the OTHER positions'
-        # hard stops — a non-zero, climbing value means a book position is
-        # wedging its own escape path and needs an operator's eye.
+        # cumulative count of ISOLATED cycle-stage failures that were caught so
+        # they could not starve the per-position stop loop (invariant #5):
+        # per-position exit/stop eval, every pre-stop fast-cycle stage, the
+        # hourly/slow refit, and fill application. Surfaced in status; a
+        # non-zero, climbing value means something is wedging an escape path and
+        # needs an operator's eye — the logs name the exact stage/reason code.
         self._exit_eval_failures = 0
         self._rows_at_last_train = self.history.row_count()
         # Whether the FIRST-champion train has been attempted this process.
@@ -1402,16 +1403,44 @@ class LiquidityBot:
                             self._mark_ts[symbol] = now
                             self._stop_ok[asset] = ok
 
-        # execution algos: release due child slices (paced, guarded)
-        self._step_exec_algos(now)
+        # execution algos: release due child slices (paced). ISOLATED, like
+        # every pre-stop stage below, so a raise here cannot skip the
+        # per-position stop loop at the bottom of this cycle (invariant #5).
+        try:
+            self._step_exec_algos(now)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("_step_exec_algos raised - isolated; stop loop still runs")
 
-        self._apply_sim()   # sim overlays AFTER fresh data lands
+        try:
+            self._apply_sim()   # sim overlays AFTER fresh data lands
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("_apply_sim raised - isolated; stop loop still runs")
 
         # advance orders, apply fills
         sig = {a: self.vol.state(a).sigma_bar_pct for a in self.symbol_map}
-        fills = self.orders.poll(self.kraken_books, sig, now)
+        try:
+            fills = self.orders.poll(self.kraken_books, sig, now)
+        except Exception:
+            fills = []
+            self._exit_eval_failures += 1
+            log.exception("orders.poll raised - isolated; stop loop still runs")
+        # Apply each fill under its OWN guard (W1-2). orders.poll has already
+        # advanced order state and drained deferred events before returning, so
+        # a raise in _handle_fill on event i must NOT discard events i+1..n
+        # (book/venue desync; a dry-run fill lost permanently) nor skip the
+        # post-batch snapshot. One bad event is counted + tagged (OM-070), the
+        # rest are still applied, and the snapshot below ALWAYS runs.
         for event in fills:
-            self._handle_fill(event, now)
+            try:
+                self._handle_fill(event, now)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("%s", tag(
+                    Code.OM_FILL_APPLY_FAILED,
+                    "fill application raised for one poll event - the rest of "
+                    "the batch is still applied and snapshotted"))
         if fills:
             self.store.snapshot(self)      # never lose an executed fill
 
@@ -1490,9 +1519,13 @@ class LiquidityBot:
                 kraken_mids[a] = 0.5 * (bids[0][0] + asks[0][0])
         fvs = {a: (self.fv.state(a).fair_value or 0.0)
                for a in self.symbol_map}
-        self.watchdog.evaluate(
-            now, self.book_ts, list(self.symbol_map), kraken_mids, fvs,
-            equity, self.state.open_position_count(), self.dry_run)
+        try:
+            self.watchdog.evaluate(
+                now, self.book_ts, list(self.symbol_map), kraken_mids, fvs,
+                equity, self.state.open_position_count(), self.dry_run)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("watchdog.evaluate raised - isolated; stop loop still runs")
 
         # the TRIGGER stays gated on all-marks-confirmed (a quarantined or
         # stale print must never fabricate the drawdown that liquidates the
@@ -1533,24 +1566,10 @@ class LiquidityBot:
 
         macro_states = {a: self.macro.state(a) for a in self.symbol_map}
 
-        # postmortem plumbing: mark trails + finalize elapsed observations
-        self.postmortem.record_marks(self.marks, now)
-        # post-fill mark-out resolves due horizons against the TRUSTED mark
-        # (jump-confirmed + fresh); a stale/dark feed defers, never fabricates.
-        _mk = getattr(self, "markout", None)
-        if _mk is not None:
-            _mk.poll(self.marks, now, is_fresh=self._mark_fresh)
-        self.risk_protocols.observe(equity, self.marks, now)
-        for cause, thesis in self.postmortem.poll(now):
-            won = int(thesis.realized_net_usd > 0)
-            self.monitor.record_close(self._thesis_scored_p(thesis),
-                                    won, thesis.model_scored, cause)
-            # ML-075: while KILLED the close above is model_scored=False, so the
-            # recovery window can never refill. Feed the champion's telemetry-
-            # only shadow score (captured at entry) so a killed model can re-arm
-            # on evidence. No-op when armed / when no shadow score exists.
-            if not thesis.model_scored and getattr(thesis, "shadow_p", -1.0) >= 0.0:
-                self.monitor.record_shadow_close(thesis.shadow_p, won)
+        # postmortem / mark-out / risk observation, each stage ISOLATED so a
+        # raise cannot skip the per-position stops that follow (invariant #5).
+        # Split into a helper to keep fast_cycle under the C901 ceiling.
+        self._fast_cycle_observe(now, equity)
 
         # Each position's stop/tier evaluation is ISOLATED: one position whose
         # state deterministically raises (a corrupt stop_price, a bad
@@ -1648,6 +1667,48 @@ class LiquidityBot:
                 )
                 log.info(f"HEDGE {act.direction} ${act.usd:,.0f} {act.symbol}: "
                         f"{act.reason}")
+
+    def _fast_cycle_observe(self, now: float, equity: float) -> None:
+        """Post-fill observation: mark trails, mark-out horizons, risk-protocol
+        telemetry, and elapsed-thesis close scoring. Runs AFTER fills and BEFORE
+        the per-position stop loop; every stage is isolated (counted into
+        _exit_eval_failures, logged) so a raise here can never starve the stops
+        that follow (invariant #5). Extracted from fast_cycle to hold the C901
+        complexity ceiling; ordering and behaviour are otherwise unchanged."""
+        try:
+            self.postmortem.record_marks(self.marks, now)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("postmortem.record_marks raised - isolated; stop loop still runs")
+        # post-fill mark-out resolves due horizons against the TRUSTED mark
+        # (jump-confirmed + fresh); a stale/dark feed defers, never fabricates.
+        _mk = getattr(self, "markout", None)
+        if _mk is not None:
+            try:
+                _mk.poll(self.marks, now, is_fresh=self._mark_fresh)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("markout.poll raised - isolated; stop loop still runs")
+        try:
+            self.risk_protocols.observe(equity, self.marks, now)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("risk_protocols.observe raised - isolated; stop loop still runs")
+        try:
+            for cause, thesis in self.postmortem.poll(now):
+                won = int(thesis.realized_net_usd > 0)
+                self.monitor.record_close(self._thesis_scored_p(thesis),
+                                        won, thesis.model_scored, cause)
+                # ML-075: while KILLED the close above is model_scored=False, so
+                # the recovery window can never refill. Feed the champion's
+                # telemetry-only shadow score (captured at entry) so a killed
+                # model can re-arm on evidence. No-op when armed / no shadow.
+                if not thesis.model_scored and getattr(thesis, "shadow_p", -1.0) >= 0.0:
+                    self.monitor.record_shadow_close(thesis.shadow_p, won)
+        except Exception:
+            self._exit_eval_failures += 1
+            log.exception("postmortem.poll/record_close raised - isolated; "
+                          "stop loop still runs")
 
     def _manage_open_position(self, pos: Position, now: float, equity: float,
                               macro_states: dict) -> None:
@@ -3093,11 +3154,32 @@ class LiquidityBot:
         (or a test, or the UI's 'run one cycle' button) drives this."""
         now = now if now is not None else time.time()
         if now - self._last_macro >= self.macro_refit_sec:
-            self.hourly_cycle(now)
+            # Hourly/slow refit is ISOLATED from the fast cycle below: a
+            # deterministic raise in the refit (a poisoned cached candle in
+            # macro.update, a model-load edge) must NEVER propagate out of
+            # cycle_once and starve fast_cycle's per-position stop loop
+            # (invariant #5). Advance the cadence stamp FIRST/regardless so a
+            # poisoned hour retries next macro INTERVAL, not every cycle forever
+            # (which is exactly how a single bad candle starved every exit).
             self._last_macro = now
+            try:
+                self.hourly_cycle(now)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("hourly_cycle raised - isolated; fast-cycle exits "
+                              "still run, retry next macro interval")
         self.fast_cycle(now)
         if self._cycle % self.slow_every == 0:
-            self.slow_cycle(now)
+            # slow work (data refresh + entry pipeline) is NEW risk, never an
+            # escape. Isolate it too: an unguarded raise here would propagate,
+            # freeze the heartbeat increments below (so `_cycle % slow_every`
+            # stays 0 and slow_cycle re-raises every cycle), and add nothing to
+            # the exits fast_cycle already ran this cycle.
+            try:
+                self.slow_cycle(now)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("slow_cycle raised - isolated; exits unaffected")
         self._cycle += 1
         self._cycle_lifetime += 1
 

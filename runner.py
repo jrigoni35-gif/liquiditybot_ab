@@ -659,8 +659,12 @@ class BotRunner:
                 self.bot.alerts.fire(
                     "runner_wedged",
                     f"cycle_once raised {self._cycle_fail_streak} times in a "
-                    f"row - refusing NEW risk until it recovers. Exits still "
-                    f"managed each cycle.")
+                    f"row - refusing NEW risk until it recovers. Exit ORDERS "
+                    f"are never gated by this halt (invariant #5), and the "
+                    f"hourly/slow refit + every pre-stop stage are isolated so "
+                    f"the per-position stop loop still runs; a raise in an "
+                    f"un-isolated pre-stop path can still skip a cycle's exit "
+                    f"evaluation, so check exit_eval_failures + the logs.")
             except Exception:
                 log.exception("wedge alert failed - fault still latched")
         return self._cycle_fail_streak
