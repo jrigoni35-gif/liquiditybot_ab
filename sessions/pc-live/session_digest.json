@@ -1,57 +1,57 @@
 {
-  "generated_at": 1784807013.608031,
+  "generated_at": 1784810614.8823712,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784807001.0,
-    "duration_h": 315.83
+    "end": 1784810604.0,
+    "duration_h": 316.83
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4972.27,
+    "equity_end": 4971.05,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -14.91,
-    "fees_paid_total": 29.2369,
+    "realized_pnl_total": -15.28,
+    "fees_paid_total": 29.468,
     "open_positions": 5,
-    "samples": 67643
+    "samples": 67880
   },
   "activity": {
-    "signal_rows_total": 3280,
-    "live_labeled_trades": 207,
-    "candidate_rows": 3073
+    "signal_rows_total": 3296,
+    "live_labeled_trades": 209,
+    "candidate_rows": 3087
   },
   "audit": {
-    "records": 3869,
-    "signal_records": 1558,
+    "records": 3883,
+    "signal_records": 1569,
     "by_src": {
-      "exploration": 2529,
-      "order_manager": 632,
-      "ml_governor": 359,
+      "exploration": 2533,
+      "order_manager": 637,
+      "ml_governor": 363,
       "startup": 148,
       "fault": 127,
       "engine": 46,
-      "circuit_breaker": 27,
+      "circuit_breaker": 28,
       "runner": 1
     },
     "top_codes": [
       [
         "ML-070",
-        2311
+        2314
       ],
       [
         "OM-000",
-        476
+        480
       ],
       [
         "ML-072",
-        218
+        219
       ],
       [
         "OM-040",
-        156
+        157
       ],
       [
         "CG-000",
@@ -63,19 +63,19 @@
       ],
       [
         "ML-031",
-        119
+        120
       ],
       [
         "ML-041",
-        74
+        75
       ],
       [
         "ML-016",
-        51
+        52
       ],
       [
         "ML-042",
-        47
+        48
       ],
       [
         "ML-073",
@@ -96,10 +96,10 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 3690,
+    "records": 4750,
     "by_level": {
-      "INFO": 3678,
-      "WARNING": 11,
+      "INFO": 4732,
+      "WARNING": 17,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -145,26 +145,26 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 829,
-      "thin": 218
+      "spoofy": 1065,
+      "thin": 274
     },
-    "spoofy_frac": 0.792,
-    "cycles_estimate": 410,
+    "spoofy_frac": 0.795,
+    "cycles_estimate": 528,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 2,
     "use_model": false,
     "kelly_mult": 0.4,
-    "champion_brier": 0.11146059152348432,
+    "champion_brier": 0.11049357992332272,
     "brier": "n/a",
-    "history_rows": 207,
+    "history_rows": 209,
     "cold": true
   },
   "postmortems": {
-    "count": 174,
+    "count": 176,
     "causes": {
-      "underperformance": 128,
+      "underperformance": 130,
       "cost_overrun": 37,
       "alpha_wrong": 4,
       "whipsaw": 3,
@@ -186,19 +186,19 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=207, brier=n/a) yet retrain was requested 34x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 31% of the audit trail"
+      "detail": "model is cold (live training rows=209, brier=n/a) yet retrain was requested 34x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 31% of the audit trail"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 79% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 80% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "OM-000 is 31% of 1558 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "OM-000 is 31% of 1569 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
