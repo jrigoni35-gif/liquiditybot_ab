@@ -46,9 +46,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np                                            # noqa: E402
 
 from ml.history import HistoryStore                            # noqa: E402
-from ml.overfit import (deflated_sharpe, feature_dof_report,   # noqa: E402
-                        model_space_pbo, purge_leakage_probe,
-                        shuffled_label_check, train_test_gap)
+from ml.overfit import (REGIME_DEGRADE_MARGIN_AUC, REGIME_MIN_N,  # noqa: E402
+                        REGIME_STRATA, deflated_sharpe,
+                        feature_dof_report, model_space_pbo,
+                        purge_leakage_probe, regime_stratified_oof,
+                        regime_stratum_labels, shuffled_label_check,
+                        train_test_gap)
 
 log = logging.getLogger("liquiditybot.scripts.overfit")
 PASS_N, FAIL_N = 0, 0
@@ -274,6 +277,130 @@ def make_offline_recording(tmpdir: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+def regime_corpus_stats(path) -> dict:
+    """Raw-corpus per-stratum stats (candidate/live split, base rate): an
+    INDEPENDENT pass over the full signal_history.csv — unlike the OOF
+    slice below (which only covers the OOF-tested subset of the deduped/
+    purged X), this counts every candidate + live row, answering "how much
+    do we even have per regime". Same argmax-of-one-hots stratification as
+    the OOF side (regime_stratum_labels), just applied to the raw file
+    directly. Missing/unreadable file, or a schema without the regime/label
+    columns (e.g. a minimal live-only CI fixture) -> {} — reported and
+    skipped, never a crash, same convention as OF-5's own raw CSV scan."""
+    import csv
+    cols = [f"regime_{s}" for s in REGIME_STRATA]
+    one_hot, source, label = [], [], []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                try:
+                    oh = [float(row[c]) for c in cols]
+                    lab = float(row["label"])
+                except (KeyError, ValueError):
+                    continue
+                one_hot.append(oh)
+                source.append(row.get("source") or "unknown")
+                label.append(lab)
+    except OSError:
+        return {}
+    if not one_hot:
+        return {}
+    strata = regime_stratum_labels(np.array(one_hot))
+    source_a = np.array(source, dtype=object)
+    label_a = np.array(label, float)
+    out = {}
+    for s in (*REGIME_STRATA, "unknown"):
+        mask = strata == s
+        n = int(mask.sum())
+        if n == 0:
+            continue
+        out[s] = {
+            "n": n,
+            "n_candidate": int((mask & (source_a == "candidate")).sum()),
+            "n_live": int((mask & (source_a == "live")).sum()),
+            "base_rate": float(label_a[mask].mean()),
+        }
+    return out
+
+
+def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
+                      on_synthetic: bool, csv_path) -> None:
+    """#103 T3 — regime-stratified OOF diagnostic, REPORT-ONLY: every line
+    below goes through info(), NEVER check(), so nothing here can move
+    PASS_N/FAIL_N or the exit code, whatever the numbers say. Reuses the
+    OOF predictions train_test_gap(..., return_oof=True) already produced
+    for OF-1's gbt candidate above — no separate fit, same folds, same
+    numbers OF-1's pooled gap[gbt] line reports.
+
+    Stratum = argmax of the five regime one-hot FEATURE_NAMES columns per
+    row (rows with all-zero one-hots -> "unknown"); a stratum's OOF AUC/
+    Brier are computed ONLY when its OOF-scored row count clears
+    REGIME_MIN_N — thin strata report insufficient evidence, never a noisy
+    point estimate. Flags (text only, never gating): a stratum whose OOF
+    AUC sits more than REGIME_DEGRADE_MARGIN_AUC below the pooled OOF AUC
+    ("materially degrades vs pooled"), and a stratum with fewer than
+    REGIME_MIN_N live-sourced rows ("insufficient live coverage" — the
+    operator-facing rationale #103 T4's regime-coverage probe term reads
+    off of)."""
+    from ml.features import FEATURE_NAMES
+    g = gaps.get("gbt", {})
+    oof_idx, oof_pred = g.get("oof_idx"), g.get("oof_pred")
+    if oof_idx is None or not len(oof_idx):
+        info("regime diagnostic", "no OOF folds available (OF-1 gbt gap "
+                                  "reported 0 folds) — skipped")
+        return
+    regime_cols = [FEATURE_NAMES.index(f"regime_{s}") for s in REGIME_STRATA]
+    one_hot_oof = X[np.asarray(oof_idx, int)][:, regime_cols]
+    pooled_auc, pooled_brier = g.get("oof_auc"), g.get("oof_brier")
+    oof_stats = regime_stratified_oof(y, oof_idx, oof_pred, one_hot_oof,
+                                      pooled_auc=pooled_auc,
+                                      pooled_brier=pooled_brier,
+                                      min_n=REGIME_MIN_N)
+    if on_synthetic:
+        info("regime diagnostic", "SYNTHETIC benchmark dataset — "
+             "candidate/live split & base rate n/a (no signal_history.csv "
+             "correspondence); OOF numbers below validate the machinery on "
+             "the planted-signal benchmark, not a market read")
+        corpus: dict = {}
+    else:
+        corpus = regime_corpus_stats(csv_path)
+
+    for s in (*REGIME_STRATA, "unknown"):
+        c = corpus.get(s)
+        oof = oof_stats[s]
+        if c is None and not on_synthetic:
+            info(f"regime[{s}]", "n=0 — absent from corpus")
+            continue
+        if c is not None:
+            info(f"regime[{s}]",
+                 f"n={c['n']} (candidate={c['n_candidate']} "
+                 f"live={c['n_live']}) base_rate={c['base_rate']:.3f}")
+            if c["n_live"] < REGIME_MIN_N:
+                info(f"regime[{s}] FLAG",
+                     f"insufficient live coverage ({c['n_live']} live < "
+                     f"{REGIME_MIN_N}) — operator rationale for #103 T4's "
+                     f"regime-coverage probe term")
+        if oof["scored"]:
+            d_auc = oof["auc"] - (pooled_auc or 0.0)
+            d_brier = oof["brier"] - (pooled_brier or 0.0)
+            info(f"regime[{s}] oof",
+                 f"oof_n={oof['n_oof']} auc={oof['auc']:.3f} "
+                 f"(pooled {pooled_auc or 0:.3f}, delta_auc={d_auc:+.3f}) "
+                 f"brier={oof['brier']:.4f} (pooled {pooled_brier or 0:.4f}, "
+                 f"delta_brier={d_brier:+.4f})")
+            if oof["degrade"]:
+                info(f"regime[{s}] FLAG",
+                     f"OOF materially degrades vs pooled (delta_auc="
+                     f"{d_auc:+.3f}, worse than the "
+                     f"-{REGIME_DEGRADE_MARGIN_AUC:.2f} margin OF-1 uses "
+                     f"for its own train/OOF gap)")
+        elif oof["n_oof"] > 0 or c is not None:
+            info(f"regime[{s}] oof",
+                 f"oof_n={oof['n_oof']} < {REGIME_MIN_N} — insufficient "
+                 f"OOF evidence, not scored")
+
+
+# ---------------------------------------------------------------------------
 def main() -> int:
     # OF-4 replays construct full bots that audit their dispositions and
     # record model lifecycle events; keep synthetic records out of the
@@ -305,8 +432,14 @@ def main() -> int:
     X, y, w, sig, source, n_live = load_dataset(
         force_synthetic=args.force_synthetic)
     print(f"[OF-1] train/OOF gap  ({source})")
+    # return_oof=True: purely additive (see train_test_gap docstring) - it
+    # only adds 'oof_idx'/'oof_pred' keys the gap[...] checks below never
+    # read, so OF-1's verdicts are unaffected. Consumed by the regime-
+    # stratified diagnostic at the end of main() so it reuses gbt's OOF
+    # predictions instead of retraining separately.
     gaps = train_test_gap(X, y, sample_weight=w,
-                          n_splits=3 if args.quick else 5, sig=sig)
+                          n_splits=3 if args.quick else 5, sig=sig,
+                          return_oof=True)
     for name, g in gaps.items():
         if not g.get("folds"):
             info(f"gap[{name}]", "no viable folds")
@@ -480,6 +613,10 @@ def main() -> int:
               (d.get("dsr") or 0) >= 0.90,
               f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
               f"(conviction-marked subset still {len(conviction)} < 30)")
+
+    # ---- regime-stratified OOF diagnostic (#103 T3, report-only) ---------
+    print("[diagnostic] regime-stratified OOF (report-only, no gate)")
+    regime_diagnostic(gaps, X, y, source.startswith("SYNTHETIC"), store.path)
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)

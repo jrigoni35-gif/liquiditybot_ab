@@ -50,11 +50,20 @@ log = logging.getLogger("liquiditybot.ml.overfit")
 # 1) train-vs-OOF gap
 # ---------------------------------------------------------------------------
 def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
-                   seed: int = 7, sample_weight=None, sig=None) -> dict:
+                   seed: int = 7, sample_weight=None, sig=None,
+                   return_oof: bool = False) -> dict:
     """Per candidate: mean train AUC/Brier vs mean OOF AUC/Brier over the
     purged folds, plus the gaps. Interpretation guide (empirical, this
     data scale): gap_auc < 0.05 healthy, 0.05-0.12 watch, > 0.12 the
-    model is memorizing."""
+    model is memorizing.
+
+    return_oof: also capture the per-fold (test-index, predicted-prob)
+    pairs per candidate, concatenated across folds in test order, under
+    'oof_idx'/'oof_pred' - the SAME fitted models this function already
+    trains for the gap check, no additional fit. Consumed by
+    scripts/overfit_check.py's regime-stratified diagnostic (report-only)
+    so it never retrains separately from OF-1. Default False keeps every
+    existing caller's return dict byte-identical (no new keys added)."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
@@ -66,6 +75,7 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
     out = {}
     for name, factory in candidates.items():
         tr_a, te_a, tr_b, te_b, folds = [], [], [], [], 0
+        oof_idx_parts, oof_pred_parts = [], []
         for tr, te in purged_walk_forward(len(X), n_splits, label_span,
                                           sig=sig):
             if y[tr].sum() < 5 or (len(y[tr]) - y[tr].sum()) < 5:
@@ -79,6 +89,9 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
             tr_b.append(brier_score(y[tr], p_tr))
             te_b.append(brier_score(y[te], p_te))
             folds += 1
+            if return_oof:
+                oof_idx_parts.append(np.asarray(te))
+                oof_pred_parts.append(np.asarray(p_te))
         if not folds:
             out[name] = {"folds": 0}
             continue
@@ -91,6 +104,9 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
             "oof_brier": float(np.mean(te_b)),
             "gap_brier": float(np.mean(te_b) - np.mean(tr_b)),
         }
+        if return_oof:
+            out[name]["oof_idx"] = np.concatenate(oof_idx_parts)
+            out[name]["oof_pred"] = np.concatenate(oof_pred_parts)
     return out
 
 
@@ -442,3 +458,92 @@ def feature_dof_report(X, y, feature_names, label_span: int = 96,
             "dead_features": dead,
             "starved": bool(rpf < rows_per_feature_floor),
             "importance_top": imp[:8]}
+
+
+# ---------------------------------------------------------------------------
+# 7) regime-stratified OOF diagnostic (report-only; #103 T3)
+# ---------------------------------------------------------------------------
+# A literature gap-analysis flagged that pooled OOF metrics can hide a model
+# that only works in one regime — this instrument answers that, but it is
+# DIAGNOSTIC, not a gate: scripts/overfit_check.py's regime section reports
+# every line through info(), never check(), so nothing here can move PASS_N/
+# FAIL_N or the exit code. It slices the OOF predictions train_test_gap(...,
+# return_oof=True) already produced for OF-1's gbt candidate — no separate
+# fit, same folds, same numbers OF-1's pooled gap[gbt] line reports.
+REGIME_STRATA = ("bull_quiet", "bull_vol", "range", "bear", "crisis")
+
+# Evidence floor for scoring a stratum's OOF AUC/Brier at all. No existing
+# check in this file expresses a bare per-bucket row-count floor (train_test_
+# gap/shuffled_label_check gate on FOLD class balance >=5/side,
+# feature_dof_report gates on rows/feature) — the closest fit is
+# scripts/overfit_check.py's OWN OF-5 evidence floor, which already treats 30
+# labeled outcomes as the minimum a point statistic (there: deflated Sharpe)
+# can be trusted on (`len(conviction) >= 30` / `len(mixed) < 30`). Reused
+# verbatim rather than invented: same question — how many outcomes before a
+# rate/score means anything — same file, same answer.
+REGIME_MIN_N = 30
+
+# "Materially degrades vs pooled" reuses OF-1's own memorization-band
+# threshold (train_test_gap docstring: "gap_auc ... > 0.12 the model is
+# memorizing") as the degrade margin. The file already treats a >0.12 AUC
+# gap as the line between "watch" and "broken" for a train-vs-OOF
+# comparison; a stratum whose OOF AUC sits more than that same margin below
+# the POOLED OOF AUC is held to the identical bar, applied to a different
+# pair of numbers (stratum-OOF vs pooled-OOF instead of train vs OOF).
+REGIME_DEGRADE_MARGIN_AUC = 0.12
+
+
+def regime_stratum_labels(one_hot) -> np.ndarray:
+    """Stratum = argmax over the five regime one-hot columns (column order:
+    REGIME_STRATA, matching ml.features.FEATURE_NAMES' regime_bull_quiet,
+    regime_bull_vol, regime_range, regime_bear, regime_crisis block).
+    All-zero rows (no active regime label — padded/migrated history, or a
+    macro state the labeler never assigned) get "unknown" rather than a
+    false argmax(all-zero) == bull_quiet."""
+    oh = np.asarray(one_hot, float)
+    labels = np.full(len(oh), "unknown", dtype=object)
+    active = oh.sum(axis=1) > 0
+    if active.any():
+        labels[active] = np.asarray(REGIME_STRATA, dtype=object)[
+            np.argmax(oh[active], axis=1)]
+    return labels
+
+
+def regime_stratified_oof(y, oof_idx, oof_pred, one_hot_oof,
+                          pooled_auc: "float | None" = None,
+                          pooled_brier: "float | None" = None,
+                          min_n: int = REGIME_MIN_N,
+                          degrade_margin: float = REGIME_DEGRADE_MARGIN_AUC
+                          ) -> dict:
+    """Per-regime-stratum OOF AUC/Brier sliced from predictions ALREADY
+    produced by train_test_gap(..., return_oof=True) — no retraining, the
+    exact same fitted folds/predictions OF-1 reports pooled numbers for,
+    just grouped by stratum. `one_hot_oof` is the (len(oof_idx), 5) regime
+    one-hot block for those same rows — feature-column lookup stays with
+    the caller, so this function has no opinion on feature layout.
+
+    Below min_n, OR with fewer than 2 rows in either label class, a
+    stratum is NEVER scored (no auc/brier computed at all): reported as
+    insufficient evidence, not a noisy point estimate off a handful of
+    rows."""
+    y = np.asarray(y, float)
+    oof_idx = np.asarray(oof_idx, int)
+    oof_pred = np.asarray(oof_pred, float)
+    y_oof = y[oof_idx]
+    strata = regime_stratum_labels(one_hot_oof)
+    out = {}
+    for s in (*REGIME_STRATA, "unknown"):
+        mask = strata == s
+        n = int(mask.sum())
+        row: dict = {"n_oof": n, "scored": False, "auc": None,
+                    "brier": None, "degrade": None}
+        if n >= min_n and 0 < y_oof[mask].sum() < n:
+            auc = float(auc_score(y_oof[mask], oof_pred[mask]))
+            brier = float(brier_score(y_oof[mask], oof_pred[mask]))
+            row["scored"] = True
+            row["auc"] = auc
+            row["brier"] = brier
+            if pooled_auc is not None:
+                row["degrade"] = bool(pooled_auc - auc > degrade_margin)
+        out[s] = row
+    return out
