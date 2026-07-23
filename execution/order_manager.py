@@ -171,6 +171,11 @@ class OrderManager:
         self.pair_meta = pair_meta or {}
         self.latency_ms: float = 0.0
         self.venue_rejects: int = 0
+        # OM-013 telemetry: a formatted price/volume string that parses to
+        # ZERO was refused before the venue call (or dry-run registration).
+        # Same shape as venue_rejects/deadman_failures — a rising count means
+        # some pair's precision metadata is starving orders (see submit()).
+        self.zero_format_rejects: int = 0
         # execution-quality ledger (§3 telemetry): every fill increments a
         # maker/taker counter + notional, and books signed slippage as the
         # implementation shortfall vs the ARRIVAL mark (positive bps = adverse:
@@ -313,7 +318,7 @@ class OrderManager:
                    for o in self.open_orders())
 
     def _book_venue_segment(self, order: ManagedOrder, vol_exec: float,
-                            avg: float):
+                            avg: float, fee=None):
         """Book the venue's CUMULATIVE (vol_exec, avg price) into this order
         as one fill segment (the delta vs what's already booked). Kraken's
         `price` is the cumulative average across all fills of the order;
@@ -325,7 +330,19 @@ class OrderManager:
         fill (buy 1@100 then 1@110 booked as entry 102.50 instead of 105.00
         — audit MP-1/MP-3 2026-07-17), corrupting stops, tiers, realized
         PnL, and every label downstream. Returns the FillEvent, or None
-        when nothing new filled."""
+        when nothing new filled.
+
+        `fee` (W2-9): Kraken's QueryOrders `fee` is ALSO a cumulative,
+        USD/quote-denominated total across the order's fills — same shape
+        as `vol_exec`/`price`, so `order.fees_usd` (itself a cumulative
+        running total; main._handle_fill diffs it via order.meta["_fees_
+        seen"/"_fees_booked"]) is overwritten with it directly, exactly
+        like `order.filled = vol_exec` above. This is real fee-tier-aware
+        accounting, replacing the static config-bps estimate that ignores
+        Kraken's actual tier and mis-books a marketable limit's passively-
+        filled remainder at taker bps. Absent/non-finite/negative `fee`
+        (dry-run never passes one; a degraded venue response) falls back
+        to the previous bps-estimate behavior unchanged."""
         new_fill = vol_exec - order.filled
         if new_fill <= EPS:
             return None
@@ -337,9 +354,17 @@ class OrderManager:
             cand = (vol_exec * avg - prev_filled * prev_avg) / new_fill
             if math.isfinite(cand) and cand > 0:
                 seg_px = cand
-        order.fees_usd += new_fill * seg_px * \
-            (self.maker_fee_bps if order.post_only
-             else self.taker_fee_bps) / 1e4
+        # Kraken returns numbers as STRINGS (same hardening as vol_exec/avg
+        # above via safe_float): a garbage/non-finite fee must degrade to
+        # the bps estimate, never poison fees_usd or silently accept a
+        # negative figure (fees are never negative).
+        venue_fee = safe_float(fee, default=-1.0) if fee is not None else -1.0
+        if venue_fee >= 0.0:
+            order.fees_usd = venue_fee
+        else:
+            order.fees_usd += new_fill * seg_px * \
+                (self.maker_fee_bps if order.post_only
+                 else self.taker_fee_bps) / 1e4
         self._note_exec(order.post_only, new_fill * seg_px,
                         seg_px, order.arrival_ref or order.price,
                         order.side)
@@ -380,7 +405,8 @@ class OrderManager:
                                       default=order.filled, lo=0.0)
                 avg = safe_float(info.get("price"),
                                  default=order.avg_price, lo=0.0)
-                ev = self._book_venue_segment(order, vol_exec, avg)
+                ev = self._book_venue_segment(order, vol_exec, avg,
+                                              fee=info.get("fee"))
                 if ev is not None:
                     self._deferred_events.append(ev)
                 if order.remaining <= EPS:
@@ -432,6 +458,7 @@ class OrderManager:
                 "tracked": len(self._orders),
                 "latency_ms": round(self.latency_ms, 1),
                 "venue_rejects": self.venue_rejects,
+                "zero_format_rejects": self.zero_format_rejects,
                 "deadman_failures": self._deadman_failures,
                 # execution quality (§3): maker/taker split + rolling slippage
                 "maker_fills": self.maker_fills,
@@ -535,6 +562,35 @@ class OrderManager:
                 log.info(tag(Code.OM_BELOW_ORDERMIN,
                              f"{size:.8f} {pair} < venue min {omin} — "
                              f"skipped"))
+            return None
+
+        # ---- post-format executable-size guard (OM-013, W2-8) -----------
+        # _fmt_price/_fmt_volume FLOOR toward zero at the pair's venue
+        # precision. The ordermin gates above key on the RAW float and are
+        # skipped entirely when pair metadata omits ordermin (0.0 — a Kraken
+        # AssetPairs gap, or a brand-new pair) — a dust-but-nonzero size/
+        # price then reaches this point unrejected and formats to
+        # "0.00000000"/"0.00": a guaranteed live reject, or on the DRY-RUN
+        # path a phantom order the real venue could never accept. Checked
+        # identically on BOTH paths (paper trading must not exercise orders
+        # the venue could never place) and before either the AddOrder call
+        # or the dry-run registration below.
+        fmt_vol = self._fmt_volume(pair, size)
+        fmt_price = self._fmt_price(pair, price, side=side) \
+            if ordertype == "limit" else None
+        if safe_float(fmt_vol, default=0.0) <= 0.0 or (
+                fmt_price is not None
+                and safe_float(fmt_price, default=0.0) <= 0.0):
+            self.zero_format_rejects += 1
+            msg = tag(Code.OM_ZERO_AFTER_FORMAT,
+                      f"{pair} {side} {purpose} size={size!r}->{fmt_vol!r} "
+                      f"price={price!r}->{fmt_price!r} formats to zero at "
+                      f"venue precision (ordermin={omin}) — refused rather "
+                      f"than submit a guaranteed reject/phantom fill")
+            log.error(msg)
+            get_audit().log("order_manager", Code.OM_ZERO_AFTER_FORMAT, msg,
+                            {"pair": pair, "side": side, "purpose": purpose,
+                             "size": size, "price": price, "ordermin": omin})
             return None
 
         order = ManagedOrder(
@@ -645,7 +701,8 @@ class OrderManager:
             avg = safe_float(info.get("price"), default=order.avg_price,
                              lo=0.0)
             status = info.get("status", "open")
-            ev = self._book_venue_segment(order, vol_exec, avg)
+            ev = self._book_venue_segment(order, vol_exec, avg,
+                                          fee=info.get("fee"))
             if ev is not None:
                 events.append(ev)
             if status == "closed" or order.remaining <= EPS:

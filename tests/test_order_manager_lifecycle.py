@@ -113,6 +113,54 @@ def test_force_dry_flips_both_flags_and_blocks_the_feed():
 
 
 # ---------------------------------------------------------------------------
+# 7b. W2-5: force_dry cancels still-resting LIVE venue orders BEFORE
+# flipping the flags, so nothing is left routing through the dry-run
+# simulator while genuinely resting on Kraken.
+# ---------------------------------------------------------------------------
+def test_force_dry_cancels_resting_live_orders_before_sealing():
+    r, calls = _live_runner()
+    o = r.bot.orders.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD",
+                            side="buy", price=100.0, size=1.0,
+                            purpose="entry")
+    assert o is not None and o in r.bot.orders.open_orders()
+    calls.clear()
+    mark = _audit_mark()
+    r.handle_command({"cmd": "force_dry"})
+    # both flags still flip (invariant #2)
+    assert r.bot.dry_run is True and r.bot.orders.dry_run is True
+    # the resting order was cancelled through the LIVE path (venue
+    # CancelOrder issued) rather than left to route through _poll_dry
+    assert ("CancelOrder", {"txid": "X1"}) in calls
+    assert o.status == "cancelled"
+    assert o not in r.bot.orders.open_orders()
+    assert Code.OM_CLEAN_TERMINAL.value in _audit_new_codes(mark)
+
+
+def test_force_dry_ack_reports_cancelled_count(caplog):
+    r, _ = _live_runner()
+    r.bot.orders.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD",
+                        side="buy", price=100.0, size=1.0, purpose="entry")
+    r.bot.orders.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD",
+                        side="sell", price=100.0, size=1.0, purpose="exit",
+                        position_id="p1")
+    with caplog.at_level("WARNING"):
+        r.handle_command({"cmd": "force_dry"})
+    assert all(o.status == "cancelled" for o in r.bot.orders._orders.values())
+    ack = [rec.message for rec in caplog.records if "control: force_dry" in
+          rec.message]
+    assert ack and "2 resting live order(s) cancelled" in ack[0]
+
+
+def test_force_dry_with_no_open_orders_still_seals_cleanly():
+    """Regression: the common case (nothing resting) must behave exactly
+    as before - both flags flip, no crash iterating an empty order set."""
+    r, calls = _live_runner()
+    r.handle_command({"cmd": "force_dry"})
+    assert r.bot.dry_run is True and r.bot.orders.dry_run is True
+    assert calls == []
+
+
+# ---------------------------------------------------------------------------
 # 8. OM-030 illegal transition
 # ---------------------------------------------------------------------------
 def test_terminal_order_refuses_backward_transition():
@@ -215,3 +263,80 @@ def test_om010_fail_closed_inputs_never_raise_or_register():
         o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", **kw)
         assert o is None, kw
     assert om._orders == {}
+
+
+# ---------------------------------------------------------------------------
+# 13. OM-013 post-format zero guard (W2-8): pair precision can floor a
+# dust-but-nonzero size/price to a venue string that parses to ZERO. The
+# ordermin gate is keyed on the RAW float and is skipped entirely when a
+# pair's ordermin metadata is 0.0 (Kraken AssetPairs omission / new pair) -
+# this must be caught separately, on BOTH the live and dry-run paths, for
+# both price and volume, for both entry and exit purposes.
+# ---------------------------------------------------------------------------
+_ZERO_FMT_META = {"XXXUSD": {"price_decimals": 2, "lot_decimals": 2,
+                             "ordermin": 0.0}}
+
+
+def test_zero_format_volume_refused_live_exit_never_reaches_addorder():
+    feed, calls = _feed(add_order_result={"txid": ["T1"]})
+    om = OrderManager(feed=feed, config={}, dry_run=False,
+                      pair_meta=_ZERO_FMT_META)
+    mark = _audit_mark()
+    o = om.submit(asset="XXX", symbol="XXX/USD", pair="XXXUSD", side="sell",
+                 price=100.0, size=0.001, purpose="exit", position_id="p1")
+    assert o is None
+    assert not any(ep == "AddOrder" for ep, _ in calls), \
+        "a zero-formatted volume must never reach the venue call"
+    assert om._orders == {}
+    assert om.zero_format_rejects == 1
+    assert Code.OM_ZERO_AFTER_FORMAT.value in _audit_new_codes(mark)
+
+
+def test_zero_format_price_refused_live_entry():
+    feed, calls = _feed(add_order_result={"txid": ["T1"]})
+    om = OrderManager(feed=feed, config={}, dry_run=False,
+                      pair_meta=_ZERO_FMT_META)
+    # size formats fine (1.0 -> "1.00") but price floors to "0.00"
+    o = om.submit(asset="XXX", symbol="XXX/USD", pair="XXXUSD", side="buy",
+                 price=0.001, size=1.0, purpose="entry")
+    assert o is None
+    assert not any(ep == "AddOrder" for ep, _ in calls)
+    assert om.zero_format_rejects == 1
+
+
+def test_zero_format_volume_refused_dry_run_too():
+    """Paper trading must not exercise an order the real venue could never
+    accept: the guard applies identically before dry-run registration."""
+    om = OrderManager(feed=None, config={}, dry_run=True,
+                      pair_meta=_ZERO_FMT_META)
+    o = om.submit(asset="XXX", symbol="XXX/USD", pair="XXXUSD", side="sell",
+                 price=100.0, size=0.001, purpose="exit", position_id="p1")
+    assert o is None
+    assert om._orders == {}
+    assert om.zero_format_rejects == 1
+
+
+def test_zero_format_guard_does_not_disturb_normal_orders():
+    """Regression: a non-dust order at the same pair still submits fine."""
+    feed, calls = _feed(add_order_result={"txid": ["T1"]})
+    om = OrderManager(feed=feed, config={}, dry_run=False,
+                      pair_meta=_ZERO_FMT_META)
+    o = om.submit(asset="XXX", symbol="XXX/USD", pair="XXXUSD", side="buy",
+                 price=100.0, size=1.0, purpose="entry")
+    assert o is not None and o.txid == "T1"
+    assert calls and calls[0][0] == "AddOrder"
+    assert calls[0][1]["volume"] == "1.00" and calls[0][1]["price"] == "100.00"
+    assert om.zero_format_rejects == 0
+
+
+def test_zero_format_market_exit_ignores_price_field():
+    """A market-order exit sends no price field to the venue; only the
+    formatted VOLUME can trip the guard for ordertype=market."""
+    feed, calls = _feed(add_order_result={"txid": ["T1"]})
+    om = OrderManager(feed=feed, config={}, dry_run=False,
+                      pair_meta=_ZERO_FMT_META)
+    o = om.submit(asset="XXX", symbol="XXX/USD", pair="XXXUSD", side="sell",
+                 price=0.0, size=1.0, purpose="exit", position_id="p1",
+                 ordertype="market", ref_price=100.0)
+    assert o is not None, "market exit volume formats fine; must not be blocked"
+    assert "price" not in calls[0][1]

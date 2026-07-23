@@ -204,6 +204,69 @@ def test_missing_arrival_ref_falls_back_to_limit():
     assert om.status()["avg_slip_bps"] == pytest.approx(-5.0)   # vs limit 2000
 
 
+def test_live_fee_prefers_venue_reported_over_bps_estimate():
+    """W2-9: Kraken's QueryOrders `fee` is real fee-tier-aware accounting;
+    it must win over the static config-bps estimate when present."""
+    om = _om()
+    o = _order(post_only=False)                      # taker estimate: 40bps
+    o.txid = "T1"
+    om._orders[o.order_id] = o
+    om._poll_live(o, now=o.created_ts + 1.0,
+                  batch={"T1": {"vol_exec": "1.0", "price": "2000",
+                                "status": "closed", "fee": "3.50"}})
+    # bps estimate would be 1.0*2000*40/1e4 = 8.00 - the venue's real 3.50
+    # (a better fee tier) must be booked instead
+    assert o.fees_usd == pytest.approx(3.50)
+
+
+def test_live_fee_falls_back_to_bps_when_absent():
+    """No `fee` field (or a degraded venue response) -> unchanged bps
+    estimate behavior (backward compatible)."""
+    om = _om()
+    o = _order(post_only=False)
+    o.txid = "T1"
+    om._orders[o.order_id] = o
+    om._poll_live(o, now=o.created_ts + 1.0,
+                  batch={"T1": {"vol_exec": "1.0", "price": "2000",
+                                "status": "closed"}})
+    assert o.fees_usd == pytest.approx(1.0 * 2000.0 * 40.0 / 1e4)
+
+
+def test_live_fee_ignores_garbage_and_negative_values():
+    """A non-finite/negative/garbage `fee` must not poison the booked fee -
+    degrade to the bps estimate, exactly like a garbage vol_exec/price."""
+    om = _om()
+    for bad_fee in ("nan", "-1.0", "not-a-number", None):
+        o = _order(post_only=False)
+        o.txid = "T1"
+        om._orders = {o.order_id: o}
+        om._poll_live(o, now=o.created_ts + 1.0,
+                      batch={"T1": {"vol_exec": "1.0", "price": "2000",
+                                    "status": "closed", "fee": bad_fee}})
+        assert o.fees_usd == pytest.approx(1.0 * 2000.0 * 40.0 / 1e4), bad_fee
+
+
+def test_cancel_time_reconciliation_also_books_venue_fee():
+    """The cancel-path final QueryOrders reconciliation must apply the same
+    venue-fee preference as the regular poll path."""
+    om = OrderManager(feed=None, config={"maker_fee_bps": 25.0,
+                                         "taker_fee_bps": 40.0}, dry_run=False)
+    calls = []
+
+    def fake_private(endpoint, data=None):
+        calls.append(endpoint)
+        if endpoint == "QueryOrders":
+            return {"T1": {"vol_exec": "0.5", "price": "101.0",
+                           "status": "canceled", "fee": "0.42"}}
+        return {}
+    om._timed_private = fake_private
+    o = _order(side="sell", price=100.0, post_only=False)
+    o.txid = "T1"
+    om._orders[o.order_id] = o
+    assert om.cancel_order(o, reason="preempted") is True
+    assert o.fees_usd == pytest.approx(0.42)
+
+
 def test_live_multi_segment_slippage_uses_segment_price():
     """Kraken reports the CUMULATIVE average; the ledger must book each
     segment at its OWN recovered price, not the blend (review finding F1:

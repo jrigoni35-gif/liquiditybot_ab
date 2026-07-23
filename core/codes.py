@@ -73,6 +73,10 @@ class Code(str, Enum):
     OM_INVALID_INPUT = "OM-010"
     OM_MARKET_REFUSED = "OM-011"     # market order outside exit escalation
     OM_BELOW_ORDERMIN = "OM-012"
+    OM_ZERO_AFTER_FORMAT = "OM-013"  # price/volume rounds to a venue string
+                                     # that parses to zero (pair precision vs
+                                     # a dust-but-nonzero raw value) - refused
+                                     # before the venue call / dry-run registration
     OM_FIREWALL_REJECT = "OM-020"
     OM_VENUE_REJECT = "OM-021"
     OM_ILLEGAL_TRANSITION = "OM-030" # order state machine violation

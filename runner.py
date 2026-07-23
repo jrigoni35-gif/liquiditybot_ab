@@ -26,6 +26,7 @@ import os
 import logging
 import time
 from pathlib import Path
+from typing import Optional
 
 from core import code_stats
 from core.audit import get_audit
@@ -237,7 +238,7 @@ class BotRunner:
             pass
 
     # ------------------------------------------------------------------
-    def handle_command(self, c: dict):
+    def handle_command(self, c: dict, now: Optional[float] = None):
         cmd, args = c["cmd"], c.get("args", {})
         bot = self.bot
         note = ""
@@ -296,12 +297,36 @@ class BotRunner:
             if bot.dry_run:
                 note = "already dry-run"
             else:
+                # W2-5: cancel every still-resting LIVE venue order BEFORE
+                # flipping the flags. Flipping first left any resting order
+                # routed through _poll_dry from the NEXT poll onward, which
+                # SIMULATES a fill on an order genuinely resting on Kraken -
+                # in the 0..deadman_sec window before the venue dead-man
+                # cancels it, a real fill could land with no local record
+                # (and with deadman_timeout_sec=0 it rests unmanaged
+                # forever). cancel_order() is called while
+                # bot.orders.dry_run is STILL False so it takes the live
+                # path (venue CancelOrder + final-fill reconciliation query)
+                # rather than the dry-run no-op.
+                cancelled = 0
+                for o in list(bot.orders.open_orders()):
+                    try:
+                        if bot.orders.cancel_order(o, reason="force_dry"):
+                            cancelled += 1
+                            log.warning("force_dry: cancelled resting live "
+                                        "order %s %s %s (txid=%s)",
+                                        o.side, o.pair, o.purpose, o.txid)
+                    except Exception:
+                        log.exception("force_dry: cancel failed for order "
+                                      "%s (txid=%s) - flags still seal new "
+                                      "risk; venue dead-man is the backstop",
+                                      o.order_id, o.txid)
                 bot.live_armed = False
                 bot.dry_run = True
                 bot.orders.dry_run = True     # OrderManager caches the flag
-                note = ("FORCED DRY-RUN by operator - live order paths "
-                        "sealed (venue dead-man will cancel resting "
-                        "orders); live again = config + restart + ARM")
+                note = (f"FORCED DRY-RUN by operator - {cancelled} resting "
+                        f"live order(s) cancelled, live order paths sealed; "
+                        f"live again = config + restart + ARM")
         elif cmd == "flatten_all":
             # per-position isolation: an emergency flatten must not half-
             # complete silently because one position errors on exit submission
@@ -310,13 +335,24 @@ class BotRunner:
             submitted, failed = 0, 0
             for pos in list(bot.state.open_positions()):
                 try:
-                    bot._submit_exit(pos, 100.0, "operator flatten_all")
+                    # W2-6: pass the loop's INJECTED now, not a wall-clock
+                    # fallback - this is the one exit path that used to sit
+                    # outside the injected-now discipline every other exit
+                    # call site already follows (replay/determinism parity).
+                    bot._submit_exit(pos, 100.0, "operator flatten_all",
+                                     now=now)
                     submitted += 1
                 except Exception:
                     failed += 1
                     log.exception("[%s] flatten_all exit submission raised - "
                                   "flattening the rest", pos.symbol)
             note = f"flatten submitted for {submitted} position(s)"
+            if self.state == "PAUSED":
+                # W2-6: orders.poll/refresh_deadman still run every tick while
+                # paused (see _run_paused_order_maintenance) so these exits
+                # are not left resting unmanaged until the venue's dead-man
+                # cancels them with no local reconciliation.
+                note += "; exits will be managed while paused"
             if failed:
                 note += f"; {failed} FAILED to submit - see log, retry"
         elif cmd.startswith("sim_"):
@@ -670,6 +706,51 @@ class BotRunner:
         return self._cycle_fail_streak
 
     # ------------------------------------------------------------------
+    def _run_paused_order_maintenance(self, now: float) -> None:
+        """W2-6: while PAUSED, exit-purpose orders already in flight (an
+        operator flatten_all, or a resting exit from before the pause) must
+        still be MANAGED - invariant #5 is pause blocks NEW risk, it never
+        blocks an escape. Before this, handle_command ran every loop tick
+        even while paused, but orders.poll (fills/timeouts + the live
+        dead-man refresh, both inside OrderManager.poll for the non-dry
+        path) only ran inside cycle_once/fast_cycle - so a flatten order sat
+        resting unmanaged until the venue's blunt ~60s dead-man cancelled it
+        with NO local reconciliation (a fill landing in that window would be
+        silently lost).
+
+        Deliberately NOT the full fast_cycle: no marks/books refetch, no
+        stop/derisk/hedge evaluation runs here - only the order-maintenance
+        slice, so no new-risk path can execute while paused. Gated on at
+        least one EXIT-purpose order being open so a plain pause with an
+        empty book (the overwhelming common case) costs nothing extra.
+        Isolated like every other telemetry/maintenance slice in the loop:
+        never raises, never touches the wedge-failure streak."""
+        bot = self.bot
+        om = getattr(bot, "orders", None)
+        if om is None:
+            return
+        try:
+            open_orders = om.open_orders()
+        except Exception:
+            log.exception("paused order-maintenance: open_orders() raised")
+            return
+        if not any(o.purpose == "exit" for o in open_orders):
+            return
+        try:
+            sig = {a: bot.vol.state(a).sigma_bar_pct for a in bot.symbol_map}
+            fills = om.poll(bot.kraken_books, sig, now)
+        except Exception:
+            log.exception("paused order-maintenance: orders.poll raised - "
+                          "continuing (venue dead-man is the backstop)")
+            return
+        for event in fills:
+            try:
+                bot._handle_fill(event, now)
+            except Exception:
+                log.exception("paused order-maintenance: fill apply raised "
+                              "for one event - continuing with the rest")
+
+    # ------------------------------------------------------------------
     def run(self):
         bot = self.bot
         # single dense startup line - the operator sees mode, capital,
@@ -733,7 +814,7 @@ class BotRunner:
                     # failing `flatten_all`. Each command stands alone.
                     for c in self.control.consume():
                         try:
-                            self.handle_command(c)
+                            self.handle_command(c, now)
                         except Exception:
                             log.exception("control command %r failed - "
                                           "continuing with the rest",
@@ -762,6 +843,12 @@ class BotRunner:
                     else:
                         # paused: not failing, but not proof of recovery either
                         self._note_cycle_ok(recovered=False)
+                        # W2-6: exits already in flight (e.g. an operator
+                        # flatten_all issued while paused) must still be
+                        # MANAGED - invariant #5 is pause blocks NEW risk,
+                        # never escapes. NOT the full fast_cycle: no new-risk
+                        # path runs here, only fills/timeouts/dead-man.
+                        self._run_paused_order_maintenance(now)
                     # telemetry: isolated, never counts toward the wedge streak
                     try:
                         if now - bot._last_snapshot >= bot.snapshot_sec:
