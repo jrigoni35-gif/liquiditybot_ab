@@ -2006,11 +2006,18 @@ class LiquidityBot:
         if not self._exploration_active(now, asset):
             return False
         if self._probe_share_would_deny():
-            get_audit().log(
-                "exploration", Code.SZ_PROBE_THROTTLED,
+            # route through tag() (not a bare get_audit().log()) so SZ-047
+            # bumps core/code_stats.py's frequency tally like every other
+            # SZ-family admission code (SZ_CIRCUIT_BREAKER/SZ_MANIP_SUSPECT/
+            # SZ_DD_THROTTLE) - tag() returns the canonical "CODE: detail"
+            # string, reused verbatim as the audit message.
+            detail = tag(
+                Code.SZ_PROBE_THROTTLED,
                 f"probe throttled {asset}: rolling share cap "
                 f"({self._probe_max_share:.0%} of last "
-                f"{self._probe_share_window} admissions) would be exceeded",
+                f"{self._probe_share_window} admissions) would be exceeded")
+            get_audit().log(
+                "exploration", Code.SZ_PROBE_THROTTLED, detail,
                 {"asset": asset, "window": self._probe_share_window,
                  "max_share": self._probe_max_share})
             log.info("[%s] probe THROTTLED: rolling share cap (%.0f%% of "
@@ -2734,6 +2741,11 @@ class LiquidityBot:
         reserved_entries += placed             # each rung holds a slot
         self.sizer.note_entry(asset, now)
         self._mark_cand(asset, signal.direction, "entered")
+        # one call regardless of `placed` rung count: one DECISION (this
+        # signal, admitted as probe or conviction) = one admission for the
+        # P3 share cap - counting per-rung would dilute the probe share
+        # denominator against multi-rung ladders for no throttle-relevant
+        # reason (the admission decision was made once, upstream).
         self._record_probe_admission(explored)
         self._last_entry_admit_ts = now
         step_bps = lplan.rungs[-1].offset_bps / \

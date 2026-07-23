@@ -158,9 +158,15 @@ def _restore_markout_section(bot, data: dict) -> None:
 
 def _restore_probe_admissions_section(bot, data: dict) -> None:
     """P3 probe throttle rolling share-cap window (main.py
-    _probe_admissions): same isolation rationale as
-    _restore_fault_section above - keeps restore()'s own branch count
-    from growing toward pyproject.toml's frozen C901 ceiling."""
+    _probe_admissions): isolated so a malformed section can't skip
+    anything else in restore() - same ISOLATION principle as
+    _restore_fault_section/_restore_markout_section above, keeping
+    restore()'s own branch count from growing toward pyproject.toml's
+    frozen C901 ceiling. The except tuple itself matches the narrower
+    "continuity anchors" restore block above (exit_attempts/scs/
+    drought_elapsed_s: TypeError/ValueError/AttributeError on a
+    malformed dict/list), not _restore_fault_section/
+    _restore_markout_section's bare except Exception."""
     try:
         if hasattr(bot, "_probe_admissions"):
             pa = data.get("probe_admissions")

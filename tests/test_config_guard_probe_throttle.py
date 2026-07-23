@@ -20,10 +20,12 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 
 def _cfg(max_probe_share=0.35, probe_share_window=40,
-        corpus_target_live=300, floor_frac=0.25, deploy_min_oof=30):
+        corpus_target_live=300, floor_frac=0.25, deploy_min_oof=30,
+        until_live_rows=1200):
     return {"system": {"dry_run": True},
            "ml": {"exploration": {"max_probe_share": max_probe_share,
                                   "probe_share_window": probe_share_window,
+                                  "until_live_rows": until_live_rows,
                                   "corpus_decay": {
                                       "corpus_target_live": corpus_target_live,
                                       "floor_frac": floor_frac}},
@@ -117,6 +119,35 @@ def test_no_coherence_warn_when_corpus_target_at_or_above_deploy_min_oof():
     assert not any("corpus_target_live" in m for m in _warns(cfg2))
 
 
+# --- until_live_rows vs the decay's trickle floor (P3 review fix) ---------
+# The corpus decay only reaches its floor_frac floor at
+# live >= corpus_target_live / floor_frac. If until_live_rows hard-offs
+# exploration before that point, the promised trickle-down-to-floor never
+# happens - decay ranges only [1.0, corpus_target_live/until_live_rows]
+# instead of [1.0, floor_frac].
+def test_warn_when_until_live_rows_hard_offs_before_the_floor_binds():
+    # threshold = 300 / 0.25 = 1200; 500 stops exploration long before that
+    cfg = _cfg(until_live_rows=500, corpus_target_live=300, floor_frac=0.25)
+    assert any("until_live_rows" in m for m in _warns(cfg))
+
+
+def test_no_warn_when_until_live_rows_exactly_reaches_the_floor():
+    # 1200 == 300 / 0.25 - the hard-off begins exactly where the decay's
+    # trickle floor ends: reachable, not premature.
+    cfg = _cfg(until_live_rows=1200, corpus_target_live=300, floor_frac=0.25)
+    assert not any("until_live_rows" in m for m in _warns(cfg))
+
+
+def test_no_warn_when_until_live_rows_exceeds_the_floor_threshold():
+    cfg = _cfg(until_live_rows=1500, corpus_target_live=300, floor_frac=0.25)
+    assert not any("until_live_rows" in m for m in _warns(cfg))
+
+
+def test_warn_boundary_one_below_the_threshold():
+    cfg = _cfg(until_live_rows=1199, corpus_target_live=300, floor_frac=0.25)
+    assert any("until_live_rows" in m for m in _warns(cfg))
+
+
 # --- shipped config ---------------------------------------------------------
 def test_shipped_config_matches_documented_defaults():
     shipped = json.loads((_ROOT / "config.json").read_text(encoding="utf-8"))
@@ -125,8 +156,12 @@ def test_shipped_config_matches_documented_defaults():
     assert ex["probe_share_window"] == 40
     assert ex["corpus_decay"]["corpus_target_live"] == 300
     assert ex["corpus_decay"]["floor_frac"] == 0.25
+    # = corpus_target_live / floor_frac (300 / 0.25 = 1200) - the hard-off
+    # begins exactly where the decay's trickle floor ends (P3 review fix).
+    assert ex["until_live_rows"] == 1200
     fatals = [m for sev, m in validate(shipped) if sev == "FATAL"]
     assert not any("probe" in m or "corpus_decay" in m for m in fatals)
     # 300 >= deploy_min_oof (30) - shipped defaults must NOT trip the WARN
     warns = [m for sev, m in validate(shipped) if sev == "WARN"]
     assert not any("corpus_target_live" in m for m in warns)
+    assert not any("until_live_rows" in m for m in warns)

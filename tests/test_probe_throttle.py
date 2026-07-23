@@ -95,6 +95,32 @@ def test_exploration_roll_undecayed_below_corpus_target():
 
 
 # ---------------------------------------------------------------------------
+# P3 review fix: until_live_rows=1200 (was 500) so the trickle floor is
+# actually reachable - the decay must trickle 1.0->0.25 over live 300->1200
+# instead of cliffing at 500 (where effective decay was only 300/500=0.6,
+# nowhere near the promised floor_frac=0.25).
+# ---------------------------------------------------------------------------
+def test_trickle_reachable_at_800_live_rows_still_active():
+    # 800 sits strictly between the OLD cliff (500, pre-fix hard-off) and
+    # the NEW one (1200) - pre-fix this asset would already be graduated
+    # (exploration permanently off); post-fix it is still active, decaying
+    # at base_epsilon x (300/800) = base x 0.375.
+    b = _stub_bot(live=800, epsilon=1.0, until=1200)
+    assert b.explore_until_rows == 1200
+    assert 800 < b.explore_until_rows          # still active, not hard-off
+    fires = sum(b._exploration_active(0.0) for _ in range(4000))
+    expected = 4000 * 0.375
+    assert abs(fires - expected) < 0.15 * expected, fires
+
+
+def test_hard_off_at_1250_live_rows_past_the_new_cutoff():
+    # 1250 > until_live_rows=1200: graduated, exploration off regardless of
+    # epsilon/decay - the hard-off check short-circuits before any roll.
+    b = _stub_bot(live=1250, epsilon=1.0, until=1200)
+    assert all(not b._exploration_active(0.0) for _ in range(50))
+
+
+# ---------------------------------------------------------------------------
 # (a) rolling share cap
 # ---------------------------------------------------------------------------
 def _throttle_bot(window=10, max_share=0.3, admissions=()):
@@ -191,6 +217,17 @@ def test_denial_emits_the_registered_code():
     new_lines = after[len(before):].strip().splitlines()
     records = [json.loads(line) for line in new_lines if line.strip()]
     assert any(r["code"] == Code.SZ_PROBE_THROTTLED.value for r in records)
+
+
+def test_denial_bumps_code_stats():
+    # SZ-047's siblings (SZ_CIRCUIT_BREAKER/SZ_MANIP_SUSPECT/SZ_DD_THROTTLE)
+    # all reach core.code_stats via tag() - the denial branch must too, not
+    # just get_audit().log() directly (which never touches the tally).
+    from core import code_stats
+    code_stats.reset()
+    b = _decision_bot(True, admissions=[True, True, True] + [False] * 7)
+    assert b._probe_admission_decision(0.0, "ETH") is False
+    assert code_stats.snapshot().get(Code.SZ_PROBE_THROTTLED.value, 0) == 1
 
 
 # ---------------------------------------------------------------------------

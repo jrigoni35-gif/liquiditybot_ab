@@ -535,6 +535,22 @@ def validate(config: dict) -> list:
              f"below ml.monitor.deploy_min_oof ({dmo}) - the probe throttle "
              f"would already be decaying admission below the model's own "
              f"OOF deploy floor; confirm this is intended")
+    # the corpus decay only reaches its floor_frac floor once
+    # live_labels >= corpus_target_live / floor_frac; until_live_rows hard-
+    # offs exploration entirely at that row count, so if it fires BEFORE
+    # the floor threshold, the decay's promised trickle-to-floor never
+    # happens (decay only ever ranges [1.0, corpus_target_live /
+    # until_live_rows), stopping short of floor_frac) - WARN, not FATAL:
+    # ml.exploration.enabled=false makes this unreachable dead config.
+    ulr = int(_f(config, "ml.exploration.until_live_rows", 1200))
+    floor_reach_rows = ctl / cff if cff > 0 else float("inf")
+    if ulr < floor_reach_rows:
+        warn(f"ml.exploration.until_live_rows ({ulr}) hard-offs exploration "
+             f"before the corpus decay can reach its floor_frac floor "
+             f"(binds at corpus_target_live/floor_frac = {ctl}/{cff} = "
+             f"{floor_reach_rows:.0f} live rows) - the decay's trickle "
+             f"floor is unreachable; raise until_live_rows to at least "
+             f"{floor_reach_rows:.0f} or the promised trickle never exists")
 
     # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
     # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
