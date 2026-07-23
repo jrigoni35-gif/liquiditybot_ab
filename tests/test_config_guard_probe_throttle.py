@@ -10,6 +10,13 @@ starves exploration; 1 disables the decay.
 Coherence WARN: corpus_decay.corpus_target_live below ml.monitor.
 deploy_min_oof means the throttle would already be decaying admission
 below the model's own OOF deploy floor.
+
+Task 4 (#103) regime-coverage hold: corpus_decay.regime_floor_live in
+[0, corpus_target_live] FATAL - 0 disables the term (byte-identical P3);
+above corpus_target_live the per-regime floor could never be crossed.
+Coherence WARN: regime_floor_live x 5 regime classes > until_live_rows x
+floor_frac means the regime floor would still dominate the decay it
+modifies even once every regime is equally represented at graduation.
 """
 import json
 from pathlib import Path
@@ -21,14 +28,15 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 def _cfg(max_probe_share=0.35, probe_share_window=40,
         corpus_target_live=300, floor_frac=0.25, deploy_min_oof=30,
-        until_live_rows=1200):
+        until_live_rows=1200, regime_floor_live=60):
     return {"system": {"dry_run": True},
            "ml": {"exploration": {"max_probe_share": max_probe_share,
                                   "probe_share_window": probe_share_window,
                                   "until_live_rows": until_live_rows,
                                   "corpus_decay": {
                                       "corpus_target_live": corpus_target_live,
-                                      "floor_frac": floor_frac}},
+                                      "floor_frac": floor_frac,
+                                      "regime_floor_live": regime_floor_live}},
                  "monitor": {"deploy_min_oof": deploy_min_oof}}}
 
 
@@ -148,6 +156,52 @@ def test_warn_boundary_one_below_the_threshold():
     assert any("until_live_rows" in m for m in _warns(cfg))
 
 
+# --- corpus_decay.regime_floor_live (Task 4, #103) --------------------------
+def test_regime_floor_live_negative_is_fatal():
+    cfg = _cfg(regime_floor_live=-1)
+    assert any("regime_floor_live" in m for m in _fatals(cfg))
+
+
+def test_regime_floor_live_above_corpus_target_live_is_fatal():
+    cfg = _cfg(corpus_target_live=300, regime_floor_live=301)
+    assert any("regime_floor_live" in m for m in _fatals(cfg))
+
+
+def test_regime_floor_live_zero_boundary_not_fatal():
+    # 0 disables the term (byte-identical P3 behavior) - a valid boundary
+    cfg = _cfg(regime_floor_live=0)
+    assert not any("regime_floor_live" in m for m in _fatals(cfg))
+
+
+def test_regime_floor_live_equal_to_corpus_target_live_not_fatal():
+    cfg = _cfg(corpus_target_live=300, regime_floor_live=300)
+    assert not any("regime_floor_live" in m for m in _fatals(cfg))
+
+
+def test_regime_floor_live_shipped_default_not_fatal():
+    cfg = _cfg(corpus_target_live=300, regime_floor_live=60)
+    assert not any("regime_floor_live" in m for m in _fatals(cfg))
+
+
+# --- regime_floor_live x 5 vs until_live_rows x floor_frac coherence WARN ---
+def test_warn_when_regime_floor_dominates_the_decay_it_modifies():
+    # regime_floor_live x 5 = 500 > until_live_rows x floor_frac = 300 -
+    # the regime floor would still dominate even at full regime coverage.
+    cfg = _cfg(regime_floor_live=100, until_live_rows=1200, floor_frac=0.25)
+    assert any("regime_floor_live" in m for m in _warns(cfg))
+
+
+def test_no_warn_when_regime_floor_coherence_holds_at_the_shipped_boundary():
+    # shipped: 60 x 5 = 300 == 1200 x 0.25 = 300 - boundary is coherent
+    cfg = _cfg(regime_floor_live=60, until_live_rows=1200, floor_frac=0.25)
+    assert not any("regime_floor_live" in m for m in _warns(cfg))
+
+
+def test_no_warn_when_regime_floor_well_below_the_coherence_bound():
+    cfg = _cfg(regime_floor_live=10, until_live_rows=1200, floor_frac=0.25)
+    assert not any("regime_floor_live" in m for m in _warns(cfg))
+
+
 # --- shipped config ---------------------------------------------------------
 def test_shipped_config_matches_documented_defaults():
     shipped = json.loads((_ROOT / "config.json").read_text(encoding="utf-8"))
@@ -159,6 +213,8 @@ def test_shipped_config_matches_documented_defaults():
     # = corpus_target_live / floor_frac (300 / 0.25 = 1200) - the hard-off
     # begins exactly where the decay's trickle floor ends (P3 review fix).
     assert ex["until_live_rows"] == 1200
+    # Task 4 (#103): corpus_target_live (300) / 5 regime classes = 60
+    assert ex["corpus_decay"]["regime_floor_live"] == 60
     fatals = [m for sev, m in validate(shipped) if sev == "FATAL"]
     assert not any("probe" in m or "corpus_decay" in m for m in fatals)
     # 300 >= deploy_min_oof (30) - shipped defaults must NOT trip the WARN

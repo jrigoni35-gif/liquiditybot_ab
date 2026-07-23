@@ -26,10 +26,47 @@ from pathlib import Path
 import numpy as np
 
 from core.codes import Code
-from ml.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
+from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
+                         REGIME_LABELS, REGIME_ONE_HOT_FEATURES)
 from ml.labeling import simulate_exit_policy, triple_barrier
 
 log = logging.getLogger("liquiditybot.ml.history")
+
+# regime label -> its one-hot column's index in FEATURE_NAMES (Task 4,
+# #103 regime-coverage hold). Built once from the shared mapping so a
+# future FEATURE_NAMES reorder can't silently desync the decode from the
+# encode (ml.features.build_features sets exactly one of these to 1.0).
+_REGIME_FEATURE_IDX = {lbl: FEATURE_NAMES.index(feat) for lbl, feat in
+                       zip(REGIME_LABELS, REGIME_ONE_HOT_FEATURES,
+                          strict=True)}
+
+
+def _regime_of_feats(feats) -> "str | None":
+    """Which of the 5 macro-regime one-hots a feature row marks, or None
+    for an all-zero/ambiguous row (schema-migration padding, or a legacy
+    row written before the regime one-hot existed). >0.5 threshold: the
+    one-hot is exactly 0.0/1.0 by construction, never fractional."""
+    best_lbl, best_v = None, 0.5
+    for lbl, idx in _REGIME_FEATURE_IDX.items():
+        v = float(feats[idx]) if idx < len(feats) else 0.0
+        if v > best_v:
+            best_lbl, best_v = lbl, v
+    return best_lbl
+
+
+def _regime_of_csv_row(row: dict) -> "str | None":
+    """Same decode as _regime_of_feats, from a csv.DictReader row (string
+    cells) - used by the load-time full-scan that seeds the per-regime
+    live counter from rows a PRIOR process already wrote."""
+    best_lbl, best_v = None, 0.5
+    for lbl, feat in zip(REGIME_LABELS, REGIME_ONE_HOT_FEATURES, strict=True):
+        try:
+            v = float(row.get(feat) or 0.0)
+        except ValueError:
+            v = 0.0
+        if v > best_v:
+            best_lbl, best_v = lbl, v
+    return best_lbl
 
 
 class HistoryStore:
@@ -40,6 +77,17 @@ class HistoryStore:
         # stats of the most recent load_training_data pass (clean live count
         # for the evidence gate, uniqueness mean, prior-skew flag)
         self.last_load_stats: dict = {}
+        # Task 4 (#103) regime-coverage hold: per-regime LIVE label counts,
+        # O(1) at admission time via regime_live_count(). Load-time init
+        # (first call runs ONE full-CSV scan, mtime/size-cached exactly
+        # like source_counts below) + incremental maintenance at the same
+        # place live rows are appended (_append_row) - never a per-cycle
+        # re-scan. Pure derived cache, NEVER snapshotted: the CSV is the
+        # durable source of truth and a cold process rebuilds this lazily
+        # on first use, same as source_counts/asset_counts/row_count.
+        self._regime_live_counts: dict = {}
+        self._regime_counts_loaded = False
+        self._regime_counts_key = None
         # meta column named "side": FEATURE_NAMES also contains "direction",
         # and a duplicated CSV header made DictReader consumers silently read
         # whichever column came last.
@@ -146,6 +194,23 @@ class HistoryStore:
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
                                     barrier, probe, disp, candidate_id])
+        # Task 4 (#103): fold a LIVE row straight into the per-regime
+        # counter incrementally - never wait for the next admission's
+        # lazy re-scan. If the counter has never been loaded yet in this
+        # process, skip: the eventual first regime_live_count() call runs
+        # a full scan that already sees this row (it's on disk now), so
+        # seeding a partial dict here would only risk drifting from a
+        # scan that supersedes it anyway.
+        if source == "live" and self._regime_counts_loaded:
+            lbl = _regime_of_feats(fa)
+            if lbl is not None:
+                self._regime_live_counts[lbl] = \
+                    self._regime_live_counts.get(lbl, 0) + 1
+                try:
+                    st = self.path.stat()
+                    self._regime_counts_key = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    pass
 
     def log_close(self, position_id: str, net_pnl_usd: float):
         entry = self._pending.pop(position_id, None)
@@ -226,6 +291,49 @@ class HistoryStore:
                 if len(parts) >= 2 and parts[1]:
                     counts[parts[1]] = counts.get(parts[1], 0) + 1
         return counts
+
+    def _load_regime_counts(self) -> None:
+        """Load-time init pass for regime_live_count: one full CSV scan,
+        gated on (mtime, size) exactly like source_counts - only re-scans
+        when the file changed UNDER this process (e.g. an external
+        migrate_history.py run), never per admission call. Live rows this
+        process itself appends afterward are folded in incrementally by
+        _append_row instead of re-triggering a scan."""
+        try:
+            st = self.path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._regime_live_counts = {}
+            self._regime_counts_loaded = True
+            self._regime_counts_key = None
+            return
+        if self._regime_counts_loaded and self._regime_counts_key == key:
+            return
+        counts: dict = {}
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    if row.get("source") != "live":
+                        continue
+                    lbl = _regime_of_csv_row(row)
+                    if lbl is not None:
+                        counts[lbl] = counts.get(lbl, 0) + 1
+        except (OSError, csv.Error):
+            return
+        self._regime_live_counts = counts
+        self._regime_counts_loaded = True
+        self._regime_counts_key = key
+
+    def regime_live_count(self, regime_label: str) -> int:
+        """O(1)-at-admission per-regime LIVE label count (Task 4, #103
+        regime-coverage hold): rows with source=='live' whose regime
+        one-hot marks `regime_label`. Always routes through
+        _load_regime_counts, which is a cheap stat()-and-return once
+        loaded (mirrors source_counts) - a full CSV re-scan only happens
+        on the very first call, or if the file changed under this process
+        (never a per-admission re-read)."""
+        self._load_regime_counts()
+        return self._regime_live_counts.get(regime_label, 0)
 
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4,

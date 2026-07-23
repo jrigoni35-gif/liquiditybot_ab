@@ -65,7 +65,8 @@ def test_decay_never_exceeds_one():
 # corpus decay folded into _exploration_active's epsilon roll
 # ---------------------------------------------------------------------------
 def _stub_bot(live, epsilon=1.0, corpus_target_live=300, floor_frac=0.25,
-             until=10_000):
+             until=10_000, regime_floor_live=0, regime_live_counts=None,
+             regime_scan_calls=None):
     b = LiquidityBot.__new__(LiquidityBot)
     b.dry_run = True
     b.explore_enabled = True
@@ -75,8 +76,20 @@ def _stub_bot(live, epsilon=1.0, corpus_target_live=300, floor_frac=0.25,
     b._explore_rng = __import__("random").Random(1)
     b._corpus_target_live = corpus_target_live
     b._corpus_floor_frac = floor_frac
+    # Task 4 (#103) regime-coverage hold knobs; default 0 (disabled) keeps
+    # every PRE-T4 test in this module byte-identical (regime_label is
+    # never passed by them either, so the branch is doubly inert).
+    b._regime_floor_live = regime_floor_live
+    _counts = dict(regime_live_counts or {})
+    _calls = regime_scan_calls if regime_scan_calls is not None else []
+
+    def _regime_live_count(label):
+        _calls.append(label)
+        return _counts.get(label, 0)
+
     hist = types.SimpleNamespace(row_count=lambda: live,
-                                 source_counts=lambda: {"live": live})
+                                 source_counts=lambda: {"live": live},
+                                 regime_live_count=_regime_live_count)
     b.history = hist
     return b
 
@@ -118,6 +131,130 @@ def test_hard_off_at_1250_live_rows_past_the_new_cutoff():
     # epsilon/decay - the hard-off check short-circuits before any roll.
     b = _stub_bot(live=1250, epsilon=1.0, until=1200)
     assert all(not b._exploration_active(0.0) for _ in range(50))
+
+
+# ---------------------------------------------------------------------------
+# Task 4 (#103): regime-coverage hold on the corpus decay
+#
+# 234 live-labeled rows measured, 227 in ONE regime (range), bear at 4:
+# the GLOBAL decay above pools every regime into one live-label count, so
+# a mature corpus (live=1200) says nothing about an under-covered regime.
+# While the CURRENT regime's own live count is below regime_floor_live,
+# the decay term is held at 1.0 (no decay, base epsilon) for that
+# regime's signals; at/above the floor the shipped decay applies
+# unchanged. max_probe_share (the rolling share cap) is untouched.
+# ---------------------------------------------------------------------------
+def test_regime_hold_at_1_0_when_current_regime_under_floor_even_at_1200_live():
+    # live=1200 -> the GLOBAL decay alone would be 0.25 (see
+    # test_exploration_roll_decays_with_a_mature_corpus); "bear" has only
+    # 4 live rows, well under the floor (60) - the hold overrides the
+    # global decay back to 1.0, so the roll fires on (effectively) every
+    # attempt, same as an undecayed epsilon=1.0.
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"bear": 4})
+    fires = sum(b._exploration_active(0.0, regime_label="bear")
+               for _ in range(500))
+    assert fires == 500, fires
+
+
+def test_shipped_decay_resumes_once_the_regime_crosses_the_floor():
+    # same live=1200 GLOBAL corpus, but "range" is now AT the floor (60) -
+    # the hold no longer applies, and the shipped GLOBAL decay (0.25 at
+    # live=1200) takes back over exactly as if regime_label were absent.
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"range": 60})
+    fires = sum(b._exploration_active(0.0, regime_label="range")
+               for _ in range(3000))
+    assert 600 < fires < 900, fires
+
+
+def test_regime_floor_live_zero_reproduces_p3_byte_identically():
+    # regime_floor_live=0 disables the term entirely - a seeded roll
+    # sequence WITH a regime_label supplied must consume the RNG
+    # identically to (and so match) the plain P3 call with none.
+    baseline = _stub_bot(live=1200, epsilon=1.0)
+    held_off = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=0,
+                         regime_live_counts={"bear": 0})
+    seq_baseline = [baseline._exploration_active(0.0) for _ in range(500)]
+    seq_held_off = [held_off._exploration_active(0.0, "ETH",
+                                                 regime_label="bear")
+                   for _ in range(500)]
+    assert seq_baseline == seq_held_off
+
+
+def test_unknown_regime_label_fails_safe_holds_decay():
+    # a label outside the five known REGIME_LABELS (upstream bug, or a
+    # future label not yet wired here) has NO per-regime evidence
+    # recorded for it either - fail SAFE: hold at 1.0, the SAME treatment
+    # as under-floor, never treated as "this regime has graduated".
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={})
+    fires = sum(b._exploration_active(0.0, regime_label="not_a_real_regime")
+               for _ in range(500))
+    assert fires == 500, fires
+
+
+def test_unknown_regime_label_never_queries_the_live_history_counter():
+    # an unmapped label short-circuits to the hold WITHOUT ever asking
+    # HistoryStore for a count that couldn't mean anything for it.
+    calls: list = []
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={}, regime_scan_calls=calls)
+    b._exploration_active(0.0, regime_label="not_a_real_regime")
+    assert calls == []
+
+
+def test_regime_label_none_skips_the_branch_entirely_backward_compat():
+    # every pre-T4 caller (asset given, regime_label omitted) behaves
+    # exactly as before - the branch is never even consulted.
+    calls: list = []
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"range": 5}, regime_scan_calls=calls)
+    b._exploration_active(0.0, "ETH")
+    assert calls == []
+
+
+def test_regime_counter_queried_at_most_once_per_admission_roll():
+    # O(1)-at-admission contract at the call-site boundary: regime_
+    # live_count is called exactly once per _exploration_active roll that
+    # reaches the regime check, never re-queried within the same call.
+    # HistoryStore's own internal scan-avoidance is covered separately in
+    # tests/test_history_regime_counts.py.
+    calls: list = []
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"range": 5}, regime_scan_calls=calls)
+    for _ in range(25):
+        b._exploration_active(0.0, regime_label="range")
+    assert calls == ["range"] * 25
+
+
+def test_decision_admits_regime_held_probe_when_cap_has_headroom():
+    # end-to-end wiring: _probe_admission_decision's regime_label param
+    # reaches _exploration_active's regime hold for real (not stubbed).
+    from collections import deque
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"bear": 0})
+    b._probe_share_window = 10
+    b._probe_max_share = 0.3
+    b._probe_admissions = deque([], maxlen=10)
+    assert b._probe_admission_decision(0.0, "ETH", regime_label="bear") \
+        is True
+
+
+def test_share_cap_still_binds_when_regime_hold_keeps_exploration_active():
+    # regime under floor keeps _exploration_active firing on effectively
+    # every roll (decay held at 1.0), but the INDEPENDENT rolling share
+    # cap still denies once saturated - max_probe_share is explicitly NOT
+    # touched by the regime-coverage hold (still bounds total probe flow
+    # regardless of regime).
+    from collections import deque
+    b = _stub_bot(live=1200, epsilon=1.0, regime_floor_live=60,
+                 regime_live_counts={"bear": 0})
+    b._probe_share_window = 10
+    b._probe_max_share = 0.3
+    b._probe_admissions = deque([True, True, True] + [False] * 7, maxlen=10)
+    assert b._probe_admission_decision(0.0, "ETH", regime_label="bear") \
+        is False
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +320,8 @@ def _decision_bot(explore_active, window=10, max_share=0.3, admissions=()):
     b._probe_share_window = window
     b._probe_max_share = max_share
     b._probe_admissions = deque(admissions, maxlen=window)
-    b._exploration_active = lambda now, asset=None: explore_active
+    b._exploration_active = \
+        lambda now, asset=None, regime_label=None: explore_active
     return b
 
 
@@ -235,13 +373,18 @@ def test_denial_bumps_code_stats():
 # ---------------------------------------------------------------------------
 def test_decision_method_takes_no_sizing_argument():
     """The throttle decision cannot mutate p_win/explore_scale by
-    construction - its signature carries only (now, asset). A conviction
-    entry's own p_win is decided entirely outside this call; this method
-    can only gate whether the OPTIONAL exploration bump is applied."""
+    construction - its signature carries only (now, asset[, regime_label]).
+    A conviction entry's own p_win is decided entirely outside this call;
+    this method can only gate whether the OPTIONAL exploration bump is
+    applied. regime_label (Task 4, #103) is a REGIME TAG, not a sizing
+    value - it cannot mutate p_win/explore_scale, it only selects which
+    regime's live-label evidence the corpus-decay hold reads; the
+    "no sizing argument" invariant this pin exists to protect is
+    unaffected by its addition."""
     import inspect
     sig = inspect.signature(LiquidityBot._probe_admission_decision)
     params = list(sig.parameters)
-    assert params == ["self", "now", "asset"]
+    assert params == ["self", "now", "asset", "regime_label"]
 
 
 def test_engine_wires_the_throttle_at_the_explore_decision_point():
@@ -249,8 +392,9 @@ def test_engine_wires_the_throttle_at_the_explore_decision_point():
     # the ONLY call site that can set explored=True is gated on the
     # combined decision (exploration-active AND not throttled) - the raw
     # _exploration_active() call no longer appears at the entry-loop site
-    assert "if can_enter and self._probe_admission_decision(now, asset):" \
-        in src
+    assert "if can_enter and self._probe_admission_decision(" in src
+    # the current macro regime is threaded into the throttle (Task 4, #103)
+    assert "regime_label=macro_state.label" in src
     # every entry path that actually places an order feeds the rolling
     # window (both conviction and probe admissions) - one call per path
     assert src.count("self._record_probe_admission(explored)") == 3
@@ -276,6 +420,8 @@ def test_shipped_config_carries_the_throttle_knobs():
     assert ex["probe_share_window"] == 40
     assert ex["corpus_decay"]["corpus_target_live"] == 300
     assert ex["corpus_decay"]["floor_frac"] == 0.25
+    # Task 4 (#103): corpus_target_live (300) / 5 regime classes = 60
+    assert ex["corpus_decay"]["regime_floor_live"] == 60
 
 
 def test_engine_parses_the_throttle_config():
@@ -285,8 +431,11 @@ def test_engine_parses_the_throttle_config():
     b._probe_max_share = min(max(float(_ex.get("max_probe_share", 0.35)),
                                  0.0), 1.0)
     b._probe_share_window = max(int(_ex.get("probe_share_window", 40)), 1)
+    _cd = _ex.get("corpus_decay", {})
+    b._regime_floor_live = int(_cd.get("regime_floor_live", 60))
     assert b._probe_max_share == 0.35
     assert b._probe_share_window == 40
+    assert b._regime_floor_live == 60
 
 
 # ---------------------------------------------------------------------------

@@ -83,7 +83,7 @@ from execution.hedging import HedgeEngine
 from execution.markout import MarkoutTracker
 from execution.tactics import ExecutionPlanner
 from execution.grid_ladder import GridLadderEngine
-from ml.features import FEATURE_NAMES, build_features
+from ml.features import FEATURE_NAMES, REGIME_LABELS, build_features
 from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
 from ml.labeling import ExitPolicy
@@ -243,6 +243,18 @@ def probe_corpus_decay_factor(live_labels: int, corpus_target_live: int,
     read via HistoryStore.source_counts() - never re-counted here."""
     raw = corpus_target_live / max(live_labels, 1)
     return min(max(raw, floor_frac), 1.0)
+
+
+def _regime_under_coverage_floor(regime_live: int,
+                                 regime_floor_live: int) -> bool:
+    """Task 4 (#103) regime-coverage hold, pure math: True when the
+    CURRENT regime's own live-labeled count is still below
+    regime_floor_live - the corpus-decay term above must be held at 1.0
+    (no decay) for that regime's signals rather than let a mature GLOBAL
+    corpus (dominated by other regimes) mask an under-covered one.
+    regime_floor_live<=0 disables the check (byte-identical P3: the term
+    never overrides the shipped decay)."""
+    return regime_floor_live > 0 and regime_live < regime_floor_live
 
 
 def nudge_stop_off_round_number(stop: float, direction: str,
@@ -703,6 +715,12 @@ class LiquidityBot:
         self._corpus_target_live = int(_cd.get("corpus_target_live", 300))
         self._corpus_floor_frac = min(max(
             float(_cd.get("floor_frac", 0.25)), 0.0), 1.0)
+        # Task 4 (#103) regime-coverage hold: while the CURRENT macro
+        # regime has fewer than this many live-labeled rows, the decay
+        # term above is held at 1.0 for that regime's signals (see
+        # _regime_under_coverage_floor / _exploration_active). 0 disables
+        # the term entirely (byte-identical P3 behavior).
+        self._regime_floor_live = int(_cd.get("regime_floor_live", 60))
         # rolling window of the last probe_share_window entry ADMISSIONS
         # (True=probe, False=conviction). RESTART STATE: persisted (see
         # core/persistence.py snapshot/restore "probe_admissions") rather
@@ -1930,7 +1948,8 @@ class LiquidityBot:
         return _sc.get("live", 0) if _sc else self.history.row_count()
 
     def _exploration_active(self, now: float,
-                            asset: Optional[str] = None) -> bool:
+                            asset: Optional[str] = None,
+                            regime_label: Optional[str] = None) -> bool:
         """True only when it is safe and useful to take a paper exploration
         trade. HARD INVARIANT: dry_run only - exploration must never influence
         a live order. Off once enough training rows have accrued (the model
@@ -1941,7 +1960,26 @@ class LiquidityBot:
         itself is corpus-decayed (P3, probe_corpus_decay_factor) - a mature
         corpus (live_labels past corpus_target_live) admits probes at a
         scaled-down rate, floored at floor_frac so the learner keeps a
-        trickle rather than starving entirely."""
+        trickle rather than starving entirely.
+
+        `regime_label` (Task 4, #103 regime-coverage hold): the shipped P3
+        decay above pools every regime into ONE live-label count, but a
+        diagnostic found 227/234 live-labeled rows in a SINGLE regime
+        (range) with bear at 4 - a mature GLOBAL corpus says nothing about
+        an under-covered regime. When `regime_label` is supplied (the
+        admission site's macro_state.label - see _probe_admission_decision)
+        AND regime_floor_live > 0, the decay term is instead HELD AT 1.0
+        (no decay - base epsilon) whenever the CURRENT regime's own
+        live-labeled count is below regime_floor_live, or the label is not
+        one of the five known REGIME_LABELS (unmapped/unknown fails SAFE:
+        no per-regime evidence exists for it either, so the learner still
+        needs data - the SAME treatment as under-floor, never the
+        opposite). `regime_label` omitted (None, the default - every
+        pre-T4 caller) skips this branch entirely and reproduces the exact
+        P3 decay; regime_floor_live=0 disables the term even when a label
+        IS supplied (byte-identical P3 behavior either way). max_probe_share
+        (the rolling share cap, _probe_share_would_deny) is NOT touched by
+        this - it still bounds total probe flow regardless of regime."""
         if not self.dry_run:
             return False                        # never in live - hard-gated
         if not self.explore_enabled:
@@ -1951,10 +1989,18 @@ class LiquidityBot:
         _grad_rows = self._live_label_count()
         if _grad_rows >= self.explore_until_rows:
             return False                        # enough REAL data: trust the model
-        _eff_epsilon = self.explore_epsilon * probe_corpus_decay_factor(
+        _decay = probe_corpus_decay_factor(
             _grad_rows,
             getattr(self, "_corpus_target_live", 300),
             getattr(self, "_corpus_floor_frac", 0.25))
+        _rfl = getattr(self, "_regime_floor_live", 60)
+        if regime_label is not None and _rfl > 0:
+            if regime_label not in REGIME_LABELS:
+                _decay = 1.0                # unmapped label: fail safe, hold
+            elif _regime_under_coverage_floor(
+                    self.history.regime_live_count(regime_label), _rfl):
+                _decay = 1.0                # under floor: hold, no decay
+        _eff_epsilon = self.explore_epsilon * _decay
         if self._explore_rng.random() >= _eff_epsilon:
             return False
         if asset is not None and self.explore_max_asset_share < 1.0:
@@ -2006,7 +2052,8 @@ class LiquidityBot:
             self._probe_admissions = admissions
         admissions.append(bool(is_probe))
 
-    def _probe_admission_decision(self, now: float, asset: str) -> bool:
+    def _probe_admission_decision(self, now: float, asset: str,
+                                  regime_label: Optional[str] = None) -> bool:
         """Single throttle decision point for whether this cycle's signal
         is admitted as a PROBE (True) or falls through as an ordinary
         conviction attempt (False - conviction entries are NEVER
@@ -2017,8 +2064,16 @@ class LiquidityBot:
         base epsilon roll); the rolling share cap is enforced here, AFTER
         _exploration_active's own roll decided a probe is wanted, so a
         denial changes nothing about how a non-exploring signal is
-        evaluated - the caller just skips the bump block."""
-        if not self._exploration_active(now, asset):
+        evaluated - the caller just skips the bump block.
+
+        `regime_label` (Task 4, #103): forwarded verbatim to
+        _exploration_active so the corpus-decay term can be held at 1.0
+        for an under-covered regime (regime-coverage hold) - defaulted so
+        every existing caller is unaffected. A REGIME TAG, not a sizing
+        value: it cannot mutate p_win/explore_scale, only which regime's
+        live-label evidence gates the admission roll - the "no sizing
+        argument" invariant this method's signature carries is unchanged."""
+        if not self._exploration_active(now, asset, regime_label=regime_label):
             return False
         if self._probe_share_would_deny():
             # route through tag() (not a bare get_audit().log()) so SZ-047
@@ -2405,7 +2460,8 @@ class LiquidityBot:
             # routed to the algo slicer uses "algo-<parent>" instead - the
             # probe flag still reaches its position via _algo_meta.
             pid = str(uuid.uuid4())
-            if can_enter and self._probe_admission_decision(now, asset):
+            if can_enter and self._probe_admission_decision(
+                    now, asset, regime_label=macro_state.label):
                 explored = True
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale

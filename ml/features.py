@@ -286,6 +286,19 @@ def _flow_toxicity(closes: np.ndarray, vols: np.ndarray,
     return float(np.clip(tox, 0.0, 1.0))
 
 
+# Macro regime labels, in the SAME order the one-hot block below encodes
+# them (FEATURE_NAMES: regime_bull_quiet, regime_bull_vol, regime_range,
+# regime_bear, regime_crisis). Mirrors regime.macro_regime.REGIME_LABELS
+# (duplicated, not imported - ml/ carries no dependency on regime/, and a
+# drift here is immediately falsifiable: every one_hot column would read
+# all-zero for that label). Exported so ml/history.py's per-regime live
+# counter (Task 4, #103 regime-coverage hold) can decode a written row's
+# one-hot back to a label with the EXACT mapping used to encode it here.
+REGIME_LABELS = ("bull_quiet", "bull_volatile", "range", "bear", "crisis")
+REGIME_ONE_HOT_FEATURES = ("regime_bull_quiet", "regime_bull_vol",
+                           "regime_range", "regime_bear", "regime_crisis")
+
+
 def build_features(asset: str, direction: str, gate_confidence: float,
                 view: dict, fv_state, vol_state, liq_state,
                 macro_state, corr_state, sentiment, smc_feats: dict,
@@ -307,8 +320,7 @@ def build_features(asset: str, direction: str, gate_confidence: float,
     imb = float(np.clip(np.log(max(imb, 1e-3)), -2, 2))
 
     regime = macro_state.label
-    one_hot = [float(regime == r) for r in
-            ("bull_quiet", "bull_volatile", "range", "bear", "crisis")]
+    one_hot = [float(regime == r) for r in REGIME_LABELS]
 
     corr_fast, corr_shift = 0.0, 0.0
     if corr_state is not None and other_asset:

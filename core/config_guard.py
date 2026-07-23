@@ -581,6 +581,28 @@ def validate(config: dict) -> list:
              f"floor is unreachable; raise until_live_rows to at least "
              f"{floor_reach_rows:.0f} or the promised trickle never exists")
 
+    # Task 4 (#103) regime-coverage hold: the decay above pools ALL
+    # regimes into one live-label count, but probe value is regime-local
+    # (a diagnostic found 227/234 live-labeled rows in a SINGLE regime).
+    # regime_floor_live holds the decay term at 1.0 for whichever regime
+    # is CURRENTLY under this per-regime floor. Derivation: corpus_target_
+    # live (300) / 5 regime classes = 60 per-regime target.
+    rfl = int(_f(config, "ml.exploration.corpus_decay.regime_floor_live", 60))
+    if not (0 <= rfl <= ctl):
+        fatal(f"ml.exploration.corpus_decay.regime_floor_live ({rfl}) must "
+              f"be in [0, corpus_target_live={ctl}] - 0 disables the "
+              f"regime-coverage hold (byte-identical P3 decay); above "
+              f"corpus_target_live the per-regime floor could never be "
+              f"crossed even once the GLOBAL corpus is fully mature, "
+              f"permanently holding decay at 1.0")
+    if rfl * 5 > ulr * cff:
+        warn(f"ml.exploration.corpus_decay.regime_floor_live ({rfl}) x 5 "
+             f"regime classes ({rfl * 5}) exceeds until_live_rows ({ulr}) "
+             f"x floor_frac ({cff}) = {ulr * cff:.0f} - the regime floor "
+             f"would still dominate the decay it modifies even once every "
+             f"regime is EQUALLY represented at graduation; confirm this "
+             f"is intended")
+
     # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
     # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
     # bar noise (churn); above 6 sigma it can never arm on a real move.
