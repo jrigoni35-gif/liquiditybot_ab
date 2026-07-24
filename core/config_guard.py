@@ -92,6 +92,74 @@ def _conviction_checks(config: dict) -> list:
     return out
 
 
+def _context_checks(config: dict) -> list:
+    """Compounder Phase B context engine block coherence (spec §3,
+    task-B3 brief): FATAL = the context feed would be structurally
+    broken (a plaintext-http source url, an incoherent phase-bucket
+    ladder, a degenerate scale/clip that zeroes clip_z, a negative
+    event-window half-width). An absent block is clean —
+    data/context_engine.py's own defaults apply; this phase is
+    telemetry-only regardless of the block's presence."""
+    out: list = []
+    ctx = _f(config, "context")
+    if not isinstance(ctx, dict) or not ctx:
+        return out
+
+    poll_hours = float(ctx.get("poll_hours", 6.0))
+    if poll_hours < 1.0:
+        out.append(("FATAL", f"context.poll_hours ({poll_hours}) must be "
+                    ">= 1 - polling faster hammers free/keyless endpoints "
+                    "(FRED/CFTC/DefiLlama) with no rate-limit headroom"))
+
+    buckets = ctx.get("phase_bucket_days", {}) or {}
+    order = ("accumulation", "expansion", "euphoria", "contraction")
+    if not all(k in buckets for k in order):
+        out.append(("FATAL", f"context.phase_bucket_days must have all "
+                    f"four keys {order}"))
+    else:
+        prev_v = float("-inf")
+        for k in order:
+            v = float(buckets[k])
+            if v <= prev_v:
+                out.append(("FATAL", f"context.phase_bucket_days not "
+                            f"strictly increasing at '{k}' ({v} <= "
+                            f"{prev_v}) - phase_bucket would clamp/skip a "
+                            "bucket"))
+            prev_v = v
+
+    stress = ctx.get("stress", {}) or {}
+    for key, default in (("dff_scale", 0.5), ("t10y2y_scale", 0.5),
+                         ("vix_scale", 10.0), ("clip", 2.0)):
+        v = float(stress.get(key, default))
+        if v <= 0:
+            out.append(("FATAL", f"context.stress.{key} ({v}) must be > 0 "
+                        "- clip_z divides by scale/clips at this bound"))
+
+    flow = ctx.get("flow", {}) or {}
+    for key, default in (("cot_scale", 5000.0), ("stable_scale_pct", 2.0),
+                         ("clip", 2.0)):
+        v = float(flow.get(key, default))
+        if v <= 0:
+            out.append(("FATAL", f"context.flow.{key} ({v}) must be > 0 - "
+                        "clip_z divides by scale/clips at this bound"))
+
+    ew = ctx.get("event_window", {}) or {}
+    for key, default in (("fomc_pre_h", 24.0), ("fomc_post_h", 6.0),
+                         ("expiry_pre_h", 8.0), ("expiry_post_h", 2.0)):
+        v = float(ew.get(key, default))
+        if v < 0:
+            out.append(("FATAL", f"context.event_window.{key} ({v}) must "
+                        "be >= 0 - a negative half-width is nonsense"))
+
+    urls = ctx.get("urls", {}) or {}
+    for key, url in urls.items():
+        if not (isinstance(url, str) and url.lower().startswith("https://")):
+            out.append(("FATAL", f"context.urls.{key} ({url!r}) must be "
+                        "https:// - free/keyless endpoints only, never "
+                        "plaintext http"))
+    return out
+
+
 def validate(config: dict) -> list:
     """Pure check: returns [(severity, message), ...]. No side effects."""
     findings = []
@@ -1982,6 +2050,7 @@ def validate(config: dict) -> list:
             f"to make the bar honest, or keep it as an intentional soft floor.")
 
     findings.extend(_conviction_checks(config))
+    findings.extend(_context_checks(config))
     return findings
 
 

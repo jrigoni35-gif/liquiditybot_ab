@@ -30,12 +30,16 @@ signed from calendar or cycle inputs.
 
 import csv
 import io
+import json
 import logging
 import math
+import time
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
+from core.codes import Code, tag
 from core.sanitize import loads_bounded
 
 log = logging.getLogger("liquiditybot.data.context_engine")
@@ -356,3 +360,431 @@ def flow_dials(cot_net_now: Optional[float], cot_net_prev: Optional[float],
     else:
         stable_wk_pct = 100.0 * (stable_now - stable_prev) / stable_prev
     return cot_delta_z, stable_wk_pct
+
+
+# ---- ContextFeed (Task B3) --------------------------------------------------
+#
+# Telemetry-only stateful poller: mirrors `data/webdata_feed.py`'s shape
+# (injectable `fetch`, cadence early-return, per-source availability with
+# a 3x-grace window — see webdata_feed.py:132-133) generalized from
+# webdata's ONE combined availability flag to FIVE independent network
+# sources (dff, t10y2y, vix, cot, stablecoins) feeding two dial groups,
+# plus two purely-local components that need no grace at all: the
+# halving clock (pure date math, always known) and the shipped event
+# calendar (known iff the file parses THIS poll — a local file read
+# either succeeds or it doesn't; there is no "flaky endpoint" to smooth
+# over with a freshness window).
+#
+# Audit-vs-logging choice (see the class docstring below for the full
+# reasoning): no module under data/ imports core.audit's get_audit() —
+# verified against every data/*.py file, most directly webdata_feed.py,
+# which never audits. Transitions here are logged through the standard
+# `logging` module using the registered-code `tag()` formatter
+# (core.codes.tag — a pure "CODE: detail" formatter + code_stats bump,
+# no audit-chain dependency), never a new get_audit() call from the data
+# layer.
+
+try:
+    import requests
+except ImportError:                     # pragma: no cover
+    requests = None
+
+_UA = {"User-Agent": "liquiditybot/2.0 (research; contact: none)"}
+
+# Network sources whose freshness gets the 3x-grace treatment. "calendar"
+# and "halving" are LOCAL (no network, no grace — see module note above)
+# and are tracked separately.
+_NET_SOURCES: tuple[str, ...] = ("dff", "t10y2y", "vix", "cot", "stablecoins")
+
+_DEFAULT_HISTORY_PATH = "outputs/context_history.jsonl"
+
+
+def _default_fetch(url: str, timeout: float = 10.0) -> Optional[str]:
+    """Mirrors `data/webdata_feed.py`'s `_default_fetch` exactly: same
+    guard, same UA, same timeout, same "let it raise, the caller's
+    per-source try/except turns it into a dark reading" contract (NOT a
+    swallow-to-None here — the per-source try/except in `ContextFeed.
+    _poll_source` is what stops one source's failure from ever reaching
+    a caller, exactly like `WebDataFeed.maybe_poll`'s per-block
+    try/except around each sub-fetch)."""
+    if requests is None:
+        return None
+    resp = requests.get(url, headers=_UA, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+
+@dataclass
+class ContextState:
+    """One context poll's snapshot. Telemetry only this phase (spec §3):
+    nothing in this codebase's entry/exit/sizing/gate path reads a
+    ContextState yet. Every Optional field is None when its source (or
+    source GROUP) is unknown — a STATE, never a guess, and never a stale
+    value silently re-presented as fresh once its grace window lapses."""
+    halving_phase: str = ""
+    days_since: int = 0
+    days_to_next: int = 0
+    stress: Optional[float] = None
+    stress_known: bool = False
+    cot_z: Optional[float] = None
+    stable_wk_pct: Optional[float] = None
+    flow_known: bool = False
+    in_event_window: bool = False
+    next_event: str = ""
+    calendar_known: bool = False
+    ts: float = 0.0
+
+
+class ContextFeed:
+    """Compounder Phase B context engine (spec §3, evidence doc
+    2026-07-24 both passes): a slow-cadence (default 6h, floored at 1h)
+    poll producing a `ContextState`. TELEMETRY ONLY — no decision path in
+    this codebase reads it until a later phase wires the long book.
+
+    Audit note (read this before adding a get_audit() call here): NO
+    module under `data/` imports `core.audit.get_audit()` — checked
+    against `data/webdata_feed.py` and every other `data/*.py` module;
+    the audit trail is wired one layer up, from execution/ml/main.py/
+    core.fault. Rather than invent a new audit-layer dependency for the
+    data layer just for this one feed, source/state transitions are
+    logged through the standard `logging` module using the SAME
+    registered-code `tag()` formatter the rest of the codebase uses
+    (`core.codes.tag` — a pure "CODE: detail" formatter + code_stats
+    tally bump, no audit-chain dependency) and are additionally
+    surfaced structurally via `status()`. A later engine/runner wiring
+    task is free to route these through `get_audit()` from main.py if a
+    call site there wants them in the hash-chained trail too; this data-
+    layer module does not create that path itself.
+
+    Config-key translation note: B2's `stress_dial`/`flow_dials` read
+    `dff_delta_center`/`dff_delta_scale`/`cot_delta_scale` (see their
+    docstrings); the B3 config block (shipped verbatim, brief §context)
+    uses the shorter `dff_center`/`dff_scale`/`cot_scale` spelling. Both
+    default to the SAME numeric value today, so the mismatch is
+    invisible until an operator tunes one of those three knobs and
+    nothing happens. `__init__` translates the shipped names onto the
+    dial functions' actual parameter names so the configured value is
+    the one that actually reaches the math (see task-B3-report.md)."""
+
+    def __init__(self, config: dict,
+                fetch: Callable[[str], Optional[str]] | None = None,
+                history_path: str | Path | None = None,
+                calendar_path: str | Path | None = None):
+        cfg = config or {}
+        self.enabled = bool(cfg.get("enabled", True))
+        poll_hours = float(cfg.get("poll_hours", 6.0))
+        if poll_hours < 1.0:            # defense in depth; config_guard
+            poll_hours = 1.0            # FATALs a configured value below 1
+        self.poll_sec = poll_hours * 3600.0
+        self.fetch = fetch or _default_fetch
+
+        self._next_halving_iso = str(cfg.get("next_halving_date",
+                                             "2028-04-17"))
+        self._buckets = cfg.get("phase_bucket_days") or {
+            "accumulation": 180, "expansion": 540, "euphoria": 900,
+            "contraction": 1460}
+        self._event_cfg = cfg.get("event_window", {}) or {}
+        self._urls = cfg.get("urls", {}) or {}
+
+        stress_raw = cfg.get("stress", {}) or {}
+        self._stress_cfg = dict(stress_raw)
+        if "dff_center" in stress_raw:
+            self._stress_cfg.setdefault("dff_delta_center",
+                                        stress_raw["dff_center"])
+        if "dff_scale" in stress_raw:
+            self._stress_cfg.setdefault("dff_delta_scale",
+                                        stress_raw["dff_scale"])
+
+        flow_raw = cfg.get("flow", {}) or {}
+        self._flow_cfg = dict(flow_raw)
+        if "cot_scale" in flow_raw:
+            self._flow_cfg.setdefault("cot_delta_scale", flow_raw["cot_scale"])
+
+        self._calendar_path = Path(calendar_path) if calendar_path else (
+            Path(__file__).resolve().parent / "context_calendar.json")
+        self._history_path = Path(history_path or _DEFAULT_HISTORY_PATH)
+
+        self._last_poll = 0.0
+        self._last_success: dict[str, float] = {s: 0.0 for s in _NET_SOURCES}
+        self._known: dict[str, bool] = {s: False for s in _NET_SOURCES}
+        self._known["calendar"] = False
+        self._known["halving"] = True   # local, deterministic, never dark
+
+        self._prev_known: Optional[dict[str, bool]] = None
+        self._prev_phase: Optional[str] = None
+        self._prev_in_window: Optional[bool] = None
+        self._first_poll_done = False
+
+        self._prev_cot_net: Optional[float] = None
+        self._prev_stable_total: Optional[float] = None
+
+        self._state = ContextState()
+
+        self._warm_start()
+
+    # ---- warm start: seed flow-delta prev-values from the PIT file ------
+
+    def _warm_start(self) -> None:
+        """Read-only: seeds `_prev_cot_net`/`_prev_stable_total` from the
+        LAST line of the PIT file so a process restart does not blank
+        the weekly deltas back to a "first poll, no prior" state. Any
+        missing file, I/O error, or malformed last line leaves both at
+        None (behaves exactly like a genuine first poll) — never raises,
+        never writes."""
+        try:
+            if not self._history_path.exists():
+                return
+            text = self._history_path.read_text(encoding="utf-8")
+        except OSError as e:
+            log.warning(f"context PIT warm-start unreadable: {e}")
+            return
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return
+        parsed = loads_bounded(lines[-1])
+        if not isinstance(parsed, dict):
+            return
+        raw = parsed.get("raw")
+        if not isinstance(raw, dict):
+            return
+        cot_net = raw.get("cot_net")
+        stable_total = raw.get("stable_total")
+        if isinstance(cot_net, (int, float)) and math.isfinite(cot_net):
+            self._prev_cot_net = float(cot_net)
+        if isinstance(stable_total, (int, float)) and \
+                math.isfinite(stable_total):
+            self._prev_stable_total = float(stable_total)
+
+    # ---- per-source fetch + parse + 3x-grace availability ----------------
+
+    def _poll_source(self, name: str, url: Optional[str], parser,
+                     now: float) -> Optional[float]:
+        """Returns THIS poll's genuinely-fresh parsed value, or None — a
+        momentary miss inside the grace window is honestly reported as
+        "no fresh reading this cycle" (never a carried-forward stale
+        value dressed up as current; see the class docstring). The grace
+        window smooths only the `_known` ok/dark CLASSIFICATION (used for
+        status + CX-010/CX-020 transition alerting), exactly the shape
+        `webdata_feed.py:132-133` uses: `now - last_success < 3 *
+        poll_sec`, generalized to run once per source instead of once for
+        the whole feed."""
+        value = None
+        if url:
+            try:
+                value = parser(self.fetch(url))
+            except Exception as e:
+                log.warning(f"context source '{name}' fetch failed: {e}")
+                value = None
+        if value is not None:
+            self._last_success[name] = now
+            self._known[name] = True
+        else:
+            self._known[name] = (
+                now - self._last_success[name] < 3 * self.poll_sec)
+        return value
+
+    # ---- event window / next event ---------------------------------------
+
+    @staticmethod
+    def _nearest_cme_expiry(now_ts: float) -> float:
+        """Nearest CME BTC futures expiry to `now_ts` (this month's or
+        next month's last-Friday reference, whichever is closer) — purely
+        local/deterministic, needs no calendar file."""
+        d = _to_utc_date(now_ts)
+        candidates = []
+        for delta in (0, 1):
+            y, m = d.year, d.month + delta
+            if m > 12:
+                y += 1
+                m -= 12
+            candidates.append(cme_expiry_utc(y, m))
+        return min(candidates, key=lambda t: abs(t - now_ts))
+
+    @staticmethod
+    def _fomc_candidate_ts(fomc_dates) -> list:
+        """FOMC statements release ~2pm ET; rather than track DST, use a
+        fixed 18:00 UTC reference for every date (mirrors
+        `cme_expiry_utc`'s fixed-midpoint rationale — the event window's
+        half-width in config absorbs the +/-1h DST error). Malformed date
+        strings are skipped, never raised."""
+        out = []
+        for d in fomc_dates or []:
+            if not isinstance(d, str):
+                continue
+            try:
+                y, m, dd = (int(x) for x in d.split("-"))
+                out.append(datetime(y, m, dd, 18, 0,
+                                    tzinfo=timezone.utc).timestamp())
+            except (ValueError, TypeError):
+                continue
+        return out
+
+    def _event_state(self, now: float,
+                     calendar_data: Optional[dict]) -> tuple[bool, str]:
+        ew = self._event_cfg
+        fomc_pre = float(ew.get("fomc_pre_h", 24.0))
+        fomc_post = float(ew.get("fomc_post_h", 6.0))
+        expiry_pre = float(ew.get("expiry_pre_h", 8.0))
+        expiry_post = float(ew.get("expiry_post_h", 2.0))
+
+        candidates = [("cme_expiry", self._nearest_cme_expiry(now),
+                      expiry_pre, expiry_post)]
+        if isinstance(calendar_data, dict):
+            fomc_ts_list = self._fomc_candidate_ts(calendar_data.get("fomc"))
+            if fomc_ts_list:
+                nearest_fomc = min(fomc_ts_list, key=lambda t: abs(t - now))
+                candidates.append(("fomc", nearest_fomc, fomc_pre, fomc_post))
+
+        in_window = False
+        nearest_label = "none"
+        nearest_dist = None
+        for label, event_ts, pre_h, post_h in candidates:
+            if in_event_window(now, event_ts, pre_h, post_h):
+                in_window = True
+            dist = abs(event_ts - now)
+            if nearest_dist is None or dist < nearest_dist:
+                nearest_dist = dist
+                nearest_label = f"{label}:{_to_utc_date(event_ts).isoformat()}"
+        return in_window, nearest_label
+
+    # ---- PIT (point-in-time) append --------------------------------------
+
+    def _append_pit(self, now: float, state: ContextState,
+                    dff: Optional[float], t10y2y: Optional[float],
+                    vix: Optional[float], cot_net: Optional[float],
+                    stable_total: Optional[float]) -> None:
+        """Append one JSON line — the as-observed snapshot for any future
+        label join or replay to read (pass-2 §2.1, PIT discipline: never
+        re-fetch). IO errors are swallowed with a log line; telemetry
+        must never wedge the poll itself."""
+        payload = {
+            "ts": now,
+            "state": asdict(state),
+            "raw": {"dff": dff, "t10y2y": t10y2y, "vix": vix,
+                    "cot_net": cot_net, "stable_total": stable_total},
+        }
+        try:
+            self._history_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._history_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload) + "\n")
+        except OSError as e:
+            log.warning(f"context PIT append failed (telemetry only): {e}")
+
+    # ---- transition-only audit logging -----------------------------------
+
+    def _emit_transitions(self, state: ContextState) -> None:
+        """CX-* transition logging — steady state is silent. Per-source
+        ok->dark logs CX_SOURCE_DARK; dark->ok recovery AND any halving-
+        phase/event-window flip log CX_STATE_CHANGE. The very first poll
+        never emits a transition here (bootstrap: there is no PRIOR state
+        to differ from) — it gets CX_POLL_OK instead, from `maybe_poll`."""
+        if self._prev_known is not None:
+            for name in (*_NET_SOURCES, "calendar"):
+                prev = self._prev_known.get(name, False)
+                cur = self._known[name]
+                if prev and not cur:
+                    log.warning(tag(Code.CX_SOURCE_DARK, f"{name} dark"))
+                elif not prev and cur:
+                    log.info(tag(Code.CX_STATE_CHANGE, f"{name} recovered"))
+        if self._prev_phase is not None and \
+                state.halving_phase != self._prev_phase:
+            log.info(tag(Code.CX_STATE_CHANGE,
+                        f"halving_phase {self._prev_phase} -> "
+                        f"{state.halving_phase}"))
+        if self._prev_in_window is not None and \
+                state.in_event_window != self._prev_in_window:
+            log.info(tag(Code.CX_STATE_CHANGE,
+                        f"in_event_window {self._prev_in_window} -> "
+                        f"{state.in_event_window}"))
+        self._prev_known = dict(self._known)
+        self._prev_phase = state.halving_phase
+        self._prev_in_window = state.in_event_window
+
+    # ---- poll --------------------------------------------------------------
+
+    def maybe_poll(self, now: float | None = None) -> ContextState:
+        now = now if now is not None else time.time()
+        if not self.enabled or now - self._last_poll < self.poll_sec:
+            return self._state
+        self._last_poll = now
+
+        # local: halving clock (always known, pure date math)
+        days_since, days_to_next = halving_clock(now, self._next_halving_iso)
+        phase = phase_bucket(days_since, self._buckets)
+
+        # local: shipped event calendar (known iff it parses THIS poll)
+        calendar_data = load_calendar(self._calendar_path)
+        calendar_known = calendar_data is not None
+        self._known["calendar"] = calendar_known
+
+        # network: five keyless sources, each with its own 3x-grace known
+        dff = self._poll_source("dff", self._urls.get("fred_dff"),
+                                parse_fred_csv, now)
+        t10y2y = self._poll_source("t10y2y", self._urls.get("fred_t10y2y"),
+                                    parse_fred_csv, now)
+        vix = self._poll_source("vix", self._urls.get("fred_vix"),
+                                parse_fred_csv, now)
+        cot_net = self._poll_source("cot", self._urls.get("cot_finfut"),
+                                    parse_cot_btc_lev_net, now)
+        stable_total = self._poll_source(
+            "stablecoins", self._urls.get("stablecoins"),
+            parse_stablecoin_total, now)
+
+        stress = stress_dial(dff, t10y2y, vix, self._stress_cfg)
+        cot_z, stable_wk_pct = flow_dials(
+            cot_net, self._prev_cot_net, stable_total,
+            self._prev_stable_total, self._flow_cfg)
+        in_window, next_event = self._event_state(now, calendar_data)
+
+        state = ContextState(
+            halving_phase=phase, days_since=days_since,
+            days_to_next=days_to_next, stress=stress,
+            stress_known=stress is not None, cot_z=cot_z,
+            stable_wk_pct=stable_wk_pct,
+            flow_known=cot_z is not None and stable_wk_pct is not None,
+            in_event_window=in_window, next_event=next_event,
+            calendar_known=calendar_known, ts=now)
+
+        self._emit_transitions(state)
+        self._state = state
+
+        # prev-values for the NEXT poll's delta persist across a miss —
+        # a failed fetch must not blank the anchor, only skip this cycle
+        if cot_net is not None:
+            self._prev_cot_net = cot_net
+        if stable_total is not None:
+            self._prev_stable_total = stable_total
+
+        self._append_pit(now, state, dff, t10y2y, vix, cot_net, stable_total)
+
+        if not self._first_poll_done:
+            self._first_poll_done = True
+            log.info(tag(Code.CX_POLL_OK, "first context poll completed"))
+
+        return state
+
+    # ---- status ------------------------------------------------------------
+
+    def status(self) -> dict:
+        """JSON-safe telemetry snapshot: the latest ContextState fields
+        flattened, the per-source ok/dark map, and last_poll_age_sec
+        (None before the first poll has ever run)."""
+        s = self._state
+        age = round(time.time() - self._last_poll, 1) if self._last_poll \
+            else None
+        return {
+            "enabled": self.enabled,
+            "halving_phase": s.halving_phase,
+            "days_since": s.days_since,
+            "days_to_next": s.days_to_next,
+            "stress": s.stress,
+            "stress_known": s.stress_known,
+            "cot_z": s.cot_z,
+            "stable_wk_pct": s.stable_wk_pct,
+            "flow_known": s.flow_known,
+            "in_event_window": s.in_event_window,
+            "next_event": s.next_event,
+            "calendar_known": s.calendar_known,
+            "sources": dict(self._known),
+            "last_poll_age_sec": age,
+        }
