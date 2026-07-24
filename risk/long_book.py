@@ -3,10 +3,14 @@ EvidenceLadder state machine (task C2, plan
 docs/superpowers/plans/2026-07-24-compounder-phase-c-long-book.md §C2).
 Pure, clock-free, fully injectable — no wall-clock reads, no I/O.
 
-SCOPE (task C2 only): the evidence ladder that gates the long book's
-position-sizing ceiling. LongBookEngine — the accumulation decision
-core (spacing, context gates, TH-013 zone hygiene, add sizing) — is
-task C3 and is deliberately NOT built here.
+SCOPE (task C2): the evidence ladder that gates the long book's
+position-sizing ceiling. Task C3 (below EvidenceLadder in this file)
+adds LongBookEngine — the accumulation decision core (spacing, context
+gates, TH-013 zone hygiene, add sizing). Both are pure/injectable: no
+wall-clock reads, no I/O, no imports from main/execution (typing-only
+imports of Position/ContextState under TYPE_CHECKING are the one
+exception - real objects never cross this module's runtime boundary,
+only their shape via getattr).
 
 Evidence ladder (spec §5): rung 0 = paper only. The book trades
 whenever the system runs; realized, BOOK-TAGGED closes earn rungs
@@ -86,7 +90,15 @@ point of paper-first is to size like it matters).
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
+
+from strategies.thales import round_number_grid
+
+if TYPE_CHECKING:
+    from core.state import Position
+    from data.context_engine import ContextState
 
 log = logging.getLogger("liquiditybot.risk.long_book")
 
@@ -382,3 +394,281 @@ class EvidenceLadder:
         self._gross_loss_live = gross_loss_live
         self._adverse_transitions_survived = adverse
         self._downgrade_markers = markers
+
+
+# =======================================================================
+# LongBookEngine — accumulation decision core (task C3)
+# =======================================================================
+# Everything below is pure and fully injected: no wall-clock reads (the
+# caller passes `now`), no I/O, no imports from main/execution. The
+# engine only ever plans a BUY (a post_only maker bid, averaging into
+# the book's single growing position per asset) - it has no `direction`
+# parameter at all, so a sell/short is not a reachable return value by
+# construction (Global Constraint: long-only accumulation, no shorts;
+# a future spec must earn shorts).
+
+DenyKind = Literal[
+    "halted", "entries_disabled", "spacing", "event_window",
+    "context_unknown", "context_misaligned", "ceiling",
+]
+
+
+@dataclass(frozen=True)
+class AddPlan:
+    """A planned accumulation add: a post_only maker bid. `usd` is the
+    order notional (task C4 sizes actual base-asset units from this +
+    price via the long PositionSizer instance - this class only plans
+    the ceiling-bounded USD budget and the hygiene-adjusted bid price,
+    per the Global Constraint that the long book never gets its own
+    risk stack). JSON-safe: every field is a plain float/str."""
+    price: float
+    usd: float
+    reason_detail: str
+
+
+@dataclass(frozen=True)
+class DenyReason:
+    """A typed refusal. `kind` is the registered gate name; the caller
+    logs LB-010 with `detail` naming the gate (core/codes.py's LB_ADD_
+    DENIED comment), and additionally logs CX-030 when
+    `kind == "context_unknown"` (that emission is the caller's job -
+    this class only names which gate fired). JSON-safe: plain strings."""
+    kind: DenyKind
+    detail: str
+
+
+@dataclass(frozen=True)
+class EngineConfig:
+    """Parsed `long_book` block, task-C3 fields only (EvidenceLadder
+    parses its own `ladder` sub-block separately via LadderConfig -
+    this mirrors that same parse-with-shipped-defaults convention so a
+    caller passing an empty/partial dict still gets a coherent engine).
+    `zone_tol_pct`/`zone_buffer_pct` are new knobs this task adds to the
+    long_book config block (absent from the task-C2-shipped block) -
+    see core/config_guard.py's `_long_book_checks` for their guard."""
+    add_usd_frac_of_ceiling: float
+    add_min_spacing_hours: float
+    add_offset_pct: float
+    stress_max_for_add: float
+    require_known: bool
+    pause_in_event_window: bool
+    contraction_spacing_mult: float
+    zone_tol_pct: float
+    zone_buffer_pct: float
+
+    @classmethod
+    def from_dict(cls, cfg: dict | None) -> "EngineConfig":
+        cfg = cfg or {}
+        ctx = cfg.get("context", {}) or {}
+        return cls(
+            add_usd_frac_of_ceiling=float(
+                cfg.get("add_usd_frac_of_ceiling", 0.2)),
+            add_min_spacing_hours=float(
+                cfg.get("add_min_spacing_hours", 24.0)),
+            add_offset_pct=float(cfg.get("add_offset_pct", 1.5)),
+            stress_max_for_add=float(ctx.get("stress_max_for_add", 1.0)),
+            require_known=bool(ctx.get("require_known", True)),
+            pause_in_event_window=bool(
+                ctx.get("pause_in_event_window", True)),
+            contraction_spacing_mult=float(
+                ctx.get("contraction_spacing_mult", 2.0)),
+            zone_tol_pct=float(cfg.get("zone_tol_pct", 0.15)),
+            zone_buffer_pct=float(cfg.get("zone_buffer_pct", 0.20)),
+        )
+
+
+def shift_off_magnets(price: float, grid: "list[float]", tol_pct: float,
+                       buffer_pct: float) -> "tuple[float, bool]":
+    """TH-013 bid hygiene (LB-020, caller-logged iff `shifted`): if
+    `price` sits within `tol_pct` of any grid magnet, move it AWAY from
+    that magnet DOWNWARD (deeper bid) - to `buffer_pct` below the
+    magnet - never upward, never toward. With multiple implicated
+    magnets the DEEPEST valid target wins (clears every nearby level in
+    one pass; this never iterates the grid to a fixed point - a single
+    pass is exactly what `_stop_zones`'s own inline geometry ever
+    needed). A candidate target that would land AT OR ABOVE the current
+    price (already deep enough given `buffer_pct` vs `tol_pct`) is
+    discarded, never applied - "never upward" is enforced by
+    construction, not just by choice of arithmetic. Returns
+    `(possibly-unchanged price, shifted: bool)`. `price <= 0` or
+    non-finite degrades to `(price, False)` - never raises."""
+    if price <= 0 or not math.isfinite(price):
+        return price, False
+    tol = float(tol_pct) / 100.0
+    buf = float(buffer_pct) / 100.0
+    out = float(price)
+    shifted = False
+    for level in grid:
+        level = float(level)
+        if level <= 0:
+            continue
+        d = abs(price - level) / price
+        if d < tol:
+            target = level * (1.0 - buf)
+            if target < out:
+                out = target
+                shifted = True
+    return out, shifted
+
+
+def thesis_stop_price(avg_entry: float, thesis_stop_pct: float) -> float:
+    """Structural invalidation stop price (LB-031 full-close trigger,
+    caller-checked as `mark <= thesis_stop_price(...)`):
+    `avg_entry * (1 - thesis_stop_pct/100)`. Set once, at add-averaging
+    time, off the position's THEN-current average entry - a wide,
+    non-trailing floor (NOT a volatility stop; the tier/give-back
+    machinery already owns profit protection). Pure arithmetic, no
+    state, never raises.
+
+    Delegation note (task C3 scope): the long book's full exit decision
+    (`decide_exits`, task C4) is deliberately NOT implemented in this
+    file. C4's engine calls THIS helper plus the long ProfitTierEngine
+    INSTANCE's own `evaluate(position, current_price, ...)`
+    (risk/profit_tiers.py:668) - C3 ships only the pure primitive the
+    tier engine cannot itself provide (a structural stop is outside its
+    geometry), never a duplicate of tier/give-back logic. There is no
+    `decide_exits` name anywhere in this module."""
+    return float(avg_entry) * (1.0 - float(thesis_stop_pct) / 100.0)
+
+
+class LongBookEngine:
+    """Pure accumulation decision core (task C3). `decide_add` is a
+    staticmethod: no instance state, everything injected per call - the
+    caller (task C4) owns the EvidenceLadder instance, the long
+    ProfitTierEngine instance, and the shared RiskProtocolStack/
+    InventoryManager; this class never constructs or holds any of
+    them, and is never itself constructed (pure namespace)."""
+
+    @staticmethod
+    def decide_add(*, now: float, asset: str, mark: float,
+                   sigma_bar_pct: float,
+                   context_state: "ContextState",
+                   ladder: EvidenceLadder,
+                   position: "Position | None",
+                   last_add_ts: "float | None",
+                   dry_run: bool, halted: bool, entries_enabled: bool,
+                   equity: float, book_exposure_usd: float,
+                   cfg: "dict | None") -> "AddPlan | DenyReason":
+        """Gate order (exact; earlier gates shadow later ones):
+
+        1. global new-risk gates: `halted` then `entries_enabled` -
+           these gate long-book ADDS exactly as they gate 5m entries
+           (new risk); exits are never gated by this function at all
+           (decide_exits, task C4, is a wholly separate call path -
+           Global Constraint: exits ALWAYS allowed).
+        2. averaging rule: an existing `position` on this asset means
+           this add AVERAGES into it (main.py:1255's averaging path,
+           C4-side) - never a second position. This function has no
+           `direction` parameter at all, so it can only ever plan a
+           BUY; the one thing worth checking is that nobody hands it a
+           SHORT position to "average" into - asserted below (an
+           upstream invariant violation, not a legitimate gate, so it
+           raises rather than returning a DenyReason).
+        3. spacing throttle: `add_min_spacing_hours`, x
+           `contraction_spacing_mult` when
+           `context_state.halving_phase == "contraction"` (cadence-
+           only, down-only - never boosts, never touches direction).
+        4. event-window pause: `context_state.in_event_window` AND
+           `cfg.context.pause_in_event_window` (both must hold - the
+           config flag is a real kill switch for this gate, not mere
+           documentation).
+        5. context gates: `cfg.context.require_known` true and the
+           context's stress dial unknown -> "context_unknown" (caller
+           logs CX-030); otherwise, stress known and over
+           `cfg.context.stress_max_for_add` -> "context_misaligned" -
+           this exact boolean (`stress <= stress_max_for_add`) is what
+           C4 will pass to `ConvictionFormula.evaluate`'s
+           `context_aligned` term 4 (risk/conviction.py:84, CV-040 on
+           False). An unknown stress dial with `require_known=False`
+           auto-passes here - the same None-auto-pass convention
+           conviction itself uses for `context_aligned`.
+        6. ceiling headroom: the ladder's paper/live ceiling (picked by
+           `dry_run`) x `equity`, against `book_exposure_usd` (the
+           WHOLE book's current exposure across every asset - the
+           combined-envelope Global Constraint means this ceiling
+           lives inside the shared risk stack, never its own instance)
+           -> no headroom, "ceiling". The add's USD budget is
+           `add_usd_frac_of_ceiling * ceiling_usd`, capped by whatever
+           headroom actually remains.
+        7. price the bid: `mark * (1 - add_offset_pct/100)`, then
+           `shift_off_magnets` against `round_number_grid(mark)` (task
+           C3 Part 1 - swing-extreme magnets stay out of this engine's
+           grid; they need `_AssetState`'s candle history, which this
+           pure function does not have) - LB-020 caller-logged iff
+           shifted.
+
+        `sigma_bar_pct` is accepted for interface symmetry with the
+        exit path (ProfitTierEngine.evaluate also takes a
+        `sigma_bar_pct`) and for a possible future vol-aware add
+        refinement; no C3 gate consumes it today (documented deviation
+        in task-C3-report.md, not a silent no-op)."""
+        ecfg = EngineConfig.from_dict(cfg)
+
+        if halted:
+            return DenyReason(
+                "halted", "long-book adds halted (kill switch/fault/"
+                "watchdog new-risk gate; exits are unaffected)")
+        if not entries_enabled:
+            return DenyReason(
+                "entries_disabled", "long-book entries disabled")
+
+        if position is not None:
+            assert getattr(position, "direction", "long") == "long", (
+                "LongBookEngine.decide_add received a non-long position "
+                "to average into - the long book only ever plans BUYS "
+                "(no direction parameter exists on this function by "
+                "design); a short position here is a caller bug, not a "
+                "reachable business state")
+
+        contraction = getattr(context_state, "halving_phase", "") == \
+            "contraction"
+        required_hours = ecfg.add_min_spacing_hours * (
+            ecfg.contraction_spacing_mult if contraction else 1.0)
+        if last_add_ts is not None and \
+                (float(now) - float(last_add_ts)) < required_hours * 3600.0:
+            return DenyReason(
+                "spacing",
+                f"{asset}: {float(now) - float(last_add_ts):.0f}s since "
+                f"last add < required {required_hours:.1f}h"
+                f"{' (contraction-scaled)' if contraction else ''}")
+
+        if ecfg.pause_in_event_window and \
+                getattr(context_state, "in_event_window", False):
+            return DenyReason(
+                "event_window", f"{asset}: add paused - inside a "
+                "calendar event window")
+
+        stress_known = bool(getattr(context_state, "stress_known", False))
+        if ecfg.require_known and not stress_known:
+            return DenyReason(
+                "context_unknown", f"{asset}: context stress dial "
+                "unknown and long_book.context.require_known is true")
+        stress = getattr(context_state, "stress", None)
+        if stress_known and stress is not None and \
+                stress > ecfg.stress_max_for_add:
+            return DenyReason(
+                "context_misaligned",
+                f"{asset}: stress {stress:.2f} > stress_max_for_add "
+                f"{ecfg.stress_max_for_add:.2f}")
+
+        ceiling_frac = ladder.paper_ceiling_frac() if dry_run \
+            else ladder.live_ceiling_frac()
+        ceiling_usd = ceiling_frac * float(equity)
+        headroom_usd = ceiling_usd - float(book_exposure_usd)
+        if headroom_usd <= 0:
+            return DenyReason(
+                "ceiling", f"{asset}: no headroom (ceiling "
+                f"${ceiling_usd:,.2f} vs book exposure "
+                f"${float(book_exposure_usd):,.2f})")
+
+        usd = min(ecfg.add_usd_frac_of_ceiling * ceiling_usd, headroom_usd)
+
+        price = float(mark) * (1.0 - ecfg.add_offset_pct / 100.0)
+        grid = round_number_grid(mark)
+        price, shifted = shift_off_magnets(
+            price, grid, ecfg.zone_tol_pct, ecfg.zone_buffer_pct)
+
+        detail = "averaging add" if position is not None else "new add"
+        if shifted:
+            detail += "; bid shifted off a TH-013 magnet"
+        return AddPlan(price=price, usd=usd, reason_detail=detail)

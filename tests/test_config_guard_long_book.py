@@ -18,6 +18,8 @@ def _cfg(**lb):
             "add_usd_frac_of_ceiling": 0.2,
             "add_min_spacing_hours": 24.0,
             "add_offset_pct": 1.5,
+            "zone_tol_pct": 0.15,      # matches the shipped default
+            "zone_buffer_pct": 0.2,    # matches the shipped default
             "thesis_stop_pct": 12.0,   # matches the shipped default
             "ladder": {
                 "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
@@ -88,6 +90,37 @@ def test_add_min_spacing_hours_non_positive_fatal():
 
 def test_add_offset_pct_non_positive_fatal():
     assert _fatals(_cfg(add_offset_pct=0.0))
+
+
+# ---------------------------------------------------------------------
+# TH-013 magnet-shift hygiene knobs (task C3:
+# LongBookEngine.shift_off_magnets) - absent from the task-C2-shipped
+# block, added by task C3.
+# ---------------------------------------------------------------------
+
+def test_zone_tol_pct_non_positive_fatal():
+    assert _fatals(_cfg(zone_tol_pct=0.0))
+    assert _fatals(_cfg(zone_tol_pct=-0.1))
+
+
+def test_zone_buffer_pct_non_positive_fatal():
+    assert _fatals(_cfg(zone_buffer_pct=0.0))
+    assert _fatals(_cfg(zone_buffer_pct=-0.1))
+
+
+def test_zone_buffer_pct_at_or_below_tol_pct_fatal():
+    # buffer_pct must CLEAR tol_pct, or a shifted bid could still read
+    # as within-tolerance of the same magnet it just moved away from.
+    assert _fatals(_cfg(zone_tol_pct=0.15, zone_buffer_pct=0.15))
+    assert _fatals(_cfg(zone_tol_pct=0.15, zone_buffer_pct=0.10))
+
+
+def test_zone_buffer_pct_above_tol_pct_clean():
+    assert _fatals(_cfg(zone_tol_pct=0.15, zone_buffer_pct=0.20)) == []
+
+
+def test_zone_hygiene_shipped_defaults_clean():
+    assert _fatals(_cfg(zone_tol_pct=0.15, zone_buffer_pct=0.2)) == []
 
 
 # ---------------------------------------------------------------------

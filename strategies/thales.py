@@ -52,6 +52,27 @@ log = logging.getLogger("liquiditybot.strategies.thales")
 EPS = 1e-9
 
 
+def round_number_grid(mark: float) -> list[float]:
+    """Self-scaling round-number magnet grid: steps {1, 2.5, 5, 10, 25,
+    50}x10^k that land between 0.3% and 3% of `mark` (Osler clustering).
+    Extracted VERBATIM from `_stop_zones` (task C3, Compounder Phase C:
+    the `_refresh_market_state` precedent - moved lines unchanged, only
+    re-scoped) so risk/long_book.py's LongBookEngine can reuse the exact
+    same magnet grid for TH-013 bid-hygiene without depending on
+    `_AssetState`/candle history (this half of the original computation
+    only ever needed `mark`; the swing-extreme magnets stay inline in
+    `_stop_zones` because those DO need `_AssetState`). Pure, stateless,
+    never raises: `mark <= 0` (or non-finite) returns `[]`."""
+    if not mark or not math.isfinite(mark) or mark <= 0:
+        return []
+    zones = []
+    k = 10.0 ** math.floor(math.log10(mark))
+    for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2):
+        if 0.003 * mark <= step <= 0.03 * mark:
+            zones.append(round(mark / step) * step)
+    return zones
+
+
 @dataclass
 class ThalesShade:
     """Result of a shading request. In shadow mode `confidence` echoes
@@ -539,15 +560,16 @@ class ThalesEngine:
                      else "re-enabled", tol * 100.0)
         prox = 0.0
         if not degenerate:
-            zones = []
-            # self-scaling round-number grid: steps {1, 2.5, 5}x10^k
-            # that land between 0.3% and 3% of price (Osler clustering)
-            k = 10.0 ** math.floor(math.log10(mark))
-            for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2):
-                if 0.003 * mark <= step <= 0.03 * mark:
-                    zones.append(round(mark / step) * step)
+            zones = round_number_grid(mark)
             swing_hi, swing_lo = swing_high_low(st.candle_hist, lookback)
-            if swing_hi is not None:
+            # swing_high_low always returns both or neither (never one
+            # Optional resolved without the other) - checking both here
+            # (rather than swing_hi alone, pre-C3 behavior) is a no-op
+            # behaviorally but narrows `swing_lo`'s type for `zones`
+            # (now a real `list[float]` via round_number_grid's return
+            # type, not an untyped `[]`) so pyright can prove the
+            # `.append(swing_lo)` below is float, not float|None.
+            if swing_hi is not None and swing_lo is not None:
                 zones.append(swing_hi)
                 zones.append(swing_lo)
             for z in zones:

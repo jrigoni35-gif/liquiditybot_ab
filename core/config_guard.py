@@ -205,12 +205,29 @@ def _long_book_checks(config: dict) -> list:
 
     # --- spacing / offset / frac knobs: all strictly positive, or the
     # add path either never fires (0 spacing floods every cycle instead
-    # of throttling) or sizes/offsets to nothing.
+    # of throttling) or sizes/offsets to nothing. zone_tol_pct/
+    # zone_buffer_pct (task C3, LongBookEngine.shift_off_magnets) are new
+    # knobs this task adds to the block - the brief's task-C2-shipped
+    # block had no TH-013 hygiene knobs at all.
     for key in ("add_usd_frac_of_ceiling", "add_min_spacing_hours",
-                "add_offset_pct"):
+                "add_offset_pct", "zone_tol_pct", "zone_buffer_pct"):
         v = float(lb.get(key, 0.0))
         if v <= 0:
             out.append(("FATAL", f"long_book.{key} ({v}) must be positive"))
+
+    # --- TH-013 magnet-shift hygiene coherence (task C3): buffer_pct
+    # must exceed tol_pct, or a bid shifted `buffer_pct` below a magnet
+    # could still read as "within tol_pct" of that SAME magnet -
+    # a non-idempotent shift (shift_off_magnets could re-flag its own
+    # output as still-too-close on the very next evaluation).
+    zone_tol = float(lb.get("zone_tol_pct", 0.0))
+    zone_buf = float(lb.get("zone_buffer_pct", 0.0))
+    if zone_tol > 0 and zone_buf > 0 and zone_buf <= zone_tol:
+        out.append(("FATAL", f"long_book.zone_buffer_pct ({zone_buf}) must "
+                    f"exceed long_book.zone_tol_pct ({zone_tol}) - "
+                    "otherwise a hygiene-shifted bid can still read as "
+                    "within tolerance of the same magnet it just moved "
+                    "away from"))
 
     # --- evidence ladder: ceilings strictly increasing and each <= the
     # SHARED risk_protocols.heat.max_portfolio_heat_frac (cross-block
