@@ -525,3 +525,239 @@ fear-greed/dominance so context degrades to `unknown` less often —
 grades and adoptions above are unchanged. Does NOT unlock deferred
 MVRV (no realized-cap data); DefiLlama remains the stablecoin-supply
 source. Read-only context only; no execution surface.
+
+---
+
+# Pass 2 addendum — participant psychology, LLM frameworks, database inventory
+
+Date: 2026-07-24 · Operator directive: ground the long/short-term
+positioning and inventory mindset in factual evidence on money-management
+psychology at every participant level; adjudicate Asian-lab LLM trading
+frameworks; inventory international/national databases (keyless rule).
+Pass-1 honesty rules and REJECTED list bind this pass.
+
+**DoF ledger position (binding conclusion up front):** pass 1 spent the
+program's feature budget (3–4 model-adjacent features). **This pass adds
+ZERO new model features.** Its adoptable surface: (a) interpretation
+constraints on already-adopted features, (b) one evidence upgrade to an
+adopted 0-DoF hygiene rule, (c) offline reporting structure, (d) process
+rules, (e) deferred candidates with explicit revisit triggers.
+
+## P1 — Participant psychology as observable proxies
+
+**1.1a Disposition effect — STRONG (equities), MODERATE-STRONG (crypto).**
+Shefrin & Statman, *JF* 40(3) 1985; Odean, *JF* 53(5) 1998 (10,000
+accounts; winners realized, losers held; not rebalancing/costs);
+Kahneman & Tversky, *Econometrica* 1979 (carried as canonical, not
+independently searched); crypto confirmation Schatzmann & Haslhofer,
+*Digital Finance* 2023 (on-chain sell proxies; effect intensifies from
+2017; a Mt. Gox study finds a REVERSE effect in bull phases —
+venue/authors unverified, treat asymmetry as tentative). Observable:
+sell liquidity thickening at breakeven/prior-high/round-number magnets.
+Discipline: the repo's exit machinery IS the inversion (ratchet rides
+winners `risk/profit_tiers.py:521–546`; protocol stops cut losers;
+exits always allowed) — **Phase C inherits the inversion at cycle
+horizon exactly as spec §4 writes it** (thesis-invalidation stop,
+euphoria tightens the ratchet; never bank on P&L alone, never average
+into an invalidated thesis). 0 DoF — this pass supplies the citations
+the exit design was implicitly resting on.
+
+**1.1b Overtrading / attention-driven buying — STRONG, crypto version
+journal-published.** Barber & Odean, *JF* 55 (2000) (top-turnover
+quintile 11.4% vs market 17.9%); *RFS* 21(2) 2008 (retail net-buys
+attention); Gervais & Odean, *RFS* 14(1) 2001 (self-attribution makes
+overconfidence self-reinforcing — the persistence mechanism); Auer,
+Cornelli, Doerr, Frost & Gambacorta, BIS WP 1049 (2022) now *IMF
+Economic Review* (2025): price rises recruit NEW retail cohorts across
+95 countries; ~3/4 of users estimated to have lost money; larger
+holders sell into retail inflow. Hasso, Pelster & Breitmayer, *JBEF* 22
+(2019). Observable: taker buy surges after rises/extreme candles —
+already measured (`volume_z`, `fear_greed`, fear filter). Discipline:
+patient limit-only accumulation IS the counter-position; adverse
+selection stays priced (`execution/pretrade.py:291–302`); NEVER add a
+chase/urgency path to the long book. 0 DoF.
+
+**1.1c Round-number anchoring — upgraded STRONG-MODERATE.** Osler (JF
+2003 / JIMF 2005, in repo as TH-013) + NEW: Urquhart, "Price clustering
+in Bitcoin", *Economics Letters* 159 (2017) — crypto-native anchoring.
+Pass-1 ladder-placement hygiene now stands on two independent
+literatures. 0 DoF.
+
+**1.1d Lottery/skewness — STRONG existence, REJECTED direction.**
+Kumar *JF* 64(4) 2009; Bali, Cakici & Whitelaw *JFE* 99 (2011); crypto
+MAX studies CONTRADICT in sign (*Financial Innovation* 8 2022 positive
+vs Grobys & Junttila *JIFMIM* 2021 negative — authors of the former
+unverified). Only load-bearing content: thin high-skew alts attract the
+flow pump operators exploit → motivates TH-020 pump veto, nothing else.
+
+**1.1e FOMO survey literature — WEAK; adopt nothing.** Survey/self-report
+psychology; the tradeable observable is already adopted via BIS WP 1049
+and instrumented. A FOMO input would re-measure an adopted fact at +1 DoF.
+
+**1.2a CEO overconfidence — STRONG in domain, inapplicable.** Malmendier
+& Tate *JF* 60(6) 2005. No single-name equity exposure; retained in the
+why-counterparties-persist canon only.
+
+**1.2b Insider information content — STRONG (equities), MODERATE
+(crypto WP).** Cohen, Malloy & Pomorski, *JF* 67(3) 2012: ROUTINE
+insider trades ≈ zero information; OPPORTUNISTIC carry 82 bps/mo — the
+most transferable split in this section. Félez-Viñas, Johnson &
+Putniņš, SSRN 4184367 (2022, unpublished): 10–25% of 2018–22 Coinbase
+listings show informed pre-announcement run-ups. Discipline: pre-event
+run-ups in thin alts are informed flow — never fade, never join late;
+maps onto unlocks as routine (calendar-known supply) vs founder-wallet
+moves as opportunistic.
+
+**1.2c Token unlock supply pressure — MODERATE mechanism, WEAK review,
+DEFERRED.** Industry (Keyrock ~16k events, ~90% negative pressure) +
+unreviewed WP (Kim, SSRN 6632838). Mechanism deterministic and public
+(vesting schedules = constants, like halvings); directly applicable
+(SUI/ARB/MINA/FLOW carry active vesting). DEFERRED encoding: 0-DoF
+unlock-cliff cadence PAUSE (never signed) — admissible only if a
+keyless machine-readable calendar verifies (DefiLlama unlocks API tier
+ambiguous — same availability failure mode as pass-1 ETF flows).
+Revisit: keyless endpoint + any peer-reviewed publication.
+
+**1.2d Founder-wallet detector — REJECTED.** No peer-reviewed study
+(search-verified July 2026); vendor narrative on keyed data.
+
+**1.3a Institutional herding — STRONG; discipline is DON'T FADE.**
+Lakonishok, Shleifer & Vishny *JFE* 32 (1992); Sias *RFS* 17(1) 2004
+(herding = information inference). Fading it = trading against informed
+flow. No keyless crypto herding measure at our cadence exists. Nothing
+ships.
+
+**1.3b Window dressing / month- & quarter-end rebalancing — STRONG
+equities, REJECTED crypto encoding.** LSVT *AER P&P* 81(2) 1991; Etula,
+Rinne, Suominen & Vaittinen *RFS* 33(1) 2020; Harvey et al. NBER WP
+33554 (2025). No verified crypto analog; a transplanted calendar is
+seasonality mining. TH-012's live shuffle-null remains the only
+admission path.
+
+**1.3c COT interpretation constraint (0 DoF, BINDING on Phase B):**
+post-ETF, CME leveraged-fund net-short is dominated by the
+cash-and-carry basis trade (industry: CME OpenMarkets 2025, CF
+Benchmarks; mechanism = BIS WP 1087). The adopted COT delta must be
+encoded and documented as a CROWDING/FRAGILITY dial read jointly with
+`basis_bps` — shorts rising with basis widening = carry expansion, NOT
+bearish flow. Never a signed directional read; no second COT feature.
+
+**1.4 Who loses to us, mechanically (the synthesis):**
+1. Attention-recruited late-cohort retail (taker buys after rises,
+   panic sells after falls): we are the resting counterparty (OM-011
+   limit-only; long-book patient bids) with adverse selection
+   pre-priced and the fear filter refusing to join the crowd. They keep
+   paying because **the loser pool is replenished, not educated** (BIS
+   WP 1049: each rise recruits a new cohort), preferences are stable
+   (Shefrin-Statman), and self-attribution defeats within-cohort
+   learning (Gervais-Odean).
+2. Forced sellers in stop cascades: flow is forced, hence uninformed at
+   execution (Osler; Urquhart). TH-013 collects pre-emptively (stops/
+   ladders never rest in the herd's zone) and reactively (confirmed
+   post-sweep fade). Persists because anchor stops are a coordination
+   equilibrium.
+3. Disposition-effect holders: their winner-banking caps rallies at
+   magnets; their loser-holding delays capitulation. Our engines are
+   the inversion of their psychology; the long book inherits that
+   inversion at cycle horizon — this pass's central positioning
+   conclusion.
+4. Whom we REFUSE to fight (asymmetry law): insiders pre-listing/
+   pre-unlock — avoid; herding institutions — align or stand aside;
+   spoofers — veto aligned entries. Every detect resolves to
+   veto/avoid, never a counter-bet against informed flow. **We monetize
+   forced and emotional flow, we stand down before informed flow, and
+   the classifier between them is priced adverse selection plus THALES,
+   not confidence.**
+
+## P2 — LLM-trading frameworks
+
+- **Qlib (MSRA; arXiv 2009.11189, unreviewed): ADOPT the point-in-time
+  (PIT) discipline as a 0-DoF process rule** — context snapshots
+  consumed by any label join or replay are the as-observed-at-poll
+  values from our own recordings, never re-fetched vintages (one note +
+  one test in Phase B; matters if MVRV/any revised series is ever
+  admitted). REJECT Alpha158/360 factor mining (instant OF-7 death).
+  Already ahead on purged walk-forward + re-baselining discipline.
+- **DDG-DA (AAAI 2022, peer-reviewed): REJECT** — meta-learned drift
+  adaptation is capacity not earned at 3.6k rows; drift votes +
+  governor already serve the need. Revisit at order-of-magnitude corpus
+  growth.
+- **FinGPT (IJCAI FinLLM 2023) / FinRL-Meta (NeurIPS 2022 D&B): nothing
+  adoptable** — FinRL's own abstract names backtest overfitting as an
+  open problem; our sim/MC/eval already exist.
+- **TradingAgents:** prior gap doc stands unchanged.
+- **FinMem (arXiv 2311.13743, AAAI-SS 2024; light review): ADAPT the
+  decay-tiered memory as deterministic retention tiers in the A1
+  lessons digest** — per asset/regime: last-N postmortems verbatim,
+  trailing-quarter aggregate, all-time archive; tiers config-lifted as
+  conventions; offline reporting shape only, no LLM, no engine import.
+- **FinAgent (KDD 2024): venue STRONG, returns INADMISSIBLE** (+36%
+  selected across baselines/datasets with no purge/null/PBO — the
+  OF-3/OF-5 artifact class). Nothing beyond prior TA adoptions.
+- **StockAgent (arXiv 2407.18957): negative evidence FOR us** — LLM
+  agents' decisions vary by underlying model, i.e. not replayable —
+  exactly why cycle_once is deterministic and the runtime never calls
+  an LLM.
+- **RD-Agent(Q) (NeurIPS 2025 D&B): REJECT factor automation** on this
+  corpus, but keep its headline as external support for the handful
+  cap: it beat factor libraries using >70% FEWER factors.
+
+## P3 — Keyless database inventory (net: zero new sources adopted)
+
+- BIS (stats.bis.org/api, keyless): REDUNDANT with FRED at usable
+  cadence; quarterly series = dead features. IMF (data.imf.org SDMX,
+  keyless): redundant + migration churn. World Bank (keyless): annual
+  cadence, irrelevant. OECD (keyless): redundant + PIT hazard (revised
+  series). US Treasury FiscalData (keyless): TGA/"net liquidity" input
+  REJECTED — zero peer-reviewed crypto support; the AI-wave rejection
+  pattern again. BoJ new API (notice says open; confirm at
+  implementation): nothing adopted; keyless backup only. Bank of Korea
+  ECOS: KEYED — fails the rule. MAS: unverified keyless; nothing needed.
+- **ECB Data Portal (keyless): DEFER one 0-DoF candidate** — ECB
+  Governing Council dates in the shipped calendar file (Karau documents
+  ECB-shock response with Fed-opposite asymmetry); do not multiply
+  pause gates without vindication-ledger evidence that FOMC-style
+  pauses earn their cadence cost.
+- **Kimchi premium (Upbit public REST vs Kraken mid, keyless): DEFER —
+  budget spent.** Choi, Lehar & Stauffer (SSRN 3189051, R&R JFQA,
+  unpublished) + *FRL* 2019. Revisit: journal publication + a freed
+  feature slot.
+- DefiLlama unlocks: carrier for the deferred unlock-cliff pause;
+  verify keyless tier at implementation, degrade to `unknown`.
+
+## REJECTED list (pass 2 — binding on future sessions, T6 precedent)
+
+1. FOMO as a distinct input — survey/self-report methodology; the
+   observable is already adopted (BIS WP 1049) and instrumented. +1 DoF
+   re-measurement.
+2. Crypto MAX/lottery directional signal — sign contradiction
+   (*Financial Innovation* 2022 positive vs Grobys & Junttila *JIFMIM*
+   2021 negative); cross-section inapplicable to 6 pairs.
+3. Founder-wallet-movement detector — no peer-reviewed study
+   (search-verified July 2026); keyed vendor narrative.
+4. Crypto month/quarter-end rebalancing calendar feature — evidence is
+   equity plumbing (Etula RFS 2020; Harvey NBER 33554) with no verified
+   crypto analog; OF-2/OF-4 bait. TH-012 shuffle-null is the only
+   admission path.
+5. Fading institutional herding — Sias (RFS 2004): herding is
+   information inference; fading it trades against informed flow.
+6. TGA / "net liquidity" input — no peer-reviewed crypto study;
+   redundant with the stress dial; regime-instability warning
+   (Liu-Tsyvinski RFS 2021). Keyless availability ≠ evidence.
+7. BIS/IMF/WB/OECD series as model features — cadence kill: dead
+   features by construction against a 3.6k-row 5m corpus.
+8. Factor-library mining (Alpha158-class or RD-Agent-automated) — OF-7
+   kill + RD-Agent(Q)'s own fewer-factors headline.
+9. DDG-DA-style meta-learned drift adaptation — capacity not earned;
+   drift votes + governor already serve the need.
+10. FinAgent/FinMem/FinRL headline returns as benchmarks — no purged
+    walk-forward, no shuffle null, no PBO/DSR in any of them.
+11. Additional COT categories / signed COT direction — basis-trade
+    contamination (carry, not direction); one delta feature with the
+    joint-basis constraint, nothing more.
+
+Unverified-and-therefore-unclaimed (pass 2): Kahneman-Tversky 1979
+(canonical carry); authors of the FI-2022 crypto-MAX and Mt. Gox
+reverse-disposition studies; journal publication of Félez-Viñas et al.
+and Choi-Lehar-Stauffer; MAS API status; BoJ key-freedom; DefiLlama
+unlocks API tier.
