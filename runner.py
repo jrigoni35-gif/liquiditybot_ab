@@ -549,6 +549,8 @@ class BotRunner:
             "watchdog": bot.watchdog.status(),
             "equity_drift_pct": round(bot._equity_drift_pct, 3),
             "monitor": bot.monitor.status(),
+            "conviction": bot.conviction.status()
+                if hasattr(bot, "conviction") else {},
             "ml": {"trained": bot.meta.trained,
                    "drift_share": bot.monitor.drift_share,
                    "drifting": bot.monitor.drifting[:5],

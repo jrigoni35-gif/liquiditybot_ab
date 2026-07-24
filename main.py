@@ -92,6 +92,7 @@ from ml.monitor import ModelMonitor
 from core.performance import PerformanceTracker
 from ml.postmortem import PostmortemEngine, TradeThesis
 from risk.circuit_breaker import CircuitBreaker
+from risk.conviction import ConvictionFormula
 from sentiment.scanner import SentimentScanner
 from sentiment.fear_filter import NarrativeFilter, StructuralInputs
 
@@ -740,6 +741,12 @@ class LiquidityBot:
         # actually runs under.
         self._probe_admissions: Deque[bool] = deque(
             maxlen=self._probe_share_window)
+        # Compounder Phase A: deterministic conviction formula
+        # (risk/conviction.py). report mode (default) = dispositions
+        # logged, entry behavior byte-identical; the enforce flip is a
+        # conscious operator decision (see the module docstring).
+        self.conviction = ConvictionFormula(
+            config.get("conviction", {}) or {})
         self._entry_rotation = 0            # round-robin offset, see _entry_assets
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
@@ -2158,6 +2165,52 @@ class LiquidityBot:
             return False
         return True
 
+    def _conviction_disposition(self, asset: str, signal, decision,
+                                regime_label: str,
+                                explored: bool) -> Optional[Code]:
+        """Compounder Phase A conviction formula, engine seam: evaluate
+        ONE pretrade-approved entry attempt. Returns the denial Code when
+        the caller must SKIP the entry (enforce mode only), else None.
+        Probes are exempt (they are the exploration channel; the formula
+        governs CONVICTION flow). Report mode always returns None —
+        dispositions + cadence alarms are logged, entry behavior stays
+        byte-identical (the honest threshold-derivation period). Runs
+        AFTER the pretrade gate so the EV term reads the gate's MEASURED
+        est_edge_bps/est_cost_bps for THIS entry. Self-healing getattr
+        (like _record_probe_admission): entry-path integration tests run
+        off a minimal LiquidityBot.__new__() stub."""
+        conv = getattr(self, "conviction", None)
+        if conv is None or not conv.enabled or explored:
+            return None
+        gp = signal.gates_passed or {}
+        agreement = (sum(1 for ok in gp.values() if ok) / len(gp)) \
+            if gp else 0.0
+        rfl = int(getattr(self, "_regime_floor_live", 0))
+        regime_known = True
+        if rfl > 0:
+            if regime_label not in REGIME_LABELS:
+                regime_known = False    # unmapped label: no evidence bucket
+            else:
+                regime_known = not _regime_under_coverage_floor(
+                    self.history.regime_live_count(regime_label), rfl)
+        cdec = conv.evaluate(
+            agreement=agreement, est_edge_bps=decision.est_edge_bps,
+            est_cost_bps=decision.est_cost_bps, regime_known=regime_known)
+        conv.note(cdec, regime_label)
+        get_audit().log(
+            "conviction", cdec.code,
+            tag(cdec.code,
+                f"{asset} conviction "
+                f"{'admitted' if cdec.admitted else 'denied'} "
+                f"({conv.mode})"),
+            {"asset": asset, "mode": conv.mode, **cdec.terms})
+        for acode, adetail in conv.cadence_alarms():
+            get_audit().log("conviction", acode, tag(acode, adetail),
+                            {"asset": asset})
+        if not cdec.admitted and conv.enforce:
+            return cdec.code
+        return None
+
     def _entry_assets(self) -> list:
         """Per-cycle entry evaluation order, round-robin rotated. Fixed dict
         order would hand the first asset permanent first claim on scarce
@@ -2673,6 +2726,15 @@ class LiquidityBot:
                 log.info(f"[{asset}] pre-trade veto: {decision.reasons}")
                 self._mark_cand(asset, signal.direction,
                                 str((decision.reasons or ["pretrade"])[0])[:40])
+                continue
+
+            # Compounder Phase A: conviction formula disposition. None ->
+            # proceed (always, in report mode); a Code -> the enforce-mode
+            # skip path (registered CV-*, candidate marked, no bare string).
+            deny_code = self._conviction_disposition(
+                asset, signal, decision, macro_state.label, explored)
+            if deny_code is not None:
+                self._mark_cand(asset, signal.direction, deny_code.value)
                 continue
 
             # the id pre-assigned before the ML-070 audit IS the position
