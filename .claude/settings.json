@@ -10,5 +10,18 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -m pytest *)",
+      "Bash(.venv/bin/python scripts/smoke_test.py)",
+      "Bash(.venv/bin/python scripts/assurance_check.py)",
+      "Bash(.venv/bin/python scripts/overfit_check.py)",
+      "Bash(.venv/bin/ruff check *)",
+      "Bash(ruff check *)",
+      "Bash(/root/.local/bin/pyright *)",
+      "Bash(.venv/bin/bandit *)",
+      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__list_triggers"
+    ]
   }
 }
