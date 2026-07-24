@@ -1,12 +1,16 @@
-"""tests/test_pulse_dashboard.py — the 5th "Pulse" board's contract.
+"""tests/test_pulse_dashboard.py — the Pulse hero panel's contract.
 
-Pulse is ONE full-width Business Text panel (marcusolsson-dynamictext-panel):
-a single live "one screen, one truth" readout. It is generator-owned exactly
-like the other four boards (generator == shipped JSON is enforced by
-test_trading_dashboard.test_generator_matches_shipped_json). These pins guard
-Pulse's identity, its single-panel shape, the exact live queries the template
-reads, its honest "--" / stale fallbacks, and that it rides the shared nav +
-CSS injector convention.
+The Pulse is ONE full-width Business Text panel (marcusolsson-dynamictext-
+panel): a single live "one screen, one truth" readout. It lives at the TOP
+OF THE COMMAND BOARD — operator decision 2026-07-23 ("integrate it with my
+4 boards, not a new one"): the board family stays at four, the standalone
+liquiditybot-pulse uid is retired on every import, and the phone view is
+Command's viewPanel+kiosk URL. These pins guard the panel's placement and
+shape, the exact live queries the template reads, its honest "--" / stale
+fallbacks, the render-safety helper lint, and the SANITIZER CONTRACT:
+Grafana Cloud strips <style> out of panel content (the board shipped once
+as unstyled plain text because of this), so the CSS must ride in the
+plugin's dedicated `styles` option and never in `content`.
 """
 import re
 from pathlib import Path
@@ -15,16 +19,16 @@ import scripts.build_trading_dashboard as gen
 import scripts.grafana_import as gi
 
 ROOT = Path(__file__).resolve().parents[1]
-FNAME = "liquiditybot_pulse.json"
 
 
-def _board():
-    return gen.DASHBOARDS[FNAME]
+def _command():
+    return gen.DASHBOARDS["liquiditybot_command.json"]
 
 
-def _content_panel(d):
-    # the single Business Text CONTENT panel = the marcusolsson tile that is
-    # NOT the id-990 CSS injector
+def _pulse_panel(d=None):
+    # the single Business Text CONTENT panel on the Command board = the
+    # marcusolsson tile that is NOT the id-990 CSS injector
+    d = d or _command()
     cands = [p for p in d["panels"]
              if p["type"] == "marcusolsson-dynamictext-panel"
              and p["id"] != gen.INJ_ID]
@@ -32,51 +36,52 @@ def _content_panel(d):
     return cands[0]
 
 
-def test_pulse_registered_in_both_lists():
-    assert FNAME in gen.DASHBOARDS, "Pulse not registered in the generator"
-    assert FNAME in gi.DASHBOARDS, "Pulse not in the grafana_import push list"
+# ---- placement: inside Command, not a fifth board ---------------------------
+def test_no_standalone_pulse_board_anywhere():
+    assert "liquiditybot_pulse.json" not in gen.DASHBOARDS, \
+        "the family stays at FOUR boards — Pulse is a Command panel"
+    assert "liquiditybot_pulse.json" not in gi.DASHBOARDS
+    assert not (ROOT / "docs" / "grafana" / "liquiditybot_pulse.json").exists()
+    assert len(gi.DASHBOARDS) == 4
 
 
-def test_pulse_json_file_shipped():
-    assert (ROOT / "docs" / "grafana" / FNAME).exists(), \
-        "regenerate: python scripts/build_trading_dashboard.py"
+def test_standalone_pulse_uid_is_retired_on_import():
+    # the uid shipped once (2026-07-23) — the import run must delete it
+    assert "liquiditybot-pulse" in gi.RETIRED_UIDS
 
 
-def test_pulse_uid_and_title():
-    d = _board()
-    assert d["uid"] == "liquiditybot-pulse"
-    assert d["title"] == "Pulse"
+def test_pulse_absent_from_shared_nav():
+    for d in gen.DASHBOARDS.values():
+        nav = {ln["url"] for ln in d["links"]}
+        assert "/d/liquiditybot-pulse" not in nav, \
+            f'{d["uid"]}: nav still links the retired standalone board'
+        assert len(nav) == 4, f'{d["uid"]}: nav must list exactly the 4 boards'
 
 
-def test_pulse_defaults_to_48h_window():
-    # the sparkline reads the DASHBOARD time range; it must default to 48h
-    assert _board()["time"] == {"from": "now-48h", "to": "now"}
-    assert _board()["refresh"] == "30s"
-
-
-def test_pulse_is_one_fullwidth_tall_business_text_panel():
-    d = _board()
-    content = [p for p in d["panels"]
-               if p["type"] not in ("row",) and p["id"] != gen.INJ_ID]
-    assert len(content) == 1, "Pulse is exactly one content panel"
-    p = content[0]
-    assert p["type"] == "marcusolsson-dynamictext-panel"
+def test_pulse_opens_the_command_board():
+    p = _pulse_panel()
     gp = p["gridPos"]
-    assert gp["x"] == 0 and gp["w"] == 24, "full width"
-    assert gp["h"] >= 26, "hero-tall"
+    assert gp["x"] == 0 and gp["y"] == 0 and gp["w"] == 24, \
+        "the pulse hero is the board's full-width opening panel"
+    assert gp["h"] >= 18, "hero-tall (content column needs ~600px)"
     assert p["options"]["renderMode"] == "data"
     assert p.get("pluginVersion") == "6.3.0"
 
 
-def test_pulse_injector_present_and_single():
-    inj = [p for p in _board()["panels"]
-           if p["type"] == "marcusolsson-dynamictext-panel"
-           and p["id"] == gen.INJ_ID]
-    assert len(inj) == 1, "exactly one CSS injector (id 990)"
+# ---- the sanitizer contract (why the board once rendered as plain text) -----
+def test_pulse_css_rides_in_styles_option_never_in_content():
+    o = _pulse_panel()["options"]
+    assert "<style" not in o["content"], \
+        "Grafana Cloud SANITIZES <style> out of content — CSS must live in " \
+        "the plugin's `styles` option (this exact bug shipped once)"
+    assert o["styles"].strip(), "styles option empty — the panel renders bare"
+    assert ".pulse-wrap{" in o["styles"], "pulse CSS missing from styles"
+    assert "styles" in o["editors"], "styles editor must be enabled"
 
 
+# ---- live queries ------------------------------------------------------------
 def test_pulse_targets_hit_the_required_metrics():
-    p = _content_panel(_board())
+    p = _pulse_panel()
     metrics = set()
     for t in p["targets"]:
         metrics |= set(re.findall(r"liquiditybot_[a-z_]+", t["expr"]))
@@ -89,36 +94,39 @@ def test_pulse_targets_hit_the_required_metrics():
 
 
 def test_pulse_queries_the_exact_reason_codes():
-    exprs = " ".join(t["expr"] for t in _content_panel(_board())["targets"])
-    # Brief 2 §4: time-stop scratches = PT-060, probes held back = SZ-047
+    exprs = " ".join(t["expr"] for t in _pulse_panel()["targets"])
+    # time-stop scratches = PT-060, probes held back = SZ-047
     assert 'code="PT-060"' in exprs
     assert 'code="SZ-047"' in exprs
 
 
 def test_pulse_has_a_range_equity_sparkline():
     # the sparkline is a RANGE series on equity (instant:false, range:true)
-    p = _content_panel(_board())
+    p = _pulse_panel()
     rng = [t for t in p["targets"]
            if "liquiditybot_equity" in t["expr"]
            and t.get("range") is True and t.get("instant") is False]
     assert rng, "no range equity series for the sparkline"
 
 
+def test_pulse_sparkline_bounds_follow_the_dashboard_range():
+    # the y-normalization window (refs N/O) must track the DASHBOARD range the
+    # polyline covers — a hardcoded [48h] mis-scales the line on Command's
+    # 24h default (and on any keepTime-carried range).
+    exprs = " ".join(t["expr"] for t in _pulse_panel()["targets"])
+    assert "[$__range]" in exprs, "sparkline bounds must use $__range"
+    assert "[48h]" not in exprs, "hardcoded lookback diverges from the range"
+
+
 def test_pulse_content_has_honest_fallbacks_and_stale():
-    c = _content_panel(_board())["options"]["content"]
+    o = _pulse_panel()["options"]
+    c = o["content"]
     assert "--" in c, "every value needs a '--' empty-state fallback"
     assert "stale" in c.lower(), "must honor liquiditybot_status_stale"
     # pure-Handlebars SVG sparkline (no afterRender/helpers dependency)
     assert "<svg" in c and "polyline" in c, "inline SVG sparkline expected"
-    assert not _content_panel(_board())["options"].get("afterRender"), \
+    assert not o.get("afterRender"), \
         "content panel must not depend on afterRender JS for the sparkline"
-
-
-def test_pulse_in_shared_nav_on_every_board():
-    for d in gen.DASHBOARDS.values():
-        nav = {ln["url"] for ln in d["links"]}
-        assert "/d/liquiditybot-pulse" in nav, \
-            f'{d["uid"]}: Pulse missing from shared nav'
 
 
 # ---- render-safety: the template must only call helpers that actually exist -
@@ -148,7 +156,7 @@ def _helper_names(content):
 
 def test_pulse_uses_only_registered_helpers():
     unknown = _helper_names(
-        _content_panel(_board())["options"]["content"]) - _ALLOWED_HELPERS
+        _pulse_panel()["options"]["content"]) - _ALLOWED_HELPERS
     assert not unknown, (
         "Pulse template calls helper(s) not in Business Text v6 + Handlebars "
         f"core -> 'Missing helper' blanks the whole panel: {sorted(unknown)}")
@@ -157,15 +165,16 @@ def test_pulse_uses_only_registered_helpers():
 def test_pulse_never_uses_comparison_helpers():
     # gte/gt/lt/lte are NOT shipped by Business Text; sign/level branching must
     # go through startsWith/eq (built-in) or PromQL, never a math helper.
-    c = _content_panel(_board())["options"]["content"]
+    c = _pulse_panel()["options"]["content"]
     for bad in ("gte", "gt", "lte", " lt "):
         assert f"({bad.strip()} " not in c, f"forbidden helper subexpr: {bad}"
 
 
+# ---- money typography + honesty ----------------------------------------------
 def test_pulse_hero_groups_thousands():
     # design C1: the one loud element must render $10,000.00, not $10000.00 —
     # grouping is pushed into PromQL (plugin has no math helpers).
-    p = _content_panel(_board())
+    p = _pulse_panel()
     exprs = " ".join(t["expr"] for t in p["targets"])
     assert "/ 1000" in exprs or "/1000" in exprs, "no thousands query"
     assert "% 1000" in exprs or "%1000" in exprs, "no remainder query"
@@ -179,7 +188,7 @@ def test_pulse_pnl_strings_group_thousands():
     # design C1 extends to the P&L strings: daily/weekly money must group too
     # (same PromQL abs/floor/%1000 companions, refIds R-U == frames 17-20),
     # not just the hero — a $1,234.56 week must not render "$1234.56".
-    p = _content_panel(_board())
+    p = _pulse_panel()
     exprs = " ".join(t["expr"] for t in p["targets"])
     assert "liquiditybot_daily_pnl" in exprs and "liquiditybot_weekly_pnl" \
         in exprs and "abs(" in exprs, "P&L grouping companions missing"
@@ -196,7 +205,7 @@ def test_pulse_pnl_strings_group_thousands():
 def test_pulse_flat_pnl_reads_neutral_not_a_loss():
     # design M6: a day/week that rounds to zero must render flat/gray, never a
     # red '-$0.00'. Detected via eq on the toFixed string ('0.00' / '-0.00').
-    c = _content_panel(_board())["options"]["content"]
+    c = _pulse_panel()["options"]["content"]
     assert '(eq (toFixed Value 2) "-0.00")' in c, \
         "no -0.00 flat guard — a ~flat down day would render red '-$0.00'"
     assert '(eq (toFixed Value 2) "0.00")' in c, "no 0.00 flat guard"
@@ -205,19 +214,21 @@ def test_pulse_flat_pnl_reads_neutral_not_a_loss():
 
 def test_pulse_stopped_dot_is_not_green():
     # honesty C2: a cleanly stopped/paused bot (running=0, stale=0) must NOT
-    # show the green all-go dot. A neutral 'idle' dot class must exist and the
-    # state div must apply it when not running and not stale.
-    c = _content_panel(_board())["options"]["content"]
-    assert ".pulse-state.idle .pulse-dot{" in c, "no neutral idle dot rule"
-    assert "#8E8E93" in c or "#8e8e93" in c, "idle dot must be neutral gray"
-    assert "{{#unless data.[0].[0].Value}} idle" in c, \
+    # show the green all-go dot. The neutral 'idle' dot rule lives in the
+    # styles option (CSS), the class application in content (template).
+    o = _pulse_panel()["options"]
+    assert ".pulse-state.idle .pulse-dot{" in o["styles"], \
+        "no neutral idle dot rule"
+    assert "#8E8E93" in o["styles"] or "#8e8e93" in o["styles"], \
+        "idle dot must be neutral gray"
+    assert "{{#unless data.[0].[0].Value}} idle" in o["content"], \
         "idle class not applied when running=0"
-    assert "{{else}}Stopped{{/if}}" not in c, \
+    assert "{{else}}Stopped{{/if}}" not in o["content"], \
         "must not label a possibly-PAUSED bot as 'Stopped'"
 
 
 def test_pulse_daily_missing_is_neutral_not_loss():
     # honesty I1: absent daily P&L ('-- today') must not read red (a loss).
-    c = _content_panel(_board())["options"]["content"]
+    c = _pulse_panel()["options"]["content"]
     assert 'class="loss">-- today' not in c, "'-- today' must not be red"
     assert 'class="flat">-- today' in c, "'-- today' must be neutral"

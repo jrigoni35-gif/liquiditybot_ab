@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_retired_glass_boards_stay_retired():
     boards = {"liquiditybot_command.json", "liquiditybot_execution.json",
               "liquiditybot_problem_solution.json",
-              "liquiditybot_screening.json", "liquiditybot_pulse.json"}
+              "liquiditybot_screening.json"}
     assert set(gi.DASHBOARDS) == boards
     assert set(gen.DASHBOARDS) == boards
     for name in ("liquiditybot_glass.json", "liquiditybot_glass_mobile.json"):
@@ -143,7 +143,7 @@ def test_uids_and_nav_links_pinned():
     uids = {d["uid"] for d in _boards()}
     assert uids == {"liquiditybot-trading", "liquiditybot-exec",
                     "liquiditybot-problem-solution",
-                    "liquiditybot-screening", "liquiditybot-pulse"}
+                    "liquiditybot-screening"}
     for d in _boards():
         nav = {ln["url"] for ln in d["links"]}
         assert nav == {f"/d/{u}" for u in uids}, d["uid"]

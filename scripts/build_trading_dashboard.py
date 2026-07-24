@@ -446,6 +446,7 @@ def _pa(metric, suffix=""):
 
 # ========================= board 1 · command ===============================
 def _author_command():
+    _pulse_hero()          # the board opens on the one-glance pulse screen
     row("🫀 VITALS — alive & armed")
     state("Bot", M("liquiditybot_running"), 4, 4, UP_DOWN,
           desc="runner RUNNING.")
@@ -1014,17 +1015,22 @@ def _author_screening():
 # equity value (so higher equity sits higher), mapped by a viewBox whose
 # y-origin (-max) and height (max-min, clamped) come from sibling
 # min/max_over_time instant queries — zero per-point math in the template.
-_PULSE_CONTENT = """\
-<style>
+# Grafana Cloud SANITIZES <style> blocks out of rendered panel HTML (the same
+# sanitizer that keeps the glass injector dormant as a native text panel), so
+# the pulse CSS must ship via Business Text's dedicated `styles` option — the
+# plugin injects it as scoped CSS itself, outside the sanitizer's reach. The
+# content template below is therefore HTML-only; putting a <style> tag back
+# into content will silently strip on the instance (pinned in tests).
+_PULSE_CSS = """\
 .pulse-wrap{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,\
 system-ui,sans-serif;color:#F5F5F7;max-width:26rem;margin:0 auto;\
 box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;\
 justify-content:center;\
-padding:2.6rem 1.25rem 1.4rem;text-align:center;-webkit-font-smoothing:antialiased;}
+padding:1.8rem 1.25rem 1.2rem;text-align:center;-webkit-font-smoothing:antialiased;}
 .pulse-state{display:flex;align-items:center;justify-content:center;\
 flex-wrap:wrap;gap:.5em;font-size:11px;font-weight:600;text-transform:uppercase;\
 letter-spacing:.14em;color:#86868B;font-variant-numeric:tabular-nums;\
-margin-bottom:2.1rem;}
+margin-bottom:1.6rem;}
 .pulse-state .sep{opacity:.45;}
 .pulse-state.stale{color:#FF9F0A;}
 .pulse-dot{width:7px;height:7px;border-radius:50%;background:#30D158;\
@@ -1044,7 +1050,7 @@ letter-spacing:-.01em;}
 .pulse-pnl .loss{color:#FF453A;}
 .pulse-pnl .flat{color:#86868B;}
 .pulse-pnl .wk{color:#86868B;margin-left:.7em;}
-.pulse-spark{margin:1.7rem 0 1.9rem;line-height:0;}
+.pulse-spark{margin:1.2rem 0 1.4rem;line-height:0;}
 .pulse-spark svg{display:block;width:100%;height:42px;overflow:visible;}
 .pulse-nohist{line-height:1.4;font-size:11px;color:#6E6E73;text-transform:uppercase;\
 letter-spacing:.08em;padding:.9rem 0;}
@@ -1059,9 +1065,10 @@ margin-top:.18rem;}
 white-space:nowrap;text-align:right;}
 .pulse-row .val .sub{display:block;font-size:11px;font-weight:500;color:#86868B;\
 text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem;}
-.pulse-foot{margin-top:1.9rem;font-size:11px;color:#6E6E73;\
-text-transform:uppercase;letter-spacing:.1em;}
-</style>
+.pulse-foot{margin-top:1.4rem;font-size:11px;color:#6E6E73;\
+text-transform:uppercase;letter-spacing:.1em;}"""
+
+_PULSE_CONTENT = """\
 <div class="pulse-wrap">
 <div class="pulse-state{{#if data.[2].[0].Value}} stale\
 {{else}}{{#unless data.[0].[0].Value}} idle{{/unless}}{{/if}}">\
@@ -1151,11 +1158,14 @@ _PULSE_DEFAULT = ('<div class="pulse-wrap"><div class="pulse-foot">'
                   'waiting for telemetry&hellip;</div></div>')
 
 
-def _author_pulse():
-    """The single full-width Business Text tile — no row header, the tile IS
-    the screen (the shared nav already names it). refId order below == the
-    `data.[i]` frame index the template reads."""
-    x, y = _place(24, 28)
+def _pulse_hero():
+    """The full-width Business Text pulse tile — the Command board's opening
+    screen (one glance: equity, deltas, trend, four rows). Lives INSIDE the
+    Command board by operator decision (2026-07-23: "not a new one" — the
+    family stays at four boards; the standalone liquiditybot-pulse uid is
+    retired in grafana_import.py). Phone view: Command's viewPanel+kiosk URL.
+    refId order below == the `data.[i]` frame index the template reads."""
+    x, y = _place(24, 20)
     inst = [
         ("A", 'max(liquiditybot_running{job="liquiditybot"})'),
         ("B", 'max(liquiditybot_status_age_sec{job="liquiditybot"})'),
@@ -1191,12 +1201,16 @@ def _author_pulse():
     targets.append(tM)
     # N/O: viewBox y-origin (-max) and height (max-min, clamped>0) — the pure-
     # PromQL bounds the sparkline normalizes against (no template math).
+    # $__range keeps the y-normalization window locked to the DASHBOARD range
+    # the M polyline actually covers (Command defaults to 24h; a hardcoded
+    # [48h] here would mis-scale the line whenever the two windows differ).
     targets.append(_t(
-        '0 - max_over_time(liquiditybot_equity{job="liquiditybot"}[48h])',
+        '0 - max_over_time(liquiditybot_equity{job="liquiditybot"}[$__range])',
         ref="N", instant=True))
     targets.append(_t(
-        'clamp_min(max_over_time(liquiditybot_equity{job="liquiditybot"}[48h])'
-        ' - min_over_time(liquiditybot_equity{job="liquiditybot"}[48h]), '
+        'clamp_min('
+        'max_over_time(liquiditybot_equity{job="liquiditybot"}[$__range])'
+        ' - min_over_time(liquiditybot_equity{job="liquiditybot"}[$__range]), '
         '0.01)', ref="O", instant=True))
     # P/Q: thousands-separator for the equity hero (design C1). The plugin
     # ships no math helpers, so grouping is arithmetic in PromQL: P = whole
@@ -1229,11 +1243,13 @@ def _author_pulse():
     panels.append({
         "id": _id(), "type": "marcusolsson-dynamictext-panel",
         "title": "", "description": "Live single-screen truth.",
-        "datasource": DS, "gridPos": {"h": 28, "w": 24, "x": x, "y": y},
+        "datasource": DS, "gridPos": {"h": 20, "w": 24, "x": x, "y": y},
         "fieldConfig": {"defaults": {}, "overrides": []},
+        # CSS rides in `styles` (sanitizer-proof), NEVER in content — see the
+        # _PULSE_CSS comment. editors lists "styles" so the option is live.
         "options": {"renderMode": "data", "content": _PULSE_CONTENT,
-                    "defaultContent": _PULSE_DEFAULT, "editors": [],
-                    "helpers": "", "afterRender": "", "styles": "",
+                    "defaultContent": _PULSE_DEFAULT, "editors": ["styles"],
+                    "helpers": "", "afterRender": "", "styles": _PULSE_CSS,
                     "wrap": False, "externalStyles": [], "contentPartials": []},
         "targets": targets, "pluginVersion": "6.3.0"})
 
@@ -1243,8 +1259,7 @@ _TAGS = ["liquiditybot", "trading", "paper-trading"]
 _NAV = [("⌘ Command", "liquiditybot-trading"),
         ("⚙ Models·Inv·Exec", "liquiditybot-exec"),
         ("🩹 Problem/Solution", "liquiditybot-problem-solution"),
-        ("🔎 Screening", "liquiditybot-screening"),
-        ("🧭 Pulse", "liquiditybot-pulse")]
+        ("🔎 Screening", "liquiditybot-screening")]
 
 
 def _links():
@@ -1355,11 +1370,6 @@ DASHBOARDS = {
         "Asset screening: skimmer ranks + a per-asset tradeability scorecard "
         "(book, regime, signal quality, result).", _author_screening,
         "screening"),
-    "liquiditybot_pulse.json": _board(
-        "liquiditybot-pulse", "Pulse",
-        "One screen, one truth: live equity, P&L, a 48h sparkline and the "
-        "few numbers that say whether the bot is healthy — a single Business "
-        "Text panel.", _author_pulse, "pulse", time_from="now-48h"),
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)

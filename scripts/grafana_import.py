@@ -22,23 +22,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARDS = [
-    # the five banner-linked Liquid Glass boards — generator-owned by
+    # the four banner-linked Liquid Glass boards — generator-owned by
     # scripts/build_trading_dashboard.py (the command board keeps uid
     # liquiditybot-trading, replacing the old monolith). The dedicated
     # glass + mobile boards were retired 2026-07-22; the glass treatment
-    # lives in the boards themselves (docs/grafana/README_glass.md). Pulse
-    # (2026-07-23) is the single-panel "one screen, one truth" hero.
+    # lives in the boards themselves (docs/grafana/README_glass.md). The
+    # Pulse "one screen, one truth" hero lives INSIDE the Command board
+    # (operator decision 2026-07-23: the family stays at four).
     "liquiditybot_command.json",
     "liquiditybot_execution.json",
     "liquiditybot_problem_solution.json",
     "liquiditybot_screening.json",
-    "liquiditybot_pulse.json",
 ]
 
-# Boards retired 2026-07-22 — deleted from the instance on every run so a
-# re-import can never leave a dead board (with its fixed defects) live.
-# DELETE is idempotent here: 404 = already gone, which is success.
-RETIRED_UIDS = ["liquiditybot-glass", "liquiditybot-glass-mobile"]
+# Boards retired — deleted from the instance on every run so a re-import
+# can never leave a dead board (with its fixed defects) live. DELETE is
+# idempotent here: 404 = already gone, which is success. glass + mobile
+# retired 2026-07-22; the standalone Pulse board 2026-07-23 (folded into
+# Command the same day it shipped — "not a new one").
+RETIRED_UIDS = ["liquiditybot-glass", "liquiditybot-glass-mobile",
+                "liquiditybot-pulse"]
 
 
 def _req(url: str, token: str, payload: dict | None = None, method=None):
