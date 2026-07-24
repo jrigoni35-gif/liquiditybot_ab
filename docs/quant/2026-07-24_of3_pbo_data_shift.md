@@ -53,3 +53,13 @@ re-baselining: the entire Phase C3 diff stashed and the check re-run at
 clean 5ca57a1 produced the identical result. Conscious baseline is now
 4 passed / 4 failed. The watch condition stands: any future shift
 repeats the inertness experiment first.
+
+## Second recovery (2026-07-24, evening): 4/4 → 5/3 at 4,049 rows
+
++139 PC-generated corpus rows moved another gap-family check to PASS.
+Inertness proven per protocol: the 4/4-baseline commit (220c290) in a
+scratch worktree against the current corpus reproduces the identical
+5-passed/3-failed. Conscious baseline is now 5 passed / 3 failed
+(remaining: two gap-family + dead-feature). The corpus is healing the
+thin-corpus family exactly as growth predicted; the watch condition
+stands unchanged.
