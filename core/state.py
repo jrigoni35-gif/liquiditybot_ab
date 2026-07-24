@@ -41,6 +41,12 @@ class Position:
     # -> the floor is exactly inert for legacy/restored positions that predate
     # this field.
     est_cost_bps: float = 0.0
+    # Compounder Phase C: which strategy book opened this position - "5m"
+    # (the existing scalping flow) or "long" (the long-horizon accumulation
+    # book, risk/long_book.py). Default keeps every pre-C construction site
+    # (and every restored legacy snapshot) exactly "5m" - zero 5m
+    # contamination by construction.
+    book: str = "5m"
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
         """Unrealized PnL in PERCENT of entry price, sign-correct for

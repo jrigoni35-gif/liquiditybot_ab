@@ -24,6 +24,7 @@ Prefix map (subsystem of origin):
   HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
   CV  risk.conviction (Compounder Phase A conviction formula)
   CX  data.context_engine (Compounder Phase B context feed)
+  LB  risk.long_book (Compounder Phase C long-horizon book)
 """
 
 from enum import Enum
@@ -292,6 +293,21 @@ class Code(str, Enum):
     # CX-030 reserved for the Phase C long-book context add-block
     # disposition (context unknown blocks a NEW long-book add) - not
     # emitted by this phase; telemetry-only per Phase B's contract.
+
+    # ---- long-horizon book (LB) — risk/long_book.py (Compounder C) ----
+    LB_ADD_PLACED = "LB-000"         # accumulation add order placed (paper/live)
+    LB_ADD_DENIED = "LB-010"         # add refused (detail names the gate:
+                                     # conviction/ladder/inventory/sizer/risk)
+    LB_ZONE_SHIFT = "LB-020"         # bid shifted off a TH-013 magnet zone
+                                     # (ladder hygiene; price only ever moves
+                                     # AWAY from the magnet, deeper)
+    LB_TIER_BANK = "LB-030"          # long-book tier take (partial bank)
+    LB_THESIS_INVALIDATED = "LB-031" # structural stop hit: full close
+    LB_RUNG_UP = "LB-040"            # evidence ladder rung upgrade (gated)
+    LB_RUNG_DOWN = "LB-041"          # instant downgrade (dd breach)
+    LB_PAUSED = "LB-050"             # add cadence paused (event window /
+                                     # contraction phase / context unknown -
+                                     # CX-030 rides along for the unknown case)
 
 
 def tag(code: Code, detail: str) -> str:

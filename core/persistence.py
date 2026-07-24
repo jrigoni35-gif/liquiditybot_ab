@@ -63,6 +63,7 @@ def position_to_dict(pos) -> dict:
         "high_water": pos.high_water,
         "is_probe": pos.is_probe,
         "est_cost_bps": pos.est_cost_bps,
+        "book": pos.book,
     }
 
 
@@ -88,6 +89,10 @@ def position_from_dict(d: dict):
         # risk/profit_tiers.py's tier-1 cost floor exactly inert for a
         # restored legacy position.
         est_cost_bps=float(d.get("est_cost_bps", 0.0)),
+        # Compounder Phase C: pre-C snapshots lack this key -> defaults
+        # "5m", the existing scalping book, so a legacy restore never
+        # silently reclassifies a position onto the long book.
+        book=d.get("book", "5m"),
     )
 
 

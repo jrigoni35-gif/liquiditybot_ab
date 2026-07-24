@@ -1233,6 +1233,7 @@ class LiquidityBot:
                     edge_bps=order.meta.get("edge_bps", 0.0),
                     est_cost_bps=order.meta.get("est_cost_bps", 0.0),
                     leverage=order.leverage,
+                    book=order.meta.get("book", "5m"),
                 )
                 pos.stop_price = self._stop_price_for(
                     pos.direction, pos.entry_price, self._asset_of(pos.symbol))
@@ -1247,7 +1248,8 @@ class LiquidityBot:
                                         pos.direction, order.meta["features"],
                                         probe=pos.is_probe,
                                         candidate_id=order.meta.get(
-                                            "candidate_id"))
+                                            "candidate_id"),
+                                        book=pos.book)
                 log.info(f"OPEN {pos.direction} {pos.size:.6f} {pos.symbol} "
                         f"@ {self._px(pos.symbol, pos.entry_price)} "
                         f"(p={pos.confidence:.2f}, "

@@ -105,7 +105,12 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # candidate_id joined 2026-07-23 (W2-4 twin-dedup
                     # lineage join key) - pre-bump rows carry no lineage,
                     # the clash guard falls back to exact-vector match
-                    r.get("candidate_id") or ""])
+                    r.get("candidate_id") or "",
+                    # book joined 2026-07-24 (Compounder Phase C, Task C1):
+                    # 5m/long strategy book tag - every bundle this script
+                    # can migrate predates the long book, so "5m" is not
+                    # just a fallback, it is the FACT of every such row
+                    r.get("book") or "5m"])
     return out, padded
 
 

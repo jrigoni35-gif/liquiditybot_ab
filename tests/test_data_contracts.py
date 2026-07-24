@@ -92,9 +92,12 @@ def test_history_header_contract_is_stable(tmp_path):
     # can grade the conviction-only sample mid-exploration — appended last
     # candidate_id joined 2026-07-23 (W2-4): twin-dedup lineage join key —
     # appended last so meta order (and every past bump) stays stable
+    # book joined 2026-07-24 (Compounder Phase C, Task C1): 5m/long strategy
+    # book tag — appended last so meta order (and every past bump) stays
+    # stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                "barrier", "probe", "disp", "candidate_id"]
+                "barrier", "probe", "disp", "candidate_id", "book"]
     assert hs._header == expected
 
 

@@ -93,7 +93,7 @@ class HistoryStore:
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                        "barrier", "probe", "disp", "candidate_id"]
+                        "barrier", "probe", "disp", "candidate_id", "book"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -117,6 +117,12 @@ class HistoryStore:
         # precision. Lineage catches what the vector match cannot; the
         # vector match stays as the fallback for legacy rows with no
         # recorded lineage. BOOKKEEPING ONLY - never a feature.
+        # book (Compounder Phase C, Task C1): which strategy book opened
+        # this position - "5m" (existing scalping flow, the default for
+        # every pre-C row and every caller that never heard of the long
+        # book) or "long" (risk/long_book.py). LAST column so every
+        # existing 5m row/consumer is untouched but for this one trailing
+        # field. BOOKKEEPING ONLY - never a feature.
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -143,19 +149,19 @@ class HistoryStore:
 
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray, probe: bool = False,
-                candidate_id: "str | None" = None):
+                candidate_id: "str | None" = None, book: str = "5m"):
         # signal time captured HERE: rows are appended at label time, and
         # the purged walk-forward must order/purge by when the SIGNAL
         # happened, not when its barrier resolved
         self._pending[position_id] = (asset, direction, features.copy(),
                                       time.time(), bool(probe),
-                                      candidate_id or "")
+                                      candidate_id or "", book)
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
                     barrier: str = "", probe: str = "", disp: str = "",
-                    candidate_id: str = ""):
+                    candidate_id: str = "", book: str = "5m"):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -163,7 +169,7 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 9 != len(self._header):
+        if 3 + len(feats) + 10 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
@@ -193,7 +199,7 @@ class HistoryStore:
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier, probe, disp, candidate_id])
+                                    barrier, probe, disp, candidate_id, book])
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -218,7 +224,10 @@ class HistoryStore:
             return
         probe = False
         cand_id = ""
-        if len(entry) == 6:
+        book = "5m"
+        if len(entry) == 7:
+            asset, direction, feats, sig_ts, probe, cand_id, book = entry
+        elif len(entry) == 6:
             asset, direction, feats, sig_ts, probe, cand_id = entry
         elif len(entry) == 5:
             asset, direction, feats, sig_ts, probe = entry
@@ -232,7 +241,7 @@ class HistoryStore:
                         net_pnl_usd, "live", signal_ts=sig_ts,
                         barrier="realized",
                         probe="1" if probe else "0", disp="entered",
-                        candidate_id=cand_id or "")
+                        candidate_id=cand_id or "", book=book or "5m")
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 
