@@ -51,6 +51,7 @@ from risk.profit_tiers import ProfitTierEngine
 from risk.protocols import RiskProtocolStack
 from runner import BotRunner
 from scripts.smoke_test import MockBinanceUS, MockKraken, MockOKX
+from strategies.signal_gates import SignalResult
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -2167,46 +2168,139 @@ def _entry_bot(*, resting=None, cancel_raises=False,
     return bot
 
 
-def test_direct_taker_short_entry_cancels_resting_bid_first(fake_audit):
-    """Direct entry path (cycle_once) with taker-style short entry (post_only=False)
-    on a pair with a resting long-book bid must cancel the bid first (LB-022)."""
-    resting = _resting_long_bid()
-    bot = _entry_bot(resting=[resting])
+def _real_taker_entry_cfg(tmp_path) -> dict:
+    """A full-bot config that funnels EVERY confirmed signal into the
+    legacy single-entry path (main.py ~3186-3197), the exact site under
+    review. Two structural alternates to that path exist:
+    grid_ladder.plan arming -> _place_ladder, and algo.should_engage ->
+    _submit_algo_child (config.json's "algo" section ships empty, so
+    should_engage is already off by default - grid_ladder ships enabled,
+    so it is explicitly disabled here). The algo-child site is already
+    pinned for real by test_algo_child_taker_short_entry_cancels_
+    resting_bid_first below; the ladder never reaches this guard at all
+    (out of scope for this task). ml/pretrade/order_manager overrides
+    mirror tests/test_context_integration.py's _cfg(force_fill=True) -
+    the established recipe for making a programmatically-forced
+    confirmed signal clear the sizer + pretrade EV gate into a real
+    order instead of a silent veto."""
+    cfg = _full_cfg(tmp_path)
+    cfg["grid_ladder"] = dict(cfg.get("grid_ladder", {}), enabled=False)
+    cfg["ml"]["cold_start_prior_p"] = 0.66
+    cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
+    cfg["pretrade"]["price_exit_leg"] = False
+    cfg.setdefault("order_manager", {}).setdefault(
+        "sim_fill", {})["queue_aware"] = False
+    return cfg
 
-    # Simulate a taker-style short entry submit (side="sell", post_only=False)
-    # The guard pattern checks: side == "sell" and not post_only → cancel
-    asset, symbol, side = "BTC", "BTC/USD", "sell"
-    price, size = 59_490.0, 0.01
 
-    plan = types.SimpleNamespace(post_only=False, style="aggressive")
+def _seed_real_resting_long_bid(bot, t: float):
+    """Places one REAL long-book BUY bid for BTC through the actual
+    _long_book_cycle machinery (same recipe as test_end_to_end_slow_
+    cycle_places_a_real_long_book_order above): a genuine resting order
+    the real OrderManager tracks, not a hand-built ManagedOrder double."""
+    bot.context.maybe_poll = lambda now=None: _aligned_ctx()
+    bot.fast_cycle(t)
+    bot.slow_cycle(t)
+    long_orders = [o for o in bot.orders.open_orders()
+                  if o.asset == "BTC" and o.meta.get("book") == "long"]
+    assert long_orders, "precondition: a real resting long-book BTC bid"
+    return long_orders[0]
 
-    # Call the guard directly and then submit
-    _lb_guard = getattr(bot, "_clear_long_book_bid_before_sell", None)
-    if callable(_lb_guard):
-        _lb_guard(asset, side, plan.post_only, reason="entry")
 
-    bot.orders.submit(
-        asset=asset, symbol=symbol, pair="XBTUSDT", side=side,
-        price=price, size=size, purpose="entry",
-        position_id="p1", post_only=plan.post_only,
-        now=1_700_000_000.0)
+def _force_btc_short_signal(bot, urgency: float) -> None:
+    """Monkeypatches the REAL SignalGateEngine instance's evaluate_asset
+    (same technique as test_context_integration.py's
+    _force_confirmed_signals) so slow_cycle's entry loop sees a
+    confirmed SHORT on BTC at the given urgency - direction and urgency
+    are the only things faked; sizing, pretrade, conviction, and
+    submission all run for real. ETH gets an honest non-signal so it
+    never competes with BTC for a position slot."""
+    def _evaluate(base_asset, view):
+        if base_asset == "BTC":
+            return SignalResult(
+                symbol="BTC/USD", direction="short", confidence=1.0,
+                size=0.0, all_confirmed=True, gates_passed={},
+                urgency=urgency)
+        return SignalResult(
+            symbol=f"{base_asset}/USD", direction=None, confidence=0.0,
+            size=0.0, all_confirmed=False, gates_passed={})
+    bot.gates.evaluate_asset = _evaluate
 
-    # Entry submitted, bid cancelled first
-    assert len(bot.orders.calls) == 1
-    assert bot.orders.calls[0]["side"] == "sell"
-    assert bot.orders.calls[0]["post_only"] is False
 
-    assert bot.orders.cancelled
-    assert bot.orders.cancelled[0][0] == "lb-bid-1"
-    assert Code.LB_BID_CLEARED.value in bot.orders.cancelled[0][1]
+def _spy_orders(bot) -> list:
+    """Wraps the REAL OrderManager's cancel_order/submit with an ordered
+    event log, delegating to the originals for every call - proves
+    cancel-before-submit ordering on the real object slow_cycle actually
+    calls, the same property the algo-child test's fake recorder proves
+    on its own (fake) orders double."""
+    events: list = []
+    orig_cancel, orig_submit = bot.orders.cancel_order, bot.orders.submit
 
-    # Cancel happened before submit (ordering)
-    kinds = [e[0] for e in bot.orders.events]
-    assert kinds.index("cancel") < kinds.index("submit")
+    def _cancel(order, reason="cancelled"):
+        events.append(("cancel", order.order_id, reason))
+        return orig_cancel(order, reason=reason)
 
-    # LB-022 audited
+    def _submit(*a, **kw):
+        result = orig_submit(*a, **kw)
+        events.append(("submit", kw.get("side"), kw.get("post_only")))
+        return result
+
+    bot.orders.cancel_order = _cancel
+    bot.orders.submit = _submit
+    return events
+
+
+def test_direct_taker_short_entry_cancels_resting_bid_first(
+        fake_audit, tmp_path, monkeypatch):
+    """Drives the REAL slow_cycle entry loop (never a hand-reconstructed
+    call to the guard) to a genuine taker short entry on BTC: a confirmed
+    SHORT signal at urgency 0.95 (>= execution_tactics.taker_at_urgency
+    0.88) makes execution/tactics.py's plan_entry return
+    EntryPlan("taker", price, True, post_only=False) (tactics.py:102-110).
+    _ladder_entry (main.py:3991-3992) falls through unhandled for ANY
+    taker plan regardless of grid_ladder.enabled, so this exercises the
+    exact legacy single-entry site at main.py:3186-3197 the review named,
+    not a stand-in. A real long-book BUY bid for BTC is seeded first
+    through one genuine _long_book_cycle pass; the pin is that main.py's
+    wiring cancels it (LB-022) BEFORE the taker sell reaches
+    OrderManager.submit - proven with an ordered event log wrapped
+    around the REAL OrderManager methods (not a fake orders recorder)."""
+    monkeypatch.chdir(tmp_path)
+    cfg = _real_taker_entry_cfg(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60_000.0}
+    bot = _full_bot(cfg, prices, resume=False)
+
+    t = 1_700_000_000.0
+    resting = _seed_real_resting_long_bid(bot, t)
+
+    _force_btc_short_signal(bot, urgency=0.95)
+    events = _spy_orders(bot)
+
+    t2 = t + 5.0
+    bot.fast_cycle(t2)
+    bot.slow_cycle(t2)
+
+    sell_calls = [e for e in events if e[0] == "submit" and e[1] == "sell"]
+    assert sell_calls, "the real slow_cycle entry loop must submit the " \
+        "taker short entry"
+    assert sell_calls[0][2] is False, "the taker plan must carry " \
+        "post_only=False through to the submit"
+
+    cancels = [e for e in events
+              if e[0] == "cancel" and e[1] == resting.order_id]
+    assert cancels, "the resting long-book bid must be cancelled"
+    assert Code.LB_BID_CLEARED.value in cancels[0][2]
+
+    kinds = [e[0] for e in events]
+    assert kinds.index("cancel") < kinds.index("submit"), \
+        "cancel must happen BEFORE the marketable sell is submitted"
+
+    lb_orders = [o for o in bot.orders.open_orders()
+                if o.order_id == resting.order_id]
+    assert not lb_orders, "the original resting long-book bid must be gone"
+
     entries = [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
-    assert len(entries) == 1
+    assert entries, "LB-022 must be audited"
     assert entries[0][3]["asset"] == "BTC"
 
 
@@ -2248,34 +2342,51 @@ def test_algo_child_taker_short_entry_cancels_resting_bid_first(fake_audit):
     assert len(entries) == 1
 
 
-def test_post_only_maker_short_entry_does_not_cancel_resting_bid(fake_audit):
-    """A post_only (maker-first) short entry is exempt from the guard —
-    passive-passive same-pair quoting is bona fide two-sided market making."""
-    resting = _resting_long_bid()
-    bot = _entry_bot(resting=[resting])
+def test_post_only_maker_short_entry_does_not_cancel_resting_bid(
+        fake_audit, tmp_path, monkeypatch):
+    """Same REAL slow_cycle path as the taker test above, urgency 0.75
+    (>= execution_tactics.improve_at_urgency 0.70, < taker_at_urgency
+    0.88): plan_entry returns EntryPlan("improve", price, False,
+    post_only=True) (tactics.py:112-121), still routed through the same
+    unhandled-ladder legacy path (grid_ladder disabled in
+    _real_taker_entry_cfg, same as the taker test, so this isn't
+    reaching a DIFFERENT site than the one under review). The wiring at
+    main.py:3195-3197 passes the PLAN's own post_only straight into the
+    guard's no-op predicate (`side != "sell" or post_only`) - never a
+    hardcoded value. This test's whole assertion IS that pin: the maker
+    short entry still submits for real (side="sell", post_only=True),
+    but the resting long-book bid is left completely untouched and
+    LB-022 never fires - a no-op the guard reaches deliberately, not by
+    skipping the site. Passive-passive same-pair quoting (our own
+    resting long-book bid alongside our own resting maker short) is
+    bona fide two-sided market making, not the wash-trade pattern Rule
+    534 targets."""
+    monkeypatch.chdir(tmp_path)
+    cfg = _real_taker_entry_cfg(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60_000.0}
+    bot = _full_bot(cfg, prices, resume=False)
 
-    # Simulate a maker-style short entry (post_only=True)
-    asset, symbol, side = "BTC", "BTC/USD", "sell"
-    price, size = 59_510.0, 0.01
+    t = 1_700_000_000.0
+    resting = _seed_real_resting_long_bid(bot, t)
 
-    plan = types.SimpleNamespace(post_only=True, style="passive")
+    _force_btc_short_signal(bot, urgency=0.75)
+    events = _spy_orders(bot)
 
-    # Guard predicate: side == "sell" and not post_only → False, no-op
-    _lb_guard = getattr(bot, "_clear_long_book_bid_before_sell", None)
-    if callable(_lb_guard):
-        _lb_guard(asset, side, plan.post_only, reason="entry")
+    t2 = t + 5.0
+    bot.fast_cycle(t2)
+    bot.slow_cycle(t2)
 
-    bot.orders.submit(
-        asset=asset, symbol=symbol, pair="XBTUSDT", side=side,
-        price=price, size=size, purpose="entry",
-        position_id="p1", post_only=plan.post_only,
-        now=1_700_000_000.0)
+    sell_calls = [e for e in events if e[0] == "submit" and e[1] == "sell"]
+    assert sell_calls, "the maker-style short entry must still submit"
+    assert sell_calls[0][2] is True, "the improve plan must carry " \
+        "post_only=True through to the submit - not a hardcoded style"
 
-    # Entry submitted, but bid NOT cancelled (no-op)
-    assert len(bot.orders.calls) == 1
-    assert bot.orders.calls[0]["post_only"] is True
-    assert bot.orders.cancelled == []
-    assert bot.orders.open_orders() == [resting]
+    assert not [e for e in events if e[0] == "cancel"], \
+        "a post_only short entry must never cancel the resting bid"
+    lb_orders = [o for o in bot.orders.open_orders()
+                if o.order_id == resting.order_id]
+    assert lb_orders, "the resting long-book bid must still be open"
+    assert lb_orders[0].status not in ("cancelled",)
 
-    # No LB-022 entry
-    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED], \
+        "LB-022 must never fire for a maker-first short entry"

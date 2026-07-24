@@ -89,7 +89,7 @@ sites: it cancels our own resting long-book bid on that pair FIRST, before any
 non-`post_only` (marketable) sell is submitted, coded `LB-022`
 (`Code.LB_BID_CLEARED`) with the exit's `reason_code` carried in the
 audit payload. The four wired sites are: (1) exit ladder in `_submit_exit`,
-(2) hedge open in `_hedge_actions`, (3) direct taker entry in `cycle_once`,
+(2) hedge open in `_hedge_actions`, (3) direct taker entry in `slow_cycle`,
 and (4) algo-child taker entry in `_submit_algo_child`. A `post_only` maker
 exit is deliberately exempt — a resting ask can never cross the book, so
 passive-passive same-pair quoting (our own bid alongside our own maker exit)
