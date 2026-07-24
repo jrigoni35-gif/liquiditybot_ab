@@ -62,6 +62,7 @@ from data.ws_feed import (KrakenV2BookStream, LiveMarketCache,
 from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
+from data.context_engine import ContextFeed
 from strategies.liquidity_model import LiquidityModel, extract_base_asset
 from strategies.signal_gates import (GateStats, SignalGateEngine,
                                      concentration_conf_mult)
@@ -475,6 +476,12 @@ class LiquidityBot:
         self.fg_fear_max = float(wcfg.get("fear_greed_fear_max", 15))
         self.fg_euphoria_min = float(wcfg.get("fear_greed_euphoria_min", 85))
         self.moomoo = moomoo or MoomooFeed(config.get("moomoo", {}))
+        # Compounder Phase B (spec §3): telemetry-only cycle/macro context
+        # engine. NOT a decision-path input this phase - the ONLY other
+        # touch point in this file is the one poll line in slow_cycle's
+        # sentiment/web/risk poll cluster below; status/audit/gc_pusher are
+        # the sole consumers (data/context_engine.py module docstring).
+        self.context = ContextFeed(config.get("context", {}))
 
         # --- v1 core ---
         self.liquidity_model = LiquidityModel(config)
@@ -2405,6 +2412,7 @@ class LiquidityBot:
         sentiment = self.xscan.maybe_poll(now)
         web = self.webdata.maybe_poll(now)
         risk = self.moomoo.maybe_poll(now)
+        self._context_state = self.context.maybe_poll(now)
         # Fear&Greed extremes join fear/euphoria detection (same clamps
         # apply downstream - still a filter, never a trigger)
         if self.dry_run and self.sim.force_fear > 0:

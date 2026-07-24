@@ -535,6 +535,7 @@ class BotRunner:
                         "btc_dominance": round(web.btc_dominance, 2),
                         "dominance_delta": round(web.dominance_delta, 3),
                         "available": web.available},
+            "context": bot.context.status() if hasattr(bot, "context") else {},
             "moomoo": {"risk_z": round(risk.risk_z, 2),
                        "basket_ret_pct": risk.basket_ret_pct,
                        "per_ticker": risk.per_ticker,
