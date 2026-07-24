@@ -27,6 +27,8 @@ def _cfg(**lb):
             "add_offset_pct": 0.5,
             "zone_tol_pct": 0.15,      # matches the shipped default
             "zone_buffer_pct": 0.2,    # matches the shipped default
+            "order_ttl_hours": 6.0,           # matches the shipped default
+            "retry_backoff_minutes": 30.0,    # matches the shipped default
             "thesis_stop_pct": 12.0,   # matches the shipped default
             "ladder": {
                 "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
@@ -100,6 +102,29 @@ def test_add_offset_pct_non_positive_fatal():
 
 
 # ---------------------------------------------------------------------
+# C4 review knobs: order_ttl_hours (Critical #1a) / retry_backoff_minutes
+# (Important #3a) - both strictly positive, or the accumulation book
+# either submits an instantly-expiring bid (0/negative TTL) or never
+# actually backs off a repeatedly-failing asset (0 = immediate retry,
+# negative = no backoff at all).
+# ---------------------------------------------------------------------
+
+def test_order_ttl_hours_non_positive_fatal():
+    assert _fatals(_cfg(order_ttl_hours=0.0))
+    assert _fatals(_cfg(order_ttl_hours=-1.0))
+
+
+def test_retry_backoff_minutes_non_positive_fatal():
+    assert _fatals(_cfg(retry_backoff_minutes=0.0))
+    assert _fatals(_cfg(retry_backoff_minutes=-1.0))
+
+
+def test_ttl_and_backoff_shipped_defaults_clean():
+    assert _fatals(_cfg(order_ttl_hours=6.0,
+                        retry_backoff_minutes=30.0)) == []
+
+
+# ---------------------------------------------------------------------
 # TH-013 magnet-shift hygiene knobs (task C3:
 # LongBookEngine.shift_off_magnets) - absent from the task-C2-shipped
 # block, added by task C3.
@@ -156,8 +181,10 @@ def test_worst_case_deviation_at_collar_boundary_fatal():
     # `dev_bps > collar` (strictly greater rejects), so >= is the correct
     # FATAL boundary here - a config landing EXACTLY on the line still
     # means the very next float-rounding cycle can tip into rejection.
-    assert _fatals(_cfg_with_firewall(85.0)) == \
-        _fatals(_cfg_with_firewall(85.0))   # sanity: deterministic
+    # (C4 review, Minor #11: this used to also assert
+    # `_fatals(...) == _fatals(...)` on the SAME call twice - a
+    # self-comparing tautology that passes regardless of what _fatals
+    # returns, even `[] == []`. Removed; the real assertion below stands.)
     assert _fatals(_cfg_with_firewall(85.0))
 
 

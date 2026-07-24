@@ -58,6 +58,48 @@ def test_regime_unknown_denies():
     assert not d.admitted and d.code == Code.CV_REGIME_UNKNOWN
 
 
+def test_agreement_none_is_not_applicable_and_passes():
+    # C4 review, Important #4: agreement=None means not-applicable (the
+    # long-book path has no gate-stack agreement measure of its own) and
+    # auto-passes term 1, exactly symmetric with context_aligned's own
+    # None convention.
+    d = _f().evaluate(**{**PASS, "agreement": None})
+    assert d.admitted and d.code == Code.CV_ADMIT
+    assert d.terms["agreement"] is None
+
+
+def test_agreement_none_still_conjunctive_with_the_rest():
+    # term 1 auto-passes, but term 3 (regime_known) still denies - None
+    # is not a blanket bypass of every OTHER term.
+    d = _f().evaluate(**{**PASS, "agreement": None, "regime_known": False})
+    assert not d.admitted and d.code == Code.CV_REGIME_UNKNOWN
+
+
+def test_ev_multiple_none_is_not_applicable_and_passes():
+    # C4 review, Important #4: est_edge_bps/est_cost_bps=None means this
+    # path has no pretrade EV estimate to offer - term 2 auto-passes,
+    # recorded as null (not a fabricated trivially-clearing pair like the
+    # prior est_edge_bps=1.0/est_cost_bps=0.0 stand-in).
+    d = _f().evaluate(**{**PASS, "est_edge_bps": None, "est_cost_bps": None})
+    assert d.admitted and d.code == Code.CV_ADMIT
+    assert d.terms["est_edge_bps"] is None
+    assert d.terms["est_cost_bps"] is None
+
+
+def test_ev_multiple_none_still_conjunctive_with_the_rest():
+    d = _f().evaluate(**{**PASS, "est_edge_bps": None, "est_cost_bps": None,
+                         "context_aligned": False})
+    assert not d.admitted and d.code == Code.CV_CONTEXT_MISALIGNED
+
+
+def test_all_not_applicable_terms_admit_and_are_json_serializable():
+    import json
+    d = _f().evaluate(agreement=None, est_edge_bps=None, est_cost_bps=None,
+                      regime_known=True)
+    assert d.admitted and d.code == Code.CV_ADMIT
+    json.dumps(d.terms)
+
+
 def test_context_none_is_not_applicable_and_passes():
     # 5m book: no context engine yet — None means the term does not apply
     assert _f().evaluate(**PASS, context_aligned=None).admitted

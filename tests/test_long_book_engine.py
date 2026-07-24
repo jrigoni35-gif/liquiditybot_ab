@@ -11,8 +11,10 @@ from data.context_engine import ContextState
 from risk.long_book import (
     AddPlan,
     DenyReason,
+    EngineConfig,
     EvidenceLadder,
     LongBookEngine,
+    bid_is_stale,
     round_number_grid,
     shift_off_magnets,
     thesis_stop_price,
@@ -522,3 +524,85 @@ def test_long_book_module_ships_no_decide_exits_reimplementation():
     assert not hasattr(lb, "decide_exits"), (
         "C3 ships only pure exit helpers (thesis_stop_price); the tier "
         "engine delegation itself is task C4's decide_exits, engine-side")
+
+
+# =======================================================================
+# EngineConfig defaults (C4 review, Critical #1a / Minor #9)
+# =======================================================================
+
+def test_engine_config_default_add_offset_pct_is_0_5():
+    # Minor #9: the code default had drifted stale at 1.5 while the
+    # shipped config.json (and every other reference) has used 0.5 since
+    # task C4's own price-collar discovery.
+    assert EngineConfig.from_dict({}).add_offset_pct == 0.5
+
+
+def test_engine_config_default_order_ttl_hours_is_6():
+    assert EngineConfig.from_dict({}).order_ttl_hours == 6.0
+
+
+def test_engine_config_default_retry_backoff_minutes_is_30():
+    assert EngineConfig.from_dict({}).retry_backoff_minutes == 30.0
+
+
+def test_engine_config_order_ttl_and_backoff_read_from_cfg():
+    ecfg = EngineConfig.from_dict({"order_ttl_hours": 2.0,
+                                  "retry_backoff_minutes": 15.0})
+    assert ecfg.order_ttl_hours == 2.0
+    assert ecfg.retry_backoff_minutes == 15.0
+
+
+# =======================================================================
+# bid_is_stale — cancel-and-replace staleness predicate (C4 review,
+# Critical #1b)
+# =======================================================================
+
+def test_bid_is_stale_fresh_bid_within_band_is_not_stale():
+    # add_offset_pct=0.5, zone_buffer_pct=0.20 -> "fresh" band is 0.70%.
+    # A bid resting exactly at the intended 0.5% discount is well inside.
+    mark = 60_000.0
+    resting_price = mark * (1.0 - 0.005)
+    assert bid_is_stale(mark, resting_price, 0.5, 0.20) is False
+
+
+def test_bid_is_stale_mark_ran_up_past_the_band_is_stale():
+    # mark moved up 2% since the bid was placed at the old mark's 0.5%
+    # discount - drift now far exceeds the 0.70% fresh band.
+    old_mark = 60_000.0
+    resting_price = old_mark * (1.0 - 0.005)
+    new_mark = old_mark * 1.02
+    assert bid_is_stale(new_mark, resting_price, 0.5, 0.20) is True
+
+
+def test_bid_is_stale_mark_fell_past_the_bid_is_stale():
+    # mark fell enough that the resting bid now sits AT/ABOVE the new
+    # mark (would cross / collar-reject on resubmit) - stale in the
+    # other direction.
+    old_mark = 60_000.0
+    resting_price = old_mark * (1.0 - 0.005)
+    new_mark = resting_price * 0.99   # mark now below the resting bid
+    assert bid_is_stale(new_mark, resting_price, 0.5, 0.20) is True
+
+
+def test_bid_is_stale_boundary_is_not_stale_strictly_greater_only():
+    # drift EXACTLY at the band edge: the predicate is strictly-greater,
+    # matching risk_firewall's own collar convention (dev_bps > collar).
+    # Offsets chosen (10.0/15.0, band=25%) so the forward/inverse float
+    # arithmetic lands EXACTLY on the boundary (powers-of-two fractions),
+    # not a near-miss from float rounding.
+    mark = 100.0
+    resting_price = 75.0     # mark * (1 - 25/100), exact in binary float
+    assert bid_is_stale(mark, resting_price, 10.0, 15.0) is False
+
+
+def test_bid_is_stale_guards_non_positive_or_non_finite_mark():
+    assert bid_is_stale(0.0, 100.0, 0.5, 0.20) is False
+    assert bid_is_stale(-5.0, 100.0, 0.5, 0.20) is False
+    assert bid_is_stale(float("nan"), 100.0, 0.5, 0.20) is False
+    assert bid_is_stale(float("inf"), 100.0, 0.5, 0.20) is False
+
+
+def test_bid_is_stale_guards_non_positive_or_non_finite_resting_price():
+    assert bid_is_stale(100.0, 0.0, 0.5, 0.20) is False
+    assert bid_is_stale(100.0, -5.0, 0.5, 0.20) is False
+    assert bid_is_stale(100.0, float("nan"), 0.5, 0.20) is False

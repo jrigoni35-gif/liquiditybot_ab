@@ -93,6 +93,14 @@ class ManagedOrder:
     # adverse; a passive limit fills AT its limit, so it is always 0). 0.0 =
     # no arrival mark recorded -> the ledger falls back to the limit price.
     arrival_ref: float = 0.0
+    # per-order TTL override (C4 review, Critical #1a): None (the default)
+    # means "use the shared self.timeout_sec" — byte-identical for every
+    # pre-existing caller. A caller that needs a DIFFERENT resting lifetime
+    # than the shared cadence (the long-horizon accumulation book's patient
+    # maker bids, hours not the 5m book's 25s) passes ttl_sec= at submit()
+    # instead of forcing a second OrderManager instance or a global config
+    # split. Both _poll_live and _poll_dry read this the same way.
+    ttl_sec: Optional[float] = None
 
     @property
     def remaining(self) -> float:
@@ -336,14 +344,36 @@ class OrderManager:
                 get_audit().log("order_manager", Code.OM_DEADMAN_FAIL, msg,
                                 {"failures": self._deadman_failures})
 
+    @staticmethod
+    def _timeout_for(order: ManagedOrder, default: float) -> float:
+        """Effective resting-order lifetime: `order.ttl_sec` when set
+        (Critical #1a's per-order override), else the shared `default`
+        (self.timeout_sec) — the ONE place both _poll_live and _poll_dry
+        read the timeout, so they can never drift from each other on
+        which order gets which lifetime."""
+        return order.ttl_sec if order.ttl_sec is not None else default
+
     # ------------------------------------------------------------------
     def open_orders(self) -> list:
         return [o for o in self._orders.values()
                 if o.status in ("pending", "partial")]
 
-    def has_open(self, asset: str, purpose: Optional[str] = None) -> bool:
+    def has_open(self, asset: str, purpose: Optional[str] = None,
+                book: Optional[str] = None) -> bool:
+        """`book` (C4 review, Minor #10): filters on the STRATEGY book tag
+        threaded through `meta["book"]` (defaults "5m", matching main.
+        _handle_fill's own `order.meta.get("book", "5m")` convention) —
+        NOT the `book` param of `submit()` (that one is the raw Kraken
+        order-book dict, an unrelated same-named parameter). None (the
+        default) preserves every pre-existing caller's behavior
+        byte-identically: purpose-only filtering, book-blind. Needed once
+        the long-horizon accumulation book's resting bids started living
+        for hours instead of ~25s — without this, a resting LONG-book
+        entry order silently blocked the 5m book's own has_open("entry")
+        skip-check for the same asset for that entire window."""
         return any(o.asset == asset and (purpose is None
                                          or o.purpose == purpose)
+                   and (book is None or o.meta.get("book", "5m") == book)
                    for o in self.open_orders())
 
     def _book_venue_segment(self, order: ManagedOrder, vol_exec: float,
@@ -635,7 +665,8 @@ class OrderManager:
                ordertype: str = "limit", ref_price: float = 0.0,
                equity: float = 0.0,
                meta: Optional[dict] = None,
-               now: Optional[float] = None) -> Optional[ManagedOrder]:
+               now: Optional[float] = None,
+               ttl_sec: Optional[float] = None) -> Optional[ManagedOrder]:
         # ---- fail-closed input validation (OM-010) ---------------------
         if side not in ("buy", "sell") or purpose not in ("entry", "exit",
                                                           "hedge") \
@@ -751,6 +782,12 @@ class OrderManager:
             # (same arrival price the algo layer books IS against). Firewall
             # may collar `price`; the arrival reference is NEVER collared.
             arrival_ref=float(ref_price) if _fin_pos(ref_price) else 0.0,
+            # per-order TTL override (Critical #1a): finite-positive only,
+            # else falls back to the shared self.timeout_sec — a garbage
+            # caller value degrades safely rather than poisoning the
+            # timeout check with a non-finite/negative comparison.
+            ttl_sec=(float(ttl_sec)
+                    if ttl_sec is not None and _fin_pos(ttl_sec) else None),
         )
         if self.dry_run:
             order.txid = f"DRY-{order.order_id}"
@@ -857,7 +894,7 @@ class OrderManager:
                 events.append(FillEvent(order, 0.0, order.avg_price,
                                         final=True))
                 return events
-        if now - order.created_ts > self.timeout_sec:
+        if now - order.created_ts > self._timeout_for(order, self.timeout_sec):
             self._timed_private("CancelOrder", {"txid": order.txid})
             new = "expired" if order.filled <= EPS else "cancelled"
             self._transition(order, new,
@@ -1063,7 +1100,7 @@ class OrderManager:
             if order.status != "filled":
                 self._transition(order, "filled", "sim complete")
             events.append(FillEvent(order, 0.0, order.avg_price, final=True))
-        elif now - order.created_ts > self.timeout_sec:
+        elif now - order.created_ts > self._timeout_for(order, self.timeout_sec):
             self._transition(order, "expired" if order.filled <= EPS
                              else "cancelled", "sim timeout")
             log.info("[DRY RUN] order %s %s at fill_ratio=%.2f",

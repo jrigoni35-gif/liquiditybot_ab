@@ -12,8 +12,11 @@ tests/test_order_time_and_cancel.py.
 import json
 import types
 
+import pytest
+
 from core.audit import get_audit
 from core.codes import Code
+from core.persistence import order_from_dict, order_to_dict
 from execution.order_manager import ManagedOrder, OrderManager
 from runner import BotRunner
 
@@ -224,6 +227,129 @@ def test_live_timeout_issues_cancelorder_and_resolves_by_fill_ratio():
     assert ("CancelOrder", {"txid": "TX1"}) in calls
     assert o.status == "cancelled"        # filled > 0 -> cancelled not expired
     assert events and events[-1].final is True
+
+
+# ---------------------------------------------------------------------------
+# 10b. C4 review, Critical #1(a): per-order TTL override (ttl_sec) -
+# the long-horizon accumulation book needs its own patient resting
+# lifetime (hours) distinct from the shared ~25s order_timeout_sec.
+# ---------------------------------------------------------------------------
+def test_ttl_sec_override_survives_past_the_shared_default_timeout():
+    om = OrderManager(feed=None, config={"order_timeout_sec": 25.0},
+                      dry_run=True)
+    o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+                 price=100.0, size=1.0, purpose="entry", now=1000.0,
+                 ttl_sec=6 * 3600.0)
+    assert o is not None and o.ttl_sec == 6 * 3600.0
+    # 30s later: past the shared 25s default, well inside the 6h override.
+    # No book -> _poll_dry never fills, only the timeout branch can fire.
+    events = om._poll_dry(o, book=None, sigma_bar_pct=0.05, now=1030.0)
+    assert o.status == "pending", \
+        "the per-order TTL override must survive past the shared default"
+    assert events == []
+
+
+def test_ttl_sec_override_expires_at_its_own_ttl_not_the_shared_default():
+    om = OrderManager(feed=None, config={"order_timeout_sec": 25.0},
+                      dry_run=True)
+    o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+                 price=100.0, size=1.0, purpose="entry", now=1000.0,
+                 ttl_sec=6 * 3600.0)
+    events = om._poll_dry(o, book=None, sigma_bar_pct=0.05,
+                          now=1000.0 + 6 * 3600.0 + 1.0)
+    assert o.status == "expired"          # zero-fill -> expired, not cancelled
+    assert events and events[-1].final is True
+
+
+def test_ttl_sec_none_falls_back_to_the_shared_default_timeout_dry_run():
+    # regression: a caller that omits ttl_sec (every pre-existing caller)
+    # behaves EXACTLY as before - the shared order_timeout_sec applies.
+    om = OrderManager(feed=None, config={"order_timeout_sec": 25.0},
+                      dry_run=True)
+    o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+                 price=100.0, size=1.0, purpose="entry", now=1000.0)
+    assert o.ttl_sec is None
+    events = om._poll_dry(o, book=None, sigma_bar_pct=0.05, now=1030.0)
+    assert o.status == "expired"
+    assert events and events[-1].final is True
+
+
+def test_ttl_sec_override_applies_on_the_live_path_too():
+    feed, calls = _feed()
+    om = OrderManager(feed=feed, config={"order_timeout_sec": 25.0},
+                      dry_run=False)
+    o = _order(status="partial", filled=0.4, created_ts=1000.0)
+    o.ttl_sec = 6 * 3600.0
+    om._orders[o.order_id] = o
+    # 30s later (past the shared 25s default): the live TTL override must
+    # keep this order resting - no CancelOrder issued, no timeout event.
+    events = om._poll_live(o, now=1030.0, batch={})
+    assert calls == [], "the override must prevent the shared-default timeout"
+    assert o.status == "partial"
+    assert events == []
+    # now well past the 6h override: the SAME order times out on its own TTL
+    events2 = om._poll_live(o, now=1000.0 + 6 * 3600.0 + 1.0, batch={})
+    assert ("CancelOrder", {"txid": "TX1"}) in calls
+    assert o.status == "cancelled"        # filled > 0 -> cancelled not expired
+    assert events2 and events2[-1].final is True
+
+
+def test_ttl_sec_non_finite_or_non_positive_degrades_to_none():
+    om = OrderManager(feed=None, config={}, dry_run=True)
+    for bad in (float("nan"), float("inf"), -1.0, 0.0):
+        o = om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD",
+                      side="buy", price=100.0, size=1.0, purpose="entry",
+                      ttl_sec=bad)
+        assert o is not None and o.ttl_sec is None, bad
+
+
+def test_ttl_sec_round_trips_through_persistence():
+    o = _order()
+    o.ttl_sec = 6 * 3600.0
+    d = order_to_dict(o)
+    assert d["ttl_sec"] == 6 * 3600.0
+    back = order_from_dict(d)
+    assert back.ttl_sec == pytest.approx(6 * 3600.0)
+
+
+def test_ttl_sec_absent_from_persisted_dict_restores_none():
+    # legacy snapshot written before this task has no "ttl_sec" key at all.
+    o = _order()
+    d = order_to_dict(o)
+    del d["ttl_sec"]
+    assert order_from_dict(d).ttl_sec is None
+
+
+# ---------------------------------------------------------------------------
+# 10c. C4 review, Minor #10: has_open's book-aware filter (a resting
+# LONG-book bid must not block the 5m book's own has_open("entry") check)
+# ---------------------------------------------------------------------------
+def test_has_open_book_aware_filter_distinguishes_5m_and_long():
+    om = OrderManager(feed=None, config={}, dry_run=True)
+    om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+             price=100.0, size=1.0, purpose="entry", meta={"book": "5m"})
+    assert om.has_open("ETH", "entry") is True
+    assert om.has_open("ETH", "entry", book="5m") is True
+    assert om.has_open("ETH", "entry", book="long") is False
+
+
+def test_has_open_book_aware_filter_finds_a_long_book_order():
+    om = OrderManager(feed=None, config={}, dry_run=True)
+    om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+             price=100.0, size=1.0, purpose="entry", meta={"book": "long"})
+    assert om.has_open("ETH", "entry", book="long") is True
+    assert om.has_open("ETH", "entry", book="5m") is False
+
+
+def test_has_open_no_meta_book_defaults_5m():
+    # every pre-existing 5m submit() call omits meta["book"] entirely -
+    # has_open's book filter must default the SAME "5m" main._handle_fill
+    # already assumes, or this whole fix silently reclassifies every
+    # existing 5m order as book=None.
+    om = OrderManager(feed=None, config={}, dry_run=True)
+    om.submit(asset="ETH", symbol="ETH/USD", pair="ETHUSD", side="buy",
+             price=100.0, size=1.0, purpose="entry")
+    assert om.has_open("ETH", "entry", book="5m") is True
 
 
 # ---------------------------------------------------------------------------

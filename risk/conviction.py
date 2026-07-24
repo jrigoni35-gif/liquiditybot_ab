@@ -10,12 +10,19 @@ Terms (fixed evaluation order; the FIRST failing term names the code):
   1 agreement    — the gate stack's own agreement measure (pass-fraction
                    of gates_passed, the same arithmetic
                    strategies/signal_gates.py uses for its confidence)
-                   at/above conviction.agreement_floor
+                   at/above conviction.agreement_floor. agreement=None
+                   means not-applicable (no gate stack to agree on - the
+                   long book today) and auto-passes, exactly symmetric
+                   with term 4's None semantics (C4 review, Important #4).
   2 ev multiple  — est_edge_bps >= ev_cost_mult x est_cost_bps, where
                    est_* are the pretrade gate's MEASURED round-trip
                    numbers for THIS entry. config_guard pins
                    ev_cost_mult >= pretrade.min_edge_cost_ratio (a
                    conviction bar under the pretrade bar is vacuous).
+                   est_edge_bps/est_cost_bps=None means not-applicable
+                   (no pretrade EV gate on this path) and auto-passes
+                   (either both are None together, or neither - the
+                   caller's contract, not enforced here).
   3 regime known — the current regime's live-label count at/above the T4
                    coverage floor (engine-side: main.
                    _regime_under_coverage_floor over
@@ -81,25 +88,40 @@ class ConvictionFormula:
     def enforce(self) -> bool:
         return self.enabled and self.mode == "enforce"
 
-    def evaluate(self, *, agreement: float, est_edge_bps: float,
-                 est_cost_bps: float, regime_known: bool,
+    def evaluate(self, *, agreement: Optional[float],
+                 est_edge_bps: Optional[float],
+                 est_cost_bps: Optional[float], regime_known: bool,
                  context_aligned: Optional[bool] = None
                  ) -> ConvictionDecision:
         """Pure and deterministic: same inputs, same decision. The terms
         dict carries the full evidence (values + thresholds) so the audit
-        payload explains every disposition without re-derivation."""
+        payload explains every disposition without re-derivation.
+
+        `agreement`/`est_edge_bps`/`est_cost_bps` accept None = not-
+        applicable (C4 review, Important #4): the term is auto-passed and
+        recorded as null in `terms`, exactly symmetric with `context_
+        aligned`'s existing None convention. Every 5m call site always
+        passes real floats (unchanged); the long-book admission path
+        passes None for terms 1-2 (it has no gate-stack agreement measure
+        or pretrade EV estimate of its own to offer) instead of the prior
+        fabricated 1.0/1.0/0.0 stand-ins that trivially cleared both
+        terms - None is an honest "not measured," not a faked pass."""
         terms: Dict[str, Any] = {
-            "agreement": round(float(agreement), 4),
+            "agreement": None if agreement is None
+            else round(float(agreement), 4),
             "agreement_floor": self.agreement_floor,
-            "est_edge_bps": round(float(est_edge_bps), 2),
-            "est_cost_bps": round(float(est_cost_bps), 2),
+            "est_edge_bps": None if est_edge_bps is None
+            else round(float(est_edge_bps), 2),
+            "est_cost_bps": None if est_cost_bps is None
+            else round(float(est_cost_bps), 2),
             "ev_cost_mult": self.ev_cost_mult,
             "regime_known": bool(regime_known),
             "context_aligned": context_aligned,
         }
-        if float(agreement) < self.agreement_floor:
+        if agreement is not None and float(agreement) < self.agreement_floor:
             return ConvictionDecision(False, Code.CV_AGREEMENT_LOW, terms)
-        if float(est_edge_bps) < self.ev_cost_mult * float(est_cost_bps):
+        if est_edge_bps is not None and est_cost_bps is not None and \
+                float(est_edge_bps) < self.ev_cost_mult * float(est_cost_bps):
             return ConvictionDecision(False, Code.CV_EV_MULTIPLE_LOW, terms)
         if not regime_known:
             return ConvictionDecision(False, Code.CV_REGIME_UNKNOWN, terms)

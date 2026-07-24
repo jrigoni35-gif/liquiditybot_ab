@@ -36,6 +36,8 @@ from core.codes import Code
 from core.state import PortfolioState, Position
 from data.context_engine import ContextState
 from execution.inventory import InventoryManager
+from execution.order_manager import ManagedOrder
+from execution.pretrade import PreTradeGate
 from main import LiquidityBot, load_config
 from regime import LiquidityRegimeEngine, MacroRegimeEngine, VolRegimeEngine
 from risk.conviction import ConvictionFormula
@@ -130,25 +132,57 @@ def _event_window_ctx() -> ContextState:
 # ---------------------------------------------------------------------------
 
 class _FakeOrders:
-    """Records every submit() call; never touches Kraken/the firewall.
-    `accept=False` simulates every OTHER order-manager-side refusal
-    (firewall/venue-min/zero-format) a real OrderManager can return None
-    for - _place_long_book_add must degrade to a no-op, never raise."""
+    """Records every submit() call (raw kwargs, `.calls` - unchanged shape,
+    every existing call["..."] assertion keeps working) AND tracks
+    accepted submissions as lightweight resting ManagedOrder objects
+    (`.open_orders()`/`.cancel_order()`) so the C4-review cancel-and-
+    replace / resting-notional-headroom / same-cycle double-commit tests
+    can drive a SECOND _long_book_cycle pass against what the FIRST pass
+    actually left resting - never touches Kraken/the firewall. `accept=
+    False` simulates every OTHER order-manager-side refusal (firewall/
+    venue-min/zero-format) a real OrderManager can return None for -
+    _place_long_book_add must degrade to a no-op, never raise."""
     def __init__(self, accept: bool = True):
         self.calls: list = []
         self.accept = accept
+        self._open: list = []
+        self.cancelled: list = []
 
     def submit(self, **kwargs):
         self.calls.append(kwargs)
         if not self.accept:
             return None
-        return types.SimpleNamespace(**kwargs)
+        order = ManagedOrder(
+            order_id=f"fake-{len(self.calls)}", txid=None,
+            asset=kwargs.get("asset"), pair=kwargs.get("pair", ""),
+            symbol=kwargs.get("symbol"), side=kwargs.get("side"),
+            price=kwargs.get("price"), size=kwargs.get("size"),
+            purpose=kwargs.get("purpose", "entry"),
+            position_id=kwargs.get("position_id"),
+            post_only=kwargs.get("post_only", True),
+            leverage=kwargs.get("leverage", 1.0),
+            meta=kwargs.get("meta") or {},
+            created_ts=kwargs.get("now") or 0.0,
+            ttl_sec=kwargs.get("ttl_sec"),
+        )
+        self._open.append(order)
+        return order
 
     def open_orders(self):
-        return []
+        return list(self._open)
 
-    def has_open(self, asset, purpose):
-        return False
+    def has_open(self, asset, purpose=None, book=None):
+        return any(o.asset == asset
+                   and (purpose is None or o.purpose == purpose)
+                   and (book is None or o.meta.get("book", "5m") == book)
+                   for o in self._open)
+
+    def cancel_order(self, order, reason=""):
+        self.cancelled.append((order.order_id, reason))
+        if order in self._open:
+            self._open.remove(order)
+        order.status = "cancelled"
+        return True
 
 
 class _FakeKraken:
@@ -197,6 +231,7 @@ def _stub_bot(*, equity: float = 10_000.0, dry_run: bool = True,
     bot._tier_engines = {}
     bot.orders = _FakeOrders(accept=accept_orders)
     bot.kraken = _FakeKraken()
+    bot.pretrade = PreTradeGate({})   # Important #2: maker/taker_fee_bps
     bot.conviction = ConvictionFormula(
         {"enabled": conviction_enabled, "mode": conviction_mode})
     bot.history = _Hist(regime_live)
@@ -212,6 +247,16 @@ def _stub_bot(*, equity: float = 10_000.0, dry_run: bool = True,
     bot._long_adds_placed = 0
     bot._long_context_aligned_last = None
     bot._long_last_deny = ""
+    bot._long_retry_backoff_until = {}
+    # Important #5: anti-scalp manip gate, mirroring the 5m book's own
+    # __init__ defaults (risk.manip_gate config block) - empty scores +
+    # enabled=True is a no-op (score 0.0 < downsize_at) unless a test
+    # explicitly sets bot._manip_scores[asset].
+    bot._manip_scores = {}
+    bot._manip_gate_enabled = True
+    bot._manip_downsize_at = 0.6
+    bot._manip_veto_at = 0.9
+    bot._manip_min_scale = 0.25
     bot._stop_ok = {}
     bot._stop_hit = {}
     bot.last_signals = {}
@@ -257,8 +302,16 @@ def test_happy_path_places_post_only_buy_with_book_long_meta(fake_audit):
     assert call["purpose"] == "entry"
     assert call["post_only"] is True
     assert call["meta"]["book"] == "long"
+    # Important #2: a real measured round-trip estimate, no longer the
+    # hardcoded 0.0 that made the tier-1 cost floor provably inert.
+    assert call["meta"]["est_cost_bps"] > 0.0
+    # Critical #1a: the long TTL (config default 6h), not the shared
+    # ~25s order_timeout_sec.
+    assert call["ttl_sec"] == pytest.approx(6.0 * 3600.0)
     assert bot._long_adds_placed >= 1
-    assert bot._long_last_add_ts["BTC"] == 1_700_000_000.0
+    # Critical #1(c): the spacing clock keys on FILL, not submit - a bare
+    # submit (no fill simulated here) must NOT stamp _long_last_add_ts.
+    assert "BTC" not in bot._long_last_add_ts
     assert Code.LB_ADD_PLACED in fake_audit.codes()
 
 
@@ -514,10 +567,11 @@ def test_long_book_conviction_call_passes_real_context_aligned(fake_audit):
     real = bot._conviction_disposition
 
     def _spy(asset, signal, decision, regime_label, explored,
-             context_aligned=None):
+             context_aligned=None, feed_governor=True):
         calls.append(context_aligned)
         return real(asset, signal, decision, regime_label, explored,
-                    context_aligned=context_aligned)
+                    context_aligned=context_aligned,
+                    feed_governor=feed_governor)
     bot._conviction_disposition = _spy
 
     bot._long_book_cycle(1_700_000_000.0)
@@ -536,6 +590,50 @@ def test_conviction_default_stays_none_for_5m_style_calls():
     deny = bot._conviction_disposition(
         "ETH", signal, decision, "range", False)
     assert deny is None   # report mode: never blocks
+
+
+# ---------------------------------------------------------------------------
+# 5b. C4 review Important #4: honest null terms, not fabricated 1.0/1.0/0.0
+# ---------------------------------------------------------------------------
+
+def test_long_book_conviction_audit_terms_are_null_not_fabricated(fake_audit):
+    bot = _stub_bot(context_state=_aligned_ctx())
+    bot._long_book_cycle(1_700_000_000.0)
+
+    conv_entries = [e for e in fake_audit.entries if e[0] == "conviction"]
+    assert conv_entries, "the long-book path must feed the conviction audit"
+    terms = conv_entries[0][3]
+    assert terms["agreement"] is None
+    assert terms["est_edge_bps"] is None
+    assert terms["est_cost_bps"] is None
+    # term 3/4 are STILL live real values - only 1-2 are not-applicable
+    assert terms["regime_known"] is True
+    assert terms["context_aligned"] is True
+
+
+# ---------------------------------------------------------------------------
+# 5c. C4 review Important #3(b): long-book conviction evaluations must NOT
+# feed the shared cadence governor (its windows were derived for the 5m
+# book's per-signal selectivity, not this book's ~24h-scale cadence)
+# ---------------------------------------------------------------------------
+
+def test_long_book_conviction_does_not_feed_the_shared_governor():
+    bot = _stub_bot(context_state=_aligned_ctx())
+    bot._long_book_cycle(1_700_000_000.0)
+    st = bot.conviction.status()
+    assert st["evaluated"] == 0
+    assert st["n"] == 0
+    assert bot.conviction.cadence_alarms() == []
+
+
+def test_5m_conviction_call_still_feeds_the_governor():
+    # regression: the long-book fix must not accidentally disable the
+    # governor feed for the 5m book's own (unrelated) call site.
+    bot = _stub_bot()
+    signal = types.SimpleNamespace(gates_passed={"g1": True, "g2": True})
+    decision = types.SimpleNamespace(est_edge_bps=100.0, est_cost_bps=10.0)
+    bot._conviction_disposition("ETH", signal, decision, "range", False)
+    assert bot.conviction.status()["evaluated"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -564,8 +662,242 @@ def test_ladder_ceiling_binds_tighter_than_a_generous_sizer_at_normal_equity():
 
 
 # ---------------------------------------------------------------------------
-# 7. persistence round-trips ladder + book across snapshot/restore (FULL bot)
+# 6b. C4 review Important #5: THALES manip gate on long adds (SZ-045 parity
+# with the 5m entry loop's own veto/downsize, main.py ~2841)
 # ---------------------------------------------------------------------------
+
+def test_manip_score_above_veto_refuses_the_add_with_sz045_code(fake_audit):
+    bot = _stub_bot()
+    bot._manip_scores["ETH"] = 0.95   # >= veto_at (0.9)
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    assert bot.orders.calls == []
+    assert any(Code.SZ_MANIP_SUSPECT.value in e[2] for e in fake_audit.entries)
+    # Important #3(a): a manip veto is a post-plan failure - it backs off
+    # like any other sizing/submission refusal.
+    assert bot._long_retry_backoff_until.get("ETH", 0.0) > 1_700_000_000.0
+
+
+def test_manip_score_between_downsize_and_veto_scales_the_sizer_risk_scale():
+    from main import manip_entry_scale
+    bot = _stub_bot()
+    bot._manip_scores["ETH"] = 0.75   # between downsize_at(0.6)/veto_at(0.9)
+    captured = {}
+    real_size = bot.long_sizer.size
+
+    def _spy(*args, **kwargs):
+        captured["risk_scale"] = kwargs.get("risk_scale")
+        return real_size(*args, **kwargs)
+    bot.long_sizer.size = _spy
+
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    expected = manip_entry_scale(0.75, bot._manip_downsize_at,
+                                 bot._manip_veto_at, bot._manip_min_scale)
+    assert captured["risk_scale"] == pytest.approx(expected)
+    assert captured["risk_scale"] < 1.0
+
+
+def test_manip_score_below_downsize_leaves_risk_scale_untouched():
+    bot = _stub_bot()
+    bot._manip_scores["ETH"] = 0.1   # well below downsize_at (0.6)
+    captured = {}
+    real_size = bot.long_sizer.size
+
+    def _spy(*args, **kwargs):
+        captured["risk_scale"] = kwargs.get("risk_scale")
+        return real_size(*args, **kwargs)
+    bot.long_sizer.size = _spy
+
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    assert captured["risk_scale"] == 1.0
+
+
+def test_manip_gate_disabled_ignores_manip_score():
+    bot = _stub_bot()
+    bot._manip_gate_enabled = False
+    bot._manip_scores["ETH"] = 0.99   # would veto if the gate were enabled
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    assert len(bot.orders.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 6c. C4 review Important #2: measured maker-entry/taker-exit round-trip
+# est_cost_bps, replacing the prior hardcoded 0.0
+# ---------------------------------------------------------------------------
+
+def test_est_cost_bps_is_measured_not_hardcoded_zero():
+    bot = _stub_bot()
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    assert len(bot.orders.calls) == 1
+    est_cost_bps = bot.orders.calls[0]["meta"]["est_cost_bps"]
+    liq_state = bot.liq.state("ETH")
+    expected = (bot.pretrade.maker_fee_bps + bot.pretrade.taker_fee_bps
+               + 0.5 * liq_state.spread_bps)
+    assert est_cost_bps == pytest.approx(expected)
+    assert est_cost_bps > 0.0
+
+
+def test_long_position_tier1_cost_floor_binds_with_measured_est_cost_bps():
+    # Important #2's whole point: a non-zero est_cost_bps makes
+    # profit_tiers.tier1_cost_floor_pct's min_trigger_cost_mult floor
+    # ACTUALLY bind for a long-book position (it was provably inert at
+    # est_cost_bps=0.0 - min_trigger_cost_mult * 0.0 == 0.0, never > 0).
+    from risk.profit_tiers import tier1_cost_floor_pct
+    bot = _stub_bot()
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                             1_700_000_000.0)
+    est_cost_bps = bot.orders.calls[0]["meta"]["est_cost_bps"]
+    min_trigger_cost_mult = LB_CFG["profit_taking"]["min_trigger_cost_mult"]
+    floor_pct = tier1_cost_floor_pct(min_trigger_cost_mult, est_cost_bps)
+    assert floor_pct > 0.0, \
+        "a measured est_cost_bps must make the tier-1 cost floor bind"
+
+
+# ---------------------------------------------------------------------------
+# 6d. C4 review Critical #1(b): cancel-and-replace a stale resting bid
+# ---------------------------------------------------------------------------
+
+def test_fresh_resting_bid_is_left_alone_not_double_submitted(fake_audit):
+    # a SINGLE long-book asset: add_usd_frac_of_ceiling=0.5 means one add
+    # only ever consumes HALF the ceiling, leaving ample headroom on the
+    # next pass regardless of equity - so the ONLY thing that could
+    # prevent a duplicate submit is the resting-order dedup check itself,
+    # NOT ceiling exhaustion (Minor #8's book_exposure_usd fix would
+    # otherwise confound this test: with the default TWO-asset LB_CFG,
+    # both assets' own $0.5-ceiling-frac adds exactly exhaust the shared
+    # ceiling between them regardless of equity level, since ceiling and
+    # add-size both scale proportionally with equity).
+    bot = _stub_bot(lb_cfg=dict(LB_CFG, assets=["BTC"]))
+    bot._long_book_cycle(1_700_000_000.0)
+    btc_calls_1 = [c for c in bot.orders.calls if c["asset"] == "BTC"]
+    assert len(btc_calls_1) == 1
+
+    # a SECOND pass shortly after, mark unchanged: the resting bid is
+    # still fresh - must NOT submit a second BTC order (the resting bid
+    # IS the dedup lock).
+    bot._long_book_cycle(1_700_000_030.0)
+    btc_calls_2 = [c for c in bot.orders.calls if c["asset"] == "BTC"]
+    assert len(btc_calls_2) == 1, \
+        "a fresh resting bid must not be double-submitted"
+    assert bot.orders.cancelled == []
+
+
+def test_stale_resting_bid_is_cancelled_and_replaced_same_pass(fake_audit):
+    bot = _stub_bot()
+    bot._long_book_cycle(1_700_000_000.0)
+    btc_calls_1 = [c for c in bot.orders.calls if c["asset"] == "BTC"]
+    assert len(btc_calls_1) == 1
+    old_price = btc_calls_1[0]["price"]
+
+    # mark runs up 5% - drift now far exceeds the fresh band
+    # (add_offset_pct 0.5% + zone_buffer_pct 0.2% = 0.7%).
+    bot.marks["BTC/USD"] = bot.marks["BTC/USD"] * 1.05
+
+    bot._long_book_cycle(1_700_000_030.0)   # well inside the 1h spacing
+    btc_calls_2 = [c for c in bot.orders.calls if c["asset"] == "BTC"]
+    assert len(btc_calls_2) == 2, \
+        "the stale bid must be cancelled and a fresh one submitted"
+    assert bot.orders.cancelled, "the stale resting order must be cancelled"
+    new_price = btc_calls_2[-1]["price"]
+    assert new_price != pytest.approx(old_price)
+    # exactly ONE resting BTC order survives the replace - never two
+    resting_btc = [o for o in bot.orders.open_orders() if o.asset == "BTC"]
+    assert len(resting_btc) == 1
+    assert resting_btc[0].price == pytest.approx(new_price)
+
+
+# ---------------------------------------------------------------------------
+# 6e. C4 review Minor #8: resting long-book orders count into
+# book_exposure_usd headroom - a same-cycle cross-asset double-commit test
+# ---------------------------------------------------------------------------
+
+def test_same_cycle_cross_asset_double_commit_is_prevented(fake_audit):
+    # add_usd_frac_of_ceiling=1.0: each add wants the WHOLE ceiling
+    # (headroom-limited) - if BTC's freshly-RESTING (unfilled) order
+    # were NOT counted against book_exposure_usd, ETH (evaluated second
+    # in the SAME pass) would ALSO see full headroom and get sized up to
+    # the ceiling too, committing 2x the shared cap in one pass.
+    cfg = dict(LB_CFG, add_usd_frac_of_ceiling=1.0)
+    bot = _stub_bot(equity=10_000.0, lb_cfg=cfg)
+    bot._long_book_cycle(1_700_000_000.0)
+
+    btc_calls = [c for c in bot.orders.calls if c["asset"] == "BTC"]
+    eth_calls = [c for c in bot.orders.calls if c["asset"] == "ETH"]
+    assert btc_calls, "BTC (evaluated first) should get an add"
+    ceiling_usd = bot.long_ladder.paper_ceiling_frac() * 10_000.0
+    total_usd = sum(c["size"] * c["price"] for c in btc_calls + eth_calls)
+    assert total_usd <= ceiling_usd + 1e-6, \
+        "combined same-pass commitment across BOTH assets must stay " \
+        "within the ONE shared book-wide ceiling"
+
+
+# ---------------------------------------------------------------------------
+# 6f. C4 review Important #3(a): per-asset retry backoff after a post-plan
+# sizing/submission failure - stops the every-~30s re-attempt/re-audit flood
+# ---------------------------------------------------------------------------
+
+def _crowded_bot(**kw):
+    # same crowding setup as test_sizer_reject_leaves_no_order: 2 pre-
+    # existing non-hedge long positions per asset exhausts InventoryManager's
+    # default same-side-per-asset cap (2), so the sizer reliably vetoes -
+    # a real, reachable post-plan failure (not a fabricated stub veto).
+    import datetime
+    opened = datetime.datetime.fromtimestamp(1_699_000_000.0,
+                                             tz=datetime.timezone.utc)
+    crowd = []
+    for asset, sym in (("BTC", "BTC/USD"), ("ETH", "ETH/USD")):
+        for i in range(2):
+            crowd.append(Position(
+                position_id=f"{asset}-crowd-{i}", symbol=sym,
+                direction="long", entry_price=100.0, size=0.001,
+                original_size=0.001, opened_at=opened, book="5m"))
+    return _stub_bot(open_positions=crowd, **kw)
+
+
+def test_sizer_veto_backs_off_the_asset_for_retry_backoff_minutes(fake_audit):
+    bot = _crowded_bot()
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.orders.calls == []
+    assert bot._long_retry_backoff_until.get("BTC", 0.0) \
+        == pytest.approx(1_700_000_000.0 + 30 * 60.0)
+    assert bot._long_retry_backoff_until.get("ETH", 0.0) \
+        == pytest.approx(1_700_000_000.0 + 30 * 60.0)
+
+
+def test_backed_off_asset_does_not_re_attempt_within_the_window(fake_audit):
+    bot = _crowded_bot()
+    bot._long_book_cycle(1_700_000_000.0)
+    n_after_first = len(fake_audit.entries)
+
+    # a cycle 5s later (well within the 30-minute backoff): no re-run of
+    # decide_add/sizer at all - no new audit rows from this asset.
+    bot._long_book_cycle(1_700_000_005.0)
+    assert bot.orders.calls == []
+    assert len(fake_audit.entries) == n_after_first, \
+        "a backed-off asset must not re-run decide_add (and re-audit the " \
+        "identical sizer veto) inside the backoff window"
+
+
+def test_backoff_clears_after_retry_backoff_minutes_elapses(fake_audit):
+    bot = _crowded_bot()
+    bot._long_book_cycle(1_700_000_000.0)
+    n_after_first = len(fake_audit.entries)
+
+    later = 1_700_000_000.0 + 30 * 60.0 + 1.0
+    bot._long_book_cycle(later)
+    assert len(fake_audit.entries) > n_after_first, \
+        "past the backoff window, the asset must be re-evaluated again"
+
 
 def _full_cfg(tmp_path) -> dict:
     cfg = load_config(str(_ROOT / "config.json"))
@@ -747,3 +1079,108 @@ def test_end_to_end_slow_cycle_places_a_real_long_book_order(tmp_path, monkeypat
     assert o.post_only is True
     assert o.side == "buy"
     assert bot._long_adds_placed >= 1
+
+
+# ---------------------------------------------------------------------------
+# 10. Critical #1(d): a real-stack test (submit -> poll -> fill) through the
+# REAL sim OrderManager - asserts a book="long" Position actually opens, the
+# submitted order carries the long TTL, AND the spacing clock (Critical
+# #1c): expiry (no fill) does NOT stamp _long_last_add_ts, a FILL does.
+# ---------------------------------------------------------------------------
+
+def _place_one_real_long_book_order(tmp_path, monkeypatch, asset="BTC"):
+    monkeypatch.chdir(tmp_path)
+    cfg = _full_cfg(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60_000.0}
+    bot = _full_bot(cfg, prices, resume=False)
+    bot.context.maybe_poll = lambda now=None: _aligned_ctx()
+
+    t = 1_700_000_000.0
+    bot.fast_cycle(t)
+    bot.slow_cycle(t)
+
+    orders = [o for o in bot.orders.open_orders()
+             if o.meta.get("book") == "long" and o.asset == asset]
+    assert orders, f"a real slow_cycle must place a real long-book order " \
+        f"for {asset}"
+    return bot, orders[0], t
+
+
+def test_submit_poll_fill_opens_a_book_long_position_and_stamps_spacing(
+        tmp_path, monkeypatch):
+    bot, o, t = _place_one_real_long_book_order(tmp_path, monkeypatch)
+    assert o.ttl_sec == pytest.approx(6.0 * 3600.0)   # Critical #1a
+
+    # force a deterministic maker-cross fill: the ask touches AT/THROUGH
+    # our resting bid (post_only fills AT its own price as maker,
+    # execution/order_manager.py's _sim_maker_cross).
+    fill_now = t + 10.0
+    books = {"BTC": {"bids": [[o.price * 0.999, 5.0]],
+                     "asks": [[o.price - 0.01, 5.0]]}}
+    events = bot.orders.poll(books, {"BTC": 0.05, "ETH": 0.05}, now=fill_now)
+    assert events, "the crossing book must produce at least one fill event"
+    for ev in events:
+        bot._handle_fill(ev, now=fill_now)
+
+    positions = [p for p in bot.state.open_positions() if p.book == "long"]
+    assert positions, "the fill must open a book='long' Position"
+    assert positions[0].direction == "long"
+    # Critical #1(c): the spacing clock stamps on FILL, at the FILL time
+    # (not the earlier submit time t).
+    assert bot._long_last_add_ts.get("BTC") == pytest.approx(fill_now)
+
+
+def test_expiry_does_not_burn_the_spacing_window(tmp_path, monkeypatch):
+    bot, o, t = _place_one_real_long_book_order(tmp_path, monkeypatch)
+    assert "BTC" not in bot._long_last_add_ts   # not stamped at submit
+
+    # poll well past the 6h TTL with a NON-crossing book - no fill, a
+    # zero-fill expiry only.
+    expire_now = t + 6.0 * 3600.0 + 10.0
+    books = {"BTC": {"bids": [[o.price * 0.5, 5.0]],
+                     "asks": [[o.price * 2.0, 5.0]]}}
+    events = bot.orders.poll(books, {"BTC": 0.05, "ETH": 0.05}, now=expire_now)
+    for ev in events:
+        bot._handle_fill(ev, now=expire_now)
+
+    assert o.status == "expired"
+    assert "BTC" not in bot._long_last_add_ts, \
+        "a zero-fill expiry must NEVER burn the spacing window"
+
+
+# ---------------------------------------------------------------------------
+# 11. C4 review Minor #10: the 5m entry loop's has_open("entry") skip must
+# not trigger on a resting LONG-book bid (covered by #1(c)'s book-aware fix)
+# ---------------------------------------------------------------------------
+
+def test_5m_entry_loop_skip_is_not_triggered_by_a_resting_long_book_bid(
+        tmp_path, monkeypatch):
+    bot, o, t = _place_one_real_long_book_order(tmp_path, monkeypatch)
+    asset = o.asset
+
+    # the resting order IS a "long"-book entry for this asset...
+    assert bot.orders.has_open(asset, "entry", book="long") is True
+    # ...but is invisible to a book="5m" check - the exact filter the 5m
+    # entry loop's own has_open(asset, "entry", book="5m") call now uses
+    # (main.py's slow_cycle, Minor #10). The OLD book-BLIND call would
+    # have reported busy, proving why this mattered: without the book=
+    # filter, a resting long-book bid (now living for HOURS, not ~25s)
+    # would have silently blocked the 5m book's own entries on this asset
+    # for that entire window.
+    assert bot.orders.has_open(asset, "entry", book="5m") is False
+    assert bot.orders.has_open(asset, "entry") is True   # book-blind: busy
+
+    # confirm the ACTUAL call site (the 5m entry loop inside slow_cycle)
+    # passes book="5m", not a book-blind call.
+    calls = []
+    real_has_open = bot.orders.has_open
+
+    def _spy(asset_, purpose=None, book=None):
+        calls.append((asset_, purpose, book))
+        return real_has_open(asset_, purpose, book=book)
+    bot.orders.has_open = _spy
+
+    bot.fast_cycle(t + 30.0)
+    bot.slow_cycle(t + 30.0)
+    assert any(c[0] == asset and c[2] == "5m" for c in calls), \
+        "the 5m entry loop must call has_open(asset, 'entry', book='5m')"

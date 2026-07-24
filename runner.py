@@ -427,9 +427,17 @@ class BotRunner:
             lb_cfg = bot.config.get("long_book", {}) or {}
             positions = [p for p in bot.state.open_positions()
                         if getattr(p, "book", "5m") == "long"]
+            # C4 review, Minor #8: also count resting long-book entry
+            # orders (now load-bearing - order_ttl_hours can leave a bid
+            # resting for hours, so a filled-positions-only figure would
+            # understate true exposure for most of that window).
+            resting_orders = [o for o in bot.orders.open_orders()
+                              if o.purpose == "entry"
+                              and o.meta.get("book", "5m") == "long"]
             book_exposure_usd = sum(
                 p.size * (bot.marks.get(p.symbol) or p.entry_price)
-                for p in positions)
+                for p in positions) + \
+                sum(o.remaining * o.price for o in resting_orders)
             ceiling_frac = ladder.paper_ceiling_frac() if bot.dry_run \
                 else ladder.live_ceiling_frac()
             last_ts = getattr(bot, "_long_last_add_ts", {}) or {}

@@ -208,9 +208,16 @@ def _long_book_checks(config: dict) -> list:
     # of throttling) or sizes/offsets to nothing. zone_tol_pct/
     # zone_buffer_pct (task C3, LongBookEngine.shift_off_magnets) are new
     # knobs this task adds to the block - the brief's task-C2-shipped
-    # block had no TH-013 hygiene knobs at all.
+    # block had no TH-013 hygiene knobs at all. order_ttl_hours/
+    # retry_backoff_minutes (C4 review, Critical #1a / Important #3a) are
+    # newer still: 0 or negative order_ttl_hours would submit an
+    # instantly-expiring (or backwards-dated) bid, and 0/negative
+    # retry_backoff_minutes would defeat the whole point of backing off a
+    # repeatedly-failing asset (0 = immediate re-attempt, negative =
+    # never backs off at all).
     for key in ("add_usd_frac_of_ceiling", "add_min_spacing_hours",
-                "add_offset_pct", "zone_tol_pct", "zone_buffer_pct"):
+                "add_offset_pct", "zone_tol_pct", "zone_buffer_pct",
+                "order_ttl_hours", "retry_backoff_minutes"):
         v = float(lb.get(key, 0.0))
         if v <= 0:
             out.append(("FATAL", f"long_book.{key} ({v}) must be positive"))

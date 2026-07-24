@@ -75,7 +75,8 @@ from risk.leverage import LeverageGovernor
 from risk.position_sizer import PositionSizer
 from risk.protocols import RiskProtocolStack
 from risk.long_book import (EvidenceLadder, LongBookEngine, AddPlan,
-                            DenyReason, thesis_stop_price)
+                            DenyReason, EngineConfig, bid_is_stale,
+                            thesis_stop_price)
 from regime import (MacroRegimeEngine, VolRegimeEngine,
                     LiquidityRegimeEngine, CorrelationEngine,
                     MacroRegimeState)
@@ -635,10 +636,20 @@ class LiquidityBot:
             capital_cfg=config.get("capital_management", {}),
             protocols=self.risk_protocols)
         self.long_ladder = EvidenceLadder(lb_cfg.get("ladder", {}))
-        self._long_last_add_ts: dict = {}   # asset -> ts of last successful add
+        # C4 review, Critical #1(c): stamped on FILL (main._handle_fill),
+        # never at submit - a zero-fill expiry/cancel must not burn the
+        # ~24h-scale spacing window. Process-scoped, persisted (core/
+        # persistence.py's _restore_long_book_section).
+        self._long_last_add_ts: dict = {}   # asset -> ts of last successful FILL
         self._long_adds_placed = 0          # cumulative successful submits (telemetry)
         self._long_context_aligned_last: Optional[bool] = None
         self._long_last_deny: str = ""      # most recent deny detail (telemetry)
+        # C4 review, Important #3(a): per-asset backoff after a post-plan
+        # sizing/submission failure (sizer veto, sub-ordermin, firewall
+        # reject, zero notional) - NOT persisted (process-local, like the
+        # conviction cadence governor's own windows): a restart costs at
+        # most one extra retry attempt, never a false/stuck backoff.
+        self._long_retry_backoff_until: dict = {}   # asset -> ts backoff clears
         self.meta = MetaModelService(config.get("ml", {}))
         self.history = HistoryStore(config.get("ml", {})
                                     .get("history_path", "outputs/signal_history.csv"))
@@ -1333,6 +1344,22 @@ class LiquidityBot:
                     pos.stop_price = thesis_stop_price(
                         pos.entry_price, float(self.config.get(
                             "long_book", {}).get("thesis_stop_pct", 12.0)))
+            if pos.book == "long" and order.purpose == "entry":
+                # C4 review, Critical #1(c): the spacing clock keys on
+                # FILL, not submit - covers BOTH the first-open branch
+                # above and this averaging branch (every real fill, first
+                # or averaging, is an accumulation event the NEXT add must
+                # space off of). A zero-fill expiry/cancel never reaches
+                # here at all (event.fill_size > EPS is this whole
+                # branch's own guard), so it can never burn the window;
+                # the resting bid's own presence is what prevents a
+                # duplicate submit meanwhile (_long_book_cycle's book-aware
+                # resting-order check, Minor #10). Self-healing getattr:
+                # other tests drive _handle_fill off a minimal stub bot
+                # that may not set this dict at all.
+                last_add_ts = getattr(self, "_long_last_add_ts", None)
+                if last_add_ts is not None:
+                    last_add_ts[self._asset_of(pos.symbol)] = now
             # empirical adverse-selection: record every NEW-risk fill so its
             # post-fill mark move is measured against the trusted mark. Entries
             # are limit orders (OM-011) — the classic maker adverse-selection
@@ -2326,7 +2353,8 @@ class LiquidityBot:
     def _conviction_disposition(self, asset: str, signal, decision,
                                 regime_label: str,
                                 explored: bool,
-                                context_aligned: Optional[bool] = None
+                                context_aligned: Optional[bool] = None,
+                                feed_governor: bool = True
                                 ) -> Optional[Code]:
         """Compounder Phase A conviction formula, engine seam: evaluate
         ONE pretrade-approved entry attempt. Returns the denial Code when
@@ -2346,13 +2374,34 @@ class LiquidityBot:
         auto-passes, byte-identical to pre-C4 behavior); ONLY
         _long_book_cycle's long-book admission call passes the computed
         boolean (True/False — never None, since the long book always
-        knows whether it evaluated context as known)."""
+        knows whether it evaluated context as known).
+
+        `signal.gates_passed` may be None (C4 review, Important #4): this
+        book has no gate-stack agreement measure to offer, so `agreement`
+        is passed through as None (not-applicable, auto-passes term 1 —
+        risk/conviction.py's evaluate) rather than a fabricated 1.0. Every
+        5m call site always passes a real dict (never None), so `agreement`
+        stays a real float there, byte-identical to before.
+
+        `feed_governor` (C4 review, Important #3b): False for the
+        long-book call site ONLY. conv.note()/cadence_alarms() drive the
+        SHARED conviction cadence governor's rolling admit-share windows —
+        derived for the 5m book's per-signal cadence (risk/conviction.py's
+        cadence_alarms docstring), not this book's ~24h-scale evaluation
+        rate. Feeding it here would either silently dilute the 5m-tuned
+        windows with long-book samples or spuriously trip CV-050/051 off
+        the long book's own naturally sparse cadence. The disposition is
+        still evaluated and audit-logged either way — only the governor
+        feed is skipped."""
         conv = getattr(self, "conviction", None)
         if conv is None or not conv.enabled or explored:
             return None
-        gp = signal.gates_passed or {}
-        agreement = (sum(1 for ok in gp.values() if ok) / len(gp)) \
-            if gp else 0.0
+        gp = signal.gates_passed
+        if gp is None:
+            agreement = None
+        else:
+            agreement = (sum(1 for ok in gp.values() if ok) / len(gp)) \
+                if gp else 0.0
         rfl = int(getattr(self, "_regime_floor_live", 0))
         regime_known = True
         if rfl > 0:
@@ -2365,7 +2414,8 @@ class LiquidityBot:
             agreement=agreement, est_edge_bps=decision.est_edge_bps,
             est_cost_bps=decision.est_cost_bps, regime_known=regime_known,
             context_aligned=context_aligned)
-        conv.note(cdec, regime_label)
+        if feed_governor:
+            conv.note(cdec, regime_label)
         get_audit().log(
             "conviction", cdec.code,
             tag(cdec.code,
@@ -2373,9 +2423,10 @@ class LiquidityBot:
                 f"{'admitted' if cdec.admitted else 'denied'} "
                 f"({conv.mode})"),
             {"asset": asset, "mode": conv.mode, **cdec.terms})
-        for acode, adetail in conv.cadence_alarms():
-            get_audit().log("conviction", acode, tag(acode, adetail),
-                            {"asset": asset})
+        if feed_governor:
+            for acode, adetail in conv.cadence_alarms():
+                get_audit().log("conviction", acode, tag(acode, adetail),
+                                {"asset": asset})
         if not cdec.admitted and conv.enforce:
             return cdec.code
         return None
@@ -2659,7 +2710,10 @@ class LiquidityBot:
             symbol = self.symbol_map[asset]
             if not self._live_order_allowed("entry"):
                 can_enter = False      # live-not-armed: learning continues
-            if self.orders.has_open(asset, "entry"):
+            # Minor #10 (C4 review): book-aware - a resting LONG-book bid
+            # (now living for hours, not ~25s) must not block the 5m
+            # book's own entries on the same asset.
+            if self.orders.has_open(asset, "entry", book="5m"):
                 continue
 
             signal = self.gates.evaluate_asset(asset, v)
@@ -3118,7 +3172,20 @@ class LiquidityBot:
         inherited from slow_cycle's own early-returns above) so this
         method is independently correct under a direct/stub-bot call,
         exactly mirroring LongBookEngine.decide_add's own two new-risk
-        gates."""
+        gates.
+
+        C4 review additions (Critical #1, Important #3, Minor #8): per-
+        asset retry backoff after a post-plan sizing/submission failure
+        (checked first, cheapest); a book-aware resting-order lookup that
+        either leaves a still-fresh bid alone (never double-submits — the
+        resting bid IS the dedup lock) or cancels-and-replaces a stale one
+        THIS SAME pass (at most once per asset per pass, by construction —
+        one loop iteration); and book_exposure_usd now also counts every
+        currently-resting long-book entry order's notional, not just
+        filled positions (load-bearing now that order_ttl_hours can leave
+        a bid resting for hours — otherwise two assets in the SAME pass
+        could each commit up to the full ceiling, a same-cycle cross-asset
+        double-commit)."""
         lb_cfg = self.config.get("long_book", {}) or {}
         if not bool(lb_cfg.get("enabled", False)):
             return
@@ -3146,6 +3213,10 @@ class LiquidityBot:
         context_aligned = (stress <= stress_max) \
             if (stress_known and stress is not None) else None
         self._long_context_aligned_last = context_aligned
+        # parsed ONCE for the whole cycle: shared by the staleness check
+        # below and threaded into _place_long_book_add so it isn't
+        # re-parsed per asset.
+        ecfg = EngineConfig.from_dict(lb_cfg)
 
         for asset in assets:
             symbol = self.symbol_map.get(asset)
@@ -3154,6 +3225,42 @@ class LiquidityBot:
             mark = self.marks.get(symbol)
             if not mark or mark <= 0:
                 continue
+
+            # Important #3(a): a post-plan sizing/submission failure backs
+            # this asset off for retry_backoff_minutes instead of
+            # re-running decide_add (and re-auditing the SAME sizer/
+            # submit/conviction denial) every ~30s slow_cycle tick.
+            if now < self._long_retry_backoff_until.get(asset, 0.0):
+                continue
+
+            # Critical #1(b)/(c): the resting bid IS the dedup lock - at
+            # most one long-book entry order rests per asset at a time
+            # (has_open is now book-aware, Minor #10, though this reads
+            # open_orders() directly to get the object, not just a bool).
+            # Still fresh -> leave it alone (never double-submit). Stale
+            # (mark drifted past add_offset_pct + zone_buffer_pct, or a
+            # resubmit's collar would now refuse it) -> cancel and let
+            # THIS SAME pass re-decide/re-place at the fresh level (the
+            # collar re-checks naturally on resubmit) - at most one
+            # replace per asset per pass, by construction (one iteration).
+            resting = next(
+                (o for o in self._long_book_open_orders() if o.asset == asset),
+                None)
+            if resting is not None:
+                if bid_is_stale(mark, resting.price, ecfg.add_offset_pct,
+                                ecfg.zone_buffer_pct):
+                    self.orders.cancel_order(resting,
+                                             reason="long_book_reprice")
+                    get_audit().log(
+                        "long_book", Code.LB_ADD_DENIED,
+                        tag(Code.LB_ADD_DENIED,
+                            f"{asset}: resting bid stale vs mark - "
+                            f"cancelled for reprice"),
+                        {"asset": asset, "kind": "reprice",
+                         "old_price": resting.price, "mark": mark})
+                else:
+                    continue
+
             position = next(
                 (p for p in self.state.open_positions()
                  if p.book == "long" and self._asset_of(p.symbol) == asset),
@@ -3161,10 +3268,15 @@ class LiquidityBot:
             # combined envelope: the WHOLE book's exposure across every
             # long-book asset (not just this one) - the ceiling headroom
             # LongBookEngine.decide_add computes lives inside the shared
-            # portfolio heat cap, never a per-asset budget.
+            # portfolio heat cap, never a per-asset budget. Minor #8: also
+            # counts every resting long-book entry order's notional
+            # (re-fetched fresh - the cancel above, if it fired, must not
+            # still be counted).
             book_exposure_usd = sum(
                 p.size * (self.marks.get(p.symbol) or p.entry_price)
-                for p in self.state.open_positions() if p.book == "long")
+                for p in self.state.open_positions() if p.book == "long") + \
+                sum(o.remaining * o.price
+                    for o in self._long_book_open_orders())
 
             plan_or_deny = LongBookEngine.decide_add(
                 now=now, asset=asset, mark=mark,
@@ -3195,7 +3307,17 @@ class LiquidityBot:
                 continue
 
             self._place_long_book_add(
-                asset, symbol, position, plan_or_deny, equity, now)
+                asset, symbol, position, plan_or_deny, equity, now,
+                ecfg=ecfg)
+
+    def _long_book_open_orders(self) -> list:
+        """Every currently-resting long-book ENTRY order (any asset) -
+        purpose=="entry" AND meta["book"]=="long" (defaults "5m", same
+        convention as main._handle_fill's own order.meta.get("book",
+        "5m")). Shared by _long_book_cycle's cancel-and-replace staleness
+        check and Minor #8's book-wide resting-notional headroom figure."""
+        return [o for o in self.orders.open_orders()
+               if o.purpose == "entry" and o.meta.get("book", "5m") == "long"]
 
     def _long_book_deny(self, asset: str, deny: DenyReason) -> None:
         """Log + selectively audit one long-book DenyReason (LB-010, plus
@@ -3235,26 +3357,44 @@ class LiquidityBot:
                                    ) -> Optional[Code]:
         """Route a long-book admission through the SAME conviction-formula
         ledger the 5m book feeds (Global Constraint: "context before
-        conviction" - term 4, CV-040). Terms 1-3 (agreement/EV/regime) are
-        neutralized so ONLY the context term can deny here: this book has
-        no gate-pass fraction or pretrade EV of its own to offer
-        (agreement=1.0, a single trivially-true gate; est_edge_bps=1.0 /
-        est_cost_bps=0.0 trivially clears any ev_cost_mult). regime_label
-        uses the REAL current macro regime label (self.macro.state) so
-        term 3 reads the SAME live-label evidence-coverage floor the 5m
-        book's own conviction calls read - a considered reuse of a real
-        systemwide corpus-quality signal (documented choice, not a brief
-        literal - see task-C4-report.md)."""
-        signal = types.SimpleNamespace(gates_passed={"long_book": True})
-        decision = types.SimpleNamespace(est_edge_bps=1.0, est_cost_bps=0.0)
+        conviction" - term 4, CV-040). Terms 1-2 (agreement/EV) are
+        genuinely NOT APPLICABLE to this book: it has no gate-pass
+        fraction or pretrade EV estimate of its own to offer, so both are
+        passed as None (risk/conviction.py's evaluate: None = auto-pass,
+        recorded as null in the audit terms) - C4 review, Important #4.
+        This REPLACES the prior fabricated agreement=1.0 / est_edge_bps=
+        1.0 / est_cost_bps=0.0 stand-ins (a faked pass looks identical to
+        a real one in the audit trail; None is honest about "not
+        measured"). regime_label uses the REAL current macro regime label
+        (self.macro.state) so term 3 reads the SAME live-label evidence-
+        coverage floor the 5m book's own conviction calls read - a
+        considered reuse of a real systemwide corpus-quality signal
+        (documented choice, not a brief literal - see task-C4-report.md).
+        feed_governor=False (Important #3b): this book's ~24h-scale
+        cadence must not pollute the SHARED conviction cadence governor,
+        whose rolling windows/thresholds were derived for the 5m book's
+        per-signal selectivity."""
+        signal = types.SimpleNamespace(gates_passed=None)
+        decision = types.SimpleNamespace(est_edge_bps=None, est_cost_bps=None)
         regime_label = self.macro.state(asset).label
         return self._conviction_disposition(
             asset, signal, decision, regime_label, False,
-            context_aligned=context_aligned)
+            context_aligned=context_aligned, feed_governor=False)
+
+    def _long_book_note_failure(self, asset: str, now: float,
+                                retry_backoff_minutes: float) -> None:
+        """Important #3(a) (C4 review): a post-plan sizing/submission
+        failure (manip veto, sizer veto, sub-EPS notional, order-manager
+        refusal) backs THIS asset off for retry_backoff_minutes rather
+        than letting _long_book_cycle re-run decide_add - and re-audit
+        the identical failure - every ~30s slow_cycle tick."""
+        self._long_retry_backoff_until[asset] = \
+            now + float(retry_backoff_minutes) * 60.0
 
     def _place_long_book_add(self, asset: str, symbol: str,
                              position: Optional[Position], plan: AddPlan,
-                             equity: float, now: float) -> None:
+                             equity: float, now: float,
+                             ecfg: Optional[EngineConfig] = None) -> None:
         """Size + submit ONE long-book add. Sizing goes through the LONG
         PositionSizer instance (self.long_sizer) with a NEUTRAL, non-
         regime-gated macro state constructed fresh here - the 5m book's
@@ -3273,9 +3413,55 @@ class LiquidityBot:
         add) as a HARD CAP applied AFTER sizing, never the reverse (the
         sizer's protocols/inventory/drawdown-throttle machinery can only
         shrink the ticket further, never inflate it past the ladder's
-        budget)."""
+        budget).
+
+        `ecfg` (C4 review): the caller (_long_book_cycle) passes its
+        already-parsed EngineConfig so this isn't re-parsed per asset;
+        optional (defaults to a fresh parse) so direct/unit-test callers
+        that predate this parameter keep working unchanged.
+
+        C4 review additions: Important #5 (THALES manip gate, SZ-045
+        parity - the SAME anti-scalp veto/downsize the 5m book's new-risk
+        entries go through, main.py's 5m entry loop ~2841) runs BEFORE
+        sizing; Important #2 (measured maker-entry/taker-exit round-trip
+        est_cost_bps, replacing the prior hardcoded 0.0); Critical #1a
+        (order_ttl_hours threaded into OrderManager.submit's ttl_sec
+        override instead of the shared ~25s order_timeout_sec); Critical
+        #1c (the submit-time _long_last_add_ts stamp is REMOVED - the
+        spacing clock now keys on FILL, main._handle_fill); Important #3a
+        (every failure branch below backs this asset off via
+        _long_book_note_failure)."""
+        ecfg = ecfg or EngineConfig.from_dict(
+            self.config.get("long_book", {}) or {})
         vol_state = self.vol.state(asset)
         liq_state = self.liq.state(asset)
+
+        # Important #5 (C4 review, SZ-045 parity): anti-scalp manipulation
+        # gate - a long-book add is new risk exactly like a 5m entry, so
+        # it goes through the SAME veto/downsize band (main.py's 5m entry
+        # loop reads self._manip_scores/_manip_gate_enabled/_manip_
+        # downsize_at/_manip_veto_at/_manip_min_scale identically).
+        manip_scale = 1.0
+        if self._manip_gate_enabled:
+            ms = float(self._manip_scores.get(asset, 0.0))
+            scale = manip_entry_scale(ms, self._manip_downsize_at,
+                                      self._manip_veto_at,
+                                      self._manip_min_scale)
+            if scale is None:
+                detail = tag(Code.LB_ADD_DENIED,
+                            f"{asset}: manip suspect {ms:.2f} >= veto "
+                            f"{self._manip_veto_at:.2f} "
+                            f"({Code.SZ_MANIP_SUSPECT.value})")
+                self._long_last_deny = detail
+                log.info(detail)
+                get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
+                                {"asset": asset, "kind": "manip",
+                                 "manip_score": ms})
+                self._long_book_note_failure(asset, now,
+                                             ecfg.retry_backoff_minutes)
+                return
+            manip_scale = scale
+
         neutral_macro = MacroRegimeState(
             asset=asset, label="long_book",
             playbook={"direction_bias": "both", "size_mult": 1.0,
@@ -3285,7 +3471,7 @@ class LiquidityBot:
         sized = self.long_sizer.size(
             asset, "long", plan.price, 1.0, equity, self.state,
             neutral_macro, vol_state, liq_state, 1.0, self.inventory,
-            None, self.marks, now, risk_scale=1.0, symbol=symbol)
+            None, self.marks, now, risk_scale=manip_scale, symbol=symbol)
         if not sized.approved:
             detail = tag(Code.LB_ADD_DENIED,
                         f"{asset}: sizer vetoed - "
@@ -3294,10 +3480,14 @@ class LiquidityBot:
             log.info(detail)
             get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
                             {"asset": asset, "kind": "sizer"})
+            self._long_book_note_failure(asset, now,
+                                         ecfg.retry_backoff_minutes)
             return
 
         usd = min(sized.usd, plan.usd)
         if usd <= EPS:
+            self._long_book_note_failure(asset, now,
+                                         ecfg.retry_backoff_minutes)
             return
         units = usd / plan.price
         position_id = position.position_id if position is not None \
@@ -3307,6 +3497,22 @@ class LiquidityBot:
                 "long_book", Code.LB_ZONE_SHIFT,
                 tag(Code.LB_ZONE_SHIFT, f"{asset}: {plan.reason_detail}"),
                 {"asset": asset})
+
+        # Important #2 (C4 review): a MEASURED maker-entry/taker-exit
+        # round-trip cost estimate, reusing the SAME components execution.
+        # pretrade.PreTradeGate's own cost stack uses for its 5m maker
+        # path (fee + ... + exit_leg, where exit_leg = taker_fee_bps +
+        # 0.5*spread_bps - "every entry must be unwound, the escalation
+        # ladder's common terminal case is a taker exit through the
+        # current spread") - not a new cost model, the SAME shared
+        # pretrade/order config the 5m path reads plus this asset's OWN
+        # currently-measured spread. Replaces the prior hardcoded 0.0,
+        # which made profit_tiers.tier1_cost_floor_pct's min_trigger_
+        # cost_mult floor provably inert for every long-book position
+        # (min_trigger_cost_mult * 0.0 == 0.0, never binds).
+        est_cost_bps = (self.pretrade.maker_fee_bps
+                       + self.pretrade.taker_fee_bps
+                       + 0.5 * liq_state.spread_bps)
 
         order = self.orders.submit(
             asset=asset, symbol=symbol,
@@ -3318,11 +3524,17 @@ class LiquidityBot:
             ref_price=self.marks.get(symbol) or plan.price,
             equity=equity,
             meta={"book": "long", "p_win": 0.0, "edge_bps": 0.0,
-                 "est_cost_bps": 0.0, "probe": False},
+                 "est_cost_bps": est_cost_bps, "probe": False},
+            # Critical #1a: patient maker bids live HOURS, not the 5m
+            # book's shared ~25s order_timeout_sec.
+            ttl_sec=ecfg.order_ttl_hours * 3600.0,
             now=now,
         )
         if order:
-            self._long_last_add_ts[asset] = now
+            # Critical #1(c): the submit-time _long_last_add_ts stamp is
+            # REMOVED - the spacing clock now keys on FILL
+            # (main._handle_fill), so a zero-fill expiry/cancel can never
+            # burn the ~24h-scale spacing window.
             self._long_adds_placed += 1
             self._long_last_deny = ""
             detail = tag(Code.LB_ADD_PLACED,
@@ -3333,6 +3545,16 @@ class LiquidityBot:
                 {"asset": asset, "usd": round(usd, 2), "price": plan.price,
                  "rung": self.long_ladder.rung(), "position_id": position_id})
             log.info(detail)
+        else:
+            detail = tag(Code.LB_ADD_DENIED,
+                        f"{asset}: order manager refused submission "
+                        f"(firewall/venue-min/zero-format)")
+            self._long_last_deny = detail
+            log.info(detail)
+            get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
+                            {"asset": asset, "kind": "submit"})
+            self._long_book_note_failure(asset, now,
+                                         ecfg.retry_backoff_minutes)
 
     def _ladder_entry(self, *, position_id, asset, symbol, side, signal,
                       entry_price, decision, sized, lev, equity, vol_state,

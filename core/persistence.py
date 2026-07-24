@@ -131,6 +131,12 @@ def order_to_dict(o) -> dict:
         "ordertype": o.ordertype,
         "queue_ahead": o.queue_ahead,
         "arrival_ref": getattr(o, "arrival_ref", 0.0),
+        # C4 review, Critical #1a: a resting order's per-order TTL override
+        # must survive a restart — without this, a long-horizon accumulation
+        # bid resumes with ttl_sec=None (falls back to the shared ~25s
+        # order_timeout_sec) against its ORIGINAL (hours-old) created_ts and
+        # is judged instantly expired on the very next poll.
+        "ttl_sec": getattr(o, "ttl_sec", None),
         "meta": _jsonable_meta(o.meta),
     }
 
@@ -225,6 +231,8 @@ def order_from_dict(d: dict):
         ordertype=str(d.get("ordertype", "limit")),
         queue_ahead=float(d.get("queue_ahead", -1.0)),
         arrival_ref=float(d.get("arrival_ref", 0.0)),
+        ttl_sec=(float(d["ttl_sec"])
+                if d.get("ttl_sec") is not None else None),
         meta=_restore_meta(d.get("meta")),
     )
     return o

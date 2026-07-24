@@ -445,7 +445,16 @@ class EngineConfig:
     caller passing an empty/partial dict still gets a coherent engine).
     `zone_tol_pct`/`zone_buffer_pct` are new knobs this task adds to the
     long_book config block (absent from the task-C2-shipped block) -
-    see core/config_guard.py's `_long_book_checks` for their guard."""
+    see core/config_guard.py's `_long_book_checks` for their guard.
+
+    `order_ttl_hours`/`retry_backoff_minutes` (C4 review, Critical #1 /
+    Important #3): consumed by the ENGINE-INTEGRATION layer (main.py's
+    _long_book_cycle/_place_long_book_add), not by decide_add itself -
+    parsed here anyway so every long_book knob goes through the ONE
+    parse-with-defaults path instead of scattering raw dict reads across
+    main.py. `add_offset_pct` default corrected 1.5 -> 0.5 (Minor #9):
+    the shipped config.json value has always been 0.5 (task C4's own
+    price-collar discovery) - the code default had drifted stale."""
     add_usd_frac_of_ceiling: float
     add_min_spacing_hours: float
     add_offset_pct: float
@@ -455,6 +464,8 @@ class EngineConfig:
     contraction_spacing_mult: float
     zone_tol_pct: float
     zone_buffer_pct: float
+    order_ttl_hours: float
+    retry_backoff_minutes: float
 
     @classmethod
     def from_dict(cls, cfg: dict | None) -> "EngineConfig":
@@ -465,7 +476,7 @@ class EngineConfig:
                 cfg.get("add_usd_frac_of_ceiling", 0.2)),
             add_min_spacing_hours=float(
                 cfg.get("add_min_spacing_hours", 24.0)),
-            add_offset_pct=float(cfg.get("add_offset_pct", 1.5)),
+            add_offset_pct=float(cfg.get("add_offset_pct", 0.5)),
             stress_max_for_add=float(ctx.get("stress_max_for_add", 1.0)),
             require_known=bool(ctx.get("require_known", True)),
             pause_in_event_window=bool(
@@ -474,6 +485,9 @@ class EngineConfig:
                 ctx.get("contraction_spacing_mult", 2.0)),
             zone_tol_pct=float(cfg.get("zone_tol_pct", 0.15)),
             zone_buffer_pct=float(cfg.get("zone_buffer_pct", 0.20)),
+            order_ttl_hours=float(cfg.get("order_ttl_hours", 6.0)),
+            retry_backoff_minutes=float(
+                cfg.get("retry_backoff_minutes", 30.0)),
         )
 
 
@@ -509,6 +523,38 @@ def shift_off_magnets(price: float, grid: "list[float]", tol_pct: float,
                 out = target
                 shifted = True
     return out, shifted
+
+
+def bid_is_stale(mark: float, resting_price: float, add_offset_pct: float,
+                 zone_buffer_pct: float) -> bool:
+    """Cancel-and-replace trigger (C4 review, Critical #1b): True iff a
+    resting long-book bid has drifted more than (add_offset_pct +
+    zone_buffer_pct) PERCENT away from the CURRENT mark, in either
+    direction. Symmetric by design: a bid can go stale by becoming too
+    PASSIVE (the mark ran up, so the bid now sits far deeper than the
+    intended add_offset_pct-below-mark discount, wasting ceiling
+    headroom on an add unlikely to fill soon) or too AGGRESSIVE (the mark
+    fell, so the bid now sits at-or-above the current touch, which a
+    post_only order cannot rest at without crossing, and which
+    execution/risk_firewall.py's own price collar - `abs(price-ref)/ref`,
+    the SAME symmetric-deviation shape used here - would refuse on
+    resubmit). The caller (main._long_book_cycle) cancels and lets THIS
+    SAME pass re-decide/re-submit at a freshly-priced level; the collar
+    re-checks naturally on that resubmit, so this function only needs to
+    decide "stale enough to bother," never re-derive the collar's own
+    verdict.
+
+    (add_offset_pct + zone_buffer_pct) is the widest a FRESH bid could
+    legitimately sit from mark (base discount plus the TH-013 magnet-
+    shift's own worst-case push, shift_off_magnets never moves toward
+    price) - the natural "still fresh" band. Degrades to "not stale" on
+    a non-finite/non-positive mark or resting_price (never raises, never
+    spuriously churns a resting order on a bad tick)."""
+    if mark <= 0 or not math.isfinite(mark) or resting_price <= 0 \
+            or not math.isfinite(resting_price):
+        return False
+    drift_pct = abs(mark - resting_price) / mark * 100.0
+    return drift_pct > (float(add_offset_pct) + float(zone_buffer_pct))
 
 
 def thesis_stop_price(avg_entry: float, thesis_stop_pct: float) -> float:
