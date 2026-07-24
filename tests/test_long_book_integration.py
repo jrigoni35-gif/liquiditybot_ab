@@ -248,6 +248,18 @@ def _stub_bot(*, equity: float = 10_000.0, dry_run: bool = True,
     bot._long_context_aligned_last = None
     bot._long_last_deny = ""
     bot._long_retry_backoff_until = {}
+    # task C5 items 3(a)/3(b)/6: equity-curve peak/drawdown, adverse-
+    # episode tracker, deny-debounce state - mirrors main.__init__'s own
+    # defaults exactly (this stub predates __init__, so every attribute
+    # _long_book_cycle/_long_book_dd_frac/_long_book_ladder_maintenance/
+    # _finalize_position touch must be hand-set here).
+    bot._long_book_realized_pnl_total = 0.0
+    bot._long_book_peak_value = 0.0
+    bot._long_book_dd_breach_active = False
+    bot._long_book_adverse_episode_start = None
+    bot._long_book_adverse_held_exposure = True
+    bot._long_book_adverse_dd_ok = True
+    bot._long_book_deny_state = {}
     # Important #5: anti-scalp manip gate, mirroring the 5m book's own
     # __init__ defaults (risk.manip_gate config block) - empty scores +
     # enabled=True is a no-op (score 0.0 < downsize_at) unless a test
@@ -1184,3 +1196,378 @@ def test_5m_entry_loop_skip_is_not_triggered_by_a_resting_long_book_bid(
     bot.slow_cycle(t + 30.0)
     assert any(c[0] == asset and c[2] == "5m" for c in calls), \
         "the 5m entry loop must call has_open(asset, 'entry', book='5m')"
+
+
+# ---------------------------------------------------------------------------
+# 12. task C5: downgrade + adverse-transition ladder wiring, crisis cadence
+#    pause, euphoria give-back phase wiring, deny-debounce
+# ---------------------------------------------------------------------------
+
+import datetime as _dt_mod   # noqa: E402
+
+
+def _dt(ts: float):
+    return _dt_mod.datetime.fromtimestamp(ts, tz=_dt_mod.timezone.utc)
+
+
+def _stressed_ctx(stress=5.0):
+    return ContextState(halving_phase="expansion", stress=stress,
+                        stress_known=True, in_event_window=False,
+                        calendar_known=True)
+
+
+# ---- 12a. _long_book_dd_frac ----------------------------------------------
+
+def test_dd_frac_zero_with_no_positions_and_no_realized_pnl():
+    bot = _stub_bot()
+    assert bot._long_book_dd_frac(10_000.0) == 0.0
+
+
+def test_dd_frac_tracks_peak_and_current_drawdown():
+    bot = _stub_bot()
+    bot._long_book_realized_pnl_total = 500.0
+    dd0 = bot._long_book_dd_frac(10_000.0)
+    assert dd0 == 0.0
+    assert bot._long_book_peak_value == 500.0
+
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    bot.marks["BTC/USD"] = 50_000.0   # unrealized -100 usd (0.01 * -10_000)
+    dd1 = bot._long_book_dd_frac(10_000.0)
+    # book_value = 500 (realized) - 100 (unrealized) = 400; peak stays 500
+    assert dd1 == pytest.approx(100.0 / 10_000.0)
+    assert bot._long_book_peak_value == 500.0
+
+
+def test_dd_frac_peak_ratchets_up_never_down():
+    bot = _stub_bot()
+    bot._long_book_realized_pnl_total = 100.0
+    bot._long_book_dd_frac(10_000.0)
+    assert bot._long_book_peak_value == 100.0
+    bot._long_book_realized_pnl_total = 50.0
+    bot._long_book_dd_frac(10_000.0)
+    assert bot._long_book_peak_value == 100.0
+
+
+def test_dd_frac_guards_non_positive_equity():
+    bot = _stub_bot()
+    assert bot._long_book_dd_frac(0.0) == 0.0
+    assert bot._long_book_dd_frac(-5.0) == 0.0
+
+
+# ---- 12b. downgrade wiring (item 3(a)) ------------------------------------
+
+def test_dd_breach_triggers_one_rung_downgrade_and_lb041(fake_audit):
+    bot = _stub_bot()
+    for _ in range(10):
+        bot.long_ladder.note_close(1.0, is_live=False)
+    assert bot.long_ladder.rung() == 1
+    bot._long_book_peak_value = 1000.0
+    bot._long_book_realized_pnl_total = 0.0   # dd_frac = 1000/10_000 = 10%
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.long_ladder.rung() == 0
+    codes = [e[1] for e in fake_audit.entries]
+    assert Code.LB_RUNG_DOWN in codes
+
+
+def test_dd_breach_debounces_repeat_calls_until_recovery(fake_audit):
+    bot = _stub_bot()
+    for _ in range(10):
+        bot.long_ladder.note_close(1.0, is_live=False)
+    bot._long_book_peak_value = 1000.0
+    bot._long_book_realized_pnl_total = 0.0
+    bot._long_book_cycle(1_700_000_000.0)
+    n1 = sum(1 for e in fake_audit.entries if e[1] == Code.LB_RUNG_DOWN)
+    assert n1 == 1
+    bot._long_book_cycle(1_700_000_030.0)      # still breached, 30s later
+    n2 = sum(1 for e in fake_audit.entries if e[1] == Code.LB_RUNG_DOWN)
+    assert n2 == 1, "a still-breached drawdown must not re-apply every cycle"
+
+
+def test_dd_breach_can_refire_after_recovering_below_threshold(fake_audit):
+    bot = _stub_bot()
+    for _ in range(10):
+        bot.long_ladder.note_close(1.0, is_live=False)
+    bot._long_book_peak_value = 1000.0
+    bot._long_book_realized_pnl_total = 0.0
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot._long_book_dd_breach_active is True
+    bot._long_book_realized_pnl_total = 1000.0   # recovers to the peak
+    bot._long_book_cycle(1_700_000_060.0)
+    assert bot._long_book_dd_breach_active is False
+    bot._long_book_realized_pnl_total = 0.0      # breaches again
+    bot._long_book_cycle(1_700_000_120.0)
+    n = sum(1 for e in fake_audit.entries if e[1] == Code.LB_RUNG_DOWN)
+    assert n == 2
+
+
+# ---- 12c. adverse-transition-survived episode (item 3(b)) -----------------
+
+def test_adverse_transition_survived_after_sustained_episode(fake_audit):
+    bot = _stub_bot()
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    t0 = 1_700_000_000.0
+    bot._context_state = _stressed_ctx()
+    bot._long_book_cycle(t0)                       # episode starts
+    assert bot._long_book_adverse_episode_start == t0
+    assert bot.long_ladder.adverse_transitions_survived == 0
+
+    t1 = t0 + 25 * 3600.0                          # 25h later, still stressed
+    bot._long_book_cycle(t1)
+    assert bot.long_ladder.adverse_transitions_survived == 0, \
+        "still mid-episode - must not fire early"
+
+    t2 = t1 + 60.0
+    bot._context_state = _aligned_ctx()            # episode ends
+    bot._long_book_cycle(t2)
+    assert bot.long_ladder.adverse_transitions_survived == 1
+    codes = [e[1] for e in fake_audit.entries]
+    assert Code.LB_ADVERSE_SURVIVED in codes
+
+
+def test_adverse_transition_too_short_never_fires():
+    bot = _stub_bot()
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    t0 = 1_700_000_000.0
+    bot._context_state = _stressed_ctx()
+    bot._long_book_cycle(t0)
+    t1 = t0 + 2 * 3600.0                           # only 2h - below adverse_min_hours
+    bot._context_state = _aligned_ctx()
+    bot._long_book_cycle(t1)
+    assert bot.long_ladder.adverse_transitions_survived == 0
+
+
+def test_adverse_transition_lost_exposure_mid_episode_never_fires():
+    bot = _stub_bot()
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    t0 = 1_700_000_000.0
+    bot._context_state = _stressed_ctx()
+    bot._long_book_cycle(t0)
+    # exposure drops to zero mid-episode (position closed out elsewhere)
+    bot.state.remove_position(pos.position_id)
+    t1 = t0 + 25 * 3600.0
+    bot._long_book_cycle(t1)
+    t2 = t1 + 60.0
+    bot._context_state = _aligned_ctx()
+    bot._long_book_cycle(t2)
+    assert bot.long_ladder.adverse_transitions_survived == 0, \
+        "exposure must be held THROUGHOUT the episode to count"
+
+
+def test_adverse_transition_dd_breach_mid_episode_never_fires():
+    bot = _stub_bot()
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    t0 = 1_700_000_000.0
+    bot._context_state = _stressed_ctx()
+    bot._long_book_cycle(t0)
+    # a drawdown breach fires mid-episode
+    bot._long_book_peak_value = 1000.0
+    bot._long_book_realized_pnl_total = 0.0
+    t1 = t0 + 25 * 3600.0
+    bot._long_book_cycle(t1)
+    t2 = t1 + 60.0
+    bot._context_state = _aligned_ctx()
+    bot._long_book_cycle(t2)
+    assert bot.long_ladder.adverse_transitions_survived == 0, \
+        "dd must stay under the downgrade line THROUGHOUT the episode"
+
+
+# ---- 12d. crisis cadence pause (item 4) ------------------------------------
+
+def test_crisis_regime_pauses_adds_and_logs_lb050(fake_audit, monkeypatch):
+    bot = _stub_bot()
+    monkeypatch.setattr(bot.macro, "state",
+                        lambda asset: types.SimpleNamespace(label="crisis"))
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.orders.calls == []
+    paused = [e for e in fake_audit.entries if e[1] == Code.LB_PAUSED]
+    assert paused, "crisis regime must pause adds via the LB-050 path"
+    assert any(e[3].get("kind") == "crisis" for e in paused)
+
+
+def test_crisis_pause_disabled_via_config_flag(fake_audit, monkeypatch):
+    lbp = dict(LB_CFG, context=dict(LB_CFG["context"], pause_in_crisis=False))
+    bot = _stub_bot(lb_cfg=lbp)
+    monkeypatch.setattr(bot.macro, "state",
+                        lambda asset: types.SimpleNamespace(label="crisis"))
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.orders.calls, "pause_in_crisis=False must not block adds"
+
+
+def test_non_crisis_regime_label_never_pauses(fake_audit):
+    bot = _stub_bot()
+    bot._long_book_cycle(1_700_000_000.0)          # default stub macro: "range"
+    assert bot.orders.calls, "a non-crisis regime must never pause adds"
+
+
+def test_crisis_never_blocks_the_thesis_stop_exit(monkeypatch):
+    bot = _stub_bot()
+    monkeypatch.setattr(bot.macro, "state",
+                        lambda asset: types.SimpleNamespace(label="crisis"))
+    entry = 60_000.0
+    stop = thesis_stop_price(entry, LB_CFG["thesis_stop_pct"])
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=entry, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long",
+                   stop_price=stop)
+    bot.state.add_position(pos)
+    bot.marks["BTC/USD"] = stop - 1.0
+    exits = []
+    monkeypatch.setattr(
+        bot, "_submit_exit",
+        lambda p, pct, reason, **kw: exits.append((p, pct, reason, kw)))
+    bot._manage_open_position(pos, 1_700_000_000.0, bot.state.total_equity(),
+                              {"BTC": bot.macro.state("BTC")})
+    assert len(exits) == 1
+    assert exits[0][3].get("reason_code") == Code.LB_THESIS_INVALIDATED.value
+
+
+# ---- 12e. euphoria give-back phase wiring (item 5) -------------------------
+
+def test_long_book_cycle_calls_set_phase_with_current_halving_phase():
+    bot = _stub_bot(context_state=_aligned_ctx(halving_phase="euphoria"))
+    calls = []
+    orig = bot.long_tier_engine.set_phase
+
+    def _spy(phase):
+        calls.append(phase)
+        return orig(phase)
+    bot.long_tier_engine.set_phase = _spy
+    bot._long_book_cycle(1_700_000_000.0)
+    assert calls == ["euphoria"]
+
+
+def test_long_book_cycle_euphoria_phase_tightens_the_long_tier_engine():
+    lbp = dict(LB_CFG)
+    pt = dict(LB_CFG["profit_taking"])
+    pt["give_back"] = dict(pt["give_back"], euphoria_giveback_frac=0.20)
+    lbp["profit_taking"] = pt
+    bot = _stub_bot(lb_cfg=lbp,
+                    context_state=_aligned_ctx(halving_phase="euphoria"))
+    assert bot.long_tier_engine.gb_frac == 0.35        # base, pre-cycle
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.long_tier_engine.gb_frac == 0.20
+
+
+def test_long_book_cycle_non_euphoria_phase_keeps_base_gb_frac():
+    lbp = dict(LB_CFG)
+    pt = dict(LB_CFG["profit_taking"])
+    pt["give_back"] = dict(pt["give_back"], euphoria_giveback_frac=0.20)
+    lbp["profit_taking"] = pt
+    bot = _stub_bot(lb_cfg=lbp,
+                    context_state=_aligned_ctx(halving_phase="expansion"))
+    bot._long_book_cycle(1_700_000_000.0)
+    assert bot.long_tier_engine.gb_frac == 0.35
+
+
+# ---- 12f. deny-debounce (item 6) -------------------------------------------
+
+def test_deny_debounce_context_misaligned_ten_denials_then_backoff_expiry(
+        fake_audit):
+    lbp = dict(LB_CFG, assets=["BTC"])
+    bot = _stub_bot(lb_cfg=lbp, context_state=_misaligned_ctx())
+    t = 1_700_000_000.0
+    for i in range(10):
+        bot._long_book_cycle(t + i * 30.0)
+    denies = [e for e in fake_audit.entries
+             if e[1] == Code.LB_ADD_DENIED
+             and e[3].get("kind") == "context_misaligned"]
+    assert len(denies) == 1
+
+    t_after = t + 9 * 30.0 + 31 * 60.0   # past the 30-minute retry backoff
+    bot._long_book_cycle(t_after)
+    denies2 = [e for e in fake_audit.entries
+              if e[1] == Code.LB_ADD_DENIED
+              and e[3].get("kind") == "context_misaligned"]
+    assert len(denies2) == 2
+
+
+def test_deny_debounce_conviction_enforce_ten_denials_then_backoff_expiry(
+        fake_audit):
+    lbp = dict(LB_CFG, assets=["BTC"])
+    bot = _stub_bot(lb_cfg=lbp, conviction_mode="enforce", regime_live=0,
+                    regime_floor=60)
+    t = 1_700_000_000.0
+    for i in range(10):
+        bot._long_book_cycle(t + i * 30.0)
+    denies = [e for e in fake_audit.entries
+             if e[1] == Code.LB_ADD_DENIED and "conviction_code" in e[3]]
+    assert len(denies) == 1
+
+    t_after = t + 9 * 30.0 + 31 * 60.0
+    bot._long_book_cycle(t_after)
+    denies2 = [e for e in fake_audit.entries
+              if e[1] == Code.LB_ADD_DENIED and "conviction_code" in e[3]]
+    assert len(denies2) == 2
+
+
+def test_deny_debounce_kind_change_reemits_immediately(fake_audit):
+    # a DIFFERENT deny kind on the same asset is a transition, not a
+    # repeat - it must emit immediately even inside the backoff window.
+    lbp = dict(LB_CFG, assets=["BTC"])
+    bot = _stub_bot(lb_cfg=lbp, context_state=_misaligned_ctx())
+    t = 1_700_000_000.0
+    bot._long_book_cycle(t)
+    bot._context_state = _unknown_ctx()
+    bot._long_book_cycle(t + 30.0)
+    denies = [e for e in fake_audit.entries
+             if e[1] == Code.LB_ADD_DENIED
+             and e[3].get("kind") in ("context_misaligned", "context_unknown")]
+    assert len(denies) == 2, \
+        "a kind change must re-emit immediately, not wait for backoff"
+
+
+# ---- 12g. persistence round-trip -------------------------------------------
+
+def test_persistence_round_trips_long_book_equity_curve_and_episode(
+        tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = _full_cfg(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60_000.0}
+    bot = _full_bot(cfg, prices, resume=False)
+
+    bot._long_book_realized_pnl_total = 123.45
+    bot._long_book_peak_value = 500.0
+    bot._long_book_dd_breach_active = True
+    bot._long_book_adverse_episode_start = 1_700_000_000.0
+    bot._long_book_adverse_held_exposure = False
+    bot._long_book_adverse_dd_ok = True
+
+    assert bot.store.snapshot(bot)
+
+    bot2 = _full_bot(cfg, dict(prices), resume=True)
+    assert bot2._long_book_realized_pnl_total == pytest.approx(123.45)
+    assert bot2._long_book_peak_value == pytest.approx(500.0)
+    assert bot2._long_book_dd_breach_active is True
+    assert bot2._long_book_adverse_episode_start == pytest.approx(
+        1_700_000_000.0)
+    assert bot2._long_book_adverse_held_exposure is False
+    assert bot2._long_book_adverse_dd_ok is True
+
+
+def test_persistence_defaults_adverse_episode_clean_for_fresh_snapshot(
+        tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = _full_cfg(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60_000.0}
+    bot = _full_bot(cfg, prices, resume=False)
+    assert bot.store.snapshot(bot)
+
+    bot2 = _full_bot(cfg, dict(prices), resume=True)
+    assert bot2._long_book_adverse_episode_start is None
+    assert bot2._long_book_realized_pnl_total == 0.0
+    assert bot2._long_book_peak_value == 0.0

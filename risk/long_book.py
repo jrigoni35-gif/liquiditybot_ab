@@ -134,11 +134,21 @@ class LadderConfig:
     """Parsed `long_book.ladder` sub-block (config.json). Defaults mirror
     the shipped planning-convention values (task-C2 brief) so a caller
     that passes an empty/partial dict gets a coherent ladder rather than
-    a degenerate all-zero one."""
+    a degenerate all-zero one.
+
+    `adverse_min_hours` (task C5, C4-review adjudication item 3(b)): NOT
+    consumed by this class - EvidenceLadder only ever STORES the
+    adverse-transition count via note_adverse_transition_survived()
+    (module docstring, REDEMPTION section); the engine (main.py's
+    _long_book_ladder_maintenance) computes the sustained-episode edges
+    and reads this knob. Parsed here anyway so every long_book.ladder
+    knob goes through the ONE parse-with-defaults path (EngineConfig's
+    own docstring states the identical rationale for its own knobs)."""
     r1: RungGate
     r2: RungGate
     r3: RungGate
     dd_downgrade_pct: float
+    adverse_min_hours: float = 24.0
 
     @classmethod
     def from_dict(cls, cfg: dict | None) -> "LadderConfig":
@@ -160,6 +170,7 @@ class LadderConfig:
                 adverse_transitions_survived=int(
                     r3.get("adverse_transitions_survived", 1))),
             dd_downgrade_pct=float(cfg.get("dd_downgrade_pct", 6.0)),
+            adverse_min_hours=float(cfg.get("adverse_min_hours", 24.0)),
         )
 
 
@@ -408,7 +419,7 @@ class EvidenceLadder:
 # a future spec must earn shorts).
 
 DenyKind = Literal[
-    "halted", "entries_disabled", "spacing", "event_window",
+    "halted", "entries_disabled", "spacing", "event_window", "crisis",
     "context_unknown", "context_misaligned", "ceiling",
 ]
 
@@ -454,13 +465,20 @@ class EngineConfig:
     parse-with-defaults path instead of scattering raw dict reads across
     main.py. `add_offset_pct` default corrected 1.5 -> 0.5 (Minor #9):
     the shipped config.json value has always been 0.5 (task C4's own
-    price-collar discovery) - the code default had drifted stale."""
+    price-collar discovery) - the code default had drifted stale.
+
+    `pause_in_crisis` (task C5, C4-review adjudication item 4): a
+    real kill switch for the crisis-cadence gate below, mirroring
+    `pause_in_event_window`'s own role for the event-window gate -
+    default true, down-only (cadence only, never direction, never a
+    boost) per the Global Constraint. config_guard FATALs a non-bool."""
     add_usd_frac_of_ceiling: float
     add_min_spacing_hours: float
     add_offset_pct: float
     stress_max_for_add: float
     require_known: bool
     pause_in_event_window: bool
+    pause_in_crisis: bool
     contraction_spacing_mult: float
     zone_tol_pct: float
     zone_buffer_pct: float
@@ -481,6 +499,7 @@ class EngineConfig:
             require_known=bool(ctx.get("require_known", True)),
             pause_in_event_window=bool(
                 ctx.get("pause_in_event_window", True)),
+            pause_in_crisis=bool(ctx.get("pause_in_crisis", True)),
             contraction_spacing_mult=float(
                 ctx.get("contraction_spacing_mult", 2.0)),
             zone_tol_pct=float(cfg.get("zone_tol_pct", 0.15)),
@@ -594,7 +613,8 @@ class LongBookEngine:
                    last_add_ts: "float | None",
                    dry_run: bool, halted: bool, entries_enabled: bool,
                    equity: float, book_exposure_usd: float,
-                   cfg: "dict | None") -> "AddPlan | DenyReason":
+                   cfg: "dict | None",
+                   macro_regime_label: str = "") -> "AddPlan | DenyReason":
         """Gate order (exact; earlier gates shadow later ones):
 
         1. global new-risk gates: `halted` then `entries_enabled` -
@@ -618,7 +638,20 @@ class LongBookEngine:
            `cfg.context.pause_in_event_window` (both must hold - the
            config flag is a real kill switch for this gate, not mere
            documentation).
-        5. context gates: `cfg.context.require_known` true and the
+        5. crisis cadence pause (task C5, C4-review adjudication item
+           4): `macro_regime_label == "crisis"` AND
+           `cfg.context.pause_in_crisis` (both must hold, same real-
+           kill-switch discipline as gate 4) - cadence-only, down-only,
+           exactly like the event-window/contraction gates: it can only
+           ever DELAY an add, never boost one, never touch direction.
+           `macro_regime_label` is main.py's OWN macro regime engine
+           label (main.LiquidityBot.macro.state(asset).label), a
+           DIFFERENT subsystem from `context_state` (data.context_engine)
+           - threaded as a plain string, defaulting to "" (never
+           "crisis"), so every caller that predates this gate (every
+           existing test in tests/test_long_book_engine.py) is
+           byte-identical unless it explicitly opts in.
+        6. context gates: `cfg.context.require_known` true and the
            context's stress dial unknown -> "context_unknown" (caller
            logs CX-030); otherwise, stress known and over
            `cfg.context.stress_max_for_add` -> "context_misaligned" -
@@ -628,7 +661,7 @@ class LongBookEngine:
            False). An unknown stress dial with `require_known=False`
            auto-passes here - the same None-auto-pass convention
            conviction itself uses for `context_aligned`.
-        6. ceiling headroom: the ladder's paper/live ceiling (picked by
+        7. ceiling headroom: the ladder's paper/live ceiling (picked by
            `dry_run`) x `equity`, against `book_exposure_usd` (the
            WHOLE book's current exposure across every asset - the
            combined-envelope Global Constraint means this ceiling
@@ -636,7 +669,7 @@ class LongBookEngine:
            -> no headroom, "ceiling". The add's USD budget is
            `add_usd_frac_of_ceiling * ceiling_usd`, capped by whatever
            headroom actually remains.
-        7. price the bid: `mark * (1 - add_offset_pct/100)`, then
+        8. price the bid: `mark * (1 - add_offset_pct/100)`, then
            `shift_off_magnets` against `round_number_grid(mark)` (task
            C3 Part 1 - swing-extreme magnets stay out of this engine's
            grid; they need `_AssetState`'s candle history, which this
@@ -683,6 +716,10 @@ class LongBookEngine:
             return DenyReason(
                 "event_window", f"{asset}: add paused - inside a "
                 "calendar event window")
+
+        if ecfg.pause_in_crisis and macro_regime_label == "crisis":
+            return DenyReason(
+                "crisis", f"{asset}: add paused - crisis regime")
 
         stress_known = bool(getattr(context_state, "stress_known", False))
         if ecfg.require_known and not stress_known:

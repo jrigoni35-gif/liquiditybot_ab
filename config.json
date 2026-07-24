@@ -482,16 +482,18 @@
     "_thesis_doc": "structural invalidation full-close (LB-031), NOT a volatility stop; wide by design - the tier/give-back machinery handles profit protection.",
     "context": {"stress_max_for_add": 1.0, "require_known": true,
                 "pause_in_event_window": true,
-                "contraction_spacing_mult": 2.0},
-    "_context_doc": "term-4 alignment: adds need context known + stress dial <= stress_max_for_add; event windows pause adds (LB-050); contraction phase doubles spacing (down-only cadence, never direction; phase buckets are labeled conventions).",
+                "contraction_spacing_mult": 2.0,
+                "pause_in_crisis": true},
+    "_context_doc": "term-4 alignment: adds need context known + stress dial <= stress_max_for_add; event windows pause adds (LB-050); contraction phase doubles spacing (down-only cadence, never direction; phase buckets are labeled conventions). pause_in_crisis (task C5, C4-review item 4): self.macro.state(asset).label==\"crisis\" pauses adds via the SAME LB-050 deny path as event windows - down-only cadence, exits never touched.",
     "ladder": {
       "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
       "r2": {"ceiling_frac": 0.20, "min_closed_live": 15, "pf_floor": 1.2},
       "r3": {"ceiling_frac": 0.30, "min_closed_live": 30,
              "adverse_transitions_survived": 1},
-      "dd_downgrade_pct": 6.0
+      "dd_downgrade_pct": 6.0,
+      "adverse_min_hours": 24.0
     },
-    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct on the book's own equity-curve peak -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung.",
+    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct on the book's own equity-curve peak -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
     "profit_taking": {
       "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
       "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},

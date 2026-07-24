@@ -650,6 +650,31 @@ class LiquidityBot:
         # conviction cadence governor's own windows): a restart costs at
         # most one extra retry attempt, never a false/stuck backoff.
         self._long_retry_backoff_until: dict = {}   # asset -> ts backoff clears
+        # task C5 item 3(a): the book's own realized+unrealized equity
+        # curve peak/drawdown (_long_book_dd_frac) - fed by every long-
+        # book close (_finalize_position) and read every _long_book_cycle
+        # pass. Persisted (core/persistence.py's _restore_long_book_
+        # section) so a restart never resets the peak downward.
+        self._long_book_realized_pnl_total = 0.0
+        self._long_book_peak_value = 0.0
+        # edge-detector for the downgrade breach (EvidenceLadder.
+        # maybe_downgrade has no internal edge-detection by design - the
+        # caller must debounce to one call per breach episode).
+        self._long_book_dd_breach_active = False
+        # task C5 item 3(b): adverse-context-transition-survived episode
+        # tracker (a risk-off episode = stress > stress_max_for_add
+        # SUSTAINED for ladder.cfg.adverse_min_hours). None = not
+        # currently in an episode.
+        self._long_book_adverse_episode_start: Optional[float] = None
+        self._long_book_adverse_held_exposure = True
+        self._long_book_adverse_dd_ok = True
+        # task C5 item 6: per-asset deny-debounce state for the "chatty"
+        # DenyReason kinds (event_window/context_unknown/context_
+        # misaligned/crisis) and enforce-mode conviction denials - NOT
+        # persisted (process-local, like _long_retry_backoff_until above:
+        # a restart costs at most one extra audit row, never a stuck
+        # suppression).
+        self._long_book_deny_state: dict = {}
         self.meta = MetaModelService(config.get("ml", {}))
         self.history = HistoryStore(config.get("ml", {})
                                     .get("history_path", "outputs/signal_history.csv"))
@@ -1228,6 +1253,13 @@ class LiquidityBot:
             # dry_run selects the paper vs live evidence track (the SAME
             # flag the rest of the engine uses for live/paper posture).
             if pos.book == "long":
+                # task C5 item 3(a): cumulative realized PnL feeds the
+                # book's own equity-curve peak/drawdown
+                # (_long_book_dd_frac) - self-healing getattr, mirroring
+                # _long_last_add_ts above, for stub-bot callers that
+                # predate this counter.
+                if hasattr(self, "_long_book_realized_pnl_total"):
+                    self._long_book_realized_pnl_total += total_net
                 prev_rung = self.long_ladder.rung()
                 self.long_ladder.note_close(total_net, is_live=not self.dry_run)
                 new_rung = self.long_ladder.rung()
@@ -3144,6 +3176,106 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # Compounder Phase C: long-horizon accumulation book (task C4)
     # ------------------------------------------------------------------
+    def _long_book_dd_frac(self, equity: float) -> float:
+        """Task C5 item 3(a): the long book's OWN equity-curve peak and
+        current drawdown, as a fraction of TOTAL portfolio equity (the
+        same equity-fraction convention every other long-book ceiling in
+        this module uses). Kept simple and honest: a running curve of
+        cumulative realized PnL from every long-book close
+        (self._long_book_realized_pnl_total, fed by _finalize_position)
+        plus the unrealized mark-to-market of every currently open
+        long-book position. The all-time PEAK of that curve is a
+        ratchet (persisted, monotonic non-decreasing) so one bad cycle's
+        drawdown is measured against the book's own best-ever mark, not
+        a value that could itself slip backward."""
+        unrealized = sum(
+            (self.marks.get(p.symbol, p.entry_price) - p.entry_price)
+            * p.size
+            for p in self.state.open_positions() if p.book == "long")
+        book_value = self._long_book_realized_pnl_total + unrealized
+        self._long_book_peak_value = max(self._long_book_peak_value,
+                                         book_value)
+        if equity <= 0:
+            return 0.0
+        return max(self._long_book_peak_value - book_value, 0.0) / equity
+
+    def _long_book_ladder_maintenance(self, ctx_state, now: float,
+                                      equity: float,
+                                      book_exposure_usd: float,
+                                      stress_max: float,
+                                      lb_cfg: dict) -> None:
+        """Book-wide (not per-asset) evidence-ladder upkeep, ONE call per
+        _long_book_cycle pass: the downgrade drawdown check (task C5 item
+        3(a)) and the adverse-context-transition-survived episode tracker
+        (item 3(b)). Both reuse the SAME `ctx_state` local the caller
+        already bound from the polled context snapshot - no new context-
+        attribute read site (tests/test_context_integration.py's source
+        pin stays at exactly 2 references to that polled-context
+        attribute in main.py)."""
+        dd_frac = self._long_book_dd_frac(equity)
+        dd_threshold = self.long_ladder.cfg.dd_downgrade_pct / 100.0
+        breached = dd_frac >= dd_threshold
+        # edge-triggered: maybe_downgrade has no internal edge-detection
+        # (risk/long_book.py's own docstring) - a still-breached dd_frac
+        # every cycle must apply exactly ONE downgrade per breach episode.
+        if breached and not self._long_book_dd_breach_active:
+            if self.long_ladder.maybe_downgrade(dd_frac):
+                detail = tag(Code.LB_RUNG_DOWN,
+                            f"long-book drawdown {dd_frac:.2%} >= "
+                            f"{dd_threshold:.2%} - instant one-rung "
+                            f"downgrade (rung now "
+                            f"{self.long_ladder.rung()})")
+                get_audit().log("long_book", Code.LB_RUNG_DOWN, detail,
+                                {"dd_frac": round(dd_frac, 4),
+                                 "rung": self.long_ladder.rung()})
+                log.warning(detail)
+            self._long_book_dd_breach_active = True
+        elif not breached:
+            self._long_book_dd_breach_active = False
+
+        # adverse-transition-survived episode tracker (C2 design, C4-
+        # review item 3(b)): a risk-off episode is stress KNOWN and >
+        # stress_max_for_add, SUSTAINED for ladder.cfg.adverse_min_hours.
+        # note_adverse_transition_survived() fires once, on the episode's
+        # END, only when the book held exposure and stayed under the
+        # downgrade line for the WHOLE episode.
+        stress_known = bool(getattr(ctx_state, "stress_known", False))
+        stress = getattr(ctx_state, "stress", None)
+        in_episode_now = stress_known and stress is not None \
+            and stress > stress_max
+        held_exposure_now = book_exposure_usd > 0.0
+        dd_ok_now = dd_frac < dd_threshold
+        if in_episode_now:
+            if self._long_book_adverse_episode_start is None:
+                self._long_book_adverse_episode_start = now
+                self._long_book_adverse_held_exposure = held_exposure_now
+                self._long_book_adverse_dd_ok = dd_ok_now
+            else:
+                self._long_book_adverse_held_exposure = (
+                    self._long_book_adverse_held_exposure
+                    and held_exposure_now)
+                self._long_book_adverse_dd_ok = (
+                    self._long_book_adverse_dd_ok and dd_ok_now)
+        elif self._long_book_adverse_episode_start is not None:
+            adverse_min_hours = self.long_ladder.cfg.adverse_min_hours
+            duration_h = (now - self._long_book_adverse_episode_start) \
+                / 3600.0
+            if duration_h >= adverse_min_hours \
+                    and self._long_book_adverse_held_exposure \
+                    and self._long_book_adverse_dd_ok:
+                self.long_ladder.note_adverse_transition_survived()
+                detail = tag(
+                    Code.LB_ADVERSE_SURVIVED,
+                    f"long-book survived a {duration_h:.1f}h adverse "
+                    "context episode (exposure held, dd stayed under "
+                    "the downgrade line) - adverse_transitions_survived "
+                    f"now {self.long_ladder.adverse_transitions_survived}")
+                get_audit().log(
+                    "long_book", Code.LB_ADVERSE_SURVIVED, detail,
+                    {"duration_h": round(duration_h, 2)})
+                log.info(detail)
+            self._long_book_adverse_episode_start = None
+
     def _long_book_cycle(self, now: float) -> None:
         """One accumulation decision per configured long_book asset,
         called from slow_cycle AFTER the 5m entry loop. Long-only,
@@ -3218,6 +3350,28 @@ class LiquidityBot:
         # re-parsed per asset.
         ecfg = EngineConfig.from_dict(lb_cfg)
 
+        # task C5 item 5 (euphoria give-back): reuses the SAME `ctx_state`
+        # local above, so no new polled-context read site. Cheap,
+        # idempotent - safe to call every cycle regardless of whether the
+        # phase actually changed since the last one.
+        self.long_tier_engine.set_phase(
+            getattr(ctx_state, "halving_phase", ""))
+
+        # task C5 items 3(a)/3(b): book-wide (not per-asset) downgrade +
+        # adverse-transition-survived upkeep, computed ONCE per cycle from
+        # a fresh book-wide exposure snapshot (deliberately taken here,
+        # BEFORE any per-asset cancel-and-replace below might change it -
+        # a coarser, more stable figure is appropriate for a book-level
+        # drawdown/episode concept, unlike the per-asset ceiling-headroom
+        # figure recomputed fresh inside the loop below).
+        book_exposure_usd_snapshot = sum(
+            p.size * (self.marks.get(p.symbol) or p.entry_price)
+            for p in self.state.open_positions() if p.book == "long") + \
+            sum(o.remaining * o.price for o in self._long_book_open_orders())
+        self._long_book_ladder_maintenance(
+            ctx_state, now, equity, book_exposure_usd_snapshot, stress_max,
+            lb_cfg)
+
         for asset in assets:
             symbol = self.symbol_map.get(asset)
             if not symbol:
@@ -3287,10 +3441,11 @@ class LiquidityBot:
                 dry_run=self.dry_run, halted=halted,
                 entries_enabled=entries_enabled,
                 equity=equity, book_exposure_usd=book_exposure_usd,
-                cfg=lb_cfg)
+                cfg=lb_cfg,
+                macro_regime_label=self.macro.state(asset).label)
 
             if isinstance(plan_or_deny, DenyReason):
-                self._long_book_deny(asset, plan_or_deny)
+                self._long_book_deny(asset, plan_or_deny, now)
                 continue
 
             deny_code = self._long_book_conviction_gate(
@@ -3300,10 +3455,22 @@ class LiquidityBot:
                             f"{asset}: conviction term-4 denied "
                             f"({deny_code.value})")
                 self._long_last_deny = detail
-                get_audit().log(
-                    "long_book", Code.LB_ADD_DENIED, detail,
-                    {"asset": asset, "conviction_code": deny_code.value})
                 log.info(detail)
+                # task C5 item 6 (deny-debounce): an enforce-mode
+                # conviction denial repeats every ~30s slow_cycle tick
+                # while the underlying disposition persists - audit on
+                # TRANSITION (a different deny_code, or the asset's
+                # first-ever denial) or after retry_backoff_minutes has
+                # elapsed since the last emission, reusing the SAME knob
+                # _long_book_note_failure debounces post-plan failures
+                # with (task C4 Important #3a).
+                if self._long_book_deny_gate(
+                        asset, f"conviction:{deny_code.value}", now,
+                        ecfg.retry_backoff_minutes):
+                    get_audit().log(
+                        "long_book", Code.LB_ADD_DENIED, detail,
+                        {"asset": asset,
+                         "conviction_code": deny_code.value})
                 continue
 
             self._place_long_book_add(
@@ -3319,7 +3486,32 @@ class LiquidityBot:
         return [o for o in self.orders.open_orders()
                if o.purpose == "entry" and o.meta.get("book", "5m") == "long"]
 
-    def _long_book_deny(self, asset: str, deny: DenyReason) -> None:
+    def _long_book_deny_gate(self, asset: str, kind: str, now: float,
+                             retry_backoff_minutes: float) -> bool:
+        """Task C5 item 6 (deny-debounce, C4 re-review latent finding):
+        returns True the FIRST time for a given (asset, kind) pair - a
+        kind change (including the asset's first-ever call) always
+        re-arms immediately, since the debounce only suppresses
+        IDENTICAL repeat noise, never a genuine change of disposition -
+        or after `retry_backoff_minutes` has elapsed since the last True
+        return for the SAME kind. False on every repeat call in between;
+        the caller must skip its audit emission on False. Reuses the
+        SAME retry_backoff_minutes knob _long_book_note_failure debounces
+        post-plan failures with (task C4 Important #3a) rather than a new
+        config knob for an identical "don't re-fire every ~30s tick"
+        concept. NOT persisted - process-local, like
+        _long_book_retry_backoff_until (a restart costs at most one extra
+        audit row, never a stuck suppression)."""
+        state = self._long_book_deny_state.get(asset)
+        if state is None or state.get("kind") != kind or \
+                now - state.get("ts", 0.0) >= float(retry_backoff_minutes) \
+                * 60.0:
+            self._long_book_deny_state[asset] = {"kind": kind, "ts": now}
+            return True
+        return False
+
+    def _long_book_deny(self, asset: str, deny: DenyReason,
+                        now: Optional[float] = None) -> None:
         """Log + selectively audit one long-book DenyReason (LB-010, plus
         LB-050/CX-030 riding along on the qualifying kinds - core/codes.py's
         own comments). "spacing" is the OVERWHELMING routine case (a
@@ -3329,7 +3521,22 @@ class LiquidityBot:
         contraction-scaled spacing denial is the exception (LB-050 rides
         along - risk/long_book.py's own DenyReason.detail string flags
         contraction-scaling explicitly, and it is a rarer, notable cadence
-        state, not the routine wait)."""
+        state, not the routine wait).
+
+        Task C5 item 6 (deny-debounce): event_window/context_unknown/
+        context_misaligned/crisis repeat IDENTICALLY every ~30s tick
+        while the underlying condition persists (an event window can run
+        for hours, a stress-misaligned regime for days) - auditing every
+        tick would flood the hash-chained trail with no new information.
+        Emitted on TRANSITION (a kind change, or the asset's first-ever
+        denial) or after retry_backoff_minutes has elapsed since the last
+        emission for this SAME kind (_long_book_deny_gate). Python-log
+        line above stays unconditional (process log noise, not the
+        audited trail); contraction_spacing is deliberately NOT debounced
+        here (unchanged from C4): its detail string carries a growing
+        elapsed-seconds figure and its own comment already documents it
+        as "a rarer, notable cadence state, not the routine wait"
+        deserving full audit density."""
         self._long_last_deny = deny.detail
         detail = tag(Code.LB_ADD_DENIED, f"{asset}: {deny.detail}")
         contraction_spacing = deny.kind == "spacing" and \
@@ -3338,6 +3545,14 @@ class LiquidityBot:
             log.debug(detail)
             return
         log.info(detail)
+        if deny.kind in ("event_window", "context_unknown",
+                        "context_misaligned", "crisis"):
+            ts = now if now is not None else time.time()
+            backoff_min = float((self.config.get("long_book", {}) or {})
+                                .get("retry_backoff_minutes", 30.0))
+            if not self._long_book_deny_gate(asset, deny.kind, ts,
+                                             backoff_min):
+                return
         get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
                         {"asset": asset, "kind": deny.kind})
         if deny.kind == "context_unknown":
@@ -3346,7 +3561,7 @@ class LiquidityBot:
                            f"stress dial unknown")
             get_audit().log("long_book", Code.CX_CONTEXT_UNKNOWN,
                             cx_detail, {"asset": asset})
-        if deny.kind in ("event_window", "context_unknown") or \
+        if deny.kind in ("event_window", "context_unknown", "crisis") or \
                 contraction_spacing:
             pause_detail = tag(Code.LB_PAUSED, f"{asset}: {deny.detail}")
             get_audit().log("long_book", Code.LB_PAUSED, pause_detail,

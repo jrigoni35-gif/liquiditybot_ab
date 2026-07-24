@@ -292,6 +292,55 @@ def _long_book_checks(config: dict) -> list:
                     "must be positive - 0 or negative would never (or "
                     "always/immediately) trip the instant downgrade"))
 
+    # --- adverse-transition episode minimum duration (task C5, C4-review
+    # item 3(b)): a risk-off context episode must SUSTAIN stress >
+    # stress_max_for_add for at least adverse_min_hours before it counts
+    # as a survivable adverse transition at all - 0 or negative would
+    # count every momentary stress flicker (or, negative, every cycle
+    # unconditionally) as a "survived" episode, cheapening r3's evidence
+    # gate.
+    adverse_min_hours = float(_f(ladder, "adverse_min_hours", 24.0))
+    if adverse_min_hours <= 0:
+        out.append(("FATAL", f"long_book.ladder.adverse_min_hours "
+                    f"({adverse_min_hours}) must be positive - 0 or "
+                    "negative would count a momentary stress flicker as "
+                    "a survived adverse transition"))
+
+    # --- crisis cadence pause (task C5 item 4): a bool feature flag; a
+    # non-bool would be silently bool()-coerced (Python bool("false") is
+    # True) - a config author's "false" string would silently ENABLE the
+    # pause rather than disable it. FATAL, matching this function's own
+    # all-FATAL severity convention (unlike the ADVISORY precedent
+    # elsewhere in this module for a similar ml.monitor.shadow_recovery
+    # coercion risk - the long_book block's own docstring commits this
+    # whole function to FATAL-only severity).
+    pause_in_crisis = lb.get("context", {}).get("pause_in_crisis", True)
+    if not isinstance(pause_in_crisis, bool):
+        out.append(("FATAL", f"long_book.context.pause_in_crisis "
+                    f"({pause_in_crisis!r}) must be a real boolean, not "
+                    f"{type(pause_in_crisis).__name__} - bool() coercion "
+                    "of a non-bool (e.g. the string 'false') silently "
+                    "flips the pause on"))
+
+    # --- euphoria give-back tightening (task C5 item 5): down-only by
+    # design - euphoria_giveback_frac must be <= the base giveback_frac,
+    # or the phase switch would LOOSEN protection during a euphoria
+    # regime, inverting the evidence-backed disposition-effect rationale
+    # (evidence pass 2 Section 1.1a) it exists to encode. Absent ->
+    # risk/profit_tiers.py's own module default (== giveback_frac, exactly
+    # inert) is never checked here.
+    gb = lb.get("profit_taking", {}).get("give_back", {}) or {}
+    if "euphoria_giveback_frac" in gb:
+        euphoria_frac = float(_f(gb, "euphoria_giveback_frac", 0.0))
+        base_frac = float(_f(gb, "giveback_frac", 0.40))
+        if euphoria_frac > base_frac:
+            out.append(("FATAL", "long_book.profit_taking.give_back."
+                        f"euphoria_giveback_frac ({euphoria_frac}) must "
+                        f"be <= giveback_frac ({base_frac}) - euphoria "
+                        "tightening is down-only by design (evidence "
+                        "pass 2 Section 1.1a); a looser euphoria fraction "
+                        "would invert it"))
+
     # --- thesis stop: a plain bounds check. thesis_stop_pct is a DOWNSIDE
     # pct-of-entry-price magnitude (structural invalidation, LB-031) for a
     # spot long - it cannot be non-positive (0 or negative would never,

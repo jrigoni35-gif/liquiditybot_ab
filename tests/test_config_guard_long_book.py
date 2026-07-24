@@ -249,6 +249,50 @@ def test_dd_downgrade_pct_non_positive_fatal():
 
 
 # ---------------------------------------------------------------------
+# task C5 item 3(b): adverse-transition episode minimum duration
+# ---------------------------------------------------------------------
+
+def test_adverse_min_hours_non_positive_fatal():
+    ladder = _cfg()["long_book"]["ladder"]
+    ladder = dict(ladder, adverse_min_hours=0.0)
+    assert _fatals(_cfg(ladder=ladder))
+    ladder = dict(ladder, adverse_min_hours=-1.0)
+    assert _fatals(_cfg(ladder=ladder))
+
+
+def test_adverse_min_hours_absent_defaults_clean():
+    assert _fatals(_cfg()) == []
+
+
+def test_adverse_min_hours_positive_clean():
+    ladder = _cfg()["long_book"]["ladder"]
+    ladder = dict(ladder, adverse_min_hours=48.0)
+    assert _fatals(_cfg(ladder=ladder)) == []
+
+
+# ---------------------------------------------------------------------
+# task C5 item 4: crisis cadence pause flag
+# ---------------------------------------------------------------------
+
+def test_pause_in_crisis_non_bool_fatal():
+    cfg = _cfg()
+    cfg["long_book"]["context"] = {"pause_in_crisis": "false"}
+    assert _fatals(cfg)
+
+
+def test_pause_in_crisis_absent_defaults_clean():
+    assert _fatals(_cfg()) == []
+
+
+def test_pause_in_crisis_bool_clean():
+    cfg = _cfg()
+    cfg["long_book"]["context"] = {"pause_in_crisis": False}
+    assert _fatals(cfg) == []
+    cfg["long_book"]["context"] = {"pause_in_crisis": True}
+    assert _fatals(cfg) == []
+
+
+# ---------------------------------------------------------------------
 # thesis_stop_pct: plain bounds check, (0, 100]
 #
 # C2 REVIEW CORRECTION (see the matching comment in

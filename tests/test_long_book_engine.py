@@ -265,6 +265,71 @@ def test_event_window_shadows_context_gates_ordering():
     assert plan.kind == "event_window"
 
 
+# =======================================================================
+# crisis cadence pause (task C5, C4-review adjudication item 4)
+# =======================================================================
+
+def test_crisis_regime_denies_when_flag_true():
+    plan = LongBookEngine.decide_add(**_kwargs(macro_regime_label="crisis"))
+    assert plan.kind == "crisis"
+
+
+def test_crisis_regime_ignored_when_cfg_flag_false():
+    plan = LongBookEngine.decide_add(**_kwargs(
+        macro_regime_label="crisis",
+        cfg=_engine_cfg(context={"pause_in_crisis": False})))
+    assert isinstance(plan, AddPlan)
+
+
+def test_non_crisis_regime_label_never_denies():
+    plan = LongBookEngine.decide_add(**_kwargs(macro_regime_label="trend"))
+    assert isinstance(plan, AddPlan)
+
+
+def test_macro_regime_label_default_is_never_crisis():
+    # every pre-C5 caller never heard of this parameter - the default ""
+    # must never accidentally equal "crisis"
+    plan = LongBookEngine.decide_add(**_kwargs())
+    assert isinstance(plan, AddPlan)
+
+
+def test_crisis_shadows_context_gates_ordering():
+    plan = LongBookEngine.decide_add(**_kwargs(
+        macro_regime_label="crisis",
+        context_state=_ctx(stress_known=False)))
+    assert plan.kind == "crisis"
+
+
+def test_event_window_shadows_crisis_ordering():
+    # event-window pause (gate 4) is checked BEFORE the crisis gate
+    # (gate 5) - both true at once, event_window wins.
+    plan = LongBookEngine.decide_add(**_kwargs(
+        macro_regime_label="crisis",
+        context_state=_ctx(in_event_window=True)))
+    assert plan.kind == "event_window"
+
+
+def test_spacing_shadows_crisis_ordering():
+    plan = LongBookEngine.decide_add(**_kwargs(
+        last_add_ts=1_000_000.0 - 3600.0, macro_regime_label="crisis"))
+    assert plan.kind == "spacing"
+
+
+def test_halted_shadows_crisis_ordering():
+    plan = LongBookEngine.decide_add(**_kwargs(
+        halted=True, macro_regime_label="crisis"))
+    assert plan.kind == "halted"
+
+
+def test_engine_config_pause_in_crisis_default_true():
+    assert EngineConfig.from_dict({}).pause_in_crisis is True
+
+
+def test_engine_config_pause_in_crisis_reads_from_cfg():
+    ecfg = EngineConfig.from_dict({"context": {"pause_in_crisis": False}})
+    assert ecfg.pause_in_crisis is False
+
+
 def test_context_unknown_when_require_known_and_stress_unknown():
     plan = LongBookEngine.decide_add(**_kwargs(
         context_state=_ctx(stress_known=False)))

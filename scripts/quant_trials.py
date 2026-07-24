@@ -40,6 +40,9 @@ import numpy as np
 sys.path.insert(0, ".")
 
 from core.state import Position                              # noqa: E402
+from data.context_engine import ContextState                 # noqa: E402
+from risk.long_book import (                                  # noqa: E402
+    AddPlan, EvidenceLadder, LongBookEngine, thesis_stop_price)
 from risk.profit_tiers import ProfitTierEngine               # noqa: E402
 from risk.protocols import RiskProtocolStack                 # noqa: E402
 
@@ -276,6 +279,283 @@ def run_trials(paths: int, bars: int, seed: int):
          f"{p['capture']:.2f} vs {b['capture']:.2f}"),
     ]
     return b, p, gates
+
+
+# =======================================================================
+# Compounder Phase C, task C5: the long-horizon accumulation book's OWN
+# quant-trial harness. A SEPARATE function with a SEPARATE gate list -
+# run_trials/G1-G5 above are NOT touched (task-C5-brief.md's T6 warning:
+# "the long book gets its OWN harness function + OWN test file").
+#
+#   BASELINE   plain periodic-buy accumulation: buys a fixed USD amount
+#              every add_min_spacing_hours, UNCONDITIONALLY (no ladder,
+#              no thesis stop, no tiers, no ceiling) - just keeps
+#              accumulating and holds every unit to the horizon's end.
+#              The naive "DCA forever, never think about it" strategy.
+#   PROTOCOL   the REAL LongBookEngine.decide_add gate chain (spacing /
+#              event-window / context / ceiling headroom, via a REAL
+#              EvidenceLadder), the REAL thesis_stop_price structural
+#              stop, and the REAL ProfitTierEngine (long-book profit_
+#              taking geometry: wider absolute-pct tiers + give-back,
+#              vol_scaled off) - same "REAL engines, not a
+#              reimplementation" discipline run_trials above uses for
+#              ProfitTierEngine/RiskProtocolStack.
+#
+# Both arms run over the SAME shared world (make_world, reused byte-
+# for-byte from the 5m harness above) and the SAME per-path seed, so any
+# difference in outcome is attributable to the accumulation GEOMETRY,
+# not the price path. Context is held ALIGNED/KNOWN throughout (a
+# calm-context accumulation trial) - context/event-window/contraction
+# CADENCE gating is a separate, already-unit-tested concern
+# (tests/test_long_book_engine.py's own event_window/context_unknown/
+# contraction-spacing tests); this harness isolates the ladder-ceiling +
+# thesis-stop + tier geometry's economics, exactly the brief's ask.
+#
+# Config mirrors config.json's SHIPPED long_book block (the deployed
+# geometry) as harness-owned literals - same convention as TIER_CFG/
+# GIVE_BACK/STACK_CFG above being independent of config.json so this
+# harness can never drift with unrelated config tuning, yet still
+# tests what actually ships.
+# =======================================================================
+
+LONG_REF_EQUITY = 10_000.0        # starting account value, both arms
+LONG_EXIT_FRICTION = 0.004        # same round-trip haircut run_arm applies
+
+LONG_TIER_CFG = {
+    "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
+    "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},
+    "tier_3": {"trigger_pct_gain": 25.0, "close_pct_of_position": 25},
+    "tier_4": {"trigger_pct_gain": 40.0, "close_pct_of_position": 25},
+    "vol_scaled": False,
+    "trailing_stop": {"enabled": True, "activate_after_tier": 2,
+                      "trail_pct": 8.0},
+    "give_back": {"enabled": True, "arm_gain_pct": 5.0,
+                 "giveback_frac": 0.35},
+    "time_stop": {"enabled": False},
+}
+LONG_LADDER_CFG = {
+    "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
+    "r2": {"ceiling_frac": 0.20, "min_closed_live": 15, "pf_floor": 1.2},
+    "r3": {"ceiling_frac": 0.30, "min_closed_live": 30,
+          "adverse_transitions_survived": 1},
+    "dd_downgrade_pct": 6.0,
+}
+LONG_ENGINE_CFG = {
+    "add_usd_frac_of_ceiling": 0.2,
+    "add_min_spacing_hours": 24.0,
+    "add_offset_pct": 0.5,
+    "zone_tol_pct": 0.15,
+    "zone_buffer_pct": 0.20,
+    "context": {"stress_max_for_add": 1.0, "require_known": True,
+               "pause_in_event_window": True,
+               "contraction_spacing_mult": 2.0, "pause_in_crisis": True},
+    "ladder": LONG_LADDER_CFG,
+}
+LONG_THESIS_STOP_PCT = 12.0        # matches config.json's shipped default
+_LONG_CTX = ContextState(halving_phase="expansion", stress=0.2,
+                         stress_known=True, in_event_window=False,
+                         calendar_known=True)
+
+
+def run_long_baseline_arm(px, add_every_bars: int, add_usd: float):
+    """Plain periodic-buy accumulation: buys `add_usd` every
+    `add_every_bars`, unconditionally (no gates of any kind), holds
+    every unit to the horizon's end - never sells, so it pays no exit
+    friction and has no ladder/thesis-stop/tier geometry at all. Returns
+    (terminal_value, maxdd) in the SAME REF_EQUITY-denominated units the
+    protocol arm below uses."""
+    T = len(px)
+    equity_cash = LONG_REF_EQUITY
+    units = 0.0
+    peak = LONG_REF_EQUITY
+    maxdd = 0.0
+    for t in range(T):
+        p = float(px[t])
+        if t % add_every_bars == 0 and equity_cash >= add_usd:
+            units += add_usd / p
+            equity_cash -= add_usd
+        value = equity_cash + units * p
+        peak = max(peak, value)
+        maxdd = max(maxdd, (peak - value) / peak if peak > 0 else 0.0)
+    term_value = equity_cash + units * float(px[-1])
+    return term_value, maxdd
+
+
+def run_long_protocol_arm(px, sig, seed: int):
+    """One path, the REAL long-book geometry: LongBookEngine.decide_add
+    (ladder ceiling + spacing, context held aligned/known throughout) +
+    thesis_stop_price (structural stop, full close) + ProfitTierEngine
+    (long-book tier/give-back geometry, partial banks). Single asset
+    ("SIM"), dry_run=True throughout (paper evidence track only - the
+    shipped system is paper-first; live evidence requires a realized
+    live track record this synthetic world has no way to earn). Returns
+    (terminal_value, maxdd)."""
+    T = len(px)
+    ladder = EvidenceLadder(LONG_LADDER_CFG)
+    tiers = ProfitTierEngine(LONG_TIER_CFG)
+    equity_cash = LONG_REF_EQUITY
+    pos = None                 # core.state.Position | None
+    pos_realized = 0.0         # running net PnL of the CURRENT open position
+    last_add_ts = None
+    peak = LONG_REF_EQUITY
+    maxdd = 0.0
+    t0 = 1_700_000_000.0
+
+    for t in range(T):
+        now = t0 + t * BAR_SEC
+        p = float(px[t])
+
+        # ---- exits (always allowed, checked every bar) ----
+        if pos is not None:
+            if p <= pos.stop_price:                     # LB-031 thesis stop
+                proceeds = pos.size * p * (1.0 - LONG_EXIT_FRICTION)
+                pos_realized += proceeds - pos.entry_price * pos.size
+                equity_cash += proceeds
+                ladder.note_close(pos_realized, is_live=False)
+                pos, pos_realized = None, 0.0
+            else:
+                act = tiers.evaluate(pos, p, sigma_bar_pct=float(sig[t]),
+                                     now=now)
+                if act.should_close_partial:
+                    frac = act.close_pct / 100.0
+                    sz = pos.size * frac
+                    proceeds = sz * p * (1.0 - LONG_EXIT_FRICTION)
+                    pos_realized += proceeds - pos.entry_price * sz
+                    equity_cash += proceeds
+                    pos.size -= sz
+                    if act.close_pct >= 100.0 or pos.size <= 1e-12:
+                        ladder.note_close(pos_realized, is_live=False)
+                        pos, pos_realized = None, 0.0
+                    else:
+                        pos.tier_closed = max(pos.tier_closed, act.tier_fired)
+
+        # ---- add decision (the real gate chain) ----
+        book_exposure_usd = 0.0 if pos is None else pos.size * p
+        plan_or_deny = LongBookEngine.decide_add(
+            now=now, asset="SIM", mark=p, sigma_bar_pct=float(sig[t]),
+            context_state=_LONG_CTX, ladder=ladder, position=pos,
+            last_add_ts=last_add_ts, dry_run=True, halted=False,
+            entries_enabled=True,
+            equity=equity_cash + book_exposure_usd,
+            book_exposure_usd=book_exposure_usd, cfg=LONG_ENGINE_CFG)
+        if isinstance(plan_or_deny, AddPlan):
+            usd = min(plan_or_deny.usd, equity_cash)
+            if usd > 0:
+                units = usd / plan_or_deny.price
+                if pos is None:
+                    pos = Position(
+                        position_id=f"l{t}", symbol="SIM/USD",
+                        direction="long", entry_price=plan_or_deny.price,
+                        size=units, original_size=units,
+                        opened_at=datetime.fromtimestamp(now, tz=timezone.utc))
+                    pos.stop_price = thesis_stop_price(
+                        pos.entry_price, LONG_THESIS_STOP_PCT)
+                else:
+                    total = pos.size + units
+                    pos.entry_price = (pos.entry_price * pos.size +
+                                       plan_or_deny.price * units) / total
+                    pos.size = total
+                    pos.original_size = max(pos.original_size, total)
+                    pos.stop_price = thesis_stop_price(
+                        pos.entry_price, LONG_THESIS_STOP_PCT)
+                equity_cash -= usd
+                last_add_ts = now
+
+        value = equity_cash + (0.0 if pos is None else pos.size * p)
+        peak = max(peak, value)
+        maxdd = max(maxdd, (peak - value) / peak if peak > 0 else 0.0)
+
+    term_value = equity_cash + (0.0 if pos is None else pos.size * float(px[-1]))
+    return term_value, maxdd
+
+
+def run_long_trials(paths: int, bars: int, seed: int):
+    """Run both accumulation arms over `paths` shared worlds (SAME
+    make_world reused from the 5m harness above, SAME per-path seed).
+
+    Returns (baseline_stats, protocol_stats, gates) - gates is a list of
+    (name, passed, detail) tuples, same shape as run_trials's own return
+    so tests/test_long_trials.py can iterate it generically exactly like
+    tests/test_quant_trials.py does for G1-G5. Importable so the CI
+    suite can bind G-L1..3; main_long() is the CLI wrapper.
+    """
+    ecfg_spacing_hours = LONG_ENGINE_CFG["add_min_spacing_hours"]
+    add_every_bars = max(int(ecfg_spacing_hours * 3600.0 / BAR_SEC), 1)
+    baseline_add_usd = (LONG_ENGINE_CFG["add_usd_frac_of_ceiling"]
+                        * LONG_LADDER_CFG["r1"]["ceiling_frac"]
+                        * LONG_REF_EQUITY)
+
+    res = {"baseline": {"term_value": [], "dd": []},
+           "protocol": {"term_value": [], "dd": []}}
+    for i in range(paths):
+        rng = np.random.default_rng(seed * 100_003 + i)
+        px, sig, _signal = make_world(bars, rng)
+        b_val, b_dd = run_long_baseline_arm(px, add_every_bars,
+                                            baseline_add_usd)
+        p_val, p_dd = run_long_protocol_arm(px, sig, seed=seed + i)
+        res["baseline"]["term_value"].append(b_val)
+        res["baseline"]["dd"].append(b_dd)
+        res["protocol"]["term_value"].append(p_val)
+        res["protocol"]["dd"].append(p_dd)
+
+    def stats(arm):
+        v = np.array(res[arm]["term_value"])
+        d = np.array(res[arm]["dd"])
+        term_ret = v / LONG_REF_EQUITY - 1.0
+        return {"term_value_med": float(np.median(v)),
+                "term_ret_med": float(np.median(term_ret)),
+                "dd_med": float(np.median(d)),
+                "dd_p95": float(np.quantile(d, 0.95)),
+                "ruin": float(np.mean(term_ret < -0.5))}
+
+    b, p = stats("baseline"), stats("protocol")
+    gates = [
+        ("G-L1 tail drawdown", p["dd_p95"] <= 1.0 * b["dd_p95"],
+         f"p95 {p['dd_p95']:.2%} vs cap {b['dd_p95']:.2%}"),
+        ("G-L2 ruin", p["ruin"] == 0.0,
+         f"protocol ruin {p['ruin']:.2%} (baseline {b['ruin']:.2%})"),
+        ("G-L3 terminal capture", p["term_value_med"] >= 0.9 * b["term_value_med"],
+         f"${p['term_value_med']:,.2f} vs floor "
+         f"${0.9 * b['term_value_med']:,.2f} "
+         f"(baseline ${b['term_value_med']:,.2f})"),
+    ]
+    return b, p, gates
+
+
+def main_long():
+    import tempfile
+    from pathlib import Path
+    from core.audit import configure_audit
+    from ml.registry import configure_registry
+    configure_audit(Path(tempfile.gettempdir()) / "liqbot_long_trials_audit.jsonl")
+    configure_registry(Path(tempfile.gettempdir()) / "liqbot_long_trials_models")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--paths", type=int, default=60)
+    ap.add_argument("--bars", type=int, default=6000)
+    ap.add_argument("--seed", type=int, default=7)
+    a = ap.parse_args()
+
+    t_start = time.time()
+    b, p, gates = run_long_trials(a.paths, a.bars, a.seed)
+    hdr = f"{'':16s}{'baseline':>14s}{'protocol':>14s}"
+    rows = [("terminal value", "term_value_med", "${:,.2f}"),
+            ("terminal return", "term_ret_med", "{:+.2%}"),
+            ("MaxDD median", "dd_med", "{:.2%}"),
+            ("MaxDD p95", "dd_p95", "{:.2%}"),
+            ("ruin rate", "ruin", "{:.2%}")]
+    print(f"long-book quant trials: {a.paths} paths x {a.bars} bars, "
+         f"seed {a.seed} ({time.time() - t_start:.1f}s)")
+    print(hdr)
+    for label, key, fmt in rows:
+        print(f"{label:16s}{fmt.format(b[key]):>14s}{fmt.format(p[key]):>14s}")
+
+    print()
+    ok = True
+    for name, passed, detail in gates:
+        ok &= passed
+        print(f"  {'ok  ' if passed else 'FAIL'}  {name:22s} {detail}")
+    print(f"\n{'ALL GATES PASS' if ok else 'GATE FAILURE'}")
+    return 0 if ok else 1
 
 
 def main():

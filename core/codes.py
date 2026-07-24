@@ -310,9 +310,20 @@ class Code(str, Enum):
     LB_THESIS_INVALIDATED = "LB-031" # structural stop hit: full close
     LB_RUNG_UP = "LB-040"            # evidence ladder rung upgrade (gated)
     LB_RUNG_DOWN = "LB-041"          # instant downgrade (dd breach)
+    LB_ADVERSE_SURVIVED = "LB-042"   # a risk-off context episode ended with
+                                     # the book holding exposure throughout
+                                     # and drawdown staying under the
+                                     # downgrade line - EvidenceLadder.
+                                     # note_adverse_transition_survived()
+                                     # (task C5, C4-review item 3(b)); NOT
+                                     # LB-040 (rung up) - the rung itself
+                                     # only rises later, once r3's full
+                                     # gate (closed_live + pf + this count)
+                                     # clears, which stays coded LB-040
     LB_PAUSED = "LB-050"             # add cadence paused (event window /
-                                     # contraction phase / context unknown -
-                                     # CX-030 rides along for the unknown case)
+                                     # contraction phase / context unknown /
+                                     # crisis regime - CX-030 rides along
+                                     # for the unknown case)
 
 
 def tag(code: Code, detail: str) -> str:

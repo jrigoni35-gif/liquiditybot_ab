@@ -148,4 +148,100 @@ def test_lb_code_values_pinned():
     assert Code.LB_THESIS_INVALIDATED.value == "LB-031"
     assert Code.LB_RUNG_UP.value == "LB-040"
     assert Code.LB_RUNG_DOWN.value == "LB-041"
+    assert Code.LB_ADVERSE_SURVIVED.value == "LB-042"
+    assert Code.LB_PAUSED.value == "LB-050"
+
+
+# ---------------------------------------------------------------------
+# task C5, Part 1 item 1: 5m label isolation at load
+#
+# ml/history.py's load_training_data is the ONE sanctioned ml/ touch
+# beyond this file's own C1 column - a book=="long" filter AT LOAD, so
+# the long-horizon accumulation book's realized closes (a completely
+# different trading process: patient, ladder-gated, no p(win)/edge
+# signal) can never leak into the 5m model's training X/y, however they
+# got into signal_history.csv.
+# ---------------------------------------------------------------------
+
+def _write_5m_row(hs: HistoryStore, position_id: str, seed: float) -> None:
+    feats = np.full(len(FEATURE_NAMES), seed)
+    hs.log_entry(position_id, "ETH", "long", feats, book="5m")
+    hs.log_close(position_id, 3.0 + seed)
+
+
+def _write_long_row(hs: HistoryStore, position_id: str, seed: float) -> None:
+    # book=="long" rows are written directly via _append_row (task C4's
+    # own _handle_fill never threads real "features" for a long-book
+    # order today - a separately-tracked gap, out of this task's scope
+    # per the report), exactly like test_append_row_book_param_writes_tag
+    # above already does for a bare book="long" row.
+    feats = np.full(len(FEATURE_NAMES), seed)
+    hs._append_row(position_id, "BTC", "long", feats, 1, 99.0, "live",
+                   book="long")
+
+
+def test_load_training_data_excludes_book_long_rows(tmp_path, monkeypatch):
+    import ml.history as history_mod
+    monkeypatch.setattr(history_mod.time, "time", lambda: 1_700_000_000.0)
+    hs = HistoryStore(str(tmp_path / "h.csv"))
+    for i in range(5):
+        _write_5m_row(hs, f"5m-{i}", float(i))
+    X, y, w = hs.load_training_data()
+    assert len(X) == 5
+    for i in range(5):
+        _write_long_row(hs, f"long-{i}", float(100 + i))
+    X2, y2, w2 = hs.load_training_data()
+    assert len(X2) == 5, "long-book rows must never enter the 5m model's X/y"
+    assert np.array_equal(X, X2)
+    assert np.array_equal(y, y2)
+    assert np.array_equal(w, w2)
+
+
+def test_load_training_data_byte_identical_with_and_without_long_rows(
+        tmp_path, monkeypatch):
+    """The load-bearing pin: build the SAME 5m corpus twice, one CSV with
+    long rows interleaved among the 5m rows, one without any long rows
+    at all - X/y/w must be byte-identical (np.array_equal, not just
+    same-length) either way. time.time() is pinned for the whole test
+    (writes AND both loads) so the recency-decay weight column - a
+    function of wall-clock `now` at LOAD time, nothing to do with the
+    book filter under test - cannot introduce a confounding difference
+    between the two separately-timed load_training_data() calls."""
+    import ml.history as history_mod
+    monkeypatch.setattr(history_mod.time, "time", lambda: 1_700_000_000.0)
+    hs_clean = HistoryStore(str(tmp_path / "clean.csv"))
+    hs_mixed = HistoryStore(str(tmp_path / "mixed.csv"))
+    for i in range(8):
+        _write_5m_row(hs_clean, f"5m-{i}", float(i) * 0.37)
+        _write_5m_row(hs_mixed, f"5m-{i}", float(i) * 0.37)
+        if i % 2 == 0:
+            _write_long_row(hs_mixed, f"long-{i}", float(500 + i))
+
+    Xc, yc, wc = hs_clean.load_training_data()
+    Xm, ym, wm = hs_mixed.load_training_data()
+    assert len(Xc) == 8
+    assert len(Xm) == 8
+    assert np.array_equal(Xc, Xm)
+    assert np.array_equal(yc, ym)
+    assert np.array_equal(wc, wm)
+
+
+def test_load_training_data_long_rows_excluded_from_clash_dedup_prescan(
+        tmp_path):
+    """A long-book row that happens to share (asset, side, feature-vector)
+    with a 5m CANDIDATE row must not spuriously mark that candidate a
+    "duplicate of a live fill" - book=="long" is excluded from the
+    dedup prescan too, not just the final X/y build."""
+    hs = HistoryStore(str(tmp_path / "h.csv"))
+    feats = np.full(len(FEATURE_NAMES), 7.0)
+    # a 5m CANDIDATE row (source="candidate") with this exact vector
+    hs._append_row("cand-1", "ETH", "long", feats, 1, 0.0, "candidate",
+                   signal_ts=1000.0, barrier="pt", disp="confirmed")
+    # a long-book LIVE row with the SAME (asset, side, feature-vector) -
+    # contrived collision, proving the exclusion holds even here
+    hs._append_row("long-1", "ETH", "long", feats, 1, 50.0, "live",
+                   book="long")
+    X, y, w = hs.load_training_data()
+    assert len(X) == 1, ("the 5m candidate row must survive - the "
+                         "long-book row must never count as its live twin")
     assert Code.LB_PAUSED.value == "LB-050"

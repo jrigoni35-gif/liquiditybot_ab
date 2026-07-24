@@ -290,10 +290,28 @@ class ProfitTierEngine:
                                    0.0)
         self.gb_frac = min(max(_f(gb.get("giveback_frac", 0.40), 0.40),
                                0.05), 0.95)
+        # EUPHORIA GIVE-BACK TIGHTENING (task C5 item 5, evidence pass 2
+        # Section 1.1a's disposition-effect inversion): the base fraction
+        # above, before any phase scaling - `set_phase` below is the ONLY
+        # thing that ever mutates `self.gb_frac` afterward, and always
+        # restores it here on every non-euphoria phase. `gb_euphoria_frac`
+        # defaults to the base itself (exactly inert unless configured
+        # tighter) and is DOWN-ONLY by construction: `set_phase` only ever
+        # applies it when strictly less than the base (config_guard FATALs
+        # the reverse combination - this is defense in depth, not the
+        # primary enforcement). `_gb_tight_frac_cfg` is the RAW configured
+        # tight_frac (pre the OLD `self.gb_frac`-clamp below) so `set_phase`
+        # can re-derive `gb_tight_frac` against whichever base is currently
+        # armed without losing the originally configured number.
+        self._gb_frac_base = self.gb_frac
+        self.gb_euphoria_frac = min(max(
+            _f(gb.get("euphoria_giveback_frac", self.gb_frac),
+               self.gb_frac), 0.05), 0.95)
         self.gb_tighten_gain_pct = max(
             _f(gb.get("tighten_gain_pct", 0.0), 0.0), 0.0)
-        self.gb_tight_frac = min(max(_f(gb.get("tight_frac", 0.25), 0.25),
-                                     0.05), self.gb_frac)
+        self._gb_tight_frac_cfg = max(
+            _f(gb.get("tight_frac", 0.25), 0.25), 0.05)
+        self.gb_tight_frac = min(self._gb_tight_frac_cfg, self.gb_frac)
         self._gb_armed_log = set()
         # TIER-1 COST-MULTIPLE FLOOR (P1, 2026-07-23 P&L diagnosis): the
         # 2026-07-23 live-close audit (209 closes) measured avg win $0.05 vs
@@ -517,6 +535,34 @@ class ProfitTierEngine:
         hw = _f(getattr(position, "high_water", None), e)
         long = position.direction == "long"
         return ((hw - e) if long else (e - hw)) / e * 100.0
+
+    def set_phase(self, halving_phase: str) -> None:
+        """Compounder Phase C, task C5 item 5 (down-only euphoria give-back
+        tightening, evidence pass 2 Section 1.1a's disposition-effect
+        inversion): while `halving_phase == "euphoria"`, the give-back
+        ratchet arms at `gb_euphoria_frac` instead of the base
+        `giveback_frac` - but ONLY when `gb_euphoria_frac` is STRICTLY
+        TIGHTER than the base (config_guard FATALs the reverse combination;
+        this comparison is defense-in-depth, never the primary
+        enforcement, so a misconfigured engine still can't LOOSEN
+        protection at runtime). Every other phase restores the base
+        fraction - this method is idempotent and safe to call every cycle
+        regardless of whether the phase actually changed.
+
+        Never touches arm_gain_pct / tighten_gain_pct / the tier triggers
+        themselves - only which fraction `_give_back_candidate` locks at.
+        No-op for every caller that never calls it (e.g. the 5m book's own
+        ProfitTierEngine instance, run_trials' harness Positions): this
+        method exists on every engine instance, but `self.gb_frac` only
+        ever moves from its `__init__`-parsed base if something calls
+        this - byte-identical legacy behavior by construction, not by a
+        book-type branch anywhere in this class."""
+        if halving_phase == "euphoria" and \
+                self.gb_euphoria_frac < self._gb_frac_base:
+            self.gb_frac = self.gb_euphoria_frac
+        else:
+            self.gb_frac = self._gb_frac_base
+        self.gb_tight_frac = min(self._gb_tight_frac_cfg, self.gb_frac)
 
     def _give_back_candidate(self, position, sigma_bar_pct=None):
         """Stop that locks (1 - frac) of the PEAK move once armed by the

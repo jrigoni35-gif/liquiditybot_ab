@@ -414,6 +414,22 @@ class HistoryStore:
         live_cand_ids = set()
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                # Compounder Phase C (task C5): book=="long" rows are the
+                # long-horizon accumulation book's own realized closes -
+                # a completely different trading process (patient,
+                # ladder-gated accumulation, no p(win)/edge signal) from
+                # the 5m scalping flow this model trains for. EXCLUDED
+                # here, at the very first read of every row this method
+                # ever makes, so they can influence NEITHER the X/y
+                # arrays below NOR this clash-dedup prescan (a long-book
+                # live row coincidentally sharing an (asset, side,
+                # feature-vector) tuple with a 5m candidate must never
+                # spuriously mark that candidate a "duplicate" of a real
+                # fill it has nothing to do with). (row.get("book") or
+                # "5m") mirrors every other book-tag read site's default
+                # (pre-C1 rows / any writer that never heard of `book`).
+                if (row.get("book") or "5m") == "long":
+                    continue
                 if row.get("source") == "candidate":
                     continue
                 cid = (row.get("candidate_id") or "").strip()
@@ -431,6 +447,13 @@ class HistoryStore:
         dropped_dirty = 0
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                # task C5: same book=="long" exclusion as the prescan
+                # above - this is the ONE place that actually builds
+                # X/y, so this line is the load-bearing half of the
+                # contamination pin (the prescan's copy is defense in
+                # depth for the dedup keys, this one is the real gate).
+                if (row.get("book") or "5m") == "long":
+                    continue
                 if row.get("source") == "candidate" and \
                         (live_keys or live_cand_ids):
                     self_id = (row.get("position_id") or "").strip()

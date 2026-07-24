@@ -210,6 +210,38 @@ def _restore_long_book_section(bot, data: dict) -> None:
                     {str(k): float(v) for k, v in ts.items()})
     except (TypeError, ValueError, AttributeError):
         log.warning("long_book_last_add_ts section malformed - skipped")
+    # task C5 items 3(a)/3(b): the book's own equity-curve peak/drawdown
+    # ratchet + the adverse-context-transition-survived episode tracker -
+    # a restart must never reset the peak downward (which would let a
+    # downgrade breach silently re-clear) or drop a mid-flight episode's
+    # accumulated held-exposure/dd-ok flags.
+    try:
+        if hasattr(bot, "_long_book_realized_pnl_total"):
+            bot._long_book_realized_pnl_total = float(
+                data.get("long_book_realized_pnl_total",
+                        bot._long_book_realized_pnl_total))
+        if hasattr(bot, "_long_book_peak_value"):
+            bot._long_book_peak_value = float(
+                data.get("long_book_peak_value", bot._long_book_peak_value))
+        if hasattr(bot, "_long_book_dd_breach_active"):
+            bot._long_book_dd_breach_active = bool(
+                data.get("long_book_dd_breach_active",
+                        bot._long_book_dd_breach_active))
+    except (TypeError, ValueError):
+        log.warning("long_book equity-curve section malformed - skipped")
+    try:
+        episode = data.get("long_book_adverse_episode") or {}
+        if isinstance(episode, dict) and \
+                hasattr(bot, "_long_book_adverse_episode_start"):
+            start = episode.get("start")
+            bot._long_book_adverse_episode_start = (
+                float(start) if start is not None else None)
+            bot._long_book_adverse_held_exposure = bool(
+                episode.get("held_exposure", True))
+            bot._long_book_adverse_dd_ok = bool(
+                episode.get("dd_ok", True))
+    except (TypeError, ValueError):
+        log.warning("long_book_adverse_episode section malformed - skipped")
 
 
 def order_from_dict(d: dict):
@@ -396,6 +428,25 @@ class StateStore:
                                     is not None else {}),
                 "long_book_last_add_ts": dict(
                     getattr(bot, "_long_last_add_ts", {})),
+                # task C5 items 3(a)/3(b): the book's own equity-curve
+                # peak/drawdown ratchet + the adverse-context-transition-
+                # survived episode tracker - a restart must never reset
+                # the peak downward or drop a mid-flight episode's
+                # accumulated held-exposure/dd-ok flags.
+                "long_book_realized_pnl_total": float(
+                    getattr(bot, "_long_book_realized_pnl_total", 0.0)),
+                "long_book_peak_value": float(
+                    getattr(bot, "_long_book_peak_value", 0.0)),
+                "long_book_dd_breach_active": bool(
+                    getattr(bot, "_long_book_dd_breach_active", False)),
+                "long_book_adverse_episode": {
+                    "start": getattr(
+                        bot, "_long_book_adverse_episode_start", None),
+                    "held_exposure": bool(getattr(
+                        bot, "_long_book_adverse_held_exposure", True)),
+                    "dd_ok": bool(getattr(
+                        bot, "_long_book_adverse_dd_ok", True)),
+                },
             }
             return self._seal_and_write(data)
         except Exception:
