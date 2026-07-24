@@ -192,10 +192,10 @@ def state(title, expr, w, h, mapping, desc="", no_value=None):
          steps=[{"color": "text", "value": None}], no_value=no_value)
 
 
-def gauge(title, expr, w, h, mx=35.0, unit="percent", decimals=1, steps=None,
-          desc="", no_value=None):
+def gauge(title, expr, w, h, mx=35.0, mn=0, unit="percent", decimals=1,
+          steps=None, desc="", no_value=None):
     x, y = _place(w, h)
-    fld = {"unit": unit, "min": 0, "max": mx,
+    fld = {"unit": unit, "min": mn, "max": mx,
            "decimals": decimals, "thresholds": {"mode": "absolute",
                "steps": steps or [{"color": "green", "value": None},
                {"color": "yellow", "value": mx * 0.7},
@@ -420,6 +420,12 @@ RETRAIN = {"1": ("QUEUED", "yellow"), "0": ("idle", "green")}
 # admit share outside the cadence governor's band) earn warning color.
 CV_ALARM = {"0": ("ok", GRAY_HEX), "1": ("low", "yellow"),
             "2": ("high", "red")}
+# neutral-when-clear: same rationale as CV_ALARM above — "clear" is the
+# expected steady state (gates cadence-pause only, per spec §3.4, never
+# direction) and reads neutral gray; only the in-window state earns a
+# highlight color, and it's yellow (a pause), never red (nothing is
+# unsafe about an event window).
+CONTEXT_EVENT = {"0": ("clear", GRAY_HEX), "1": ("in-window", "yellow")}
 
 # THALES inline documentation (rendered in a markdown text panel)
 _THALES_MD = (
@@ -646,6 +652,50 @@ def _author_command():
              no_value="no denials yet",
              desc="CV-* disposition tally — which term denies most "
                   "(agreement / EV-multiple / regime-known / context).")
+
+    row("🌐 CONTEXT — cycle/macro structural state (Compounder Phase B)")
+    stat("Halving phase", "count(liquiditybot_context_phase" + JOB +
+         ") by (phase)", 6, 5, text_mode="name", steps=BLUE, graph="none",
+         display_name="${__field.labels.phase}",
+         no_value="no context poll yet",
+         desc="Days-since-halving bucket — a labeled CONVENTION over n=3 "
+              "completed halving cycles (evidence doc "
+              "2026-07-24_compounder_context_evidence.md), not a "
+              "statistical finding. Telemetry only this phase.")
+    stat("Days since halving", M("liquiditybot_context_days_since_halving"),
+         6, 5, decimals=0, steps=BLUE, no_value="no context poll yet",
+         desc="Pure UTC calendar-date math from the last chain-history "
+              "halving date.")
+    stat("Days to next halving", M("liquiditybot_context_days_to_next_halving"),
+         6, 5, decimals=0, steps=BLUE, no_value="no context poll yet",
+         desc="To the configured next_halving_date — a block-clock "
+              "ESTIMATE, not a fact.")
+    gauge("Macro stress", M("liquiditybot_context_stress"), 6, 5, mn=-2,
+          mx=2, unit="short", decimals=2,
+          no_value="unknown — a source is dark",
+          desc="Mean of three clip_z terms (funding-rate delta, "
+               "yield-curve inversion, VIX); absent (not zero) when any "
+               "of the three sources is dark — see Sources ok below.")
+    stat("COT z (crowding)", M("liquiditybot_context_cot_z"), 8, 5,
+         decimals=2, steps=BLUE, no_value="unknown — no prior COT read yet",
+         desc="Leveraged-funds net-position weekly delta, clip-z'd. A "
+              "crowding/fragility dial for JOINT reading with basis_bps "
+              "(pass-2 §1.3c) — never a signed directional input alone.")
+    stat("Stablecoin Δ (wk %)", M("liquiditybot_context_stable_wk_pct"), 8, 5,
+         unit="percent", decimals=2, steps=BLUE,
+         no_value="unknown — no prior stablecoin read yet",
+         desc="Week-over-week %change in total circulating stablecoin "
+              "USD (DefiLlama) — an independent flow dial from COT.")
+    state("Event window", M("liquiditybot_context_event_window"), 8, 5,
+          CONTEXT_EVENT,
+          desc="CME BTC futures expiry / FOMC cadence-pause window "
+               "(spec §3.4) — gates cadence only, never direction.")
+    bargauge("Sources ok", _pa("liquiditybot_context_source_ok"), 24, 5,
+             decimals=0, steps=HIGH_GOOD, mn=0, mx=1, legend="{{source}}",
+             no_value="no context poll yet",
+             desc="Per-source freshness (3x-poll-cadence grace, mirroring "
+                  "webdata_feed.py): a dark source degrades its dial to "
+                  "unknown — a STATE, never a stale value read as fresh.")
 
     row("🏛️ THALES — footprint & manipulation defense")
     text("What THALES is", _THALES_MD, 8, 9)

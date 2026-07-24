@@ -523,3 +523,128 @@ def test_collect_conviction_survives_malformed_regime_entry(tmp_path):
         is None
     assert _val(m, "liquiditybot_conviction_regime_share",
                 regime="trend") == pytest.approx(0.5)
+
+
+# ---- context engine telemetry (Task B6, data/context_engine.py
+# ContextFeed.status()) -------------------------------------------------------
+def test_collect_emits_context_metrics(tmp_path):
+    status = {
+        "written_at": time.time(),
+        "context": {
+            "enabled": True, "halving_phase": "expansion", "days_since": 300,
+            "days_to_next": 500, "stress": 0.42, "stress_known": True,
+            "cot_z": -0.3, "stable_wk_pct": 1.2, "flow_known": True,
+            "in_event_window": False, "next_event": "cme_expiry:2026-07-31",
+            "calendar_known": True,
+            "sources": {"dff": True, "t10y2y": True, "vix": False,
+                        "cot": True, "stablecoins": True, "calendar": True,
+                        "halving": True},
+            "last_poll_age_sec": 120.5,
+        },
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    names = _names(m)
+    for expect in ("liquiditybot_context_stress", "liquiditybot_context_cot_z",
+                   "liquiditybot_context_stable_wk_pct",
+                   "liquiditybot_context_days_since_halving",
+                   "liquiditybot_context_days_to_next_halving",
+                   "liquiditybot_context_event_window",
+                   "liquiditybot_context_source_ok",
+                   "liquiditybot_context_phase"):
+        assert expect in names, f"missing metric {expect}"
+    assert _val(m, "liquiditybot_context_stress") == pytest.approx(0.42)
+    assert _val(m, "liquiditybot_context_cot_z") == pytest.approx(-0.3)
+    assert _val(m, "liquiditybot_context_stable_wk_pct") == pytest.approx(1.2)
+    assert _val(m, "liquiditybot_context_days_since_halving") == 300.0
+    assert _val(m, "liquiditybot_context_days_to_next_halving") == 500.0
+    assert _val(m, "liquiditybot_context_event_window") == 0.0
+    assert _val(m, "liquiditybot_context_source_ok", source="dff") == 1.0
+    assert _val(m, "liquiditybot_context_source_ok", source="vix") == 0.0
+    assert _val(m, "liquiditybot_context_source_ok", source="halving") == 1.0
+    # one-hot: only the active bucket carries value 1
+    assert _val(m, "liquiditybot_context_phase", phase="expansion") == 1.0
+    assert _val(m, "liquiditybot_context_phase", phase="accumulation") is None
+
+
+def test_collect_context_event_window_true(tmp_path):
+    status = {"written_at": time.time(),
+              "context": {"enabled": True, "halving_phase": "euphoria",
+                          "days_since": 800, "days_to_next": 100,
+                          "stress": None, "stress_known": False,
+                          "cot_z": None, "stable_wk_pct": None,
+                          "flow_known": False, "in_event_window": True,
+                          "next_event": "fomc:2026-08-01",
+                          "calendar_known": True,
+                          "sources": {"dff": False, "halving": True},
+                          "last_poll_age_sec": 10.0}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_context_event_window") == 1.0
+    # unknown dials (None) are never emitted — a 0 and an unknown must stay
+    # distinguishable
+    assert _val(m, "liquiditybot_context_stress") is None
+    assert _val(m, "liquiditybot_context_cot_z") is None
+    assert _val(m, "liquiditybot_context_stable_wk_pct") is None
+    assert not _by_name(m, "liquiditybot_context_stress")
+
+
+def test_collect_context_absent_emits_nothing(tmp_path):
+    # pre-Phase-B status.json has no "context" key at all — degrade
+    # silently, no crash, no context-scoped metrics
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "equity": 800.0}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_context_")]
+
+
+def test_collect_context_empty_section_emits_nothing(tmp_path):
+    # engine present but the section is an empty dict — same silent degrade
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "context": {}}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_context_")]
+
+
+def test_collect_context_no_poll_yet_emits_no_phase(tmp_path):
+    # before the first poll, ContextState() defaults halving_phase to "" —
+    # an empty bucket name must never be emitted as a fake active phase
+    status = {"written_at": time.time(),
+              "context": {"enabled": True, "halving_phase": "", "days_since": 0,
+                          "days_to_next": 0, "stress": None,
+                          "stress_known": False, "cot_z": None,
+                          "stable_wk_pct": None, "flow_known": False,
+                          "in_event_window": False, "next_event": "",
+                          "calendar_known": False,
+                          "sources": {"dff": False}, "last_poll_age_sec": None}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert not _by_name(m, "liquiditybot_context_phase")
+    # days_since/days_to_next are always-known local date math (0 is a
+    # genuine value here, not an unknown) — still emitted
+    assert _val(m, "liquiditybot_context_days_since_halving") == 0.0
+    assert _val(m, "liquiditybot_context_days_to_next_halving") == 0.0
+
+
+def test_collect_context_survives_malformed_sources(tmp_path):
+    # a non-dict "sources" value must be skipped, never crash and black out
+    # the whole metric batch
+    status = {"written_at": time.time(), "halted": True,
+              "context": {"enabled": True, "halving_phase": "accumulation",
+                          "days_since": 10, "days_to_next": 1450,
+                          "stress": 0.1, "stress_known": True, "cot_z": 0.0,
+                          "stable_wk_pct": 0.0, "flow_known": True,
+                          "in_event_window": False, "next_event": "",
+                          "calendar_known": True, "sources": "garbage",
+                          "last_poll_age_sec": 1.0}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise
+    assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
+    assert not _by_name(m, "liquiditybot_context_source_ok")
+    assert _val(m, "liquiditybot_context_phase", phase="accumulation") == 1.0

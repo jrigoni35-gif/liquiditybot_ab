@@ -112,6 +112,20 @@ _SYNTH_STATUS = {
                       "trend": {"share": 0.8, "n": 20}},
         "alarm": "ok",
     },
+    # Compounder Phase B context engine (data/context_engine.py
+    # ContextFeed.status(), Task B6) — telemetry-only: halving clock,
+    # macro-stress dial, flow dials, event-window state, per-source
+    # ok/dark map. Shape copied verbatim from the real status() method.
+    "context": {
+        "enabled": True, "halving_phase": "expansion", "days_since": 300,
+        "days_to_next": 500, "stress": 0.42, "stress_known": True,
+        "cot_z": -0.3, "stable_wk_pct": 1.2, "flow_known": True,
+        "in_event_window": False, "next_event": "cme_expiry:2026-07-31",
+        "calendar_known": True,
+        "sources": {"dff": True, "t10y2y": True, "vix": True, "cot": True,
+                    "stablecoins": True, "calendar": True, "halving": True},
+        "last_poll_age_sec": 120.5,
+    },
 }
 
 
@@ -203,6 +217,48 @@ def test_command_board_has_conviction_row():
                    "liquiditybot_conviction_regime_share",
                    "liquiditybot_conviction_denials"):
         assert expect in exprs, f"Conviction row missing {expect}"
+
+
+def test_command_board_has_context_row():
+    # Task B6: the Command board surfaces a Context row — halving phase +
+    # days-since/to-next, the macro-stress dial, flow stats, event-window
+    # state, per-source ok/dark — every target of which must query an
+    # actually-emitted liquiditybot_context_* metric
+    # (test_every_query_hits_an_emitted_metric enforces that globally; this
+    # pins the row's existence and its specific metric coverage).
+    d = _shipped("liquiditybot_command.json")
+    panels = d["panels"]
+    row_idx = [i for i, p in enumerate(panels)
+               if p["type"] == "row" and "CONTEXT" in p["title"].upper()]
+    assert row_idx, "no Context row on the Command board"
+    start = row_idx[0] + 1
+    end = next((i for i in range(start, len(panels))
+               if panels[i]["type"] == "row"), len(panels))
+    section = panels[start:end]
+    assert section, "Context row has no panels"
+    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
+    for expect in ("liquiditybot_context_phase",
+                   "liquiditybot_context_days_since_halving",
+                   "liquiditybot_context_days_to_next_halving",
+                   "liquiditybot_context_stress",
+                   "liquiditybot_context_cot_z",
+                   "liquiditybot_context_stable_wk_pct",
+                   "liquiditybot_context_event_window",
+                   "liquiditybot_context_source_ok"):
+        assert expect in exprs, f"Context row missing {expect}"
+    # stress dial gauge is bounded [-2, 2] (clip_z's symmetric clip), never
+    # the default [0, mx] shape a bounded-ratio gauge normally gets
+    stress_gauges = [p for p in section if p["type"] == "gauge"
+                      and "liquiditybot_context_stress" in
+                      " ".join(t["expr"] for t in p["targets"])]
+    assert stress_gauges, "no stress dial gauge in the Context row"
+    for g in stress_gauges:
+        fld = g["fieldConfig"]["defaults"]
+        assert fld["min"] == -2 and fld["max"] == 2, \
+            "stress gauge must be bounded [-2, 2]"
+    # no hardcoded lookback window on any Context-row query (glass contract)
+    assert "[24h]" not in exprs and "[48h]" not in exprs and \
+        "[6h]" not in exprs, "Context row must not hardcode a lookback"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):

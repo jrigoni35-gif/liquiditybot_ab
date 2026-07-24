@@ -316,6 +316,42 @@ def collect(status_path: str) -> list:
         m.append(gauge("liquiditybot_conviction_alarm",
                        {"ok": 0.0, "low": 1.0, "high": 2.0}
                        .get(str(cv.get("alarm")), -1.0), ts=ts))
+    # ---- context engine (Compounder Phase B, data/context_engine.py --------
+    # ContextFeed.status()) — halving clock, macro-stress dial, flow dials,
+    # event-window state, per-source ok/dark map. TELEMETRY ONLY (spec §3):
+    # no gate/entry/exit/sizing path reads this in this phase; status, audit
+    # and gc_pusher are the sole consumers. Missing/empty section (older
+    # status.json predating this feature, or a writer that emits {} rather
+    # than omitting the key) degrades to NOTHING emitted here — same silent
+    # degrade as the conviction block above, never a crash.
+    cx = s.get("context") or {}
+    if cx:
+        for key, suffix in (("stress", "stress"), ("cot_z", "cot_z"),
+                            ("stable_wk_pct", "stable_wk_pct"),
+                            ("days_since", "days_since_halving"),
+                            ("days_to_next", "days_to_next_halving")):
+            v = cx.get(key)
+            # honest unknown: a None dial (source dark / no prior poll) is
+            # simply not emitted this pass — never a fabricated 0 (source_ok
+            # below is what makes "0" and "unknown" distinguishable)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_context_{suffix}", v, ts=ts))
+        m.append(gauge("liquiditybot_context_event_window",
+                       1.0 if cx.get("in_event_window") else 0.0, ts=ts))
+        sources = cx.get("sources")
+        if isinstance(sources, dict):
+            for source, ok in sources.items():
+                m.append(gauge("liquiditybot_context_source_ok",
+                               1.0 if ok else 0.0,
+                               {"source": str(source)}, ts))
+        # one-hot: the standard *_info label pattern (see liquiditybot_
+        # regime_info / liquiditybot_ml_model_info above) — only the
+        # CURRENT bucket is emitted; an empty phase (no poll has run yet)
+        # is honestly absent, never a fake active bucket
+        phase = cx.get("halving_phase")
+        if phase:
+            m.append(gauge("liquiditybot_context_phase", 1.0,
+                           {"phase": str(phase)}, ts))
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)
         if isinstance(v, (int, float)):
