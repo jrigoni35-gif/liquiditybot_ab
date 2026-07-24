@@ -107,3 +107,65 @@ class ConvictionFormula:
             return ConvictionDecision(False, Code.CV_CONTEXT_MISALIGNED,
                                       terms)
         return ConvictionDecision(True, Code.CV_ADMIT, terms)
+
+    # ---- cadence governor (mirror of the P3 probe-share window) -----
+
+    def note(self, decision: ConvictionDecision, regime_label: str) -> None:
+        """Feed one conviction EVALUATION (admit or deny) into the rolling
+        cadence windows. Evaluations, not orders: the governor watches the
+        FORMULA's selectivity, which exists in report mode too."""
+        self._evaluated += 1
+        if decision.admitted:
+            self._admitted += 1
+        else:
+            self._denials[decision.code.value] = \
+                self._denials.get(decision.code.value, 0) + 1
+        self._admits.append(decision.admitted)
+        d = self._regime_admits.get(regime_label)
+        if d is None:
+            d = deque(maxlen=self.share_window)
+            self._regime_admits[regime_label] = d
+        d.append(decision.admitted)
+
+    @staticmethod
+    def _share(d: Deque[bool]) -> float:
+        return (sum(1 for a in d if a) / len(d)) if d else 0.0
+
+    def cadence_alarms(self) -> List[Tuple[Code, str]]:
+        """Transition-edge alarms only (state CHANGES, never per-cycle
+        spam): for the global window and each regime window holding >=
+        share_min_n samples, an admit share outside [share_lo, share_hi]
+        raises CV-050/051 once, until the state changes again. The
+        governor never auto-tunes a threshold — thresholds move only by
+        conscious re-derivation (overfit law)."""
+        out: List[Tuple[Code, str]] = []
+        windows = [("all", self._admits)] + sorted(
+            self._regime_admits.items())
+        for key, d in windows:
+            if len(d) < self.share_min_n:
+                continue
+            share = self._share(d)
+            state = "high" if share > self.share_hi else \
+                    "low" if share < self.share_lo else "ok"
+            if state != self._alarm_state.get(key, "ok") and state != "ok":
+                code = Code.CV_CADENCE_HIGH if state == "high" \
+                    else Code.CV_CADENCE_LOW
+                out.append((code,
+                            f"conviction admit share {share:.0%} ({key}, "
+                            f"n={len(d)}) outside [{self.share_lo:.0%}, "
+                            f"{self.share_hi:.0%}]"))
+            self._alarm_state[key] = state
+        return out
+
+    def status(self) -> dict:
+        return {
+            "enabled": self.enabled, "mode": self.mode,
+            "evaluated": self._evaluated, "admitted": self._admitted,
+            "denials": dict(self._denials),
+            "share": round(self._share(self._admits), 3),
+            "n": len(self._admits),
+            "by_regime": {k: {"share": round(self._share(d), 3),
+                              "n": len(d)}
+                          for k, d in sorted(self._regime_admits.items())},
+            "alarm": self._alarm_state.get("all", "ok"),
+        }

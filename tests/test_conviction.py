@@ -92,3 +92,60 @@ def test_enforce_only_when_enabled_and_mode_enforce():
     assert not _f().enforce                          # report mode
     assert not _f(mode="enforce", enabled=False).enforce
     assert _f(mode="enforce").enforce
+
+
+# ---- Task 2: cadence governor ---------------------------------------
+
+def test_governor_counts_and_status():
+    f = _f()
+    for _ in range(3):
+        f.note(f.evaluate(**PASS), "range")
+    f.note(f.evaluate(**{**PASS, "agreement": 0.0}), "trend_up")
+    st = f.status()
+    assert st["evaluated"] == 4 and st["admitted"] == 3
+    assert st["denials"] == {"CV-010": 1}
+    assert st["share"] == 0.75 and st["n"] == 4
+    assert st["by_regime"]["range"] == {"share": 1.0, "n": 3}
+    assert st["by_regime"]["trend_up"] == {"share": 0.0, "n": 1}
+
+
+def test_cadence_alarm_suppressed_below_min_n():
+    f = _f()                                  # share_min_n 4
+    for _ in range(3):
+        f.note(f.evaluate(**PASS), "range")
+    assert f.cadence_alarms() == []
+
+
+def test_cadence_alarm_high_fires_on_transition_only():
+    f = _f()                                  # share_hi 0.75, window 8
+    for _ in range(8):
+        f.note(f.evaluate(**PASS), "range")
+    alarms = f.cadence_alarms()
+    assert any(c == Code.CV_CADENCE_HIGH for c, _ in alarms)
+    assert f.cadence_alarms() == []           # steady state: no re-alarm
+    assert f.status()["alarm"] == "high"
+
+
+def test_cadence_alarm_low():
+    f = _f()
+    deny = {**PASS, "agreement": 0.0}
+    for _ in range(8):
+        f.note(f.evaluate(**deny), "range")
+    assert any(c == Code.CV_CADENCE_LOW for c, _ in f.cadence_alarms())
+
+
+def test_share_within_band_no_alarm():
+    f = _f()                                  # band [0.25, 0.75]
+    for i in range(8):
+        d = f.evaluate(**(PASS if i % 2 else
+                          {**PASS, "agreement": 0.0}))
+        f.note(d, "range")
+    assert f.cadence_alarms() == []
+    assert f.status()["alarm"] == "ok"
+
+
+def test_status_is_json_serializable():
+    import json
+    f = _f()
+    f.note(f.evaluate(**PASS), "range")
+    json.dumps(f.status())                    # raises on non-serializable
