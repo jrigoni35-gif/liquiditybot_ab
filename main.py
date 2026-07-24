@@ -3536,15 +3536,20 @@ class LiquidityBot:
         while the underlying condition persists (an event window can run
         for hours, a stress-misaligned regime for days) - auditing every
         tick would flood the hash-chained trail with no new information.
-        Emitted on TRANSITION (a kind change, or the asset's first-ever
-        denial) or after retry_backoff_minutes has elapsed since the last
-        emission for this SAME kind (_long_book_deny_gate). Python-log
-        line above stays unconditional (process log noise, not the
-        audited trail); contraction_spacing is deliberately NOT debounced
-        here (unchanged from C4): its detail string carries a growing
-        elapsed-seconds figure and its own comment already documents it
-        as "a rarer, notable cadence state, not the routine wait"
-        deserving full audit density."""
+        Task C6 (C5 review, Minor 5): "ceiling" joins the debounced set
+        for the identical reason - a book parked at its ceiling with no
+        closed position to free headroom denies IDENTICALLY every pass,
+        potentially for as long as the ceiling holds (C5 left it
+        undebounced deliberately, "not named in the brief" - this task
+        closes that gap). Emitted on TRANSITION (a kind change, or the
+        asset's first-ever denial) or after retry_backoff_minutes has
+        elapsed since the last emission for this SAME kind
+        (_long_book_deny_gate). Python-log line above stays unconditional
+        (process log noise, not the audited trail); contraction_spacing
+        is deliberately NOT debounced here (unchanged from C4): its
+        detail string carries a growing elapsed-seconds figure and its
+        own comment already documents it as "a rarer, notable cadence
+        state, not the routine wait" deserving full audit density."""
         self._long_last_deny = deny.detail
         detail = tag(Code.LB_ADD_DENIED, f"{asset}: {deny.detail}")
         contraction_spacing = deny.kind == "spacing" and \
@@ -3554,7 +3559,7 @@ class LiquidityBot:
             return
         log.info(detail)
         if deny.kind in ("event_window", "context_unknown",
-                        "context_misaligned", "crisis"):
+                        "context_misaligned", "crisis", "ceiling"):
             ts = now if now is not None else time.time()
             backoff_min = float((self.config.get("long_book", {}) or {})
                                 .get("retry_backoff_minutes", 30.0))

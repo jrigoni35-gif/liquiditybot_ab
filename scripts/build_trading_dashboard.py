@@ -426,6 +426,21 @@ CV_ALARM = {"0": ("ok", GRAY_HEX), "1": ("low", "yellow"),
 # highlight color, and it's yellow (a pause), never red (nothing is
 # unsafe about an event window).
 CONTEXT_EVENT = {"0": ("clear", GRAY_HEX), "1": ("in-window", "yellow")}
+# an achievement ladder, not a severity (task C6): rung 0 (paper-only) is
+# the expected, neutral steady state (risk/long_book.py's own docstring —
+# "the book trades whenever the system runs") and never reads as a
+# warning, so it gets the same neutral gray as CV_ALARM/CONTEXT_EVENT's
+# "ok"/"clear" states above; r1/r2 read blue (live risk progressively
+# earned); r3 (every gate cleared, the full live ceiling) is the one
+# "target reached" state and is the only rung that earns green.
+LB_RUNG = {"0": ("paper-only", GRAY_HEX), "1": ("r1", "blue"),
+           "2": ("r2", "blue"), "3": ("r3", "green")}
+# neutral-when-ok, same rationale as CV_ALARM/CONTEXT_EVENT: an empty
+# paused_reason (last add attempt succeeded, or none has run yet) is the
+# expected steady state; a non-empty detail (a routine spacing wait,
+# ceiling exhaustion, an event window, a halt, ...) is routine cadence
+# gating, never a fault — yellow, never red.
+LB_PAUSED = {"0": ("ok", GRAY_HEX), "1": ("paused", "yellow")}
 
 # THALES inline documentation (rendered in a markdown text panel)
 _THALES_MD = (
@@ -696,6 +711,47 @@ def _author_command():
              desc="Per-source freshness (3x-poll-cadence grace, mirroring "
                   "webdata_feed.py): a dark source degrades its dial to "
                   "unknown — a STATE, never a stale value read as fresh.")
+
+    row("🌱 LONG BOOK — evidence ladder & accumulation (Compounder Phase C)")
+    state("Rung", M("liquiditybot_longbook_rung"), 6, 5, LB_RUNG,
+          no_value="long book disabled/not built",
+          desc="Evidence ladder (spec §5): rung 0 is paper-only; r1-r3 "
+               "unlock progressively wider LIVE ceilings on realized, "
+               "book-tagged closes. A drawdown breach drops one rung "
+               "instantly; re-earning it back is gradual (redemption).")
+    gauge("Ceiling", M("liquiditybot_longbook_ceiling_frac", "*100"), 6, 5,
+          no_value="long book disabled/not built",
+          desc="Equity-fraction ceiling for the CURRENT track (paper "
+               "floors at r1 regardless of earned rung; live is 0 at "
+               "rung 0) — bounded by the shared combined-envelope 35% "
+               "portfolio heat cap; the long book never gets its own "
+               "risk stack.")
+    stat("Book exposure", M("liquiditybot_longbook_exposure_usd"), 6, 5,
+         unit=USD, decimals=2, steps=GRN,
+         no_value="long book disabled/not built",
+         desc="Open long-book position notional + resting entry-order "
+              "notional, book-wide across every configured asset.")
+    stat("Adds placed", M("liquiditybot_longbook_adds_placed"), 6, 5,
+         decimals=0, steps=BLUE, no_value="long book disabled/not built",
+         desc="Post_only maker bids placed since boot — averaging adds "
+              "into the book's one growing position per asset (never a "
+              "second same-book position, never a short).")
+    state("Paused", M("liquiditybot_longbook_paused"), 6, 5, LB_PAUSED,
+          no_value="long book disabled/not built",
+          desc="Last add-cycle disposition: any deny (spacing wait, "
+               "ceiling exhaustion, context gate, event window, halt) "
+               "reads paused. New-risk cadence only — exits are always "
+               "allowed regardless of this state.")
+    stat("PF (live)", M("liquiditybot_longbook_pf_live"), 6, 5, decimals=2,
+         steps=PF, no_value="no live closes yet",
+         desc="Running live-track profit factor — the same evidence r2/r3 "
+              "gate on (pf_floor).")
+    bargauge("Closed (paper vs live)", _pa("liquiditybot_longbook_closed"),
+             12, 5, decimals=0, steps=BLUE, legend="{{track}}",
+             no_value="no closes yet",
+             desc="Realized book-tagged closes per evidence track — the "
+                  "ladder's raw input (r1 gates on paper evidence; r2/r3 "
+                  "gate on live evidence + live profit factor).")
 
     row("🏛️ THALES — footprint & manipulation defense")
     text("What THALES is", _THALES_MD, 8, 9)

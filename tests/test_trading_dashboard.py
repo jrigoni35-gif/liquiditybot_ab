@@ -126,6 +126,19 @@ _SYNTH_STATUS = {
                     "stablecoins": True, "calendar": True, "halving": True},
         "last_poll_age_sec": 120.5,
     },
+    # Compounder Phase C long-horizon accumulation book (Task C6) —
+    # runner.py's BotRunner._long_book_status() shape, copied verbatim
+    # (see the real section for field provenance: rung/ceiling_frac from
+    # risk/long_book.py's EvidenceLadder; book_exposure_usd/adds_placed/
+    # paused_reason/context_aligned_last from main.py's engine-integration
+    # attributes; pf_live already JSON-safe, None never the raw inf).
+    "long_book": {
+        "enabled": True, "rung": 2, "ceiling_frac": 0.2,
+        "book_exposure_usd": 850.0, "positions": 1, "adds_placed": 6,
+        "last_add_age_h": 3.5, "paused_reason": "",
+        "closed_paper": 14, "closed_live": 16, "pf_live": 1.42,
+        "context_aligned_last": True,
+    },
 }
 
 
@@ -259,6 +272,59 @@ def test_command_board_has_context_row():
     # no hardcoded lookback window on any Context-row query (glass contract)
     assert "[24h]" not in exprs and "[48h]" not in exprs and \
         "[6h]" not in exprs, "Context row must not hardcode a lookback"
+
+
+def test_command_board_has_long_book_row():
+    # Task C6: the Command board surfaces ONE Long Book row — rung
+    # (value-mapped 0-3), ceiling gauge, book exposure, adds placed,
+    # paused state, live profit factor, closed-count-by-track — every
+    # target of which must query an actually-emitted
+    # liquiditybot_longbook_* metric (test_every_query_hits_an_emitted_
+    # metric enforces that globally; this pins the row's existence and
+    # its specific metric coverage).
+    d = _shipped("liquiditybot_command.json")
+    panels = d["panels"]
+    row_idx = [i for i, p in enumerate(panels)
+               if p["type"] == "row" and "LONG BOOK" in p["title"].upper()]
+    assert row_idx, "no Long Book row on the Command board"
+    start = row_idx[0] + 1
+    end = next((i for i in range(start, len(panels))
+               if panels[i]["type"] == "row"), len(panels))
+    section = panels[start:end]
+    assert section, "Long Book row has no panels"
+    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
+    for expect in ("liquiditybot_longbook_rung",
+                   "liquiditybot_longbook_ceiling_frac",
+                   "liquiditybot_longbook_exposure_usd",
+                   "liquiditybot_longbook_adds_placed",
+                   "liquiditybot_longbook_paused",
+                   "liquiditybot_longbook_pf_live",
+                   "liquiditybot_longbook_closed"):
+        assert expect in exprs, f"Long Book row missing {expect}"
+    # ceiling gauge bounded [0, 0.35] (the shared portfolio heat cap,
+    # expressed in the gauge()-standard *100/percent convention every
+    # other fraction-valued gauge on this board already uses — e.g.
+    # Gross exposure / Portfolio heat, both mx=35.0 for the identical cap)
+    ceiling_gauges = [p for p in section if p["type"] == "gauge"
+                      and "liquiditybot_longbook_ceiling_frac" in
+                      " ".join(t["expr"] for t in p["targets"])]
+    assert ceiling_gauges, "no ceiling gauge in the Long Book row"
+    for g in ceiling_gauges:
+        fld = g["fieldConfig"]["defaults"]
+        assert fld["min"] == 0 and fld["max"] == 35.0, \
+            "ceiling gauge must be bounded [0, 0.35] (35% heat cap)"
+    # rung is a value-mapped state tile (0-3), not a raw number
+    rung_panels = [p for p in section
+                   if "liquiditybot_longbook_rung" in
+                   " ".join(t["expr"] for t in p.get("targets", []))]
+    assert rung_panels, "no rung panel in the Long Book row"
+    for p in rung_panels:
+        mappings = p["fieldConfig"]["defaults"].get("mappings")
+        assert mappings and len(mappings[0]["options"]) == 4, \
+            "rung panel must value-map exactly 0-3"
+    # no hardcoded lookback window on any Long Book row query (glass contract)
+    assert "[24h]" not in exprs and "[48h]" not in exprs and \
+        "[6h]" not in exprs, "Long Book row must not hardcode a lookback"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):

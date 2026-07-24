@@ -1612,7 +1612,41 @@ def test_long_book_cycle_non_euphoria_phase_keeps_base_gb_frac():
     assert bot.long_tier_engine.gb_frac == 0.35
 
 
-# ---- 12f. deny-debounce (item 6) -------------------------------------------
+# ---- 12f. deny-debounce (item 6; "ceiling" folded in at task C6) ----------
+
+def test_deny_debounce_ceiling_ten_denials_then_backoff_expiry(fake_audit):
+    # Task C6 (C5 review, Minor 5 / progress.md "ceiling deny un-debounced
+    # -> C6 one-liner"): "ceiling" joins the debounced set exactly like
+    # event_window/context_unknown/context_misaligned/crisis - a book
+    # parked at its ceiling with no closed position to free headroom
+    # denies IDENTICALLY every ~30s tick, potentially for as long as the
+    # ceiling holds. C5 deliberately left it undebounced ("not named in
+    # the brief"); this closes that gap.
+    lbp = dict(LB_CFG, assets=["BTC"])
+    equity = 10_000.0
+    # rung 0 paper ceiling = r1.ceiling_frac(0.1) * equity - park an
+    # existing long-book position AT the ceiling so headroom is zero on
+    # every pass (mirrors test_deny_ceiling_exhausted_blocks_adds).
+    ceiling_usd = 0.1 * equity
+    existing = Position(
+        position_id="parked", symbol="BTC/USD", direction="long",
+        entry_price=60_000.0, size=ceiling_usd / 60_000.0,
+        original_size=ceiling_usd / 60_000.0,
+        opened_at=_dt(1_699_000_000.0), book="long")
+    bot = _stub_bot(lb_cfg=lbp, equity=equity, open_positions=[existing])
+    t = 1_700_000_000.0
+    for i in range(10):
+        bot._long_book_cycle(t + i * 30.0)
+    denies = [e for e in fake_audit.entries
+             if e[1] == Code.LB_ADD_DENIED and e[3].get("kind") == "ceiling"]
+    assert len(denies) == 1
+
+    t_after = t + 9 * 30.0 + 31 * 60.0   # past the 30-minute retry backoff
+    bot._long_book_cycle(t_after)
+    denies2 = [e for e in fake_audit.entries
+              if e[1] == Code.LB_ADD_DENIED and e[3].get("kind") == "ceiling"]
+    assert len(denies2) == 2
+
 
 def test_deny_debounce_context_misaligned_ten_denials_then_backoff_expiry(
         fake_audit):

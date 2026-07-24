@@ -648,3 +648,127 @@ def test_collect_context_survives_malformed_sources(tmp_path):
     assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
     assert not _by_name(m, "liquiditybot_context_source_ok")
     assert _val(m, "liquiditybot_context_phase", phase="accumulation") == 1.0
+
+
+# ---- long-book telemetry (Task C6, runner.py BotRunner._long_book_status())
+def test_collect_emits_long_book_metrics(tmp_path):
+    status = {
+        "written_at": time.time(),
+        "long_book": {
+            "enabled": True, "rung": 2, "ceiling_frac": 0.2,
+            "book_exposure_usd": 850.0, "positions": 1, "adds_placed": 6,
+            "last_add_age_h": 3.5, "paused_reason": "",
+            "closed_paper": 14, "closed_live": 16, "pf_live": 1.42,
+            "context_aligned_last": True,
+        },
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    names = _names(m)
+    for expect in ("liquiditybot_longbook_rung",
+                   "liquiditybot_longbook_ceiling_frac",
+                   "liquiditybot_longbook_exposure_usd",
+                   "liquiditybot_longbook_adds_placed",
+                   "liquiditybot_longbook_closed",
+                   "liquiditybot_longbook_pf_live",
+                   "liquiditybot_longbook_paused",
+                   "liquiditybot_longbook_context_aligned"):
+        assert expect in names, f"missing metric {expect}"
+    assert _val(m, "liquiditybot_longbook_rung") == 2.0
+    assert _val(m, "liquiditybot_longbook_ceiling_frac") == pytest.approx(0.2)
+    assert _val(m, "liquiditybot_longbook_exposure_usd") == pytest.approx(850.0)
+    assert _val(m, "liquiditybot_longbook_adds_placed") == 6.0
+    assert _val(m, "liquiditybot_longbook_closed", track="paper") == 14.0
+    assert _val(m, "liquiditybot_longbook_closed", track="live") == 16.0
+    assert _val(m, "liquiditybot_longbook_pf_live") == pytest.approx(1.42)
+    # paused_reason == "" -> not paused
+    assert _val(m, "liquiditybot_longbook_paused") == 0.0
+    assert _val(m, "liquiditybot_longbook_context_aligned") == 1.0
+
+
+def test_collect_long_book_paused_when_deny_detail_present(tmp_path):
+    status = {"written_at": time.time(),
+              "long_book": {
+                  "enabled": True, "rung": 0, "ceiling_frac": 0.1,
+                  "book_exposure_usd": 0.0, "positions": 0, "adds_placed": 0,
+                  "last_add_age_h": None,
+                  "paused_reason": "BTC: no headroom (ceiling)",
+                  "closed_paper": 0, "closed_live": 0, "pf_live": None,
+                  "context_aligned_last": False}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_longbook_paused") == 1.0
+    assert _val(m, "liquiditybot_longbook_context_aligned") == 0.0
+    # pf_live None (no live evidence yet, JSON-safe per runner.py) is never
+    # emitted — honest absence, not a fabricated 0
+    assert not _by_name(m, "liquiditybot_longbook_pf_live")
+
+
+def test_collect_long_book_context_aligned_unknown_emits_nothing(tmp_path):
+    # context_aligned_last is None before the FIRST long-book cycle runs
+    # (or when the context stress dial is dark/unknown) — honest-unknown:
+    # never a fabricated 0/1
+    status = {"written_at": time.time(),
+              "long_book": {
+                  "enabled": True, "rung": 0, "ceiling_frac": 0.1,
+                  "book_exposure_usd": 0.0, "positions": 0, "adds_placed": 0,
+                  "last_add_age_h": None, "paused_reason": "",
+                  "closed_paper": 0, "closed_live": 0, "pf_live": None,
+                  "context_aligned_last": None}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert not _by_name(m, "liquiditybot_longbook_context_aligned")
+
+
+def test_collect_long_book_absent_emits_nothing(tmp_path):
+    # pre-Compounder-Phase-C status.json (or a bot built before long_ladder
+    # existed — runner._long_book_status's own hasattr guard) has no
+    # "long_book" key at all — degrade silently, no crash, no
+    # longbook-scoped metrics
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "equity": 800.0}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_longbook_")]
+
+
+def test_collect_long_book_empty_section_emits_nothing(tmp_path):
+    # engine present but the section is an empty dict (the same {} degrade
+    # the status writer's own except-Exception branch returns) — same
+    # silent degrade
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "long_book": {}}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_longbook_")]
+
+
+def test_collect_long_book_survives_malformed_values(tmp_path):
+    # non-numeric rung/ceiling/exposure/adds and a non-bool
+    # context_aligned_last must be skipped, never crash and black out the
+    # whole metric batch
+    status = {"written_at": time.time(), "halted": True,
+              "long_book": {
+                  "enabled": True, "rung": "garbage",
+                  "ceiling_frac": "garbage", "book_exposure_usd": "garbage",
+                  "adds_placed": "garbage", "closed_paper": "garbage",
+                  "closed_live": 5, "pf_live": "garbage",
+                  "paused_reason": "", "context_aligned_last": "maybe"}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise
+    assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
+    assert not _by_name(m, "liquiditybot_longbook_rung")
+    assert not _by_name(m, "liquiditybot_longbook_ceiling_frac")
+    assert not _by_name(m, "liquiditybot_longbook_exposure_usd")
+    assert not _by_name(m, "liquiditybot_longbook_adds_placed")
+    assert not _by_name(m, "liquiditybot_longbook_pf_live")
+    assert not _by_name(m, "liquiditybot_longbook_context_aligned")
+    assert _val(m, "liquiditybot_longbook_closed", track="live") == 5.0
+    assert _val(m, "liquiditybot_longbook_closed", track="paper") is None
+    # paused is unconditional (a free-form detail string's truthiness),
+    # never skipped
+    assert _val(m, "liquiditybot_longbook_paused") == 0.0

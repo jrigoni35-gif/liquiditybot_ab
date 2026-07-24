@@ -352,6 +352,59 @@ def collect(status_path: str) -> list:
         if phase:
             m.append(gauge("liquiditybot_context_phase", 1.0,
                            {"phase": str(phase)}, ts))
+    # ---- long-horizon accumulation book (Task C6, Compounder Phase C, -----
+    # runner.py BotRunner._long_book_status()) — evidence-ladder rung +
+    # ceiling, combined-envelope exposure, add cadence, live-track profit
+    # factor, paper/live closed counts, last add-cycle paused/context-
+    # aligned disposition. Missing/empty section (a bot built before
+    # long_ladder existed, or the status writer's own except-Exception {}
+    # degrade) -> NOTHING emitted here, same silent degrade as conviction/
+    # context above, never a crash.
+    lb = s.get("long_book") or {}
+    if lb:
+        rung = lb.get("rung")
+        if isinstance(rung, (int, float)) and not isinstance(rung, bool):
+            m.append(gauge("liquiditybot_longbook_rung", rung, ts=ts))
+        ceiling = lb.get("ceiling_frac")
+        if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool):
+            m.append(gauge("liquiditybot_longbook_ceiling_frac", ceiling,
+                           ts=ts))
+        exposure = lb.get("book_exposure_usd")
+        if isinstance(exposure, (int, float)) \
+                and not isinstance(exposure, bool):
+            m.append(gauge("liquiditybot_longbook_exposure_usd", exposure,
+                           ts=ts))
+        adds = lb.get("adds_placed")
+        if isinstance(adds, (int, float)) and not isinstance(adds, bool):
+            m.append(gauge("liquiditybot_longbook_adds_placed", adds, ts=ts))
+        for key, track in (("closed_paper", "paper"), ("closed_live", "live")):
+            v = lb.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge("liquiditybot_longbook_closed", v,
+                               {"track": track}, ts))
+        pf = lb.get("pf_live")
+        # honest unknown: pf_live is already JSON-safe at the source
+        # (runner.py rounds a finite pf, or None for the raw `inf`/no-
+        # evidence read) — None is never faked as 0
+        if isinstance(pf, (int, float)) and not isinstance(pf, bool):
+            m.append(gauge("liquiditybot_longbook_pf_live", pf, ts=ts))
+        # paused: honest 0/1 off the free-form paused_reason detail string
+        # (main._long_last_deny) — "" (last add attempt succeeded, or none
+        # has run yet) is unconditionally 0; ANY non-empty detail (a
+        # routine spacing wait, ceiling exhaustion, halt, an event window,
+        # ...) is unconditionally 1. Emitted every pass — the field is
+        # always a string on a real bot, never absent/None.
+        m.append(gauge("liquiditybot_longbook_paused",
+                       1.0 if lb.get("paused_reason") else 0.0, ts=ts))
+        # context_aligned_last: True/False/None (risk/conviction.py's own
+        # None=N/A convention) — None (no cycle has run yet, or the
+        # context stress dial is dark/unknown) is honestly NOT emitted,
+        # never a fabricated 0/1 (Global Constraint: context before
+        # conviction, CX-030 on unknown).
+        ctx_aligned = lb.get("context_aligned_last")
+        if isinstance(ctx_aligned, bool):
+            m.append(gauge("liquiditybot_longbook_context_aligned",
+                           1.0 if ctx_aligned else 0.0, ts=ts))
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)
         if isinstance(v, (int, float)):
