@@ -70,6 +70,23 @@ def test_equal_bucket_bounds_fatal():
     assert _fatals(_cfg(phase_bucket_days=buckets))
 
 
+def test_reordered_bucket_keys_fatal():
+    # values stay strictly increasing when read in canonical order, but
+    # insertion order is scrambled - data/context_engine.py's
+    # phase_bucket() iterates dict INSERTION order (not this canonical
+    # order), so this would silently mislabel every phase despite the
+    # values themselves being monotonic.
+    buckets = {"expansion": 540, "accumulation": 180, "euphoria": 900,
+              "contraction": 1460}
+    assert _fatals(_cfg(phase_bucket_days=buckets))
+
+
+def test_canonical_bucket_order_clean():
+    buckets = {"accumulation": 180, "expansion": 540, "euphoria": 900,
+              "contraction": 1460}
+    assert _fatals(_cfg(phase_bucket_days=buckets)) == []
+
+
 def test_stress_zero_scale_fatal():
     stress = {"dff_center": 0.0, "dff_scale": 0.0, "t10y2y_center": 0.0,
               "t10y2y_scale": 0.5, "vix_center": 20.0, "vix_scale": 10.0,

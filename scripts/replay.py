@@ -17,7 +17,10 @@ Replay:
 --set overrides any dotted config path (repeatable), which is what the
 sweep tool builds on. Sentiment/webdata/moomoo are disabled during
 replay (their live values weren't part of the recorded frames; features
-fall back to neutral - documented limitation).
+fall back to neutral - documented limitation). The Phase B context feed
+(data/context_engine.py) is disabled too - it has no per-run redirect,
+so leaving it on would both hit five real network endpoints and append
+to the real outputs/context_history.jsonl PIT file every replay.
 """
 
 import argparse
@@ -57,6 +60,7 @@ def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
     cfg["sentiment"]["enabled"] = False
     cfg["webdata"]["enabled"] = False
     cfg["moomoo"]["enabled"] = False
+    cfg.setdefault("context", {})["enabled"] = False
     # QA intermediates go to the system temp dir, NEVER outputs/: replay
     # state/history/postmortems/flags landing in the production telemetry
     # directory polluted live monitoring - a replayed bot even overwrote
@@ -74,6 +78,8 @@ def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
     ml_cfg["monitor"]["retrain_flag_path"] = str(tmp / "liqbot_replay.flag")
     Path(cfg["system"]["state_path"]).unlink(missing_ok=True)
     Path(ml_cfg["history_path"]).unlink(missing_ok=True)
+    Path(cfg["system"]["weekly_ledger_path"]).unlink(missing_ok=True)
+    Path(cfg["system"]["monthly_ledger_path"]).unlink(missing_ok=True)
 
     players = load_session(recording)
     meta = players.pop("_meta")

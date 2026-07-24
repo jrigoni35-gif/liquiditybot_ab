@@ -105,8 +105,10 @@ def test_replay_style_run_with_historical_now_never_touches_real_ledgers(
         tmp_path):
     real_weekly = _ROOT / "outputs" / "weekly_ledger.csv"
     real_monthly = _ROOT / "outputs" / "monthly_ledger.csv"
+    real_context_history = _ROOT / "outputs" / "context_history.jsonl"
     before_weekly = _snapshot(real_weekly)
     before_monthly = _snapshot(real_monthly)
+    before_context_history = _snapshot(real_context_history)
 
     cfg = load_config(str(_ROOT / "config.json"))
     cfg["capital_management"]["starting_capital_usd"] = 10_000
@@ -114,6 +116,7 @@ def test_replay_style_run_with_historical_now_never_touches_real_ledgers(
     cfg["sentiment"]["enabled"] = False
     cfg["webdata"]["enabled"] = False
     cfg["moomoo"]["enabled"] = False
+    cfg["context"]["enabled"] = False
     cfg["system"]["state_path"] = str(tmp_path / "state.json")
     cfg["ml"]["model_path"] = str(tmp_path / "none.json")
     cfg["ml"]["history_path"] = str(tmp_path / "hist.csv")
@@ -146,6 +149,10 @@ def test_replay_style_run_with_historical_now_never_touches_real_ledgers(
     assert not redirected_monthly.exists(), (
         "no phantom month-close should fire on a fresh bot's first "
         "replay-driven cycle (#123 root cause, not just the redirect)")
+    assert _snapshot(real_context_history) == before_context_history, (
+        "real outputs/context_history.jsonl must stay byte-identical/"
+        "absent - QA cycles must never poll the live context feed "
+        "(whole-phase review: PIT file contamination, same class as #123)")
 
 
 # ---------------------------------------------------------------------------

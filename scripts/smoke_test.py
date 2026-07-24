@@ -64,7 +64,15 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     files - a smoke bot once saved its fixture state over the runner's
     outputs/state.json, deleting three real open positions; postmortem
     summaries and retrain flags leaked the same way. Sections may still
-    override individual paths AFTER this call."""
+    override individual paths AFTER this call.
+
+    Also disables the Phase B context feed: `ContextFeed.maybe_poll`
+    (data/context_engine.py) has no path override, so ANY enabled QA bot
+    both hits five real HTTP endpoints (FRED/CFTC/DefiLlama) and appends
+    to the real `outputs/context_history.jsonl` PIT file every slow
+    cycle - a smoke/replay battery once wrote 100+ contaminating rows
+    there. Disabling here is the only knob; there is no redirectable
+    history_path in config."""
     d = TMP / f"smoke_out_{tag}"
     cfg["system"]["state_path"] = str(d / "state.json")
     cfg["system"]["weekly_ledger_path"] = str(d / "weekly_ledger.csv")
@@ -76,6 +84,7 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     ml["postmortem"]["summary_path"] = str(d / "postmortem_summary.csv")
     ml.setdefault("monitor", {})
     ml["monitor"]["retrain_flag_path"] = str(d / "retrain.flag")
+    cfg.setdefault("context", {})["enabled"] = False
     return cfg
 
 

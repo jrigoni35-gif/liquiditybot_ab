@@ -116,6 +116,13 @@ def _context_checks(config: dict) -> list:
     if not all(k in buckets for k in order):
         out.append(("FATAL", f"context.phase_bucket_days must have all "
                     f"four keys {order}"))
+    elif list(buckets.keys()) != list(order):
+        out.append(("FATAL", f"context.phase_bucket_days key order "
+                    f"{list(buckets.keys())} must be exactly {list(order)} "
+                    "- data/context_engine.py's phase_bucket() iterates "
+                    "dict INSERTION order, not this canonical order, so a "
+                    "reordered-but-value-monotonic dict would silently "
+                    "mislabel every halving phase"))
     else:
         prev_v = float("-inf")
         for k in order:
