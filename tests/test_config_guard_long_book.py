@@ -343,3 +343,67 @@ def test_time_stop_enabled_fatal():
 
 def test_time_stop_disabled_clean():
     assert _fatals(_cfg()) == []
+
+
+# ---------------------------------------------------------------------
+# F4 (market-conduct pass): cadence-knob FATAL floors. A floor-less
+# config is one edit away from converting the patient accumulation book
+# into a touch-hugging flicker quoter with NO code change - these floors
+# are the pre-live compliance-review condition (docs/compliance_market_
+# conduct.md Rule 575-A), not a tuning preference. Each floor: a
+# violating value FATALs, the shipped value (and the exact floor
+# boundary) stays clean.
+# ---------------------------------------------------------------------
+
+def test_order_ttl_hours_below_one_hour_fatal():
+    assert _fatals(_cfg(order_ttl_hours=0.5))
+
+
+def test_order_ttl_hours_at_one_hour_clean():
+    assert _fatals(_cfg(order_ttl_hours=1.0)) == []
+
+
+def test_order_ttl_hours_shipped_default_clean():
+    assert _fatals(_cfg(order_ttl_hours=6.0)) == []       # shipped default
+
+
+def test_add_min_spacing_hours_below_one_hour_fatal():
+    assert _fatals(_cfg(add_min_spacing_hours=0.5))
+
+
+def test_add_min_spacing_hours_at_one_hour_clean():
+    assert _fatals(_cfg(add_min_spacing_hours=1.0)) == []
+
+
+def test_add_min_spacing_hours_shipped_default_clean():
+    assert _fatals(_cfg(add_min_spacing_hours=24.0)) == []  # shipped default
+
+
+def test_retry_backoff_minutes_below_five_minutes_fatal():
+    assert _fatals(_cfg(retry_backoff_minutes=3.0))
+
+
+def test_retry_backoff_minutes_at_five_minutes_clean():
+    assert _fatals(_cfg(retry_backoff_minutes=5.0)) == []
+
+
+def test_retry_backoff_minutes_shipped_default_clean():
+    assert _fatals(_cfg(retry_backoff_minutes=30.0)) == []  # shipped default
+
+
+def test_staleness_band_below_point_three_pct_fatal():
+    # 0.05 + 0.05 + 0.10 = 0.20% < the 0.3% floor (buffer > tol preserved)
+    assert _fatals(_cfg(add_offset_pct=0.05, zone_tol_pct=0.05,
+                        zone_buffer_pct=0.10))
+
+
+def test_staleness_band_at_point_three_pct_clean():
+    # 0.10 + 0.05 + 0.15 = 0.30% exactly - on the floor, clean
+    assert _fatals(_cfg(add_offset_pct=0.10, zone_tol_pct=0.05,
+                        zone_buffer_pct=0.15)) == []
+
+
+def test_staleness_band_shipped_default_clean():
+    # 0.5 + 0.15 + 0.2 = 0.85% - the shipped config.json band
+    assert _fatals(_cfg(add_offset_pct=0.5, zone_tol_pct=0.15,
+                        zone_buffer_pct=0.2)) == []

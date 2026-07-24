@@ -26,6 +26,24 @@ Our mechanisms:
   each cancel/reprice is bounded (`order_manager.max_reprices`, default 1)
   and itself audit-coded. There is no code path that places an order whose
   purpose is its own cancellation, and no layered-ladder machinery exists.
+- The long-horizon accumulation book (`risk/long_book.py`, Compounder
+  Phase C) reprices on its own, wider, separately-bounded cadence — not
+  `order_manager.max_reprices`. `main._long_book_cycle` cancels-and-
+  replaces a resting bid at most **once per ~30s pass, per asset** (the
+  loop body evaluates each asset once), and only once the bid has
+  drifted past the `add_offset_pct + zone_buffer_pct + zone_tol_pct`
+  staleness band vs. mark (shipped 0.5 + 0.2 + 0.15 = 0.85%, via
+  `bid_is_stale`); each resting bid also carries its own
+  `order_ttl_hours` lifetime (shipped 6h) instead of the 5m book's ~25s
+  timeout, so it cannot orbit indefinitely between reprices either. The
+  reprice itself is audit-coded `LB-021` (`Code.LB_BID_REPRICED`,
+  main.py's `_long_book_cycle`). `core/config_guard.py`'s
+  `_long_book_checks` FATALs a floor under every one of these cadence
+  knobs (market-conduct pass, task F4): `order_ttl_hours >= 1.0h`,
+  `add_min_spacing_hours >= 1.0h`, `retry_backoff_minutes >= 5.0min`,
+  and the staleness-band sum `>= 0.3%` — a config change alone cannot
+  turn the patient accumulation book into a touch-hugging flicker
+  quoter without first tripping config_guard.
 - The hash-chained audit trail + reason codes on every disposition are the
   **intent record**: for any order we can reconstruct why it was placed,
   why it moved, and why it was cancelled. Under an inferred-intent
@@ -56,12 +74,31 @@ wash-trading research defensively (Cong-Li-Tang-Yang 2023): v8 re-grounds
 candle volume on the execution venue so the model never learns from
 fabricated external volume.
 
-**Open item (pre-live checklist):** there is no explicit mechanical guard
-asserting that a resting BUY entry and a resting SELL exit can never
-coexist on the same pair. Today's flow makes it unlikely (per-asset entry
-dedupe; exits attach to positions), but before ARM LIVE this should become
-a firewall invariant with a registered reason code, not an emergent
-property.
+**Open item, now named and closed for the long book (market-conduct pass,
+task F6):** the specific mechanism the review identified is the
+long-horizon accumulation book (`risk/long_book.py`, Compounder Phase C)
+resting a same-pair BUY entry for up to `order_ttl_hours` while the 5m
+book's risk-off exit escalation ladder (`main._submit_exit`, touch ×
+(1 − slip) widening 0.5% → 3% → a terminal market order) — or a
+marketable short-entry/hedge-open SELL (`main._hedge_actions`' "open"
+branch) — reaches down through the book far enough to trade against it:
+a literal self-fill, or the venue's self-trade-prevention (STP)
+cancelling the escape leg instead of the entry.
+`main._clear_long_book_bid_before_sell` is now wired into both call
+sites: it cancels our own resting long-book bid on that pair FIRST, before any
+non-`post_only` (marketable) sell is submitted, coded `LB-022`
+(`Code.LB_BID_CLEARED`) with the exit's `reason_code` carried in the
+audit payload. A `post_only` maker exit is deliberately exempt — a
+resting ask can never cross the book, so passive-passive same-pair
+quoting (our own bid alongside our own maker exit) is bona fide
+two-sided market making, not the wash-trade pattern this rule targets.
+Cancel failure never blocks the sell (logged and swallowed); the
+venue's own STP remains the documented backstop for the residual race
+between the cancel check and the sell landing. This closes the open
+item for the one book capable of resting a same-pair entry long enough
+to matter (the 5m book's own entries and exits do not coexist on this
+timescale); any future book that rests entries for hours must be wired
+into the same guard before ARM LIVE.
 
 ## Position limits / large-trader analogs
 

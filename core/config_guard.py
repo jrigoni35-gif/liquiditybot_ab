@@ -222,6 +222,48 @@ def _long_book_checks(config: dict) -> list:
         if v <= 0:
             out.append(("FATAL", f"long_book.{key} ({v}) must be positive"))
 
+    # --- market-conduct pass (F6/F4 task): cadence knobs bounded well
+    # above "merely positive". A floor-less config is one edit away from
+    # turning the patient accumulation book into a touch-hugging flicker
+    # quoter with NO code change - just retuning order_ttl_hours down to
+    # seconds, add_min_spacing_hours down to near-zero, retry_backoff_
+    # minutes down to an instant re-attempt loop, or the staleness band
+    # down to a hair's width so the bid reprices on every tick. Each floor
+    # below is a FATAL, not a WARN: this is the compliance-review pre-live
+    # condition (docs/compliance_market_conduct.md Rule 575-A), not a
+    # tuning preference.
+    order_ttl_hours = float(lb.get("order_ttl_hours", 0.0))
+    if order_ttl_hours < 1.0:
+        out.append(("FATAL", f"long_book.order_ttl_hours ({order_ttl_hours}) "
+                    "must be >= 1.0 - a shorter resting-bid lifetime risks "
+                    "a touch-hugging flicker quoter (market-conduct pass)"))
+
+    add_min_spacing_hours = float(lb.get("add_min_spacing_hours", 0.0))
+    if add_min_spacing_hours < 1.0:
+        out.append(("FATAL", f"long_book.add_min_spacing_hours "
+                    f"({add_min_spacing_hours}) must be >= 1.0 - a tighter "
+                    "add cadence risks a touch-hugging flicker quoter "
+                    "(market-conduct pass)"))
+
+    retry_backoff_minutes = float(lb.get("retry_backoff_minutes", 0.0))
+    if retry_backoff_minutes < 5.0:
+        out.append(("FATAL", f"long_book.retry_backoff_minutes "
+                    f"({retry_backoff_minutes}) must be >= 5.0 - a shorter "
+                    "post-failure backoff risks a re-attempt/re-audit "
+                    "flicker loop (market-conduct pass)"))
+
+    staleness_band_pct = (float(lb.get("add_offset_pct", 0.0))
+                          + float(lb.get("zone_tol_pct", 0.0))
+                          + float(lb.get("zone_buffer_pct", 0.0)))
+    if staleness_band_pct < 0.3:
+        out.append(("FATAL",
+                    f"long_book add_offset_pct + zone_tol_pct + "
+                    f"zone_buffer_pct ({staleness_band_pct:.3f}%) must be "
+                    ">= 0.3% - a narrower staleness band reprices the "
+                    "resting bid on nearly every mark tick, a touch-"
+                    "hugging flicker quoter in all but name "
+                    "(market-conduct pass)"))
+
     # --- TH-013 magnet-shift hygiene coherence (task C3): buffer_pct
     # must exceed tol_pct, or a bid shifted `buffer_pct` below a magnet
     # could still read as "within tol_pct" of that SAME magnet -

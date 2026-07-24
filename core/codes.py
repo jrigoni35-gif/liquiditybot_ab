@@ -306,6 +306,23 @@ class Code(str, Enum):
     LB_ZONE_SHIFT = "LB-020"         # bid shifted off a TH-013 magnet zone
                                      # (ladder hygiene; price only ever moves
                                      # AWAY from the magnet, deeper)
+    LB_BID_REPRICED = "LB-021"       # market-conduct pass (F8): resting
+                                     # long-book bid cancelled-and-replaced
+                                     # because it drifted past the
+                                     # add_offset_pct + zone_buffer_pct +
+                                     # zone_tol_pct staleness band vs mark
+                                     # - a dedicated code, replacing the
+                                     # prior LB_ADD_DENIED kind="reprice"
+                                     # overload (nothing was denied: the
+                                     # SAME add replaces at a fresh level
+                                     # this same pass)
+    LB_BID_CLEARED = "LB-022"        # market-conduct pass (F6): Rule 534
+                                     # self-cross guard - own same-pair
+                                     # resting long-book bid cancelled
+                                     # before a marketable sell - cancel-
+                                     # first so the exit is never delayed;
+                                     # risk-reducing by construction (an
+                                     # ENTRY is cancelled to clear an EXIT)
     LB_TIER_BANK = "LB-030"          # long-book tier take (partial bank)
     LB_THESIS_INVALIDATED = "LB-031" # structural stop hit: full close
     LB_RUNG_UP = "LB-040"            # evidence ladder rung upgrade (gated)

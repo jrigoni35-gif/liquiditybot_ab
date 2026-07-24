@@ -1625,6 +1625,17 @@ class LiquidityBot:
             log.info(f"exit slice {size:.8f} {pos.symbol} below venue "
                      f"minimum {omin} - escalating to full close")
             close_pct, size = 100.0, pos.size
+        # F6 Rule 534 self-cross guard: BEFORE any marketable (non-
+        # post_only) sell on this pair, cancel our own resting long-book
+        # entry bid first (see _clear_long_book_bid_before_sell). No-op
+        # for a maker_first post_only rest, and for a buy-side exit.
+        # getattr-guarded: unit tests exercise this off a minimal stub
+        # self (SimpleNamespace) that may not define the guard method at
+        # all - the same pattern as _record_probe_admission elsewhere.
+        _lb_guard = getattr(self, "_clear_long_book_bid_before_sell", None)
+        if callable(_lb_guard):
+            _lb_guard(asset, side, maker_first, reason=reason,
+                      reason_code=reason_code)
         order = self.orders.submit(
             asset=asset, symbol=pos.symbol, pair=self.kraken.kraken_pair(pos.symbol),
             side=side, price=price, size=size, purpose="exit",
@@ -1649,6 +1660,53 @@ class LiquidityBot:
                         f"{' -> MARKET' if go_market else ''} ({reason})")
         else:
             log.info(f"exit {close_pct:.0f}% of {pos.symbol} ({reason})")
+
+    def _clear_long_book_bid_before_sell(self, asset: str, side: str,
+                                         post_only: bool, *, reason: str,
+                                         reason_code: str = "") -> None:
+        """Rule 534 self-cross guard (market-conduct pass, F6). Mechanics:
+        a long-horizon book bid rests up to order_ttl_hours at ~0.5-0.85%
+        below mark (risk/long_book.py); a MARKETABLE sell on the SAME pair
+        (the risk-off exit escalation ladder in `_submit_exit`, or a
+        marketable short-entry/hedge-open sell) can walk down through the
+        book far enough to trade against our OWN resting bid - a literal
+        self-fill, or the venue's self-trade-prevention (STP) cancelling
+        the escape leg this guard exists to protect instead of the entry.
+
+        Cancel-FIRST: find and cancel this asset's resting long-book entry
+        bid (meta book=="long", purpose=="entry" - `_long_book_open_orders`)
+        BEFORE the marketable sell is submitted, so the sell is never
+        delayed by it. Cancel failure (or any exception raised looking up
+        / cancelling the resting order) is logged and swallowed - the sell
+        this guards must never be blocked or slowed by it; the venue's own
+        STP remains the backstop for the residual race between this check
+        and the sell actually landing on the book.
+
+        A no-op unless `side == "sell"` (a buy can never cross a resting
+        BID) and the sell is NOT post_only - a resting post_only ask can
+        never cross the book either, so passive-passive same-pair quoting
+        (a resting long-book bid alongside a resting maker exit ask) is
+        bona fide two-sided market making, not the wash-trade pattern
+        Rule 534 targets."""
+        if side != "sell" or post_only:
+            return
+        try:
+            resting = next((o for o in self._long_book_open_orders()
+                            if o.asset == asset), None)
+            if resting is None:
+                return
+            detail = tag(Code.LB_BID_CLEARED,
+                        f"{asset}: own resting long-book bid cancelled "
+                        f"ahead of a marketable sell ({reason})")
+            self.orders.cancel_order(resting, reason=detail)
+            get_audit().log(
+                "long_book", Code.LB_BID_CLEARED, detail,
+                {"asset": asset, "bid_price": resting.price,
+                 "reason": reason, "reason_code": reason_code})
+        except Exception:
+            log.exception(f"{asset}: long-book bid cancel-before-sell "
+                          f"guard raised - proceeding with the sell "
+                          f"uncancelled (venue STP is the backstop)")
 
     # ------------------------------------------------------------------
     # FAST cycle
@@ -2011,6 +2069,16 @@ class LiquidityBot:
                         else (book.get("bids") or [[px, 0]])[0][0])
                 price = touch * (1 + self.max_slip_pct / 100.0) if side == "buy" \
                     else touch * (1 - self.max_slip_pct / 100.0)
+                # F6 Rule 534 self-cross guard: a hedge OPEN that sells
+                # (a short hedge) is marketable (post_only=False below) -
+                # cancel our own resting long-book bid on this pair first.
+                # getattr-guarded, same reason as the _submit_exit call
+                # site above (minimal test doubles for `self`).
+                _lb_guard = getattr(self, "_clear_long_book_bid_before_sell",
+                                    None)
+                if callable(_lb_guard):
+                    _lb_guard(act.asset, side, False,
+                             reason=f"hedge open: {act.reason}")
                 self.orders.submit(
                     asset=act.asset, symbol=act.symbol,
                     pair=self.kraken.kraken_pair(act.symbol), side=side,
@@ -3425,13 +3493,18 @@ class LiquidityBot:
             if resting is not None:
                 if bid_is_stale(mark, resting.price, ecfg.add_offset_pct,
                                 ecfg.zone_buffer_pct, ecfg.zone_tol_pct):
-                    self.orders.cancel_order(resting,
-                                             reason="long_book_reprice")
+                    # F8 (market-conduct pass): a dedicated LB-021 code for
+                    # the cancel-for-reprice audit, replacing the prior
+                    # LB_ADD_DENIED kind="reprice" overload - nothing here
+                    # was denied, the SAME add replaces at a fresh level
+                    # this same pass. The OM cancel reason is now the
+                    # tagged string itself, not a bare literal.
+                    detail = tag(Code.LB_BID_REPRICED,
+                                f"{asset}: resting bid stale vs mark - "
+                                f"cancelled for reprice")
+                    self.orders.cancel_order(resting, reason=detail)
                     get_audit().log(
-                        "long_book", Code.LB_ADD_DENIED,
-                        tag(Code.LB_ADD_DENIED,
-                            f"{asset}: resting bid stale vs mark - "
-                            f"cancelled for reprice"),
+                        "long_book", Code.LB_BID_REPRICED, detail,
                         {"asset": asset, "kind": "reprice",
                          "old_price": resting.price, "mark": mark})
                 else:

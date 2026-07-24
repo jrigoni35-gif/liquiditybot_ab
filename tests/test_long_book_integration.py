@@ -831,6 +831,17 @@ def test_stale_resting_bid_is_cancelled_and_replaced_same_pass(fake_audit):
     assert len(resting_btc) == 1
     assert resting_btc[0].price == pytest.approx(new_price)
 
+    # F8 (market-conduct pass): the reprice cancel is coded LB-021
+    # (Code.LB_BID_REPRICED), not the prior LB_ADD_DENIED kind="reprice"
+    # overload - and the OM cancel reason IS the tagged string.
+    cancel_reason = bot.orders.cancelled[0][1]
+    assert Code.LB_BID_REPRICED.value in cancel_reason
+    reprice_entries = [e for e in fake_audit.entries
+                      if e[1] == Code.LB_BID_REPRICED]
+    assert len(reprice_entries) == 1
+    assert reprice_entries[0][3]["kind"] == "reprice"
+    assert reprice_entries[0][3]["old_price"] == pytest.approx(old_price)
+
 
 # ---------------------------------------------------------------------------
 # 6e. C4 review Minor #8: resting long-book orders count into
@@ -1838,3 +1849,231 @@ def test_persistence_defaults_adverse_episode_clean_for_fresh_snapshot(
     assert bot2._long_book_adverse_episode_start is None
     assert bot2._long_book_realized_pnl_total == 0.0
     assert bot2._long_book_peak_value == 0.0
+
+
+# ---------------------------------------------------------------------------
+# F6 (market-conduct pass): Rule 534 self-cross guard -
+# main._clear_long_book_bid_before_sell, wired into _submit_exit BEFORE any
+# marketable (non-post_only) sell. Mechanics: a long-book bid rests up to
+# order_ttl_hours below mark on the SAME pair a risk-off exit escalation
+# ladder (or a marketable short-entry/hedge-open sell) can reach down and
+# trade against - cancel our own resting bid FIRST so the two can never
+# self-cross. Minimal dedicated harness (real LiquidityBot instance via
+# __new__, hand-set attributes) - mirrors tests/test_maker_first_exit.py's
+# established pattern for driving _submit_exit directly, extended with a
+# fake OrderManager that also carries a resting long-book bid.
+# ---------------------------------------------------------------------------
+
+class _FakeOrdersExit:
+    """Records submit() calls and cancel_order() calls (with ordering, via
+    `.events`) against a seeded resting-order book. `cancel_raises` models
+    an unexpected cancel-path failure (venue double-fault, bug) - the guard
+    must swallow it and let the exit go out regardless (documented
+    backstop: the venue's own self-trade-prevention)."""
+    def __init__(self, resting=None, cancel_raises=False):
+        self.calls: list = []
+        self.cancelled: list = []
+        self.events: list = []
+        self._open: list = list(resting or [])
+        self.cancel_raises = cancel_raises
+
+    def open_orders(self):
+        return list(self._open)
+
+    def has_open(self, asset, purpose=None, book=None):
+        return any(o.asset == asset
+                   and (purpose is None or o.purpose == purpose)
+                   and (book is None or o.meta.get("book", "5m") == book)
+                   for o in self._open)
+
+    def _ordermin(self, pair):
+        return 0.0
+
+    def cancel_order(self, order, reason=""):
+        if self.cancel_raises:
+            raise RuntimeError("simulated cancel-path failure")
+        self.cancelled.append((order.order_id, reason))
+        self.events.append(("cancel", order.order_id))
+        if order in self._open:
+            self._open.remove(order)
+        order.status = "cancelled"
+        return True
+
+    def submit(self, **kwargs):
+        self.calls.append(kwargs)
+        self.events.append(("submit", kwargs.get("side")))
+        return ManagedOrder(
+            order_id=f"exit-{len(self.calls)}", txid=None,
+            asset=kwargs["asset"], pair=kwargs["pair"],
+            symbol=kwargs["symbol"], side=kwargs["side"],
+            price=kwargs["price"], size=kwargs["size"],
+            purpose=kwargs.get("purpose", "exit"),
+            position_id=kwargs.get("position_id"),
+            post_only=kwargs.get("post_only", False),
+            meta=kwargs.get("meta") or {})
+
+
+def _resting_long_bid(asset="BTC", price=59_000.0):
+    return ManagedOrder(
+        order_id="lb-bid-1", txid=None, asset=asset, pair=f"{asset}USD",
+        symbol=f"{asset}/USD", side="buy", price=price, size=0.01,
+        purpose="entry", post_only=True, meta={"book": "long"})
+
+
+def _exit_pos(symbol="BTC/USD", direction="long"):
+    import datetime
+    return Position(
+        position_id="p1", symbol=symbol, direction=direction,
+        entry_price=58_000.0, size=0.05, original_size=0.05,
+        opened_at=datetime.datetime.now(datetime.timezone.utc))
+
+
+def _exit_bot(*, resting=None, cancel_raises=False,
+             bids=((59_500.0, 5.0),), asks=((59_520.0, 5.0),)):
+    bot = LiquidityBot.__new__(LiquidityBot)
+    bot.orders = _FakeOrdersExit(resting=resting, cancel_raises=cancel_raises)
+    bot.kraken = _FakeKraken()
+    bot.marks = {"BTC/USD": 59_500.0}
+    bot.kraken_books = {"BTC": {"bids": list(bids), "asks": list(asks)}}
+    bot._mark_ts = {"BTC/USD": 1_700_000_000.0}
+    bot._mark_stale_sec = 20.0
+    bot._exit_attempts = {}
+    bot._pos_realized = {}
+    bot.max_slip_pct = 0.5
+    bot.esc_widen_mult = 2.0
+    bot.esc_max_slip_pct = 3.0
+    bot.esc_market_after = 3
+    bot.maker_first_profit_exits = True
+    bot.fv = types.SimpleNamespace(
+        state=lambda a: types.SimpleNamespace(fair_value=59_500.0))
+    bot.vol = types.SimpleNamespace(
+        state=lambda a: types.SimpleNamespace(sigma_bar_pct=0.3))
+    bot.state = PortfolioState(starting_capital=10_000.0)
+    return bot
+
+
+def test_marketable_exit_cancels_resting_bid_first_then_submits(fake_audit):
+    resting = _resting_long_bid()
+    bot = _exit_bot(resting=[resting])
+    bot._submit_exit(_exit_pos(), 100.0, "hard stop",
+                     now=1_700_000_000.0)          # profit_take defaults False
+
+    # the exit actually went out, marketable (not post_only)
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["side"] == "sell"
+    assert bot.orders.calls[0]["post_only"] is False
+
+    # the resting long-book bid was cancelled ...
+    assert bot.orders.cancelled
+    assert bot.orders.cancelled[0][0] == "lb-bid-1"
+    assert Code.LB_BID_CLEARED.value in bot.orders.cancelled[0][1]
+
+    # ... and cancelled BEFORE the exit was submitted (ordering)
+    kinds = [e[0] for e in bot.orders.events]
+    assert kinds.index("cancel") < kinds.index("submit")
+
+    # LB-022 audited, carrying the exit's reason_code
+    entries = [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+    assert len(entries) == 1
+    assert entries[0][3]["asset"] == "BTC"
+    assert entries[0][3]["reason_code"] == ""    # this call passed none
+
+
+def test_marketable_exit_carries_reason_code_into_lb022_payload(fake_audit):
+    resting = _resting_long_bid()
+    bot = _exit_bot(resting=[resting])
+    bot._submit_exit(_exit_pos(), 100.0, "PT-060 time stop",
+                     now=1_700_000_000.0, reason_code="PT-060")
+    entries = [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+    assert len(entries) == 1
+    assert entries[0][3]["reason_code"] == "PT-060"
+
+
+def test_post_only_maker_exit_does_not_cancel_resting_bid(fake_audit):
+    # a scheduled profit-TARGET take rests post_only at our own side first
+    # (maker-first) - passive-passive same-pair quoting is bona fide
+    # two-sided market making, not a self-cross; the bid must survive.
+    resting = _resting_long_bid()
+    bot = _exit_bot(resting=[resting])
+    bot._submit_exit(_exit_pos(), 50.0, "tier take", tier_fired=1,
+                     now=1_700_000_000.0, profit_take=True)
+
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["post_only"] is True      # maker-first rest
+    assert bot.orders.cancelled == []
+    assert bot.orders.open_orders() == [resting]         # bid still resting
+    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+
+
+def test_cancel_failure_does_not_block_the_exit(fake_audit):
+    resting = _resting_long_bid()
+    bot = _exit_bot(resting=[resting], cancel_raises=True)
+    bot._submit_exit(_exit_pos(), 100.0, "hard stop", now=1_700_000_000.0)
+
+    # the cancel attempt blew up, but the exit still went out
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["side"] == "sell"
+    assert bot.orders.cancelled == []       # never recorded - it raised
+    # no LB-022 audit row either (the raise happened before the log call) -
+    # the venue's own STP is the documented backstop for this residual case
+    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+
+
+def test_no_resting_bid_is_a_no_op(fake_audit):
+    bot = _exit_bot(resting=None)
+    bot._submit_exit(_exit_pos(), 100.0, "hard stop", now=1_700_000_000.0)
+
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.cancelled == []
+    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+
+
+def test_short_entry_marketable_sell_hedge_open_also_clears_the_bid(
+        fake_audit):
+    # main._hedge_actions' "open" branch: a SHORT hedge sells marketable
+    # (post_only=False always) - covered by the SAME guard, not a
+    # duplicated inline check.
+    import types as _types
+
+    from execution.hedging import HedgeEngine
+
+    resting = _resting_long_bid()
+    bot = LiquidityBot.__new__(LiquidityBot)
+    bot.orders = _FakeOrdersExit(resting=[resting])
+    bot.kraken = _FakeKraken()
+    bot.marks = {"BTC/USD": 30_000.0, "ETH/USD": 2_000.0}
+    bot.kraken_books = {"BTC": {"bids": [[29_999.0, 1.0]],
+                                "asks": [[30_001.0, 1.0]]}}
+    bot._mark_ts = {"BTC/USD": 1_700_000_000.0, "ETH/USD": 1_700_000_000.0}
+    bot._mark_stale_sec = 20.0
+    bot._stop_ok = {"BTC": True, "ETH": True}
+    bot.max_slip_pct = 0.5
+    bot.symbol_map = {"BTC": "BTC/USD", "ETH": "ETH/USD"}
+    bot.dry_run = True
+    bot.live_armed = False
+    bot._live_block_logged = 0.0
+    bot._halted = False
+    bot.entries_enabled = True
+    bot.watchdog = _types.SimpleNamespace(
+        state=_types.SimpleNamespace(entries_blocked=False))
+    bot.vol = _types.SimpleNamespace(
+        state=lambda a: _types.SimpleNamespace(sigma_bar_pct=0.5))
+    bot.corr = _types.SimpleNamespace(
+        state=_types.SimpleNamespace(corr=lambda a, b: 0.9,
+                                     beta=lambda a, b: 1.0))
+    # net-long ETH exposure breaches the hedger's rebalance band -> a real
+    # HedgeEngine "open" action to short BTC
+    bot.state = PortfolioState(starting_capital=10_000.0)
+    import datetime
+    bot.state.add_position(Position(
+        "eth1", "ETH/USD", "long", 2_000.0, 2.5, 2.5,
+        datetime.datetime.now(datetime.timezone.utc)))
+    bot.hedger = HedgeEngine({}, bot.symbol_map)
+
+    bot._hedge_actions(1_700_000_000.0, equity=10_000.0)
+
+    assert bot.orders.calls, "the hedge open must have gone out"
+    assert bot.orders.calls[0]["side"] == "sell"
+    assert bot.orders.calls[0]["post_only"] is False
+    assert bot.orders.cancelled and bot.orders.cancelled[0][0] == "lb-bid-1"
+    assert [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
