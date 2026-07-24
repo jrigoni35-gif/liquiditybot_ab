@@ -213,9 +213,16 @@ def test_parse_cot_btc_lev_net_skips_non_matching_rows():
 
 
 def test_parse_cot_btc_lev_net_wrong_exchange_not_matched():
-    text = ('"BITCOIN PERP - COINBASE DERIVATIVES, LLC",1,2,3,4,5,6,7,8,9,'
-        '10,11,12,13,100,200\n')
-    assert parse_cot_btc_lev_net(text) is None
+    # 87-field row (valid shape) so the EXCHANGE filter is what rejects it,
+    # not the schema-drift guard — re-review found the old 16-field row
+    # short-circuited on shape and no longer exercised this branch.
+    fields = (
+        ['"BITCOIN PERP - COINBASE DERIVATIVES, LLC"'] +
+        list(map(str, range(1, 14))) +
+        ['100', '200'] +
+        ['x'] * 71
+    )
+    assert parse_cot_btc_lev_net(','.join(fields) + '\n') is None
 
 
 # ---- parse_cot_btc_lev_net: malformed/empty/no-match -> None -------------
@@ -244,9 +251,15 @@ def test_parse_cot_btc_lev_net_none_input_returns_none():
 
 
 def test_parse_cot_btc_lev_net_malformed_numeric_field_returns_none():
-    text = ('"BITCOIN - CHICAGO MERCANTILE EXCHANGE",1,2,3,4,5,6,7,8,9,10,'
-        '11,12,13,NOTANUMBER,11506\n')
-    assert parse_cot_btc_lev_net(text) is None
+    # 87-field row (valid shape) so the float() failure path is what
+    # returns None, not the schema-drift guard (same re-review finding).
+    fields = (
+        ['"BITCOIN - CHICAGO MERCANTILE EXCHANGE"'] +
+        list(map(str, range(1, 14))) +
+        ['NOTANUMBER', '11506'] +
+        ['x'] * 71
+    )
+    assert parse_cot_btc_lev_net(','.join(fields) + '\n') is None
 
 
 # ---- parse_cot_btc_lev_net: schema drift guard (strict 87-field shape) -----
