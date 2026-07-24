@@ -2324,11 +2324,14 @@ class LiquidityBot:
             entry.setdefault("kraken_symbol", symbol)
             self.view[asset] = entry
 
-    def slow_cycle(self, now: float) -> None:
-        self.view = self.liquidity_model.build_view(
-            *self._fetch_market_payloads())
-        self._augment_view_with_kraken(now)
-
+    def _refresh_market_state(self, now: float) -> None:
+        """Per-asset market-state refresh, extracted verbatim from the top
+        of slow_cycle (C901 ratchet: the conviction call-site branch put
+        slow_cycle one over the pinned ceiling; this block was the
+        self-contained candidate). fv/vol/liq updates, manip-suspect
+        refresh, regime-age tracking, SCS advance, and the intraday
+        correlation update. Behavior-identical: communicates with the
+        rest of slow_cycle only through self-state."""
         closes = {}
         for asset, v in self.view.items():
             if asset not in self.symbol_map:
@@ -2390,6 +2393,12 @@ class LiquidityBot:
                     self._scs_pending[asset] = True
         if closes:
             self.corr.update_intraday(closes)
+
+    def slow_cycle(self, now: float) -> None:
+        self.view = self.liquidity_model.build_view(
+            *self._fetch_market_payloads())
+        self._augment_view_with_kraken(now)
+        self._refresh_market_state(now)
 
         self._maybe_unwind_unteachable(now)
         self._maybe_realize_mature_label(now)
