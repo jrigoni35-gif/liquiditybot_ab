@@ -1395,6 +1395,23 @@ def test_dd_frac_guards_non_positive_equity():
     assert bot._long_book_dd_frac(-5.0) == 0.0
 
 
+def test_dd_frac_zero_mark_does_not_fabricate_a_drawdown_spike():
+    # Phase-C whole-phase review, Minor #5: a 0.0 mark (a bad/absent
+    # tick, key PRESENT in self.marks with value 0.0) must fall back to
+    # entry_price for the unrealized calc - the SAME `or p.entry_price`
+    # guard _long_book_cycle's own book_exposure_usd sums already use -
+    # not read literally, which would fabricate a huge phantom
+    # unrealized loss (and a dd-ladder downgrade) from a single bad tick.
+    bot = _stub_bot()
+    bot._long_book_realized_pnl_total = 500.0
+    pos = Position(position_id="p1", symbol="BTC/USD", direction="long",
+                   entry_price=60_000.0, size=0.01, original_size=0.01,
+                   opened_at=_dt(1_699_000_000.0), book="long")
+    bot.state.add_position(pos)
+    bot.marks["BTC/USD"] = 0.0
+    assert bot._long_book_dd_frac(10_000.0) == 0.0
+
+
 # ---- 12b. downgrade wiring (item 3(a)) ------------------------------------
 
 def test_dd_breach_triggers_one_rung_downgrade_and_lb041(fake_audit):
@@ -1684,6 +1701,84 @@ def test_deny_debounce_conviction_enforce_ten_denials_then_backoff_expiry(
     bot._long_book_cycle(t_after)
     denies2 = [e for e in fake_audit.entries
               if e[1] == Code.LB_ADD_DENIED and "conviction_code" in e[3]]
+    assert len(denies2) == 2
+
+
+def test_conviction_enforce_denial_backs_off_the_asset(fake_audit):
+    # Phase-C whole-phase review, Important #2: the conviction-deny
+    # branch must back the asset off via _long_book_note_failure exactly
+    # like the sizer/submit failure branches (main.py's own
+    # _long_book_note_failure docstring) - otherwise the unconditional
+    # conviction-formula evaluation itself (not just its audit emission)
+    # re-runs every ~30s slow_cycle tick for as long as the disposition
+    # persists.
+    lbp = dict(LB_CFG, assets=["BTC"])
+    bot = _stub_bot(lb_cfg=lbp, conviction_mode="enforce", regime_live=0,
+                    regime_floor=60)
+    t = 1_700_000_000.0
+    bot._long_book_cycle(t)
+    assert bot.orders.calls == []
+    assert bot._long_retry_backoff_until.get("BTC", 0.0) \
+        == pytest.approx(t + 30 * 60.0)
+
+
+def test_conviction_enforce_denial_evaluates_conviction_only_once_per_backoff(
+        fake_audit):
+    # the crux of Important #2: without the backoff wired, decide_add +
+    # the conviction re-check re-run (and re-evaluate the SAME
+    # disposition) every ~30s tick even though the audit row itself is
+    # already debounced (test above). Spy directly on the evaluation
+    # call, not just the audit trail.
+    lbp = dict(LB_CFG, assets=["BTC"])
+    bot = _stub_bot(lb_cfg=lbp, conviction_mode="enforce", regime_live=0,
+                    regime_floor=60)
+    real_gate = bot._long_book_conviction_gate
+    calls = []
+
+    def _spy(asset, context_aligned):
+        calls.append(asset)
+        return real_gate(asset, context_aligned)
+
+    bot._long_book_conviction_gate = _spy
+    t = 1_700_000_000.0
+    for i in range(10):
+        bot._long_book_cycle(t + i * 30.0)
+    assert len(calls) == 1, \
+        "a persistent conviction denial must back the asset off - not " \
+        "re-run the conviction evaluation every ~30s tick"
+
+    t_after = t + 9 * 30.0 + 31 * 60.0   # past the 30-minute retry backoff
+    bot._long_book_cycle(t_after)
+    assert len(calls) == 2, \
+        "past the backoff window, conviction must be re-evaluated"
+
+
+def test_deny_debounce_contraction_spacing_ten_denials_then_backoff_expiry(
+        fake_audit):
+    # Phase-C whole-phase review, Important #3: contraction-scaled
+    # spacing denials were deliberately exempted from the deny-debounce
+    # (C4/C5's own comments) on the theory they were rare and notable -
+    # whole-phase math shows ~11.5k rows/day/asset during a (months-long)
+    # contraction phase instead. Route it through the SAME
+    # _long_book_deny_gate machinery as event_window/ceiling/etc.
+    lbp = dict(LB_CFG, assets=["BTC"])
+    # contraction_spacing_mult=2.0 x add_min_spacing_hours=1.0h = 2h
+    # required; last add 1h ago means every cycle below denies with
+    # "(contraction-scaled)" in the detail, throughout the whole window.
+    bot = _stub_bot(lb_cfg=lbp,
+                    context_state=_aligned_ctx(halving_phase="contraction"))
+    t = 1_700_000_000.0
+    bot._long_last_add_ts["BTC"] = t - 3600.0
+    for i in range(10):
+        bot._long_book_cycle(t + i * 30.0)
+    denies = [e for e in fake_audit.entries
+             if e[1] == Code.LB_ADD_DENIED and e[3].get("kind") == "spacing"]
+    assert len(denies) == 1
+
+    t_after = t + 9 * 30.0 + 31 * 60.0   # past the 30-minute retry backoff
+    bot._long_book_cycle(t_after)
+    denies2 = [e for e in fake_audit.entries
+              if e[1] == Code.LB_ADD_DENIED and e[3].get("kind") == "spacing"]
     assert len(denies2) == 2
 
 

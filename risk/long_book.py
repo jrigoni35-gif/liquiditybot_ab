@@ -545,9 +545,10 @@ def shift_off_magnets(price: float, grid: "list[float]", tol_pct: float,
 
 
 def bid_is_stale(mark: float, resting_price: float, add_offset_pct: float,
-                 zone_buffer_pct: float) -> bool:
-    """Cancel-and-replace trigger (C4 review, Critical #1b): True iff a
-    resting long-book bid has drifted more than (add_offset_pct +
+                 zone_buffer_pct: float, zone_tol_pct: float = 0.0) -> bool:
+    """Cancel-and-replace trigger (C4 review, Critical #1b; phase-C
+    whole-phase review, Important #1): True iff a resting long-book bid
+    has drifted more than (add_offset_pct + zone_tol_pct +
     zone_buffer_pct) PERCENT away from the CURRENT mark, in either
     direction. Symmetric by design: a bid can go stale by becoming too
     PASSIVE (the mark ran up, so the bid now sits far deeper than the
@@ -563,17 +564,27 @@ def bid_is_stale(mark: float, resting_price: float, add_offset_pct: float,
     decide "stale enough to bother," never re-derive the collar's own
     verdict.
 
-    (add_offset_pct + zone_buffer_pct) is the widest a FRESH bid could
-    legitimately sit from mark (base discount plus the TH-013 magnet-
-    shift's own worst-case push, shift_off_magnets never moves toward
-    price) - the natural "still fresh" band. Degrades to "not stale" on
-    a non-finite/non-positive mark or resting_price (never raises, never
-    spuriously churns a resting order on a bad tick)."""
+    (add_offset_pct + zone_tol_pct + zone_buffer_pct) is the widest a
+    FRESH bid could legitimately sit from mark - the SAME worst-case
+    collar-coherence formula core/config_guard.py's own price-collar
+    check pins (`worst_dev_bps`): base discount, plus the TH-013 magnet-
+    shift's own worst-case push (shift_off_magnets never moves toward
+    price, and can fire on any price within zone_tol_pct of a magnet,
+    landing it zone_buffer_pct beyond that magnet). Omitting
+    zone_tol_pct (old callers, default 0.0) reduces to the narrower
+    (add_offset_pct + zone_buffer_pct)-only band, which under-counts a
+    magnet-shifted bid as stale-on-arrival - every caller that actually
+    prices adds off shift_off_magnets (main._long_book_cycle) must pass
+    the SAME zone_tol_pct its EngineConfig already parsed. Degrades to
+    "not stale" on a non-finite/non-positive mark or resting_price
+    (never raises, never spuriously churns a resting order on a bad
+    tick)."""
     if mark <= 0 or not math.isfinite(mark) or resting_price <= 0 \
             or not math.isfinite(resting_price):
         return False
     drift_pct = abs(mark - resting_price) / mark * 100.0
-    return drift_pct > (float(add_offset_pct) + float(zone_buffer_pct))
+    return drift_pct > (float(add_offset_pct) + float(zone_tol_pct)
+                        + float(zone_buffer_pct))
 
 
 def thesis_stop_price(avg_entry: float, thesis_stop_pct: float) -> float:

@@ -671,3 +671,35 @@ def test_bid_is_stale_guards_non_positive_or_non_finite_resting_price():
     assert bid_is_stale(100.0, 0.0, 0.5, 0.20) is False
     assert bid_is_stale(100.0, -5.0, 0.5, 0.20) is False
     assert bid_is_stale(100.0, float("nan"), 0.5, 0.20) is False
+
+
+def test_bid_is_stale_zone_tol_widens_the_fresh_band_for_a_magnet_shift():
+    # Phase-C whole-phase review, Important #1: a magnet-shifted bid
+    # (shift_off_magnets, TH-013) can legitimately rest up to
+    # add_offset_pct + zone_tol_pct + zone_buffer_pct away from mark -
+    # config_guard's own collar-coherence formula (core/config_guard.py's
+    # worst_dev_bps), NOT just add_offset_pct + zone_buffer_pct. Drift
+    # here (0.75%) sits PAST the old (offset+buffer=0.70%) band but
+    # WITHIN the full (offset+buffer+tol=0.85%) band - immediately after
+    # placement this must NOT be stale.
+    mark = 100_000.0
+    resting_price = mark * (1.0 - 0.0075)
+    assert bid_is_stale(mark, resting_price, 0.5, 0.20,
+                        zone_tol_pct=0.15) is False
+
+
+def test_bid_is_stale_genuine_drift_beyond_the_full_band_is_stale():
+    # drift beyond the FULL band (offset+buffer+tol=0.85%) is still
+    # genuinely stale.
+    mark = 100_000.0
+    resting_price = mark * (1.0 - 0.01)
+    assert bid_is_stale(mark, resting_price, 0.5, 0.20,
+                        zone_tol_pct=0.15) is True
+
+
+def test_bid_is_stale_zone_tol_defaults_to_zero_preserving_old_callers():
+    # a caller that omits zone_tol_pct (every pre-existing call site/test
+    # above) keeps the OLD (offset+buffer)-only band, byte-identical.
+    mark = 60_000.0
+    resting_price = mark * (1.0 - 0.0075)   # past the 0.70% offset+buffer band
+    assert bid_is_stale(mark, resting_price, 0.5, 0.20) is True

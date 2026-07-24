@@ -493,7 +493,7 @@
       "dd_downgrade_pct": 6.0,
       "adverse_min_hours": 24.0
     },
-    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct on the book's own equity-curve peak -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
+    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct, measured as the drop from the book's own equity-curve peak normalized by TOTAL PORTFOLIO EQUITY (not the book's own peak) -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
     "profit_taking": {
       "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
       "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},

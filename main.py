@@ -3187,9 +3187,20 @@ class LiquidityBot:
         long-book position. The all-time PEAK of that curve is a
         ratchet (persisted, monotonic non-decreasing) so one bad cycle's
         drawdown is measured against the book's own best-ever mark, not
-        a value that could itself slip backward."""
+        a value that could itself slip backward.
+
+        Phase-C whole-phase review, Minor #5: the mark read is
+        `self.marks.get(p.symbol) or p.entry_price` - the SAME
+        zero/None-guarded fallback this method's own sibling book-
+        exposure sums use (main._long_book_cycle's book_exposure_usd/
+        book_exposure_usd_snapshot) - not `.get(p.symbol, p.entry_price)`,
+        whose default only ever applies when the KEY is absent. A 0.0
+        mark (a bad/stale tick, key present with value 0.0) read
+        literally would fabricate a huge phantom unrealized loss (and a
+        false dd-ladder downgrade) from a single bad tick instead of
+        degrading to "no fresh mark, use entry_price"."""
         unrealized = sum(
-            (self.marks.get(p.symbol, p.entry_price) - p.entry_price)
+            ((self.marks.get(p.symbol) or p.entry_price) - p.entry_price)
             * p.size
             for p in self.state.open_positions() if p.book == "long")
         book_value = self._long_book_realized_pnl_total + unrealized
@@ -3400,8 +3411,11 @@ class LiquidityBot:
             # (has_open is now book-aware, Minor #10, though this reads
             # open_orders() directly to get the object, not just a bool).
             # Still fresh -> leave it alone (never double-submit). Stale
-            # (mark drifted past add_offset_pct + zone_buffer_pct, or a
-            # resubmit's collar would now refuse it) -> cancel and let
+            # (mark drifted past add_offset_pct + zone_tol_pct +
+            # zone_buffer_pct - phase-C review Important #1: the full
+            # collar-coherence band, matching a magnet-shifted bid's own
+            # worst-case rest distance from mark, not just offset+buffer
+            # - or a resubmit's collar would now refuse it) -> cancel and let
             # THIS SAME pass re-decide/re-place at the fresh level (the
             # collar re-checks naturally on resubmit) - at most one
             # replace per asset per pass, by construction (one iteration).
@@ -3410,7 +3424,7 @@ class LiquidityBot:
                 None)
             if resting is not None:
                 if bid_is_stale(mark, resting.price, ecfg.add_offset_pct,
-                                ecfg.zone_buffer_pct):
+                                ecfg.zone_buffer_pct, ecfg.zone_tol_pct):
                     self.orders.cancel_order(resting,
                                              reason="long_book_reprice")
                     get_audit().log(
@@ -3479,6 +3493,15 @@ class LiquidityBot:
                         "long_book", Code.LB_ADD_DENIED, detail,
                         {"asset": asset,
                          "conviction_code": deny_code.value})
+                # phase-C whole-phase review, Important #2: a persistent
+                # conviction denial must back this asset off exactly like
+                # the sizer/submit failure branches below
+                # (_place_long_book_add) - otherwise the deny-gate above
+                # only debounces the AUDIT row while decide_add and this
+                # conviction re-check both re-run every ~30s slow_cycle
+                # tick for as long as the disposition holds.
+                self._long_book_note_failure(asset, now,
+                                             ecfg.retry_backoff_minutes)
                 continue
 
             self._place_long_book_add(
@@ -3519,7 +3542,7 @@ class LiquidityBot:
         return False
 
     def _long_book_deny(self, asset: str, deny: DenyReason,
-                        now: Optional[float] = None) -> None:
+                        now: float) -> None:
         """Log + selectively audit one long-book DenyReason (LB-010, plus
         LB-050/CX-030 riding along on the qualifying kinds - core/codes.py's
         own comments). "spacing" is the OVERWHELMING routine case (a
@@ -3545,11 +3568,24 @@ class LiquidityBot:
         asset's first-ever denial) or after retry_backoff_minutes has
         elapsed since the last emission for this SAME kind
         (_long_book_deny_gate). Python-log line above stays unconditional
-        (process log noise, not the audited trail); contraction_spacing
-        is deliberately NOT debounced here (unchanged from C4): its
-        detail string carries a growing elapsed-seconds figure and its
-        own comment already documents it as "a rarer, notable cadence
-        state, not the routine wait" deserving full audit density."""
+        (process log noise, not the audited trail).
+
+        Phase-C whole-phase review, Important #3: contraction_spacing now
+        ALSO joins the debounced set (a distinct "contraction_spacing"
+        gate kind, so it never collides with a plain "spacing" call -
+        which never reaches this branch anyway, the early-return above
+        handles it). C4/C5 deliberately left it undebounced on the theory
+        it was "rarer and notable"; whole-phase math instead shows
+        ~11.5k rows/day/asset during a halving contraction phase (which
+        runs for MONTHS, not hours) - the exact same "thousands of no-op
+        rows" problem the other debounced kinds exist to prevent. The
+        audited `kind` in the row itself stays "spacing" (unchanged
+        audit-trail contract); only the internal debounce-state key
+        differs.
+
+        Minor #6 (determinism wart): `now` is required, no wall-clock
+        fallback - every in-tree caller (main._long_book_cycle) already
+        passes it."""
         self._long_last_deny = deny.detail
         detail = tag(Code.LB_ADD_DENIED, f"{asset}: {deny.detail}")
         contraction_spacing = deny.kind == "spacing" and \
@@ -3559,11 +3595,13 @@ class LiquidityBot:
             return
         log.info(detail)
         if deny.kind in ("event_window", "context_unknown",
-                        "context_misaligned", "crisis", "ceiling"):
-            ts = now if now is not None else time.time()
+                        "context_misaligned", "crisis", "ceiling") \
+                or contraction_spacing:
             backoff_min = float((self.config.get("long_book", {}) or {})
                                 .get("retry_backoff_minutes", 30.0))
-            if not self._long_book_deny_gate(asset, deny.kind, ts,
+            gate_kind = "contraction_spacing" if contraction_spacing \
+                else deny.kind
+            if not self._long_book_deny_gate(asset, gate_kind, now,
                                              backoff_min):
                 return
         get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
