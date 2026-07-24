@@ -42,3 +42,14 @@ the mitigations this finding calls for — they stay as they are.
   3.6k rows affords) — shrink the space, never the gate.
 - Any future overfit shift must repeat this doc's inertness experiment
   (base-code × current-corpus in a worktree) before re-baselining.
+
+## Recovery note (2026-07-24, later same day)
+
+At 3,910 corpus rows (+282 candidate rows since the breach) OF-3 PBO
+PASSES again — the battery moved 3-passed/5-failed → 4-passed/4-failed
+(remaining fails: the known gap[logistic/gbt/mlp] + dead-feature
+family). Code-inertness proven per this doc's own protocol before
+re-baselining: the entire Phase C3 diff stashed and the check re-run at
+clean 5ca57a1 produced the identical result. Conscious baseline is now
+4 passed / 4 failed. The watch condition stands: any future shift
+repeats the inertness experiment first.
