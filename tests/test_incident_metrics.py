@@ -430,3 +430,96 @@ def test_collect_tiers_fired_infinity_does_not_crash(tmp_path):
     m = gp.collect(str(p))                    # must not raise OverflowError
     tier = _by_name(m, "liquiditybot_position_tiers_fired")
     assert tier and tier[0]["gauge"]["dataPoints"][0]["asDouble"] == 0.0
+
+
+# ---- conviction formula telemetry (#120, risk/conviction.py status()) ------
+def test_collect_emits_conviction_metrics(tmp_path):
+    status = {
+        "written_at": time.time(),
+        "conviction": {
+            "enabled": True, "mode": "report", "evaluated": 42, "admitted": 30,
+            "denials": {"CV-010": 8, "CV-020": 4},
+            "share": 0.71, "n": 40,
+            "by_regime": {"range": {"share": 0.65, "n": 20},
+                          "trend": {"share": 0.8, "n": 20}},
+            "alarm": "ok",
+        },
+    }
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    names = _names(m)
+    for expect in ("liquiditybot_conviction_evaluated",
+                   "liquiditybot_conviction_admitted",
+                   "liquiditybot_conviction_share",
+                   "liquiditybot_conviction_n",
+                   "liquiditybot_conviction_denials",
+                   "liquiditybot_conviction_regime_share",
+                   "liquiditybot_conviction_regime_n",
+                   "liquiditybot_conviction_alarm"):
+        assert expect in names, f"missing metric {expect}"
+    assert _val(m, "liquiditybot_conviction_evaluated") == 42.0
+    assert _val(m, "liquiditybot_conviction_admitted") == 30.0
+    assert _val(m, "liquiditybot_conviction_share") == pytest.approx(0.71)
+    assert _val(m, "liquiditybot_conviction_n") == 40.0
+    assert _val(m, "liquiditybot_conviction_denials", code="CV-010") == 8.0
+    assert _val(m, "liquiditybot_conviction_denials", code="CV-020") == 4.0
+    assert _val(m, "liquiditybot_conviction_regime_share",
+                regime="range") == pytest.approx(0.65)
+    assert _val(m, "liquiditybot_conviction_regime_n", regime="trend") == 20.0
+    # ok=0 / low=1 / high=2
+    assert _val(m, "liquiditybot_conviction_alarm") == 0.0
+
+
+def test_collect_conviction_alarm_numeric_mapping(tmp_path):
+    for alarm, expected in (("ok", 0.0), ("low", 1.0), ("high", 2.0)):
+        p = tmp_path / f"status_{alarm}.json"
+        p.write_text(json.dumps({
+            "written_at": time.time(),
+            "conviction": {"enabled": True, "mode": "report", "evaluated": 1,
+                          "admitted": 1, "denials": {}, "share": 1.0, "n": 1,
+                          "by_regime": {}, "alarm": alarm}}), encoding="utf-8")
+        m = gp.collect(str(p))
+        assert _val(m, "liquiditybot_conviction_alarm") == expected, alarm
+
+
+def test_collect_conviction_absent_emits_nothing(tmp_path):
+    # older status.json (pre-#120) has no "conviction" key at all — degrade
+    # silently, no crash, no conviction-scoped metrics
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "equity": 800.0}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_conviction")]
+
+
+def test_collect_conviction_empty_section_emits_nothing(tmp_path):
+    # formula present but the section is an empty dict (e.g. a status writer
+    # that emits {} rather than omitting the key) — same silent degrade
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({"written_at": time.time(), "conviction": {}}),
+                 encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_conviction")]
+
+
+def test_collect_conviction_survives_malformed_regime_entry(tmp_path):
+    # a non-dict by_regime value or non-numeric denial count must be skipped,
+    # never crash and black out the whole metric batch
+    status = {"written_at": time.time(), "halted": True,
+              "conviction": {"enabled": True, "mode": "report",
+                            "evaluated": 5, "admitted": 3,
+                            "denials": {"CV-010": "garbage"},
+                            "share": 0.6, "n": 5,
+                            "by_regime": {"range": "garbage",
+                                          "trend": {"share": 0.5, "n": 2}},
+                            "alarm": "ok"}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise
+    assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
+    assert _val(m, "liquiditybot_conviction_denials", code="CV-010") is None
+    assert _val(m, "liquiditybot_conviction_regime_share", regime="range") \
+        is None
+    assert _val(m, "liquiditybot_conviction_regime_share",
+                regime="trend") == pytest.approx(0.5)

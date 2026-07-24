@@ -3896,7 +3896,7 @@
     {
       "id": 48,
       "type": "row",
-      "title": "🏛️ THALES — footprint & manipulation defense",
+      "title": "🎯 CONVICTION — entry admission formula",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3908,13 +3908,380 @@
     },
     {
       "id": 49,
+      "type": "stat",
+      "title": "Admit share",
+      "description": "Rolling admit share over the cadence window — the formula's own selectivity. Report mode: nothing is blocked yet, this is measurement only.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 91
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "no conviction data yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_conviction_share{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Window n",
+      "description": "Evaluations in the rolling cadence window (global).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 91
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "no conviction data yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_conviction_n{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Alarm",
+      "description": "Cadence governor: admit share sustained outside [share_lo, share_hi] on a state TRANSITION — it never auto-tunes a threshold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 91
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "no conviction data yet",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "ok",
+                  "color": "#8E8E93",
+                  "index": 0
+                },
+                "1": {
+                  "text": "low",
+                  "color": "#FFD60A",
+                  "index": 1
+                },
+                "2": {
+                  "text": "high",
+                  "color": "#FF453A",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_conviction_alarm{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 52,
+      "type": "bargauge",
+      "title": "Admit share by regime",
+      "description": "Per-regime admit share — a regime pinned always-on or always-off is the T4 coverage / EV-multiple floor misfiring for that regime specifically.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 96
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF453A",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.4
+              },
+              {
+                "color": "#30D158",
+                "value": 0.7
+              }
+            ]
+          },
+          "noValue": "no regime data yet",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_conviction_regime_share{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{regime}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 53,
+      "type": "bargauge",
+      "title": "Denials by code",
+      "description": "CV-* disposition tally — which term denies most (agreement / EV-multiple / regime-known / context).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 96
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no denials yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_conviction_denials{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 54,
+      "type": "row",
+      "title": "🏛️ THALES — footprint & manipulation defense",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 102
+      },
+      "panels": []
+    },
+    {
+      "id": 55,
       "type": "text",
       "title": "What THALES is",
       "gridPos": {
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 91
+        "y": 103
       },
       "transparent": true,
       "options": {
@@ -3928,7 +4295,7 @@
       }
     },
     {
-      "id": 50,
+      "id": 56,
       "type": "table",
       "title": "THALES detector scorecard (higher = more suspicious)",
       "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
@@ -3940,7 +4307,7 @@
         "h": 9,
         "w": 16,
         "x": 8,
-        "y": 91
+        "y": 103
       },
       "fieldConfig": {
         "defaults": {
@@ -4623,7 +4990,7 @@
       "transparent": true
     },
     {
-      "id": 51,
+      "id": 57,
       "type": "bargauge",
       "title": "Spoof-flicker pressure (bid)",
       "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
@@ -4635,7 +5002,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 100
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -4697,7 +5064,7 @@
       "transparent": true
     },
     {
-      "id": 52,
+      "id": 58,
       "type": "bargauge",
       "title": "Stop-hunt zone proximity",
       "description": "Proximity to round-number stop clusters per asset.",
@@ -4709,7 +5076,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 100
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -4771,7 +5138,7 @@
       "transparent": true
     },
     {
-      "id": 53,
+      "id": 59,
       "type": "bargauge",
       "title": "Manipulation suspicion",
       "description": "Parameter-free max of the manipulation footprints per asset.",
@@ -4783,7 +5150,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 100
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -4845,7 +5212,7 @@
       "transparent": true
     },
     {
-      "id": 54,
+      "id": 60,
       "type": "row",
       "title": "🛡️ POSITIONS & RISK",
       "collapsed": false,
@@ -4853,12 +5220,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 106
+        "y": 118
       },
       "panels": []
     },
     {
-      "id": 55,
+      "id": 61,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -4870,7 +5237,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 107
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -5260,7 +5627,7 @@
       "transparent": true
     },
     {
-      "id": 56,
+      "id": 62,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -5272,7 +5639,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 107
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -5331,7 +5698,7 @@
       "transparent": true
     },
     {
-      "id": 57,
+      "id": 63,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -5343,7 +5710,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 107
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -5394,7 +5761,7 @@
       "transparent": true
     },
     {
-      "id": 58,
+      "id": 64,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -5406,7 +5773,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 107
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -5457,7 +5824,7 @@
       "transparent": true
     },
     {
-      "id": 59,
+      "id": 65,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -5469,7 +5836,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 112
+        "y": 124
       },
       "fieldConfig": {
         "defaults": {
@@ -5586,7 +5953,7 @@
       "transparent": true
     },
     {
-      "id": 60,
+      "id": 66,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -5598,7 +5965,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 112
+        "y": 124
       },
       "fieldConfig": {
         "defaults": {
@@ -5722,7 +6089,7 @@
       "transparent": true
     },
     {
-      "id": 61,
+      "id": 67,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -5734,7 +6101,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 112
+        "y": 124
       },
       "fieldConfig": {
         "defaults": {
@@ -5788,7 +6155,7 @@
       "transparent": true
     },
     {
-      "id": 62,
+      "id": 68,
       "type": "stat",
       "title": "Positions open",
       "description": "Open count (max 5).",
@@ -5800,7 +6167,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 112
+        "y": 124
       },
       "fieldConfig": {
         "defaults": {
@@ -5859,7 +6226,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 118
+        "y": 130
       },
       "transparent": true,
       "options": {

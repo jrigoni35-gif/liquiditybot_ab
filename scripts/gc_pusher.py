@@ -278,6 +278,44 @@ def collect(status_path: str) -> list:
         if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
             m.append(gauge("liquiditybot_code_count_detail", cnt,
                            {"code": str(code)}, ts))
+    # ---- conviction formula (#120, Compounder Phase A, risk/conviction.py) --
+    # admission cadence + regime breakdown + denial-code tally for the
+    # CONVICTION (non-probe) entry channel. Missing/empty section (older
+    # status.json predating this feature, or a writer that emits {} rather
+    # than omitting the key) degrades to NOTHING emitted here — never a
+    # crash, never a partial metric set that reads as a healthy subsystem.
+    cv = s.get("conviction") or {}
+    if cv:
+        ev, ad = cv.get("evaluated"), cv.get("admitted")
+        if isinstance(ev, (int, float)) and not isinstance(ev, bool):
+            m.append(gauge("liquiditybot_conviction_evaluated", ev, ts=ts))
+        if isinstance(ad, (int, float)) and not isinstance(ad, bool):
+            m.append(gauge("liquiditybot_conviction_admitted", ad, ts=ts))
+        share, n = cv.get("share"), cv.get("n")
+        if isinstance(share, (int, float)) and not isinstance(share, bool):
+            m.append(gauge("liquiditybot_conviction_share", share, ts=ts))
+        if isinstance(n, (int, float)) and not isinstance(n, bool):
+            m.append(gauge("liquiditybot_conviction_n", n, ts=ts))
+        for code, cnt in (cv.get("denials") or {}).items():
+            if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+                m.append(gauge("liquiditybot_conviction_denials", cnt,
+                               {"code": str(code)}, ts))
+        for regime, rec in (cv.get("by_regime") or {}).items():
+            if not isinstance(rec, dict):
+                continue        # malformed regime entry: skip, never crash
+            r_share, r_n = rec.get("share"), rec.get("n")
+            if isinstance(r_share, (int, float)) \
+                    and not isinstance(r_share, bool):
+                m.append(gauge("liquiditybot_conviction_regime_share",
+                               r_share, {"regime": str(regime)}, ts))
+            if isinstance(r_n, (int, float)) and not isinstance(r_n, bool):
+                m.append(gauge("liquiditybot_conviction_regime_n", r_n,
+                               {"regime": str(regime)}, ts))
+        # ok=0 / low=1 / high=2; an unrecognized string degrades to -1
+        # rather than silently reading as "ok" (state() maps -1 too)
+        m.append(gauge("liquiditybot_conviction_alarm",
+                       {"ok": 0.0, "low": 1.0, "high": 2.0}
+                       .get(str(cv.get("alarm")), -1.0), ts=ts))
     for key in ("history_rows", "open_candidates", "pending_labels"):
         v = ml.get(key)
         if isinstance(v, (int, float)):

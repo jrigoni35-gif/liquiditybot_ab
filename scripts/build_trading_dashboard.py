@@ -414,6 +414,12 @@ GOV = {"0": ("OK", "green"), "1": ("DEGRADED", "yellow"), "2": ("KILLED", "red")
 OPSTATE = {"0": ("ARMED", "green"), "1": ("DEGRADED", "yellow"),
            "2": ("HALTED", "red"), "-1": ("UNKNOWN", "red")}
 RETRAIN = {"1": ("QUEUED", "yellow"), "0": ("idle", "green")}
+# neutral-when-ok: "ok" is the expected steady state and must not compete
+# visually with a real departure, so it reads in the neutral gray text color
+# (GRAY_HEX) rather than an affirmative green; only low/high (a sustained
+# admit share outside the cadence governor's band) earn warning color.
+CV_ALARM = {"0": ("ok", GRAY_HEX), "1": ("low", "yellow"),
+            "2": ("high", "red")}
 
 # THALES inline documentation (rendered in a markdown text panel)
 _THALES_MD = (
@@ -613,6 +619,34 @@ def _author_command():
                "instantly. Absent cells (·) mean the asset hasn't traded "
                "yet — not a fault.")
 
+    row("🎯 CONVICTION — entry admission formula")
+    stat("Admit share", M("liquiditybot_conviction_share"), 8, 5,
+         unit="percentunit", decimals=1, steps=BLUE,
+         no_value="no conviction data yet",
+         desc="Rolling admit share over the cadence window — the "
+              "formula's own selectivity. Report mode: nothing is "
+              "blocked yet, this is measurement only.")
+    stat("Window n", M("liquiditybot_conviction_n"), 8, 5, decimals=0,
+         steps=BLUE, no_value="no conviction data yet",
+         desc="Evaluations in the rolling cadence window (global).")
+    state("Alarm", M("liquiditybot_conviction_alarm"), 8, 5, CV_ALARM,
+          no_value="no conviction data yet",
+          desc="Cadence governor: admit share sustained outside "
+               "[share_lo, share_hi] on a state TRANSITION — it never "
+               "auto-tunes a threshold.")
+    bargauge("Admit share by regime",
+             _pa("liquiditybot_conviction_regime_share"), 12, 6,
+             decimals=2, steps=HIGH_GOOD, mn=0, mx=1, legend="{{regime}}",
+             no_value="no regime data yet",
+             desc="Per-regime admit share — a regime pinned always-on "
+                  "or always-off is the T4 coverage / EV-multiple floor "
+                  "misfiring for that regime specifically.")
+    bargauge("Denials by code", _pa("liquiditybot_conviction_denials"),
+             12, 6, decimals=0, steps=BLUE, legend="{{code}}",
+             no_value="no denials yet",
+             desc="CV-* disposition tally — which term denies most "
+                  "(agreement / EV-multiple / regime-known / context).")
+
     row("🏛️ THALES — footprint & manipulation defense")
     text("What THALES is", _THALES_MD, 8, 9)
     table("THALES detector scorecard (higher = more suspicious)", 16, 9,
@@ -805,6 +839,31 @@ def _author_execution():
           desc="Price drift after our fill at 5/30/60s per asset; "
                "persistently negative = picked off. Absent cells (·) = no "
                "fills measured at that horizon yet.")
+
+    row("🎯 CONVICTION — admission detail")
+    stat("Evaluated", M("liquiditybot_conviction_evaluated"), 4, 5,
+         decimals=0, steps=BLUE, no_value="no conviction data yet",
+         desc="Total conviction-channel evaluations since boot.")
+    stat("Admitted", M("liquiditybot_conviction_admitted"), 4, 5,
+         decimals=0, steps=GRN, no_value="no conviction data yet",
+         desc="Total conviction admits since boot.")
+    stat("Admit share", M("liquiditybot_conviction_share"), 4, 5,
+         unit="percentunit", decimals=1, steps=BLUE,
+         no_value="no conviction data yet",
+         desc="Rolling admit share over the cadence window.")
+    state("Alarm", M("liquiditybot_conviction_alarm"), 4, 5, CV_ALARM,
+          no_value="no conviction data yet",
+          desc="Cadence governor: sustained admit share outside "
+               "[share_lo, share_hi].")
+    bargauge("Regime window size (n)",
+             _pa("liquiditybot_conviction_regime_n"), 8, 5, decimals=0,
+             steps=BLUE, legend="{{regime}}", no_value="no regime data yet",
+             desc="Rolling-window sample count per regime — alarms only "
+                  "fire once a regime clears share_min_n.")
+    table("Denials by code (detail)", 16, 5,
+          cols=[("liquiditybot_conviction_denials", "Count", "short", 0, BLUE)],
+          label_keys=["code"], sort="Count",
+          desc="CV-* disposition tally in full detail.")
 
 
 # ==================== board 3 · problem / solution =========================

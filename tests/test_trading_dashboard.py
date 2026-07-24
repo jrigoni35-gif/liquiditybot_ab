@@ -102,6 +102,16 @@ _SYNTH_STATUS = {
         "grid": 0.1, "metronome": 0.2, "clockwork": 0.0, "clockwork_dir": 0,
         "stop_zone": 0.3, "barclose": 0.1, "spoof_bid": 0.05, "spoof_ask": 0.0,
         "feed_dirty": 0.0, "lapses": 0, "bar_holes": 0, "lapse_warmup_sec": 0}}},
+    # Compounder Phase A conviction formula (risk/conviction.py status()) —
+    # #120 telemetry: admission share + regime breakdown + denial tally.
+    "conviction": {
+        "enabled": True, "mode": "report", "evaluated": 42, "admitted": 30,
+        "denials": {"CV-010": 8, "CV-020": 4},
+        "share": 0.71, "n": 40,
+        "by_regime": {"range": {"share": 0.65, "n": 20},
+                      "trend": {"share": 0.8, "n": 20}},
+        "alarm": "ok",
+    },
 }
 
 
@@ -168,6 +178,31 @@ def test_has_per_asset_comparison_table():
         "asset" in str(tr.get("expr", "")) or
         tr.get("expr", "").find("perf_asset") >= 0 for tr in t["targets"])]
     assert asset_tbl, "per-asset comparison table is the decision centrepiece"
+
+
+def test_command_board_has_conviction_row():
+    # #120: the Command board surfaces a Conviction row — admit-share,
+    # window-n, alarm-state, per-regime share, denials-by-code — every
+    # target of which must query an actually-emitted liquiditybot_conviction_*
+    # metric (test_every_query_hits_an_emitted_metric enforces that globally;
+    # this pins the row's existence and its specific metric coverage).
+    d = _shipped("liquiditybot_command.json")
+    panels = d["panels"]
+    row_idx = [i for i, p in enumerate(panels)
+               if p["type"] == "row" and "CONVICTION" in p["title"].upper()]
+    assert row_idx, "no Conviction row on the Command board"
+    start = row_idx[0] + 1
+    end = next((i for i in range(start, len(panels))
+               if panels[i]["type"] == "row"), len(panels))
+    section = panels[start:end]
+    assert section, "Conviction row has no panels"
+    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
+    for expect in ("liquiditybot_conviction_share",
+                   "liquiditybot_conviction_n",
+                   "liquiditybot_conviction_alarm",
+                   "liquiditybot_conviction_regime_share",
+                   "liquiditybot_conviction_denials"):
+        assert expect in exprs, f"Conviction row missing {expect}"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):
