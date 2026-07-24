@@ -56,6 +56,42 @@ def _f(cfg: dict, path: str, default: Any = None) -> Any:
     return cur
 
 
+def _conviction_checks(config: dict) -> list:
+    """Compounder Phase A conviction block coherence (spec §2/§6):
+    FATAL = the formula would be vacuous or self-contradictory. An
+    absent block is clean — risk/conviction.py module defaults apply."""
+    out: list = []
+    conv = _f(config, "conviction")
+    if not isinstance(conv, dict) or not conv:
+        return out
+    mode = str(conv.get("mode", "report"))
+    if mode not in ("report", "enforce"):
+        out.append(("FATAL", f"conviction.mode '{mode}' must be "
+                    "'report' or 'enforce'"))
+    floor = float(conv.get("agreement_floor", 0.75))
+    if not 0.0 <= floor <= 1.0:
+        out.append(("FATAL", f"conviction.agreement_floor {floor} "
+                    "outside [0, 1]"))
+    mult = float(conv.get("ev_cost_mult", 2.0))
+    base = float(_f(config, "pretrade.min_edge_cost_ratio", 1.3))
+    if mult < base:
+        out.append(("FATAL", f"conviction.ev_cost_mult {mult} below "
+                    f"pretrade.min_edge_cost_ratio {base} — a conviction "
+                    "bar under the pretrade bar is vacuous"))
+    lo = float(conv.get("share_lo", 0.1))
+    hi = float(conv.get("share_hi", 0.9))
+    if not (0.0 <= lo < hi <= 1.0):
+        out.append(("FATAL", f"conviction share band [{lo}, {hi}] must "
+                    "satisfy 0 <= lo < hi <= 1"))
+    window = int(conv.get("share_window", 40))
+    min_n = int(conv.get("share_min_n", 20))
+    if window < 1 or not 1 <= min_n <= window:
+        out.append(("FATAL", f"conviction share_window {window} / "
+                    f"share_min_n {min_n} incoherent (need window >= 1, "
+                    "1 <= min_n <= window)"))
+    return out
+
+
 def validate(config: dict) -> list:
     """Pure check: returns [(severity, message), ...]. No side effects."""
     findings = []
@@ -1945,6 +1981,7 @@ def validate(config: dict) -> list:
             f"min_p_win is not the real minimum. Raise it to >= the breakeven "
             f"to make the bar honest, or keep it as an intentional soft floor.")
 
+    findings.extend(_conviction_checks(config))
     return findings
 
 
