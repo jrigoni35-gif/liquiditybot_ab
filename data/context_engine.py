@@ -249,6 +249,11 @@ def parse_stablecoin_total(json_text: Optional[str]) -> Optional[float]:
 _COT_COL_MARKET_NAME = 0
 _COT_COL_LEV_LONG = 14   # Lev_Money_Positions_Long_All
 _COT_COL_LEV_SHORT = 15  # Lev_Money_Positions_Short_All
+_COT_EXPECTED_FIELDS = 87   # verified field count of the dea FinFutWk.txt
+                            # layout (cross-checked against the header'd
+                            # annual FinFutYY.txt, Task B2); any other row
+                            # shape = schema drift -> fail safe to None,
+                            # never a silently-wrong read
 
 
 def parse_cot_btc_lev_net(text: Optional[str]) -> Optional[float]:
@@ -275,7 +280,7 @@ def parse_cot_btc_lev_net(text: Optional[str]) -> Optional[float]:
     except csv.Error:
         return None
     for row in rows:
-        if len(row) <= _COT_COL_LEV_SHORT:
+        if len(row) != _COT_EXPECTED_FIELDS:
             continue
         name = row[_COT_COL_MARKET_NAME].upper()
         if "BITCOIN" in name and "CHICAGO MERCANTILE" in name:
