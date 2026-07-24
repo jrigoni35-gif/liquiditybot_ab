@@ -79,13 +79,13 @@
       "id": 1,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
-      "description": "Live single-screen truth.",
+      "description": "Live single-screen truth (hero).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 20,
+        "h": 8,
         "w": 24,
         "x": 0,
         "y": 0
@@ -96,14 +96,14 @@
       },
       "options": {
         "renderMode": "data",
-        "content": "<div class=\"pulse-wrap\">\n<div class=\"pulse-state{{#if data.[2].[0].Value}} stale{{else}}{{#unless data.[0].[0].Value}} idle{{/unless}}{{/if}}\"><span class=\"pulse-dot\"></span>{{#if data.[2].[0].Value}}<span>Stale</span>{{#with data.[1].[0]}}<span class=\"sep\">&middot;</span><span>{{toFixed Value 0}}s ago</span>{{/with}}{{else}}<span>{{#if data.[0].[0].Value}}Running{{else}}Idle{{/if}}</span><span class=\"sep\">&middot;</span><span>Paper</span><span class=\"sep\">&middot;</span>{{#with data.[1].[0]}}<span>{{toFixed Value 0}}s ago</span>{{else}}<span>-- ago</span>{{/with}}{{/if}}</div>\n<div class=\"pulse-hero\">{{#if data.[3].[0]}}<span class=\"pulse-cur\">$</span>{{#if data.[15].[0].Value}}{{toFixed data.[15].[0].Value 0}},{{#with (split (toFixed data.[16].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed data.[3].[0].Value 2) \".\") 0}}{{/if}}<span class=\"pulse-cents\">.{{lookup (split (toFixed data.[3].[0].Value 2) \".\") 1}}</span>{{else}}--{{/if}}</div>\n<div class=\"pulse-pnl\">{{#with data.[4].[0]}}{{#if (eq (toFixed Value 2) \"0.00\")}}<span class=\"flat\">$0.00 today</span>{{else}}{{#if (eq (toFixed Value 2) \"-0.00\")}}<span class=\"flat\">$0.00 today</span>{{else}}{{#if (startsWith (toFixed Value 2) \"-\")}}<span class=\"loss\">-${{#if data.[17].[0].Value}}{{toFixed data.[17].[0].Value 0}},{{#with (split (toFixed data.[18].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (lookup (split (toFixed Value 2) \"-\") 1) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} today</span>{{else}}<span class=\"gain\">+${{#if data.[17].[0].Value}}{{toFixed data.[17].[0].Value 0}},{{#with (split (toFixed data.[18].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed Value 2) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} today</span>{{/if}}{{/if}}{{/if}}{{else}}<span class=\"flat\">-- today</span>{{/with}}{{#with data.[5].[0]}}<span class=\"wk\">{{#if (eq (toFixed Value 2) \"0.00\")}}$0.00 this week{{else}}{{#if (eq (toFixed Value 2) \"-0.00\")}}$0.00 this week{{else}}{{#if (startsWith (toFixed Value 2) \"-\")}}-${{#if data.[19].[0].Value}}{{toFixed data.[19].[0].Value 0}},{{#with (split (toFixed data.[20].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (lookup (split (toFixed Value 2) \"-\") 1) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} this week{{else}}+${{#if data.[19].[0].Value}}{{toFixed data.[19].[0].Value 0}},{{#with (split (toFixed data.[20].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed Value 2) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} this week{{/if}}{{/if}}{{/if}}</span>{{else}}<span class=\"wk\">-- this week</span>{{/with}}</div>\n<div class=\"pulse-spark\">{{#if data.[12].[0]}}<svg viewBox=\"0 {{data.[13].[0].Value}} 575 {{data.[14].[0].Value}}\" preserveAspectRatio=\"none\"><polyline fill=\"none\" stroke=\"#86868B\" stroke-width=\"1.4\" stroke-linejoin=\"round\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" points=\"{{#each data.[12]}}{{@index}},{{Value}} {{/each}}\"/>{{#each data.[12]}}{{#if @last}}<line x1=\"{{@index}}\" y1=\"{{Value}}\" x2=\"{{@index}}\" y2=\"{{Value}}\" stroke=\"#F5F5F7\" stroke-width=\"4.5\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"/>{{/if}}{{/each}}</svg>{{else}}<div class=\"pulse-nohist\">no equity history yet</div>{{/if}}</div>\n<div class=\"pulse-rows\">\n<div class=\"pulse-row\"><span class=\"lab\">Time-stop scratches<span class=\"exp\">Trades the max-hold clock closed flat &mdash; patience, not conviction</span></span><span class=\"val\">{{#with data.[6].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Probes held back<span class=\"exp\">Entries the sizer judged too small to be worth the risk</span></span><span class=\"val\">{{#with data.[7].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Learning corpus<span class=\"exp\">Labelled trades feeding the model</span></span><span class=\"val\">{{#with data.[8].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}<span class=\"sub\">{{#with data.[9].[0]}}{{toFixed Value 0}} live{{else}}-- live{{/with}}</span></span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Model<span class=\"exp\">Whether the model is sizing trades or standing aside</span></span><span class=\"val\">{{#if data.[10].[0]}}{{#if (eq data.[10].[0].Value 2)}}watching{{else}}{{#if data.[11].[0].Value}}driving{{else}}standing by{{/if}}{{/if}}{{else}}--{{/if}}</span></div>\n</div>\n<div class=\"pulse-foot\">Live &middot; refreshes with the bot's telemetry</div>\n</div>",
+        "content": "<div class=\"pulse-wrap pulse-top\">\n<div class=\"pulse-state{{#if data.[2].[0].Value}} stale{{else}}{{#unless data.[0].[0].Value}} idle{{/unless}}{{/if}}\"><span class=\"pulse-dot\"></span>{{#if data.[2].[0].Value}}<span>Stale</span>{{#with data.[1].[0]}}<span class=\"sep\">&middot;</span><span>{{toFixed Value 0}}s ago</span>{{/with}}{{else}}<span>{{#if data.[0].[0].Value}}Running{{else}}Idle{{/if}}</span><span class=\"sep\">&middot;</span><span>Paper</span><span class=\"sep\">&middot;</span>{{#with data.[1].[0]}}<span>{{toFixed Value 0}}s ago</span>{{else}}<span>-- ago</span>{{/with}}{{/if}}</div>\n<div class=\"pulse-hero\">{{#if data.[3].[0]}}<span class=\"pulse-cur\">$</span>{{#if data.[6].[0].Value}}{{toFixed data.[6].[0].Value 0}},{{#with (split (toFixed data.[7].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed data.[3].[0].Value 2) \".\") 0}}{{/if}}<span class=\"pulse-cents\">.{{lookup (split (toFixed data.[3].[0].Value 2) \".\") 1}}</span>{{else}}--{{/if}}</div>\n<div class=\"pulse-pnl\">{{#with data.[4].[0]}}{{#if (eq (toFixed Value 2) \"0.00\")}}<span class=\"flat\">$0.00 today</span>{{else}}{{#if (eq (toFixed Value 2) \"-0.00\")}}<span class=\"flat\">$0.00 today</span>{{else}}{{#if (startsWith (toFixed Value 2) \"-\")}}<span class=\"loss\">-${{#if data.[8].[0].Value}}{{toFixed data.[8].[0].Value 0}},{{#with (split (toFixed data.[9].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (lookup (split (toFixed Value 2) \"-\") 1) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} today</span>{{else}}<span class=\"gain\">+${{#if data.[8].[0].Value}}{{toFixed data.[8].[0].Value 0}},{{#with (split (toFixed data.[9].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed Value 2) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} today</span>{{/if}}{{/if}}{{/if}}{{else}}<span class=\"flat\">-- today</span>{{/with}}{{#with data.[5].[0]}}<span class=\"wk\">{{#if (eq (toFixed Value 2) \"0.00\")}}$0.00 this week{{else}}{{#if (eq (toFixed Value 2) \"-0.00\")}}$0.00 this week{{else}}{{#if (startsWith (toFixed Value 2) \"-\")}}-${{#if data.[10].[0].Value}}{{toFixed data.[10].[0].Value 0}},{{#with (split (toFixed data.[11].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (lookup (split (toFixed Value 2) \"-\") 1) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} this week{{else}}+${{#if data.[10].[0].Value}}{{toFixed data.[10].[0].Value 0}},{{#with (split (toFixed data.[11].[0].Value 0) \"\") as |d|}}{{lookup d 1}}{{lookup d 2}}{{lookup d 3}}{{/with}}{{else}}{{lookup (split (toFixed Value 2) \".\") 0}}{{/if}}.{{lookup (split (toFixed Value 2) \".\") 1}} this week{{/if}}{{/if}}{{/if}}</span>{{else}}<span class=\"wk\">-- this week</span>{{/with}}</div>\n</div>",
         "defaultContent": "<div class=\"pulse-wrap\"><div class=\"pulse-foot\">waiting for telemetry&hellip;</div></div>",
         "editors": [
           "styles"
         ],
         "helpers": "",
         "afterRender": "",
-        "styles": ".pulse-wrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif;color:#F5F5F7;max-width:26rem;margin:0 auto;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:1.8rem 1.25rem 1.2rem;text-align:center;-webkit-font-smoothing:antialiased;}\n.pulse-state{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5em;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.14em;color:#86868B;font-variant-numeric:tabular-nums;margin-bottom:1.6rem;}\n.pulse-state .sep{opacity:.45;}\n.pulse-state.stale{color:#FF9F0A;}\n.pulse-dot{width:7px;height:7px;border-radius:50%;background:#30D158;box-shadow:0 0 0 4px rgba(48,209,88,.16);}\n.pulse-state.stale .pulse-dot{background:#FF9F0A;box-shadow:0 0 0 4px rgba(255,159,10,.16);}\n.pulse-state.idle .pulse-dot{background:#8E8E93;box-shadow:0 0 0 4px rgba(142,142,147,.16);}\n.pulse-hero{font-size:clamp(3.4rem,17vw,5.4rem);font-weight:600;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;}\n.pulse-cur{color:#86868B;font-weight:500;font-size:.4em;vertical-align:.42em;margin-right:.05em;}\n.pulse-cents{color:#86868B;font-weight:500;font-size:.42em;}\n.pulse-pnl{margin-top:1.05rem;font-size:1.05rem;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}\n.pulse-pnl .gain{color:#30D158;}\n.pulse-pnl .loss{color:#FF453A;}\n.pulse-pnl .flat{color:#86868B;}\n.pulse-pnl .wk{color:#86868B;margin-left:.7em;}\n.pulse-spark{margin:1.2rem 0 1.4rem;line-height:0;}\n.pulse-spark svg{display:block;width:100%;height:42px;overflow:visible;}\n.pulse-nohist{line-height:1.4;font-size:11px;color:#6E6E73;text-transform:uppercase;letter-spacing:.08em;padding:.9rem 0;}\n.pulse-rows{border-top:1px solid rgba(242,242,244,.13);text-align:left;}\n.pulse-row{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:.9rem .15rem;border-bottom:1px solid rgba(242,242,244,.13);}\n.pulse-row:last-child{border-bottom:0;}\n.pulse-row .lab{font-size:15px;font-weight:500;color:#F5F5F7;}\n.pulse-row .exp{display:block;font-size:15px;font-weight:400;color:#86868B;margin-top:.18rem;}\n.pulse-row .val{font-size:17px;font-variant-numeric:tabular-nums;color:#F5F5F7;white-space:nowrap;text-align:right;}\n.pulse-row .val .sub{display:block;font-size:11px;font-weight:500;color:#86868B;text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem;}\n.pulse-foot{margin-top:1.4rem;font-size:11px;color:#6E6E73;text-transform:uppercase;letter-spacing:.1em;}",
+        "styles": ".pulse-wrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif;color:#F5F5F7;max-width:26rem;margin:0 auto;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:1.8rem 1.25rem 1.2rem;text-align:center;-webkit-font-smoothing:antialiased;}\n.pulse-state{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5em;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.14em;color:#86868B;font-variant-numeric:tabular-nums;margin-bottom:1.6rem;}\n.pulse-state .sep{opacity:.45;}\n.pulse-state.stale{color:#FF9F0A;}\n.pulse-dot{width:7px;height:7px;border-radius:50%;background:#30D158;box-shadow:0 0 0 4px rgba(48,209,88,.16);}\n.pulse-state.stale .pulse-dot{background:#FF9F0A;box-shadow:0 0 0 4px rgba(255,159,10,.16);}\n.pulse-state.idle .pulse-dot{background:#8E8E93;box-shadow:0 0 0 4px rgba(142,142,147,.16);}\n.pulse-hero{font-size:clamp(3.4rem,17vw,5.4rem);font-weight:600;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;}\n.pulse-cur{color:#86868B;font-weight:500;font-size:.4em;vertical-align:.42em;margin-right:.05em;}\n.pulse-cents{color:#86868B;font-weight:500;font-size:.42em;}\n.pulse-pnl{margin-top:1.05rem;font-size:1.05rem;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}\n.pulse-pnl .gain{color:#30D158;}\n.pulse-pnl .loss{color:#FF453A;}\n.pulse-pnl .flat{color:#86868B;}\n.pulse-pnl .wk{color:#86868B;margin-left:.7em;}\n.pulse-top{padding-bottom:.4rem;}\n.pulse-bot{padding-top:.4rem;}\n@media (min-width:900px){.pulse-wrap{max-width:32rem;}}\n.pulse-rows{border-top:1px solid rgba(242,242,244,.13);text-align:left;}\n.pulse-row{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:.9rem .15rem;border-bottom:1px solid rgba(242,242,244,.13);}\n.pulse-row:last-child{border-bottom:0;}\n.pulse-row .lab{font-size:15px;font-weight:500;color:#F5F5F7;}\n.pulse-row .exp{display:block;font-size:15px;font-weight:400;color:#86868B;margin-top:.18rem;}\n.pulse-row .val{font-size:17px;font-variant-numeric:tabular-nums;color:#F5F5F7;white-space:nowrap;text-align:right;}\n.pulse-row .val .sub{display:block;font-size:11px;font-weight:500;color:#86868B;text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem;}\n.pulse-foot{margin-top:1.4rem;font-size:11px;color:#6E6E73;text-transform:uppercase;letter-spacing:.1em;}",
         "wrap": false,
         "externalStyles": [],
         "contentPartials": []
@@ -166,97 +166,6 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_weekly_pnl{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "G",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-060\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "H",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-047\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "I",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "sum(liquiditybot_ml_labels{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "J",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_ml_labels{job=\"liquiditybot\",source=\"live\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "K",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_monitor_level{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "L",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_ml_use_model{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "M",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "0 - max(liquiditybot_equity{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
-          "maxDataPoints": 576
-        },
-        {
-          "refId": "N",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "0 - max_over_time(liquiditybot_equity{job=\"liquiditybot\"}[$__range])",
-          "instant": true,
-          "range": false
-        },
-        {
-          "refId": "O",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "clamp_min(max_over_time(liquiditybot_equity{job=\"liquiditybot\"}[$__range]) - min_over_time(liquiditybot_equity{job=\"liquiditybot\"}[$__range]), 0.01)",
           "instant": true,
           "range": false
         },
@@ -326,6 +235,162 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "",
+      "description": "Equity over the dashboard range — native sparkline (stat/area): sanitizer-proof and self-scaling.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#86868B"
+          },
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "no equity history yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "textMode": "none",
+        "colorMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "M",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_equity{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "pluginVersion": "11.1.0"
+    },
+    {
+      "id": 3,
+      "type": "marcusolsson-dynamictext-panel",
+      "title": "",
+      "description": "Live single-screen truth (rows).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "renderMode": "data",
+        "content": "<div class=\"pulse-wrap pulse-bot\">\n<div class=\"pulse-rows\">\n<div class=\"pulse-row\"><span class=\"lab\">Time-stop scratches<span class=\"exp\">Trades the max-hold clock closed flat &mdash; patience, not conviction</span></span><span class=\"val\">{{#with data.[0].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Probes held back<span class=\"exp\">Entries the sizer judged too small to be worth the risk</span></span><span class=\"val\">{{#with data.[1].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Learning corpus<span class=\"exp\">Labelled trades feeding the model</span></span><span class=\"val\">{{#with data.[2].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}<span class=\"sub\">{{#with data.[3].[0]}}{{toFixed Value 0}} live{{else}}-- live{{/with}}</span></span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Model<span class=\"exp\">Whether the model is sizing trades or standing aside</span></span><span class=\"val\">{{#if data.[4].[0]}}{{#if (eq data.[4].[0].Value 2)}}watching{{else}}{{#if data.[5].[0].Value}}driving{{else}}standing by{{/if}}{{/if}}{{else}}--{{/if}}</span></div>\n</div>\n<div class=\"pulse-foot\">Live &middot; refreshes with the bot's telemetry</div>\n</div>",
+        "defaultContent": "<div class=\"pulse-wrap\"><div class=\"pulse-foot\">waiting for telemetry&hellip;</div></div>",
+        "editors": [
+          "styles"
+        ],
+        "helpers": "",
+        "afterRender": "",
+        "styles": ".pulse-wrap{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif;color:#F5F5F7;max-width:26rem;margin:0 auto;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;justify-content:center;padding:1.8rem 1.25rem 1.2rem;text-align:center;-webkit-font-smoothing:antialiased;}\n.pulse-state{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5em;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.14em;color:#86868B;font-variant-numeric:tabular-nums;margin-bottom:1.6rem;}\n.pulse-state .sep{opacity:.45;}\n.pulse-state.stale{color:#FF9F0A;}\n.pulse-dot{width:7px;height:7px;border-radius:50%;background:#30D158;box-shadow:0 0 0 4px rgba(48,209,88,.16);}\n.pulse-state.stale .pulse-dot{background:#FF9F0A;box-shadow:0 0 0 4px rgba(255,159,10,.16);}\n.pulse-state.idle .pulse-dot{background:#8E8E93;box-shadow:0 0 0 4px rgba(142,142,147,.16);}\n.pulse-hero{font-size:clamp(3.4rem,17vw,5.4rem);font-weight:600;letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums;}\n.pulse-cur{color:#86868B;font-weight:500;font-size:.4em;vertical-align:.42em;margin-right:.05em;}\n.pulse-cents{color:#86868B;font-weight:500;font-size:.42em;}\n.pulse-pnl{margin-top:1.05rem;font-size:1.05rem;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}\n.pulse-pnl .gain{color:#30D158;}\n.pulse-pnl .loss{color:#FF453A;}\n.pulse-pnl .flat{color:#86868B;}\n.pulse-pnl .wk{color:#86868B;margin-left:.7em;}\n.pulse-top{padding-bottom:.4rem;}\n.pulse-bot{padding-top:.4rem;}\n@media (min-width:900px){.pulse-wrap{max-width:32rem;}}\n.pulse-rows{border-top:1px solid rgba(242,242,244,.13);text-align:left;}\n.pulse-row{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:.9rem .15rem;border-bottom:1px solid rgba(242,242,244,.13);}\n.pulse-row:last-child{border-bottom:0;}\n.pulse-row .lab{font-size:15px;font-weight:500;color:#F5F5F7;}\n.pulse-row .exp{display:block;font-size:15px;font-weight:400;color:#86868B;margin-top:.18rem;}\n.pulse-row .val{font-size:17px;font-variant-numeric:tabular-nums;color:#F5F5F7;white-space:nowrap;text-align:right;}\n.pulse-row .val .sub{display:block;font-size:11px;font-weight:500;color:#86868B;text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem;}\n.pulse-foot{margin-top:1.4rem;font-size:11px;color:#6E6E73;text-transform:uppercase;letter-spacing:.1em;}",
+        "wrap": false,
+        "externalStyles": [],
+        "contentPartials": []
+      },
+      "targets": [
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-060\"})",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-047\"})",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "I",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(liquiditybot_ml_labels{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "J",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_labels{job=\"liquiditybot\",source=\"live\"})",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "K",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_monitor_level{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "L",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_use_model{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "pluginVersion": "6.3.0",
+      "transparent": true
+    },
+    {
+      "id": 4,
       "type": "row",
       "title": "🫀 VITALS — alive & armed",
       "collapsed": false,
@@ -333,12 +398,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 22
       },
       "panels": []
     },
     {
-      "id": 3,
+      "id": 5,
       "type": "stat",
       "title": "Bot",
       "description": "runner RUNNING.",
@@ -350,7 +415,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -418,7 +483,7 @@
       "transparent": true
     },
     {
-      "id": 4,
+      "id": 6,
       "type": "stat",
       "title": "Halted",
       "description": "Global halt.",
@@ -430,7 +495,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -498,7 +563,7 @@
       "transparent": true
     },
     {
-      "id": 5,
+      "id": 7,
       "type": "stat",
       "title": "Entries",
       "description": "New-risk entries enabled (exits always allowed).",
@@ -510,7 +575,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -578,7 +643,7 @@
       "transparent": true
     },
     {
-      "id": 6,
+      "id": 8,
       "type": "stat",
       "title": "Kraken WS",
       "description": "Push book vs REST fallback.",
@@ -590,7 +655,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -658,7 +723,7 @@
       "transparent": true
     },
     {
-      "id": 7,
+      "id": 9,
       "type": "stat",
       "title": "Telemetry age",
       "description": "Seconds since last status write.",
@@ -670,7 +735,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -729,7 +794,7 @@
       "transparent": true
     },
     {
-      "id": 8,
+      "id": 10,
       "type": "stat",
       "title": "Governor",
       "description": "0 OK / 1 degraded / 2 killed.",
@@ -741,7 +806,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 21
+        "y": 23
       },
       "fieldConfig": {
         "defaults": {
@@ -814,7 +879,7 @@
       "transparent": true
     },
     {
-      "id": 9,
+      "id": 11,
       "type": "stat",
       "title": "Feed latency",
       "description": "Kraken public-GET RTT EWMA.",
@@ -826,7 +891,7 @@
         "h": 3,
         "w": 12,
         "x": 0,
-        "y": 25
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -885,7 +950,7 @@
       "transparent": true
     },
     {
-      "id": 10,
+      "id": 12,
       "type": "stat",
       "title": "Cycle",
       "description": "Fast-cycle counter (advancing = alive).",
@@ -897,7 +962,7 @@
         "h": 3,
         "w": 12,
         "x": 12,
-        "y": 25
+        "y": 27
       },
       "fieldConfig": {
         "defaults": {
@@ -948,7 +1013,7 @@
       "transparent": true
     },
     {
-      "id": 11,
+      "id": 13,
       "type": "row",
       "title": "💹 MONEY — equity & P&L",
       "collapsed": false,
@@ -956,12 +1021,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 28
+        "y": 30
       },
       "panels": []
     },
     {
-      "id": 12,
+      "id": 14,
       "type": "timeseries",
       "title": "Equity curve",
       "description": "Account equity over time — exact dollars (no K-rounding); the legend table shows last/min/max to the cent.",
@@ -973,7 +1038,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1047,7 +1112,7 @@
       "transparent": true
     },
     {
-      "id": 13,
+      "id": 15,
       "type": "stat",
       "title": "P&L today",
       "description": "Realized P&L since UTC midnight.",
@@ -1059,7 +1124,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 29
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1114,7 +1179,7 @@
       "transparent": true
     },
     {
-      "id": 14,
+      "id": 16,
       "type": "stat",
       "title": "Open uPnL",
       "description": "Unrealized across open positions.",
@@ -1126,7 +1191,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 29
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1181,7 +1246,7 @@
       "transparent": true
     },
     {
-      "id": 15,
+      "id": 17,
       "type": "stat",
       "title": "Equity",
       "description": "Account equity (cash + open uPnL).",
@@ -1193,7 +1258,7 @@
         "h": 5,
         "w": 5,
         "x": 0,
-        "y": 37
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1244,7 +1309,7 @@
       "transparent": true
     },
     {
-      "id": 16,
+      "id": 18,
       "type": "gauge",
       "title": "Drawdown",
       "description": "Peak-to-now; 15% is the hard stop.",
@@ -1256,7 +1321,7 @@
         "h": 5,
         "w": 5,
         "x": 5,
-        "y": 37
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1310,7 +1375,7 @@
       "transparent": true
     },
     {
-      "id": 17,
+      "id": 19,
       "type": "gauge",
       "title": "Win rate",
       "description": "Rolling closed-trade win rate.",
@@ -1322,7 +1387,7 @@
         "h": 5,
         "w": 5,
         "x": 10,
-        "y": 37
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1376,7 +1441,7 @@
       "transparent": true
     },
     {
-      "id": 18,
+      "id": 20,
       "type": "stat",
       "title": "Profit factor",
       "description": "Gross profit / gross loss.",
@@ -1388,7 +1453,7 @@
         "h": 5,
         "w": 5,
         "x": 15,
-        "y": 37
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1447,7 +1512,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 21,
       "type": "stat",
       "title": "Expectancy R",
       "description": "Avg trade in R-multiples.",
@@ -1459,7 +1524,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 37
+        "y": 39
       },
       "fieldConfig": {
         "defaults": {
@@ -1514,7 +1579,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 22,
       "type": "row",
       "title": "🏦 PROFIT POOLS — weekly rollover",
       "collapsed": false,
@@ -1522,12 +1587,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 44
       },
       "panels": []
     },
     {
-      "id": 21,
+      "id": 23,
       "type": "stat",
       "title": "P&L this week",
       "description": "Realized P&L since the ISO-week open (Mon 00:00 UTC). Resets at the weekly close-out (RP-070); a losing week is refilled from Reserve before the working baseline shrinks.",
@@ -1539,7 +1604,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 43
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1594,7 +1659,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 24,
       "type": "stat",
       "title": "Savings pool",
       "description": "20% of every realized win, locked away - never traded, never refilled from, only ever grows.",
@@ -1606,7 +1671,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 43
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1657,7 +1722,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 25,
       "type": "stat",
       "title": "Reserve pool",
       "description": "10% of every realized win - the drawdown shock absorber. At each weekly close a losing week's realized loss refills trading cash from here (reserve only ever moves INTO cash).",
@@ -1669,7 +1734,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 43
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1720,7 +1785,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 26,
       "type": "stat",
       "title": "Reinvested (cash)",
       "description": "Working trading capital: equity minus the two locked pools - the 70% share that compounds position sizing.",
@@ -1732,7 +1797,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 43
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1783,7 +1848,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 27,
       "type": "timeseries",
       "title": "Pools over time",
       "description": "Savings + reserve accrual and the week's running realized P&L - the rollover ritual made visible.",
@@ -1795,7 +1860,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 48
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -1920,7 +1985,7 @@
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 28,
       "type": "row",
       "title": "🧠 LEARNING BRAIN",
       "collapsed": false,
@@ -1928,12 +1993,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 57
       },
       "panels": []
     },
     {
-      "id": 27,
+      "id": 29,
       "type": "timeseries",
       "title": "Learning rows by label (live vs candidate)",
       "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time — the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved.",
@@ -1945,7 +2010,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 56
+        "y": 58
       },
       "fieldConfig": {
         "defaults": {
@@ -2029,7 +2094,7 @@
       "transparent": true
     },
     {
-      "id": 28,
+      "id": 30,
       "type": "timeseries",
       "title": "Brier — live vs champion vs baseline (lower = better)",
       "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline the model must undercut.",
@@ -2041,7 +2106,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 56
+        "y": 58
       },
       "fieldConfig": {
         "defaults": {
@@ -2165,7 +2230,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 31,
       "type": "stat",
       "title": "Live labels",
       "description": "Ground-truth closed-trade labels — earns model complexity.",
@@ -2177,7 +2242,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2236,7 +2301,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 32,
       "type": "stat",
       "title": "Candidate labels",
       "description": "Triple-barrier proxy labels.",
@@ -2248,7 +2313,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2299,7 +2364,7 @@
       "transparent": true
     },
     {
-      "id": 31,
+      "id": 33,
       "type": "stat",
       "title": "Model",
       "description": "Deployed rung on the simplicity ladder.",
@@ -2311,7 +2376,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2363,7 +2428,7 @@
       "transparent": true
     },
     {
-      "id": 32,
+      "id": 34,
       "type": "stat",
       "title": "Model in use",
       "description": "Governor lets the model size trades; NO is a stand-down, not a fault.",
@@ -2375,7 +2440,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2443,7 +2508,7 @@
       "transparent": true
     },
     {
-      "id": 33,
+      "id": 35,
       "type": "stat",
       "title": "Retrain",
       "description": "Auto-retrain queued.",
@@ -2455,7 +2520,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2523,7 +2588,7 @@
       "transparent": true
     },
     {
-      "id": 34,
+      "id": 36,
       "type": "stat",
       "title": "Kelly mult",
       "description": "Governor size throttle.",
@@ -2535,7 +2600,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 63
+        "y": 65
       },
       "fieldConfig": {
         "defaults": {
@@ -2586,7 +2651,7 @@
       "transparent": true
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "stat",
       "title": "Calibration gap",
       "description": "ECE; Kelly reads probs literally.",
@@ -2598,7 +2663,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2658,7 +2723,7 @@
       "transparent": true
     },
     {
-      "id": 36,
+      "id": 38,
       "type": "gauge",
       "title": "Drift share",
       "description": "Fraction of features past the PSI threshold.",
@@ -2670,7 +2735,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2724,7 +2789,7 @@
       "transparent": true
     },
     {
-      "id": 37,
+      "id": 39,
       "type": "stat",
       "title": "Win rate LCB",
       "description": "Wilson lower bound.",
@@ -2736,7 +2801,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2787,7 +2852,7 @@
       "transparent": true
     },
     {
-      "id": 38,
+      "id": 40,
       "type": "stat",
       "title": "Clean live labels",
       "description": "Live rows surviving the hygiene pass — the count the evidence gate actually admits model complexity on.",
@@ -2799,7 +2864,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2858,7 +2923,7 @@
       "transparent": true
     },
     {
-      "id": 39,
+      "id": 41,
       "type": "stat",
       "title": "Label uniqueness",
       "description": "Mean average-uniqueness (AFML ch.4): 1 = every label an independent fact; near 0 = heavily overlapping horizons (weights redistribute so overlap can't double-count).",
@@ -2870,7 +2935,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2929,7 +2994,7 @@
       "transparent": true
     },
     {
-      "id": 40,
+      "id": 42,
       "type": "stat",
       "title": "Batch prior skew",
       "description": "ML-074: trailing-window label prior vs corpus prior — SKEWED = a one-sided batch (e.g. all-zero quiet weekend) is moving calibration; detection only, weights untouched.",
@@ -2941,7 +3006,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 67
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -3010,7 +3075,7 @@
       "transparent": true
     },
     {
-      "id": 41,
+      "id": 43,
       "type": "row",
       "title": "⚖️ EDGE — per-asset performance",
       "collapsed": false,
@@ -3018,12 +3083,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 71
+        "y": 73
       },
       "panels": []
     },
     {
-      "id": 42,
+      "id": 44,
       "type": "bargauge",
       "title": "Net $ by asset",
       "description": "Realized net per asset — where P&L actually comes from.",
@@ -3035,7 +3100,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 72
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3093,7 +3158,7 @@
       "transparent": true
     },
     {
-      "id": 43,
+      "id": 45,
       "type": "bargauge",
       "title": "Signal concentration",
       "description": "0 diffuse average .. 1 pinpointed setup.",
@@ -3105,7 +3170,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 72
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3167,7 +3232,7 @@
       "transparent": true
     },
     {
-      "id": 44,
+      "id": 46,
       "type": "bargauge",
       "title": "Confidence",
       "description": "Model conviction per asset.",
@@ -3179,7 +3244,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 72
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3241,7 +3306,7 @@
       "transparent": true
     },
     {
-      "id": 45,
+      "id": 47,
       "type": "table",
       "title": "Asset scorecard",
       "description": "One row per asset; color-coded so a green row (positive net, high concentration, low manip, tight spread) reads instantly. Absent cells (·) mean the asset hasn't traded yet — not a fault.",
@@ -3253,7 +3318,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 80
+        "y": 82
       },
       "fieldConfig": {
         "defaults": {
@@ -3829,7 +3894,7 @@
       "transparent": true
     },
     {
-      "id": 46,
+      "id": 48,
       "type": "row",
       "title": "🏛️ THALES — footprint & manipulation defense",
       "collapsed": false,
@@ -3837,19 +3902,19 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 88
+        "y": 90
       },
       "panels": []
     },
     {
-      "id": 47,
+      "id": 49,
       "type": "text",
       "title": "What THALES is",
       "gridPos": {
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 89
+        "y": 91
       },
       "transparent": true,
       "options": {
@@ -3863,7 +3928,7 @@
       }
     },
     {
-      "id": 48,
+      "id": 50,
       "type": "table",
       "title": "THALES detector scorecard (higher = more suspicious)",
       "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
@@ -3875,7 +3940,7 @@
         "h": 9,
         "w": 16,
         "x": 8,
-        "y": 89
+        "y": 91
       },
       "fieldConfig": {
         "defaults": {
@@ -4558,7 +4623,7 @@
       "transparent": true
     },
     {
-      "id": 49,
+      "id": 51,
       "type": "bargauge",
       "title": "Spoof-flicker pressure (bid)",
       "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
@@ -4570,7 +4635,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 98
+        "y": 100
       },
       "fieldConfig": {
         "defaults": {
@@ -4632,7 +4697,7 @@
       "transparent": true
     },
     {
-      "id": 50,
+      "id": 52,
       "type": "bargauge",
       "title": "Stop-hunt zone proximity",
       "description": "Proximity to round-number stop clusters per asset.",
@@ -4644,7 +4709,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 98
+        "y": 100
       },
       "fieldConfig": {
         "defaults": {
@@ -4706,7 +4771,7 @@
       "transparent": true
     },
     {
-      "id": 51,
+      "id": 53,
       "type": "bargauge",
       "title": "Manipulation suspicion",
       "description": "Parameter-free max of the manipulation footprints per asset.",
@@ -4718,7 +4783,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 98
+        "y": 100
       },
       "fieldConfig": {
         "defaults": {
@@ -4780,7 +4845,7 @@
       "transparent": true
     },
     {
-      "id": 52,
+      "id": 54,
       "type": "row",
       "title": "🛡️ POSITIONS & RISK",
       "collapsed": false,
@@ -4788,12 +4853,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 104
+        "y": 106
       },
       "panels": []
     },
     {
-      "id": 53,
+      "id": 55,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -4805,7 +4870,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 105
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -5195,7 +5260,7 @@
       "transparent": true
     },
     {
-      "id": 54,
+      "id": 56,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -5207,7 +5272,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 105
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -5266,7 +5331,7 @@
       "transparent": true
     },
     {
-      "id": 55,
+      "id": 57,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -5278,7 +5343,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 105
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -5329,7 +5394,7 @@
       "transparent": true
     },
     {
-      "id": 56,
+      "id": 58,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -5341,7 +5406,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 105
+        "y": 107
       },
       "fieldConfig": {
         "defaults": {
@@ -5392,7 +5457,7 @@
       "transparent": true
     },
     {
-      "id": 57,
+      "id": 59,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -5404,7 +5469,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 110
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -5521,7 +5586,7 @@
       "transparent": true
     },
     {
-      "id": 58,
+      "id": 60,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -5533,7 +5598,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 110
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -5657,7 +5722,7 @@
       "transparent": true
     },
     {
-      "id": 59,
+      "id": 61,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -5669,7 +5734,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 110
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -5723,7 +5788,7 @@
       "transparent": true
     },
     {
-      "id": 60,
+      "id": 62,
       "type": "stat",
       "title": "Positions open",
       "description": "Open count (max 5).",
@@ -5735,7 +5800,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 110
+        "y": 112
       },
       "fieldConfig": {
         "defaults": {
@@ -5794,7 +5859,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 116
+        "y": 118
       },
       "transparent": true,
       "options": {
