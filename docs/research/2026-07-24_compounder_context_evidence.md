@@ -512,3 +512,16 @@ halving paper and the IREF 2023 expiry paper (papers verified, author
 lists not); Hamrick et al. / Xu & Livshits pump-and-dump papers (not
 searched — Dhawan & Putniņš carries the section alone); any published
 version of Bhambhwani et al. beyond SSRN.
+
+## Addendum (2026-07-24, operator-supplied): CoinPaprika as keyless vendor
+
+Operator surfaced CoinPaprika's hosted MCP server (mcp.coinpaprika.com).
+Adjudication: MCP is an AI-client protocol — the bot's runtime consumes
+plain REST, so the relevant object is CoinPaprika's free keyless REST
+API (api.coinpaprika.com: /v1/global for market cap + BTC dominance,
+/v1/tickers for prices/volumes). Fits the keyless rule at hourly
+context cadence. Role: REDUNDANT second source behind webdata_feed's
+fear-greed/dominance so context degrades to `unknown` less often —
+grades and adoptions above are unchanged. Does NOT unlock deferred
+MVRV (no realized-cap data); DefiLlama remains the stablecoin-supply
+source. Read-only context only; no execution surface.
