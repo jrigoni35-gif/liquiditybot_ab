@@ -418,3 +418,132 @@ def test_flow_known_on_second_poll_with_fresh_prev(tmp_path):
     s2 = feed.maybe_poll(_QUIET_NOW + 3600.0)
     assert s2.cot_z is not None
     assert s2.flow_known is True
+
+
+# ---- config-key translation: pins __init__'s dff_scale/cot_scale ----------
+# ---- -> dff_delta_scale/cot_delta_scale rewrite ---------------------------
+
+def test_config_key_translation_reaches_stress_and_flow_dials(tmp_path):
+    """`stress_dial`/`flow_dials` read `dff_delta_scale`/`cot_delta_scale`
+    (their real parameter names); the shipped config block spells them
+    `dff_scale`/`cot_scale`. `ContextFeed.__init__` translates one onto
+    the other. Both fallback defaults on the dial side are 0.5 and
+    5000.0 respectively - if this test used those same numbers as its
+    "override", a DELETED translation would silently fall back to an
+    identical value and the test would pass either way. So this test
+    overrides both to HALF the dial functions' fallback default and
+    checks the resulting stress/cot_z against that overridden anchor,
+    not the untranslated fallback. If the translation block in
+    `__init__` is ever deleted, both assertions below fail (verified by
+    hand: commenting out the two `if "dff_scale"/"cot_scale"` blocks and
+    re-running this test flips stress to ~0.5333 and cot_z to 0.5,
+    failing both `pytest.approx` checks - see task-B3-report.md)."""
+    overridden_stress = {
+        # HALF of stress_dial's internal dff_delta_scale fallback (0.5);
+        # spelled the way config.json ships it, not the dial's own name.
+        "dff_center": 0.0, "dff_scale": 0.25,
+        # left at the dial's own defaults - these two are NOT translated
+        # (the config spelling already matches the dial's parameter
+        # name), so they are not part of what this test is pinning.
+        "t10y2y_center": 0.0, "t10y2y_scale": 0.5,
+        "vix_center": 20.0, "vix_scale": 10.0,
+        "clip": 2.0,
+    }
+    overridden_flow = {
+        # HALF of flow_dials' internal cot_delta_scale fallback (5000.0);
+        # spelled the way config.json ships it, not the dial's own name.
+        "cot_scale": 2500.0, "clip": 2.0,
+    }
+
+    fetch = _FetchStub(_responses(dff=0.25, t10y2y=-0.3, vix=25.0,
+                                  cot_long=1000.0, cot_short=1000.0,
+                                  stable_total=1.0e11))
+    feed = ContextFeed(_cfg(stress=overridden_stress, flow=overridden_flow),
+                       fetch=fetch,
+                       history_path=str(tmp_path / "context_history.jsonl"),
+                       calendar_path=_calendar_file(tmp_path))
+    feed.maybe_poll(_QUIET_NOW)   # first poll: net = 1000-1000 = 0, seeds prev
+
+    # second poll: cot net becomes 3500-1000 = 2500 -> delta vs prev(0) = 2500
+    fetch.responses[_URLS["cot_finfut"]] = _cot_row(3500.0, 1000.0)
+    s2 = feed.maybe_poll(_QUIET_NOW + 3600.0)
+
+    # stress: dff_term uses the OVERRIDDEN dff_delta_scale=0.25 (translated
+    # from config's dff_scale), NOT the dial's own fallback of 0.5:
+    #   dff_term   = (dff - dff_delta_center) / dff_delta_scale
+    #              = (0.25 - 0.0) / 0.25                       = 1.0
+    #   curve_term = (-t10y2y - t10y2y_center) / t10y2y_scale
+    #              = (-(-0.3) - 0.0) / 0.5                     = 0.6
+    #   vix_term   = (vix - vix_center) / vix_scale
+    #              = (25.0 - 20.0) / 10.0                      = 0.5
+    #   stress     = (dff_term + curve_term + vix_term) / 3.0
+    #              = (1.0 + 0.6 + 0.5) / 3.0                   = 0.7
+    # If the translation were deleted, dff_delta_scale would fall back to
+    # the dial's default 0.5: dff_term = 0.25/0.5 = 0.5, giving
+    # stress = (0.5 + 0.6 + 0.5) / 3.0 = 0.53333... instead.
+    assert s2.stress == pytest.approx(0.7)
+
+    # cot_z: uses the OVERRIDDEN cot_delta_scale=2500.0 (translated from
+    # config's cot_scale), NOT the dial's own fallback of 5000.0:
+    #   net_prev = 1000.0 - 1000.0                             = 0.0
+    #   net_now  = 3500.0 - 1000.0                              = 2500.0
+    #   delta    = net_now - net_prev = 2500.0 - 0.0             = 2500.0
+    #   cot_z    = delta / cot_delta_scale = 2500.0 / 2500.0     = 1.0
+    # If the translation were deleted, cot_delta_scale would fall back to
+    # the dial's default 5000.0: cot_z = 2500.0 / 5000.0 = 0.5 instead.
+    assert s2.cot_z == pytest.approx(1.0)
+
+
+# ---- real PIT round-trip: writer's schema feeds the reader's warm-start ---
+
+def test_real_pit_round_trip_warm_start_from_actual_writer(tmp_path):
+    """Feed A performs a REAL poll and its REAL `_append_pit` writer emits
+    the PIT line (never a hand-constructed JSON fixture). Feed B is a
+    fresh `ContextFeed` on the SAME history path, so its REAL
+    `_warm_start` reader is what seeds `_prev_cot_net`/
+    `_prev_stable_total` for feed B's own first poll. The assertions
+    below are computed as feed-B-vs-feed-A deltas, which can only match
+    if the value the writer put under `raw["cot_net"]`/
+    `raw["stable_total"]` is the SAME key the reader pulls out of
+    `raw.get("cot_net")`/`raw.get("stable_total")` - if either key drifts
+    between writer and reader this test fails."""
+    hpath = tmp_path / "context_history.jsonl"
+    calendar_path = _calendar_file(tmp_path)
+
+    # feed A: one real poll, writes one real PIT line via _append_pit
+    cot_long_a, cot_short_a, stable_a = 4015.0, 11506.0, 1.0e11
+    fetch_a = _FetchStub(_responses(cot_long=cot_long_a, cot_short=cot_short_a,
+                                    stable_total=stable_a))
+    feed_a = ContextFeed(_cfg(), fetch=fetch_a, history_path=str(hpath),
+                        calendar_path=calendar_path)
+    feed_a.maybe_poll(_QUIET_NOW)
+
+    lines = hpath.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1              # the real writer actually ran
+
+    # feed B: a FRESH ContextFeed on the SAME path -> its real _warm_start
+    # reads feed A's real PIT line (never a value we construct by hand)
+    cot_long_b, cot_short_b, stable_b = 5000.0, 9000.0, 1.03e11
+    fetch_b = _FetchStub(_responses(cot_long=cot_long_b, cot_short=cot_short_b,
+                                    stable_total=stable_b))
+    feed_b = ContextFeed(_cfg(), fetch=fetch_b, history_path=str(hpath),
+                        calendar_path=calendar_path)
+    s_b = feed_b.maybe_poll(_QUIET_NOW + 3600.0)   # feed B's FIRST poll
+
+    # cot_z: feed B's delta against feed A's net, through the default
+    # (untranslated-override) cot_delta_scale=5000.0, clip=2.0:
+    #   net_a = 4015.0 - 11506.0                              = -7491.0
+    #   net_b = 5000.0 - 9000.0                                = -4000.0
+    #   delta = net_b - net_a = -4000.0 - (-7491.0)             = 3491.0
+    #   cot_z = delta / 5000.0 = 3491.0 / 5000.0                = 0.6982
+    net_a = cot_long_a - cot_short_a
+    net_b = cot_long_b - cot_short_b
+    expected_cot_z = (net_b - net_a) / 5000.0
+    assert s_b.cot_z == pytest.approx(expected_cot_z)
+
+    # stable_wk_pct: feed B's delta against feed A's stable total:
+    #   stable_a = 1.0e11, stable_b = 1.03e11
+    #   pct = 100 * (stable_b - stable_a) / stable_a
+    #       = 100 * (1.03e11 - 1.0e11) / 1.0e11               = 3.0
+    expected_stable_pct = 100.0 * (stable_b - stable_a) / stable_a
+    assert s_b.stable_wk_pct == pytest.approx(expected_stable_pct)

@@ -496,6 +496,9 @@ class ContextFeed:
                                         stress_raw["dff_scale"])
 
         flow_raw = cfg.get("flow", {}) or {}
+        # `flow.stable_scale_pct` is currently UNCONSUMED by flow_dials
+        # (stable_wk_pct is raw percent) - reserved, do not tune expecting
+        # effect.
         self._flow_cfg = dict(flow_raw)
         if "cot_scale" in flow_raw:
             self._flow_cfg.setdefault("cot_delta_scale", flow_raw["cot_scale"])
