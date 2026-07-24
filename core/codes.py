@@ -23,6 +23,7 @@ Prefix map (subsystem of origin):
   GL  execution.grid_ladder (logistic-armed grid entry ladder)
   HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
   CV  risk.conviction (Compounder Phase A conviction formula)
+  CX  data.context_engine (Compounder Phase B context feed)
 """
 
 from enum import Enum
@@ -276,6 +277,21 @@ class Code(str, Enum):
                                      # the formula has gone vacuous (always-on)
     CV_CADENCE_LOW = "CV-051"        # governor: admit share below share_lo -
                                      # the formula is starving conviction flow
+
+    # ---- context engine (CX) — data.context_engine (Compounder Phase B) --
+    CX_POLL_OK = "CX-000"            # scheduled poll completed: context
+                                     # snapshot refreshed (telemetry only -
+                                     # no gate on this codebase reads it yet)
+    CX_SOURCE_DARK = "CX-010"        # a context source went dark past its
+                                     # grace window: component degrades to
+                                     # known=False, a STATE, never a stale
+                                     # value presented as fresh
+    CX_STATE_CHANGE = "CX-020"       # a bucketed/discrete context state
+                                     # (halving phase, event-window flag)
+                                     # flipped since the last poll
+    # CX-030 reserved for the Phase C long-book context add-block
+    # disposition (context unknown blocks a NEW long-book add) - not
+    # emitted by this phase; telemetry-only per Phase B's contract.
 
 
 def tag(code: Code, detail: str) -> str:
