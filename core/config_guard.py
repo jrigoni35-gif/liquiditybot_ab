@@ -229,6 +229,33 @@ def _long_book_checks(config: dict) -> list:
                     "within tolerance of the same magnet it just moved "
                     "away from"))
 
+    # --- price-collar coherence (task C4 discovery, engine integration):
+    # the add's bid rests add_offset_pct below mark, and a TH-013 magnet
+    # shift (task C3's shift_off_magnets) can push it up to a further
+    # zone_buffer_pct + zone_tol_pct beyond that (the shift never moves
+    # TOWARD price) - if that worst-case total deviation from mark
+    # reaches the SHARED risk_firewall's entry_collar_bps, EVERY
+    # long-book add is unconditionally FW-050 price-collar rejected
+    # (execution/risk_firewall.py's collar screen runs before purpose/
+    # post_only is even consulted - there is no maker exemption). This
+    # is a dead-on-arrival feature, not a mere risk tradeoff: caught live
+    # wiring task C4's engine integration, where the shipped task-C2
+    # add_offset_pct=1.5% (150bps) exceeded the shipped
+    # risk_firewall.entry_collar_bps=100bps on every single add.
+    fw_collar_bps = float(_f(config, "risk_firewall.entry_collar_bps", 100.0))
+    worst_dev_bps = (float(lb.get("add_offset_pct", 0.0))
+                     + float(lb.get("zone_buffer_pct", 0.0))
+                     + float(lb.get("zone_tol_pct", 0.0))) * 100.0
+    if worst_dev_bps >= fw_collar_bps:
+        out.append(("FATAL",
+                    f"long_book add_offset_pct ({lb.get('add_offset_pct')}%)"
+                    f" + zone_buffer_pct ({lb.get('zone_buffer_pct')}%) + "
+                    f"zone_tol_pct ({lb.get('zone_tol_pct')}%) worst-case "
+                    f"deviation ({worst_dev_bps:.0f}bps) >= risk_firewall."
+                    f"entry_collar_bps ({fw_collar_bps:.0f}bps) - every "
+                    f"long-book add would be unconditionally price-collar "
+                    f"rejected (FW-050)"))
+
     # --- evidence ladder: ceilings strictly increasing and each <= the
     # SHARED risk_protocols.heat.max_portfolio_heat_frac (cross-block
     # read, same pattern as _conviction_checks' pretrade cross-read) -

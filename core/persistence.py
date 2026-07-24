@@ -182,6 +182,30 @@ def _restore_probe_admissions_section(bot, data: dict) -> None:
         log.warning("probe_admissions section malformed - skipped")
 
 
+def _restore_long_book_section(bot, data: dict) -> None:
+    """Compounder Phase C (task C4): the shared EvidenceLadder (follows
+    RiskProtocolStack's own to_dict/from_dict pattern - malformed input
+    degrades to keeping whatever state already exists, never raises) and
+    the long book's per-asset last-add-ts spacing clock. Isolated so a
+    malformed section can't skip anything else in restore() - same
+    ISOLATION principle as _restore_fault_section/_restore_markout_section
+    above, keeping restore()'s own branch count from growing toward
+    pyproject.toml's frozen C901 ceiling."""
+    try:
+        if getattr(bot, "long_ladder", None) is not None:
+            bot.long_ladder.from_dict(data.get("long_book_ladder"))
+    except Exception:
+        log.exception("long_book_ladder section malformed - skipped")
+    try:
+        if hasattr(bot, "_long_last_add_ts"):
+            ts = data.get("long_book_last_add_ts") or {}
+            if isinstance(ts, dict):
+                bot._long_last_add_ts.update(
+                    {str(k): float(v) for k, v in ts.items()})
+    except (TypeError, ValueError, AttributeError):
+        log.warning("long_book_last_add_ts section malformed - skipped")
+
+
 def order_from_dict(d: dict):
     from execution.order_manager import ManagedOrder
     o = ManagedOrder(
@@ -274,7 +298,13 @@ class StateStore:
                           # signal was registered as (6th slot; older
                           # tuples lack it) - the twin-dedup join key
                           "candidate_id": (e[5] if len(e) > 5 and e[5]
-                                           else None)}
+                                           else None),
+                          # Compounder Phase C (task C4, C1's carried gap):
+                          # which book this pending vector belongs to (7th
+                          # slot; older tuples lack it) - "5m" default
+                          # threads through restore() the same way every
+                          # other pre-C tuple shape does.
+                          "book": e[6] if len(e) > 6 else "5m"}
                     for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
@@ -346,6 +376,18 @@ class StateStore:
                 # production. Plain bool list, same shape as stop_hit.
                 "probe_admissions": [bool(x) for x in
                                     getattr(bot, "_probe_admissions", [])],
+                # Compounder Phase C (task C4): the shared EvidenceLadder
+                # (closed_paper/closed_live/pf_live/downgrade markers -
+                # risk/long_book.py's own to_dict/from_dict) and the long
+                # book's per-asset add-spacing clock. Same pattern as
+                # risk_protocols above - the parsed ladder config is
+                # NOT included, only mutable state; the caller re-supplies
+                # config at construction every boot.
+                "long_book_ladder": (bot.long_ladder.to_dict()
+                                    if getattr(bot, "long_ladder", None)
+                                    is not None else {}),
+                "long_book_last_add_ts": dict(
+                    getattr(bot, "_long_last_add_ts", {})),
             }
             return self._seal_and_write(data)
         except Exception:
@@ -553,7 +595,13 @@ class StateStore:
                         float(h["signal_ts"]) if h.get("signal_ts")
                         else time.time(),
                         bool(h.get("probe", False)),
-                        h.get("candidate_id") or "")
+                        h.get("candidate_id") or "",
+                        # Compounder Phase C (task C4, C1's carried gap):
+                        # pre-C snapshots lack this key -> "5m" default,
+                        # same convention as position_from_dict's own book
+                        # default (never silently reclassify onto the
+                        # long book on restore).
+                        h.get("book") or "5m")
         except Exception:
             log.exception("history section malformed - skipped")
 
@@ -654,6 +702,7 @@ class StateStore:
                 bot.risk_protocols.from_dict(rp)
         except Exception:
             log.exception("risk_protocols section malformed - skipped")
+        _restore_long_book_section(bot, data)
 
         age_min = (time.time() - data.get("saved_at", 0)) / 60.0
         log.info(f"resumed from snapshot ({age_min:.1f} min old): "

@@ -17,7 +17,14 @@ def _cfg(**lb):
             "assets": ["BTC", "ETH"],
             "add_usd_frac_of_ceiling": 0.2,
             "add_min_spacing_hours": 24.0,
-            "add_offset_pct": 1.5,
+            # 0.5, not the task-C2-shipped 1.5: task C4's engine
+            # integration discovered live that 1.5% (150bps) + the TH-013
+            # zone-shift margin exceeded the default risk_firewall.
+            # entry_collar_bps (100bps), so every long-book add was
+            # unconditionally FW-050 price-collar rejected - config.json
+            # was re-derived to 0.5% and this module's own price-collar
+            # coherence FATAL (added the same task) pins it going forward.
+            "add_offset_pct": 0.5,
             "zone_tol_pct": 0.15,      # matches the shipped default
             "zone_buffer_pct": 0.2,    # matches the shipped default
             "thesis_stop_pct": 12.0,   # matches the shipped default
@@ -117,6 +124,52 @@ def test_zone_buffer_pct_at_or_below_tol_pct_fatal():
 
 def test_zone_buffer_pct_above_tol_pct_clean():
     assert _fatals(_cfg(zone_tol_pct=0.15, zone_buffer_pct=0.20)) == []
+
+
+# ---------------------------------------------------------------------------
+# price-collar coherence (task C4 discovery): add_offset_pct + the TH-013
+# zone-shift margin must stay under the shared risk_firewall's
+# entry_collar_bps, or every long-book add is unconditionally FW-050
+# price-collar rejected (execution/risk_firewall.py's collar screen runs
+# before purpose/post_only is even consulted - no maker exemption).
+# ---------------------------------------------------------------------------
+
+def _cfg_with_firewall(entry_collar_bps, **lb):
+    cfg = _cfg(**lb)
+    cfg["risk_firewall"] = {"entry_collar_bps": entry_collar_bps}
+    return cfg
+
+
+def test_shipped_default_clears_default_collar():
+    # 0.5 + 0.2 + 0.15 = 0.85% = 85bps < the default 100bps collar
+    assert _fatals(_cfg()) == []
+
+
+def test_stale_c2_offset_would_have_been_fatal_against_default_collar():
+    # the EXACT task-C2-shipped value this task's discovery replaced:
+    # 1.5 + 0.2 + 0.15 = 1.85% = 185bps >= the default 100bps collar
+    assert _fatals(_cfg(add_offset_pct=1.5))
+
+
+def test_worst_case_deviation_at_collar_boundary_fatal():
+    # exactly AT the collar (>=, not >): the firewall's own check is
+    # `dev_bps > collar` (strictly greater rejects), so >= is the correct
+    # FATAL boundary here - a config landing EXACTLY on the line still
+    # means the very next float-rounding cycle can tip into rejection.
+    assert _fatals(_cfg_with_firewall(85.0)) == \
+        _fatals(_cfg_with_firewall(85.0))   # sanity: deterministic
+    assert _fatals(_cfg_with_firewall(85.0))
+
+
+def test_worst_case_deviation_under_collar_clean():
+    assert _fatals(_cfg_with_firewall(86.0)) == []
+
+
+def test_tighter_shared_collar_can_fatal_the_coherent_default():
+    # a live-tuned tighter firewall collar (e.g. 50bps) makes even the
+    # NEW coherent 0.5% offset unsafe - the guard reads the SHARED block,
+    # never a stale duplicate of the firewall's own bound.
+    assert _fatals(_cfg_with_firewall(50.0))
 
 
 def test_zone_hygiene_shipped_defaults_clean():

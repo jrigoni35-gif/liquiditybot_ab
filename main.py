@@ -34,6 +34,7 @@ import math
 import os
 import random
 import time
+import types
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -73,8 +74,11 @@ from execution.routing import SmartOrderRouter
 from risk.leverage import LeverageGovernor
 from risk.position_sizer import PositionSizer
 from risk.protocols import RiskProtocolStack
+from risk.long_book import (EvidenceLadder, LongBookEngine, AddPlan,
+                            DenyReason, thesis_stop_price)
 from regime import (MacroRegimeEngine, VolRegimeEngine,
-                    LiquidityRegimeEngine, CorrelationEngine)
+                    LiquidityRegimeEngine, CorrelationEngine,
+                    MacroRegimeState)
 from execution.fair_value import FairValueEngine
 from execution.market_maker import AvellanedaStoikovQuoter
 from execution.inventory import InventoryManager
@@ -604,6 +608,37 @@ class LiquidityBot:
                                 capital_cfg=config.get(
                                     "capital_management", {}),
                                 protocols=self.risk_protocols)
+        # Compounder Phase C: long-horizon accumulation book engine
+        # integration (task C4; risk/long_book.py's EvidenceLadder/
+        # LongBookEngine are C2/C3). Parameterized instances of the SAME
+        # tier/sizer machinery the 5m book uses above - never a duplicate
+        # stack: the long ProfitTierEngine reads long_book.profit_taking;
+        # the long PositionSizer reads long_book's own position_sizer
+        # sub-block (absent today -> PositionSizer's shipped defaults)
+        # plus the SHARED risk/pretrade/capital_management blocks and the
+        # SAME risk_protocols INSTANCE (combined envelope Global
+        # Constraint: the long book never gets its own risk stack).
+        # EvidenceLadder is ONE shared instance for the whole book - its
+        # ceiling gates total book exposure across every configured asset,
+        # not per-asset (risk/long_book.py's own docstring). LongBookEngine
+        # is a pure namespace ("never itself constructed" per its own
+        # docstring) - only its decide_add staticmethod is ever called
+        # from _long_book_cycle, never instantiated.
+        lb_cfg = config.get("long_book", {}) or {}
+        self.long_tier_engine = ProfitTierEngine(
+            lb_cfg.get("profit_taking", {}))
+        self.long_sizer = PositionSizer(
+            lb_cfg.get("position_sizer", {}),
+            lb_cfg.get("profit_taking", {}),
+            config.get("risk", {}),
+            pretrade_cfg=config.get("pretrade", {}),
+            capital_cfg=config.get("capital_management", {}),
+            protocols=self.risk_protocols)
+        self.long_ladder = EvidenceLadder(lb_cfg.get("ladder", {}))
+        self._long_last_add_ts: dict = {}   # asset -> ts of last successful add
+        self._long_adds_placed = 0          # cumulative successful submits (telemetry)
+        self._long_context_aligned_last: Optional[bool] = None
+        self._long_last_deny: str = ""      # most recent deny detail (telemetry)
         self.meta = MetaModelService(config.get("ml", {}))
         self.history = HistoryStore(config.get("ml", {})
                                     .get("history_path", "outputs/signal_history.csv"))
@@ -1176,6 +1211,23 @@ class LiquidityBot:
             fired = self._pos_thales.pop(pos.position_id, None)
             if fired:
                 self.thales.note_outcome(fired, total_net > 0)
+            # Compounder Phase C (task C4): feed this book-tagged close
+            # into the shared evidence ladder (risk/long_book.py) - the
+            # ONLY place closed_paper/closed_live/pf_live/rung ever move.
+            # dry_run selects the paper vs live evidence track (the SAME
+            # flag the rest of the engine uses for live/paper posture).
+            if pos.book == "long":
+                prev_rung = self.long_ladder.rung()
+                self.long_ladder.note_close(total_net, is_live=not self.dry_run)
+                new_rung = self.long_ladder.rung()
+                if new_rung > prev_rung:
+                    detail = tag(Code.LB_RUNG_UP,
+                                f"{asset}: evidence ladder rung "
+                                f"{prev_rung} -> {new_rung}")
+                    get_audit().log("long_book", Code.LB_RUNG_UP, detail,
+                                    {"asset": asset, "prev_rung": prev_rung,
+                                     "rung": new_rung})
+                    log.warning(detail)
         self.postmortem.on_close(
             pos.position_id, total_net, pos.fees_paid_usd,
             entry_usd=pos.entry_price * pos.original_size,
@@ -1235,8 +1287,19 @@ class LiquidityBot:
                     leverage=order.leverage,
                     book=order.meta.get("book", "5m"),
                 )
-                pos.stop_price = self._stop_price_for(
-                    pos.direction, pos.entry_price, self._asset_of(pos.symbol))
+                if pos.book == "long":
+                    # Compounder Phase C (task C4): a wide, non-trailing
+                    # structural stop off the (then-current) average entry -
+                    # NOT the 5m vol-scaled protective stop (the tier/give-
+                    # back machinery already owns profit protection for
+                    # this book; risk/long_book.py's thesis_stop_price
+                    # docstring). Re-anchored on every averaging fill below.
+                    pos.stop_price = thesis_stop_price(
+                        pos.entry_price, float(self.config.get(
+                            "long_book", {}).get("thesis_stop_pct", 12.0)))
+                else:
+                    pos.stop_price = self._stop_price_for(
+                        pos.direction, pos.entry_price, self._asset_of(pos.symbol))
                 order.position_id = position_id
                 self.state.add_position(pos)
                 fired = order.meta.get("thales_fired")
@@ -1250,6 +1313,9 @@ class LiquidityBot:
                                         candidate_id=order.meta.get(
                                             "candidate_id"),
                                         book=pos.book)
+                if pos.book == "long":
+                    self._register_long_book_thesis(
+                        pos, position_id, event.fill_price, now)
                 log.info(f"OPEN {pos.direction} {pos.size:.6f} {pos.symbol} "
                         f"@ {self._px(pos.symbol, pos.entry_price)} "
                         f"(p={pos.confidence:.2f}, "
@@ -1260,6 +1326,13 @@ class LiquidityBot:
                                    event.fill_price * event.fill_size) / total
                 pos.size = total
                 pos.original_size = max(pos.original_size, total)
+                if pos.book == "long":
+                    # re-anchor the thesis stop off the NEW average entry
+                    # (main.py:~1255's averaging path; Global Constraint:
+                    # long-book adds AVERAGE into the existing position)
+                    pos.stop_price = thesis_stop_price(
+                        pos.entry_price, float(self.config.get(
+                            "long_book", {}).get("thesis_stop_pct", 12.0)))
             # empirical adverse-selection: record every NEW-risk fill so its
             # post-fill mark move is measured against the trusted mark. Entries
             # are limit orders (OM-011) — the classic maker adverse-selection
@@ -1334,6 +1407,47 @@ class LiquidityBot:
                 self._finalize_position(pos, total_net, now)
                 log.info(f"FLAT {pos.symbol} position {pos.position_id[:8]}: "
                         f"total net ${total_net:+,.2f}")
+
+    def _register_long_book_thesis(self, pos: Position, position_id: str,
+                                   fill_price: float, now: float) -> None:
+        """Postmortem TradeThesis for the long book's FIRST fill on a new
+        accumulation position (task C4 - the financial-analyst accounting
+        requirement). Averaging fills never re-register: register_entry()
+        upserts by position_id, so a second call would silently discard
+        the original thesis's accumulated marks/entry_ts - the caller
+        (_handle_fill) only invokes this from the first-fill branch.
+
+        No meta-model probability exists for this book (a rule-based
+        accumulation engine, not p(win)-driven) - p_win is a neutral 0.5
+        ("no informative belief") used ONLY for this thesis's own
+        expected-return bookkeeping; Position.confidence (the real
+        decision-relevant field) is set separately from order.meta
+        elsewhere. stop_pct/target_pct are the long tier GEOMETRY
+        (thesis_stop_pct config + the long tier engine's own tier-1
+        trigger) - never fitted, never duplicated from the 5m book."""
+        asset = self._asset_of(pos.symbol)
+        thesis_pct = float(self.config.get("long_book", {})
+                           .get("thesis_stop_pct", 12.0))
+        tiers = getattr(self.long_tier_engine, "tiers", None) or []
+        target_pct = float((tiers[0] or {}).get("trigger_pct_gain", 0.0)) \
+            if tiers else 0.0
+        p_win = 0.5
+        ev_pct = p_win * target_pct - (1.0 - p_win) * thesis_pct
+        fv = self.fv.state(asset).fair_value or fill_price
+        self.postmortem.register_entry(TradeThesis(
+            position_id=position_id, asset=asset, symbol=pos.symbol,
+            direction=pos.direction, entry_ts=now, p_win=p_win,
+            expected_ret_pct=ev_pct, expected_cost_bps=0.0,
+            stop_pct=thesis_pct, target_pct=target_pct,
+            entry_regime=self.macro.state(asset).label,
+            entry_liq=self.liq.state(asset).label,
+            narrative_label="", fair_value=fv, quote_price=fill_price,
+            price_decimals=_price_decimals(
+                getattr(self.orders, "pair_meta", {}),
+                self.kraken.kraken_pair(pos.symbol), fill_price),
+            model_p=-1.0, shadow_p=-1.0, model_scored=False,
+            fill_price=fill_price,
+        ))
 
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
                  tier_fired: int = 0, now: Optional[float] = None,
@@ -1919,7 +2033,16 @@ class LiquidityBot:
             self._stop_hit[pos.position_id] = True
             self._submit_exit(pos, 100.0,
                               f"stop {self._px(pos.symbol, pos.stop_price)} hit",
-                              now=now)
+                              now=now,
+                              # Compounder Phase C (task C4): this same
+                              # unconditional stop check enforces the long
+                              # book's thesis stop too (pos.stop_price is
+                              # set to thesis_stop_price(...) at fill time
+                              # for book=="long" - see _handle_fill), so
+                              # LB-031 (structural invalidation) is coded
+                              # here rather than duplicating this branch.
+                              reason_code=(Code.LB_THESIS_INVALIDATED.value
+                                          if pos.book == "long" else ""))
             return
 
         # 2) profit tiers, scaled by regime + inventory pressure. Gated on a
@@ -1931,27 +2054,46 @@ class LiquidityBot:
         # an escape) until the mark is trusted is always safe.
         if not pos.is_hedge and self._stop_ok.get(asset, True) \
                 and self._mark_fresh(symbol, now):
-            scale = macro_states[asset].playbook.get("tier_scale", 1.0)
-            inv_ratio = abs(self.inventory.inventory_ratio(
-                self.state, asset, self.marks, equity))
-            if inv_ratio >= self.inventory.soft_cap_pct / self.inventory.hard_cap_pct:
-                scale *= 0.75          # bleed inventory down sooner
-            # is the ENTRY signal still confirmed in this direction?
-            # None (no fresh evaluation) must stay None - only a
-            # definitive "not confirmed" may tighten the runner leash
-            sig_snap = self.last_signals.get(asset)
-            signal_alive = None
-            if sig_snap and (now - float(sig_snap.get("ts", 0.0))) < 180.0:
-                signal_alive = bool(sig_snap.get("confirmed")) and \
-                    sig_snap.get("direction") == pos.direction
-            action = self._tier_engine(scale).evaluate(
-                pos, px,
-                sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
-                signal_alive=signal_alive,
-                inventory_pressure=min(inv_ratio, 1.0),
-                # EX-8/DL-5: the engine's injected clock reaches the trail's
-                # time-tightening - the last wall-clock read in the exit path
-                now=now)
+            # Compounder Phase C (task C4): a long-book position is
+            # evaluated by the LONG tier engine instance (its own
+            # long_book.profit_taking geometry - wider, absolute-pct,
+            # never regime-scaled) instead of the 5m per-regime-scaled
+            # engine below. The 5m branch (else:) is untouched byte-for-
+            # byte - a completely separate branch, not a refactor of it.
+            if pos.book == "long":
+                inv_ratio = abs(self.inventory.inventory_ratio(
+                    self.state, asset, self.marks, equity))
+                action = self.long_tier_engine.evaluate(
+                    pos, px,
+                    sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                    # no 5m signal exists for this book's thesis - unknown
+                    # stays None (no-op), same convention the tier engine
+                    # itself uses for "no fresh evaluation"
+                    signal_alive=None,
+                    inventory_pressure=min(inv_ratio, 1.0),
+                    now=now)
+            else:
+                scale = macro_states[asset].playbook.get("tier_scale", 1.0)
+                inv_ratio = abs(self.inventory.inventory_ratio(
+                    self.state, asset, self.marks, equity))
+                if inv_ratio >= self.inventory.soft_cap_pct / self.inventory.hard_cap_pct:
+                    scale *= 0.75          # bleed inventory down sooner
+                # is the ENTRY signal still confirmed in this direction?
+                # None (no fresh evaluation) must stay None - only a
+                # definitive "not confirmed" may tighten the runner leash
+                sig_snap = self.last_signals.get(asset)
+                signal_alive = None
+                if sig_snap and (now - float(sig_snap.get("ts", 0.0))) < 180.0:
+                    signal_alive = bool(sig_snap.get("confirmed")) and \
+                        sig_snap.get("direction") == pos.direction
+                action = self._tier_engine(scale).evaluate(
+                    pos, px,
+                    sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                    signal_alive=signal_alive,
+                    inventory_pressure=min(inv_ratio, 1.0),
+                    # EX-8/DL-5: the engine's injected clock reaches the trail's
+                    # time-tightening - the last wall-clock read in the exit path
+                    now=now)
             if action.should_close_partial and action.close_pct > 0:
                 is_time_stop = action.reason_code == Code.PT_TIME_STOP.value
                 # sub-25s reclamp sliver (whole-program review Minor #6): a
@@ -1976,10 +2118,17 @@ class LiquidityBot:
                     # the human-readable reason string is reason-aware.
                     reason = ("time-stop scratch" if is_time_stop
                              else f"tier {action.tier_fired or 'trail'}")
+                    reason_code = action.reason_code
+                    # Compounder Phase C (task C4): a long-book PROFIT-TAKE
+                    # (tier fired) is coded LB-030; the 5m reason_code
+                    # (action.reason_code, "" unless PT-060) is untouched.
+                    if pos.book == "long" and not reason_code \
+                            and action.is_profit_take:
+                        reason_code = Code.LB_TIER_BANK.value
                     self._submit_exit(pos, action.close_pct, reason,
                                     tier_fired=action.tier_fired, now=now,
                                     profit_take=action.is_profit_take,
-                                    reason_code=action.reason_code)
+                                    reason_code=reason_code)
 
     def _has_resting_profit_take(self, pos: Position) -> bool:
         """True iff `pos` already has an OPEN resting (post-only) profit-
@@ -2176,7 +2325,9 @@ class LiquidityBot:
 
     def _conviction_disposition(self, asset: str, signal, decision,
                                 regime_label: str,
-                                explored: bool) -> Optional[Code]:
+                                explored: bool,
+                                context_aligned: Optional[bool] = None
+                                ) -> Optional[Code]:
         """Compounder Phase A conviction formula, engine seam: evaluate
         ONE pretrade-approved entry attempt. Returns the denial Code when
         the caller must SKIP the entry (enforce mode only), else None.
@@ -2187,7 +2338,15 @@ class LiquidityBot:
         AFTER the pretrade gate so the EV term reads the gate's MEASURED
         est_edge_bps/est_cost_bps for THIS entry. Self-healing getattr
         (like _record_probe_admission): entry-path integration tests run
-        off a minimal LiquidityBot.__new__() stub."""
+        off a minimal LiquidityBot.__new__() stub.
+
+        `context_aligned` (Compounder Phase C, task C4): term 4 of the
+        formula (risk/conviction.py's evaluate). Every 5m call site keeps
+        the None default (context is not-applicable to the 5m book —
+        auto-passes, byte-identical to pre-C4 behavior); ONLY
+        _long_book_cycle's long-book admission call passes the computed
+        boolean (True/False — never None, since the long book always
+        knows whether it evaluated context as known)."""
         conv = getattr(self, "conviction", None)
         if conv is None or not conv.enabled or explored:
             return None
@@ -2204,7 +2363,8 @@ class LiquidityBot:
                     self.history.regime_live_count(regime_label), rfl)
         cdec = conv.evaluate(
             agreement=agreement, est_edge_bps=decision.est_edge_bps,
-            est_cost_bps=decision.est_cost_bps, regime_known=regime_known)
+            est_cost_bps=decision.est_cost_bps, regime_known=regime_known,
+            context_aligned=context_aligned)
         conv.note(cdec, regime_label)
         get_audit().log(
             "conviction", cdec.code,
@@ -2902,6 +3062,12 @@ class LiquidityBot:
                     f"cost={decision.est_cost_bps:.0f}bps regime={macro_state.label} "
                     f"narrative={verdict.label}")
 
+        # Compounder Phase C (task C4): the long-horizon accumulation book's
+        # own decision cycle, AFTER the 5m entry loop above (a completely
+        # separate call, not folded into the loop body - the long book has
+        # its own fixed asset list, not the 5m rotation/entry_assets() view).
+        self._long_book_cycle(now)
+
     def _surface_kraken_imbalance(self, asset: str, v: dict, kbook: dict,
                                   ls) -> None:
         """v9 flow unlock: Kraken-only listings (SUI/ARB/MINA/FLOW) carry no
@@ -2920,6 +3086,253 @@ class LiquidityBot:
                 and asset not in self._external_bases
                 and bool(kbook) and ls.spread_bps < 900.0):
             v["imbalance_ratio"] = ls.imbalance_ratio
+
+    # ------------------------------------------------------------------
+    # Compounder Phase C: long-horizon accumulation book (task C4)
+    # ------------------------------------------------------------------
+    def _long_book_cycle(self, now: float) -> None:
+        """One accumulation decision per configured long_book asset,
+        called from slow_cycle AFTER the 5m entry loop. Long-only,
+        post_only maker bids that AVERAGE into the book's single growing
+        position per asset (_handle_fill's averaging branch) - never a
+        second same-book position on one asset (Global Constraint).
+
+        Gate order mirrors LongBookEngine.decide_add's own docstring
+        (halted/entries_enabled -> averaging -> spacing -> event window ->
+        context -> ceiling), PLUS this engine's own conviction-formula
+        term-4 re-check (context_aligned) between decide_add's plan and
+        sizing. By construction decide_add's OWN context gate already
+        denies a misaligned/unknown context before ever returning a plan,
+        so reaching the conviction call below means context_aligned is
+        already True (or None, if context was never required known) -
+        this second check is a governance/audit-consistency backstop (the
+        SAME conviction ledger the 5m book feeds via _conviction_
+        disposition), not the primary blocking mechanism. Documented as a
+        deliberate design reading of the brief in task-C4-report.md.
+
+        Combined envelope: sizing goes through the LONG PositionSizer
+        instance (_place_long_book_add), which internally applies the
+        SHARED RiskProtocolStack multiplier and consults the SHARED
+        InventoryManager.can_add - the long book never gets its own risk
+        stack. `halted`/`entries_enabled` are recomputed here (not just
+        inherited from slow_cycle's own early-returns above) so this
+        method is independently correct under a direct/stub-bot call,
+        exactly mirroring LongBookEngine.decide_add's own two new-risk
+        gates."""
+        lb_cfg = self.config.get("long_book", {}) or {}
+        if not bool(lb_cfg.get("enabled", False)):
+            return
+        assets = lb_cfg.get("assets", []) or []
+        if not assets:
+            return
+        equity = self._equity()
+        if equity <= EPS:
+            return
+        fm = getattr(self, "fault", None)
+        halted = bool(self._halted) or \
+            (fm is not None and not fm.allow_new_risk())
+        entries_enabled = bool(self.entries_enabled) and \
+            self._live_order_allowed("entry")
+        # ONE read of the context snapshot, shared across every asset this
+        # cycle (context is a systemwide macro signal, not per-asset) -
+        # the sole new _context_state consumer site this task adds
+        # (tests/test_context_integration.py's source pin is updated to
+        # allow exactly this).
+        ctx_state = self._context_state
+        stress_max = float(lb_cfg.get("context", {})
+                           .get("stress_max_for_add", 1.0))
+        stress_known = bool(getattr(ctx_state, "stress_known", False))
+        stress = getattr(ctx_state, "stress", None)
+        context_aligned = (stress <= stress_max) \
+            if (stress_known and stress is not None) else None
+        self._long_context_aligned_last = context_aligned
+
+        for asset in assets:
+            symbol = self.symbol_map.get(asset)
+            if not symbol:
+                continue
+            mark = self.marks.get(symbol)
+            if not mark or mark <= 0:
+                continue
+            position = next(
+                (p for p in self.state.open_positions()
+                 if p.book == "long" and self._asset_of(p.symbol) == asset),
+                None)
+            # combined envelope: the WHOLE book's exposure across every
+            # long-book asset (not just this one) - the ceiling headroom
+            # LongBookEngine.decide_add computes lives inside the shared
+            # portfolio heat cap, never a per-asset budget.
+            book_exposure_usd = sum(
+                p.size * (self.marks.get(p.symbol) or p.entry_price)
+                for p in self.state.open_positions() if p.book == "long")
+
+            plan_or_deny = LongBookEngine.decide_add(
+                now=now, asset=asset, mark=mark,
+                sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                context_state=ctx_state, ladder=self.long_ladder,
+                position=position,
+                last_add_ts=self._long_last_add_ts.get(asset),
+                dry_run=self.dry_run, halted=halted,
+                entries_enabled=entries_enabled,
+                equity=equity, book_exposure_usd=book_exposure_usd,
+                cfg=lb_cfg)
+
+            if isinstance(plan_or_deny, DenyReason):
+                self._long_book_deny(asset, plan_or_deny)
+                continue
+
+            deny_code = self._long_book_conviction_gate(
+                asset, context_aligned)
+            if deny_code is not None:
+                detail = tag(Code.LB_ADD_DENIED,
+                            f"{asset}: conviction term-4 denied "
+                            f"({deny_code.value})")
+                self._long_last_deny = detail
+                get_audit().log(
+                    "long_book", Code.LB_ADD_DENIED, detail,
+                    {"asset": asset, "conviction_code": deny_code.value})
+                log.info(detail)
+                continue
+
+            self._place_long_book_add(
+                asset, symbol, position, plan_or_deny, equity, now)
+
+    def _long_book_deny(self, asset: str, deny: DenyReason) -> None:
+        """Log + selectively audit one long-book DenyReason (LB-010, plus
+        LB-050/CX-030 riding along on the qualifying kinds - core/codes.py's
+        own comments). "spacing" is the OVERWHELMING routine case (a
+        24h-scale cadence evaluated every ~30s slow_cycle) - python-logged
+        at DEBUG and NOT durably audit-logged there, or the hash-chained
+        audit trail would carry thousands of no-op rows per add cycle; a
+        contraction-scaled spacing denial is the exception (LB-050 rides
+        along - risk/long_book.py's own DenyReason.detail string flags
+        contraction-scaling explicitly, and it is a rarer, notable cadence
+        state, not the routine wait)."""
+        self._long_last_deny = deny.detail
+        detail = tag(Code.LB_ADD_DENIED, f"{asset}: {deny.detail}")
+        contraction_spacing = deny.kind == "spacing" and \
+            "(contraction-scaled)" in deny.detail
+        if deny.kind == "spacing" and not contraction_spacing:
+            log.debug(detail)
+            return
+        log.info(detail)
+        get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
+                        {"asset": asset, "kind": deny.kind})
+        if deny.kind == "context_unknown":
+            cx_detail = tag(Code.CX_CONTEXT_UNKNOWN,
+                           f"{asset}: long-book add blocked - context "
+                           f"stress dial unknown")
+            get_audit().log("long_book", Code.CX_CONTEXT_UNKNOWN,
+                            cx_detail, {"asset": asset})
+        if deny.kind in ("event_window", "context_unknown") or \
+                contraction_spacing:
+            pause_detail = tag(Code.LB_PAUSED, f"{asset}: {deny.detail}")
+            get_audit().log("long_book", Code.LB_PAUSED, pause_detail,
+                            {"asset": asset, "kind": deny.kind})
+
+    def _long_book_conviction_gate(self, asset: str,
+                                   context_aligned: Optional[bool]
+                                   ) -> Optional[Code]:
+        """Route a long-book admission through the SAME conviction-formula
+        ledger the 5m book feeds (Global Constraint: "context before
+        conviction" - term 4, CV-040). Terms 1-3 (agreement/EV/regime) are
+        neutralized so ONLY the context term can deny here: this book has
+        no gate-pass fraction or pretrade EV of its own to offer
+        (agreement=1.0, a single trivially-true gate; est_edge_bps=1.0 /
+        est_cost_bps=0.0 trivially clears any ev_cost_mult). regime_label
+        uses the REAL current macro regime label (self.macro.state) so
+        term 3 reads the SAME live-label evidence-coverage floor the 5m
+        book's own conviction calls read - a considered reuse of a real
+        systemwide corpus-quality signal (documented choice, not a brief
+        literal - see task-C4-report.md)."""
+        signal = types.SimpleNamespace(gates_passed={"long_book": True})
+        decision = types.SimpleNamespace(est_edge_bps=1.0, est_cost_bps=0.0)
+        regime_label = self.macro.state(asset).label
+        return self._conviction_disposition(
+            asset, signal, decision, regime_label, False,
+            context_aligned=context_aligned)
+
+    def _place_long_book_add(self, asset: str, symbol: str,
+                             position: Optional[Position], plan: AddPlan,
+                             equity: float, now: float) -> None:
+        """Size + submit ONE long-book add. Sizing goes through the LONG
+        PositionSizer instance (self.long_sizer) with a NEUTRAL, non-
+        regime-gated macro state constructed fresh here - the 5m book's
+        own regime playbook (direction_bias / allow_new) must not veto an
+        accumulation buy LongBookEngine.decide_add's own gates already
+        cleared (decide_add has no regime gate at all in its documented
+        order - feeding the REAL macro_state would silently add an
+        undocumented veto surface, e.g. refusing every long in a "bear"-
+        labeled regime, defeating a buy-the-dip accumulation book by
+        construction). Real vol/liq state for THIS asset still apply
+        (legitimate sizing signals, no reason to neutralize). p_win=1.0
+        (fixed): admission is decided upstream (decide_add's gate chain +
+        the conviction term-4 gate above), never by the sizer's own
+        p-bar - the Kelly math here is a formality, always bounded down to
+        `plan.usd` (the ladder's own ceiling-headroom budget for this
+        add) as a HARD CAP applied AFTER sizing, never the reverse (the
+        sizer's protocols/inventory/drawdown-throttle machinery can only
+        shrink the ticket further, never inflate it past the ladder's
+        budget)."""
+        vol_state = self.vol.state(asset)
+        liq_state = self.liq.state(asset)
+        neutral_macro = MacroRegimeState(
+            asset=asset, label="long_book",
+            playbook={"direction_bias": "both", "size_mult": 1.0,
+                     "allow_new": True, "counter_trend_conf_bonus": 0.0,
+                     "leverage_cap": 1.0, "tier_scale": 1.0,
+                     "stop_mult": 1.0})
+        sized = self.long_sizer.size(
+            asset, "long", plan.price, 1.0, equity, self.state,
+            neutral_macro, vol_state, liq_state, 1.0, self.inventory,
+            None, self.marks, now, risk_scale=1.0, symbol=symbol)
+        if not sized.approved:
+            detail = tag(Code.LB_ADD_DENIED,
+                        f"{asset}: sizer vetoed - "
+                        f"{'; '.join(str(r) for r in sized.reasons) or 'no reason recorded'}")
+            self._long_last_deny = detail
+            log.info(detail)
+            get_audit().log("long_book", Code.LB_ADD_DENIED, detail,
+                            {"asset": asset, "kind": "sizer"})
+            return
+
+        usd = min(sized.usd, plan.usd)
+        if usd <= EPS:
+            return
+        units = usd / plan.price
+        position_id = position.position_id if position is not None \
+            else str(uuid.uuid4())
+        if "magnet" in plan.reason_detail:
+            get_audit().log(
+                "long_book", Code.LB_ZONE_SHIFT,
+                tag(Code.LB_ZONE_SHIFT, f"{asset}: {plan.reason_detail}"),
+                {"asset": asset})
+
+        order = self.orders.submit(
+            asset=asset, symbol=symbol,
+            pair=self.kraken.kraken_pair(symbol), side="buy",
+            price=plan.price, size=units, purpose="entry",
+            position_id=position_id, post_only=True, leverage=1.0,
+            book=self.kraken_books.get(asset) or {},
+            sigma_bar_pct=vol_state.sigma_bar_pct,
+            ref_price=self.marks.get(symbol) or plan.price,
+            equity=equity,
+            meta={"book": "long", "p_win": 0.0, "edge_bps": 0.0,
+                 "est_cost_bps": 0.0, "probe": False},
+            now=now,
+        )
+        if order:
+            self._long_last_add_ts[asset] = now
+            self._long_adds_placed += 1
+            self._long_last_deny = ""
+            detail = tag(Code.LB_ADD_PLACED,
+                        f"{asset}: {plan.reason_detail} - ${usd:,.2f} @ "
+                        f"{plan.price:,.6f}")
+            get_audit().log(
+                "long_book", Code.LB_ADD_PLACED, detail,
+                {"asset": asset, "usd": round(usd, 2), "price": plan.price,
+                 "rung": self.long_ladder.rung(), "position_id": position_id})
+            log.info(detail)
 
     def _ladder_entry(self, *, position_id, asset, symbol, side, signal,
                       entry_price, decision, sized, lev, equity, vol_state,

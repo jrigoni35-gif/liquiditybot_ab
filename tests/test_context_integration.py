@@ -1,26 +1,45 @@
 """tests/test_context_integration.py — Compounder Phase B, Task B4: wiring
 `data.context_engine.ContextFeed` into `main.py`'s slow_cycle poll cluster
-and `runner.py`'s status assembly. TELEMETRY-ONLY (spec §3, Global
-Constraints): no entry/exit/sizing/gate path may read the context state
-this phase; the only consumers are status, audit logs, and gc_pusher —
-report-first, exactly like Phase A's conviction formula (`ConvictionFormula`
-wiring, `tests/test_conviction_integration.py`).
+and `runner.py`'s status assembly. TELEMETRY-ONLY as of B4 (spec §3,
+Global Constraints): no entry/exit/sizing/gate path read the context
+state that phase; the only consumers were status, audit logs, and
+gc_pusher — report-first, exactly like Phase A's conviction formula
+(`ConvictionFormula` wiring, `tests/test_conviction_integration.py`).
+
+RETIRED CONSCIOUSLY by Task C4 (Compounder Phase C engine integration,
+`tests/test_long_book_integration.py`): `_context_state` is no longer
+telemetry-only. `main.LiquidityBot._long_book_cycle` (called from the end
+of `slow_cycle`) reads it ONCE per cycle (`ctx_state = self._context_state`)
+to gate long-book ADDS on context alignment (known + stress dial <=
+`long_book.context.stress_max_for_add`) — a real, documented new-risk
+gate, per the Phase C spec's "context before conviction" Global
+Constraint. Pin 2 below is updated to allow exactly this one new site
+(count-based, still strict: a THIRD site would still fail it) rather than
+dropped — the B4 exclusivity clause (a hard "nothing but init+poll reads
+this" invariant) is what's retired, not the pin itself.
 
 Four pins:
   1. wiring proof — the REAL `LiquidityBot.slow_cycle` (driven through the
      established mocked-feeds harness, `scripts/smoke_test.py`'s
      MockOKX/MockBinanceUS/MockKraken — reused, not rebuilt) actually calls
      `self.context.maybe_poll(now)` every cycle.
-  2. SOURCE PIN — `main.py`'s only two references to `self.context` /
-     `self._context_state` are the init line and the one poll line; the
-     trading pipeline reads NOTHING from context.
+  2. SOURCE PIN — `main.py` references `self.context` in exactly 2 places
+     (the init line and the one poll line — UNCHANGED by C4, which never
+     reads the ContextFeed object itself) and `self._context_state` in
+     exactly 2 places (the poll-line assignment, plus C4's one
+     `_long_book_cycle` read — the sole legitimate consumer this task
+     adds). No other line in main.py may reference either.
   3. status — `runner.py`'s `build_status` carries a serializable "context"
      section, placed directly after "webdata" (source pin + a real
      end-to-end check that it matches `bot.context.status()`).
   4. dark-everything invariance — a fully dark context source
      (`fetch=lambda *a, **k: None`) produces byte-identical trading
      behavior (same orders, same equity, same realized PnL) to context
-     disabled outright.
+     disabled outright. Still holds post-C4: `long_book.enabled` is
+     forced off in this module's `_cfg()` (below) precisely so this
+     invariance check keeps exercising ONLY the context-dark-vs-disabled
+     delta B4 designed it for, not conflated with the long book's own
+     (separately tested) context gating.
 
 No test in this module ever touches the network: `ContextFeed`'s default
 construction does none (init only warm-starts from a local PIT file — see
@@ -69,6 +88,14 @@ def _cfg(context_enabled: bool = True, force_fill: bool = False) -> dict:
     cfg["webdata"]["enabled"] = False
     cfg["moomoo"]["enabled"] = False
     cfg["context"]["enabled"] = context_enabled
+    # Task C4 (Compounder Phase C): config.json ships long_book.enabled=
+    # true by default, and _long_book_cycle is now the one place in
+    # main.py that reads self._context_state as a real consumer (see the
+    # module docstring's RETIRED note). Disabled here so this module's
+    # dark-vs-disabled invariance test (4) isolates the context delta it
+    # was built for, never the long book's own (separately tested in
+    # tests/test_long_book_integration.py) context-gated add behavior.
+    cfg["long_book"]["enabled"] = False
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
     if force_fill:
@@ -137,9 +164,19 @@ def test_context_state_assigned_from_the_poll_return_value(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# 2. SOURCE PIN — main.py: exactly init + one poll line, nothing else reads
-#    context. This is the load-bearing telemetry-only invariant.
+# 2. SOURCE PIN — main.py: `self.context` stays exactly init + one poll
+#    line (UNCHANGED, B4's own invariant). `self._context_state` is now
+#    the poll-line assignment PLUS exactly the enumerated new read
+#    site(s) Task C4 (Compounder Phase C) legitimately adds - still a
+#    strict, count-based pin, consciously widened rather than dropped
+#    (module docstring's RETIRED note explains why).
 # ---------------------------------------------------------------------------
+
+# Task C4: the ONE new `self._context_state` consumer read site
+# (_long_book_cycle gating long-book adds on context alignment - the
+# sole enumerated addition this pin now allows).
+_LONG_BOOK_CTX_READ_LINE = "ctx_state = self._context_state"
+
 
 def test_main_source_pins_context_wiring_to_init_and_poll_line():
     assert "from data.context_engine import ContextFeed" in _MAIN_SRC
@@ -154,20 +191,31 @@ def test_main_source_pins_context_wiring_to_init_and_poll_line():
 
     # exhaustive count: every reference to `self.context` (attribute access,
     # not just the init assignment) must be ONE of the two lines above -
-    # never a third site reading context inside a gate/entry/exit/sizing
-    # path. This is the actual grep-style assertion the brief calls for.
+    # C4 never reads the ContextFeed object itself, only the parsed
+    # ContextState it already polls (self._context_state, checked below).
     context_refs = re.findall(r"self\.context\b", _MAIN_SRC)
     assert len(context_refs) == 2, (
         f"main.py must reference `self.context` in EXACTLY 2 places (the "
         f"ContextFeed init + the one slow_cycle poll line) - found "
-        f"{len(context_refs)}. TELEMETRY-ONLY invariant: no entry/exit/"
-        f"sizing/gate path may read context state this phase.")
+        f"{len(context_refs)}. No consumer may need the ContextFeed "
+        f"object itself; every C4 long-book read goes through the "
+        f"already-polled self._context_state instead.")
 
+    # self._context_state: the poll-line assignment PLUS Task C4's ONE
+    # enumerated long-book consumer read - exactly 2, never a 3rd
+    # unenumerated site (a still-strict count, consciously widened by C4
+    # from B4's original exclusive "1" per the module docstring's
+    # RETIRED note - this is the literal "enumerate the NEW allowed sites
+    # explicitly" the C4 brief calls for).
+    assert _LONG_BOOK_CTX_READ_LINE in _MAIN_SRC
+    assert _MAIN_SRC.count(_LONG_BOOK_CTX_READ_LINE) == 1
     state_refs = re.findall(r"self\._context_state\b", _MAIN_SRC)
-    assert len(state_refs) == 1, (
-        f"main.py must assign `self._context_state` exactly once (the "
-        f"poll line) and never read it back anywhere else - found "
-        f"{len(state_refs)} references.")
+    assert len(state_refs) == 2, (
+        f"main.py must reference `self._context_state` in EXACTLY 2 "
+        f"places (the poll-line assignment + Task C4's one "
+        f"_long_book_cycle read, {_LONG_BOOK_CTX_READ_LINE!r}) - found "
+        f"{len(state_refs)}. Any OTHER read site is an unenumerated "
+        f"consumer and must be added here consciously, not silently.")
 
 
 def test_main_context_poll_line_sits_in_the_established_poll_cluster():

@@ -24,6 +24,7 @@ import argparse
 import sys
 import os
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Optional
@@ -410,6 +411,53 @@ class BotRunner:
             return {}
 
     @staticmethod
+    def _long_book_status(bot, now: float) -> dict:
+        """Compounder Phase C long-book posture (task C4). hasattr-guarded
+        (bot.long_ladder absent -> {}, same convention as _rp_status
+        above): a bot built before this task, or a minimal test stub,
+        simply omits the section rather than raising. Every number comes
+        from the engine's OWN attributes/ladder - telemetry duplicates no
+        thresholds. pf_live is JSON-safe (None, never the raw `inf` a
+        win-only window produces - risk/long_book.py's EvidenceLadder.
+        pf_live docstring)."""
+        ladder = getattr(bot, "long_ladder", None)
+        if ladder is None:
+            return {}
+        try:
+            lb_cfg = bot.config.get("long_book", {}) or {}
+            positions = [p for p in bot.state.open_positions()
+                        if getattr(p, "book", "5m") == "long"]
+            book_exposure_usd = sum(
+                p.size * (bot.marks.get(p.symbol) or p.entry_price)
+                for p in positions)
+            ceiling_frac = ladder.paper_ceiling_frac() if bot.dry_run \
+                else ladder.live_ceiling_frac()
+            last_ts = getattr(bot, "_long_last_add_ts", {}) or {}
+            last_add_age_h = (
+                round((now - max(last_ts.values())) / 3600.0, 2)
+                if last_ts else None)
+            pf_live = ladder.pf_live
+            return {
+                "enabled": bool(lb_cfg.get("enabled", False)),
+                "rung": ladder.rung(),
+                "ceiling_frac": round(float(ceiling_frac), 4),
+                "book_exposure_usd": round(float(book_exposure_usd), 2),
+                "positions": len(positions),
+                "adds_placed": int(getattr(bot, "_long_adds_placed", 0)),
+                "last_add_age_h": last_add_age_h,
+                "paused_reason": getattr(bot, "_long_last_deny", "") or "",
+                "closed_paper": ladder.closed_paper,
+                "closed_live": ladder.closed_live,
+                "pf_live": round(pf_live, 4) if math.isfinite(pf_live)
+                else None,
+                "context_aligned_last": getattr(
+                    bot, "_long_context_aligned_last", None),
+            }
+        except Exception:
+            log.exception("long-book status failed - section omitted")
+            return {}
+
+    @staticmethod
     def _goal_progress(bot) -> dict:
         """Live period-to-date progress toward the config profit goals,
         for the status surface / Grafana (measurement only). 0 goal ->
@@ -552,6 +600,8 @@ class BotRunner:
             "monitor": bot.monitor.status(),
             "conviction": bot.conviction.status()
                 if hasattr(bot, "conviction") else {},
+            "long_book": self._long_book_status(bot, now)
+                if hasattr(bot, "long_ladder") else {},
             "ml": {"trained": bot.meta.trained,
                    "drift_share": bot.monitor.drift_share,
                    "drifting": bot.monitor.drifting[:5],

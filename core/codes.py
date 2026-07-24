@@ -290,9 +290,14 @@ class Code(str, Enum):
     CX_STATE_CHANGE = "CX-020"       # a bucketed/discrete context state
                                      # (halving phase, event-window flag)
                                      # flipped since the last poll
-    # CX-030 reserved for the Phase C long-book context add-block
-    # disposition (context unknown blocks a NEW long-book add) - not
-    # emitted by this phase; telemetry-only per Phase B's contract.
+    CX_CONTEXT_UNKNOWN = "CX-030"     # Phase C long-book context add-block
+                                      # disposition: context stress dial
+                                      # unknown and long_book.context.
+                                      # require_known is true - the add is
+                                      # blocked (rides along with LB-050 on
+                                      # main._long_book_cycle's "context_
+                                      # unknown" DenyReason from
+                                      # LongBookEngine.decide_add)
 
     # ---- long-horizon book (LB) — risk/long_book.py (Compounder C) ----
     LB_ADD_PLACED = "LB-000"         # accumulation add order placed (paper/live)
