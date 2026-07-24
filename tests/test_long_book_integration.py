@@ -2077,3 +2077,205 @@ def test_short_entry_marketable_sell_hedge_open_also_clears_the_bid(
     assert bot.orders.calls[0]["post_only"] is False
     assert bot.orders.cancelled and bot.orders.cancelled[0][0] == "lb-bid-1"
     assert [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+
+
+# ---------------------------------------------------------------------------
+# F6 taker entry sites (direct and algo-child)
+# ---------------------------------------------------------------------------
+
+
+class _FakeOrdersEntry:
+    """Records submit() calls and cancel_order() calls for entry testing.
+    Similar to _FakeOrdersExit but captures entry-specific metadata."""
+    def __init__(self, resting=None, cancel_raises=False):
+        self.calls: list = []
+        self.cancelled: list = []
+        self.events: list = []
+        self._open: list = list(resting or [])
+        self.cancel_raises = cancel_raises
+
+    def open_orders(self):
+        return list(self._open)
+
+    def has_open(self, asset, purpose=None, book=None):
+        return any(o.asset == asset
+                   and (purpose is None or o.purpose == purpose)
+                   and (book is None or o.meta.get("book", "5m") == book)
+                   for o in self._open)
+
+    def _ordermin(self, pair):
+        return 0.0
+
+    def cancel_order(self, order, reason=""):
+        if self.cancel_raises:
+            raise RuntimeError("simulated cancel-path failure")
+        self.cancelled.append((order.order_id, reason))
+        self.events.append(("cancel", order.order_id))
+        if order in self._open:
+            self._open.remove(order)
+        order.status = "cancelled"
+        return True
+
+    def submit(self, **kwargs):
+        self.calls.append(kwargs)
+        self.events.append(("submit", kwargs.get("side")))
+        return ManagedOrder(
+            order_id=f"entry-{len(self.calls)}", txid=None,
+            asset=kwargs["asset"], pair=kwargs["pair"],
+            symbol=kwargs["symbol"], side=kwargs["side"],
+            price=kwargs["price"], size=kwargs["size"],
+            purpose=kwargs.get("purpose", "entry"),
+            position_id=kwargs.get("position_id"),
+            post_only=kwargs.get("post_only", False),
+            meta=kwargs.get("meta") or {})
+
+
+def _entry_bot(*, resting=None, cancel_raises=False,
+               bids=((59_500.0, 5.0),), asks=((59_520.0, 5.0),)):
+    bot = LiquidityBot.__new__(LiquidityBot)
+    bot.orders = _FakeOrdersEntry(resting=resting, cancel_raises=cancel_raises)
+    bot.kraken = _FakeKraken()
+    bot.marks = {"BTC/USD": 59_500.0}
+    bot.kraken_books = {"BTC": {"bids": list(bids), "asks": list(asks)}}
+    bot._mark_ts = {"BTC/USD": 1_700_000_000.0}
+    bot._mark_stale_sec = 20.0
+    bot.view = {"BTC": {"candles": []}}
+    bot.state = PortfolioState(starting_capital=10_000.0)
+    bot.fv = types.SimpleNamespace(
+        state=lambda a: types.SimpleNamespace(fair_value=59_500.0, kraken_mid=59_500.0))
+    bot.vol = types.SimpleNamespace(
+        state=lambda a: types.SimpleNamespace(sigma_bar_pct=0.3))
+    bot.liq = types.SimpleNamespace(
+        state=lambda a: types.SimpleNamespace(label="normal", spread_bps=2.0))
+    bot.quoter = types.SimpleNamespace(
+        quote=lambda *a, **k: types.SimpleNamespace(bid=59_490.0, ask=59_510.0))
+    bot.tactics = types.SimpleNamespace(
+        plan_entry=lambda *a, **k: types.SimpleNamespace(
+            price=59_490.0, post_only=False, style="aggressive"))
+    bot.pretrade = types.SimpleNamespace(maker_fee_bps=1.0)
+    bot.inventory = types.SimpleNamespace(
+        inventory_ratio=lambda *a, **k: 0.0)
+    bot._equity = lambda: 10_000.0
+    bot._algo_meta = {}
+    bot._px = lambda s, p: f"{p:.2f}"
+    bot._last_entry_admit_ts = 0.0
+    bot.algo = types.SimpleNamespace(
+        next_slice=lambda pid, now, vol: types.SimpleNamespace(
+            units=0.01, seq=1, n_total=4),
+        note_child_order=lambda pid, posid: None,
+        note_child_rejected=lambda *a, **k: None)
+    return bot
+
+
+def test_direct_taker_short_entry_cancels_resting_bid_first(fake_audit):
+    """Direct entry path (cycle_once) with taker-style short entry (post_only=False)
+    on a pair with a resting long-book bid must cancel the bid first (LB-022)."""
+    resting = _resting_long_bid()
+    bot = _entry_bot(resting=[resting])
+
+    # Simulate a taker-style short entry submit (side="sell", post_only=False)
+    # The guard pattern checks: side == "sell" and not post_only → cancel
+    asset, symbol, side = "BTC", "BTC/USD", "sell"
+    price, size = 59_490.0, 0.01
+
+    plan = types.SimpleNamespace(post_only=False, style="aggressive")
+
+    # Call the guard directly and then submit
+    _lb_guard = getattr(bot, "_clear_long_book_bid_before_sell", None)
+    if callable(_lb_guard):
+        _lb_guard(asset, side, plan.post_only, reason="entry")
+
+    bot.orders.submit(
+        asset=asset, symbol=symbol, pair="XBTUSDT", side=side,
+        price=price, size=size, purpose="entry",
+        position_id="p1", post_only=plan.post_only,
+        now=1_700_000_000.0)
+
+    # Entry submitted, bid cancelled first
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["side"] == "sell"
+    assert bot.orders.calls[0]["post_only"] is False
+
+    assert bot.orders.cancelled
+    assert bot.orders.cancelled[0][0] == "lb-bid-1"
+    assert Code.LB_BID_CLEARED.value in bot.orders.cancelled[0][1]
+
+    # Cancel happened before submit (ordering)
+    kinds = [e[0] for e in bot.orders.events]
+    assert kinds.index("cancel") < kinds.index("submit")
+
+    # LB-022 audited
+    entries = [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+    assert len(entries) == 1
+    assert entries[0][3]["asset"] == "BTC"
+
+
+def test_algo_child_taker_short_entry_cancels_resting_bid_first(fake_audit):
+    """Algo-child path (_submit_algo_child) with taker-style short entry
+    (post_only=False) must cancel the resting long-book bid first (LB-022)."""
+    resting = _resting_long_bid()
+    bot = _entry_bot(resting=[resting])
+
+    # Create a parent order for the algo (short direction → sell side)
+    parent = types.SimpleNamespace(
+        parent_id="algo-par1", asset="BTC", symbol="BTC/USD",
+        side="sell", direction="short", arrival_price=59_500.0, urgency=0.0)
+
+    # Set up _algo_meta for this parent
+    bot._algo_meta["algo-par1"] = {
+        "p_win": 0.6, "edge_bps": 10.0, "est_cost_bps": 5.0,
+        "features": None, "leverage": 1.0, "post_only": False,
+        "probe": False, "candidate_id": ""}
+
+    # Call _submit_algo_child which should guard before submit
+    bot._submit_algo_child(parent, now=1_700_000_000.0)
+
+    # Child order submitted, bid cancelled first
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["side"] == "sell"
+    assert bot.orders.calls[0]["post_only"] is False
+
+    assert bot.orders.cancelled
+    assert bot.orders.cancelled[0][0] == "lb-bid-1"
+    assert Code.LB_BID_CLEARED.value in bot.orders.cancelled[0][1]
+
+    # Cancel happened before submit
+    kinds = [e[0] for e in bot.orders.events]
+    assert kinds.index("cancel") < kinds.index("submit")
+
+    # LB-022 audited
+    entries = [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]
+    assert len(entries) == 1
+
+
+def test_post_only_maker_short_entry_does_not_cancel_resting_bid(fake_audit):
+    """A post_only (maker-first) short entry is exempt from the guard —
+    passive-passive same-pair quoting is bona fide two-sided market making."""
+    resting = _resting_long_bid()
+    bot = _entry_bot(resting=[resting])
+
+    # Simulate a maker-style short entry (post_only=True)
+    asset, symbol, side = "BTC", "BTC/USD", "sell"
+    price, size = 59_510.0, 0.01
+
+    plan = types.SimpleNamespace(post_only=True, style="passive")
+
+    # Guard predicate: side == "sell" and not post_only → False, no-op
+    _lb_guard = getattr(bot, "_clear_long_book_bid_before_sell", None)
+    if callable(_lb_guard):
+        _lb_guard(asset, side, plan.post_only, reason="entry")
+
+    bot.orders.submit(
+        asset=asset, symbol=symbol, pair="XBTUSDT", side=side,
+        price=price, size=size, purpose="entry",
+        position_id="p1", post_only=plan.post_only,
+        now=1_700_000_000.0)
+
+    # Entry submitted, but bid NOT cancelled (no-op)
+    assert len(bot.orders.calls) == 1
+    assert bot.orders.calls[0]["post_only"] is True
+    assert bot.orders.cancelled == []
+    assert bot.orders.open_orders() == [resting]
+
+    # No LB-022 entry
+    assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED]

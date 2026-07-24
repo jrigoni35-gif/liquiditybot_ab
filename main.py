@@ -1102,6 +1102,14 @@ class LiquidityBot:
         # COALESCE into one position (size-weighted entry via _handle_fill), and
         # it's deterministic so it survives a mid-execution restart.
         position_id = f"algo-{parent.parent_id}"
+        # F6 Rule 534 self-cross guard: BEFORE any marketable (non-post_only)
+        # sell on this pair, cancel our own resting long-book entry bid first.
+        # No-op for a maker-first post_only entry, and for a buy-side entry.
+        # getattr-guarded: unit tests exercise this off a minimal stub.
+        _lb_guard = getattr(self, "_clear_long_book_bid_before_sell", None)
+        if callable(_lb_guard):
+            _lb_guard(asset, parent.side, plan.post_only,
+                      reason="algo-child entry")
         order = self.orders.submit(
             asset=asset, symbol=parent.symbol,
             pair=self.kraken.kraken_pair(parent.symbol), side=parent.side,
@@ -3177,6 +3185,16 @@ class LiquidityBot:
             if handled:
                 continue
 
+            # F6 Rule 534 self-cross guard: BEFORE any marketable (non-
+            # post_only) sell on this pair, cancel our own resting long-book
+            # entry bid first (see _clear_long_book_bid_before_sell). No-op
+            # for a maker_first post_only rest, and for a buy-side entry.
+            # getattr-guarded: unit tests exercise this off a minimal stub
+            # self (SimpleNamespace) that may not define the guard method at
+            # all - the same pattern as _record_probe_admission elsewhere.
+            _lb_guard = getattr(self, "_clear_long_book_bid_before_sell", None)
+            if callable(_lb_guard):
+                _lb_guard(asset, side, plan.post_only, reason="entry")
             order = self.orders.submit(
                 asset=asset, symbol=symbol,
                 pair=self.kraken.kraken_pair(symbol), side=side,

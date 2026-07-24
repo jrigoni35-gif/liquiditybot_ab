@@ -84,15 +84,17 @@ marketable short-entry/hedge-open SELL (`main._hedge_actions`' "open"
 branch) — reaches down through the book far enough to trade against it:
 a literal self-fill, or the venue's self-trade-prevention (STP)
 cancelling the escape leg instead of the entry.
-`main._clear_long_book_bid_before_sell` is now wired into both call
+`main._clear_long_book_bid_before_sell` is now wired into all four call
 sites: it cancels our own resting long-book bid on that pair FIRST, before any
 non-`post_only` (marketable) sell is submitted, coded `LB-022`
 (`Code.LB_BID_CLEARED`) with the exit's `reason_code` carried in the
-audit payload. A `post_only` maker exit is deliberately exempt — a
-resting ask can never cross the book, so passive-passive same-pair
-quoting (our own bid alongside our own maker exit) is bona fide
-two-sided market making, not the wash-trade pattern this rule targets.
-Cancel failure never blocks the sell (logged and swallowed); the
+audit payload. The four wired sites are: (1) exit ladder in `_submit_exit`,
+(2) hedge open in `_hedge_actions`, (3) direct taker entry in `cycle_once`,
+and (4) algo-child taker entry in `_submit_algo_child`. A `post_only` maker
+exit is deliberately exempt — a resting ask can never cross the book, so
+passive-passive same-pair quoting (our own bid alongside our own maker exit)
+is bona fide two-sided market making, not the wash-trade pattern this rule
+targets. Cancel failure never blocks the sell (logged and swallowed); the
 venue's own STP remains the documented backstop for the residual race
 between the cancel check and the sell landing. This closes the open
 item for the one book capable of resting a same-pair entry long enough
