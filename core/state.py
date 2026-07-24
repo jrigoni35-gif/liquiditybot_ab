@@ -75,11 +75,22 @@ class PortfolioState:
 
     def __post_init__(self):
         self.cash_balance = self.starting_capital
-        _now = datetime.now(timezone.utc)
-        self._last_pnl_reset_date = _now.date().isoformat()
-        _iso = _now.isocalendar()
-        self._last_week_key = f"{_iso[0]}-W{_iso[1]:02d}"
-        self._last_month_key = f"{_now.year}-{_now.month:02d}"
+        self._last_pnl_reset_date = datetime.now(timezone.utc).date().isoformat()
+        # _last_week_key / _last_month_key deliberately stay at their "" default
+        # here (#123, same bug class as W2-18 / tests/test_replay_parity.py):
+        # eagerly seeding them from datetime.now(timezone.utc) at construction
+        # diverges from whatever `now` the caller actually drives the engine
+        # with under replay/test (a historical or injected time), so the FIRST
+        # maybe_close_week/maybe_close_month call took the "boundary crossed"
+        # branch instead of "fresh state: adopt" - a phantom week/month close,
+        # a real RP_WEEK_CLOSED/RP_MONTH_CLOSED audit entry, a real
+        # capital.weekly_rollover call, and a synthetic row appended to the
+        # repo's real outputs/{weekly,monthly}_ledger.csv. Leaving these at ""
+        # lets the pre-existing lazy adopt in maybe_close_week/maybe_close_month
+        # seed them from the caller's OWN first `now` - live and replay alike -
+        # with zero live-runner behavior change (a live boot's construction and
+        # its first fast_cycle(now) both happen at essentially the same real
+        # wall-clock instant either way).
         # peak mark-to-market equity, for a TRUE (unrealized-aware, peak-based)
         # drawdown backstop — realized-only drawdown_pct is blind to a book that
         # is deep underwater on marks but not yet closed.
