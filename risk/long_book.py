@@ -312,7 +312,9 @@ class EvidenceLadder:
             return False
         fresh_win = self._gross_win_live - marker["gross_win_live"]
         fresh_loss = self._gross_loss_live - marker["gross_loss_live"]
-        return _pf(fresh_win, fresh_loss) >= gate.pf_floor
+        # r3 carries no own pf_floor; its quality bar is r2's, same as forward earning.
+        pf_gate = self.cfg.r2.pf_floor if lost_rung in (2, 3) else 0.0
+        return _pf(fresh_win, fresh_loss) >= pf_gate
 
     def _prune_redeemed(self) -> None:
         """Drop every marker _redeems() as true, in recorded order.

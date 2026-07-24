@@ -382,3 +382,46 @@ def test_redemption_markers_round_trip_mid_redemption():
     # complete the redemption on the RESTORED instance
     _closed_live(restored, wins=10, losses=5, win_usd=10.0, loss_usd=5.0)
     assert restored.rung() == 3
+
+
+def test_rung_three_downgrade_stays_on_fresh_losses_below_r2_pf_floor():
+    """Regression test for r3-redemption pf gate bug: rung 3 has no
+    pf_floor, so its redemption quality bar must use r2.pf_floor. When a
+    downgraded rung-3 marker meets fresh closed_live >= r3.min_closed_live
+    (30) but the fresh pf is below r2.pf_floor (1.2), redemption must FAIL
+    — the rung stays at 2, not bouncing back to 3 on volume alone."""
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    assert ladder.rung() == 3
+    assert ladder.maybe_downgrade(0.06) is True
+    assert ladder.rung() == 2
+    # feed exactly 30 fresh live closes (>= r3.min_closed_live) with pf
+    # just below r2.pf_floor (1.2): 6 wins + 24 losses (fresh pf=60/120=0.5) -
+    # must NOT redeem to rung 3, should stay at 2
+    _closed_live(ladder, wins=6, losses=24, win_usd=10.0, loss_usd=5.0)
+    assert ladder.closed_live >= 30
+    fresh_pf = (ladder._gross_win_live - 200) / (ladder._gross_loss_live - 50)
+    assert fresh_pf < 1.2, f"fresh pf must be < 1.2, got {fresh_pf}"
+    assert ladder.rung() == 2, (
+        "rung 3 downgrade must check fresh pf against r2.pf_floor (1.2), "
+        "not r3.pf_floor (0.0); fresh pf < 1.2 must NOT redeem"
+    )
+
+
+def test_rung_three_downgrade_redeems_on_fresh_evidence_at_r2_pf_floor():
+    """Positive: rung 3 downgrade to 2 redeems when fresh closes meet
+    r3.min_closed_live AND fresh pf >= r2.pf_floor. This documents the
+    quality bar: r3 carries no own pf_floor; its redemption bar is r2's."""
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    assert ladder.rung() == 3
+    assert ladder.maybe_downgrade(0.06) is True
+    assert ladder.rung() == 2
+    # feed 30 fresh closes with pf >= 1.2 - should redeem back to 3
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    assert ladder.pf_live >= 1.2
+    assert ladder.rung() == 3
