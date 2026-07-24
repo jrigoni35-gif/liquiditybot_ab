@@ -28,9 +28,13 @@ CONVENTIONS, not findings; down-only influence)"). Direction is never
 signed from calendar or cycle inputs.
 """
 
+import csv
+import io
 import logging
+import math
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 from core.sanitize import loads_bounded
 
@@ -152,3 +156,198 @@ def load_calendar(path: Path) -> dict | None:
     if not isinstance(parsed, dict):
         return None
     return parsed
+
+
+# ---- source parsers (Task B2) --------------------------------------------
+#
+# Free/keyless, no network I/O here (that is `ContextFeed`, a later task).
+# Every parser returns None on empty/garbage/malformed input rather than
+# raising — a dark or hostile source degrades its component to
+# `known=False`, never a crash and never a fabricated value.
+
+
+def parse_fred_csv(text: Optional[str]) -> Optional[float]:
+    """Last non-missing numeric observation from a single-series FRED
+    export (`fredgraph.csv?id=X`): two columns, one header row, "." marks
+    a missing observation and is skipped. The real fetched fixtures'
+    header reads `observation_date,<ID>` rather than the interface doc's
+    generic `DATE,<ID>` — this parser does not depend on the header's
+    literal spelling, only on treating row 0 as a header to be skipped
+    (a non-numeric row 0 is skipped naturally by the same float() guard
+    that skips any other malformed line, so no special-casing is needed).
+    None on empty/garbage/header-only/all-missing content — never raises.
+    """
+    if not text:
+        return None
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return None
+    for line in reversed(lines[1:]):
+        parts = line.strip().split(",")
+        if len(parts) != 2:
+            continue
+        raw = parts[1].strip()
+        if raw in ("", "."):
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if not math.isfinite(value):
+            continue
+        return value
+    return None
+
+
+def parse_stablecoin_total(json_text: Optional[str]) -> Optional[float]:
+    """Total circulating USD across all stablecoins from DefiLlama's `GET
+    https://stablecoins.llama.fi/stablecoins?includePrices=false`: sum of
+    `peggedAssets[].circulating.peggedUSD`, tolerant of entries missing
+    the key (skipped, never zero-filled so one bad entry cannot silently
+    understate the total). None on any parse failure — bad JSON, wrong
+    shape, missing/empty `peggedAssets`, or zero contributing entries —
+    never raises. An empty result is treated the same as a parse failure
+    (honest unknown, not a fabricated zero)."""
+    parsed = loads_bounded(json_text)
+    if not isinstance(parsed, dict):
+        return None
+    assets = parsed.get("peggedAssets")
+    if not isinstance(assets, list):
+        return None
+    total = 0.0
+    found_any = False
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        circulating = asset.get("circulating")
+        if not isinstance(circulating, dict):
+            continue
+        raw = circulating.get("peggedUSD")
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        total += value
+        found_any = True
+    if not found_any:
+        return None
+    return total
+
+
+# Column positions in the CFTC "Traders in Financial Futures - Futures
+# Only" report (dea/newcot `FinFutWk.txt`, HEADERLESS short format),
+# 0-indexed. Verified against the real fetched fixture by cross-
+# referencing the column-identical, header-carrying annual equivalent
+# report (`fut_fin_txt_YYYY.zip` -> `FinFutYY.txt`, same 87-field layout)
+# and aligning field-by-field across several distinct market rows; see
+# tests/fixtures/context/README.md for the full verification transcript.
+# Never derived from the documentation alone.
+_COT_COL_MARKET_NAME = 0
+_COT_COL_LEV_LONG = 14   # Lev_Money_Positions_Long_All
+_COT_COL_LEV_SHORT = 15  # Lev_Money_Positions_Short_All
+
+
+def parse_cot_btc_lev_net(text: Optional[str]) -> Optional[float]:
+    """Leveraged-funds net position (Lev_Money_Positions_Long_All minus
+    _Short_All) for the standard CME BTC futures contract, from the CFTC
+    Traders-in-Financial-Futures futures-only CSV. Exactly ONE COT series
+    (pass-2 §1.3c) — a crowding/fragility dial for joint reading with
+    `basis_bps`, never a signed directional input on its own.
+
+    Columns are located BY DOCUMENTED POSITION (see `_COT_COL_*` above)
+    because the real `FinFutWk.txt` fetch is headerless; header-name
+    lookup is used instead whenever a source ships one (not applicable
+    here). Returns the FIRST row whose market name contains both
+    "BITCOIN" and "CHICAGO MERCANTILE" (the standard-size contract, ahead
+    of the MICRO/NANO variants that also match both substrings) — 'first'
+    matters, so row order is preserved, never sorted or deduplicated.
+    None when no such row exists, the file is malformed (bad CSV, too few
+    columns, non-numeric long/short fields), or `text` is empty — never
+    raises."""
+    if not text:
+        return None
+    try:
+        rows = list(csv.reader(io.StringIO(text)))
+    except csv.Error:
+        return None
+    for row in rows:
+        if len(row) <= _COT_COL_LEV_SHORT:
+            continue
+        name = row[_COT_COL_MARKET_NAME].upper()
+        if "BITCOIN" in name and "CHICAGO MERCANTILE" in name:
+            try:
+                long_ = float(row[_COT_COL_LEV_LONG].strip())
+                short_ = float(row[_COT_COL_LEV_SHORT].strip())
+            except ValueError:
+                return None
+            if not (math.isfinite(long_) and math.isfinite(short_)):
+                return None
+            return long_ - short_
+    return None
+
+
+# ---- dial math (Task B2) --------------------------------------------------
+#
+# All numeric anchors are CONVENTIONS supplied via `cfg` (a plain dict);
+# the documented defaults below are used only when `cfg` omits a key, so
+# wiring `config.json`'s `context` block in a later task is behavior-
+# preserving by construction (identical defaults, never a bare literal in
+# the decision path). Any missing/unknown input propagates to None -
+# never a partial dial computed from incomplete data.
+
+
+def stress_dial(dff_delta_90d: Optional[float], t10y2y: Optional[float],
+                vix: Optional[float], cfg: dict) -> Optional[float]:
+    """Mean of three `clip_z` terms - funding-rate delta, yield-curve
+    inversion, and volatility - into a single unitless macro-stress dial.
+    `cfg` keys (CONVENTION defaults in parens, used when the key is
+    absent): `dff_delta_center` (0.0) / `dff_delta_scale` (0.5);
+    `t10y2y_center` (0.0) / `t10y2y_scale` (0.5) - t10y2y is SIGN-FLIPPED
+    before centering, so an inverted/negative curve reads as POSITIVE
+    stress, not negative; `vix_center` (20.0) / `vix_scale` (10.0);
+    `clip` (2.0), shared by all three terms. ANY of the three inputs
+    being None propagates to an overall None - a partial read is never
+    presented as a full one."""
+    if dff_delta_90d is None or t10y2y is None or vix is None:
+        return None
+    clip = cfg.get("clip", 2.0)
+    dff_term = clip_z(dff_delta_90d, cfg.get("dff_delta_center", 0.0),
+                    cfg.get("dff_delta_scale", 0.5), clip)
+    curve_term = clip_z(-t10y2y, cfg.get("t10y2y_center", 0.0),
+                        cfg.get("t10y2y_scale", 0.5), clip)
+    vix_term = clip_z(vix, cfg.get("vix_center", 20.0),
+                    cfg.get("vix_scale", 10.0), clip)
+    return (dff_term + curve_term + vix_term) / 3.0
+
+
+def flow_dials(cot_net_now: Optional[float], cot_net_prev: Optional[float],
+            stable_now: Optional[float], stable_prev: Optional[float],
+            cfg: dict) -> tuple[Optional[float], Optional[float]]:
+    """(cot_delta_z, stable_wk_pct) - two INDEPENDENT crowding/flow dials;
+    each degrades to None on its OWN missing input without dragging the
+    other one down (a first-poll `prev=None` for one source never blanks
+    the other source's dial).
+
+    `cot_delta_z` = `clip_z(cot_net_now - cot_net_prev, 0.0, cfg
+    "cot_delta_scale" (default 5000.0), cfg "clip" (default 2.0))`; None
+    if either COT input is missing (first poll has no `prev` yet).
+
+    `stable_wk_pct` = `100 * (stable_now - stable_prev) / stable_prev`;
+    None if either stablecoin input is missing OR `stable_prev <= 0` (a
+    non-positive base makes a percent change meaningless, not merely a
+    divide-by-zero to guard)."""
+    if cot_net_now is None or cot_net_prev is None:
+        cot_delta_z = None
+    else:
+        clip = cfg.get("clip", 2.0)
+        cot_delta_z = clip_z(cot_net_now - cot_net_prev, 0.0,
+                            cfg.get("cot_delta_scale", 5000.0), clip)
+    if stable_now is None or stable_prev is None or stable_prev <= 0:
+        stable_wk_pct = None
+    else:
+        stable_wk_pct = 100.0 * (stable_now - stable_prev) / stable_prev
+    return cot_delta_z, stable_wk_pct
