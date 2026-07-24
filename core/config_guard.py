@@ -241,40 +241,22 @@ def _long_book_checks(config: dict) -> list:
                     "must be positive - 0 or negative would never (or "
                     "always/immediately) trip the instant downgrade"))
 
-    # --- thesis stop vs the tier run: FATAL if thesis_stop_pct is not
-    # STRICTLY BELOW profit_taking.tier_4.trigger_pct_gain. thesis_stop_pct
-    # is a DOWNSIDE (loss) magnitude from entry (structural invalidation,
-    # LB-031); tier_4.trigger_pct_gain is the UPSIDE (gain) magnitude of
-    # the ladder's final rung - direction note below explains why this is
-    # "<", not the brief's literal "must be strictly above" wording.
-    #
-    # DEVIATION FROM THE BRIEF, DOCUMENTED (task-C2 report has the full
-    # writeup): the brief states "thesis_stop_pct > tier_4 trigger is
-    # FATAL if not (a thesis stop inside the tier run is incoherent)".
-    # Implemented literally, that direction FAILS on the brief's OWN
-    # shipped defaults (thesis_stop_pct=12.0, tier_4.trigger_pct_gain=
-    # 40.0 - 12 is not > 40) and is a CONCRETE regression: it breaks
-    # scripts/smoke_test.py's persistence-roundtrip check, which builds a
-    # live-mode (dry_run=False) bot from the real config.json and hits
-    # enforce()'s unconditional ConfigError raise on any FATAL. Shipping
-    # the config block verbatim (required) plus keeping smoke_test.py
-    # green (Definition of Done) are both non-negotiable, so the literal
-    # direction cannot stand. The flipped direction below is the smallest
-    # change that (a) keeps the shipped verbatim numbers clean, (b) still
-    # catches a genuine class of misconfiguration - thesis_stop_pct set
-    # as large as or larger than the tier ladder's own final trigger is
-    # very likely an accidental magnitude typo (e.g. 400 instead of 40) -
-    # and (c) does not silently touch the shipped numbers themselves.
+    # --- thesis stop: a plain bounds check. thesis_stop_pct is a DOWNSIDE
+    # pct-of-entry-price magnitude (structural invalidation, LB-031) for a
+    # spot long - it cannot be non-positive (0 or negative would never,
+    # or always/immediately, trip the stop) or exceed 100% (a spot long
+    # cannot lose more than its entry value). C2 review REMOVED the prior
+    # thesis-stop-vs-tier_4 cross check entirely (see task-C2-report.md's
+    # correction note): comparing a downside stop magnitude against the
+    # tier ladder's unrelated upside trigger magnitude false-FATAL'd
+    # coherent deep-stop configs (e.g. thesis_stop_pct=45 with the
+    # shipped tier_4.trigger_pct_gain=40) with no genuine coherence
+    # relationship between the two numbers to justify it.
     thesis_stop = float(lb.get("thesis_stop_pct", 0.0))
-    tier4_trigger = float(_f(lb, "profit_taking.tier_4.trigger_pct_gain",
-                             0.0))
-    if thesis_stop >= tier4_trigger:
+    if not (0.0 < thesis_stop <= 100.0):
         out.append(("FATAL", f"long_book.thesis_stop_pct ({thesis_stop}) "
-                    f"must be strictly below long_book.profit_taking."
-                    f"tier_4.trigger_pct_gain ({tier4_trigger}) - a "
-                    "structural full-close stop magnitude at or above the "
-                    "tier ladder's own final trigger is very likely a "
-                    "magnitude typo"))
+                    "must be in (0, 100] - a downside pct of entry price "
+                    "cannot be non-positive or exceed 100% for a spot long"))
 
     # --- time_stop design pin: PT-060 time-stop is OFF for the long book
     # by design (patience IS the strategy) - never armed, unlike the 5m

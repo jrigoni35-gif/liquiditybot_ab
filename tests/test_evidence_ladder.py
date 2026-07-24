@@ -280,3 +280,105 @@ def test_to_dict_is_json_safe():
     _closed_paper(ladder, 3)
     ladder.note_close(5.0, is_live=True)
     json.dumps(ladder.to_dict())   # must not raise
+
+
+# ---------------------------------------------------------------------
+# redemption (C2 review Fix 3): downgrades must be re-earnable on fresh
+# evidence accrued strictly AFTER the downgrade - a forever-subtracted
+# counter violates the spec's "re-earn slowly" (review found: with no
+# redemption, 1000 fresh closes after one downgrade could never restore
+# an already-earned rung 3).
+# ---------------------------------------------------------------------
+
+def test_downgrade_recovers_rung_three_on_fresh_live_evidence():
+    """The review's exact probe, turned into a recovery assertion: earn
+    rung 3, downgrade to 2, then feed fresh live closes >= r3's own
+    min_closed_live at healthy pf - the rung must return to 3."""
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    assert ladder.rung() == 3
+    assert ladder.maybe_downgrade(0.06) is True
+    assert ladder.rung() == 2
+    # fresh evidence since the downgrade: 30 more live closes (== r3's
+    # min_closed_live), pf stays healthy (4.0 >= r3's pf_floor)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    assert ladder.rung() == 3
+    assert ladder.live_ceiling_frac() == 0.30
+
+
+def test_downgrade_stays_capped_on_insufficient_fresh_evidence():
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    ladder.maybe_downgrade(0.06)
+    assert ladder.rung() == 2
+    # only 29 fresh live closes - one short of r3.min_closed_live (30)
+    _closed_live(ladder, wins=19, losses=10, win_usd=10.0, loss_usd=5.0)
+    assert ladder.rung() == 2
+
+
+def test_double_downgrade_requires_double_redemption():
+    """Two stacked downgrades (rung 3 -> 2 -> 1) each record their own
+    marker against the rung THEY dropped from; redeeming only the more
+    recent (rung-2) marker restores rung 2, not rung 3 - the rung-3
+    marker needs its own, larger, fresh-evidence bar cleared too."""
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    assert ladder.rung() == 3
+    assert ladder.maybe_downgrade(0.06) is True   # loses rung 3 -> 2
+    assert ladder.rung() == 2
+    assert ladder.maybe_downgrade(0.06) is True   # loses rung 2 -> 1
+    assert ladder.rung() == 1
+    # 15 fresh live closes clears r2's own gate (min_closed_live=15,
+    # pf healthy) but not r3's (min_closed_live=30) - only ONE of the
+    # two markers redeems
+    _closed_live(ladder, wins=10, losses=5, win_usd=10.0, loss_usd=5.0)
+    assert ladder.rung() == 2
+    # another 15 fresh live closes now clears 30 total since the rung-3
+    # marker's snapshot too - the second marker redeems
+    _closed_live(ladder, wins=10, losses=5, win_usd=10.0, loss_usd=5.0)
+    assert ladder.rung() == 3
+
+
+def test_rung_one_loss_redeems_on_fresh_paper_closes():
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    assert ladder.rung() == 1
+    assert ladder.maybe_downgrade(0.06) is True
+    assert ladder.rung() == 0
+    _closed_paper(ladder, 9)     # 9 < r1.min_closed_paper (10) - short
+    assert ladder.rung() == 0
+    ladder.note_close(1.0, is_live=False)   # 10th fresh paper close
+    assert ladder.rung() == 1
+
+
+def test_redemption_markers_round_trip_mid_redemption():
+    """Persist/restore mid-redemption and prove the marker's SNAPSHOT
+    (not just the live totals) survived the round trip: complete the
+    redemption on the RESTORED instance and confirm it still needs the
+    full fresh-evidence bar from the original downgrade point."""
+    ladder = EvidenceLadder(_ladder_cfg())
+    _closed_paper(ladder, 10)
+    _closed_live(ladder, wins=20, losses=10, win_usd=10.0, loss_usd=5.0)
+    ladder.note_adverse_transition_survived()
+    assert ladder.rung() == 3
+    ladder.maybe_downgrade(0.06)
+    assert ladder.rung() == 2
+    # partial fresh evidence: 15 more live closes, short of r3's 30
+    _closed_live(ladder, wins=10, losses=5, win_usd=10.0, loss_usd=5.0)
+    assert ladder.rung() == 2
+
+    d = ladder.to_dict()
+    assert d["downgrade_markers"]   # marker persisted, still uncleared
+    restored = EvidenceLadder(_ladder_cfg())
+    restored.from_dict(d)
+    assert restored.rung() == 2
+
+    # complete the redemption on the RESTORED instance
+    _closed_live(restored, wins=10, losses=5, win_usd=10.0, loss_usd=5.0)
+    assert restored.rung() == 3

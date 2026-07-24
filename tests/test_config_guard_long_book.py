@@ -136,33 +136,42 @@ def test_dd_downgrade_pct_non_positive_fatal():
 
 
 # ---------------------------------------------------------------------
-# thesis stop vs tier_4 trigger
+# thesis_stop_pct: plain bounds check, (0, 100]
 #
-# DEVIATION FROM THE BRIEF, DOCUMENTED (see the matching comment in
-# core/config_guard.py._long_book_checks and the C2 report for the full
-# writeup): the brief's literal wording is "thesis_stop_pct > tier_4
-# trigger is FATAL if not (a thesis stop inside the tier run is
-# incoherent)". Implemented literally that fails the brief's OWN shipped
-# defaults (thesis_stop_pct=12.0 vs tier_4.trigger_pct_gain=40.0) and is
-# a CONCRETE regression against scripts/smoke_test.py's persistence
-# roundtrip check (builds a live-mode bot from the real config.json,
-# hits enforce()'s unconditional ConfigError raise). Shipping the config
-# block verbatim (required) and keeping smoke_test.py green (Definition
-# of Done) both win over the brief's literal direction, so the
-# IMPLEMENTED rule is thesis_stop_pct < tier_4 trigger (strictly BELOW,
-# not above) - the shipped defaults (12 < 40) are clean under this rule.
+# C2 REVIEW CORRECTION (see the matching comment in
+# core/config_guard.py._long_book_checks and task-C2-report.md's
+# correction note for the full writeup): the prior implementation here
+# compared thesis_stop_pct against profit_taking.tier_4.trigger_pct_gain
+# (a downside stop magnitude vs an unrelated upside tier-trigger
+# magnitude) and FATAL'd on a coherent deep-stop config (45, well inside
+# a sane spot-long stop, but >= the shipped tier_4 trigger of 40). That
+# cross-block check is deleted entirely, replaced with a plain bounds
+# check on thesis_stop_pct alone: a downside pct-of-entry-price cannot
+# be non-positive (never/always trips) or exceed 100% (a spot long
+# cannot lose more than its entry value).
 # ---------------------------------------------------------------------
 
-def test_thesis_stop_below_tier4_trigger_clean():
+def test_thesis_stop_zero_fatal():
+    assert _fatals(_cfg(thesis_stop_pct=0.0))
+
+
+def test_thesis_stop_negative_fatal():
+    assert _fatals(_cfg(thesis_stop_pct=-5.0))
+
+
+def test_thesis_stop_above_100_fatal():
+    assert _fatals(_cfg(thesis_stop_pct=150.0))
+
+
+def test_thesis_stop_deep_stop_above_tier4_trigger_clean():
+    # the exact case the old cross-check false-FATAL'd: a deep-but-sane
+    # thesis stop that happens to sit above tier_4's 40.0 trigger - this
+    # is the point of the fix, not an edge case to special-case around
+    assert _fatals(_cfg(thesis_stop_pct=45.0)) == []
+
+
+def test_thesis_stop_shipped_default_clean():
     assert _fatals(_cfg(thesis_stop_pct=12.0)) == []   # shipped default
-
-
-def test_thesis_stop_equal_tier4_trigger_fatal():
-    assert _fatals(_cfg(thesis_stop_pct=40.0))    # strictly-below required
-
-
-def test_thesis_stop_above_tier4_trigger_fatal():
-    assert _fatals(_cfg(thesis_stop_pct=41.0))
 
 
 # ---------------------------------------------------------------------
