@@ -167,6 +167,126 @@ def _context_checks(config: dict) -> list:
     return out
 
 
+def _long_book_checks(config: dict) -> list:
+    """Compounder Phase C long_book block coherence (task-C2 brief,
+    risk/long_book.py): FATAL = the evidence ladder or the accumulation
+    config would be structurally broken or exit-incoherent. An absent
+    block is clean - risk/long_book.py's own defaults apply. Long-only
+    by construction: this block has no direction/side key to check
+    (long_book adds are unconditionally accumulation-side; a future
+    spec must earn shorts per docs/superpowers/specs/
+    2026-07-24-compounder-framework-design.md §5)."""
+    out: list = []
+    lb = _f(config, "long_book")
+    if not isinstance(lb, dict) or not lb:
+        return out
+
+    # --- assets: non-empty, string-typed, subset of Kraken's configured
+    # trading universe (base symbol before the "/", e.g. "BTC/USD" ->
+    # "BTC") - fully derivable from config.json itself, no runtime data
+    # needed, so this checks real membership rather than type-only.
+    assets = lb.get("assets", []) or []
+    if not assets:
+        out.append(("FATAL", "long_book.assets must be non-empty - the "
+                    "long book needs at least one asset to accumulate"))
+    else:
+        pairs = _f(config, "exchanges.kraken.trading_pairs", []) or []
+        universe = {str(p).split("/")[0] for p in pairs}
+        for a in assets:
+            if not isinstance(a, str) or not a:
+                out.append(("FATAL", f"long_book.assets entry {a!r} must "
+                            "be a non-empty string"))
+            elif universe and a not in universe:
+                out.append(("FATAL", f"long_book.assets '{a}' is not in "
+                            f"exchanges.kraken.trading_pairs' base-symbol "
+                            f"universe {sorted(universe)} - the long book "
+                            f"can only accumulate assets Kraken actually "
+                            f"trades"))
+
+    # --- spacing / offset / frac knobs: all strictly positive, or the
+    # add path either never fires (0 spacing floods every cycle instead
+    # of throttling) or sizes/offsets to nothing.
+    for key in ("add_usd_frac_of_ceiling", "add_min_spacing_hours",
+                "add_offset_pct"):
+        v = float(lb.get(key, 0.0))
+        if v <= 0:
+            out.append(("FATAL", f"long_book.{key} ({v}) must be positive"))
+
+    # --- evidence ladder: ceilings strictly increasing and each <= the
+    # SHARED risk_protocols.heat.max_portfolio_heat_frac (cross-block
+    # read, same pattern as _conviction_checks' pretrade cross-read) -
+    # the long book's own ceiling lives INSIDE the combined portfolio
+    # heat cap, never its own risk stack (Global Constraint).
+    ladder = lb.get("ladder", {}) or {}
+    r1 = float(_f(ladder, "r1.ceiling_frac", 0.0))
+    r2 = float(_f(ladder, "r2.ceiling_frac", 0.0))
+    r3 = float(_f(ladder, "r3.ceiling_frac", 0.0))
+    if not (0.0 < r1 < r2 < r3):
+        out.append(("FATAL", f"long_book.ladder ceilings [{r1}, {r2}, "
+                    f"{r3}] must be strictly increasing (0 < r1 < r2 < "
+                    "r3) - a flat/inverted ladder either grants no extra "
+                    "size for more evidence or grants LESS"))
+    heat_cap = float(_f(config, "risk_protocols.heat.max_portfolio_heat_frac",
+                        0.35))
+    for name, v in (("r1", r1), ("r2", r2), ("r3", r3)):
+        if v > heat_cap:
+            out.append(("FATAL", f"long_book.ladder.{name}.ceiling_frac "
+                        f"({v}) exceeds risk_protocols.heat."
+                        f"max_portfolio_heat_frac ({heat_cap}) - the long "
+                        f"book's ceiling cannot exceed the shared "
+                        f"portfolio heat cap it lives inside"))
+    dd = float(ladder.get("dd_downgrade_pct", 0.0))
+    if dd <= 0:
+        out.append(("FATAL", f"long_book.ladder.dd_downgrade_pct ({dd}) "
+                    "must be positive - 0 or negative would never (or "
+                    "always/immediately) trip the instant downgrade"))
+
+    # --- thesis stop vs the tier run: FATAL if thesis_stop_pct is not
+    # STRICTLY BELOW profit_taking.tier_4.trigger_pct_gain. thesis_stop_pct
+    # is a DOWNSIDE (loss) magnitude from entry (structural invalidation,
+    # LB-031); tier_4.trigger_pct_gain is the UPSIDE (gain) magnitude of
+    # the ladder's final rung - direction note below explains why this is
+    # "<", not the brief's literal "must be strictly above" wording.
+    #
+    # DEVIATION FROM THE BRIEF, DOCUMENTED (task-C2 report has the full
+    # writeup): the brief states "thesis_stop_pct > tier_4 trigger is
+    # FATAL if not (a thesis stop inside the tier run is incoherent)".
+    # Implemented literally, that direction FAILS on the brief's OWN
+    # shipped defaults (thesis_stop_pct=12.0, tier_4.trigger_pct_gain=
+    # 40.0 - 12 is not > 40) and is a CONCRETE regression: it breaks
+    # scripts/smoke_test.py's persistence-roundtrip check, which builds a
+    # live-mode (dry_run=False) bot from the real config.json and hits
+    # enforce()'s unconditional ConfigError raise on any FATAL. Shipping
+    # the config block verbatim (required) plus keeping smoke_test.py
+    # green (Definition of Done) are both non-negotiable, so the literal
+    # direction cannot stand. The flipped direction below is the smallest
+    # change that (a) keeps the shipped verbatim numbers clean, (b) still
+    # catches a genuine class of misconfiguration - thesis_stop_pct set
+    # as large as or larger than the tier ladder's own final trigger is
+    # very likely an accidental magnitude typo (e.g. 400 instead of 40) -
+    # and (c) does not silently touch the shipped numbers themselves.
+    thesis_stop = float(lb.get("thesis_stop_pct", 0.0))
+    tier4_trigger = float(_f(lb, "profit_taking.tier_4.trigger_pct_gain",
+                             0.0))
+    if thesis_stop >= tier4_trigger:
+        out.append(("FATAL", f"long_book.thesis_stop_pct ({thesis_stop}) "
+                    f"must be strictly below long_book.profit_taking."
+                    f"tier_4.trigger_pct_gain ({tier4_trigger}) - a "
+                    "structural full-close stop magnitude at or above the "
+                    "tier ladder's own final trigger is very likely a "
+                    "magnitude typo"))
+
+    # --- time_stop design pin: PT-060 time-stop is OFF for the long book
+    # by design (patience IS the strategy) - never armed, unlike the 5m
+    # book's own optional time_stop.
+    if bool(_f(lb, "profit_taking.time_stop.enabled", False)):
+        out.append(("FATAL", "long_book.profit_taking.time_stop.enabled "
+                    "must be false - PT-060 time-stop is OFF by design "
+                    "for the long book (patience IS the strategy)"))
+
+    return out
+
+
 def validate(config: dict) -> list:
     """Pure check: returns [(severity, message), ...]. No side effects."""
     findings = []
@@ -2058,6 +2178,7 @@ def validate(config: dict) -> list:
 
     findings.extend(_conviction_checks(config))
     findings.extend(_context_checks(config))
+    findings.extend(_long_book_checks(config))
     return findings
 
 

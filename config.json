@@ -464,6 +464,45 @@
       "stablecoins": "https://stablecoins.llama.fi/stablecoins?includePrices=false"
     }
   },
+  "long_book": {
+    "_doc": "Compounder Phase C long-horizon accumulation book (risk/long_book.py, spec §4-5). PAPER-FIRST: rung 0 binds until realized book-tagged track record earns rung 1+. Engines are parameterized instances of the existing tier/sizer machinery - never duplicates. All thresholds below are planning conventions pending paper re-derivation.",
+    "enabled": true,
+    "assets": ["BTC", "ETH"],
+    "_assets_doc": "majors only at start - thin alts are the pump-and-dump surface (evidence doc pass 2 §1.1d); extend consciously.",
+    "add_usd_frac_of_ceiling": 0.2,
+    "add_min_spacing_hours": 24.0,
+    "add_offset_pct": 1.5,
+    "_entry_doc": "post_only maker bid add_offset_pct below mark, one growing position per asset (averaging adds), spacing throttles cadence; TH-013 zone hygiene shifts bids AWAY from magnets (LB-020).",
+    "thesis_stop_pct": 12.0,
+    "_thesis_doc": "structural invalidation full-close (LB-031), NOT a volatility stop; wide by design - the tier/give-back machinery handles profit protection.",
+    "context": {"stress_max_for_add": 1.0, "require_known": true,
+                "pause_in_event_window": true,
+                "contraction_spacing_mult": 2.0},
+    "_context_doc": "term-4 alignment: adds need context known + stress dial <= stress_max_for_add; event windows pause adds (LB-050); contraction phase doubles spacing (down-only cadence, never direction; phase buckets are labeled conventions).",
+    "ladder": {
+      "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
+      "r2": {"ceiling_frac": 0.20, "min_closed_live": 15, "pf_floor": 1.2},
+      "r3": {"ceiling_frac": 0.30, "min_closed_live": 30,
+             "adverse_transitions_survived": 1},
+      "dd_downgrade_pct": 6.0
+    },
+    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct on the book's own equity-curve peak -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung.",
+    "profit_taking": {
+      "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
+      "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},
+      "tier_3": {"trigger_pct_gain": 25.0, "close_pct_of_position": 25},
+      "tier_4": {"trigger_pct_gain": 40.0, "close_pct_of_position": 25},
+      "vol_scaled": false,
+      "trailing_stop": {"enabled": true, "activate_after_tier": 2,
+                        "trail_pct": 8.0},
+      "give_back": {"enabled": true, "arm_gain_pct": 5.0,
+                    "giveback_frac": 0.35,
+                    "euphoria_giveback_frac": 0.25},
+      "time_stop": {"enabled": false},
+      "min_trigger_cost_mult": 3.0
+    },
+    "_profit_doc": "long-horizon tier geometry (wider, absolute pct - vol_scaled off); euphoria phase tightens give-back to euphoria_giveback_frac (down-only per the disposition-effect inversion, evidence pass 2 §1.1a); PT-060 time-stop OFF by design (patience IS the strategy)."
+  },
   "ml": {
     "sampling": {
       "cusum_enabled": true,
