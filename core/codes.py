@@ -22,6 +22,7 @@ Prefix map (subsystem of origin):
   LT  regime.liquidity_regime (asset liquidity-tier isolation)
   GL  execution.grid_ladder (logistic-armed grid entry ladder)
   HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
+  CV  risk.conviction (Compounder Phase A conviction formula)
 """
 
 from enum import Enum
@@ -258,6 +259,23 @@ class Code(str, Enum):
                                      # (W2-19: was a bare "CG-000" string,
                                      # unregistered despite the prefix map
                                      # advertising CG)
+
+    # ---- conviction formula (CV) — risk/conviction.py (Compounder A) ----
+    CV_ADMIT = "CV-000"              # all terms agree: conviction admitted
+    CV_AGREEMENT_LOW = "CV-010"      # gate-stack agreement below floor
+    CV_EV_MULTIPLE_LOW = "CV-020"    # edge fails ev_cost_mult x the pretrade
+                                     # gate's MEASURED round-trip cost stack
+    CV_REGIME_UNKNOWN = "CV-030"     # current regime below the T4 live-label
+                                     # coverage floor (or unmapped): no
+                                     # evidence, no conviction
+    CV_CONTEXT_MISALIGNED = "CV-040" # long-book context term: emitted by the
+                                     # formula; no engine call site passes
+                                     # context_aligned until the context
+                                     # engine (Phase B) + long book (Phase C)
+    CV_CADENCE_HIGH = "CV-050"       # governor: admit share above share_hi -
+                                     # the formula has gone vacuous (always-on)
+    CV_CADENCE_LOW = "CV-051"        # governor: admit share below share_lo -
+                                     # the formula is starving conviction flow
 
 
 def tag(code: Code, detail: str) -> str:
