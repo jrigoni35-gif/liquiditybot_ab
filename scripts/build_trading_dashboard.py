@@ -672,7 +672,7 @@ def _author_command():
               "ESTIMATE, not a fact.")
     gauge("Macro stress", M("liquiditybot_context_stress"), 6, 5, mn=-2,
           mx=2, unit="short", decimals=2,
-          no_value="unknown — a source is dark",
+          no_value="unknown this cycle — check Sources ok / next poll",
           desc="Mean of three clip_z terms (funding-rate delta, "
                "yield-curve inversion, VIX); absent (not zero) when any "
                "of the three sources is dark — see Sources ok below.")
