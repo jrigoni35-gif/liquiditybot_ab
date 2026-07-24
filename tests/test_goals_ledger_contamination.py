@@ -43,7 +43,7 @@ from pathlib import Path
 
 from core.state import PortfolioState
 from main import LiquidityBot, load_config
-from scripts.smoke_test import MockBinanceUS, MockKraken, MockOKX
+from scripts.smoke_test import MockBinanceUS, MockKraken, MockOKX, qa_redirect_paths
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -146,3 +146,27 @@ def test_replay_style_run_with_historical_now_never_touches_real_ledgers(
     assert not redirected_monthly.exists(), (
         "no phantom month-close should fire on a fresh bot's first "
         "replay-driven cycle (#123 root cause, not just the redirect)")
+
+
+# ---------------------------------------------------------------------------
+# 3. smoke_test.py and replay.py redirect helpers include ledger paths
+# ---------------------------------------------------------------------------
+def test_qa_redirect_paths_includes_weekly_and_monthly_ledger_paths(tmp_path):
+    """qa_redirect_paths() must redirect system.weekly_ledger_path and
+    system.monthly_ledger_path into the QA temp dir, not outputs/."""
+    cfg = load_config(str(_ROOT / "config.json"))
+    # ensure the paths are set (some configs may not have them explicitly)
+    if "weekly_ledger_path" not in cfg["system"]:
+        cfg["system"]["weekly_ledger_path"] = "outputs/weekly_ledger.csv"
+    if "monthly_ledger_path" not in cfg["system"]:
+        cfg["system"]["monthly_ledger_path"] = "outputs/monthly_ledger.csv"
+
+    redirected = qa_redirect_paths(cfg, "test_ledger_redirect")
+    weekly_path = Path(redirected["system"]["weekly_ledger_path"])
+    monthly_path = Path(redirected["system"]["monthly_ledger_path"])
+
+    # both must now point into the QA temp dir, not outputs/
+    assert "smoke_out_test_ledger_redirect" in str(weekly_path)
+    assert "smoke_out_test_ledger_redirect" in str(monthly_path)
+    assert "outputs" not in str(weekly_path)
+    assert "outputs" not in str(monthly_path)

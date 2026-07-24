@@ -63,6 +63,8 @@ def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
     # the live state.json. These paths OVERRIDE whatever the caller set.
     tmp = Path(tempfile.gettempdir())
     cfg["system"]["state_path"] = str(tmp / "liqbot_replay_state.json")
+    cfg["system"]["weekly_ledger_path"] = str(tmp / "liqbot_replay_weekly_ledger.csv")
+    cfg["system"]["monthly_ledger_path"] = str(tmp / "liqbot_replay_monthly_ledger.csv")
     ml_cfg = cfg.setdefault("ml", {})
     ml_cfg["history_path"] = str(tmp / "liqbot_replay_history.csv")
     ml_cfg.setdefault("postmortem", {})

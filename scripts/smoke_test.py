@@ -67,6 +67,8 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     override individual paths AFTER this call."""
     d = TMP / f"smoke_out_{tag}"
     cfg["system"]["state_path"] = str(d / "state.json")
+    cfg["system"]["weekly_ledger_path"] = str(d / "weekly_ledger.csv")
+    cfg["system"]["monthly_ledger_path"] = str(d / "monthly_ledger.csv")
     ml = cfg.setdefault("ml", {})
     ml["history_path"] = str(d / "history.csv")
     ml.setdefault("postmortem", {})

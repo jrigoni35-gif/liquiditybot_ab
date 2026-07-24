@@ -236,6 +236,32 @@ def test_governor_section_no_data_when_session_digest_missing(tmp_path):
     assert "no data" in gov.lower()
 
 
+def test_session_digest_non_dict_json_treated_as_missing(tmp_path):
+    """session_digest.json containing a list instead of dict should not
+    raise AttributeError; must degrade to 'no data'."""
+    (tmp_path / "session_digest.json").write_text(json.dumps([1, 2, 3]),
+                                                   encoding="utf-8")
+    text = ld.build_digest(tmp_path)
+    assert isinstance(text, str) and text
+    assert "Traceback" not in text
+    gov = text.split("## Governor", 1)[1].split("## ", 1)[0]
+    assert "no data" in gov.lower()
+
+
+def test_session_digest_model_non_dict_treated_as_missing(tmp_path):
+    """session_digest.json with model key holding a non-dict should not
+    raise AttributeError; must degrade Governor section to 'no data'."""
+    (tmp_path / "session_digest.json").write_text(json.dumps({
+        "generated_at": 1234567890.0,
+        "model": "not-a-dict",
+    }), encoding="utf-8")
+    text = ld.build_digest(tmp_path)
+    assert isinstance(text, str) and text
+    assert "Traceback" not in text
+    gov = text.split("## Governor", 1)[1].split("## ", 1)[0]
+    assert "no data" in gov.lower()
+
+
 # ---------------------------------------------------------------------------
 # determinism: same inputs -> byte-identical output, no wall-clock leakage
 # ---------------------------------------------------------------------------

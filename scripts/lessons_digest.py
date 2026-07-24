@@ -158,7 +158,10 @@ def read_ledger_rows(path: Path) -> list:
 def read_session_digest(path: Path) -> dict:
     """Missing file or unreadable/malformed JSON -> {}."""
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        parsed = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
     except (OSError, ValueError):
         return {}
 
@@ -292,7 +295,7 @@ def _render_goal_section(weekly_rows: list, monthly_rows: list) -> str:
 
 def _render_governor_section(session_digest: dict) -> str:
     model = session_digest.get("model") if session_digest else None
-    if not model:
+    if not isinstance(model, dict):
         return "## Governor\n\nno data\n"
     lines = [
         "## Governor", "",
