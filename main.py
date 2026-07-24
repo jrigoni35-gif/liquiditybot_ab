@@ -3152,7 +3152,7 @@ class LiquidityBot:
         # own decision cycle, AFTER the 5m entry loop above (a completely
         # separate call, not folded into the loop body - the long book has
         # its own fixed asset list, not the 5m rotation/entry_assets() view).
-        self._long_book_cycle(now)
+        self._long_book_cycle(now, sentiment=sentiment, web=web, risk=risk)
 
     def _surface_kraken_imbalance(self, asset: str, v: dict, kbook: dict,
                                   ls) -> None:
@@ -3276,12 +3276,20 @@ class LiquidityBot:
                 log.info(detail)
             self._long_book_adverse_episode_start = None
 
-    def _long_book_cycle(self, now: float) -> None:
+    def _long_book_cycle(self, now: float, sentiment=None, web=None,
+                        risk=None) -> None:
         """One accumulation decision per configured long_book asset,
         called from slow_cycle AFTER the 5m entry loop. Long-only,
         post_only maker bids that AVERAGE into the book's single growing
         position per asset (_handle_fill's averaging branch) - never a
         second same-book position on one asset (Global Constraint).
+
+        `sentiment`/`web`/`risk` (C5-discovered spec gap fix): slow_cycle's
+        own already-polled locals, threaded through purely so
+        _place_long_book_add can assemble a REAL feature vector at add
+        time (see that method's docstring). All default None so a direct/
+        unit-test caller that predates this parameter keeps working
+        unchanged.
 
         Gate order mirrors LongBookEngine.decide_add's own docstring
         (halted/entries_enabled -> averaging -> spacing -> event window ->
@@ -3475,7 +3483,7 @@ class LiquidityBot:
 
             self._place_long_book_add(
                 asset, symbol, position, plan_or_deny, equity, now,
-                ecfg=ecfg)
+                ecfg=ecfg, sentiment=sentiment, web=web, risk=risk)
 
     def _long_book_open_orders(self) -> list:
         """Every currently-resting long-book ENTRY order (any asset) -
@@ -3609,7 +3617,8 @@ class LiquidityBot:
     def _place_long_book_add(self, asset: str, symbol: str,
                              position: Optional[Position], plan: AddPlan,
                              equity: float, now: float,
-                             ecfg: Optional[EngineConfig] = None) -> None:
+                             ecfg: Optional[EngineConfig] = None,
+                             sentiment=None, web=None, risk=None) -> None:
         """Size + submit ONE long-book add. Sizing goes through the LONG
         PositionSizer instance (self.long_sizer) with a NEUTRAL, non-
         regime-gated macro state constructed fresh here - the 5m book's
@@ -3645,7 +3654,17 @@ class LiquidityBot:
         #1c (the submit-time _long_last_add_ts stamp is REMOVED - the
         spacing clock now keys on FILL, main._handle_fill); Important #3a
         (every failure branch below backs this asset off via
-        _long_book_note_failure)."""
+        _long_book_note_failure).
+
+        `sentiment`/`web`/`risk` (C5-discovered spec gap fix, task C5-fix):
+        threaded from slow_cycle (via _long_book_cycle) purely so a REAL
+        feature vector can be assembled at add time - see the block below
+        that mirrors the 5m entry loop's own build_features call site
+        (main.py's 5m loop ~2814-2823). All three default None: a direct/
+        unit-test caller that predates this parameter (every STUB-harness
+        test in tests/test_long_book_integration.py) keeps working
+        unchanged - feature assembly degrades to a skip (see below), it
+        never raises for a missing input."""
         ecfg = ecfg or EngineConfig.from_dict(
             self.config.get("long_book", {}) or {})
         vol_state = self.vol.state(asset)
@@ -3729,6 +3748,56 @@ class LiquidityBot:
                        + self.pretrade.taker_fee_bps
                        + 0.5 * liq_state.spread_bps)
 
+        # C5-discovered spec gap fix: stamp the REAL feature vector at add
+        # time, mirroring the 5m entry loop's own call site (main.py's 5m
+        # loop ~2814-2823: smc.compute then build_features) - spec §5 /
+        # acceptance §8.4 require long-horizon labels to flow into the
+        # corpus under the book tag (the paper positions ARE the
+        # learning). `gate_conf`=1.0 is a NEUTRAL literal, not fitted: no
+        # gate stack runs on this path (this book has no gate-pass
+        # fraction of its own - the SAME "not applicable" reasoning
+        # _long_book_conviction_gate already documents for agreement/EV);
+        # the features exist to record CONTEXT for the corpus, and ml/
+        # history.py's load_training_data already excludes every
+        # book=="long" row from the 5m model's X/y (task C5), so a
+        # neutral gate_conf here cannot leak into the 5m model. Assembly
+        # is best-effort ONLY: a missing input this cycle (no candles in
+        # self.view) or any exception mid-assembly skips the stamp
+        # entirely (features stays None, logged once at DEBUG) - the add
+        # itself must NEVER be blocked by feature assembly. Mirrors how
+        # _handle_fill already tolerates an absent "features" key by
+        # skipping log_entry for whatever fill this order produces.
+        feats = None
+        try:
+            view_snap = getattr(self, "view", {}).get(asset)
+            if view_snap and view_snap.get("candles"):
+                others = [a for a in self.symbol_map if a != asset]
+                other_asset = others[0] if others else None
+                fv_state = self.fv.state(asset)
+                macro_state = self.macro.state(asset)
+                smc_feats = self.smc.compute(
+                    asset, view_snap.get("candles") or [], "long", now,
+                    daily_candles=self.daily_candles.get(asset))
+                gate_conf = 1.0   # neutral: no gate stack on this path
+                feats = build_features(
+                    asset, "long", gate_conf, view_snap, fv_state,
+                    vol_state, liq_state, macro_state, self.corr.state,
+                    sentiment, smc_feats, other_asset=other_asset,
+                    extras=self._feature_extras(
+                        asset, view_snap, web, risk, other_asset, now))
+            else:
+                log.debug("long-book feature assembly skipped for %s - "
+                         "no candles this cycle", asset)
+        except Exception:
+            feats = None
+            log.debug("long-book feature assembly failed for %s - add "
+                     "proceeds without a corpus row", asset, exc_info=True)
+
+        meta = {"book": "long", "p_win": 0.0, "edge_bps": 0.0,
+               "est_cost_bps": est_cost_bps, "probe": False}
+        if feats is not None:
+            meta["features"] = feats
+
         order = self.orders.submit(
             asset=asset, symbol=symbol,
             pair=self.kraken.kraken_pair(symbol), side="buy",
@@ -3738,8 +3807,7 @@ class LiquidityBot:
             sigma_bar_pct=vol_state.sigma_bar_pct,
             ref_price=self.marks.get(symbol) or plan.price,
             equity=equity,
-            meta={"book": "long", "p_win": 0.0, "edge_bps": 0.0,
-                 "est_cost_bps": est_cost_bps, "probe": False},
+            meta=meta,
             # Critical #1a: patient maker bids live HOURS, not the 5m
             # book's shared ~25s order_timeout_sec.
             ttl_sec=ecfg.order_ttl_hours * 3600.0,

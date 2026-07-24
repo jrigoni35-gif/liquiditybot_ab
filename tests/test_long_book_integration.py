@@ -25,11 +25,14 @@ Two harnesses:
     RiskFirewall + collar, proving the wiring survives the real
     execution stack, not just a fake orders recorder).
 """
+import csv
 import json
+import logging
 import math
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from core.codes import Code
@@ -39,6 +42,7 @@ from execution.inventory import InventoryManager
 from execution.order_manager import ManagedOrder
 from execution.pretrade import PreTradeGate
 from main import LiquidityBot, load_config
+from ml.features import FEATURE_NAMES
 from regime import LiquidityRegimeEngine, MacroRegimeEngine, VolRegimeEngine
 from risk.conviction import ConvictionFormula
 from risk.long_book import AddPlan, EvidenceLadder, thesis_stop_price
@@ -1196,6 +1200,140 @@ def test_5m_entry_loop_skip_is_not_triggered_by_a_resting_long_book_bid(
     bot.slow_cycle(t + 30.0)
     assert any(c[0] == asset and c[2] == "5m" for c in calls), \
         "the 5m entry loop must call has_open(asset, 'entry', book='5m')"
+
+
+# ---------------------------------------------------------------------------
+# 11b. C5-discovered spec gap fix: long-book fills write book-tagged corpus
+# rows with REAL features assembled at ADD time (main._place_long_book_add),
+# mirroring the 5m entry loop's own build_features call site (main.py's 5m
+# loop ~2814-2823: smc.compute then build_features). Spec §5 / acceptance
+# §8.4: long-horizon labels must flow into the corpus under the book tag -
+# the paper positions ARE the learning. Before this fix, _handle_fill's
+# `if not pos.is_hedge and "features" in order.meta` guard never fired for
+# a long-book fill because _place_long_book_add's meta never carried the
+# key at all - long positions opened and closed leaving NO corpus trace.
+# ---------------------------------------------------------------------------
+
+def test_long_book_fill_stamps_features_and_writes_book_tagged_history_row(
+        tmp_path, monkeypatch):
+    """The RED pin (pre-fix): a real submit -> poll -> fill through the
+    full stack must stamp meta["features"] on the resting order (mirrors
+    the 5m entry loop's own real feature assembly, not a fabricated
+    stand-in), and the resulting fill must log_entry a pending row that
+    survives to a book="long", full-width, correctly-labeled CSV row on
+    close - exactly the corpus trace a 5m fill already gets."""
+    bot, o, t = _place_one_real_long_book_order(tmp_path, monkeypatch)
+    assert "features" in o.meta, \
+        "a real slow_cycle add must stamp a real feature vector - the " \
+        "paper positions ARE the learning (spec §5/§8.4)"
+    assert len(o.meta["features"]) == len(FEATURE_NAMES)
+    assert np.all(np.isfinite(o.meta["features"]))
+
+    fill_now = t + 10.0
+    books = {"BTC": {"bids": [[o.price * 0.999, 5.0]],
+                     "asks": [[o.price - 0.01, 5.0]]}}
+    events = bot.orders.poll(books, {"BTC": 0.05, "ETH": 0.05}, now=fill_now)
+    assert events, "the crossing book must produce at least one fill event"
+    for ev in events:
+        bot._handle_fill(ev, now=fill_now)
+
+    positions = [p for p in bot.state.open_positions() if p.book == "long"]
+    assert positions, "the fill must open a book='long' Position"
+    pos = positions[0]
+    assert pos.position_id in bot.history._pending, \
+        "the fill must log_entry a pending row (main._handle_fill's " \
+        "'features' in order.meta guard must now fire for a long fill)"
+    (pend_asset, pend_dir, pend_feats, _pend_ts, pend_probe,
+     _pend_cand, pend_book) = bot.history._pending[pos.position_id]
+    assert pend_book == "long"
+    assert pend_dir == "long"
+    assert pend_asset == "BTC"
+    assert len(pend_feats) == len(FEATURE_NAMES)
+
+    bot.history.log_close(pos.position_id, 42.0)
+    assert pos.position_id not in bot.history._pending
+    with open(bot.history.path, encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert rows[0]["book"] == "long"
+    assert rows[0]["asset"] == "BTC"
+    assert rows[0]["side"] == "long"        # "side": FEATURE_NAMES also
+    # contains "direction" - the header names this column "side" to avoid
+    # a duplicate CSV header (ml/history.py's own __init__ comment).
+    assert rows[0]["label"] == "1"          # net_pnl_usd=42.0 > 0
+
+
+def test_long_book_add_without_market_view_still_places_no_features_no_crash(
+        caplog):
+    """Tolerance case: the STUB harness never sets `self.view` at all (the
+    sharpest form of "no candles this cycle" - the feature-assembly
+    helper's own defensive `getattr`/`.get` must degrade to skipping the
+    stamp, never raise). Every other STUB-based test in this module
+    already exercises this path implicitly (none of them set `self.view`
+    either); this test pins it explicitly as the C5 fix's own contract:
+    feature assembly must NEVER block the add itself."""
+    bot = _stub_bot()
+    assert not hasattr(bot, "view")
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    with caplog.at_level(logging.DEBUG, logger="main"):
+        bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                                 1_700_000_000.0)
+    assert len(bot.orders.calls) == 1, \
+        "feature assembly failure must never block the add itself"
+    assert "features" not in bot.orders.calls[0]["meta"]
+
+
+def test_long_book_add_tolerates_a_feature_assembly_exception(caplog):
+    """A genuine exception mid-assembly (not just missing data) must be
+    swallowed the same way - features absent, add still placed, no
+    crash. Distinguishes the try/except's exception path from the plain
+    "no candles" skip path above."""
+    bot = _stub_bot()
+    bot.view = {"ETH": {"candles": [{"close": 100.0, "volume": 10.0}] * 20,
+                        "order_book": {}}}
+    bot.symbol_map = {"BTC": "BTC/USD", "ETH": "ETH/USD"}
+    bot.daily_candles = {}
+
+    class _BoomSMC:
+        def compute(self, *a, **k):
+            raise RuntimeError("smc blew up mid-assembly")
+    bot.smc = _BoomSMC()
+
+    plan = AddPlan(price=2_000.0, usd=50.0, reason_detail="new add")
+    with caplog.at_level(logging.DEBUG, logger="main"):
+        bot._place_long_book_add("ETH", "ETH/USD", None, plan, 10_000.0,
+                                 1_700_000_000.0)
+    assert len(bot.orders.calls) == 1, \
+        "an assembly exception must never block the add itself"
+    assert "features" not in bot.orders.calls[0]["meta"]
+
+
+def test_long_book_real_row_does_not_perturb_5m_training_data(
+        tmp_path, monkeypatch):
+    """C5's book=="long" load-filter (ml/history.py's load_training_data)
+    is already proven against SYNTHETIC long-row vectors
+    (tests/test_book_tag.py). This proves the same exclusion holds now
+    that a long row carries a REAL, full-width feature vector assembled
+    at add time by main._place_long_book_add, not a hand-built probe
+    array - the exact row shape this fix newly produces."""
+    bot, o, t = _place_one_real_long_book_order(tmp_path, monkeypatch)
+    fill_now = t + 10.0
+    books = {"BTC": {"bids": [[o.price * 0.999, 5.0]],
+                     "asks": [[o.price - 0.01, 5.0]]}}
+    events = bot.orders.poll(books, {"BTC": 0.05, "ETH": 0.05}, now=fill_now)
+    for ev in events:
+        bot._handle_fill(ev, now=fill_now)
+    positions = [p for p in bot.state.open_positions() if p.book == "long"]
+    pos = positions[0]
+    bot.history.log_close(pos.position_id, 42.0)   # real book="long" row
+
+    feats_5m = np.zeros(len(FEATURE_NAMES))
+    bot.history.log_entry("5m-a", "ETH", "long", feats_5m)
+    bot.history.log_close("5m-a", 10.0)
+
+    X, y, w = bot.history.load_training_data()
+    assert len(X) == 1, "the real long-book row must never enter 5m X/y"
+    assert np.array_equal(X[0], feats_5m)
 
 
 # ---------------------------------------------------------------------------
