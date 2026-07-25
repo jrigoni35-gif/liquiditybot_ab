@@ -279,6 +279,13 @@ are applied as normal fill events - and cross-checks local positions
 against account balances, warning on mismatch. A paper snapshot will
 never load into a live session (and vice versa).
 
+A snapshot saved before the probe throttle's admissions tracking shipped
+restores to an empty exploration-probe window by design (up to
+`probe_share_window` unthrottled probes before the share cap re-binds).
+Newer snapshots round-trip the window faithfully instead, so if probe
+admissions look frozen, the drought floor (SZ-048) is the sanctioned way
+out - not a restart.
+
 ## Going live — in order
 
 1. Run `dry_run: true` for at least a few weeks. The dry-run path uses the

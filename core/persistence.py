@@ -177,7 +177,23 @@ def _restore_probe_admissions_section(bot, data: dict) -> None:
     "continuity anchors" restore block above (exit_attempts/scs/
     drought_elapsed_s: TypeError/ValueError/AttributeError on a
     malformed dict/list), not _restore_fault_section/
-    _restore_markout_section's bare except Exception."""
+    _restore_markout_section's bare except Exception.
+
+    Pre-P3 snapshot semantics (learning-acceleration plan Task 3, T1.3
+    decision; see docs/quant/2026-07-25_livelock_f0_decision.md): a
+    snapshot missing this section entirely is a NO-OP here, not a clear -
+    whatever _probe_admissions/_last_floor_admit_ts already hold survives
+    untouched (pinned in tests/test_probe_throttle.py::
+    test_pre_p3_snapshot_preserves_existing_window_not_cleared). The sole
+    caller (LiquidityBot.__init__, immediately before store.restore())
+    always constructs _probe_admissions fresh and empty first, so a real
+    restart from a pre-P3 snapshot still nets an EMPTY window in
+    practice - up to probe_share_window unthrottled probes before the
+    share cap re-binds - and the corpus decay/asset taper/manip gate
+    still bound every one of them. Since the SZ-048 drought floor
+    (Task 2) shipped, that empty-window shortcut is no longer the only
+    road out of a frozen window, so restarting to "unstick" it is not
+    the sanctioned path."""
     try:
         if hasattr(bot, "_probe_admissions"):
             pa = data.get("probe_admissions")

@@ -642,3 +642,47 @@ def test_floor_state_round_trips(tmp_path):
     revived._last_floor_admit_ts = None
     assert store.restore(revived)
     assert revived._last_floor_admit_ts == 1_234_567.0
+
+
+# ---------------------------------------------------------------------------
+# plan Task 3 (T1.3 decision): pre-P3 snapshot semantics, pinned to the
+# OBSERVED mechanism rather than the plan's original assumption. The plan
+# assumed a pre-P3 snapshot (no "probe_admissions" key at all - before this
+# section existed) actively RESETS the window to empty. Reading
+# _restore_probe_admissions_section shows otherwise: `pa =
+# data.get("probe_admissions")` is None when the key is absent, the
+# `isinstance(pa, list)` guard fails, and the whole clear+extend block is
+# skipped - a missing section is a NO-OP, not a clear, and the same holds
+# for last_floor_admit_ts (`fts is not None` guards the assignment). This
+# test proves the no-op directly by restoring onto an ALREADY-POPULATED
+# deque/clock, which preserves them rather than emptying them.
+#
+# This does not contradict the plan's operator-facing conclusion: the sole
+# call site (LiquidityBot.__init__, immediately before store.restore() -
+# main.py) always constructs _probe_admissions fresh and empty first, so a
+# real cold-start restore from a pre-P3 snapshot still nets an empty window
+# in practice. See the docstring extension on
+# _restore_probe_admissions_section (core/persistence.py) and
+# docs/quant/2026-07-25_livelock_f0_decision.md for the full reasoning.
+# ---------------------------------------------------------------------------
+def test_pre_p3_snapshot_preserves_existing_window_not_cleared(tmp_path):
+    from collections import deque
+
+    from core.persistence import SNAPSHOT_VERSION, StateStore
+    store = StateStore(str(tmp_path / "state.json"))
+    # pre-P3 snapshot: no "probe_admissions" key, no "last_floor_admit_ts"
+    # key at all (both sections postdate this snapshot format).
+    snap = {"version": SNAPSHOT_VERSION, "dry_run": True,
+           "portfolio": {"starting_capital": 800.0, "cash_balance": 800.0,
+                        "savings_balance": 0.0, "realized_pnl_total": 0.0,
+                        "daily_realized_pnl": 0.0}}
+    assert store.write_raw(snap)
+
+    bot = _persist_stub_bot()
+    bot._probe_admissions = deque([True] * 14, maxlen=40)
+    bot._last_floor_admit_ts = 555.0
+    assert store.restore(bot)
+    # OBSERVED truth: the section-less restore is a no-op here - whatever
+    # was already present survives untouched, it is not cleared/reset.
+    assert list(bot._probe_admissions) == [True] * 14
+    assert bot._last_floor_admit_ts == 555.0
