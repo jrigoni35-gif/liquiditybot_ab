@@ -522,3 +522,123 @@ def test_old_snapshot_without_probe_admissions_key_stays_empty(tmp_path):
     revived._probe_admissions = deque(maxlen=40)
     assert store.restore(revived)
     assert list(revived._probe_admissions) == []
+
+
+# ---------------------------------------------------------------------------
+# F0b drought floor (SZ-048) - grill C2 livelock repair. The share cap
+# above can FREEZE: once the window is saturated with probes and no
+# conviction entry ever lands (no proven edge -> the sizer vetoes every
+# non-probe), nothing new is appended, the oldest probe never rolls off,
+# and the cap denies forever - a livelock that starves the label stream.
+# The floor admits ONE rate-bounded probe despite the cap, but ONLY when
+# the ML-073 drought clock proves >= drought_hours with zero admissions
+# of ANY kind. Outside a drought the floor is unreachable and behavior
+# is byte-identical to P3.
+# ---------------------------------------------------------------------------
+def _floor_bot(*, window_probes=14, drought_sec=9 * 3600.0):
+    """Bot in the EXACT livelock state: a frozen window (14/40 probes ->
+    the next probe would be 15/40 = 0.375 > 0.35, so the cap denies) and
+    a stale ML-073 drought clock. Built on _throttle_bot, this file's
+    minimal-bot factory."""
+    b = _throttle_bot(window=40, max_share=0.35,
+                      admissions=[True] * window_probes
+                      + [False] * (40 - window_probes))
+    b._drought_floor_enabled = True
+    b._drought_min_sec = 8 * 3600.0
+    b._floor_spacing_sec = 2 * 3600.0
+    b._last_floor_admit_ts = None
+    b._last_entry_admit_ts = 1_000_000.0
+    b._now_probe = 1_000_000.0 + drought_sec
+    return b
+
+
+def _floor_decision_bot(**kw):
+    """_floor_bot + the _decision_bot idiom: _exploration_active stubbed
+    True so the share cap is, by position, the binding denial."""
+    b = _floor_bot(**kw)
+    b._exploration_active = \
+        lambda now, asset=None, regime_label=None: True
+    return b
+
+
+def test_floor_fires_only_under_drought_and_binding_cap():
+    bot = _floor_bot()
+    assert bot._probe_share_would_deny()          # cap IS binding
+    assert bot._drought_floor_admit(bot._now_probe) is True
+
+
+def test_floor_silent_without_drought():
+    bot = _floor_bot(drought_sec=3600.0)          # 1h < 8h
+    assert bot._drought_floor_admit(bot._now_probe) is False
+
+
+def test_floor_rate_bounded_by_spacing():
+    bot = _floor_bot()
+    now = bot._now_probe
+    assert bot._drought_floor_admit(now) is True
+    bot._last_floor_admit_ts = now                # a floor probe just fired
+    assert bot._drought_floor_admit(now + 3600.0) is False   # 1h < 2h spacing
+    assert bot._drought_floor_admit(now + 7201.0) is True    # spacing elapsed
+
+
+def test_floor_disabled_is_byte_identical():
+    bot = _floor_bot()
+    bot._drought_floor_enabled = False
+    assert bot._drought_floor_admit(bot._now_probe) is False
+
+
+def test_floor_never_fires_with_unseeded_clock():
+    # W2-18: _last_entry_admit_ts is None until the first cycle seeds it -
+    # an unseeded clock cannot PROVE a drought, so the floor stays silent
+    bot = _floor_bot()
+    bot._last_entry_admit_ts = None
+    assert bot._drought_floor_admit(bot._now_probe) is False
+
+
+def test_admission_decision_admits_via_floor_with_sz048():
+    bot = _floor_decision_bot()
+    path = get_audit().path
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    admitted = bot._probe_admission_decision(bot._now_probe, "BTC")
+    assert admitted is True
+    # the floor admission is RECORDED into the window at decision time
+    # (unlike the normal path, which records at the submit sites) - the
+    # window stays honest about floor USE and self-bounds repeat fires
+    assert bot._probe_admissions[-1] is True
+    assert bot._last_floor_admit_ts == bot._now_probe
+    after = path.read_text(encoding="utf-8") if path.exists() else ""
+    new_lines = after[len(before):].strip().splitlines()
+    records = [json.loads(line) for line in new_lines if line.strip()]
+    assert any(r["code"] == Code.SZ_PROBE_FLOOR.value for r in records)
+
+
+def test_admission_decision_denies_sz047_when_no_drought():
+    bot = _floor_decision_bot(drought_sec=60.0)
+    assert bot._probe_admission_decision(bot._now_probe, "BTC") is False
+
+
+def test_floor_is_engine_time_only(monkeypatch):
+    # replay determinism: wall clock must never enter the decision
+    import time as _time
+    bot = _floor_bot()
+    monkeypatch.setattr(_time, "time",
+                        lambda: (_ for _ in ()).throw(AssertionError(
+                            "wall clock read in drought-floor path")))
+    assert bot._drought_floor_admit(bot._now_probe) is True
+
+
+def test_floor_state_round_trips(tmp_path):
+    from collections import deque
+
+    from core.persistence import StateStore
+    store = StateStore(str(tmp_path / "state.json"))
+    bot = _persist_stub_bot()
+    bot._probe_admissions = deque(maxlen=40)
+    bot._last_floor_admit_ts = 1_234_567.0
+    assert store.snapshot(bot)
+
+    revived = _persist_stub_bot()
+    revived._probe_admissions = deque(maxlen=40)
+    revived._last_floor_admit_ts = None
+    assert store.restore(revived)
+    assert revived._last_floor_admit_ts == 1_234_567.0

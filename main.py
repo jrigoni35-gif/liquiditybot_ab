@@ -790,6 +790,18 @@ class LiquidityBot:
             float(_ex.get("max_probe_share", 0.35)), 0.0), 1.0)
         self._probe_share_window = max(
             int(_ex.get("probe_share_window", 40)), 1)
+        _dfl = _ex.get("drought_floor", {}) or {}
+        # F0b (grill C2): drought-scoped floor - see _drought_floor_admit
+        self._drought_floor_enabled = bool(_dfl.get("enabled", True))
+        self._drought_min_sec = max(
+            float(_dfl.get("drought_hours", 8.0)), 0.0) * 3600.0
+        self._floor_spacing_sec = max(
+            float(_dfl.get("min_spacing_hours", 2.0)), 0.0) * 3600.0
+        # spacing clock for floor admissions - RESTART STATE, persisted
+        # beside probe_admissions (core/persistence.py): unpersisted, the
+        # deploy-restart cadence would reset the trickle bound every
+        # deploy and allow an immediate re-fire.
+        self._last_floor_admit_ts: Optional[float] = None
         _cd = _ex.get("corpus_decay", {}) or {}
         self._corpus_target_live = int(_cd.get("corpus_target_live", 300))
         self._corpus_floor_frac = min(max(
@@ -2387,6 +2399,35 @@ class LiquidityBot:
                     return False
         return True
 
+    def _drought_floor_admit(self, now: float) -> bool:
+        """F0b livelock repair (grill C2 CONFIRMED): may ONE rate-bounded
+        floor probe be admitted despite the share cap? True only when
+        (a) the floor is enabled, (b) the ML-073 drought clock
+        (_last_entry_admit_ts - engine time, set on admissions of ANY
+        kind at the submit sites, seeded W2-18) shows >= drought_hours
+        with zero admissions, and (c) the previous floor admission is >=
+        min_spacing_hours old. Pure predicate - no side effects; the
+        CALLER records the admission, and does so at DECISION time
+        (unlike the normal path, which records at the submit sites):
+        a floor admission's submit may still be vetoed downstream
+        (min-ticket, manip, SZ-046), and recording on decision keeps the
+        window honest about floor USE and self-bounds repeat fires.
+        Unreachable outside a drought, so non-drought behavior is
+        byte-identical to P3 (test-pinned). Engine `now` only - wall
+        clock here would break replay determinism."""
+        if not getattr(self, "_drought_floor_enabled", False):
+            return False
+        last = getattr(self, "_last_entry_admit_ts", None)
+        if last is None:
+            return False            # clock unseeded: cannot prove a drought
+        if (now - last) < getattr(self, "_drought_min_sec", float("inf")):
+            return False            # entries flowed recently: no drought
+        prev = getattr(self, "_last_floor_admit_ts", None)
+        if prev is not None and \
+                (now - prev) < getattr(self, "_floor_spacing_sec", 0.0):
+            return False            # trickle bound: one per spacing span
+        return True
+
     def _probe_share_would_deny(self) -> bool:
         """P3 rolling SHARE CAP: would admitting ONE more probe push the
         probe share - over the last probe_share_window entry ADMISSIONS
@@ -2437,6 +2478,29 @@ class LiquidityBot:
         if not self._exploration_active(now, asset, regime_label=regime_label):
             return False
         if self._probe_share_would_deny():
+            if self._drought_floor_admit(now):
+                # F0b (SZ-048): the cap is, by position, the binding
+                # denial here (_exploration_active already rolled True) -
+                # under a proven drought, admit ONE rate-bounded floor
+                # probe instead of livelocking the label stream. Recorded
+                # into the window IMMEDIATELY (see _drought_floor_admit's
+                # docstring for why this differs from the normal path).
+                detail = tag(
+                    Code.SZ_PROBE_FLOOR,
+                    f"drought floor probe {asset}: no admissions for >= "
+                    f"{self._drought_min_sec / 3600.0:.1f}h with the share "
+                    f"cap binding - one rate-bounded probe admitted")
+                get_audit().log(
+                    "exploration", Code.SZ_PROBE_FLOOR, detail,
+                    {"asset": asset,
+                     "drought_hours": self._drought_min_sec / 3600.0,
+                     "spacing_hours": self._floor_spacing_sec / 3600.0})
+                log.info("[%s] drought floor: probe admitted under SZ-048 "
+                         "(share cap was binding, drought >= %.1fh)", asset,
+                         self._drought_min_sec / 3600.0)
+                self._last_floor_admit_ts = now
+                self._record_probe_admission(True)
+                return True
             # route through tag() (not a bare get_audit().log()) so SZ-047
             # bumps core/code_stats.py's frequency tally like every other
             # SZ-family admission code (SZ_CIRCUIT_BREAKER/SZ_MANIP_SUSPECT/

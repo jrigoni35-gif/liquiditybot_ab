@@ -184,6 +184,13 @@ def _restore_probe_admissions_section(bot, data: dict) -> None:
             if isinstance(pa, list):
                 bot._probe_admissions.clear()
                 bot._probe_admissions.extend(bool(x) for x in pa)
+        # F0b drought floor (SZ-048, main.py _last_floor_admit_ts):
+        # float-or-None spacing clock. Absent (pre-F0b snapshot) or null
+        # keeps __init__'s None - the floor then re-arms from scratch and
+        # never fires early off a missing key.
+        fts = data.get("last_floor_admit_ts")
+        if fts is not None and hasattr(bot, "_last_floor_admit_ts"):
+            bot._last_floor_admit_ts = float(fts)
     except (TypeError, ValueError, AttributeError):
         log.warning("probe_admissions section malformed - skipped")
 
@@ -416,6 +423,12 @@ class StateStore:
                 # production. Plain bool list, same shape as stop_hit.
                 "probe_admissions": [bool(x) for x in
                                     getattr(bot, "_probe_admissions", [])],
+                # F0b drought floor (SZ-048): the floor's spacing clock
+                # must survive the same deploy-restart cadence as the
+                # window above - unpersisted, every deploy would reset
+                # the trickle bound and allow an immediate re-fire.
+                "last_floor_admit_ts": getattr(
+                    bot, "_last_floor_admit_ts", None),
                 # Compounder Phase C (task C4): the shared EvidenceLadder
                 # (closed_paper/closed_live/pf_live/downgrade markers -
                 # risk/long_book.py's own to_dict/from_dict) and the long

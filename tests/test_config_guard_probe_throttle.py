@@ -228,6 +228,18 @@ def test_drought_floor_rate_exceeding_label_horizon_is_fatal():
     assert any("min_spacing_hours" in m for m in _fatals(cfg))
 
 
+def test_drought_floor_half_hour_spacing_floor_is_isolated():
+    # ISOLATES the explicit 0.5h spacing floor: at drought_hours=2.0 the
+    # derived bound (drought_hours/8) is only 0.25, so 0.3 clears it and
+    # ONLY the standalone >= 0.5 check can fatal here. This test fails
+    # if that check alone is deleted - the other spacing tests above all
+    # trip the derived bound too and cannot catch that deletion.
+    cfg = _cfg()
+    cfg["ml"]["exploration"]["drought_floor"] = {
+        "enabled": True, "drought_hours": 2.0, "min_spacing_hours": 0.3}
+    assert any("min_spacing_hours" in m for m in _fatals(cfg))
+
+
 def test_drought_floor_defaults_are_coherent():
     # the shipped defaults must produce zero fatals/warnings on this block
     cfg = _cfg()
@@ -248,6 +260,10 @@ def test_shipped_config_matches_documented_defaults():
     assert ex["until_live_rows"] == 1200
     # Task 4 (#103): corpus_target_live (300) / 5 regime classes = 60
     assert ex["corpus_decay"]["regime_floor_live"] == 60
+    # F0b drought floor (Task 1, SZ-048) documented defaults
+    assert ex["drought_floor"]["enabled"] is True
+    assert ex["drought_floor"]["drought_hours"] == 8.0
+    assert ex["drought_floor"]["min_spacing_hours"] == 2.0
     fatals = [m for sev, m in validate(shipped) if sev == "FATAL"]
     assert not any("probe" in m or "corpus_decay" in m for m in fatals)
     # 300 >= deploy_min_oof (30) - shipped defaults must NOT trip the WARN
