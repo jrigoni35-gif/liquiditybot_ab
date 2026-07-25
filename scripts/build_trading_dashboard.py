@@ -70,6 +70,7 @@ INJ_ID = 990          # fixed id on every board so the CSS can self-hide
 # to document.head — the route Grafana Cloud's <style> sanitizer (which kept
 # the old native-text tile dormant) does not touch. README_glass.md.
 GLASS_RULES = """\
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .main-view, .scrollbar-view { background: #000 !important; }
 html, body, .main-view, [class*="dashboard"] {
   font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
@@ -673,7 +674,7 @@ def _author_command():
              desc="CV-* disposition tally — which term denies most "
                   "(agreement / EV-multiple / regime-known / context).")
 
-    row("🌐 CONTEXT — cycle/macro structural state (Compounder Phase B)", collapsed=True)
+    row("🌐 CONTEXT — cycle & macro state", collapsed=True)
     stat("Halving phase", "count(liquiditybot_context_phase" + JOB +
          ") by (phase)", 6, 5, text_mode="name", steps=BLUE, graph="none",
          display_name="${__field.labels.phase}",
@@ -717,7 +718,7 @@ def _author_command():
                   "webdata_feed.py): a dark source degrades its dial to "
                   "unknown — a STATE, never a stale value read as fresh.")
 
-    row("🌱 LONG BOOK — evidence ladder & accumulation (Compounder Phase C)", collapsed=True)
+    row("🌱 LONG BOOK — evidence ladder", collapsed=True)
     state("Rung", M("liquiditybot_longbook_rung"), 6, 5, LB_RUNG,
           no_value="long book disabled/not built",
           desc="Evidence ladder (spec §5): rung 0 is paper-only; r1-r3 "

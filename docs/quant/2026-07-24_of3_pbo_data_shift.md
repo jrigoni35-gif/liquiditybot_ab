@@ -82,3 +82,11 @@ labels" clock cannot advance during the drought, so if PBO still
 straddles 0.5 once live labels resume and reach +100 (340 total),
 shrink the 7-config ladder BREADTH — never the gate. The drought itself
 is adjudicated by the 07-25 floor verdict.
+
+Same-day recovery: at 4,407 rows (+106 fresh PC rows, midday) the
+battery is back to 5 passed / 3 failed. Inertness proven per protocol
+(1dc43c9 × current corpus in a worktree → identical 5/3; the triggering
+diff was a CSS string + two row titles). Conscious baseline: 5/3. This
+is the third boundary crossing in ~36 h — treat any single-check flip
+inside the {3,4,5}-passed band as the documented oscillation unless the
+inertness experiment says otherwise.
