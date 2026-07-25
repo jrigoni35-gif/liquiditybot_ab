@@ -686,3 +686,40 @@ def test_pre_p3_snapshot_preserves_existing_window_not_cleared(tmp_path):
     # was already present survives untouched, it is not cleared/reset.
     assert list(bot._probe_admissions) == [True] * 14
     assert bot._last_floor_admit_ts == 555.0
+
+
+# ---------------------------------------------------------------------------
+# plan Task 4 (audit hygiene): regression pin, not a RED->GREEN fix. This
+# module's denial tests (test_denial_emits_the_registered_code and friends)
+# call get_audit() directly and depend ENTIRELY on tests/conftest.py's
+# session-scoped autouse `_isolated_audit_trail` fixture to keep those SZ-047
+# writes out of the repo's real outputs/audit.jsonl. That fixture is the
+# ONLY thing standing between this file's probe-denial tests and the
+# production trail - if a future refactor ever weakens or removes it, the
+# pollution reopens SILENTLY (every assertion in this file still passes;
+# only the destination changes). This test converts that silent failure
+# mode into a loud one by pinning the singleton's redirected destination
+# directly.
+#
+# Known benign artifact this pin exists because of: outputs/audit.jsonl
+# seq 1529 carries an SZ-047 record with data={"window": 10, "max_share":
+# 0.3} (this file's own default test fixture values, not any shipped
+# config) chained inline with real production records at ts=1784823694.83
+# (2026-07-23 16:21:34 UTC) - a non-pytest, ad hoc manual engine
+# sanity-check run shortly after commit 7f009c3 ("SZ-047 counted in
+# code_stats"), NOT a gap in this test suite (confirmed: the full suite
+# writes zero new bytes to outputs/audit.jsonl, run twice). The chain is
+# append-only and hash-linked, so that historical record stays exactly
+# where it is - this pin only guards against a FUTURE regression, it does
+# not (and cannot) retroactively clean the trail.
+# ---------------------------------------------------------------------------
+def test_probe_tests_never_touch_production_audit(tmp_path):
+    """The audit singleton used by this module's probe-denial tests must
+    point inside pytest's tmp tree, never the repo's outputs/ - a test
+    SZ-047 event with window=10/max_share=0.3 polluted the production
+    trail (plan Task 4). Pins tests/conftest.py's session-scoped
+    `_isolated_audit_trail` autouse fixture, the sole mechanism keeping
+    this file's get_audit() calls off outputs/audit.jsonl."""
+    from core.audit import get_audit
+    p = str(getattr(get_audit(), "path", ""))
+    assert "outputs" not in p or "tmp" in p or "pytest" in p
