@@ -28,9 +28,20 @@ def _boards():
     return list(gen.DASHBOARDS.values())
 
 
+def _panels(d):
+    """Every panel including members nested inside collapsed rows —
+    collapsed rows carry their panels in the row object's own list, and
+    every glass pin must keep applying to them (2026-07-25)."""
+    out = []
+    for p in d["panels"]:
+        out.append(p)
+        out.extend(p.get("panels") or [])
+    return out
+
+
 def test_all_panels_transparent():
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             if p["type"] != "row":
                 assert p.get("transparent") is True, \
                     f'{d["uid"]}: panel {p["id"]} not transparent'
@@ -65,7 +76,7 @@ def test_state_tiles_never_print_query_text():
     # textMode value_and_name on a background stat renders the raw PromQL
     # inside the tile (7/22 screenshots) — banned suite-wide
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             if p["type"] == "stat":
                 assert p["options"]["textMode"] != "value_and_name", \
                     f'{d["uid"]}: panel {p["id"]} ({p["title"]})'
@@ -75,7 +86,7 @@ def test_tables_use_outer_join_recipe():
     # merge silently drops rows when frames disagree on label columns and
     # paints absent cells with base threshold colors; every table joins
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             if p["type"] != "table":
                 continue
             tr = p["transformations"]
@@ -91,7 +102,7 @@ def test_no_double_selector_promql():
     # M('metric{source="live"}') built {..}{job=..} — invalid PromQL that
     # renders as a silent "No data" (7/22 Live/Candidate labels defect)
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             for t in p.get("targets", []):
                 assert "}{" not in t["expr"].replace(" ", ""), \
                     f'{d["uid"]}: {p["title"]}: {t["expr"]}'
@@ -101,7 +112,7 @@ def test_markout_queried_by_horizon_sec():
     # the exporter labels mark-out {asset, horizon_sec} — a bare
     # `horizon=` selector matches nothing and shows "No data"
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             for t in p.get("targets", []):
                 if "liquiditybot_markout_bps" in t["expr"] and "{" in t["expr"]:
                     assert "horizon=" not in t["expr"], \
@@ -112,7 +123,7 @@ def test_bargauges_basic_mode():
     # gradient mode paints the threshold ramp INSIDE every bar (reads as
     # data that isn't there); basic mode colors the bar by its value
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             if p["type"] == "bargauge":
                 assert p["options"]["displayMode"] == "basic", \
                     f'{d["uid"]}: {p["title"]}'
@@ -123,7 +134,7 @@ def test_signed_table_columns_use_color_text():
     # color-background cell paints the BASE threshold color - alarm red
     # on PNL scales (the 7/22 defect). Signed columns must color TEXT.
     for d in _boards():
-        for p in d["panels"]:
+        for p in _panels(d):
             if p["type"] != "table":
                 continue
             for o in p["fieldConfig"]["overrides"]:

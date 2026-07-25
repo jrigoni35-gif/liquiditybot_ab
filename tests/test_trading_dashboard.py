@@ -147,6 +147,33 @@ def _shipped(fname: str) -> dict:
                       .read_text(encoding="utf-8"))
 
 
+def _all_panels(d: dict) -> list:
+    """Every panel including members nested inside collapsed rows (Grafana
+    moves a collapsed row's panels INTO the row object's own `panels` list)."""
+    out = []
+    for p in d["panels"]:
+        out.append(p)
+        out.extend(p.get("panels") or [])
+    return out
+
+
+def _row_section(d: dict, key: str) -> list:
+    """Panels belonging to the row whose title contains `key` — nested list
+    for a collapsed row, the slice up to the next row otherwise."""
+    panels = d["panels"]
+    idx = [i for i, p in enumerate(panels)
+           if p["type"] == "row" and key in p["title"].upper()]
+    if not idx:
+        return []
+    row = panels[idx[0]]
+    if row.get("collapsed"):
+        return list(row.get("panels") or [])
+    start = idx[0] + 1
+    end = next((i for i in range(start, len(panels))
+                if panels[i]["type"] == "row"), len(panels))
+    return panels[start:end]
+
+
 def test_generator_matches_shipped_json():
     for fname, d in gen.DASHBOARDS.items():
         assert d == _shipped(fname), \
@@ -168,10 +195,11 @@ def test_importable_shape_and_layout_per_board():
         assert d["uid"] and d["uid"] not in uids, f"{fname}: uid not unique"
         uids.add(d["uid"])
         assert d["panels"] and d["panels"][0]["gridPos"]["y"] == 0, fname
-        ids = [p["id"] for p in d["panels"]]
+        everything = _all_panels(d)
+        ids = [p["id"] for p in everything]
         assert len(ids) == len(set(ids)), f"{fname}: duplicate panel ids"
         rects = [(p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"],
-                  p["gridPos"]["h"], p["id"]) for p in d["panels"]]
+                  p["gridPos"]["h"], p["id"]) for p in everything]
 
         def ov(a, b):
             return not (a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
@@ -192,14 +220,52 @@ def test_all_boards_use_supported_panel_types():
     allowed = {"row", "stat", "table", "gauge", "timeseries", "bargauge",
                "text", "piechart", "marcusolsson-dynamictext-panel"}
     for fname in gen.DASHBOARDS:
-        kinds = {p["type"] for p in _shipped(fname)["panels"]}
+        kinds = {p["type"] for p in _all_panels(_shipped(fname))}
         assert "graph" not in kinds, f"{fname}: deprecated graph panel"
         assert kinds <= allowed, f"{fname}: unexpected panel type {kinds}"
 
 
+def test_refresh_cadence_matches_push_period():
+    # gc_pusher exports every 30s (GC_PERIOD_SEC default); a 30s dashboard
+    # refresh doubles the query/render churn for zero extra information.
+    # 1m still surfaces every push within one refresh — the client-side
+    # load halves (2026-07-25 slow-dashboard diagnosis).
+    for fname in gen.DASHBOARDS:
+        assert _shipped(fname)["refresh"] == "1m", \
+            f"{fname}: refresh must be 1m (push cadence is 30s)"
+
+
+def test_command_detail_rows_collapsed_by_default():
+    # 2026-07-25 slow-dashboard diagnosis: the Command board reached 76
+    # querying panels; Grafana runs NO queries for panels inside collapsed
+    # rows, so the deep-dive rows ship collapsed and the operator expands
+    # on demand. The hero rows (vitals / money / positions & risk) stay
+    # open — they are the daily-driver read. Each collapsed row must CARRY
+    # its member panels (an empty nested list means the nesting transform
+    # silently dropped them — the board would lose those panels entirely).
+    d = _shipped("liquiditybot_command.json")
+    rows = {p["title"]: p for p in d["panels"] if p["type"] == "row"}
+    open_keys = ("VITALS", "MONEY", "POSITIONS & RISK")
+    collapsed_keys = ("PROFIT POOLS", "LEARNING BRAIN", "EDGE", "CONVICTION",
+                      "CONTEXT", "LONG BOOK", "THALES")
+    for title, row in rows.items():
+        up = title.upper()
+        if any(k in up for k in open_keys):
+            assert not row["collapsed"], f"hero row collapsed: {title}"
+        elif any(k in up for k in collapsed_keys):
+            assert row["collapsed"], f"detail row not collapsed: {title}"
+            assert row.get("panels"), \
+                f"collapsed row lost its panels: {title}"
+    # no member panel may ALSO appear at top level (double-render/dup ids)
+    nested_ids = {p["id"] for r in rows.values()
+                  for p in (r.get("panels") or [])}
+    top_ids = {p["id"] for p in d["panels"]}
+    assert not nested_ids & top_ids, "panel present both nested and top-level"
+
+
 def test_has_per_asset_comparison_table():
     d = _shipped("liquiditybot_command.json")
-    tables = [p for p in d["panels"] if p["type"] == "table"]
+    tables = [p for p in _all_panels(d) if p["type"] == "table"]
     # a table joined on the `asset` label = the decision-comparison scorecard
     asset_tbl = [t for t in tables if any(
         "asset" in str(tr.get("expr", "")) or
@@ -214,15 +280,8 @@ def test_command_board_has_conviction_row():
     # metric (test_every_query_hits_an_emitted_metric enforces that globally;
     # this pins the row's existence and its specific metric coverage).
     d = _shipped("liquiditybot_command.json")
-    panels = d["panels"]
-    row_idx = [i for i, p in enumerate(panels)
-               if p["type"] == "row" and "CONVICTION" in p["title"].upper()]
-    assert row_idx, "no Conviction row on the Command board"
-    start = row_idx[0] + 1
-    end = next((i for i in range(start, len(panels))
-               if panels[i]["type"] == "row"), len(panels))
-    section = panels[start:end]
-    assert section, "Conviction row has no panels"
+    section = _row_section(d, "CONVICTION")
+    assert section, "no Conviction row (or an empty one) on the Command board"
     exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
     for expect in ("liquiditybot_conviction_share",
                    "liquiditybot_conviction_n",
@@ -240,15 +299,8 @@ def test_command_board_has_context_row():
     # (test_every_query_hits_an_emitted_metric enforces that globally; this
     # pins the row's existence and its specific metric coverage).
     d = _shipped("liquiditybot_command.json")
-    panels = d["panels"]
-    row_idx = [i for i, p in enumerate(panels)
-               if p["type"] == "row" and "CONTEXT" in p["title"].upper()]
-    assert row_idx, "no Context row on the Command board"
-    start = row_idx[0] + 1
-    end = next((i for i in range(start, len(panels))
-               if panels[i]["type"] == "row"), len(panels))
-    section = panels[start:end]
-    assert section, "Context row has no panels"
+    section = _row_section(d, "CONTEXT")
+    assert section, "no Context row (or an empty one) on the Command board"
     exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
     for expect in ("liquiditybot_context_phase",
                    "liquiditybot_context_days_since_halving",
@@ -283,15 +335,8 @@ def test_command_board_has_long_book_row():
     # metric enforces that globally; this pins the row's existence and
     # its specific metric coverage).
     d = _shipped("liquiditybot_command.json")
-    panels = d["panels"]
-    row_idx = [i for i, p in enumerate(panels)
-               if p["type"] == "row" and "LONG BOOK" in p["title"].upper()]
-    assert row_idx, "no Long Book row on the Command board"
-    start = row_idx[0] + 1
-    end = next((i for i in range(start, len(panels))
-               if panels[i]["type"] == "row"), len(panels))
-    section = panels[start:end]
-    assert section, "Long Book row has no panels"
+    section = _row_section(d, "LONG BOOK")
+    assert section, "no Long Book row (or an empty one) on the Command board"
     exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
     for expect in ("liquiditybot_longbook_rung",
                    "liquiditybot_longbook_ceiling_frac",
@@ -337,7 +382,7 @@ def test_every_query_hits_an_emitted_metric(tmp_path):
     emitted = {m["name"] for m in gp.collect(str(p))}
     referenced = set()
     for d in gen.DASHBOARDS.values():
-        for panel in d["panels"]:
+        for panel in _all_panels(d):
             for t in panel.get("targets", []):
                 referenced |= set(re.findall(r"liquiditybot_[a-z_]+",
                                              t["expr"]))

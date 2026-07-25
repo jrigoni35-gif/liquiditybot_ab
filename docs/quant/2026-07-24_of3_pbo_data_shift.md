@@ -63,3 +63,22 @@ scratch worktree against the current corpus reproduces the identical
 (remaining: two gap-family + dead-feature). The corpus is healing the
 thin-corpus family exactly as growth predicted; the watch condition
 stands unchanged.
+
+## Oscillation (2026-07-25, morning): 5/3 → 3/5 at 4,301 rows
+
++252 rows (drought-era candidates: 92% label-0, sl/time_stop-heavy per
+the 07-24/25 barrier mix) flipped PBO back to FAIL (0.53) and re-flagged
+gap[logistic] + dead-feature (0.63). Inertness proven per protocol: the
+5/3-baseline commit (2a7ac86) in a scratch worktree against the current
+corpus reproduces the IDENTICAL 3-passed/5-failed with the same numbers
+(pbo=0.53, gaps 0.193/0.252/0.216, dead=0.63) — the triggering diff was
+dashboards-only and touches nothing in `ml/`. Reading: at ~4.2k rows the
+deployed selection's luck share is OSCILLATING around the 0.5 line
+(0.56 → pass → pass → 0.53), and the one-sided candidate inflow from the
+entry drought skews the label base rate while live labels sit frozen at
+240. Conscious baseline is now 3 passed / 5 failed. The original watch
+condition is UPDATED to match its own intent: the "~100 more live
+labels" clock cannot advance during the drought, so if PBO still
+straddles 0.5 once live labels resume and reach +100 (340 total),
+shrink the 7-config ladder BREADTH — never the gate. The drought itself
+is adjudicated by the 07-25 floor verdict.

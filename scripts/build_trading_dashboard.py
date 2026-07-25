@@ -142,10 +142,15 @@ def _t(expr, ref="A", instant=True, legend=None, fmt=None):
     return t
 
 
-def row(title):
+def row(title, collapsed=False):
+    """Section header. collapsed=True ships the row closed: Grafana runs NO
+    queries for panels inside a collapsed row, so deep-dive sections cost
+    nothing until the operator expands them (2026-07-25 slow-dashboard fix).
+    _board() nests the section's member panels into the row object — the
+    shape Grafana itself exports for a collapsed row."""
     _flush()
     panels.append({"id": _id(), "type": "row", "title": title,
-                   "collapsed": False,
+                   "collapsed": collapsed,
                    "gridPos": {"h": 1, "w": 24, "x": 0, "y": _cur["y"]},
                    "panels": []})
     _cur["y"] += 1
@@ -517,7 +522,7 @@ def _author_command():
     stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 5, decimals=2,
          steps=PNL, desc="Avg trade in R-multiples.")
 
-    row("🏦 PROFIT POOLS — weekly rollover")
+    row("🏦 PROFIT POOLS — weekly rollover", collapsed=True)
     stat("P&L this week", M("liquiditybot_weekly_pnl"), 6, 5, unit=USD,
          steps=PNL, desc="Realized P&L since the ISO-week open (Mon 00:00 "
                          "UTC). Resets at the weekly close-out (RP-070); a "
@@ -548,7 +553,7 @@ def _author_command():
                desc="Savings + reserve accrual and the week's running "
                     "realized P&L - the rollover ritual made visible.")
 
-    row("🧠 LEARNING BRAIN")
+    row("🧠 LEARNING BRAIN", collapsed=True)
     timeseries("Learning rows by label (live vs candidate)",
                'max by (source) (liquiditybot_ml_labels' + JOB + ')', 12, 7,
                unit="short", legend="{{source}}",
@@ -613,7 +618,7 @@ def _author_command():
                "SKEWED = a one-sided batch (e.g. all-zero quiet weekend) "
                "is moving calibration; detection only, weights untouched.")
 
-    row("⚖️ EDGE — per-asset performance")
+    row("⚖️ EDGE — per-asset performance", collapsed=True)
     bargauge("Net $ by asset", _pa("liquiditybot_perf_asset_net_usd"), 8, 8,
              unit=USD, decimals=2, steps=PNL, mn=-12, mx=12,
              desc="Realized net per asset — where P&L actually comes from.")
@@ -640,7 +645,7 @@ def _author_command():
                "instantly. Absent cells (·) mean the asset hasn't traded "
                "yet — not a fault.")
 
-    row("🎯 CONVICTION — entry admission formula")
+    row("🎯 CONVICTION — entry admission formula", collapsed=True)
     stat("Admit share", M("liquiditybot_conviction_share"), 8, 5,
          unit="percentunit", decimals=1, steps=BLUE,
          no_value="no conviction data yet",
@@ -668,7 +673,7 @@ def _author_command():
              desc="CV-* disposition tally — which term denies most "
                   "(agreement / EV-multiple / regime-known / context).")
 
-    row("🌐 CONTEXT — cycle/macro structural state (Compounder Phase B)")
+    row("🌐 CONTEXT — cycle/macro structural state (Compounder Phase B)", collapsed=True)
     stat("Halving phase", "count(liquiditybot_context_phase" + JOB +
          ") by (phase)", 6, 5, text_mode="name", steps=BLUE, graph="none",
          display_name="${__field.labels.phase}",
@@ -712,7 +717,7 @@ def _author_command():
                   "webdata_feed.py): a dark source degrades its dial to "
                   "unknown — a STATE, never a stale value read as fresh.")
 
-    row("🌱 LONG BOOK — evidence ladder & accumulation (Compounder Phase C)")
+    row("🌱 LONG BOOK — evidence ladder & accumulation (Compounder Phase C)", collapsed=True)
     state("Rung", M("liquiditybot_longbook_rung"), 6, 5, LB_RUNG,
           no_value="long book disabled/not built",
           desc="Evidence ladder (spec §5): rung 0 is paper-only; r1-r3 "
@@ -753,7 +758,7 @@ def _author_command():
                   "ladder's raw input (r1 gates on paper evidence; r2/r3 "
                   "gate on live evidence + live profit factor).")
 
-    row("🏛️ THALES — footprint & manipulation defense")
+    row("🏛️ THALES — footprint & manipulation defense", collapsed=True)
     text("What THALES is", _THALES_MD, 8, 9)
     table("THALES detector scorecard (higher = more suspicious)", 16, 9,
           cols=[("liquiditybot_thales_grid", "Grid", "short", 2, LOW_GOOD),
@@ -946,7 +951,7 @@ def _author_execution():
                "persistently negative = picked off. Absent cells (·) = no "
                "fills measured at that horizon yet.")
 
-    row("🎯 CONVICTION — admission detail")
+    row("🎯 CONVICTION — admission detail", collapsed=True)
     stat("Evaluated", M("liquiditybot_conviction_evaluated"), 4, 5,
          decimals=0, steps=BLUE, no_value="no conviction data yet",
          desc="Total conviction-channel evaluations since boot.")
@@ -1453,22 +1458,50 @@ def _injector():
             "pluginVersion": "6.3.0"}
 
 
+def _nest_collapsed(flat):
+    """Move each collapsed row's member panels INTO the row object — the
+    exact shape Grafana exports for a collapsed row. Grafana runs no
+    queries for nested panels until the row is expanded, so collapsed
+    sections cost nothing at load (2026-07-25 slow-dashboard fix).
+    gridPos values are kept verbatim: Grafana re-lays nested panels out
+    from these same coordinates on expand."""
+    out = []
+    receiving = None
+    for p in flat:
+        if p["type"] == "row":
+            receiving = p if p["collapsed"] else None
+            out.append(p)
+        elif receiving is not None:
+            receiving["panels"].append(p)
+        else:
+            out.append(p)
+    return out
+
+
 def _board(uid, title, desc, author, extra_tag, time_from="now-24h"):
     panels.clear()
     _cur.update(x=0, y=0, row_h=0)
     _pid["n"] = 0
     author()
     _flush()
-    panels.append(_injector())
-    for p in panels:
+    top = _nest_collapsed(panels)
+    # the CSS injector must stay top-level: a panel nested in a collapsed
+    # row never renders, and the frosted-glass skin would vanish until the
+    # operator happened to expand that row
+    top.append(_injector())
+    for p in top:
         if p["type"] != "row":
             p["transparent"] = True
+        for member in p.get("panels") or []:
+            member["transparent"] = True
+    # refresh 1m: gc_pusher exports every 30s; 1m still surfaces every push
+    # within one refresh at half the query/render churn (2026-07-25 fix)
     return {"uid": uid, "title": title, "description": desc,
             "tags": _TAGS + [extra_tag], "schemaVersion": 39, "editable": True,
-            "timezone": "browser", "refresh": "30s", "style": "dark",
+            "timezone": "browser", "refresh": "1m", "style": "dark",
             "time": {"from": time_from, "to": "now"}, "links": _links(),
             "templating": {"list": []}, "annotations": {"list": []},
-            "panels": list(panels)}
+            "panels": top}
 
 
 # ---- Apple system palette (Liquid Glass design language) --------------------
