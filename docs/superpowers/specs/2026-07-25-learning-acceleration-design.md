@@ -104,6 +104,20 @@ Accept: battery green; new tests pin (i) non-drought byte-identity,
 - T3.5 PBO-admission page (Gort rule): one docs page; future
   policy-class challengers enter OF-3's CSCV before champion-swap
   eligibility.
+- T3.6 Corpus epoch cut + redundancy redaction (operator-authorized
+  2026-07-25: "sacrifice old learning to implement new clean learning
+  ... redact all redundancys and things the corpus isnt using").
+  Scope: (a) tag rows from the RETIRED exit-geometry era (pre-P1/P2
+  realignment) with an epoch marker; learning-side exclusion of the old
+  epoch runs as a measured schema/config experiment inside OF-3's CSCV
+  (same discipline as T3.2), never a silent default flip; (b) redact
+  machinery the corpus demonstrably isn't using (stack-inventory
+  findings: e.g. the degenerate retrain_history.jsonl writer) after a
+  grep-proven no-consumer check; (c) HARD BOUND: live labels are never
+  deleted — "sacrifice" = reversible exclusion-by-tag; candidate rows
+  from the retired epoch may be archived out of the training file only
+  with the archive verified restorable (corpus_sync bak protocol).
+  Brainstormed per-item with the operator when Phase 3 opens.
 
 ## §5 Phase 4 — GATED BACKLOG (entry conditions printed; brainstorm per item at entry)
 
