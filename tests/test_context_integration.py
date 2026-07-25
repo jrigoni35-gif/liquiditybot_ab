@@ -259,6 +259,10 @@ def test_runner_build_status_includes_serializable_context_section(
     bot.slow_cycle(t)                      # a real poll: non-default state
 
     runner = BotRunner(bot.config, bot=bot)
+    # status() derives last_poll_age_sec from wall-clock time.time() rounded
+    # to 0.1s; the equality below calls status() twice, so an unfrozen clock
+    # flakes whenever the two reads straddle a rounding boundary.
+    monkeypatch.setattr("time.time", lambda: t + 60.0)
     status = runner.build_status(t)
 
     assert "context" in status
