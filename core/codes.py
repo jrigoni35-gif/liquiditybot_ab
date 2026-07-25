@@ -129,6 +129,12 @@ class Code(str, Enum):
                                      # or corpus-decayed admission rate; falls
                                      # through as an ordinary (conviction) entry
                                      # attempt, never a hard veto of the signal
+    SZ_PROBE_FLOOR = "SZ-048"        # F0b (2026-07-25 livelock repair): drought-
+                                     # scoped floor admission - the share cap was
+                                     # the binding denial AND no admissions of any
+                                     # kind flowed for >= drought_hours, so one
+                                     # rate-bounded probe is admitted instead of
+                                     # starving the label stream (grill C2)
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_INV_SKEW = "SZ-061"           # A-S reservation skew: signed-inventory-increasing entry scaled

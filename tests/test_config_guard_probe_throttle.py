@@ -202,6 +202,39 @@ def test_no_warn_when_regime_floor_well_below_the_coherence_bound():
     assert not any("regime_floor_live" in m for m in _warns(cfg))
 
 
+# --- drought_floor (Task 1, F0b livelock repair, SZ-048) --------------------
+def test_drought_floor_hours_below_one_is_fatal():
+    cfg = _cfg()
+    cfg["ml"]["exploration"]["drought_floor"] = {
+        "enabled": True, "drought_hours": 0.5, "min_spacing_hours": 2.0}
+    assert any("drought_floor.drought_hours" in m for m in _fatals(cfg))
+
+
+def test_drought_floor_spacing_below_half_hour_is_fatal():
+    cfg = _cfg()
+    cfg["ml"]["exploration"]["drought_floor"] = {
+        "enabled": True, "drought_hours": 8.0, "min_spacing_hours": 0.1}
+    assert any("drought_floor.min_spacing_hours" in m for m in _fatals(cfg))
+
+
+def test_drought_floor_rate_exceeding_label_horizon_is_fatal():
+    # derivation: floor admits at most drought_hours/min_spacing_hours probes
+    # per drought span; spacing shorter than horizon/8 would exceed the
+    # <= K-per-8h-label-horizon bound the C2 verdict requires (K=4 default
+    # -> spacing >= 2.0h when horizon is 8h)
+    cfg = _cfg()
+    cfg["ml"]["exploration"]["drought_floor"] = {
+        "enabled": True, "drought_hours": 8.0, "min_spacing_hours": 0.9}
+    assert any("min_spacing_hours" in m for m in _fatals(cfg))
+
+
+def test_drought_floor_defaults_are_coherent():
+    # the shipped defaults must produce zero fatals/warnings on this block
+    cfg = _cfg()
+    assert not [m for m in _fatals(cfg) if "drought_floor" in m]
+    assert not [m for m in _warns(cfg) if "drought_floor" in m]
+
+
 # --- shipped config ---------------------------------------------------------
 def test_shipped_config_matches_documented_defaults():
     shipped = json.loads((_ROOT / "config.json").read_text(encoding="utf-8"))

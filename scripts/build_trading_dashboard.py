@@ -67,6 +67,7 @@ CODE_LABELS = {
     "SZ-045": "SZ-045 · manipulation suspected",
     "SZ-046": "SZ-046 · circuit breaker paused",
     "SZ-047": "SZ-047 · probe throttled",
+    "SZ-048": "SZ-048 · drought floor probe",
     "SZ-050": "SZ-050 · drawdown throttle",
     "SZ-060": "SZ-060 · inventory aggression scaled",
     "SZ-061": "SZ-061 · inventory skew scaled",

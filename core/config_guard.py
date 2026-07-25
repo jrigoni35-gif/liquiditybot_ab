@@ -906,6 +906,22 @@ def validate(config: dict) -> list:
               f"[10, 500] - below 10 admissions the share binds/releases on "
               f"noise; above 500 it takes too many admissions to react to a "
               f"real change in probe demand")
+    # F0b drought floor (grill C2): floor must stay a trickle, never a hose
+    dfh = float(_f(config, "ml.exploration.drought_floor.drought_hours", 8.0))
+    dfs = float(_f(config,
+                   "ml.exploration.drought_floor.min_spacing_hours", 2.0))
+    if dfh < 1.0:
+        fatal(f"ml.exploration.drought_floor.drought_hours ({dfh}) must be "
+              ">= 1.0 - a sub-hour 'drought' would fire the floor on "
+              "ordinary quiet spells, not deadlocks")
+    if dfs < 0.5:
+        fatal(f"ml.exploration.drought_floor.min_spacing_hours ({dfs}) must "
+              "be >= 0.5 - the floor is a trickle, not a stream")
+    if dfs < dfh / 8.0:
+        fatal(f"ml.exploration.drought_floor.min_spacing_hours ({dfs}) must "
+              f"be >= drought_hours/8 ({dfh / 8.0:.2f}) - more than 8 floor "
+              "probes per drought span exceeds the label-horizon bound "
+              "(C2: <= K probes per 8h horizon)")
     cff = float(_f(config, "ml.exploration.corpus_decay.floor_frac", 0.25))
     if not (0.0 < cff <= 1.0):
         fatal(f"ml.exploration.corpus_decay.floor_frac ({cff}) must be in "
