@@ -263,6 +263,67 @@ def test_command_detail_rows_collapsed_by_default():
     assert not nested_ids & top_ids, "panel present both nested and top-level"
 
 
+def test_reason_codes_decoded_on_panels():
+    # "decode them" (2026-07-25): reason codes render with plain-language
+    # labels on every code-keyed panel. Two-sided contract:
+    #   1. COVERAGE — every SZ/CV/PT member of core.codes.Code has an entry
+    #      in gen.CODE_LABELS (a new code without a label breaks the build,
+    #      same philosophy as the emitted-metric check), and every label
+    #      keeps its code visible as the prefix;
+    #   2. WIRING — the shipped panels actually carry the decode (dropping
+    #      the mapping/override plumbing fails HERE, not silently on the
+    #      wall).
+    from core.codes import Code
+    fam = {m.value for m in Code if m.value[:2] in ("SZ", "CV", "PT")}
+    missing = fam - set(gen.CODE_LABELS)
+    assert not missing, f"codes without decode labels: {missing}"
+    for code, label in gen.CODE_LABELS.items():
+        assert label.startswith(code) and len(label) > len(code) + 3, \
+            f"label must be 'CODE · meaning': {label!r}"
+
+    def code_mappings(panel):
+        for o in panel["fieldConfig"]["overrides"]:
+            if o["matcher"] == {"id": "byName", "options": "code"}:
+                for pr in o["properties"]:
+                    if pr["id"] == "mappings":
+                        return pr["value"][0]["options"]
+        return {}
+
+    cmd = _shipped("liquiditybot_command.json")
+    ex = _shipped("liquiditybot_execution.json")
+    entry_tbl = [p for p in _all_panels(cmd)
+                 if p.get("title") == "Entry-decision reason codes"]
+    assert entry_tbl, "entry-decision table missing"
+    opts = code_mappings(entry_tbl[0])
+    assert opts.get("SZ-030", {}).get("text") == gen.CODE_LABELS["SZ-030"]
+    assert set(opts) == set(gen.CODE_LABELS), "table mappings incomplete"
+    detail_tbl = [p for p in _all_panels(ex)
+                  if p.get("title") == "Denials by code (detail)"]
+    assert detail_tbl, "denials detail table missing"
+    opts = code_mappings(detail_tbl[0])
+    assert opts.get("CV-010", {}).get("text") == gen.CODE_LABELS["CV-010"]
+    # the CV denials bargauge decodes its series names via displayName
+    bar = [p for p in _all_panels(cmd)
+           if p.get("title") == "Denials by code" and p["type"] == "bargauge"]
+    assert bar, "denials bargauge missing"
+    names = {o["matcher"]["options"]: pr["value"]
+             for o in bar[0]["fieldConfig"]["overrides"]
+             for pr in o["properties"] if pr["id"] == "displayName"}
+    cv = {c for c in gen.CODE_LABELS if c.startswith("CV")}
+    assert set(names) >= cv, "bargauge missing CV displayName decodes"
+    assert names["CV-020"] == gen.CODE_LABELS["CV-020"]
+
+
+def test_screening_open_slots_relabeled():
+    # the tile displays liquiditybot_positions_open — "Open slots" read as
+    # slots AVAILABLE (backwards when 0 positions are open); it is titled
+    # by what it shows (2026-07-25 operator screenshot review)
+    d = _shipped("liquiditybot_screening.json")
+    titles = {p.get("title") for p in _all_panels(d)}
+    assert "Open slots" not in titles, "backwards label resurrected"
+    assert "Positions open" in titles
+
+
 def test_has_per_asset_comparison_table():
     d = _shipped("liquiditybot_command.json")
     tables = [p for p in _all_panels(d) if p["type"] == "table"]

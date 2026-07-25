@@ -43,6 +43,59 @@ import json
 from pathlib import Path
 
 DS = {"type": "prometheus", "uid": "grafanacloud-prom"}
+
+# Plain-language decode for every reason code that renders on a panel
+# ("decode them", 2026-07-25). Keys are the literal code strings from
+# core/codes.py; tests/test_trading_dashboard.py enforces FULL coverage of
+# the SZ / CV / PT families against core.codes.Code, so adding a code
+# without a label breaks the build instead of shipping a raw code to the
+# operator. Labels keep the code as prefix — the audit trail speaks codes.
+CODE_LABELS = {
+    "SZ-000": "SZ-000 · entry approved",
+    "SZ-010": "SZ-010 · invalid inputs",
+    "SZ-020": "SZ-020 · cooldown active",
+    "SZ-021": "SZ-021 · regime blocked",
+    "SZ-022": "SZ-022 · direction blocked",
+    "SZ-023": "SZ-023 · win-prob below bar",
+    "SZ-030": "SZ-030 · no edge after costs",
+    "SZ-031": "SZ-031 · size multiplier zero",
+    "SZ-040": "SZ-040 · inventory cap",
+    "SZ-041": "SZ-041 · leverage cap",
+    "SZ-042": "SZ-042 · below min ticket",
+    "SZ-043": "SZ-043 · asset crowded",
+    "SZ-044": "SZ-044 · exploration floor sized",
+    "SZ-045": "SZ-045 · manipulation suspected",
+    "SZ-046": "SZ-046 · circuit breaker paused",
+    "SZ-047": "SZ-047 · probe throttled",
+    "SZ-050": "SZ-050 · drawdown throttle",
+    "SZ-060": "SZ-060 · inventory aggression scaled",
+    "SZ-061": "SZ-061 · inventory skew scaled",
+    "CV-000": "CV-000 · conviction admitted",
+    "CV-010": "CV-010 · agreement below floor",
+    "CV-020": "CV-020 · edge below cost multiple",
+    "CV-030": "CV-030 · regime evidence thin",
+    "CV-040": "CV-040 · context misaligned",
+    "CV-050": "CV-050 · admit share too high",
+    "CV-051": "CV-051 · admit share too low",
+    "PT-000": "PT-000 · pretrade approved",
+    "PT-010": "PT-010 · invalid inputs",
+    "PT-020": "PT-020 · stale data",
+    "PT-021": "PT-021 · spread too wide",
+    "PT-022": "PT-022 · spoofy regime",
+    "PT-023": "PT-023 · book too shallow",
+    "PT-030": "PT-030 · participation clamped",
+    "PT-031": "PT-031 · below min order",
+    "PT-040": "PT-040 · EV negative after fill odds",
+    "PT-041": "PT-041 · edge/cost below minimum",
+    "PT-050": "PT-050 · exploration bypassed EV bar",
+    "PT-060": "PT-060 · time-stop scratch",
+}
+
+
+def _code_value_mappings():
+    return [{"type": "value",
+             "options": {c: {"text": t, "index": i}
+                         for i, (c, t) in enumerate(sorted(CODE_LABELS.items()))}}]
 JOB = '{job="liquiditybot"}'
 # NON-SCALING dollars. Grafana's built-in currencyUSD SI-abbreviates at
 # >=$1k, so a $4,997.92 equity renders as "$5.00K" on stats and axes —
@@ -255,7 +308,7 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
 
 def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
              legend="{{asset}}", desc="", mn=None, mx=None, no_value=None,
-             extra=None):
+             extra=None, decode_family=None):
     """Horizontal bars, one per series — basic mode colors each bar by its
     value (gradient mode paints the whole threshold ramp inside every bar,
     which reads as data that isn't there). extra: [(expr, legend)] extra
@@ -273,7 +326,11 @@ def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
     panels.append({
         "id": _id(), "type": "bargauge", "title": title, "description": desc,
         "datasource": DS, "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": fld, "overrides": []},
+        "fieldConfig": {"defaults": fld, "overrides": [
+            {"matcher": {"id": "byName", "options": c},
+             "properties": [{"id": "displayName", "value": t}]}
+            for c, t in sorted(CODE_LABELS.items())
+            if decode_family and c.startswith(decode_family)]},
         "options": {"displayMode": "basic", "orientation": "horizontal",
                     "showUnfilled": True, "valueMode": "color",
                     "namePlacement": "left", "sizing": "auto",
@@ -345,6 +402,10 @@ def table(title, w, h, cols, label_keys, sort=None, desc="", drop=()):
                 {"id": "custom.cellOptions", "value": cell_opts}]
         overrides.append({"matcher": {"id": "byName", "options": name},
                           "properties": props})
+    if "code" in label_keys:
+        overrides.append({"matcher": {"id": "byName", "options": "code"},
+                          "properties": [{"id": "mappings",
+                                          "value": _code_value_mappings()}]})
     include = "^(" + "|".join(label_keys) + r"|Value.*)$"
     panels.append({
         "id": _id(), "type": "table", "title": title, "description": desc,
@@ -670,7 +731,7 @@ def _author_command():
                   "misfiring for that regime specifically.")
     bargauge("Denials by code", _pa("liquiditybot_conviction_denials"),
              12, 6, decimals=0, steps=BLUE, legend="{{code}}",
-             no_value="no denials yet",
+             no_value="no denials yet", decode_family="CV",
              desc="CV-* disposition tally — which term denies most "
                   "(agreement / EV-multiple / regime-known / context).")
 
@@ -1115,8 +1176,8 @@ def _author_screening():
     stat("Promoted", M("liquiditybot_skimmer_promoted_count"), 5, 5,
          decimals=0, steps=GRN, desc="Pairs promoted into the tradeable "
          "set.")
-    stat("Open slots", M("liquiditybot_positions_open"), 4, 5, decimals=0,
-         steps=BLUE, desc="Slots in use (max 5).")
+    stat("Positions open", M("liquiditybot_positions_open"), 4, 5, decimals=0,
+         steps=BLUE, desc="Open positions occupying slots (max 5).")
     gauge("Exposure headroom", M("liquiditybot_gross_exposure_pct"), 5, 5,
           mx=35.0, desc="Room left under the heat cap for a new name.")
     state("Model sizing", M("liquiditybot_ml_use_model"), 5, 5,

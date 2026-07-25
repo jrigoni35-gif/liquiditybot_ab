@@ -90,3 +90,8 @@ diff was a CSS string + two row titles). Conscious baseline: 5/3. This
 is the third boundary crossing in ~36 h — treat any single-check flip
 inside the {3,4,5}-passed band as the documented oscillation unless the
 inertness experiment says otherwise.
+
+Fourth crossing (2026-07-25 evening): 5/3 → 4/4 at 4,633 rows; inertness
+proven again (9e3bdd6 × current corpus in a worktree → identical 4/4;
+triggering diff was dashboard code-label decode only). Conscious
+baseline: 4/4. The oscillation reading stands.
