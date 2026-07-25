@@ -1,10 +1,10 @@
 {
-  "generated_at": 1784983488.587939,
+  "generated_at": 1784987092.0139744,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1784983479.0,
-    "duration_h": 364.85
+    "end": 1784987085.0,
+    "duration_h": 365.85
   },
   "pnl": {
     "starting_capital": 5000.0,
@@ -16,20 +16,20 @@
     "realized_pnl_total": -19.9,
     "fees_paid_total": 34.54,
     "open_positions": 0,
-    "samples": 78694
+    "samples": 78929
   },
   "activity": {
-    "signal_rows_total": 4454,
+    "signal_rows_total": 4483,
     "live_labeled_trades": 240,
-    "candidate_rows": 4214
+    "candidate_rows": 4243
   },
   "audit": {
-    "records": 9649,
-    "signal_records": 7091,
+    "records": 9892,
+    "signal_records": 7334,
     "by_src": {
-      "exploration": 7934,
+      "exploration": 8173,
       "order_manager": 717,
-      "ml_governor": 517,
+      "ml_governor": 521,
       "startup": 206,
       "fault": 185,
       "engine": 49,
@@ -41,7 +41,7 @@
     "top_codes": [
       [
         "SZ-047",
-        5124
+        5363
       ],
       [
         "ML-070",
@@ -69,19 +69,19 @@
       ],
       [
         "ML-031",
-        144
+        145
       ],
       [
         "ML-041",
-        109
+        110
       ],
       [
         "ML-016",
-        86
+        87
       ],
       [
         "ML-042",
-        82
+        83
       ],
       [
         "ML-073",
@@ -89,7 +89,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.723,
+    "dominant_frac": 0.731,
     "retrain_requests": 39,
     "kill_switch_events": 2,
     "chain_ok": false,
@@ -98,10 +98,10 @@
     "chain_seams": 2
   },
   "events": {
-    "records": 15783,
+    "records": 17524,
     "by_level": {
-      "INFO": 15737,
-      "WARNING": 40,
+      "INFO": 17476,
+      "WARNING": 42,
       "CRITICAL": 6
     },
     "top_warnings": [
@@ -147,18 +147,18 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3261,
-      "thin": 2042
+      "spoofy": 3487,
+      "thin": 2199
     },
-    "spoofy_frac": 0.615,
-    "cycles_estimate": 1474,
+    "spoofy_frac": 0.613,
+    "cycles_estimate": 1592,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 2,
     "use_model": false,
     "kelly_mult": 0.4,
-    "champion_brier": 0.19010705737572497,
+    "champion_brier": 0.09366997709032777,
     "brier": "n/a",
     "history_rows": 240,
     "cold": true
@@ -188,19 +188,19 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=240, brier=n/a) yet retrain was requested 39x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 72% of the audit trail"
+      "detail": "model is cold (live training rows=240, brier=n/a) yet retrain was requested 39x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 73% of the audit trail"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 62% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 61% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 72% of 7091 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 73% of 7334 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
