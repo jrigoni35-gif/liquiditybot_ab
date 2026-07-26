@@ -724,6 +724,26 @@ def validate(config: dict) -> list:
             fatal(f"ml.epoch.candidate_cutoff_ts ({cutoff}) outside the "
                   f"corpus's plausible range [1752000000, 1900000000] - not "
                   f"a real config-derivation-boundary timestamp")
+        # T3.6 production loader seam (ml/history.py load_training_data's
+        # epoch_cfg, SHIPPED OFF - exclude_old_candidates: false): the
+        # existing checks above already require a valid cutoff whenever
+        # this block is present at all (the report-only --epoch-ab
+        # experiment arm needs one too), but the flag that actually
+        # activates a PRODUCTION training-corpus filter earns its own
+        # explicit, purpose-named FATAL rather than riding the report-
+        # only block's coattails - a future edit that relaxes the block-
+        # presence check must not silently let exclude_old_candidates:
+        # true ship with no real cutoff.
+        excl_old = ep.get("exclude_old_candidates", False)
+        if not isinstance(excl_old, bool):
+            fatal(f"ml.epoch.exclude_old_candidates ({excl_old!r}) must "
+                  f"be a boolean")
+        elif excl_old and (not isinstance(cutoff, (int, float))
+                           or isinstance(cutoff, bool)):
+            fatal(f"ml.epoch.exclude_old_candidates is true but "
+                  f"ml.epoch.candidate_cutoff_ts ({cutoff!r}) is missing/"
+                  f"invalid - the production epoch filter (T3.6) cannot "
+                  f"activate without a real cutoff")
 
     # --- ml.gbt_mono: T3.4 monotone-constrained GBT ladder rung (shipped
     # disabled - ml/models.py GradientBoostedStumps.monotone_constraints).

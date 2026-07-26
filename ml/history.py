@@ -119,6 +119,86 @@ def _sim_divergence_stat(div_t: list, div_s: list, div_y: list,
     return div
 
 
+def _epoch_cutoff(epoch_cfg: "dict | None") -> "float | None":
+    """Resolves load_training_data's opt-in candidate-epoch filter (T3.6,
+    config ml.epoch, SHIPPED OFF - exclude_old_candidates: false) to an
+    active cutoff timestamp, or None (filter inactive). Active only when
+    BOTH exclude_old_candidates is truthy AND candidate_cutoff_ts is a
+    real number; core/config_guard.py FATALs any live config where the
+    flag is true but the cutoff is missing/invalid, so this resolves to
+    None defensively rather than trust an unchecked dict (e.g. a test or
+    a caller that bypassed the guard) - fail open (filter off), never
+    fail into an unbounded/garbage cutoff. Module-level so the resolution
+    itself (several branches) doesn't count against load_training_data's
+    mccabe complexity - see _row_epoch_excluded below for why the actual
+    per-row check is split out too."""
+    ec = epoch_cfg or {}
+    if not ec.get("exclude_old_candidates"):
+        return None
+    cutoff = ec.get("candidate_cutoff_ts")
+    if isinstance(cutoff, bool) or not isinstance(cutoff, (int, float)):
+        return None
+    return float(cutoff)
+
+
+def _row_epoch_excluded(row: dict, cutoff: "float | None") -> bool:
+    """True when `row` is a CANDIDATE-source row whose resolve `ts` is
+    strictly before `cutoff` (None = filter inactive -> always False).
+    Split to a module-level helper purely to keep load_training_data's
+    mccabe complexity under the C901 ceiling (pyproject.toml) - same
+    pattern as _sim_divergence_stat/_scan_live_dedup_keys, no behavior
+    difference from inlining it there. The `source == "candidate"` test
+    is repeated here as defense in depth, but the LOAD-BEARING guarantee
+    (live rows structurally can never be excluded, in any era, for any
+    reason) is the caller's: load_training_data only ever calls this from
+    inside its own `row.get("source") == "candidate"` branch, so a live
+    row's `continue` can never be reached through this function no matter
+    what it returns. Malformed/missing ts fails OPEN (kept) - this filter
+    only removes what it can positively place before the cutoff."""
+    if cutoff is None or row.get("source") != "candidate":
+        return False
+    try:
+        r_ts = float(row.get("ts") or "nan")
+    except ValueError:
+        return False
+    return r_ts < cutoff
+
+
+def _scan_live_dedup_keys(path: Path) -> tuple:
+    """First-pass prescan for load_training_data's SYNTHETIC-vs-REAL clash
+    guard (see the full rationale in that method's body): one read of
+    every LIVE row (book=="long" and source=="candidate" rows excluded,
+    exactly as that method's own second pass excludes them), building the
+    lineage-match set (live_cand_ids), the legacy exact-vector fallback
+    set (live_keys), and the per-candidate_id realized label the T2.2b
+    twin-agreement stat pairs against (live_label_by_cid). Split to a
+    module-level helper purely to keep load_training_data's mccabe
+    complexity under the C901 ceiling (pyproject.toml) - no behavior
+    difference from inlining it there."""
+    live_keys = set()
+    live_cand_ids = set()
+    live_label_by_cid: dict = {}
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            if (row.get("book") or "5m") == "long":
+                continue
+            if row.get("source") == "candidate":
+                continue
+            cid = (row.get("candidate_id") or "").strip()
+            if cid:
+                live_cand_ids.add(cid)
+                try:
+                    live_label_by_cid[cid] = float(row["label"])
+                except (KeyError, ValueError):
+                    pass
+            try:
+                live_keys.add((row["asset"], row["side"],
+                              tuple(row[n] for n in FEATURE_NAMES)))
+            except KeyError:
+                continue
+    return live_keys, live_cand_ids, live_label_by_cid
+
+
 def _regime_of_feats(feats) -> "str | None":
     """Which of the 5 macro-regime one-hots a feature row marks, or None
     for an all-zero/ambiguous row (schema-migration padding, or a legacy
@@ -427,7 +507,8 @@ class HistoryStore:
                         manip_discount: float = 0.5, return_sig: bool = False,
                         weights_cfg: dict | None = None,
                         return_label_times: bool = False,
-                        telemetry_cfg: dict | None = None) -> tuple:
+                        telemetry_cfg: dict | None = None,
+                        epoch_cfg: dict | None = None) -> tuple:
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
         weights encode the honest priors:
@@ -464,7 +545,27 @@ class HistoryStore:
         the T2.2a live-covered-window divergence score (ML-078), always
         computed into self.last_load_stats["sim_live_divergence"] over rows
         that survive into the trained corpus - detection only, never
-        reweighting."""
+        reweighting.
+
+        `epoch_cfg` (config ml.epoch, T3.6 loader seam - SHIPPED OFF)
+        gates an opt-in production-corpus filter: when
+        epoch_cfg.get("exclude_old_candidates") is truthy AND
+        candidate_cutoff_ts is a valid number (_epoch_cutoff), CANDIDATE
+        rows whose resolve `ts` is strictly before the cutoff are
+        excluded from training, counted into
+        self.last_load_stats["epoch_excluded"]. LIVE rows are NEVER
+        excluded by this filter, structurally - the check only ever runs
+        inside the `source == "candidate"` branch below, so no
+        combination of config, malformed rows, or missing fields can
+        reach a live row. Off by default (exclude_old_candidates: false):
+        the production flip, if the Task 6 experiment verdict ever
+        justifies it, is its own conscious commit, never a side effect
+        of this default. This is a different consumer of the SAME
+        ml.epoch.candidate_cutoff_ts than scripts/overfit_check.py's
+        report-only --epoch-ab experiment arm (ml/overfit.py
+        build_epoch_ab_mask) - that one measures the cutoff inside OF-3's
+        PBO space without ever touching this loader; this one is the
+        production-path seam that would apply it for real."""
         self.last_load_stats = {}
         if not self.path.exists():
             return _empty_training_tuple(return_sig, return_label_times)
@@ -495,50 +596,36 @@ class HistoryStore:
         # written before candidate_id existed (no lineage recorded either
         # side) - never a numeric tolerance, which would risk merging
         # genuinely distinct signals.
-        live_keys = set()
-        live_cand_ids = set()
-        # T2.2b: live row's candidate_id -> its REALIZED label. Built
-        # alongside live_cand_ids in this same prescan so the lineage-match
+        # Compounder Phase C (task C5): book=="long" rows are the
+        # long-horizon accumulation book's own realized closes - a
+        # completely different trading process (patient, ladder-gated
+        # accumulation, no p(win)/edge signal) from the 5m scalping flow
+        # this model trains for. EXCLUDED here, at the very first read of
+        # every row this method ever makes, so they can influence NEITHER
+        # the X/y arrays below NOR this clash-dedup prescan (a long-book
+        # live row coincidentally sharing an (asset, side, feature-vector)
+        # tuple with a 5m candidate must never spuriously mark that
+        # candidate a "duplicate" of a real fill it has nothing to do
+        # with). (row.get("book") or "5m") mirrors every other book-tag
+        # read site's default (pre-C1 rows / any writer that never heard
+        # of `book`). T2.2b: live_label_by_cid pairs a live row's
+        # candidate_id against its REALIZED label so the lineage-match
         # drop branch below can pair the candidate's proxy label against
-        # the live twin's realized one without a second file read.
-        live_label_by_cid: dict = {}
-        with open(self.path, encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                # Compounder Phase C (task C5): book=="long" rows are the
-                # long-horizon accumulation book's own realized closes -
-                # a completely different trading process (patient,
-                # ladder-gated accumulation, no p(win)/edge signal) from
-                # the 5m scalping flow this model trains for. EXCLUDED
-                # here, at the very first read of every row this method
-                # ever makes, so they can influence NEITHER the X/y
-                # arrays below NOR this clash-dedup prescan (a long-book
-                # live row coincidentally sharing an (asset, side,
-                # feature-vector) tuple with a 5m candidate must never
-                # spuriously mark that candidate a "duplicate" of a real
-                # fill it has nothing to do with). (row.get("book") or
-                # "5m") mirrors every other book-tag read site's default
-                # (pre-C1 rows / any writer that never heard of `book`).
-                if (row.get("book") or "5m") == "long":
-                    continue
-                if row.get("source") == "candidate":
-                    continue
-                cid = (row.get("candidate_id") or "").strip()
-                if cid:
-                    live_cand_ids.add(cid)
-                    try:
-                        live_label_by_cid[cid] = float(row["label"])
-                    except (KeyError, ValueError):
-                        pass
-                try:
-                    live_keys.add((row["asset"], row["side"],
-                                   tuple(row[n] for n in FEATURE_NAMES)))
-                except KeyError:
-                    continue
+        # the live twin's without a second file read. Extracted to
+        # _scan_live_dedup_keys (module-level) purely to keep this
+        # method's mccabe complexity under the C901 ceiling - no
+        # behavior difference from inlining it here.
+        live_keys, live_cand_ids, live_label_by_cid = \
+            _scan_live_dedup_keys(self.path)
         X, y, w, sig = [], [], [], []
         meta = []            # (asset, end_ts, source, barrier) per kept row
         now = time.time()
         dropped_clash = 0
         dropped_dirty = 0
+        # T3.6 loader seam (config ml.epoch, SHIPPED OFF): resolved ONCE
+        # here, not per-row, so the per-row check below is a single call.
+        epoch_cutoff = _epoch_cutoff(epoch_cfg)
+        epoch_excluded = 0
         # T2.2b: (proxy label, realized label) twin agreement flags, one per
         # lineage-match drop below (1 = agree, 0 = disagree). The exact-vector
         # fallback match has no defensible pairing and captures nothing.
@@ -559,6 +646,14 @@ class HistoryStore:
                 # contamination pin (the prescan's copy is defense in
                 # depth for the dedup keys, this one is the real gate).
                 if (row.get("book") or "5m") == "long":
+                    continue
+                # T3.6 loader seam: structurally scoped to source==
+                # "candidate" so a live row can never be reached by this
+                # continue, no matter what config/row data says - see
+                # _row_epoch_excluded's docstring for the full guarantee.
+                if row.get("source") == "candidate" and \
+                        _row_epoch_excluded(row, epoch_cutoff):
+                    epoch_excluded += 1
                     continue
                 if row.get("source") == "candidate" and \
                         (live_keys or live_cand_ids):
@@ -713,6 +808,7 @@ class HistoryStore:
             "mean_uniqueness": round(uniq_mean, 4),
             "prior_recent": p_recent, "prior_overall": p_all,
             "prior_skew": skew_flag,
+            "epoch_excluded": epoch_excluded,
         }
         # lineage-pair agreement stat (T2.2b, ML-077): simulator-fidelity
         # telemetry over the dedup-discarded (proxy label, realized label)
