@@ -12,13 +12,21 @@ from pathlib import Path
 
 log = logging.getLogger("liquiditybot.ml.retrain_log")
 
+_FAMILIES = ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
+
+
+def family_metric(results: dict, metric: str) -> dict:
+    """Per-family {name: round(value,5)} for one metric out of the
+    evaluate_and_select results dict; families missing the metric (or not
+    dicts) are omitted. Report-only accessor - never a decision input."""
+    return {k: round(float(results[k][metric]), 5) for k in _FAMILIES
+            if isinstance(results.get(k), dict) and metric in results[k]}
+
 
 def retrain_record(now: float, source: str, results: dict, n_rows: int,
                    n_live: int, oof_brier, champion_bar,
                    deployed: bool) -> dict:
-    fams = {k: round(float(results[k].get("mean_brier", float("nan"))), 5)
-            for k in ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
-            if isinstance(results.get(k), dict) and "mean_brier" in results[k]}
+    fams = family_metric(results, "mean_brier")
     return {"ts": round(float(now), 1), "source": source,
             "rows": int(n_rows), "live": int(n_live),
             "selected": results.get("selected"),
@@ -29,7 +37,8 @@ def retrain_record(now: float, source: str, results: dict, n_rows: int,
                           else round(float(oof_brier), 5)),
             "champion_bar": (None if champion_bar is None
                              else round(float(champion_bar), 5)),
-            "deployed": bool(deployed)}
+            "deployed": bool(deployed),
+            "family_calib_gap": family_metric(results, "calib_gap")}
 
 
 def append_retrain(path, record: dict) -> None:

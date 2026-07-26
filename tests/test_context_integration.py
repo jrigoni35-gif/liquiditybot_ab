@@ -272,6 +272,18 @@ def test_runner_build_status_includes_serializable_context_section(
     assert isinstance(dumped, str)
 
 
+def test_status_ml_retrain_calib_gap_key(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    bot = _bot(_cfg(), {"ETH": 2000.0, "BTC": 60000.0})
+    runner = BotRunner(bot.config, bot=bot)
+    status = runner.build_status(1_700_000_000.0)
+    assert status["ml"]["retrain_calib_gap"] == {}      # pre-first-retrain
+    bot._last_retrain_calib_gap = {"gbt": 0.05}
+    status = runner.build_status(1_700_000_000.0)
+    assert status["ml"]["retrain_calib_gap"] == {"gbt": 0.05}
+    json.dumps(status)                                   # stays JSON-safe
+
+
 # ---------------------------------------------------------------------------
 # 4. dark-everything invariance: context enabled+dark vs context disabled
 #    must be byte-identical for the trading pipeline (telemetry-only).

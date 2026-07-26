@@ -83,6 +83,23 @@ def test_both_retrain_paths_write_history():
     assert eng.index("append_retrain(") < eng.index("if not _deploy_ok:")
 
 
+def test_retrain_record_family_calib_gap():
+    results = {"selected": "logistic",
+               "logistic": {"mean_brier": 0.21, "calib_gap": 0.041},
+               "gbt": {"mean_brier": 0.23}}          # no calib_gap: omitted
+    rec = retrain_record(1000.0, "auto", results, 2000, 71,
+                         oof_brier=0.19, champion_bar=None, deployed=False)
+    assert rec["family_calib_gap"] == {"logistic": 0.041}
+    assert rec["family_brier"] == {"logistic": 0.21, "gbt": 0.23}
+
+
+def test_family_metric_helper_rounds_and_filters():
+    from ml.retrain_log import family_metric
+    results = {"gbt": {"calib_gap": 0.123456}, "mlp": "not-a-dict"}
+    assert family_metric(results, "calib_gap") == {"gbt": 0.12346}
+    assert family_metric(results, "absent") == {}
+
+
 # --- disposition column ------------------------------------------------------
 def test_disposition_reaches_the_candidate_row(tmp_path):
     import numpy as np

@@ -867,6 +867,10 @@ class LiquidityBot:
         # stale champion forever ("the ML worked until it didn't"). Count the
         # failures so a rising number is visible on the incidents dashboard.
         self._retrain_failures = 0
+        # per-family calibration gap from the last retrain's evaluate_and_
+        # select results - report-only, rebuilt each retrain, never persisted
+        # (surfaced into status.ml.retrain_calib_gap for observability)
+        self._last_retrain_calib_gap: dict = {}
         self.xscan = sentiment_scanner or SentimentScanner(
             config.get("sentiment", {}))
         self.narrative = NarrativeFilter(config.get("sentiment", {}).get("filter", {}))
@@ -4612,6 +4616,7 @@ class LiquidityBot:
             return
         try:
             from ml.walkforward import evaluate_and_select
+            from ml.retrain_log import family_metric
             from ml.models import save_model
             from ml.calibration import (IsotonicCalibrator, brier_score,
                                         feature_deciles)
@@ -4664,6 +4669,7 @@ class LiquidityBot:
                             .get('ensemble_seeds', 3)), sig=sig,
                 extra_models=_extra, adaptive_cfg=_ag,
                 n_live=int(_n_live), select_cfg=_sel_cfg, res=res)
+            self._last_retrain_calib_gap = family_metric(results, "calib_gap")
             if results.get("gated"):
                 get_audit().log(
                     "ml_governor", Code.ML_LADDER_GATED,

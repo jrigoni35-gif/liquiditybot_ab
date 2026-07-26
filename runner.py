@@ -625,6 +625,7 @@ class BotRunner:
                    "pending_labels": len(bot.history._pending),
                    "open_candidates": len(bot.candidates._cands),
                    "retrain_flag": bot.monitor.flag_path.exists(),
+                   "retrain_calib_gap": getattr(bot, "_last_retrain_calib_gap", {}),
                    # failure-visibility counters: each event logs, but only
                    # a surfaced cumulative count exposes the TREND of a
                    # subsystem quietly dying behind in-range neutral values
