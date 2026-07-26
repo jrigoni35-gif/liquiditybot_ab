@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-26 06:42 UTC
+# Overfit audit — 2026-07-26 10:46 UTC
 
 Dataset: live history (4642 rows)
 
@@ -31,4 +31,4 @@ Dataset: live history (4642 rows)
 - **INFO** regime[crisis] — n=0 — absent from corpus
 - **INFO** regime[unknown] — n=0 — absent from corpus
 
-4 passed, 4 failed (71s)
+4 passed, 4 failed (79s)
