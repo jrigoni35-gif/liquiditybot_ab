@@ -4721,6 +4721,7 @@ class LiquidityBot:
                 return
             challenger_brier = brier_score(sel["oof_y"], oof_cal)
             self._rows_at_last_train = rows
+            oof_idx = results.get("oof_idx", [])
             # STALE-BADGE GUARD (ML-042): rescore the FROZEN incumbent on
             # the same fresh OOF rows before gating — its stored brier is
             # a birth certificate from an older corpus era, and comparing
@@ -4729,7 +4730,7 @@ class LiquidityBot:
             # scored candidate on the current corpus).
             champ_fresh = self.monitor.rescore_frozen(
                 self.meta.model, self.meta.calibrator, X, y,
-                results.get("oof_idx", []), self.meta.trained_rows,
+                oof_idx, self.meta.trained_rows,
                 self.monitor.deploy_min_oof)
             if champ_fresh is not None and \
                     abs(champ_fresh - self.monitor.champion_brier) > 1e-9:
@@ -4758,8 +4759,53 @@ class LiquidityBot:
                               if _model_path_p.exists() else None)
             except OSError:
                 _prior_hash = None
-            _deploy_ok = self.monitor.should_deploy(challenger_brier,
-                                                    n_oof=len(oof_cal))
+            # LIKE-FOR-LIKE GATE: should_deploy may only compare champion and
+            # challenger scores drawn from the IDENTICAL row set. Before this,
+            # the champion above was rescored on the fresh OOF tail (base
+            # rate can differ ~79% from the full span — measured live 0.0841
+            # vs 0.1508) while the challenger below was scored over the FULL
+            # oof_idx span: Brier is not comparable across differing base
+            # rates, so the champion won by population, not merit (four
+            # days, 68/68 REJECT — task-champ-report.md). When a real
+            # champion is loaded, gate both scores on the SAME shared rows;
+            # an incomparable pair (too few fresh rows, a rescore fault)
+            # fails CLOSED — promotion is new risk and is never granted by
+            # default. Cold start (no champion loaded yet) has no incumbent
+            # population to match, so should_deploy's own no-champion
+            # clause still decides on the challenger's full-span score,
+            # exactly as before.
+            if self.meta.model is None:
+                _deploy_ok = self.monitor.should_deploy(challenger_brier,
+                                                        n_oof=len(oof_cal))
+            else:
+                shared = None if champ_fresh is None else \
+                    self.monitor.shared_challenger_brier(
+                        oof_idx, self.meta.trained_rows,
+                        self.monitor.deploy_min_oof, oof_cal, y)
+                if shared is None:
+                    n_shared = int(np.sum(
+                        np.asarray(oof_idx, int) >=
+                        int(self.meta.trained_rows)))
+                    detail = {"decision": "REJECT", "n_shared": n_shared,
+                             "deploy_min_oof": self.monitor.deploy_min_oof}
+                    get_audit().log(
+                        "ml_governor", Code.ML_DEPLOY_REJECT,
+                        "challenger rejected: no like-for-like shared row "
+                        f"set could be built vs the frozen champion "
+                        f"({n_shared} candidate fresh OOF rows, "
+                        f"deploy_min_oof={self.monitor.deploy_min_oof}) - "
+                        f"comparing populations with different label base "
+                        f"rates is refused, fail-closed", detail)
+                    log.info("challenger brier=%.4f vs frozen champion: no "
+                             "honest shared row set (%d candidate fresh "
+                             "rows, deploy_min_oof=%d) -> REJECT "
+                             "(fail-closed)", challenger_brier, n_shared,
+                             self.monitor.deploy_min_oof)
+                    _deploy_ok = False
+                else:
+                    _shared_brier, n_shared = shared
+                    _deploy_ok = self.monitor.should_deploy(
+                        _shared_brier, n_oof=n_shared)
             # continuous learning curve: one history row per retrain,
             # deployed or rejected (ml/retrain_log)
             from ml.retrain_log import append_retrain, retrain_record

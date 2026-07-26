@@ -502,6 +502,53 @@ class ModelMonitor:
         except Exception:                        # noqa: BLE001 - fail-safe
             return None
 
+    @staticmethod
+    def shared_challenger_brier(oof_idx, seen_rows: int, min_n: int,
+                                challenger_oof_p, y) -> tuple[float, int] | None:
+        """Challenger Brier restricted to the SAME fresh rows (oof_idx >=
+        seen_rows) that rescore_frozen scores the frozen champion on — the
+        row set the two scores must share before should_deploy may compare
+        them at all.
+
+        WHY: rescore_frozen already scores the champion on this fresh
+        slice, so its base rate is whatever the fresh tail's is (measured
+        live: 0.0841). Before this existed, should_deploy compared that
+        fresh-tail score against the challenger's Brier over the FULL
+        oof_idx span instead — a population with a materially different
+        label base rate (measured live: 0.1508, a ~79% relative gap).
+        Brier is not comparable across differing base rates, so the
+        champion won by population, not merit (four days, 68/68 REJECT;
+        on the SAME rows the challenger actually wins). This restricts the
+        challenger to the IDENTICAL physical rows the champion was scored
+        on, so should_deploy compares like for like.
+
+        challenger_oof_p must be POSITION-ALIGNED with oof_idx:
+        ml.walkforward.evaluate_and_select builds oof_idx and every
+        candidate's oof_p/oof_y by concatenating the SAME fold list in the
+        SAME order, so position i in both always names the same physical
+        training row.
+
+        Returns (challenger_brier, n_shared) on a shared set of >= min_n
+        finite-scored rows, else None — fail-closed: an incomparable pair
+        (too few shared rows, a length mismatch, non-finite output) must
+        never silently fall back to comparing mismatched populations."""
+        try:
+            idx = np.asarray(oof_idx, int)
+            p = np.asarray(challenger_oof_p, float).reshape(-1)
+            if len(p) != len(idx):
+                return None
+            mask = idx >= int(seen_rows)
+            n_shared = int(mask.sum())
+            if n_shared < int(min_n):
+                return None
+            p_shared = p[mask]
+            if not np.all(np.isfinite(p_shared)):
+                return None
+            y_shared = np.asarray(y, float)[idx[mask]]
+            return float(np.mean((p_shared - y_shared) ** 2)), n_shared
+        except Exception:                        # noqa: BLE001 - fail-safe
+            return None
+
     def should_deploy(self, challenger_brier: float,
                       n_oof: int | None = None) -> bool:
         """Champion/challenger deployment gate."""
