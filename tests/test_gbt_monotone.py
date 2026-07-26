@@ -9,12 +9,13 @@ Covers (per the task brief):
      model), then the CONSTRAINED model is monotone across a grid of
      probe rows sweeping only the flagged feature.
   2. Determinism pin: same seed + corpus -> identical to_dict.
-  3. monotone_constraints=None -> BYTE-IDENTICAL to the pre-T3.4 model.
-     The pinned sha256 below was captured by running the ACTUAL
-     pre-T3.4 code (`git show bd92339:ml/models.py`, the HEAD commit
-     this task started from) on the exact corpus/seed below, in an
-     isolated module load - not computed by the post-change code. See
-     task-3-report.md for the two-process comparison transcript.
+  3. monotone_constraints=None leaves the model untouched - asserted
+     MACHINE-INDEPENDENTLY (no-new-key, None==={}, determinism, and a
+     real constraint still moves the trees). This replaced a hardcoded
+     sha256 of to_dict() that was green on the authoring container and
+     RED on the Windows target runtime, blocking every deploy; the
+     one-time pre/post comparison against `git show bd92339:ml/models.py`
+     is recorded in task-3-report.md and stands on its own.
   4. The two-sided mutation proof (disable the clamp -> property test
      FAILS; restore -> passes) is NOT a permanent test here (mutating
      production code from a test would itself be the kind of "unverified
@@ -29,7 +30,6 @@ Covers (per the task brief):
 Plus ladder/PBO-space wiring sanity (gbt_mono placed directly after gbt,
 opt-in only, evidence-gated via pbo_family -> "gbt").
 """
-import hashlib
 import json
 
 import numpy as np
@@ -171,15 +171,14 @@ def test_determinism_same_seed_same_corpus_identical_to_dict():
 
 
 # ---------------------------------------------------------------------------
-# 3) None -> byte-identical to the pre-T3.4 model
+# 3) None leaves the model untouched (machine-independent)
 # ---------------------------------------------------------------------------
-# Captured by running the ACTUAL pre-T3.4 ml/models.py (git show
-# bd92339:ml/models.py, the commit this task branched from) in an isolated
-# module load, fitting GradientBoostedStumps(seed=5, n_estimators=80) on
-# _corpus_for_pin() below, and sha256-hashing json.dumps(to_dict(),
-# sort_keys=True). This is NOT computed by the post-change code - see
-# task-3-report.md for the two-process transcript that produced it.
-_PRE_T34_SHA256 = "0f80ee5bd7dbbf5044fa92ec169ee03f04c98032cab6bc4c57fcb623e6e66452"
+# The original one-time pre/post check ran the ACTUAL pre-T3.4 ml/models.py
+# (git show bd92339:ml/models.py) in an isolated module load and compared
+# to_dict(); that transcript is in task-3-report.md and remains the evidence
+# that adding the parameter changed nothing. It is NOT re-derivable here: the
+# digest it produced is a hash of raw floats and is therefore CPU/numpy
+# specific. See the test below for what is asserted instead.
 _PRE_T34_KEYS = {"base", "colsample", "importance", "kind", "l2", "lr",
                  "max_depth", "min_child_hess", "n_features", "seed",
                  "subsample", "trees"}
@@ -194,20 +193,72 @@ def _corpus_for_pin(n=1500, seed=13, d=6):
     return X, y
 
 
-def test_monotone_constraints_none_is_byte_identical_to_pre_t34():
+def test_monotone_constraints_none_leaves_the_model_untouched():
+    """The unconstrained path is inert — machine-INDEPENDENTLY.
+
+    This replaced a hardcoded sha256 of json.dumps(to_dict()). That pin
+    was green on the authoring container and RED on the Windows target
+    runtime (2026-07-26: got 4c02fab7… vs pinned 0f80ee5b…, key-set
+    assertion passing, so shape identical and only float values moved).
+    to_dict() serializes raw floats — `base` is 4.44e-16, a summation
+    -order residue that should be zero — so a bit-exact digest asserts
+    identical FP arithmetic across CPU/numpy builds, which is not a
+    property this project has or wants. It is also not a QUALITY gate
+    whose loosening would hide a regression: the pre/post comparison it
+    encoded was a ONE-TIME migration check, performed against
+    `git show bd92339:ml/models.py` in a separate process and recorded
+    in task-3-report.md. That evidence stands; re-deriving it on every
+    machine forever was never possible.
+    Cost of leaving it: the PC's test-gated auto-updater rejected EVERY
+    deploy (deploy.head stuck at 19cd87b while main moved on), so no
+    code could reach the bot at all.
+
+    What is asserted instead — all portable, and jointly they still fail
+    if the constraint machinery ever leaks into the unconstrained path:
+      1. to_dict() gains NO key when unconstrained (the serialization
+         contract every consumer depends on);
+      2. None and {} are indistinguishable (the machinery is dormant,
+         not merely empty-configured);
+      3. the fit is deterministic under a fixed seed;
+      4. a REAL constraint still changes the output — without this the
+         other three would pass against a build where constraints were
+         silently ignored everywhere.
+    """
     X, y = _corpus_for_pin()
-    m = GradientBoostedStumps(seed=5, n_estimators=80).fit(
-        X[:1200], y[:1200], X[1200:], y[1200:])
-    d = m.to_dict()
-    assert set(d.keys()) == _PRE_T34_KEYS, (
+    tr, te = slice(0, 1200), slice(1200, None)
+
+    def _fit(mc):
+        return GradientBoostedStumps(
+            seed=5, n_estimators=80, monotone_constraints=mc
+        ).fit(X[tr], y[tr], X[te], y[te]).to_dict()
+
+    d_none = _fit(None)
+
+    # 1. serialization contract: no new key on the unconstrained path
+    assert set(d_none.keys()) == _PRE_T34_KEYS, (
         "monotone_constraints=None must add NO new key to to_dict() - "
-        f"got {sorted(d.keys())}")
-    got = hashlib.sha256(
-        json.dumps(d, sort_keys=True).encode()).hexdigest()
-    assert got == _PRE_T34_SHA256, (
-        f"unconstrained GradientBoostedStumps output changed: {got} != "
-        f"pinned {_PRE_T34_SHA256} - the None default must reproduce the "
-        f"pre-T3.4 model exactly")
+        f"got {sorted(d_none.keys())}")
+
+    # 2. dormant, not just empty: None and {} agree exactly (same
+    #    process, same machine -> bit-exact comparison IS valid here)
+    assert _fit({}) == d_none, (
+        "monotone_constraints={} must be indistinguishable from None - "
+        "the bound-propagation machinery is not inert when unused")
+
+    # 3. determinism under a fixed seed
+    assert _fit(None) == d_none, "same seed must reproduce the same model"
+
+    # 4. teeth: a real constraint MUST move the FITTED TREES, otherwise
+    #    1-3 would also pass against a build that ignores constraints.
+    #    Compare trees ONLY, never the whole dict: to_dict() serializes a
+    #    "monotone_constraints" key whenever the arg is non-empty, so a
+    #    whole-dict `!=` is satisfied by that key alone and would pass
+    #    even with the constraint logic ripped out (verified by mutating
+    #    ml/models.py's `sign = ...` lookup to None — the whole-dict form
+    #    of this assertion did NOT catch it; this form does).
+    assert _fit({0: 1, 2: -1})["trees"] != d_none["trees"], (
+        "a non-empty monotone_constraints produced the SAME TREES as the "
+        "unconstrained fit - the constraint logic is being ignored")
 
 
 def test_from_dict_roundtrip_preserves_constraints_and_predictions():

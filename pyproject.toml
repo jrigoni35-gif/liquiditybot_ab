@@ -49,3 +49,12 @@ max-complexity = 40
 # input, so `python -O` stripping them is harmless. Other bandit findings stay
 # curated inline via `# nosec B<id>` markers, not blanket-skipped here.
 skips = ["B101"]
+# exclude_dirs lives in CONFIG, not only in the battery's `-x` flag, so a
+# git worktree can never turn the battery red. `.worktrees/<name>/` holds a
+# full second checkout INCLUDING its own tests/, and the documented
+# `-x ./.venv,./tests` is a literal prefix match that does not reach
+# `./.worktrees/x/tests` — so merely having a worktree open (e.g. to run one
+# test against another commit, which is exactly how the 2026-07-26 Windows
+# pin failure was diagnosed) added 75 phantom findings to a clean tree. A
+# throwaway checkout must never be able to block a deploy.
+exclude_dirs = [".venv", "tests", ".worktrees"]
