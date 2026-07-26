@@ -240,3 +240,24 @@ def test_last_load_stats_live_clean_counts_only_clean_live(tmp_path,
     hs.load_training_data(weights_cfg={})
     assert hs.last_load_stats["live_clean"] == 1
     assert hs.last_load_stats["rows"] == 2
+
+
+def test_vertical_barrier_downweight_covers_triple_barrier_mode(tmp_path):
+    """ml.label_mode="triple_barrier" spells the vertical barrier "tb_time"
+    (ml/history.py's era-disambiguating prefix, 2026-07-26), not "time".
+
+    The down-weight targets a POPULATION, not a spelling: per this module's
+    own docstring, "price touched NEITHER profit nor stop inside the
+    horizon" is a no-move and weaker evidence against the signal than a
+    realized stop-out. A tb_time zero is exactly that population, so it must
+    receive time_barrier_zero_weight. Matching the bare literal "time" let
+    the correction silently lapse for every row written under the new label
+    mode."""
+    from ml.history import _VERTICAL_BARRIER_REASONS
+    assert "time" in _VERTICAL_BARRIER_REASONS
+    assert "tb_time" in _VERTICAL_BARRIER_REASONS, (
+        "tb_time is the triple_barrier-mode vertical barrier - the same "
+        "no-move population as 'time' - and must take the same down-weight")
+    # a policy scratch is NOT a vertical barrier: it is "we chose not to
+    # wait", not "the market did nothing" - it must stay excluded
+    assert "time_stop" not in _VERTICAL_BARRIER_REASONS

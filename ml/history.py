@@ -254,6 +254,17 @@ LABEL_ERA_TIME_STOP = "exit_sim_time_stop"     # + P2 time-stop rung
 LABEL_ERA_TRIPLE_BARRIER = "triple_barrier"
 LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 
+# Vertical-barrier reasons: "price touched NEITHER profit nor stop inside the
+# horizon". This is a POPULATION, not a spelling, and the sample-weight
+# correction below (time_barrier_zero_weight) keys off it — a no-move is
+# weaker evidence against the signal than a realized stop-out.
+# Spelled two ways: "time" under label_mode="exit_policy", "tb_time" under
+# "triple_barrier" (the era-disambiguating prefix, 2026-07-26). Matching the
+# bare literal "time" silently dropped the correction for every row written
+# under the new mode. "time_stop" is deliberately NOT here: a policy scratch
+# is "we chose not to wait", not "the market did nothing".
+_VERTICAL_BARRIER_REASONS = frozenset({"time", "tb_time"})
+
 # Barrier strings simulate_exit_policy() (ml/labeling.py:180-360) can emit,
 # MINUS "time_stop" (its own era below) and "pt" (triple_barrier() ONLY,
 # ml/labeling.py:363-401 - never emitted by the exit-policy simulator).
@@ -1059,7 +1070,7 @@ class HistoryStore:
         tbw = min(max(float(wc.get("time_barrier_zero_weight", 1.0)), 0.0), 1.0)
         if w and tbw < 1.0:
             for i in range(len(w)):
-                if y[i] == 0.0 and meta[i][3] == "time":
+                if y[i] == 0.0 and meta[i][3] in _VERTICAL_BARRIER_REASONS:
                     w[i] *= tbw
         # mass-preserving rescale: uniqueness/barrier corrections REDISTRIBUTE
         # evidence between rows; they must not shrink the total loss weight

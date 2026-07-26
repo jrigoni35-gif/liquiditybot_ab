@@ -175,7 +175,7 @@ def test_label_dispatch_is_deterministic(tmp_path):
 
 
 def test_load_training_data_is_deterministic_for_triple_barrier_rows(
-        tmp_path):
+        tmp_path, monkeypatch):
     store, lab = _tb_labeler(tmp_path, exit_policy=ExitPolicy())
     feats = np.zeros(len(FEATURE_NAMES))
     lab.register("BTC", "long", feats, sigma_bar=0.005, bar_time=0)
@@ -183,6 +183,17 @@ def test_load_training_data_is_deterministic_for_triple_barrier_rows(
                                _candle(1, 100.0, 100.1, 99.9),
                                _candle(2, 105.0, 105.5, 104.5)])
     assert lab.poll() == 1
+    # FREEZE THE CLOCK. load_training_data() stamps `now = time.time()`
+    # (ml/history.py) and the recency half-life decays every weight against
+    # it, BY DESIGN. Two separately-clocked loads therefore differ in the
+    # last bits, and asserting np.array_equal across them is a coin flip —
+    # measured 5-6 failures in 12 runs before this freeze, with and without
+    # any weighting change. Freeze first, then assert, exactly as 34bb82d
+    # did for status()'s last_poll_age_sec. The determinism this pins is
+    # "same inputs AND same clock -> same weights", which is the property
+    # that actually matters; recency-vs-wall-clock is intended behaviour,
+    # not the thing under test.
+    monkeypatch.setattr("time.time", lambda: 1785000000.0)
     X1, y1, w1 = store.load_training_data()
     X2, y2, w2 = store.load_training_data()
     assert np.array_equal(X1, X2)
