@@ -4648,7 +4648,21 @@ class LiquidityBot:
             # ml.adaptive_gbt.enabled (disabled -> extra_models=() -> the
             # historical in-process ladder, unchanged).
             _ag = self.config.get('ml', {}).get('adaptive_gbt', {}) or {}
-            _extra = ("adaptive_gbt",) if _ag.get("enabled") else ()
+            # opt-in monotone-constrained GBT rung (T3.4): SHIPPED DISABLED
+            # (ml.gbt_mono.enabled=false) - entering the deployed ladder is
+            # a conscious PBO re-baseline (T3.5 rule), not this task's call.
+            # Constraint feature NAMES are resolved to column indices here
+            # (main.py already imports FEATURE_NAMES at module scope) so
+            # ml/walkforward.py never needs to import ml.features itself.
+            _gm = self.config.get('ml', {}).get('gbt_mono', {}) or {}
+            _gm_constraints = {
+                FEATURE_NAMES.index(_name): int(_sign)
+                for _name, _sign in (_gm.get('constraints') or {}).items()
+                if _name in FEATURE_NAMES} if _gm.get("enabled") else {}
+            _extra = tuple(
+                _name for _name, _on in
+                (("adaptive_gbt", _ag.get("enabled")),
+                 ("gbt_mono", _gm.get("enabled"))) if _on)
             # EVIDENCE GATE: admit a higher-capacity family only when the
             # LIVE (ground-truth) label count can support it - don't train
             # every model when the data gives the complex ones no chance.
@@ -4670,7 +4684,8 @@ class LiquidityBot:
                 ensemble_k=int(self.config.get('ml', {})
                             .get('ensemble_seeds', 3)), sig=sig,
                 extra_models=_extra, adaptive_cfg=_ag,
-                n_live=int(_n_live), select_cfg=_sel_cfg, res=res)
+                n_live=int(_n_live), select_cfg=_sel_cfg, res=res,
+                gbt_mono_cfg={"constraints": _gm_constraints})
             self._last_retrain_calib_gap = family_metric(results, "calib_gap")
             if results.get("gated"):
                 get_audit().log(

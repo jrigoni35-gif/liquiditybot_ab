@@ -659,6 +659,17 @@
       "warm_rounds": 25,
       "max_total_trees": 800
     },
+    "gbt_mono": {
+      "enabled": false,
+      "constraints": {
+        "gate_confidence": 1,
+        "spread_bps": -1,
+        "fv_edge_bps": 1,
+        "flow_tox": -1,
+        "manip_suspect": -1
+      },
+      "_gbt_mono_doc": "OPT-IN ladder rung (ml/models.py GradientBoostedStumps monotone_constraints): bound-propagated sign constraints on 5 features whose a priori economic sign is known, so the tree cannot learn a spurious wrong-sign pattern from noise (a model that learns 'wider spread => better fill odds' has learned noise, not signal). +1 = predicted P(win) must be non-decreasing in the feature; -1 = non-increasing. gate_confidence (+1, the pretrade gate's own confidence should never anti-correlate with the label it screens for), spread_bps (-1, wider spread is worse execution cost, never better), fv_edge_bps (+1, larger fair-value edge is the entry thesis itself), flow_tox (-1, VPIN-lite order-flow toxicity is adverse-selection risk), manip_suspect (-1, adversarial-data suspicion can only hurt, never help, a fill's honesty). SHIPPED DISABLED: entering the deployed selection ladder or OF-3's measured PBO space is a CONSCIOUS re-baseline (T3.5 rule), reserved for Task 6 adjudication or later - this task only makes the rung available. Guard (core/config_guard.py): FATAL on a constraint feature name absent from FEATURE_NAMES (lazy-imported at guard time) or a sign outside {1,-1}; WARN above 12 constraints (sign confidence degrades past a handful of genuinely a priori knowable directions)."
+    },
     "model_selection": {
       "_doc": "EVIDENCE GATE on the walk-forward selection ladder (ml/walkforward.admissible_families). Model capacity needs a minimum sample-per-effective-parameter to generalize instead of memorize (events-per-variable floor, Peduzzi 1996); a boosted-tree / MLP / bagged ensemble fit on a handful of real outcomes can only overfit, and entering it into selection just manufactures a lucky winner (inflating PBO). So a higher-capacity family is TRAINED and entered into selection only when BOTH floors clear: min_live_rows (real closed-trade labels - complexity is earned on ground truth, not triple-barrier proxies) AND min_total_rows (enough labeled rows to fit non-degenerate purged folds). logistic (the linear baseline) is always admissible and defines the simplicity floor. Floors escalate with capacity; they are order-of-magnitude sample-size floors, NOT tuned to any backtest peak. overfit_check mirrors this gate so OF-3 PBO measures the space the bot actually selects from. enabled=false -> no gating (historical behavior).",
       "enabled": true,

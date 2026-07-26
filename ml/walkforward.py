@@ -54,12 +54,19 @@ _LADDER = ("logistic", "gbt", "blend", "mlp")
 # ladder may include, so an appended extra rung is placed by merit-
 # earned complexity, not by call order. Names absent here fall to the
 # end (treated as most complex).
-_COMPLEXITY = ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
+# gbt_mono (T3.4: monotone-constrained GBT) sits DIRECTLY AFTER gbt - it
+# is the same learner class with a priori sign constraints, not a step up
+# in raw capacity, so it must earn its place at gbt's own complexity tier,
+# never fall through to "most complex" by silent last-placement.
+_COMPLEXITY = ("logistic", "gbt", "gbt_mono", "blend", "mlp", "adaptive_gbt")
 BRIER_MARGIN = 0.002
 
 # Higher-capacity families that must EARN their place with evidence; logistic
 # (the linear baseline) is always admissible and defines the simplicity floor.
-# Ordered simple -> complex, same axis as _COMPLEXITY.
+# Ordered simple -> complex, same axis as _COMPLEXITY. gbt_mono is NOT
+# listed here by name: it shares gbt's evidence floor via pbo_family()
+# (below), the same way PBO's hyperparameter-variant names ("gbt_d2_lr05"
+# etc.) share it - see evaluate_and_select's admitted-set check.
 _GATED_FAMILIES = ("gbt", "blend", "mlp", "adaptive_gbt")
 
 
@@ -198,11 +205,20 @@ def permutation_importance(model, X_te, y_te, names, n_top: int = 10,
 
 
 def _factories(seed: int, ensemble_k: int,
-               adaptive_cfg: dict | None = None) -> dict:
+               adaptive_cfg: dict | None = None,
+               gbt_mono_cfg: dict | None = None) -> dict:
     ac = adaptive_cfg or {}
+    # gbt_mono_cfg carries constraints ALREADY RESOLVED to {feature_index:
+    # sign} by the caller (main.py's retrain wiring has FEATURE_NAMES;
+    # this module deliberately does not import it, same reasoning as
+    # config_guard's lazy import - see core/config_guard.py's gbt_mono
+    # block).
+    gm = gbt_mono_cfg or {}
     return {
         "logistic": lambda: LogisticModel(seed=seed),
         "gbt": lambda: GradientBoostedStumps(seed=seed),
+        "gbt_mono": lambda: GradientBoostedStumps(
+            seed=seed, monotone_constraints=gm.get("constraints") or None),
         "blend": lambda: BlendModel(seed=seed),
         "mlp": lambda: EnsembleMLP(k=ensemble_k, seed=seed),
         "adaptive_gbt": lambda: AdaptiveGBT(
@@ -220,17 +236,20 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
                         extra_models=(), adaptive_cfg=None,
                         n_live: int | None = None,
                         select_cfg: dict | None = None,
-                        res=None) -> dict:
+                        res=None,
+                        gbt_mono_cfg: dict | None = None) -> dict:
     """Walk-forward all candidates; ship the Brier winner (simplicity-
     biased), fitted on all data. When `sig` (per-row signal timestamps) is
     given the fold purge is TIME-based, not row-count - the deployed model
     is selected on genuinely leak-free OOF.
 
-    extra_models appends opt-in rungs (e.g. "adaptive_gbt") ABOVE the
-    default ladder; the effective ladder is re-sorted into canonical
-    complexity order so a step right always costs the model the Brier
-    margin. Default extra_models=() reproduces the historical selection
-    exactly.
+    extra_models appends opt-in rungs (e.g. "adaptive_gbt", "gbt_mono")
+    ABOVE the default ladder; the effective ladder is re-sorted into
+    canonical complexity order so a step right always costs the model the
+    Brier margin. Default extra_models=() reproduces the historical
+    selection exactly. gbt_mono_cfg carries {"constraints": {feature_index:
+    sign}} already resolved from config feature NAMES to indices by the
+    caller (mirrors adaptive_cfg's pass-through of raw hyperparameters).
 
     n_live / select_cfg drive the EVIDENCE GATE (admissible_families): a
     higher-capacity family is trained and entered into selection only when
@@ -241,14 +260,22 @@ def evaluate_and_select(X: np.ndarray, y: np.ndarray, label_span: int = 96,
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
-    factories = _factories(seed, ensemble_k, adaptive_cfg)
+    factories = _factories(seed, ensemble_k, adaptive_cfg, gbt_mono_cfg)
     full_ladder = tuple(name for name in _COMPLEXITY
                         if name in _LADDER or name in tuple(extra_models))
     # evidence gate: n_live unknown -> treat as unlimited so nothing is gated
     _nl = len(X) if n_live is None else int(n_live)
     admitted = admissible_families(_nl, len(X), select_cfg)
-    ladder = tuple(name for name in full_ladder if name in admitted)
-    gated = [name for name in full_ladder if name not in admitted]
+    # pbo_family() translation (not a bare `name in admitted`): a ladder
+    # NAME need not be its own family - gbt_mono is a hyperparameter
+    # variant of "gbt" the same way model_space_pbo's "gbt_d2_lr05" etc.
+    # are, and must clear (or be gated by) gbt's own evidence floor, not
+    # a floor keyed on a name that never appears in _GATED_FAMILIES. A
+    # no-op for every pre-T3.4 ladder name (pbo_family(x) == x for all of
+    # them), so historical gating is unchanged.
+    ladder = tuple(name for name in full_ladder
+                  if pbo_family(name) in admitted)
+    gated = [name for name in full_ladder if pbo_family(name) not in admitted]
     if gated:
         log.info("selection ladder evidence-gated: training %s, skipping %s "
                  "(live=%s, total=%d) - too little ground truth to justify "

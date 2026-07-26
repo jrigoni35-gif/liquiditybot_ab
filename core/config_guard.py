@@ -725,6 +725,35 @@ def validate(config: dict) -> list:
                   f"corpus's plausible range [1752000000, 1900000000] - not "
                   f"a real config-derivation-boundary timestamp")
 
+    # --- ml.gbt_mono: T3.4 monotone-constrained GBT ladder rung (shipped
+    # disabled - ml/models.py GradientBoostedStumps.monotone_constraints).
+    # Constraint names are validated against the CURRENT feature contract
+    # even while the rung is off: a typo should FATAL at config-load time,
+    # not silently surface only after an operator later flips enabled:true.
+    # FEATURE_NAMES is imported HERE, lazily, inside the check - NOT at
+    # module scope - because config_guard is deliberately kept free of
+    # in-repo cross-package imports (guard purity: it must be importable
+    # before the rest of the package is fully wired); this is the one
+    # narrow, load-time-only exception, scoped to exactly this block.
+    gm = config.get("ml", {}).get("gbt_mono", {}) or {}
+    constraints = gm.get("constraints", {}) or {}
+    if constraints:
+        from ml.features import FEATURE_NAMES
+        if len(constraints) > 12:
+            warn(f"ml.gbt_mono.constraints has {len(constraints)} entries "
+                 f"(>12) - sign confidence for this many a priori economic "
+                 f"priors at once is unlikely to hold for all of them; "
+                 f"re-derive from first principles, don't just add more")
+        for name, sign in constraints.items():
+            if name not in FEATURE_NAMES:
+                fatal(f"ml.gbt_mono.constraints has unknown feature "
+                      f"{name!r} - not in FEATURE_NAMES (ml/features.py); "
+                      f"the monotone rung cannot resolve it to a column "
+                      f"index")
+            elif isinstance(sign, bool) or sign not in (1, -1):
+                fatal(f"ml.gbt_mono.constraints[{name!r}] = {sign!r} must "
+                      f"be 1 (non-decreasing) or -1 (non-increasing)")
+
     # --- markout: post-fill mark-out measurement (execution/markout.py) ---
     # window <= 0 makes MarkoutTracker's _obs a deque(maxlen<=0): 0 is a
     # silent blackhole (every observation discarded on append, the tracker

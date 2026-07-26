@@ -443,7 +443,9 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                     n_live: int | None = None,
                     select_cfg: dict | None = None,
                     schema_ab_cols: "np.ndarray | None" = None,
-                    epoch_ab_mask: "np.ndarray | None" = None) -> dict:
+                    epoch_ab_mask: "np.ndarray | None" = None,
+                    include_gbt_mono: bool = False,
+                    gbt_mono_cfg: dict | None = None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
@@ -456,6 +458,16 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     'PBO measures the DEPLOYED rule' invariant). It is appended LAST —
     the most complex step — so the simplicity ladder only elects it when
     it out-earns every simpler config by the Brier margin.
+
+    include_gbt_mono/gbt_mono_cfg (T3.4) mirror include_adaptive/
+    adaptive_cfg for the monotone-constrained GBT rung: gbt_mono_cfg
+    carries {"constraints": {feature_index: sign}} already resolved from
+    config names by the caller. Both default False/None, so this rung is
+    absent from the measured space unless a caller explicitly opts in -
+    same "PBO measures the DEPLOYED rule" invariant as adaptive_gbt.
+    Placed directly after the gbt_* hyperparameter block in `order` (its
+    own complexity tier, not "most complex" by default placement), NOT
+    appended last like adaptive_gbt.
 
     n_live / select_cfg apply the SAME evidence gate as evaluate_and_select:
     a family the label evidence can't support is not in the deployed ladder,
@@ -490,6 +502,7 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     ac = adaptive_cfg or {}
+    gm = gbt_mono_cfg or {}
     space = {
         "logistic": lambda: LogisticModel(seed=seed),
         "gbt_d2_lr05": lambda: GradientBoostedStumps(max_depth=2, lr=0.05,
@@ -502,8 +515,15 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                                                      seed=seed),
         "gbt_d2_lr10": lambda: GradientBoostedStumps(max_depth=2, lr=0.10,
                                                      seed=seed),
-        "mlp_small": lambda: NumpyMLP(hidden=(16, 8), seed=seed),
     }
+    if include_gbt_mono:
+        # inserted BEFORE mlp_small (dict insertion order == the reported
+        # 'configs' listing order) so it reads as the gbt_* block's own
+        # next-complex step, not a bolt-on after every hyperparameter
+        # variant - matching its `order`/_BASE_ORDER placement below.
+        space["gbt_mono"] = lambda: GradientBoostedStumps(
+            seed=seed, monotone_constraints=gm.get("constraints") or None)
+    space["mlp_small"] = lambda: NumpyMLP(hidden=(16, 8), seed=seed)
     if include_adaptive:
         space["adaptive_gbt"] = lambda: AdaptiveGBT(
             k=int(ac.get("bags", 4)),
@@ -593,7 +613,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # when experiment_bases is empty, which is exactly the byte-identity
     # baseline.
     _BASE_ORDER = ("logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
-                  "gbt_d3_lr10", "gbt_d4_lr05", "mlp_small", "adaptive_gbt")
+                  "gbt_d3_lr10", "gbt_d4_lr05", "gbt_mono", "mlp_small",
+                  "adaptive_gbt")
     order = []
     for k in _BASE_ORDER:
         if k in names:

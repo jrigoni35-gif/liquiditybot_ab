@@ -448,6 +448,51 @@ class GradientBoostedStumps:
     occur in this feature set, where every driver has a marginal trace.) Row subsampling per round decorrelates trees; early
     stopping on a validation slice picks the round count. Gain-based
     feature importance is recorded for the model card.
+
+    monotone_constraints (T3.4): dict[int, int] | None, {feature_index:
+    +1 | -1} — a priori economic sign constraints (e.g. "wider spread
+    cannot improve fill odds"), so the tree cannot fit a wrong-sign
+    pattern from noise. A model that learns "wider spread => better
+    fill odds" has learned noise, not signal; the constraint removes
+    that hypothesis from the search space entirely rather than hoping
+    regularization prunes it out.
+
+    Enforcement is BOUND PROPAGATION, not leaf reordering — reordering
+    only fixes an immediate parent's two children and says nothing once
+    either child is itself split again, which is exactly what happens
+    at this class's own default max_depth=2 (root children are 2-level
+    subtrees, not leaves). Every node in `_grow` carries an inherited
+    value interval (lo, hi); the root starts at (-inf, +inf). At a split
+    on a flagged feature f with sign s, let v_L, v_R be the UNCLAMPED
+    tentative leaf values of the two children (the Newton leaf estimate
+    -Σg/(Σh+λ) on each child's own row set, ignoring any further split)
+    and h_L, h_R their hessian masses (Σh over each child's rows); the
+    boundary value is their hessian-weighted mean:
+
+        mid = (h_L·v_L + h_R·v_R) / (h_L + h_R)
+
+    clamped into the parent's own (lo, hi) first (mid = min(max(mid,
+    lo), hi)) so a child's interval is always a SUBSET of its parent's —
+    the invariant every deeper split relies on. L holds the rows with
+    the LOWER feature values (X[:,f] <= threshold). For s=+1 (value
+    must not decrease as the feature increases): L inherits (lo, mid),
+    R inherits (mid, hi) — forcing L's eventual value <= mid <= R's.
+    For s=-1 the assignment is reversed: L inherits (mid, hi), R
+    inherits (lo, mid). A split on an UNFLAGGED feature passes the
+    parent's (lo, hi) through to both children unchanged. Every LEAF's
+    final value is clamped to its inherited interval: v_leaf =
+    min(max(v, lo), hi). Because each node's interval nests inside its
+    parent's, this holds no matter how many times the flagged feature
+    is re-split deeper in the tree, and because it constrains the
+    per-tree contribution (not just one node), the boosted SUM over
+    trees — and therefore predict_proba after the monotone sigmoid — is
+    monotone in the flagged feature whenever all other inputs are held
+    fixed.
+
+    monotone_constraints=None (the default) never narrows any interval
+    (every node stays at (-inf, +inf), so every clamp is a no-op) — the
+    model is BYTE-IDENTICAL to the pre-T3.4 unconstrained tree for the
+    same seed and corpus.
     """
 
     kind = "gbt"
@@ -457,7 +502,8 @@ class GradientBoostedStumps:
                  max_depth: int = 2,
                  subsample: float = 0.7, colsample: float = 0.6,
                  max_bins: int = 64,
-                 patience: int = 30, seed: int = 7):
+                 patience: int = 30, seed: int = 7,
+                 monotone_constraints: "dict[int, int] | None" = None):
         # regularized defaults (rev-4.1): at ~few-hundred-to-few-thousand
         # rows x 35 features the rev-4 defaults (depth 3, lr .05, l2 1,
         # min_child 1, 400 trees, no colsample) memorized — the overfit
@@ -477,6 +523,15 @@ class GradientBoostedStumps:
         self.max_bins = int(max_bins)
         self.patience = int(patience)
         self.seed = seed
+        # T3.4: {feature_index: +1|-1} a priori sign constraints, enforced
+        # by bound-propagation in _grow (see class docstring for the
+        # equations). Normalized to int keys/values here so a caller
+        # passing JSON-round-tripped string keys (from_dict) or plain
+        # ints behaves identically; falsy (None/{}) -> None, the no-op
+        # fast path that keeps _grow byte-identical to pre-T3.4.
+        self.monotone_constraints = ({int(k): int(v) for k, v in
+                                      monotone_constraints.items()}
+                                     if monotone_constraints else None)
         self.trees: list = []
         self.base = 0.0
         self.importance_: dict = {}
@@ -529,17 +584,50 @@ class GradientBoostedStumps:
     def _leaf(self, g, h, rows) -> float:
         return float(-g[rows].sum() / (h[rows].sum() + self.l2))
 
-    def _grow(self, X, g, h, rows, depth, importance, feats=None):
+    @staticmethod
+    def _clamp(v: float, lo: float, hi: float) -> float:
+        """min(max(v, lo), hi) — the leaf-value monotone clamp. lo/hi
+        default to -inf/+inf everywhere monotone_constraints is None, so
+        this is a no-op for the unconstrained model."""
+        return min(max(v, lo), hi)
+
+    def _grow(self, X, g, h, rows, depth, importance, feats=None,
+              lo: float = -np.inf, hi: float = np.inf):
         if depth <= 0 or len(rows) < 2 * self.min_child_hess:
-            return {"v": self._leaf(g, h, rows)}
+            return {"v": self._clamp(self._leaf(g, h, rows), lo, hi)}
         f, t, gain = self._best_split(X, g, h, rows, feats)
         if f is None:
-            return {"v": self._leaf(g, h, rows)}
+            return {"v": self._clamp(self._leaf(g, h, rows), lo, hi)}
         importance[f] = importance.get(f, 0.0) + gain
         m = X[rows, f] <= t
+        rows_l, rows_r = rows[m], rows[~m]
+        lo_l, hi_l, lo_r, hi_r = lo, hi, lo, hi
+        sign = (self.monotone_constraints or {}).get(f)
+        if sign:
+            # T3.4 bound propagation (see class docstring for the full
+            # derivation): the boundary between the two children is the
+            # hessian-weighted mean of their own UNCLAMPED tentative leaf
+            # values, clamped into THIS node's own (lo, hi) so every
+            # descendant's interval nests inside its parent's — the
+            # invariant that makes the guarantee hold no matter how many
+            # times the flagged feature is re-split deeper in the tree.
+            v_l = self._leaf(g, h, rows_l)
+            v_r = self._leaf(g, h, rows_r)
+            h_l = float(h[rows_l].sum())
+            h_r = float(h[rows_r].sum())
+            h_sum = h_l + h_r
+            mid = (h_l * v_l + h_r * v_r) / h_sum if h_sum > 0 else \
+                0.5 * (v_l + v_r)
+            mid = self._clamp(mid, lo, hi)
+            if sign > 0:
+                hi_l, lo_r = mid, mid
+            else:
+                lo_l, hi_r = mid, mid
         return {"f": int(f), "t": t,
-                "L": self._grow(X, g, h, rows[m], depth - 1, importance, feats),
-                "R": self._grow(X, g, h, rows[~m], depth - 1, importance, feats)}
+                "L": self._grow(X, g, h, rows_l, depth - 1, importance,
+                                 feats, lo_l, hi_l),
+                "R": self._grow(X, g, h, rows_r, depth - 1, importance,
+                                 feats, lo_r, hi_r)}
 
     @staticmethod
     def _node_out(node, X):
@@ -694,13 +782,21 @@ class GradientBoostedStumps:
         # the constructor defaults — a warm update after a restart must be
         # faithful. Older artifacts lack these keys; from_dict falls back to
         # the current defaults, which is behavior-preserving for predict.
-        return {"kind": self.kind, "base": self.base, "lr": self.lr,
-                "max_depth": self.max_depth, "colsample": self.colsample,
-                "subsample": self.subsample, "l2": self.l2,
-                "min_child_hess": self.min_child_hess, "seed": self.seed,
-                "n_features": self.n_features_,
-                "trees": self.trees,
-                "importance": {str(k): v for k, v in self.importance_.items()}}
+        d = {"kind": self.kind, "base": self.base, "lr": self.lr,
+             "max_depth": self.max_depth, "colsample": self.colsample,
+             "subsample": self.subsample, "l2": self.l2,
+             "min_child_hess": self.min_child_hess, "seed": self.seed,
+             "n_features": self.n_features_,
+             "trees": self.trees,
+             "importance": {str(k): v for k, v in self.importance_.items()}}
+        # T3.4: key added ONLY when constraints are actually set - the
+        # None default (no constraints) must produce a BYTE-IDENTICAL dict
+        # to the pre-T3.4 model (regression-pinned in
+        # tests/test_gbt_monotone.py), so the key cannot merely be `None`.
+        if self.monotone_constraints:
+            d["monotone_constraints"] = {str(k): v for k, v in
+                                         self.monotone_constraints.items()}
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "GradientBoostedStumps":
@@ -726,6 +822,12 @@ class GradientBoostedStumps:
         imp = d.get("importance")
         m.importance_ = {int(k): float(v) for k, v in imp.items()} \
             if isinstance(imp, dict) else {}
+        # T3.4: string keys are a JSON round-trip artifact - convert back
+        # to int (the column index _grow/predict actually index with).
+        # Absent (older artifacts, or a constraint-free model) -> None.
+        mc = d.get("monotone_constraints")
+        m.monotone_constraints = ({int(k): int(v) for k, v in mc.items()}
+                                  if isinstance(mc, dict) and mc else None)
         return m
 
 
