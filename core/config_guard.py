@@ -684,6 +684,19 @@ def validate(config: dict) -> list:
             fatal(f"ml.sample_weights.prior_skew_min_rows ({pm}) < 10 - the "
                   f"window prior is meaningless on fewer rows")
 
+    # --- ml.telemetry: report-only sim-to-live instruments (T2.2) ---------
+    tele = config.get("ml", {}).get("telemetry", {}) or {}
+    if tele:
+        lmp = int(_f(config, "ml.telemetry.lineage_min_pairs", 10))
+        if not (1 <= lmp <= 10000):
+            fatal(f"ml.telemetry.lineage_min_pairs ({lmp}) outside "
+                  f"[1, 10000] - reporting threshold, not a gate")
+        dwh = float(_f(config, "ml.telemetry.divergence_window_h", 24.0))
+        if not (1.0 <= dwh <= 168.0):
+            fatal(f"ml.telemetry.divergence_window_h ({dwh}) outside "
+                  f"[1, 168] hours - must bucket meaningfully within a "
+                  f"trading week")
+
     # --- markout: post-fill mark-out measurement (execution/markout.py) ---
     # window <= 0 makes MarkoutTracker's _obs a deque(maxlen<=0): 0 is a
     # silent blackhole (every observation discarded on append, the tracker

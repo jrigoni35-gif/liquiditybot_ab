@@ -664,7 +664,12 @@
       "enabled": true,
       "min_live_rows": {"gbt": 60, "blend": 60, "mlp": 150, "adaptive_gbt": 250},
       "min_total_rows": {"gbt": 150, "blend": 150, "mlp": 400, "adaptive_gbt": 600}
-    }
+    },
+    "telemetry": {
+      "lineage_min_pairs": 10,
+      "divergence_window_h": 24.0
+    },
+    "_telemetry_doc": "T2.2 report-only sim-to-live instruments (learnaccel Phase 2). lineage_min_pairs: minimum dedup-twin pairs before the ML-077 agreement log line fires (the stat itself always computes into last_load_stats). divergence_window_h: bucket width for the ML-078 live-covered-window divergence score (Task 4). Neither value is read by any decision path."
   },
   "sentiment": {
     "description": "Free multi-source sentiment (Google News RSS per figure, crypto news RSS, Hacker News crowd via Algolia public API). FILTER ONLY - shades risk/confidence within clamps, never triggers trades. No API keys.",

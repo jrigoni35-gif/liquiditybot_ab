@@ -193,6 +193,9 @@ class Code(str, Enum):
                                       # hard from the corpus prior (one-sided
                                       # batch, e.g. an all-zero quiet weekend):
                                       # calibration drift risk — detection only
+    ML_LINEAGE_AGREEMENT = "ML-077"  # dedup-twin proxy-vs-realized label
+    #   agreement stat (T2.2b): simulator-fidelity telemetry over
+    #   gate-passing signals only - detection-only, weights untouched
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

@@ -4621,11 +4621,13 @@ class LiquidityBot:
             from ml.calibration import (IsotonicCalibrator, brier_score,
                                         feature_deciles)
             sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
+            tele_cfg = self.config.get("ml", {}).get("telemetry", {})
             X, y, w, sig, res = self.history.load_training_data(
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
                 candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
                 manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
-                return_label_times=True, weights_cfg=sw_cfg)
+                return_label_times=True, weights_cfg=sw_cfg,
+                telemetry_cfg=tele_cfg)
             # LP-4: the same feature contract the INFERENCE path enforces
             # screens the training matrix - a poisoned row must not be
             # 'fixed' into the weights (rows dropped, never imputed)

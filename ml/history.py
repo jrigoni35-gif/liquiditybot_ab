@@ -41,6 +41,19 @@ _REGIME_FEATURE_IDX = {lbl: FEATURE_NAMES.index(feat) for lbl, feat in
                           strict=True)}
 
 
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score interval for a binomial proportion; (0,1) when n=0.
+    Module-level (not a HistoryStore method) so Task 6's report can reuse it
+    without instantiating a store."""
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1.0 + z * z / n
+    center = p + z * z / (2 * n)
+    half = z * ((p * (1.0 - p) / n + z * z / (4.0 * n * n)) ** 0.5)
+    return ((center - half) / denom, (center + half) / denom)
+
+
 def _regime_of_feats(feats) -> "str | None":
     """Which of the 5 macro-regime one-hots a feature row marks, or None
     for an all-zero/ambiguous row (schema-migration padding, or a legacy
@@ -348,7 +361,8 @@ class HistoryStore:
                         candidate_weight: float = 0.4,
                         manip_discount: float = 0.5, return_sig: bool = False,
                         weights_cfg: dict | None = None,
-                        return_label_times: bool = False) -> tuple:
+                        return_label_times: bool = False,
+                        telemetry_cfg: dict | None = None) -> tuple:
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
         weights encode the honest priors:
@@ -375,7 +389,12 @@ class HistoryStore:
         batch) is DETECTED and logged (ML-074) so calibration drift is
         visible - detection only, never silent reweighting. Stats of the
         last load land in self.last_load_stats (clean live count for the
-        evidence gate, uniqueness mean, prior-skew flag)."""
+        evidence gate, uniqueness mean, prior-skew flag).
+
+        `telemetry_cfg` (config ml.telemetry) gates only the ML-077 log
+        line's threshold (lineage_min_pairs); the lineage-twin agreement
+        stat itself (T2.2b) is always computed into
+        self.last_load_stats["lineage_agreement"] regardless."""
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         self.last_load_stats = {}
         if not self.path.exists():
@@ -412,6 +431,11 @@ class HistoryStore:
         # genuinely distinct signals.
         live_keys = set()
         live_cand_ids = set()
+        # T2.2b: live row's candidate_id -> its REALIZED label. Built
+        # alongside live_cand_ids in this same prescan so the lineage-match
+        # drop branch below can pair the candidate's proxy label against
+        # the live twin's realized one without a second file read.
+        live_label_by_cid: dict = {}
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 # Compounder Phase C (task C5): book=="long" rows are the
@@ -435,6 +459,10 @@ class HistoryStore:
                 cid = (row.get("candidate_id") or "").strip()
                 if cid:
                     live_cand_ids.add(cid)
+                    try:
+                        live_label_by_cid[cid] = float(row["label"])
+                    except (KeyError, ValueError):
+                        pass
                 try:
                     live_keys.add((row["asset"], row["side"],
                                    tuple(row[n] for n in FEATURE_NAMES)))
@@ -445,6 +473,10 @@ class HistoryStore:
         now = time.time()
         dropped_clash = 0
         dropped_dirty = 0
+        # T2.2b: (proxy label, realized label) twin agreement flags, one per
+        # lineage-match drop below (1 = agree, 0 = disagree). The exact-vector
+        # fallback match has no defensible pairing and captures nothing.
+        pair_flags: list = []
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 # task C5: same book=="long" exclusion as the prescan
@@ -459,6 +491,13 @@ class HistoryStore:
                     self_id = (row.get("position_id") or "").strip()
                     if self_id and self_id in live_cand_ids:
                         dropped_clash += 1
+                        lv = live_label_by_cid.get(self_id)
+                        if lv is not None:
+                            try:
+                                pair_flags.append(
+                                    1 if float(row["label"]) == lv else 0)
+                            except (KeyError, ValueError):
+                                pass
                         continue     # W2-4: lineage match - definitive
                     try:
                         if (row["asset"], row["side"],
@@ -521,6 +560,7 @@ class HistoryStore:
                         dropped_dirty, len(X))
         # ---- de Prado corrections (config ml.sample_weights; AFML ch.4) ----
         wc = weights_cfg or {}
+        _tele_cfg = telemetry_cfg or {}
         uniq_mean = 1.0
         pre_mass = sum(w)          # for mass-preserving rescale below
         if w and bool(wc.get("uniqueness_enabled", False)):
@@ -597,6 +637,25 @@ class HistoryStore:
             "prior_recent": p_recent, "prior_overall": p_all,
             "prior_skew": skew_flag,
         }
+        # lineage-pair agreement stat (T2.2b, ML-077): simulator-fidelity
+        # telemetry over the dedup-discarded (proxy label, realized label)
+        # twins captured above - report-only, never touches weights.
+        n_pairs = len(pair_flags)
+        if n_pairs:
+            agree = sum(pair_flags) / n_pairs
+            lo, hi = wilson_interval(sum(pair_flags), n_pairs)
+            la = {"n_pairs": n_pairs, "agreement": round(agree, 4),
+                  "wilson95": [round(lo, 4), round(hi, 4)]}
+            if n_pairs >= int(_tele_cfg.get("lineage_min_pairs", 10)):
+                log.info(
+                    "%s: lineage-twin agreement %.1f%% over %d pairs "
+                    "(Wilson95 [%.2f, %.2f]) - gate-passing signals only; "
+                    "detection-only, weights untouched",
+                    Code.ML_LINEAGE_AGREEMENT.value, 100 * agree, n_pairs,
+                    lo, hi)
+        else:
+            la = {"n_pairs": 0, "agreement": None, "wilson95": None}
+        self.last_load_stats["lineage_agreement"] = la
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)
