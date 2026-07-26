@@ -21,6 +21,7 @@ import csv
 import os
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -237,6 +238,20 @@ def _regime_of_csv_row(row: dict) -> "str | None":
 LABEL_ERA_LEGACY = "legacy"                    # plain triple-barrier era
 LABEL_ERA_EXIT_SIM = "exit_sim"                # simulate_exit_policy() replay
 LABEL_ERA_TIME_STOP = "exit_sim_time_stop"     # + P2 time-stop rung
+# 2026-07-26 signal-quality task (task-signalquality-brief.md): ml.label_mode
+# flipped back to "triple_barrier" so the label measures signal quality, not
+# exit policy (c36aa90's "train on the bet we trade" default is consciously
+# overridden - see docs/quant/2026-07-26_label_signal_quality.md). Flipping
+# the mode alone would have re-emitted the SAME bare "pt"/"sl"/"time" strings
+# LABEL_ERA_LEGACY/_EXIT_SIM_BARRIERS already claim for the pre-instrumentation
+# and exit-sim populations - a brand-new label era silently masquerading as
+# two OLD ones. CandidateLabeler._label's triple_barrier dispatch (below)
+# therefore prefixes its own vocabulary ("tb_pt"/"tb_sl"/"tb_time") so it is
+# self-describing; this era claims exactly that prefixed vocabulary and
+# nothing else. A value distinct from all of the above by construction (never
+# "legacy"/"exit_sim"/"exit_sim_time_stop"/"unknown") - the July 13-19 legacy
+# rows are a genuinely different population and must stay distinguishable.
+LABEL_ERA_TRIPLE_BARRIER = "triple_barrier"
 LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 
 # Barrier strings simulate_exit_policy() (ml/labeling.py:180-360) can emit,
@@ -251,8 +266,20 @@ LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 # the DEEP DIVE measured the real corpus's legacy window as blank-barrier
 # ONLY (1781 rows, 07-13->07-19), so grouping them with exit_sim matches
 # the measured era table exactly (task-label-brief.md), not a re-derivation.
+# NEVER extend this set with the "tb_pt"/"tb_sl"/"tb_time" strings below -
+# those are a disjoint vocabulary (LABEL_ERA_TRIPLE_BARRIER), not more
+# spellings of the same bare "sl"/"time" this set already claims.
 _EXIT_SIM_BARRIERS = frozenset({"trail", "realized", "tier", "floor",
                                "sl", "time"})
+
+# The triple-barrier-mode-only vocabulary (2026-07-26 signal-quality task):
+# CandidateLabeler._label prefixes triple_barrier()'s own bare "pt"/"sl"/
+# "time" with "tb_" at the ONLY call site whose output reaches the
+# persisted corpus (ml/history.py CandidateLabeler._label), so these three
+# strings can never be emitted by anything else - not simulate_exit_policy,
+# not a live row's hardcoded "realized" tag, not the pre-instrumentation
+# legacy window.
+_TRIPLE_BARRIER_BARRIERS = frozenset({"tb_pt", "tb_sl", "tb_time"})
 
 
 def label_era_of(barrier: "str | None") -> str:
@@ -260,7 +287,7 @@ def label_era_of(barrier: "str | None") -> str:
     `barrier` cell - the DEEP DIVE's (progress.md) measured era signature,
     never a calendar cutoff: a hardcoded date would silently mis-tag a
     backfill or a replay run under a DIFFERENT ml.label_mode/config than
-    whatever was actually live on that historical date. Three known eras:
+    whatever was actually live on that historical date. Four known eras:
       legacy              - blank/absent barrier (pre-instrumentation
                             candidate rows - _emit_label only started
                             threading `out.barrier` once ml.label_mode's
@@ -271,12 +298,24 @@ def label_era_of(barrier: "str | None") -> str:
       exit_sim            - _EXIT_SIM_BARRIERS: simulate_exit_policy()
                             replaying the live exit ladder.
       exit_sim_time_stop  - "time_stop": same simulator, the P2 time-stop
-                            rung (commit 5f26d3f, 2026-07-23)."""
+                            rung (commit 5f26d3f, 2026-07-23).
+      triple_barrier      - _TRIPLE_BARRIER_BARRIERS ("tb_pt"/"tb_sl"/
+                            "tb_time"): ml.label_mode="triple_barrier"
+                            (2026-07-26 signal-quality task) - a row whose
+                            label measures signal quality (market/horizon-
+                            determined barriers only), never which policy
+                            exit fired. Pure function of THIS row's own
+                            barrier string, same as every era above: a
+                            re-simulated row tags correctly with no
+                            knowledge of which config was live when it
+                            was written."""
     b = (barrier or "").strip()
     if not b or b == "pt":
         return LABEL_ERA_LEGACY
     if b == "time_stop":
         return LABEL_ERA_TIME_STOP
+    if b in _TRIPLE_BARRIER_BARRIERS:
+        return LABEL_ERA_TRIPLE_BARRIER
     if b in _EXIT_SIM_BARRIERS:
         return LABEL_ERA_EXIT_SIM
     return LABEL_ERA_UNKNOWN
@@ -1177,10 +1216,16 @@ class CandidateLabeler:
         self.store = store
         # LABEL MODE: "exit_policy" replays the live exit engine (hard stop +
         # tiered scale-outs + give-back/trailing) so a candidate is labeled by
-        # the SAME question a live trade poses; "triple_barrier" is the legacy
-        # symmetric pt/sl barrier. exit_policy needs a policy object (built from
-        # config by the caller); absent one we fall back to the barrier so this
-        # can never crash for a caller that didn't supply it.
+        # the SAME question a live trade poses - training on the bet we trade,
+        # but the label then encodes WHICH EXIT FIRED (a risk-control choice)
+        # rather than whether the signal itself was any good; "triple_barrier"
+        # (the config default since the 2026-07-26 signal-quality task,
+        # task-signalquality-brief.md) is the market/horizon-only symmetric
+        # pt/sl barrier this measures instead - see _label below for the
+        # tb_-prefixed vocabulary that keeps the two label populations
+        # distinguishable in label_era_of. exit_policy needs a policy object
+        # (built from config by the caller); absent one we fall back to the
+        # barrier so this can never crash for a caller that didn't supply it.
         self.exit_policy = exit_policy
         mode = str(cfg.get("label_mode", "exit_policy"))
         self.label_mode = mode if (mode == "triple_barrier"
@@ -1410,7 +1455,10 @@ class CandidateLabeler:
                conviction=None):
         """Dispatch to the configured labeler. exit_policy replays the live
         exit engine (matches how the signal is actually traded); triple_barrier
-        is the legacy symmetric pt/sl. Same signature, same BarrierOutcome.
+        is the market/horizon-only symmetric pt/sl that measures SIGNAL
+        QUALITY rather than which policy exit fired (2026-07-26 signal-
+        quality task, task-signalquality-brief.md). Same signature, same
+        BarrierOutcome shape either way.
 
         `conviction` (the candidate's entry meta p(win)) is threaded only into
         the exit-policy sim, where it mirrors the live conviction-runner trail
@@ -1422,14 +1470,30 @@ class CandidateLabeler:
         applies) — the SAME cost basis that already drives the net-of-cost
         label now drives the floor too (Task 1, #103), closing the P3.5
         documented residual: this register-time estimate is a real caller
-        that CAN supply est_cost_bps."""
+        that CAN supply est_cost_bps.
+
+        THE ERA-COLLISION FIX: this is the ONLY call site whose
+        triple_barrier() output reaches the persisted corpus (via
+        _emit_label -> HistoryStore._append_row's `barrier` cell) - the
+        shadow-horizon recorder and bootstrap_dataset each call
+        triple_barrier() directly and never persist its `barrier` field.
+        triple_barrier() itself stays untouched (its own bare "pt"/"sl"/
+        "time" vocabulary is depended on directly by other tests/callers);
+        prefixing here, once, keeps that single decision point intact
+        instead of forking triple_barrier() into barrier-vocabulary
+        variants. The "tb_" prefix makes the row self-describing so
+        label_era_of (module-level, above) tags it LABEL_ERA_TRIPLE_BARRIER
+        - never LABEL_ERA_LEGACY ("pt") or LABEL_ERA_EXIT_SIM ("sl"/"time"),
+        which the bare strings would otherwise silently collide with even
+        though this is a genuinely different label population."""
         if self.label_mode == "exit_policy" and self.exit_policy is not None:
             return simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
                                         self.exit_policy, max_bars=self.horizon,
                                         cost_pct=cost, conviction=conviction,
                                         est_cost_bps=cost * 100.0)
-        return triple_barrier(closes, highs, lows, i, side, sigma_bar,
-                              self.pt, self.sl, self.horizon, cost_pct=cost)
+        out = triple_barrier(closes, highs, lows, i, side, sigma_bar,
+                             self.pt, self.sl, self.horizon, cost_pct=cost)
+        return replace(out, barrier=f"tb_{out.barrier}")
 
     def _emit_label(self, cand: dict, out) -> int:
         self.store._append_row(cand["id"], cand["asset"],

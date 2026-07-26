@@ -194,6 +194,14 @@ def test_label_include_spread_false_still_floors_on_fee_only_cost(tmp_path):
 # ============================================================================
 
 def test_triple_barrier_mode_dispatch_unaffected(tmp_path):
+    """triple_barrier mode must still dispatch to the legacy barrier,
+    untouched by est_cost_bps threading (that only wires through the
+    exit-policy dispatch). The ONE intentional difference from calling
+    triple_barrier() directly: _label() prefixes the barrier "tb_" (2026-07-26
+    signal-quality task, task-signalquality-brief.md) so label_era_of can
+    tell a triple-barrier-mode row apart from the legacy/exit_sim eras that
+    share the same bare "pt"/"sl"/"time" strings - see tests/test_label_era.py
+    and tests/test_label_signal_quality.py for the era-mapping pins."""
     ml_cfg = {"label_mode": "triple_barrier", "label_pt_vol_mult": 8.0,
              "label_sl_vol_mult": 6.0, "label_max_bars": 50,
              "label_round_trip_cost_pct": 0.5}
@@ -210,4 +218,6 @@ def test_triple_barrier_mode_dispatch_unaffected(tmp_path):
     got = lab._label(closes, highs, lows, 0, +1, 0.02, cost)
     want = triple_barrier(closes, highs, lows, 0, +1, 0.02, lab.pt, lab.sl,
                           lab.horizon, cost_pct=cost)
-    assert got == want
+    assert got.barrier == f"tb_{want.barrier}"
+    assert (got.label, got.ret_pct, got.bars_held, got.final) == \
+        (want.label, want.ret_pct, want.bars_held, want.final)

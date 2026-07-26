@@ -29,8 +29,8 @@ import pytest
 from core.codes import Code
 from ml.features import FEATURE_NAMES
 from ml.history import (LABEL_ERA_EXIT_SIM, LABEL_ERA_LEGACY,
-                        LABEL_ERA_TIME_STOP, LABEL_ERA_UNKNOWN,
-                        HistoryStore, label_era_of)
+                        LABEL_ERA_TIME_STOP, LABEL_ERA_TRIPLE_BARRIER,
+                        LABEL_ERA_UNKNOWN, HistoryStore, label_era_of)
 
 _LOGGER = "liquiditybot.ml.history"
 
@@ -65,10 +65,34 @@ def _freeze(monkeypatch, t):
     ("tier", LABEL_ERA_EXIT_SIM),
     ("floor", LABEL_ERA_EXIT_SIM),
     ("time_stop", LABEL_ERA_TIME_STOP),
+    # 2026-07-26 signal-quality task (task-signalquality-brief.md): the
+    # tb_-prefixed vocabulary CandidateLabeler._label emits under
+    # ml.label_mode="triple_barrier" is a self-describing, DISJOINT
+    # vocabulary from the bare "pt"/"sl"/"time" above - it must tag its
+    # own era, never legacy or exit_sim (this parametrize case is the
+    # blocker's RED pin: it fails against any code that hasn't added
+    # LABEL_ERA_TRIPLE_BARRIER + the tb_* branch in label_era_of).
+    ("tb_pt", LABEL_ERA_TRIPLE_BARRIER),
+    ("tb_sl", LABEL_ERA_TRIPLE_BARRIER),
+    ("tb_time", LABEL_ERA_TRIPLE_BARRIER),
     ("some-future-barrier", LABEL_ERA_UNKNOWN),
 ])
 def test_label_era_of_barrier_vocabulary(barrier, expected):
     assert label_era_of(barrier) == expected
+
+
+@pytest.mark.parametrize("barrier", ["tb_pt", "tb_sl", "tb_time"])
+def test_triple_barrier_vocabulary_never_collides_with_legacy_or_exit_sim(
+        barrier):
+    """Explicit pin (task-signalquality-brief.md's own phrasing): flipping
+    ml.label_mode to triple_barrier without this fix would have re-emitted
+    the SAME bare pt/sl/time strings LABEL_ERA_LEGACY/LABEL_ERA_EXIT_SIM
+    already claim - a brand-new label era silently masquerading as two OLD
+    ones. The tb_ prefix must keep it out of both."""
+    era = label_era_of(barrier)
+    assert era == LABEL_ERA_TRIPLE_BARRIER
+    assert era != LABEL_ERA_LEGACY
+    assert era != LABEL_ERA_EXIT_SIM
 
 
 def test_era_boundary_from_deep_dive_is_barrier_driven_not_time_driven(

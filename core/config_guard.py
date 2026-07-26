@@ -542,6 +542,22 @@ def validate(config: dict) -> list:
               f"scales the market-impact cost term; negative would PAY the "
               f"entry for taking liquidity")
 
+    # label_mode coherence (2026-07-26 signal-quality task,
+    # task-signalquality-brief.md): only two values are wired
+    # (ml/history.py CandidateLabeler.__init__, scripts/train_meta.py).
+    # Previously unvalidated - a config typo (e.g. "eixt_policy") never
+    # matched CandidateLabeler's own `mode == "exit_policy"` dispatch check
+    # and silently fell back to triple_barrier with no error, masking the
+    # operator's actual intent. FATAL regardless of dry_run: this is a
+    # structural config-nonsense check (which label definition trains the
+    # model), not a live-risk bound.
+    lbl_mode = _f(config, "ml.label_mode", "exit_policy")
+    if lbl_mode not in ("exit_policy", "triple_barrier"):
+        fatal(f"ml.label_mode={lbl_mode!r} must be 'exit_policy' or "
+              f"'triple_barrier' - an unsupported value silently falls back "
+              f"to triple_barrier (ml/history.py CandidateLabeler dispatch), "
+              f"masking a config typo instead of erroring")
+
     # label cost coherence: the triple-barrier win/loss label subtracts a
     # round-trip cost. If it sits below the maker round-trip, labels call
     # net-losing trades "wins" and teach the meta-model to take them - the
