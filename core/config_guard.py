@@ -711,6 +711,20 @@ def validate(config: dict) -> list:
             fatal(f"ml.linkage.seed ({lseed!r}) must be a non-negative "
                   f"integer - EM init determinism")
 
+    # --- ml.epoch: T3.6a config-derivation-boundary marker (report-only,
+    # scripts/overfit_check.py's --epoch-ab experiment arm reads it; never a
+    # production-path row exclusion) --------------------------------------
+    ep = config.get("ml", {}).get("epoch", {}) or {}
+    if ep:
+        cutoff = ep.get("candidate_cutoff_ts")
+        if not isinstance(cutoff, (int, float)) or isinstance(cutoff, bool):
+            fatal(f"ml.epoch.candidate_cutoff_ts ({cutoff!r}) must be a "
+                  f"number (epoch seconds)")
+        elif not (1752000000 <= float(cutoff) <= 1900000000):
+            fatal(f"ml.epoch.candidate_cutoff_ts ({cutoff}) outside the "
+                  f"corpus's plausible range [1752000000, 1900000000] - not "
+                  f"a real config-derivation-boundary timestamp")
+
     # --- markout: post-fill mark-out measurement (execution/markout.py) ---
     # window <= 0 makes MarkoutTracker's _obs a deque(maxlen<=0): 0 is a
     # silent blackhole (every observation discarded on append, the tracker

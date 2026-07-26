@@ -31,7 +31,9 @@ Everything here is pure computation over arrays already produced by the
 existing pipeline — no network, deterministic under seed, replay-safe.
 """
 
+import csv
 import itertools
+import json
 import logging
 import math
 
@@ -205,12 +207,178 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
             "median_lambda": float(np.median(lambdas))}
 
 
+# ---------------------------------------------------------------------------
+# T3.2/T3.6a — opt-in variant axes (schema/row) inside model_space_pbo
+# ---------------------------------------------------------------------------
+# Both experiment arms pair with this SAME base family: identical model
+# class/hyperparameters/seed as the plain "gbt_d3_lr05" rung already in the
+# default space, so the ONLY thing that differs between an arm and its base
+# is the training INPUT (schema-pruned columns, or epoch-masked rows) — any
+# measured delta is attributable to the data change alone, never a
+# confounded architecture change too. Report-only, never gating (CLAUDE.md
+# "PBO measures the DEPLOYED rule, never argmax" + "no default-behavior
+# flips": these arms exist only when the caller opts in via
+# schema_ab_cols/epoch_ab_mask).
+_SCHEMA_AB_BASE_FAMILY = "gbt_d3_lr05"
+_EPOCH_AB_BASE_FAMILY = "gbt_d3_lr05"
+
+# Per-fold floor for a row-masked arm's TRAINING subset (tr ∩ mask): mirrors
+# the SAME per-fold class-balance floor purged_walk_forward's callers apply
+# everywhere else in this file (train_test_gap, shuffled_label_check,
+# model_space_pbo's own `folds` filter above) — not a new invented number.
+_ARM_MIN_TRAIN_ROWS = 30
+_ARM_MIN_CLASS = 5
+
+
+def load_schema_ab_cols(prunefile_path: str, feature_names) -> np.ndarray:
+    """Resolves scripts/feature_stability.py's (T3.1) dated snapshot into
+    the column-index array model_space_pbo's --schema-ab experiment arm
+    trains on: every FEATURE_NAMES column NOT in the snapshot's
+    `always_dead` list. `always_dead` is the ONLY binding key this reads —
+    `candidate_prune_list`/`ever_dead`/`flip_features`/`combos`/
+    `stability_ratio` are Task 1's own diagnostics, not this contract.
+
+    The five regime one-hots (ml.features.REGIME_ONE_HOT_FEATURES) are
+    re-subtracted here defensively even though Task 1's snapshot already
+    excludes them from always_dead (module docstring there: "dead by
+    coverage, not uselessness") — belt-and-suspenders, never rely on a
+    dated file from an older build having honored the exemption.
+
+    Fails loudly (ValueError, so a bad --schema-ab path crashes the audit
+    script immediately rather than silently running on a wrong prune set)
+    when the file has no `always_dead` key at all, or when always_dead
+    names a feature absent from `feature_names` (a stale snapshot from a
+    different FEATURE_SCHEMA_VERSION)."""
+    from ml.features import REGIME_ONE_HOT_FEATURES
+    feature_names = list(feature_names)
+    with open(prunefile_path, encoding="utf-8") as fh:
+        snap = json.load(fh)
+    if "always_dead" not in snap:
+        raise ValueError(
+            f"{prunefile_path}: missing required 'always_dead' key - not a "
+            f"valid Task 1 feature-stability snapshot (scripts/"
+            f"feature_stability.py)")
+    dead = set(snap["always_dead"])
+    unknown = dead - set(feature_names)
+    if unknown:
+        raise ValueError(
+            f"{prunefile_path}: always_dead names feature(s) not in "
+            f"FEATURE_NAMES: {sorted(unknown)} - stale snapshot (schema "
+            f"version mismatch?)")
+    dead -= set(REGIME_ONE_HOT_FEATURES)   # defensive re-exemption
+    keep = [i for i, name in enumerate(feature_names) if name not in dead]
+    return np.asarray(keep, dtype=int)
+
+
+def build_epoch_ab_mask(history_path: str, sig, res,
+                        cutoff_ts: float) -> np.ndarray:
+    """Row mask for model_space_pbo's --epoch-ab experiment arm: True =
+    include in the arm's TRAINING subset. Keeps every LIVE-source row plus
+    every CANDIDATE-source row whose label resolved (res — the loader's
+    per-row `ts`) at/after cutoff_ts; drops only candidate rows resolved
+    strictly before it (config ml.epoch.candidate_cutoff_ts — the
+    config-derivation-boundary marker, guarded in core/config_guard.py).
+
+    `sig`/`res` must be the exact arrays HistoryStore.load_training_data(
+    return_label_times=True) returned for `history_path` (sig-sorted,
+    survivor order) — this function does NOT call into or modify that
+    loader (no production-path row exclusion anywhere; the mask lives only
+    in this experiment). Instead it takes its OWN pass over the raw CSV,
+    mirroring scripts/learning_curve.py's `_scan_live_upto` idiom: the
+    loader deliberately drops the raw 'source'/'book' bookkeeping columns
+    from its X/y/w/sig/res return, so recovering 'source' needs a fresh
+    read. The two passes are joined on (signal_ts, ts) — the same
+    ordering key load_training_data itself sorts and purges by (ml/
+    history.py: sig/res, argsort(sig)); a clash-deduped candidate twin
+    resolves at a DIFFERENT ts than its live counterpart (a distinct
+    resolution event), so it is not expected to collide with a surviving
+    row's key in practice. A row this scan cannot match (lookup miss, or
+    an unreadable/missing history file) fails OPEN — included, never
+    silently dropped — since this is a report-only diagnostic, not a
+    correctness-critical production filter."""
+    sig = np.asarray(sig, float)
+    res = np.asarray(res, float)
+    source_by_key: dict = {}
+    try:
+        with open(history_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if (row.get("book") or "5m") == "long":
+                    continue
+                try:
+                    s = float(row.get("signal_ts") or row.get("ts") or "nan")
+                    t = float(row.get("ts") or "nan")
+                except ValueError:
+                    continue
+                if not (np.isfinite(s) and np.isfinite(t)):
+                    continue
+                source_by_key[(round(s, 6), round(t, 6))] = \
+                    row.get("source") or ""
+    except (OSError, csv.Error):
+        return np.ones(len(sig), dtype=bool)
+    mask = np.ones(len(sig), dtype=bool)
+    for i in range(len(sig)):
+        source = source_by_key.get((round(float(sig[i]), 6),
+                                    round(float(res[i]), 6)))
+        if source == "candidate" and res[i] < cutoff_ts:
+            mask[i] = False
+    return mask
+
+
+def _fit_predict_arm(name: str, factory, X_arm: np.ndarray, y: np.ndarray,
+                     folds: list, oof_idx: np.ndarray,
+                     row_mask: "np.ndarray | None" = None) -> tuple:
+    """model_space_pbo's per-arm fit/predict step, factored out so every
+    arm — baseline (row_mask=None) and the opt-in schema-ab/epoch-ab
+    variants alike — shares ONE code path. With row_mask=None this is
+    byte-for-byte the pre-T3.2 inline loop (tr/te unmodified, X_arm is the
+    caller's X unsliced) — the byte-identity pin depends on that.
+
+    row_mask (bool, aligned to X_arm's ORIGINAL row order, i.e. BEFORE OOF
+    concatenation) restricts TRAINING ONLY: a row-masked arm trains on
+    `tr ∩ mask` but ALWAYS predicts/scores the FULL, unmasked `te` for
+    every fold — the binding "evaluation rows identical across arms"
+    invariant (test rows are never masked; only training data varies).
+
+    If `tr ∩ mask` is too thin to fit at all (fewer than
+    _ARM_MIN_TRAIN_ROWS rows, or fewer than _ARM_MIN_CLASS rows of either
+    label class) this fold degrades GRACEFULLY: it falls back to the full
+    unmasked `tr` for that fold only, rather than crashing the whole OF-3
+    run, and a human-readable reason is appended to the returned notes.
+
+    Returns (preds, degraded_notes): preds is (len(oof_idx),) float in the
+    same fold-concatenation order oof_idx was built in."""
+    preds = np.empty(len(oof_idx))
+    notes: list = []
+    pos = 0
+    for fi, (tr, te) in enumerate(folds):
+        tr_use = tr
+        if row_mask is not None:
+            tr_masked = tr[row_mask[tr]]
+            n_pos = float(y[tr_masked].sum()) if len(tr_masked) else 0.0
+            n_neg = len(tr_masked) - n_pos
+            if (len(tr_masked) >= _ARM_MIN_TRAIN_ROWS
+                    and n_pos >= _ARM_MIN_CLASS and n_neg >= _ARM_MIN_CLASS):
+                tr_use = tr_masked
+            else:
+                notes.append(
+                    f"{name}: fold {fi} row-masked training set too thin "
+                    f"(n={len(tr_masked)}, pos={n_pos:.0f}, neg={n_neg:.0f}) "
+                    f"- degraded to the full unmasked training window for "
+                    f"this fold only")
+        m = factory().fit(X_arm[tr_use], y[tr_use])
+        preds[pos:pos + len(te)] = m.predict_proba(X_arm[te])
+        pos += len(te)
+    return preds, notes
+
+
 def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                     seed: int = 7, n_blocks: int = 8, sig=None,
                     include_adaptive: bool = False,
                     adaptive_cfg: dict | None = None,
                     n_live: int | None = None,
-                    select_cfg: dict | None = None) -> dict:
+                    select_cfg: dict | None = None,
+                    schema_ab_cols: "np.ndarray | None" = None,
+                    epoch_ab_mask: "np.ndarray | None" = None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
@@ -229,7 +397,31 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     so it must not be in the measured space either. When the gate collapses
     the space to a single family (e.g. logistic-only at low live-row counts),
     there is NO selection happening — PBO is returned None with an explicit
-    'no selection' reason rather than a fabricated number."""
+    'no selection' reason rather than a fabricated number.
+
+    schema_ab_cols / epoch_ab_mask (T3.2/T3.6a, both default None): OPT-IN
+    experiment arms, report-only. Both default None -> the space/order/M
+    and every returned value are BYTE-IDENTICAL to the pre-T3.2 function
+    (regression-pinned in tests/test_pbo_variants.py) — no new dict key is
+    ever added when neither is given.
+
+    schema_ab_cols: column indices to KEEP (already resolved against
+    FEATURE_NAMES by the caller, e.g. via load_schema_ab_cols) — adds a
+    "<base>_schema_ab" arm that trains _SCHEMA_AB_BASE_FAMILY's exact
+    model/hyperparameters on X[:, schema_ab_cols] instead of the full
+    corpus.
+    epoch_ab_mask: boolean row mask (aligned to X, len(X)) — adds a
+    "<base>_epoch_ab" arm that trains _EPOCH_AB_BASE_FAMILY's exact
+    model/hyperparameters on tr ∩ mask per fold (see build_epoch_ab_mask).
+
+    Each active arm is inserted into `order` directly after its base
+    family (the ladder treats it as that family's next-complex step) and
+    participates in the SAME ladder-selected PBO/argmax-stress run as
+    every other config — still the deployed selection RULE, never argmax,
+    just measured over a caller-widened space. A per-arm pairwise report
+    (vs its base, using the SAME BRIER_MARGIN ladder-climb logic) lands in
+    the returned 'experiments' dict, added ONLY when at least one arm was
+    actually requested."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     ac = adaptive_cfg or {}
@@ -259,10 +451,46 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     admitted = admissible_families(_nl, len(X), select_cfg)
     space = {k: v for k, v in space.items() if pbo_family(k) in admitted}
     if len(space) < 2:
-        return {"pbo": None, "n_configs": len(space),
-                "configs": list(space),
-                "reason": "evidence-gated to a single family (no model "
-                          "selection to overfit at this live-row count)"}
+        out = {"pbo": None, "n_configs": len(space),
+               "configs": list(space),
+               "reason": "evidence-gated to a single family (no model "
+                         "selection to overfit at this live-row count)"}
+        if schema_ab_cols is not None or epoch_ab_mask is not None:
+            out["experiment_notes"] = [
+                "experiment arm(s) skipped: evidence-gated to a single "
+                "family - no selection to A/B at this live-row count"]
+        return out
+
+    # ---- T3.2/T3.6a: opt-in experiment arms (never touched when both
+    # schema_ab_cols and epoch_ab_mask are None — the byte-identity pin) --
+    arm_space: dict[str, tuple] = {
+        name: (factory, None, None) for name, factory in space.items()}
+    space = arm_space
+    experiment_bases: dict = {}          # arm name -> base family name
+    experiment_notes: list = []
+    if schema_ab_cols is not None:
+        if _SCHEMA_AB_BASE_FAMILY in space:
+            arm = f"{_SCHEMA_AB_BASE_FAMILY}_schema_ab"
+            base_factory = space[_SCHEMA_AB_BASE_FAMILY][0]
+            space[arm] = (base_factory, np.asarray(schema_ab_cols, int), None)
+            experiment_bases[arm] = _SCHEMA_AB_BASE_FAMILY
+        else:
+            experiment_notes.append(
+                f"schema-ab arm skipped: base family "
+                f"'{_SCHEMA_AB_BASE_FAMILY}' evidence-gated out at this "
+                f"live-row count")
+    if epoch_ab_mask is not None:
+        if _EPOCH_AB_BASE_FAMILY in space:
+            arm = f"{_EPOCH_AB_BASE_FAMILY}_epoch_ab"
+            base_factory = space[_EPOCH_AB_BASE_FAMILY][0]
+            space[arm] = (base_factory, None, np.asarray(epoch_ab_mask, bool))
+            experiment_bases[arm] = _EPOCH_AB_BASE_FAMILY
+        else:
+            experiment_notes.append(
+                f"epoch-ab arm skipped: base family "
+                f"'{_EPOCH_AB_BASE_FAMILY}' evidence-gated out at this "
+                f"live-row count")
+
     folds = [f for f in purged_walk_forward(len(X), n_splits, label_span,
                                             sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
@@ -271,13 +499,9 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     oof_idx = np.concatenate([te for _, te in folds])
     y_oof = y[oof_idx]
     cols, names = [], []
-    for name, factory in space.items():
-        preds = np.empty(len(oof_idx))
-        pos = 0
-        for tr, te in folds:
-            m = factory().fit(X[tr], y[tr])
-            preds[pos:pos + len(te)] = m.predict_proba(X[te])
-            pos += len(te)
+    degraded_notes: list = []
+    for name, (factory, arm_cols, row_mask) in space.items():
+        X_arm = X if arm_cols is None else X[:, arm_cols]
         # per-observation performance: negative squared error (higher better),
         # blocked later by pbo_cscv. RAW (uncalibrated) on purpose: isotonic
         # calibration is a MONOTONE, same-for-all-configs post-transform - it
@@ -288,6 +512,9 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
         # deflating OOS variance and corrupting the PBO. Selection still runs
         # on calibrated Brier (evaluate_and_select); the luck-chasing this
         # instrument polices lives in the family/margin structure, unchanged.
+        preds, notes = _fit_predict_arm(name, factory, X_arm, y, folds,
+                                        oof_idx, row_mask=row_mask)
+        degraded_notes.extend(notes)
         cols.append(-(preds - y_oof) ** 2)
         names.append(name)
     M = np.stack(cols, axis=1)                    # (T_oof, N_configs)
@@ -295,11 +522,20 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # complexity order for the ladder: simple -> complex, mirrors
     # walkforward._LADDER extended over the hyperparameter grid. A step
     # up must beat the INCUMBENT by BRIER_MARGIN (perf here is negative
-    # Brier, so cand wins iff perf[cand] > perf[inc] + margin).
-    order = [names.index(k) for k in (
-        "logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
-        "gbt_d3_lr10", "gbt_d4_lr05", "mlp_small", "adaptive_gbt")
-        if k in names]
+    # Brier, so cand wins iff perf[cand] > perf[inc] + margin). Any active
+    # experiment arm is inserted directly after its base family (T3.2/
+    # T3.6a: "the ladder treats it as the next-complex step") — a no-op
+    # when experiment_bases is empty, which is exactly the byte-identity
+    # baseline.
+    _BASE_ORDER = ("logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
+                  "gbt_d3_lr10", "gbt_d4_lr05", "mlp_small", "adaptive_gbt")
+    order = []
+    for k in _BASE_ORDER:
+        if k in names:
+            order.append(names.index(k))
+        for arm_name, base_name in experiment_bases.items():
+            if base_name == k and arm_name in names:
+                order.append(names.index(arm_name))
 
     def ladder(is_perf):
         inc = order[0]
@@ -316,6 +552,43 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     if res.get("pbo") is not None:
         best = int(np.argmax(M.mean(axis=0)))
         res["is_winner"] = names[best]
+
+    # ---- T3.2/T3.6a: per-arm pairwise report (INFO-only material for the
+    # caller; never gates) — added ONLY when at least one arm was actually
+    # requested, preserving the no-flags byte-identity pin.
+    if experiment_bases:
+        full_perf = M.mean(axis=0)
+        experiments: dict = {}
+        for arm_name, base_name in experiment_bases.items():
+            if arm_name not in names or base_name not in names:
+                continue        # noted in experiment_notes above already
+            bi, ai = names.index(base_name), names.index(arm_name)
+            # pair_M below is sliced to exactly [base, arm] -> pbo_cscv's
+            # `select` sees a length-2 is_perf in that SAME order, so
+            # column 0 is always the base and column 1 always the arm -
+            # no bi/ai remapping needed inside the closure.
+            def _pair_ladder(is_perf):
+                return 1 if is_perf[1] > is_perf[0] + BRIER_MARGIN else 0
+
+            pair_M = M[:, [bi, ai]]
+            pair_pbo = pbo_cscv(pair_M, n_blocks=n_blocks, seed=seed,
+                               select=_pair_ladder)
+            ladder_winner = (arm_name if full_perf[ai] >
+                            full_perf[bi] + BRIER_MARGIN else base_name)
+            mean_winner = arm_name if full_perf[ai] > full_perf[bi] \
+                else base_name
+            experiments[arm_name] = {
+                "base": base_name,
+                "pbo": pair_pbo.get("pbo"),
+                "ladder_winner": ladder_winner,
+                "mean_winner": mean_winner,
+            }
+        if experiments:
+            res["experiments"] = experiments
+    if experiment_notes:
+        res["experiment_notes"] = experiment_notes
+    if degraded_notes:
+        res["degraded_folds"] = degraded_notes
     return res
 
 

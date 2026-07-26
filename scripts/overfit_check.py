@@ -141,7 +141,17 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
     remotely enough of it to be well-posed (observed live: 87 rows / 36
     features = 2.4 rows/feature failed OF-2 with a degenerate mean_auc=0.0
     and OF-7 with rows_per_feature=2.4, neither a real overfitting signal,
-    just data starvation surfaced too early)."""
+    just data starvation surfaced too early).
+
+    Returns (X, y, w, sig, res, source, n_live). `res` (per-row label
+    RESOLUTION time) is additive — return_label_times=True changes nothing
+    about how X/y/w/sig are computed (ml/history.py's load_training_data
+    only branches on it for return SHAPE), so this is not a behavior
+    change to OF-1/2/6/7, which never read res. It exists for OF-3's
+    opt-in --epoch-ab experiment arm (T3.6a), which needs it to build a
+    row mask aligned to X (ml.overfit.build_epoch_ab_mask). On the
+    SYNTHETIC benchmark there is no signal_history.csv correspondence, so
+    res is None."""
     from ml.features import FEATURE_NAMES
     if min_rows is None:
         min_rows = len(FEATURE_NAMES) * 10
@@ -153,7 +163,8 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
             _sw = (json.load(fh).get("ml", {}) or {}).get("sample_weights", {})
     except (OSError, ValueError):
         _sw = {}
-    X, y, w, sig = store.load_training_data(return_sig=True, weights_cfg=_sw)
+    X, y, w, sig, res = store.load_training_data(return_label_times=True,
+                                                  weights_cfg=_sw)
     if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
         # live rows: hand the signal-time array down so the OF folds purge
         # by TIME, exactly like the deployed selector (evaluate_and_select).
@@ -161,14 +172,15 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
         # mirrors the deployed ladder at the real live-row count.
         n_live = int((store.last_load_stats or {}).get(
             "live_clean", store.source_counts().get("live", 0)))
-        return X, y, w, sig, f"live history ({len(X)} rows)", n_live
+        return X, y, w, sig, res, f"live history ({len(X)} rows)", n_live
     Xs, ys = synthetic_benchmark()
     reason = "forced" if force_synthetic else f"live rows={len(X)} < {min_rows}"
     # synthetic benchmark is uniformly spaced -> row-count purge is exact.
     # n_live = len(Xs): the benchmark validates the FULL selection machinery,
     # so it must not be evidence-gated down to logistic-only.
-    return Xs, ys, None, None, (f"SYNTHETIC benchmark ({reason}) — validating "
-                                f"machinery, not market"), len(Xs)
+    return Xs, ys, None, None, None, (
+        f"SYNTHETIC benchmark ({reason}) — validating "
+        f"machinery, not market"), len(Xs)
 
 
 # ---------------------------------------------------------------------------
@@ -444,13 +456,29 @@ def main() -> int:
                     help="where to write the markdown report — override "
                          "for a CI-bound run so it doesn't clobber a human "
                          "operator's last real audit")
+    ap.add_argument("--schema-ab", default="", metavar="PRUNEFILE",
+                    help="opt-in, report-only OF-3 experiment arm (T3.2): "
+                         "adds a gbt_d3_lr05_schema_ab config trained "
+                         "without the columns in PRUNEFILE's always_dead "
+                         "list (a scripts/feature_stability.py dated "
+                         "snapshot) - regime one-hots stay exempt. Never "
+                         "gates; adds INFO lines only. A malformed "
+                         "PRUNEFILE fails loudly (non-zero exit).")
+    ap.add_argument("--epoch-ab", action="store_true",
+                    help="opt-in, report-only OF-3 experiment arm (T3.6a): "
+                         "adds a gbt_d3_lr05_epoch_ab config trained on "
+                         "live rows + candidate rows resolved at/after "
+                         "ml.epoch.candidate_cutoff_ts only. No-op on the "
+                         "SYNTHETIC benchmark (no signal_history.csv "
+                         "correspondence). Never gates; adds INFO lines "
+                         "only.")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING)
     t0 = time.time()
     print("liquiditybot overfit audit\n" + "=" * 42)
 
     # ---- ML layer -----------------------------------------------------
-    X, y, w, sig, source, n_live = load_dataset(
+    X, y, w, sig, res, source, n_live = load_dataset(
         force_synthetic=args.force_synthetic)
     print(f"[OF-1] train/OOF gap  ({source})")
     # return_oof=True: purely additive (see train_test_gap docstring) - it
@@ -482,27 +510,74 @@ def main() -> int:
     # ladder, so it enters the PBO space too; otherwise the space is the
     # historical default. Config unreadable -> default space (fail safe).
     inc_adaptive, adaptive_cfg, select_cfg = False, None, None
+    _ml_cfg: dict = {}
     try:
         from main import load_config
-        _ml = load_config(str(Path(__file__).resolve().parents[1]
-                              / "config.json")).get("ml", {})
-        _ag = _ml.get("adaptive_gbt", {}) or {}
+        _ml_cfg = load_config(str(Path(__file__).resolve().parents[1]
+                              / "config.json")).get("ml", {}) or {}
+        _ag = _ml_cfg.get("adaptive_gbt", {}) or {}
         inc_adaptive = bool(_ag.get("enabled", False))
         adaptive_cfg = _ag if inc_adaptive else None
-        select_cfg = _ml.get("model_selection", {}) or None
+        select_cfg = _ml_cfg.get("model_selection", {}) or None
     except Exception:                                    # noqa: BLE001
-        inc_adaptive, adaptive_cfg, select_cfg = False, None, None  # fail safe
+        inc_adaptive, adaptive_cfg, select_cfg, _ml_cfg = (
+            False, None, None, {})                        # fail safe
     # n_live (from load_dataset) drives the SAME evidence gate the deployed
     # ladder uses, so the measured PBO space is byte-for-byte the space the
     # bot actually selects from at the current ground-truth count.
     if inc_adaptive:
         info("pbo space", "ml.adaptive_gbt.enabled=true — the adaptive "
                           "rung is IN the measured selection space")
+
+    # ---- T3.2/T3.6a: opt-in, report-only PBO experiment arms -------------
+    # Both default to no-op (schema_ab_cols/epoch_ab_mask stay None), which
+    # is exactly model_space_pbo's byte-identity baseline — neither flag
+    # given ⇒ zero footprint on the measured space or the report below.
+    schema_ab_cols = None
+    if args.schema_ab:
+        from ml.features import FEATURE_NAMES as _FN
+        from ml.overfit import load_schema_ab_cols
+        # deliberately UNCAUGHT: a malformed --schema-ab prunefile (missing
+        # always_dead, or one naming a feature outside FEATURE_NAMES) must
+        # fail loudly — a clear error message and a non-zero exit — never
+        # silently run the rest of the audit on a wrong/empty prune set.
+        schema_ab_cols = load_schema_ab_cols(args.schema_ab, _FN)
+        info("schema-ab", f"{args.schema_ab}: pruned "
+             f"{len(_FN) - len(schema_ab_cols)}/{len(_FN)} column(s) for "
+             f"the gbt_d3_lr05_schema_ab arm (regime one-hots exempt)")
+
+    epoch_ab_mask = None
+    if args.epoch_ab:
+        if source.startswith("SYNTHETIC"):
+            info("epoch-ab", "skipped — SYNTHETIC benchmark has no "
+                             "signal_history.csv source/ts correspondence")
+        else:
+            cutoff_ts = (_ml_cfg.get("epoch", {}) or {}).get(
+                "candidate_cutoff_ts")
+            if cutoff_ts is None:
+                info("epoch-ab", "skipped — ml.epoch.candidate_cutoff_ts "
+                                 "not configured")
+            else:
+                from ml.overfit import build_epoch_ab_mask
+                hist_path = _ml_cfg.get("history_path",
+                                        "outputs/signal_history.csv")
+                epoch_ab_mask = build_epoch_ab_mask(hist_path, sig, res,
+                                                    float(cutoff_ts))
+                info("epoch-ab",
+                     f"cutoff_ts={float(cutoff_ts):.0f} - "
+                     f"{int(epoch_ab_mask.sum())}/{len(epoch_ab_mask)} rows "
+                     f"kept for the gbt_d3_lr05_epoch_ab arm's training "
+                     f"({int((~epoch_ab_mask).sum())} pre-cutoff candidate "
+                     f"row(s) excluded from TRAINING only — scoring still "
+                     f"uses the full shared OOF rows)")
+
     pb = model_space_pbo(X, y, n_splits=3 if args.quick else 5,
                          n_blocks=6 if args.quick else 8, sig=sig,
                          include_adaptive=inc_adaptive,
                          adaptive_cfg=adaptive_cfg,
-                         n_live=n_live, select_cfg=select_cfg)
+                         n_live=n_live, select_cfg=select_cfg,
+                         schema_ab_cols=schema_ab_cols,
+                         epoch_ab_mask=epoch_ab_mask)
     if pb.get("pbo") is None:
         info("pbo", pb.get("reason", "n/a") +
              (f" (space={pb.get('configs')})" if pb.get("configs") else ""))
@@ -519,6 +594,18 @@ def main() -> int:
             info("pbo note", "0.2 < pbo <= 0.5: selection has luck in it — "
                              "expected at this sample size; keep the "
                              "simplicity-ladder margin")
+    # T3.2/T3.6a: experiment-arm results are always INFO, never check() —
+    # they report on a caller-widened measurement space, they never gate.
+    for arm_name, exp in (pb.get("experiments") or {}).items():
+        pbo_txt = f"{exp['pbo']:.2f}" if exp.get("pbo") is not None else "n/a"
+        info(f"pbo experiment[{arm_name}]",
+             f"base={exp['base']} pbo={pbo_txt} "
+             f"ladder_winner={exp['ladder_winner']} "
+             f"mean_winner={exp['mean_winner']}")
+    for note in pb.get("experiment_notes") or []:
+        info("pbo experiment note", note)
+    for note in pb.get("degraded_folds") or []:
+        info("pbo experiment degraded fold", note)
 
     print("[OF-6] purge-leakage probe")
     lk = purge_leakage_probe()
