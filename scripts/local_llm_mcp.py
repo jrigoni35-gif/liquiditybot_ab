@@ -27,11 +27,11 @@ SUMMARIZE_SYSTEM = (
     "invented data - only what the file contains.")
 
 
-def resolve_report_path(filename: str, outputs_dir) -> Path:
+def resolve_report_path(filename: str, outputs_dir: str | Path) -> Path:
     """Whitelist: bare basename, allowed suffix, existing file inside
     outputs_dir. Raises ValueError with the reason otherwise."""
     name = str(filename)
-    if not name or name != Path(name).name or ".." in name:
+    if not name or name != Path(name).name or ".." in name or ":" in name:
         raise ValueError(f"not a bare filename: {filename!r}")
     if Path(name).suffix.lower() not in _ALLOWED_SUFFIXES:
         raise ValueError(f"suffix not allowed: {filename!r} "
@@ -63,11 +63,19 @@ def call_endpoint(payload: dict, base_url: str,
                   timeout: float = 120.0) -> str:
     if not str(base_url).startswith(("http://", "https://")):
         raise RuntimeError(f"unsupported endpoint scheme: {base_url!r}")
-    req = urllib.request.Request(          # nosec B310 - scheme checked
+    req = urllib.request.Request(
         str(base_url).rstrip("/") + "/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"})
     try:
+        # The scheme check above (http/https only) is the actual guard
+        # here, not a bandit suppression: B310 targets urlopen() calls
+        # resolved through tracked import names, and `_urlopen` is a
+        # plain module-level alias (kept as the test seam), which
+        # bandit's blacklist scanner does not follow - it does not fire
+        # on this call. If `_urlopen` is ever refactored back to a
+        # direct `urllib.request.urlopen` call, re-run bandit to
+        # confirm that still holds.
         with _urlopen(req, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
         return str(body["choices"][0]["message"]["content"])

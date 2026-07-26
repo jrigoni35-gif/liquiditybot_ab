@@ -4,6 +4,7 @@ importable in CI (lazy import pinned below)."""
 import json
 import sys
 import urllib.error
+from pathlib import PureWindowsPath
 
 import pytest
 
@@ -25,6 +26,7 @@ def test_whitelist_accepts_outputs_reports(tmp_path):
 @pytest.mark.parametrize("bad", [
     "../config.json", "..\\config.json", "sub/dir.md", "sub\\dir.md",
     "state.bin", "audit.jsonl", "", "config.json.exe",
+    "config.json:evil.md", "C:x.md",
 ])
 def test_whitelist_rejects(tmp_path, bad):
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
@@ -35,6 +37,21 @@ def test_whitelist_rejects(tmp_path, bad):
 def test_whitelist_rejects_missing_file(tmp_path):
     with pytest.raises(ValueError):
         resolve_report_path("ghost.md", tmp_path)
+
+
+def test_backslash_traversal_genuinely_rejected_on_windows():
+    """resolve_report_path's bare-filename guard is `name !=
+    Path(name).name`. On this dev platform (POSIX), backslash is not a
+    separator, so the "sub\\dir.md" / "..\\config.json" cases above are
+    only rejected incidentally (via the later "no such report" check,
+    since no such literal file exists) - not by the bare-filename guard
+    itself. Windows is the target runtime (CLAUDE.md), where `Path` is
+    `WindowsPath` and backslash IS a separator, so the same guard
+    genuinely fires there. Assert that directly via PureWindowsPath
+    (platform-independent, no filesystem access) so the Windows-target
+    rejection path is verified here rather than assumed."""
+    for bad in ("sub\\dir.md", "..\\config.json"):
+        assert PureWindowsPath(bad).name != bad
 
 
 def test_truncate():

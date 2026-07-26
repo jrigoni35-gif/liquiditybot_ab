@@ -57,8 +57,8 @@ The bridge's `fastmcp` dependency must **never** enter the bot's frozen
 venv (design law, §2). Give it its own:
 
 ```powershell
-py -m venv %USERPROFILE%\.venvs\llm-bridge
-%USERPROFILE%\.venvs\llm-bridge\Scripts\pip install fastmcp
+py -m venv "$env:USERPROFILE\.venvs\llm-bridge"
+& "$env:USERPROFILE\.venvs\llm-bridge\Scripts\pip.exe" install fastmcp
 ```
 
 ---
@@ -70,15 +70,16 @@ because cloud Claude Code sessions have no local Ollama endpoint to
 reach (§2). Absolute paths, one line:
 
 ```powershell
-claude mcp add --scope user local-llm -- %USERPROFILE%\.venvs\llm-bridge\Scripts\python.exe C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
+claude mcp add --scope user local-llm -- "$env:USERPROFILE\.venvs\llm-bridge\Scripts\python.exe" C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
 ```
 
 Point it at the bot's `outputs/` directory so `summarize_bot_report`
 can find report files — either as part of the registration via
-`--env`:
+`--env` (note: `--env` goes **after** the server name, before the
+`--` that separates the server's own launch command):
 
 ```powershell
-claude mcp add --scope user --env LOCAL_LLM_OUTPUTS_DIR=C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\outputs local-llm -- %USERPROFILE%\.venvs\llm-bridge\Scripts\python.exe C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
+claude mcp add --scope user local-llm --env LOCAL_LLM_OUTPUTS_DIR=C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\outputs -- "$env:USERPROFILE\.venvs\llm-bridge\Scripts\python.exe" C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
 ```
 
 or as a standalone user env var:
@@ -114,7 +115,7 @@ llama.cpp later needs no code change, just a different
   registered command directly in a shell — this is the official
   diagnostic, since Claude Code just launches that same command:
   ```powershell
-  %USERPROFILE%\.venvs\llm-bridge\Scripts\python.exe C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
+  & "$env:USERPROFILE\.venvs\llm-bridge\Scripts\python.exe" C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\scripts\local_llm_mcp.py
   ```
   Whatever it prints (import error, traceback, etc.) is the real
   failure — fix that first, then retry `/mcp`.
