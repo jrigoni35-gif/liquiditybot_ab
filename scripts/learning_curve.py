@@ -96,14 +96,21 @@ def probe_share_by_cutoff(history_path: str, cutoff_sig: float) -> "float | None
 
 
 def prefix_report(X, y, w, sig, res, frac: float, cfg: dict,
-                  n_splits: "int | None", n_live: int) -> dict:
+                  n_splits: "int | None", n_live: int,
+                  select_cfg: "dict | None" = None,
+                  extra_models: tuple = (),
+                  adaptive_cfg: "dict | None" = None,
+                  ensemble_k: int = 3) -> dict:
     """One curve point: slice the first int(frac*n) rows (sig-ascending
     slices are time-prefixes by construction), require min positives (and
     negatives) per the fold constraint, run evaluate_and_select with
     deployed kwargs (label_span from cfg['label_max_bars'], default 96;
     n_live = count of live rows inside the prefix, supplied by the
     caller from a raw CSV scan - load_training_data's arrays carry no
-    'source' column), and return
+    'source' column; select_cfg/extra_models/adaptive_cfg/ensemble_k
+    mirror main.py's own _maybe_auto_retrain call so the evidence-gate
+    and adaptive rung behave IDENTICALLY to the deployed selector, not a
+    weaker "everything admissible" approximation of it), and return
     {frac, n_rows, n_live, selected, oof_brier, calib_gap, regime, skipped}.
 
     A too-small prefix (row-count floor OR class-balance floor) reports an
@@ -132,7 +139,9 @@ def prefix_report(X, y, w, sig, res, frac: float, cfg: dict,
     label_span = int(cfg.get("label_max_bars", 96))
     kwargs: dict[str, Any] = dict(
         sample_weight=wp, feature_names=FEATURE_NAMES,
-        label_span=label_span, sig=sigp, res=resp, n_live=int(n_live))
+        label_span=label_span, sig=sigp, res=resp, n_live=int(n_live),
+        select_cfg=select_cfg, extra_models=extra_models,
+        adaptive_cfg=adaptive_cfg, ensemble_k=int(ensemble_k))
     if n_splits is not None:
         kwargs["n_splits"] = int(n_splits)
     results = evaluate_and_select(Xp, yp, **kwargs)
@@ -149,9 +158,11 @@ def prefix_report(X, y, w, sig, res, frac: float, cfg: dict,
     point["oof_brier"] = round(float(results[sel]["mean_brier"]), 6)
     point["calib_gap"] = round(float(results[sel]["calib_gap"]), 6)
     oof_p = np.asarray(results[sel]["oof_p"], float)
+    pooled_auc = float(results[sel]["mean_auc"])
     one_hot = Xp[oof_idx][:, _REGIME_COLS]
     point["regime"] = regime_stratified_oof(
-        yp, oof_idx, oof_p, one_hot, pooled_brier=point["oof_brier"])
+        yp, oof_idx, oof_p, one_hot, pooled_auc=pooled_auc,
+        pooled_brier=point["oof_brier"])
     return point
 
 
@@ -349,6 +360,16 @@ def main(argv=None) -> int:
     fracs = sorted({float(f) for f in args.fracs.split(",") if f.strip()})
     run_cfg = {"label_max_bars": int(ml_cfg.get("label_max_bars", 96)),
               "min_prefix_rows": int(DEFAULTS["min_prefix_rows"])}
+    # Deployed-parity selector inputs (main.py:4650-4673's own idiom,
+    # mirrored exactly): without these, evaluate_and_select trains and
+    # admits every family unconditionally regardless of n_live, which is
+    # NOT what production does the moment ml.model_selection.enabled is
+    # true - the offline curve must replay the same admission decisions,
+    # not a permissive approximation of them.
+    _sel_cfg = ml_cfg.get("model_selection") or None
+    _ag = ml_cfg.get("adaptive_gbt", {}) or {}
+    _extra = ("adaptive_gbt",) if _ag.get("enabled") else ()
+    _ensemble_k = int(ml_cfg.get("ensemble_seeds", 3))
 
     points = []
     for frac in fracs:
@@ -356,7 +377,9 @@ def main(argv=None) -> int:
         cutoff_sig = float(sig[n_rows - 1]) if n_rows > 0 else float("-inf")
         n_live, n_probe = _scan_live_upto(args.history, cutoff_sig)
         point = prefix_report(X, y, w, sig, res, frac, run_cfg,
-                             args.n_splits, n_live)
+                             args.n_splits, n_live, select_cfg=_sel_cfg,
+                             extra_models=_extra, adaptive_cfg=_ag,
+                             ensemble_k=_ensemble_k)
         point["probe_share"] = (n_probe / n_live) if n_live else None
         points.append(point)
 

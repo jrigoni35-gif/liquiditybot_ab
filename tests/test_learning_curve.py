@@ -38,6 +38,7 @@ from ml.history import HistoryStore                          # noqa: E402
 from scripts import learning_curve                            # noqa: E402
 
 _R1 = FEATURE_NAMES.index("ret_1_dir")
+_R2 = FEATURE_NAMES.index("ret_6_dir")
 _BULL_QUIET = FEATURE_NAMES.index("regime_bull_quiet")
 _BEAR = FEATURE_NAMES.index("regime_bear")
 _START = time.time() + 10_000.0     # safely ahead of "now" for every row
@@ -61,6 +62,36 @@ def _build_corpus(path: Path, n: int, n_live: int) -> None:
         label = i % 2
         regime = "bull_quiet" if (i // 2) % 2 == 0 else "bear"
         feats = _feats(i, regime)
+        if i >= n - n_live:
+            probe = "1" if i % 2 == 0 else "0"
+            store._append_row(
+                f"live-{i}", "BTC", "long", feats, label,
+                10.0 if label else -10.0, "live", signal_ts=sig_ts,
+                barrier="realized", probe=probe, disp="entered")
+        else:
+            store._append_row(
+                f"cand-{i}", "BTC", "long", feats, label, 0.0,
+                "candidate", signal_ts=sig_ts, barrier="profit", probe="")
+
+
+def _build_xor_corpus(path: Path, n: int, n_live: int, seed: int = 0) -> None:
+    """A corpus where the label is XOR(ret_1_dir > 0, ret_6_dir > 0) - a
+    classically NONLINEAR pattern a linear (logistic) model cannot solve
+    but a boosted-tree/MLP family can. Purpose-built so the deployed
+    evidence-gate (ml.model_selection) has an observable EFFECT to test:
+    without it, the higher-capacity family wins on OOF Brier; with a
+    min_live_rows floor set above this fixture's n_live, only logistic is
+    ever admitted, so the selection MUST fall back to it regardless of
+    what would otherwise win."""
+    store = HistoryStore(str(path))
+    rng = np.random.RandomState(seed)
+    for i in range(n):
+        sig_ts = _START + i * _STEP
+        a, b = rng.uniform(-3, 3), rng.uniform(-3, 3)
+        label = int((a > 0) != (b > 0))
+        feats = np.zeros(len(FEATURE_NAMES))
+        feats[_R1], feats[_R2] = a, b
+        feats[_BULL_QUIET if (i // 2) % 2 == 0 else _BEAR] = 1.0
         if i >= n - n_live:
             probe = "1" if i % 2 == 0 else "0"
             store._append_row(
@@ -213,6 +244,49 @@ def test_real_prefix_produces_a_scored_point(tmp_path, monkeypatch):
     assert p["regime"]["bear"]["n_oof"] > 0
     # a stratum this system never populated must say so honestly, not 0/0
     assert p["regime"]["crisis"]["scored"] is False
+    # pooled_auc must reach regime_stratified_oof (deployed-parity fix):
+    # a scored stratum's "degrade" is only ever computed (True/False, not
+    # None) when pooled_auc was supplied - this is regime_stratified_oof's
+    # own gate (ml/overfit.py: `if pooled_auc is not None: row["degrade"]
+    # = ...`).
+    assert p["regime"]["bull_quiet"]["degrade"] in (True, False)
+    assert p["regime"]["bear"]["degrade"] in (True, False)
+
+
+def test_select_cfg_gating_forces_logistic_when_floors_unmet(tmp_path,
+                                                             monkeypatch):
+    """Deployed-parity regression: main.py:4665-4673 threads
+    ml.model_selection into evaluate_and_select as select_cfg= so the
+    evidence gate actually filters which families are admitted. On the
+    XOR fixture, a higher-capacity family clearly wins WITHOUT gating;
+    with config's min_live_rows floors set above this fixture's n_live,
+    the gate must force the selection back down to logistic - if
+    select_cfg ever stops being threaded through, this flips back to the
+    higher-capacity family and this test catches it."""
+    hist = tmp_path / "signal_history.csv"
+    _build_xor_corpus(hist, n=400, n_live=50)
+
+    cfg_path = tmp_path / "config.json"
+    _write_config(cfg_path)              # no model_selection -> no gating
+    monkeypatch.chdir(tmp_path)
+    assert _run(tmp_path, hist, cfg_path,
+               ["--fracs", "1.0", "--n-splits", "3"]) == 0
+    ungated = _load_json(tmp_path)["points"][0]
+    assert ungated["selected"] != "logistic", (
+        "fixture must make a higher-capacity family win when nothing "
+        "gates it - otherwise this test can't discriminate the fix")
+
+    gated_cfg_path = tmp_path / "config_gated.json"
+    _write_config(gated_cfg_path, model_selection={
+        "enabled": True,
+        "min_live_rows": {"gbt": 1000, "blend": 1000, "mlp": 1000,
+                         "adaptive_gbt": 1000},
+        "min_total_rows": {"gbt": 0, "blend": 0, "mlp": 0,
+                          "adaptive_gbt": 0}})
+    assert _run(tmp_path, hist, gated_cfg_path,
+               ["--fracs", "1.0", "--n-splits", "3"]) == 0
+    gated = _load_json(tmp_path)["points"][0]
+    assert gated["selected"] == "logistic"
 
 
 # ---------------------------------------------------------------------------
