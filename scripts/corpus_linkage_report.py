@@ -19,7 +19,11 @@ Pair space: for every live row, every candidate row sharing its
 (asset, side) within `window_h` hours of its signal_ts is a candidate
 pair, MINUS any pair that is already an exact-lineage pair (Task 3) —
 those are excluded from the EM fit and reported as their own population.
-Each surviving pair is reduced to a 2-variable fuzzy pattern (both
+`book == "long"` rows (risk/long_book.py's own closes - a different
+trading process, no p(win)/edge signal) are excluded from BOTH sides
+before pairing, mirroring ml/history.py's load-time exclusion: a
+long-book row must never be linked against a 5m twin it has nothing to
+do with. Each surviving pair is reduced to a 2-variable fuzzy pattern (both
 `FellegiSunterEM.k_exact == 0`: asset/side agreement is already enforced
 by the pairing itself, so an "exact" variable that is always 1 would add
 nothing):
@@ -114,6 +118,17 @@ def build_report(history_path, cfg: dict) -> tuple:
     window_sec = float(c["window_h"]) * 3600.0
 
     rows = _read_rows(history_path)
+    # book=="long" rows are the long-horizon accumulation book's own
+    # closes (risk/long_book.py) - a completely different trading
+    # process (patient, ladder-gated accumulation, no p(win)/edge
+    # signal) from the 5m scalping flow this linkage is built for.
+    # Excluded from BOTH sides here, before any pairing, mirroring
+    # ml/history.py's load-time exclusion (book contamination guard):
+    # a long-book live/candidate row must never be linked against a 5m
+    # twin it has nothing to do with. (row.get("book") or "5m") mirrors
+    # every other book-tag read site's default (pre-C1 rows / any
+    # writer that never heard of `book`).
+    rows = [r for r in rows if (r.get("book") or "5m") != "long"]
     live = [r for r in rows if (r.get("source") or "") == "live"]
     cands = [r for r in rows if (r.get("source") or "") == "candidate"]
 

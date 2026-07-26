@@ -72,23 +72,19 @@ def _row(header, **overrides):
     return [base[h] for h in header]
 
 
-def test_corpus_linkage_report_end_to_end(tmp_path):
-    """~6 live + 8 candidate rows over a real HistoryStore header: one
-    exact-lineage pair (Task 3 candidate_id join, excluded from the EM
-    set), a handful of fuzzy same-asset/side/window pairs (some
-    near-identical -> pattern (2,2), some far apart in time+features ->
-    pattern (0,0)), and several rows deliberately excluded by the
-    asset/side/window filters (SOL live with no SOL candidate, BTC-short
-    live against BTC-long candidates, a same-asset/side candidate parked
-    far outside the pairing window)."""
-    hist_path = tmp_path / "signal_history.csv"
-    header = HistoryStore(str(hist_path))._header
-    t = 1_700_000_000.0
+def _base_rows(header, t):
+    """~6 live + 8 candidate rows: one exact-lineage pair (Task 3
+    candidate_id join, excluded from the EM set), a handful of fuzzy
+    same-asset/side/window pairs (some near-identical -> pattern (2,2),
+    some far apart in time+features -> pattern (0,0)), and several rows
+    deliberately excluded by the asset/side/window filters (SOL live
+    with no SOL candidate, BTC-short live against BTC-long candidates,
+    a same-asset/side candidate parked far outside the pairing
+    window)."""
     a_feats = dict.fromkeys(FEATURE_NAMES, "1.0")
     a_feats_near = dict.fromkeys(FEATURE_NAMES, "1.01")
     far_feats = dict.fromkeys(FEATURE_NAMES, "5.0")
-
-    rows = [
+    return [
         # --- live rows ---
         _row(header, position_id="live-1", asset="BTC", side="long",
             label="1", source="live", ts=str(t), signal_ts=str(t),
@@ -129,10 +125,20 @@ def test_corpus_linkage_report_end_to_end(tmp_path):
             label="1", source="candidate", ts=str(t + 400_000),
             signal_ts=str(t + 400_000)),
     ]
+
+
+def _write_history(hist_path, header, rows):
     with open(hist_path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
+
+
+def test_corpus_linkage_report_end_to_end(tmp_path):
+    hist_path = tmp_path / "signal_history.csv"
+    header = HistoryStore(str(hist_path))._header
+    t = 1_700_000_000.0
+    _write_history(hist_path, header, _base_rows(header, t))
 
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps({"ml": {
@@ -159,3 +165,54 @@ def test_corpus_linkage_report_end_to_end(tmp_path):
 
     rep2 = _run(tmp_path / "out2")
     assert rep == rep2                      # determinism: byte-identical json
+
+
+def test_long_book_rows_excluded_from_pairing(tmp_path):
+    """book=='long' rows are risk/long_book.py's own closes - a
+    different trading process (patient, ladder-gated accumulation, no
+    p(win)/edge signal) from the 5m scalping flow this linkage is built
+    for, exactly like the exclusion ml/history.py already applies at
+    load time. A long-book live row and a long-book candidate row,
+    sharing an asset/side/timestamp with the existing BTC-long 5m group
+    (so they'd otherwise both exact- and fuzzy-pair against it and each
+    other), must land in NEITHER n_exact_pairs, the fuzzy pool, NOR the
+    linked set: the report is byte-identical (pairing-wise) with or
+    without them."""
+    header = HistoryStore(str(tmp_path / "signal_history.csv"))._header
+    t = 1_700_000_000.0
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({"ml": {
+        "linkage": {"posterior_threshold": 0.9, "seed": 7}}}),
+        encoding="utf-8")
+
+    def _report(hist_path, out_dir):
+        rc = corpus_linkage_report.main(
+            ["--config", str(cfg_path), "--history", str(hist_path),
+             "--out-dir", str(out_dir)])
+        assert rc == 0
+        rep = json.loads((out_dir / "corpus_linkage_report.json")
+                         .read_text(encoding="utf-8"))
+        rep.pop("history_path")   # differs by construction (different file)
+        return rep
+
+    baseline_hist = tmp_path / "baseline.csv"
+    _write_history(baseline_hist, header, _base_rows(header, t))
+    baseline = _report(baseline_hist, tmp_path / "out_baseline")
+
+    # same asset/side/ts as live-1 <-> cand-1 (the exact-lineage pair)
+    # and the rest of the BTC-long 5m group - would otherwise both
+    # exact-pair (candidate_id join) with each other AND fuzzy-pair
+    # with every existing BTC-long live/candidate row in the fixture.
+    long_rows = _base_rows(header, t) + [
+        _row(header, position_id="long-live-1", asset="BTC", side="long",
+            label="1", source="live", ts=str(t), signal_ts=str(t),
+            candidate_id="long-cand-1", book="long"),
+        _row(header, position_id="long-cand-1", asset="BTC", side="long",
+            label="1", source="candidate", ts=str(t), signal_ts=str(t),
+            book="long"),
+    ]
+    long_hist = tmp_path / "with_long.csv"
+    _write_history(long_hist, header, long_rows)
+    with_long = _report(long_hist, tmp_path / "out_with_long")
+
+    assert with_long == baseline
