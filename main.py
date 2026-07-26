@@ -4623,12 +4623,17 @@ class LiquidityBot:
             sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
             tele_cfg = self.config.get("ml", {}).get("telemetry", {})
             epoch_cfg = self.config.get("ml", {}).get("epoch", {})
+            # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+            # this is the production retrain path - the ONE consumer that must
+            # never drift from what OF-3's PBO measures (docs/quant/
+            # pbo_admission_policy.md's cross-consumer prerequisite).
+            era_cfg = self.config.get("ml", {}).get("era_exclusion", {})
             X, y, w, sig, res = self.history.load_training_data(
                 half_life_days=float(sw_cfg.get("half_life_days", 30)),
                 candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
                 manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
                 return_label_times=True, weights_cfg=sw_cfg,
-                telemetry_cfg=tele_cfg, epoch_cfg=epoch_cfg)
+                telemetry_cfg=tele_cfg, epoch_cfg=epoch_cfg, era_cfg=era_cfg)
             # LP-4: the same feature contract the INFERENCE path enforces
             # screens the training matrix - a poisoned row must not be
             # 'fixed' into the weights (rows dropped, never imputed)

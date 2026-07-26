@@ -333,9 +333,18 @@ def main(argv=None) -> int:
 
     store = HistoryStore(args.history)
     if Path(args.history).exists():
+        # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+        # this report's whole premise is "refits the DEPLOYED walkforward
+        # selector" (module docstring) - a curve computed over a different
+        # row set than what actually deploys is not a learning curve for
+        # the deployed process. Discovered as a 7th load_training_data call
+        # site during that task (not one of the 6 docs/quant/
+        # pbo_admission_policy.md already enumerates); wired for the same
+        # reason as scripts/interpret_report.py and feature_stability.py.
         X, y, w, sig, res = store.load_training_data(
             return_label_times=True,
-            weights_cfg=ml_cfg.get("sample_weights", {}))
+            weights_cfg=ml_cfg.get("sample_weights", {}),
+            era_cfg=ml_cfg.get("era_exclusion", {}))
     else:
         # ml.history.HistoryStore.load_training_data's missing-file early
         # return only special-cases return_sig (a 4-tuple); passing

@@ -781,6 +781,55 @@ def validate(config: dict) -> list:
                   f"invalid - the production epoch filter (T3.6) cannot "
                   f"activate without a real cutoff")
 
+    # --- ml.era_exclusion: era-gated training exclusion (operator
+    # decision, 2026-07-26, docs/quant/2026-07-26_era_exclusion.md) -
+    # threshold-armed, reversible LOAD-TIME view over ml/history.py's
+    # load_training_data. A DIFFERENT mechanism from ml.epoch above
+    # (era-based via label_era_of, never a clock; covers LIVE rows too -
+    # an explicit operator override of the epoch filter's "live rows
+    # never" rule) - see the doc for the full rationale. Unlike ml.epoch
+    # (shipped false forever until a conscious future flip), this feature
+    # auto-activates on the DATA alone once wired, so its coherence must
+    # be enforced NOW, not deferred to some later flip-day commit. ------
+    era_ex = config.get("ml", {}).get("era_exclusion", {}) or {}
+    if era_ex:
+        min_new = era_ex.get("min_new_era_rows", 150)
+        if isinstance(min_new, bool) or not isinstance(min_new, (int, float)) \
+                or min_new < 0:
+            fatal(f"ml.era_exclusion.min_new_era_rows ({min_new!r}) must "
+                  f"be a non-negative number - the new-era row-count floor "
+                  f"that arms the filter")
+        forced_off = era_ex.get("forced_off", False)
+        if not isinstance(forced_off, bool):
+            fatal(f"ml.era_exclusion.forced_off ({forced_off!r}) must be "
+                  f"a boolean")
+        forced_on = era_ex.get("forced_on", False)
+        if not isinstance(forced_on, bool):
+            fatal(f"ml.era_exclusion.forced_on ({forced_on!r}) must be a "
+                  f"boolean")
+        if isinstance(forced_off, bool) and isinstance(forced_on, bool) \
+                and forced_off and forced_on:
+            fatal("ml.era_exclusion.forced_on and forced_off are both "
+                  "true - contradictory operator intent (force the filter "
+                  "active vs force it inactive); the rollback lever and "
+                  "the manual-override lever cannot both be pulled")
+        if isinstance(forced_on, bool) and forced_on:
+            # lazy import - config_guard is deliberately kept free of
+            # in-repo cross-package imports AT MODULE SCOPE (see the
+            # gbt_mono check above for the established rationale/
+            # precedent; this is another such load-time-only import).
+            from ml.history import LABEL_ERA_TRIPLE_BARRIER
+            era_label_mode = str(config.get("ml", {}).get(
+                "label_mode", "exit_policy"))
+            if era_label_mode != LABEL_ERA_TRIPLE_BARRIER:
+                fatal(f"ml.era_exclusion.forced_on is true but "
+                      f"ml.label_mode ({era_label_mode!r}) is not "
+                      f"{LABEL_ERA_TRIPLE_BARRIER!r} - the labeler can "
+                      f"never produce the era this filter selects for "
+                      f"under this label mode (the era tag it needs is "
+                      f"unavailable), so a forced-on filter would train "
+                      f"on zero rows forever")
+
     # --- ml.gbt_mono: T3.4 monotone-constrained GBT ladder rung (shipped
     # disabled - ml/models.py GradientBoostedStumps.monotone_constraints).
     # Constraint names are validated against the CURRENT feature contract

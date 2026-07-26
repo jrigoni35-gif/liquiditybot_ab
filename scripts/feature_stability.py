@@ -272,10 +272,17 @@ def load_corpus(config_path: str, min_rows: int, *,
         cfg = {}
     ml_cfg = cfg.get("ml", {}) or {}
     weights_cfg = ml_cfg.get("sample_weights", {}) or {}
+    # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+    # this dead-feature screen must measure the SAME corpus the deployed
+    # model trains on (docs/quant/pbo_admission_policy.md cross-consumer
+    # prerequisite) - a feature pruned/kept on a different row set than
+    # what actually ships is not measuring the deployed process.
+    era_cfg = ml_cfg.get("era_exclusion", {}) or {}
     store = store_factory(ml_cfg.get("history_path",
                                      "outputs/signal_history.csv"))
     X, y, _w, sig = store.load_training_data(return_sig=True,
-                                              weights_cfg=weights_cfg)
+                                              weights_cfg=weights_cfg,
+                                              era_cfg=era_cfg)
     corpus_rows = len(X)
     if corpus_rows < min_rows:
         return None, None, None, corpus_rows, 0

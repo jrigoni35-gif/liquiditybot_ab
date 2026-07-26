@@ -138,6 +138,11 @@ def main():
 
     store = HistoryStore(ml_cfg.get("history_path", "outputs/signal_history.csv"))
     sw_cfg = ml_cfg.get("sample_weights", {})
+    # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+    # this is the standalone retrain CLI - a real corpus consumer that must
+    # not drift from the production loader (docs/quant/pbo_admission_policy.md
+    # cross-consumer prerequisite).
+    era_cfg = ml_cfg.get("era_exclusion", {})
     # signal-time array too: the deployed selector must purge folds by TIME, not
     # row count. Signals arrive in bursts, so a fixed row count spans a variable
     # amount of time and a dense pre-boundary burst leaks future labels the
@@ -146,7 +151,7 @@ def main():
     X, y, w, sig, res = store.load_training_data(
         half_life_days=float(sw_cfg.get("half_life_days", 30)),
         candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-        return_label_times=True, weights_cfg=sw_cfg)
+        return_label_times=True, weights_cfg=sw_cfg, era_cfg=era_cfg)
     # LP-4: same training screen as the engine path - see check_matrix
     from ml.contracts import get_contract
     _keep = get_contract().check_matrix(X)["keep"]

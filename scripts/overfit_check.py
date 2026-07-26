@@ -173,11 +173,20 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
     # so every OF instrument measures the process that actually ships
     try:
         with open("config.json", encoding="utf-8") as fh:
-            _sw = (json.load(fh).get("ml", {}) or {}).get("sample_weights", {})
+            _ml_cfg = json.load(fh).get("ml", {}) or {}
+        _sw = _ml_cfg.get("sample_weights", {})
+        # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+        # OF-3's PBO must measure the SAME corpus the production retrain path
+        # (main.py) trains on - the cross-consumer prerequisite that sank the
+        # epoch filter (docs/quant/pbo_admission_policy.md) applies here with
+        # a sharper edge, since this filter auto-activates on the data alone.
+        _era = _ml_cfg.get("era_exclusion", {})
     except (OSError, ValueError):
         _sw = {}
+        _era = {}
     X, y, w, sig, res = store.load_training_data(return_label_times=True,
-                                                  weights_cfg=_sw)
+                                                  weights_cfg=_sw,
+                                                  era_cfg=_era)
     if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
         # live rows: hand the signal-time array down so the OF folds purge
         # by TIME, exactly like the deployed selector (evaluate_and_select).

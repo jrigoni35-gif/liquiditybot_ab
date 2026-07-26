@@ -208,6 +208,15 @@ class Code(str, Enum):
     #   instrument for the `trail` 49.5%->0.0% mix shift that silently
     #   collapsed the label rate. Report-only: never gates training,
     #   blocks a retrain, or changes a label/weight/row.
+    ML_ERA_EXCLUSION_ACTIVE = "ML-081"  # era-gated training exclusion
+    #   (operator decision, docs/quant/2026-07-26_era_exclusion.md)
+    #   transitioned INACTIVE -> ACTIVE: the corpus's new-era
+    #   (LABEL_ERA_TRIPLE_BARRIER) row count crossed ml.era_exclusion.
+    #   min_new_era_rows (or forced_on), so load_training_data now
+    #   excludes every old-era row - INCLUDING live ones (the operator's
+    #   explicit override of ml.epoch's live-rows-never rule) - from the
+    #   training view. Logged once per transition, never once per load;
+    #   a load-time VIEW only, no row is ever removed from disk.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

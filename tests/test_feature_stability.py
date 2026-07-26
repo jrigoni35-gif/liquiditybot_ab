@@ -260,7 +260,8 @@ class _FakeStore:
         self.path = path
         self.last_load_stats = {"live_clean": 42}
 
-    def load_training_data(self, return_sig=True, weights_cfg=None):
+    def load_training_data(self, return_sig=True, weights_cfg=None,
+                          era_cfg=None):
         n = 5
         X = np.zeros((n, 3))
         y = np.zeros(n)

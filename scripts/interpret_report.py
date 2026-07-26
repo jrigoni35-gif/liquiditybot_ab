@@ -148,7 +148,13 @@ def main() -> int:
         return 0
     store = HistoryStore(ml_cfg.get("history_path",
                                     "outputs/signal_history.csv"))
-    X, y, _w = store.load_training_data()
+    # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+    # interpretability must attribute over the SAME rows the deployed model
+    # trained on, or a feature's SHAP/permutation story reflects data the
+    # champion never saw (docs/quant/pbo_admission_policy.md cross-consumer
+    # prerequisite).
+    era_cfg = ml_cfg.get("era_exclusion", {})
+    X, y, _w = store.load_training_data(era_cfg=era_cfg)
     if len(X) < 60:
         print(f"only {len(X)} rows - too few for an honest held-out tail")
         return 0

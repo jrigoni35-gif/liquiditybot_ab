@@ -451,6 +451,134 @@ def _era_mix_drift_check(meta: list, tele_cfg: dict) -> dict:
     return out
 
 
+# ---- era-gated training exclusion (operator decision, 2026-07-26,
+# docs/quant/2026-07-26_era_exclusion.md) ------------------------------------
+# The label-era instrumentation above made the era that produced each row's
+# barrier a first-class fact but never ACTED on it - every era still trained
+# together. With the measured corpus in front of them (4,897 rows, 100%
+# old-era: exit_sim/legacy/exit_sim_time_stop), the operator decided the OLD
+# eras stop training the model once enough NEW-era (LABEL_ERA_TRIPLE_BARRIER)
+# rows exist to be worth training on - and that the exclusion covers LIVE
+# rows too (all 242 measured live rows are themselves old-era; keeping them
+# would shrink the corpus without cleaning it - a conscious override of
+# ml.epoch's "live rows never" rule below, a DIFFERENT mechanism: era-based,
+# never a clock). THE BOUND: this is a LOAD-TIME VIEW ONLY, applied as the
+# very LAST step of load_training_data (see _apply_era_exclusion's call
+# site) - after every existing weight/stat computation, so it can never
+# perturb the uniqueness/prior-skew/mix-drift/lineage/divergence math (those
+# still see the full pre-exclusion corpus, exactly as before this task) and
+# an inactive load (below threshold, or forced off) returns those four lists
+# UNCHANGED. Nothing is ever removed from outputs/signal_history.csv -
+# HistoryStore._append_row is untouched by this block.
+ML_ERA_EXCLUSION_MIN_NEW_ERA_ROWS_DEFAULT = 150
+
+
+def _era_exclusion_decide(new_era_count: int,
+                          era_cfg: "dict | None") -> dict:
+    """Resolves ml.era_exclusion to the armed/active decision for THIS
+    load, from `new_era_count` (rows tagged LABEL_ERA_TRIPLE_BARRIER that
+    already survived every OTHER admissibility check this loader applies -
+    book/dirty/clash-dedup/epoch).
+
+    `era_cfg is None` (load_training_data's new trailing kwarg's own
+    default - the exact value any pre-existing call site passes with zero
+    code change) means STRUCTURALLY INERT: armed=active=False no matter how
+    large new_era_count is - mirrors _epoch_cutoff's `epoch_cfg is None` ->
+    filter off, so an unmodified caller (an old test, a script not yet
+    wired) keeps byte-identical behavior forever, never surprised by a
+    corpus that happens to cross the threshold under it. An EXPLICIT dict
+    (even {}) opts in to the threshold-arming logic with its documented
+    defaults - deliberately NOT the same test _epoch_cutoff uses (which
+    requires an explicit `exclude_old_candidates: true` even when the dict
+    is present): this feature's whole point is to auto-activate on the
+    DATA once a caller is wired, not wait for a human to flip a bit.
+
+    armed = new_era_count >= min_new_era_rows (config_guard-bounded: a
+    non-negative number, default ML_ERA_EXCLUSION_MIN_NEW_ERA_ROWS_DEFAULT
+    = ml.min_train_rows = ml.model_selection.min_total_rows['gbt'/'blend'],
+    docs/quant/2026-07-26_era_exclusion.md's threshold justification).
+    active = the filter's real effect on THIS load: (armed OR forced_on)
+    AND NOT forced_off. forced_off is the rollback path and always wins
+    (config_guard forbids forced_on and forced_off both true - a
+    contradictory operator intent). forced_on is a manual override lever,
+    SHIPPED false: the threshold arms this feature, not an operator
+    flipping a switch (config_guard FATALs forced_on while ml.label_mode
+    isn't the mode that can ever produce the era this filter selects for).
+
+    Module-level purely to keep load_training_data's mccabe complexity
+    under the C901 ceiling (pyproject.toml) - same established pattern as
+    _epoch_cutoff/_row_epoch_excluded above; no behavior difference from
+    inlining it there."""
+    if era_cfg is None:
+        return {"armed": False, "active": False, "forced_off": False,
+                "forced_on": False,
+                "min_new_era_rows": ML_ERA_EXCLUSION_MIN_NEW_ERA_ROWS_DEFAULT,
+                "new_era_rows": new_era_count}
+    min_rows = era_cfg.get("min_new_era_rows",
+                          ML_ERA_EXCLUSION_MIN_NEW_ERA_ROWS_DEFAULT)
+    if isinstance(min_rows, bool) or not isinstance(min_rows, (int, float)) \
+            or min_rows < 0:
+        # config_guard is the enforcement point (FATAL on a live config);
+        # this resolver only degrades safely for a caller that bypassed it
+        # (a test, or a corrupt config write) - fail to the documented
+        # default rather than crash a training load over a bad threshold.
+        min_rows = ML_ERA_EXCLUSION_MIN_NEW_ERA_ROWS_DEFAULT
+    min_rows = int(min_rows)
+    forced_off = bool(era_cfg.get("forced_off", False))
+    forced_on = bool(era_cfg.get("forced_on", False))
+    armed = new_era_count >= min_rows
+    active = (armed or forced_on) and not forced_off
+    return {"armed": armed, "active": active, "forced_off": forced_off,
+            "forced_on": forced_on, "min_new_era_rows": min_rows,
+            "new_era_rows": new_era_count}
+
+
+def _apply_era_exclusion(X: list, y: list, w: list, sig: list, meta: list,
+                         era_tags: list, era_cfg: "dict | None") -> tuple:
+    """LOAD-TIME VIEW ONLY: when the resolved decision (_era_exclusion_decide)
+    is active, subsets the fully-built (pre-numpy) row lists down to
+    LABEL_ERA_TRIPLE_BARRIER rows only - INCLUDING dropping old-era LIVE
+    rows (the operator's explicit override of ml.epoch's "live rows never"
+    rule, docs/quant/2026-07-26_era_exclusion.md). Runs as the LAST step
+    before load_training_data's numpy conversion, after every existing
+    weight/stat computation (uniqueness, mass-preserving rescale,
+    prior-skew, label_era/era_mix_drift telemetry, lineage/divergence
+    stats) - none of that pre-existing math ever sees a different row set
+    because of this filter. The inactive case (below threshold, or forced
+    off) returns the five lists UNCHANGED (same objects), so a
+    below-threshold or rolled-back load is byte-identical to a load with
+    no era_cfg at all - the round-trip guarantee this task is bound by.
+
+    Returns (X, y, w, sig, meta, stats) - `stats` is the exact dict this
+    task adds to last_load_stats['era_exclusion'] (armed/active/forced_off/
+    forced_on/new_era_rows/min_new_era_rows/excluded), always present
+    regardless of whether anything was actually excluded.
+
+    Module-level purely to keep load_training_data's mccabe complexity
+    under the C901 ceiling (pyproject.toml) - same established pattern as
+    every other _era_*/_epoch_* helper above; no behavior difference from
+    inlining it there."""
+    n = len(era_tags)
+    new_era_count = sum(1 for e in era_tags if e == LABEL_ERA_TRIPLE_BARRIER)
+    stats = _era_exclusion_decide(new_era_count, era_cfg)
+    if not stats["active"] or n == 0:
+        stats["excluded"] = {"total": 0, "by_era_source": {}}
+        return X, y, w, sig, meta, stats
+    keep = []
+    excluded_by_era_source: dict = {}
+    for i in range(n):
+        if era_tags[i] == LABEL_ERA_TRIPLE_BARRIER:
+            keep.append(i)
+            continue
+        src = meta[i][2] or "unknown"
+        bucket = excluded_by_era_source.setdefault(era_tags[i], {})
+        bucket[src] = bucket.get(src, 0) + 1
+    stats["excluded"] = {"total": n - len(keep),
+                        "by_era_source": excluded_by_era_source}
+    return ([X[i] for i in keep], [y[i] for i in keep], [w[i] for i in keep],
+            [sig[i] for i in keep], [meta[i] for i in keep], stats)
+
+
 # One-way marker (rollout hazard fix, task-rotation-report.md): when
 # _ensure_schema rotates the corpus (old-header production file under new
 # code), every consumer reading it - evidence-gate row floors, a scheduled
@@ -488,6 +616,15 @@ class HistoryStore:
         self._regime_live_counts: dict = {}
         self._regime_counts_loaded = False
         self._regime_counts_key = None
+        # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+        # edge-triggered per-INSTANCE flag so the ML-081 activation log fires
+        # once per inactive->active transition, never once per load (binding
+        # behaviour #4) - a long-lived process (the runner's self.history)
+        # sees exactly one log line the moment the corpus crosses the
+        # threshold; flipping back off (rollback) resets the edge so a later
+        # re-crossing logs again, same edge-triggered convention as every
+        # other transition log in this codebase.
+        self._era_exclusion_active_seen = False
         # meta column named "side": FEATURE_NAMES also contains "direction",
         # and a duplicated CSV header made DictReader consumers silently read
         # whichever column came last.
@@ -779,7 +916,8 @@ class HistoryStore:
                         weights_cfg: dict | None = None,
                         return_label_times: bool = False,
                         telemetry_cfg: dict | None = None,
-                        epoch_cfg: dict | None = None) -> tuple:
+                        epoch_cfg: dict | None = None,
+                        era_cfg: dict | None = None) -> tuple:
         """Returns X, y, w (and the sorted signal-time array `sig` when
         return_sig=True, for the TIME-based walk-forward purge). Sample
         weights encode the honest priors:
@@ -842,7 +980,41 @@ class HistoryStore:
         report-only --epoch-ab experiment arm (ml/overfit.py
         build_epoch_ab_mask) - that one measures the cutoff inside OF-3's
         PBO space without ever touching this loader; this one is the
-        production-path seam that would apply it for real."""
+        production-path seam that would apply it for real.
+
+        `era_cfg` (config ml.era_exclusion, operator decision 2026-07-26,
+        docs/quant/2026-07-26_era_exclusion.md - see _era_exclusion_decide/
+        _apply_era_exclusion above for the full mechanism) gates a SECOND,
+        DIFFERENT production-corpus filter: era-based (label_era_of), never
+        a clock, so it is orthogonal to epoch_cfg above and both may be
+        active together. Threshold-armed: once the corpus's new-era
+        (LABEL_ERA_TRIPLE_BARRIER) row count reaches
+        era_cfg["min_new_era_rows"], every OLD-era row - LEGACY/EXIT_SIM/
+        TIME_STOP/UNKNOWN - is excluded from the training view, INCLUDING
+        LIVE rows (a conscious operator override of epoch_cfg's
+        live-rows-never rule: all measured live rows are themselves
+        old-era, so keeping them would shrink the corpus without cleaning
+        it). `era_cfg=None` (the default) is structurally inert - this is
+        an opt-in kwarg, not a config default a caller inherits by
+        accident. Applied as the LAST step before this method's return, so
+        it never perturbs the uniqueness/prior-skew/mix-drift/lineage/
+        divergence math above (all still computed over the full
+        pre-exclusion corpus). Surfaced in full in
+        self.last_load_stats["era_exclusion"] (armed/active/forced_off/
+        forced_on/new_era_rows/min_new_era_rows/excluded by era and
+        source); the activation transition (inactive -> active) logs
+        Code.ML_ERA_EXCLUSION_ACTIVE once, never once per load.
+        self.last_load_stats["rows"]/["live_clean"] ARE corrected to the
+        post-exclusion count (unlike the other stats above) - they are the
+        evidence-gate-facing "what actually trains" numbers (main.py's
+        model_selection admission, scripts/overfit_check.py's and
+        scripts/feature_stability.py's own n_live mirror, gc_pusher's
+        Grafana export all read them), same convention epoch_cfg's
+        exclusions already follow (baked in earlier, inside the per-row
+        loop). LOAD-TIME VIEW ONLY - no row is ever removed from
+        outputs/signal_history.csv; flipping era_cfg off (or the config's
+        forced_off) restores the exact pre-exclusion training set,
+        including these two counts."""
         self.last_load_stats = {}
         if not self.path.exists():
             return _empty_training_tuple(return_sig, return_label_times)
@@ -1149,6 +1321,43 @@ class HistoryStore:
         # only - no reweighting, no authority over what trains.
         self.last_load_stats["sim_live_divergence"] = _sim_divergence_stat(
             _div_t, _div_s, _div_y, _tele_cfg)
+        # era-gated training exclusion (operator decision, 2026-07-26,
+        # docs/quant/2026-07-26_era_exclusion.md): the LAST filter applied,
+        # after every stat/weight computation above - see
+        # _apply_era_exclusion's docstring for why that ordering is the
+        # round-trip guarantee. ML-081 fires once per inactive->active
+        # transition (edge-triggered on the instance, never per load).
+        X, y, w, sig, meta, era_excl_stats = _apply_era_exclusion(
+            X, y, w, sig, meta, _era_tags, era_cfg)
+        if era_excl_stats["active"] and not self._era_exclusion_active_seen:
+            log.info(
+                "%s: era-gated training exclusion ACTIVATED - %d new-era "
+                "row(s) (>= threshold %d) - %d old-era row(s) excluded "
+                "from the training view, including live rows (operator "
+                "decision, docs/quant/2026-07-26_era_exclusion.md)",
+                Code.ML_ERA_EXCLUSION_ACTIVE.value,
+                era_excl_stats["new_era_rows"],
+                era_excl_stats["min_new_era_rows"],
+                era_excl_stats["excluded"]["total"])
+        self._era_exclusion_active_seen = era_excl_stats["active"]
+        self.last_load_stats["era_exclusion"] = era_excl_stats
+        # "rows"/"live_clean" describe what actually feeds the fit (the
+        # SAME convention the epoch filter above already established -
+        # its exclusions are baked into these two counts because they
+        # happen earlier, inside the per-row loop). era-exclusion runs
+        # AFTER these were first computed, so they must be corrected here
+        # or a widely-read evidence-gate input (main.py's model_selection
+        # ladder admission, scripts/overfit_check.py's and
+        # scripts/feature_stability.py's own n_live mirror, gc_pusher's
+        # Grafana export) would silently disagree with the training
+        # arrays actually returned below the moment this filter goes
+        # active - admitting a higher-capacity family (or reporting a
+        # healthier corpus than exists) on stale pre-exclusion evidence.
+        # A no-op when inactive: w/meta are the SAME objects, so these
+        # recompute to the identical values already set above.
+        self.last_load_stats["rows"] = len(w)
+        self.last_load_stats["live_clean"] = sum(
+            1 for m in meta if m[2] == "live")
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)

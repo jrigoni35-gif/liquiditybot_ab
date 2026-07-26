@@ -148,3 +148,23 @@ must be written down at the time of the flip, not assumed). This is a
 documentation/consistency prerequisite, not a code change owed by this
 phase: the flag stays `false` and none of the five call sites above are
 touched by this fix.
+
+## Cross-reference: `ml.era_exclusion` (2026-07-26)
+
+`docs/quant/2026-07-26_era_exclusion.md` records a SECOND, era-based
+(never time-based) production-corpus filter over the same six
+`load_training_data` consumers, gated by `ml.era_exclusion` rather than
+`ml.epoch`. It hit this exact prerequisite — and resolved it immediately
+rather than deferring it — because unlike `ml.epoch.exclude_old_candidates`
+(shipped `false` and flipped only by a future, conscious commit),
+`ml.era_exclusion` auto-activates on the corpus's own row counts with no
+human flip required, so a consumer left unwired could silently start
+measuring a stale corpus the moment the threshold crosses on disk, not on
+some later flip-day. All five real consumers above (`main.py`,
+`overfit_check.py`, `train_meta.py`, `interpret_report.py`,
+`feature_stability.py`) now thread `ml.era_exclusion` through to their own
+`load_training_data` call; `scripts/smoke_test.py`'s synthetic one-row
+candidate fixture is exempted for the same reason given above (no
+`config.json` in scope, structurally incapable of reaching any sane
+threshold). Both filters may be active simultaneously — see
+`docs/quant/2026-07-26_era_exclusion.md`'s composition note.
