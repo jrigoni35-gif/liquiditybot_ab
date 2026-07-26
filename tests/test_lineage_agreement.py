@@ -60,3 +60,14 @@ def test_no_pairs_yields_none_fields(tmp_path):
     store.load_training_data()
     la = store.last_load_stats["lineage_agreement"]
     assert la == {"n_pairs": 0, "agreement": None, "wilson95": None}
+
+
+def test_missing_file_label_times_returns_five_empty(tmp_path):
+    """Whole-phase review follow-up: the missing-file early return must
+    honor return_label_times (it only special-cased return_sig, so a
+    5-way unpack on a fresh checkout raised ValueError - latent hazard
+    shared by main.py's retrain path, masked only by _retrain_gate)."""
+    store = HistoryStore(path=str(tmp_path / "never_written.csv"))
+    X, y, w, sig, res = store.load_training_data(return_label_times=True)
+    for arr in (X, y, w, sig, res):
+        assert len(arr) == 0

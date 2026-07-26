@@ -1663,7 +1663,7 @@ def validate(config: dict) -> list:
         promoted = set(_f(config, "skimmer._merged_promoted", []) or [])
         base = [c for c in core if c not in promoted]
         if len(base) + max_extra > 12:
-            fatal(f"skimmer: core ({len(base)}) + max_extra ({max_extra}) "
+            fatal(f"skimmer: base ({len(base)}) + max_extra ({max_extra}) "
                   f"exceeds the 12-pair REST-fallback envelope - a WS outage "
                   f"would starve the book poll at 3 req/s")
         pscore = float(_f(config, "skimmer.promote_score", 0.55))
@@ -1674,7 +1674,7 @@ def validate(config: dict) -> list:
         if float(_f(config, "skimmer.eval_every_min", 60)) < 5:
             fatal("skimmer.eval_every_min below 5 min - candidate polling "
                   "would eat the REST budget the trading path depends on")
-        overlap = [c for c in cands if c in core]
+        overlap = [c for c in cands if c in base]
         if overlap:
             advisory(f"skimmer: candidates already in trading_pairs are "
                      f"ignored: {overlap}")

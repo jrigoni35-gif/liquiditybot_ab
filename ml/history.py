@@ -41,6 +41,19 @@ _REGIME_FEATURE_IDX = {lbl: FEATURE_NAMES.index(feat) for lbl, feat in
                           strict=True)}
 
 
+def _empty_training_tuple(return_sig: bool, return_label_times: bool):
+    """Missing-file shape for load_training_data: a fresh checkout has no
+    signal_history.csv (outputs/ is gitignored), and every return arity
+    must be honored - overfit_check unpacks 4 (return_sig), the retrain
+    paths unpack 5 (return_label_times); only special-casing return_sig
+    made the 5-way unpack a latent fresh-checkout crash (whole-phase
+    review follow-up 2026-07-26)."""
+    empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
+    if return_label_times:
+        return (*empty, np.empty(0), np.empty(0))
+    return (*empty, np.empty(0)) if return_sig else empty
+
+
 def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """Wilson score interval for a binomial proportion; (0,1) when n=0.
     Module-level (not a HistoryStore method) so Task 6's report can reuse it
@@ -452,13 +465,9 @@ class HistoryStore:
         computed into self.last_load_stats["sim_live_divergence"] over rows
         that survive into the trained corpus - detection only, never
         reweighting."""
-        empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         self.last_load_stats = {}
         if not self.path.exists():
-            # honor return_sig on the empty path too: a fresh checkout has no
-            # signal_history.csv (outputs/ is gitignored), and the DoD's
-            # `python scripts/overfit_check.py` unpacks 4 values
-            return (*empty, np.empty(0)) if return_sig else empty
+            return _empty_training_tuple(return_sig, return_label_times)
         # SYNTHETIC-vs-REAL clash guard. A taken trade is written TWICE: once
         # as a live row (realized close = REAL label, full weight) and once as
         # the candidate it was registered as at signal time (triple-barrier

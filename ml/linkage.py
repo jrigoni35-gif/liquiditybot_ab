@@ -178,7 +178,7 @@ class FellegiSunterEM:
     def _posterior(self) -> np.ndarray:
         """E-step / final posterior: xi(gamma) = P(match | gamma) for
         every enumerated pattern, in log space per class then Bayes'
-        rule (see module docstring). float64 throughout (upstream used
+        rule (see class docstring). float64 throughout (upstream used
         float32)."""
         levels = self._levels()
         cond_prob = np.zeros((2, len(self.patterns)), dtype=np.float64)
