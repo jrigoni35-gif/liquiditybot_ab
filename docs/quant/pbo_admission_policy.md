@@ -1,0 +1,97 @@
+# PBO-admission policy (the Gort rule) — T3.5
+
+Date: 2026-07-26 · Status: BINDING (governs every future policy-class
+challenger to the deployed model: new model family, schema variant,
+row-inclusion variant, constraint variant).
+
+## The rule
+
+A policy-class challenger may not become champion-swap eligible until it
+has been **measured**, not merely coded. Concretely:
+
+1. **CSCV entry gates champion-swap eligibility.** Any policy-class
+   challenger — new model family, schema variant (column subset/superset),
+   row-inclusion variant (which rows train), constraint variant
+   (monotone/other structural constraint) — enters OF-3's CSCV
+   (combinatorially-symmetric cross-validation, `ml.overfit.model_space_pbo`)
+   as a measured config **before** it may be considered for a champion
+   swap. Shipping the code path disabled is not, by itself, admission —
+   it is the prerequisite that makes admission possible later, on its own
+   conscious commit.
+2. **Every space expansion is a conscious re-baseline.** Adding an arm to
+   `model_space_pbo` changes what CSCV measures. The resulting PBO shift
+   (up or down) is investigated with the same inertness protocol this
+   phase has used repeatedly (docs/quant/2026-07-24_of3_pbo_data_shift.md):
+   reproduce the prior baseline commit against the current corpus in a
+   scratch worktree; if it reproduces the identical result, the shift is
+   corpus-driven, not code-driven. Re-baselines are **documented in
+   `docs/quant/`** — never silently absorbed into "PBO is what it is
+   this week."
+3. **The deployed simplicity-ladder rule is the only selection read.**
+   PBO measures the rule the system actually runs
+   (`ml/walkforward.py`'s `_COMPLEXITY` ladder, simple → complex, entered
+   only where the evidence gate clears) — **never `argmax`** over the
+   measured space. A challenger that would win on argmax but isn't what
+   the deployed rule would have picked is not evidence for anything; it
+   is exactly the overfitting CSCV exists to catch.
+4. **Live-label evidence floors gate family admission ahead of any PBO
+   reading.** `ml.model_selection` (`min_live_rows` / `min_total_rows`
+   per family) decides whether a higher-capacity family is even
+   *admissible* into the selection ladder — a family fit on too few real
+   closed-trade labels only manufactures a lucky winner, which inflates
+   PBO for no real reason. Evidence-floor admission is checked first;
+   PBO is read only over families the evidence floor already let in.
+
+## Precedents (this repo, chronological)
+
+| Challenger | Ladder effect | Commit / date | Status |
+|---|---|---|---|
+| `adaptive_gbt` | `+1` rung (bagged, warm-updatable boosted trees) | `ab6d816`, 2026-07-18 | opt-in, ships disabled; evidence-gated (`min_live_rows=250`) |
+| `gbt_mono` | `+1` rung (bound-propagated monotone constraints) | `702a7a9`, this phase (T3.4) | opt-in, ships disabled |
+| schema/epoch arms | opt-in A/B **experiment** axes inside `model_space_pbo` (not ladder rungs) | `c8efc06`/`bd92339`, this phase (T3.2/T3.6a) | opt-in, **report-only** — measured inside CSCV, never a production selection path |
+
+The schema/epoch arms are the sharpest illustration of rule 1: they are
+opt-in flags to `model_space_pbo` that measure "what would PBO look like
+if the corpus were column-pruned / row-epoch-filtered" — entirely inside
+the CSCV instrument, with zero production-path effect. That measurement
+existing is what makes a *later* production flip (e.g. this phase's T3.6
+loader seam, `ml.epoch.exclude_old_candidates`, shipped `false`) a
+conscious, evidence-backed commit instead of a guess.
+
+## Coverage floor gates prune admission
+
+A measured finding from this phase, now binding policy: **`always_dead`
+alone is not sufficient evidence to prune a feature.**
+
+Task 1's first feature-stability snapshot named 13 always-dead features
+in the 4,642×62 corpus (`FEATURE_SCHEMA_VERSION` 8). A coverage/variance
+probe over the same corpus (median coverage 89.12% nonzero) splits those
+13 into two populations that must be treated differently:
+
+- **Dormant / coverage-starved** — dead because the corpus has not yet
+  *seen* the condition, exactly like the five regime one-hots already
+  exempt from pruning by construction. Confirmed dormant in this
+  snapshot: `sent_fear` (0.00% nonzero, 1 unique value — feed constant),
+  `th_clockwork` (1.34% nonzero), `th_metronome` (1.49% nonzero).
+  `th_clockwork`/`th_metronome` are THALES manipulation detectors —
+  pruning them would permanently blind the anti-predation layer at
+  exactly the moment manipulation begins to fire. **Dormant features are
+  not prune-eligible**, full stop.
+- **Inert** — real variance, well covered, still zero measured degrees
+  of freedom. These are legitimate prune candidates: `depth_ratio` (100%
+  coverage, 4,486 distinct values), `liq_pocket_pull` (99.66%),
+  `ret_12_dir` (98.73%), `corr_shift` (89.12%), `pat_marubozu_dir`
+  (87.83%), `imbalance_delta_dir` (81.39%), `dominance_delta` (79.41%
+  coverage but std 0.0143 — near-constant; treat as scale-suspect, not
+  clearly inert, until that's resolved), `pat_engulf_dir` (12.43%),
+  `equity_risk_z` (10.94%), `opt_oi_pcr_z` (5.45%).
+
+**The rule, stated generally:** the regime-one-hot exemption is not a
+special case — it is an instance of a general principle. A feature that
+is dead for lack of exposure is a capability held in reserve, not a
+capability proven useless; pruning it converts a temporary blind spot
+into a permanent one, at precisely the moment (regime shift, manipulation
+onset, tail event) the feature would start to matter. Any prune admission
+must therefore clear a **coverage floor** in addition to appearing in
+`always_dead`, and the burden of proof sits with the prune, not with the
+feature.
