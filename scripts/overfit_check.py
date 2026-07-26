@@ -131,7 +131,8 @@ def synthetic_benchmark(n: int | None = None, seed: int = 11):
     return X, y
 
 
-def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
+def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
+                 history_path: "str | None" = None):
     """min_rows gates when the ML-layer checks (OF-1/2/3/6/7) switch from
     the deterministic synthetic benchmark to real production history. It
     defaults to 10 rows/feature (matching feature_dof_report's own
@@ -142,6 +143,18 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
     features = 2.4 rows/feature failed OF-2 with a degenerate mean_auc=0.0
     and OF-7 with rows_per_feature=2.4, neither a real overfitting signal,
     just data starvation surfaced too early).
+
+    `history_path` (T3.2 review MINOR fix): defaults to
+    "outputs/signal_history.csv" (unchanged) when the caller doesn't
+    resolve one from config.json's ml.history_path — but main() DOES
+    resolve one and passes it, so the corpus this function reads and the
+    corpus --epoch-ab's build_epoch_ab_mask scans are always the SAME
+    file. Previously this bare HistoryStore() always used the hardcoded
+    default while --epoch-ab separately read ml.history_path — harmless
+    only because the two happened to agree; an operator repointing
+    ml.history_path would have silently desynced them (build_epoch_ab_mask
+    scanning the wrong file, every lookup missing, the arm fail-opening
+    into a silent no-op instead of erroring).
 
     Returns (X, y, w, sig, res, source, n_live). `res` (per-row label
     RESOLUTION time) is additive — return_label_times=True changes nothing
@@ -155,7 +168,7 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False):
     from ml.features import FEATURE_NAMES
     if min_rows is None:
         min_rows = len(FEATURE_NAMES) * 10
-    store = HistoryStore()
+    store = HistoryStore(history_path or "outputs/signal_history.csv")
     # same weighting the deployed trainer uses (uniqueness / barrier / skew),
     # so every OF instrument measures the process that actually ships
     try:
@@ -478,8 +491,34 @@ def main() -> int:
     print("liquiditybot overfit audit\n" + "=" * 42)
 
     # ---- ML layer -----------------------------------------------------
+    # T3.2 review MINOR fix: load config ONCE, here, before load_dataset() —
+    # hist_path (the corpus load_dataset()'s HistoryStore reads) and the
+    # --epoch-ab block's hist_path used to be derived independently (this
+    # config read happened AFTER load_dataset(), which called the bare
+    # HistoryStore() default instead). They agreed only because config.json
+    # happens to match the hardcoded default today; an operator repointing
+    # ml.history_path would silently desync them — build_epoch_ab_mask would
+    # scan the WRONG file, every lookup would miss, and the fail-open default
+    # would quietly turn the arm into a no-op instead of erroring. Deriving
+    # both from this ONE resolved `hist_path` makes that divergence
+    # structurally impossible.
+    inc_adaptive, adaptive_cfg, select_cfg = False, None, None
+    _ml_cfg: dict = {}
+    try:
+        from main import load_config
+        _ml_cfg = load_config(str(Path(__file__).resolve().parents[1]
+                              / "config.json")).get("ml", {}) or {}
+        _ag = _ml_cfg.get("adaptive_gbt", {}) or {}
+        inc_adaptive = bool(_ag.get("enabled", False))
+        adaptive_cfg = _ag if inc_adaptive else None
+        select_cfg = _ml_cfg.get("model_selection", {}) or None
+    except Exception:                                    # noqa: BLE001
+        inc_adaptive, adaptive_cfg, select_cfg, _ml_cfg = (
+            False, None, None, {})                        # fail safe
+    hist_path = _ml_cfg.get("history_path", "outputs/signal_history.csv")
+
     X, y, w, sig, res, source, n_live = load_dataset(
-        force_synthetic=args.force_synthetic)
+        force_synthetic=args.force_synthetic, history_path=hist_path)
     print(f"[OF-1] train/OOF gap  ({source})")
     # return_oof=True: purely additive (see train_test_gap docstring) - it
     # only adds 'oof_idx'/'oof_pred' keys the gap[...] checks below never
@@ -509,19 +548,8 @@ def main() -> int:
     # adaptive_gbt rung is enabled in config it is live in walkforward's
     # ladder, so it enters the PBO space too; otherwise the space is the
     # historical default. Config unreadable -> default space (fail safe).
-    inc_adaptive, adaptive_cfg, select_cfg = False, None, None
-    _ml_cfg: dict = {}
-    try:
-        from main import load_config
-        _ml_cfg = load_config(str(Path(__file__).resolve().parents[1]
-                              / "config.json")).get("ml", {}) or {}
-        _ag = _ml_cfg.get("adaptive_gbt", {}) or {}
-        inc_adaptive = bool(_ag.get("enabled", False))
-        adaptive_cfg = _ag if inc_adaptive else None
-        select_cfg = _ml_cfg.get("model_selection", {}) or None
-    except Exception:                                    # noqa: BLE001
-        inc_adaptive, adaptive_cfg, select_cfg, _ml_cfg = (
-            False, None, None, {})                        # fail safe
+    # (inc_adaptive/adaptive_cfg/select_cfg/_ml_cfg/hist_path were resolved
+    # once, above, before load_dataset() — see that comment for why.)
     # n_live (from load_dataset) drives the SAME evidence gate the deployed
     # ladder uses, so the measured PBO space is byte-for-byte the space the
     # bot actually selects from at the current ground-truth count.
@@ -559,8 +587,9 @@ def main() -> int:
                                  "not configured")
             else:
                 from ml.overfit import build_epoch_ab_mask
-                hist_path = _ml_cfg.get("history_path",
-                                        "outputs/signal_history.csv")
+                # SAME hist_path load_dataset() built its HistoryStore from
+                # (resolved once, above) — never re-derived, so this can
+                # never scan a different file than X/y/sig/res came from.
                 epoch_ab_mask = build_epoch_ab_mask(hist_path, sig, res,
                                                     float(cutoff_ts))
                 info("epoch-ab",

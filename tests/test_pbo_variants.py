@@ -300,6 +300,52 @@ def test_build_epoch_ab_mask_keeps_all_live_rows_drops_precutoff_candidates(
         assert res[i] < cutoff
 
 
+def test_build_epoch_ab_mask_never_drops_a_live_row_on_key_collision(
+        tmp_path):
+    """T3.2 review CRITICAL regression. The pre-fix join keyed solely on
+    (round(signal_ts, 6), round(ts, 6)) with last-write-wins on collision:
+    two rows from DIFFERENT sources sharing that key let the later one's
+    source silently overwrite the earlier one's. This is not hypothetical
+    - candidates from several assets routinely share a poll-cycle append
+    time (`ts`) and land on the same grid-aligned `signal_ts` (5m candle
+    boundaries), so a live row and an unrelated candidate row sharing the
+    exact key is a matter of when, not if (measured on the real corpus:
+    345 distinct keys collide across 714 rows, ~15% of it).
+
+    Setup: a live row and a candidate row share the OLD (signal_ts, ts)
+    key; the candidate appears LATER in the file (so last-write-wins would
+    resolve the shared key to "candidate"); the live row's own resolve-ts
+    sits BELOW the cutoff (so misclassifying it as a pre-cutoff candidate
+    would drop it from the arm's training set). A live label must NEVER be
+    excluded, in any era, for any reason - this must hold regardless."""
+    hist = tmp_path / "collide.csv"
+    shared_signal_ts, shared_ts = 500, 600
+    cutoff = 700.0   # ABOVE the shared resolve-ts
+    rows = [
+        _row("ETH", "long", 1, shared_signal_ts, shared_ts, "live"),
+        _row("BTC", "short", 0, shared_signal_ts, shared_ts, "candidate"),
+    ]
+    _write_history_csv(hist, rows)
+    store = HistoryStore(str(hist))
+    X, y, w, sig, res = store.load_training_data(return_label_times=True)
+    assert len(X) == 2, "both rows must survive (different assets, no twin)"
+
+    mask = build_epoch_ab_mask(str(hist), sig, res, cutoff)
+
+    # the live row's output row is the one with label==1 (the candidate's
+    # label is 0) - identify it by label rather than assuming sort order,
+    # so the assertion doesn't depend on load_training_data's internal
+    # tie-breaking among equal signal_ts values.
+    live_positions = np.where(y == 1.0)[0]
+    assert len(live_positions) == 1
+    live_idx = int(live_positions[0])
+    assert res[live_idx] < cutoff, "test setup: live row must be pre-cutoff"
+    assert mask[live_idx], (
+        "a live row must NEVER be dropped, even when it shares a "
+        "(signal_ts, ts) join key with a later-appearing candidate row "
+        "of a different source")
+
+
 def test_build_epoch_ab_mask_all_live_history_keeps_everything(tmp_path):
     """No candidate rows at all -> mask is all-True regardless of cutoff."""
     hist = tmp_path / "hist_live_only.csv"

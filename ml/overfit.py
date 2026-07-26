@@ -36,6 +36,7 @@ import itertools
 import json
 import logging
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -230,7 +231,7 @@ _ARM_MIN_TRAIN_ROWS = 30
 _ARM_MIN_CLASS = 5
 
 
-def load_schema_ab_cols(prunefile_path: str, feature_names) -> np.ndarray:
+def load_schema_ab_cols(prunefile_path: "str | Path", feature_names) -> np.ndarray:
     """Resolves scripts/feature_stability.py's (T3.1) dated snapshot into
     the column-index array model_space_pbo's --schema-ab experiment arm
     trains on: every FEATURE_NAMES column NOT in the snapshot's
@@ -251,7 +252,8 @@ def load_schema_ab_cols(prunefile_path: str, feature_names) -> np.ndarray:
     different FEATURE_SCHEMA_VERSION)."""
     from ml.features import REGIME_ONE_HOT_FEATURES
     feature_names = list(feature_names)
-    with open(prunefile_path, encoding="utf-8") as fh:
+    prunefile_path = Path(prunefile_path)
+    with prunefile_path.open(encoding="utf-8") as fh:
         snap = json.load(fh)
     if "always_dead" not in snap:
         raise ValueError(
@@ -270,7 +272,7 @@ def load_schema_ab_cols(prunefile_path: str, feature_names) -> np.ndarray:
     return np.asarray(keep, dtype=int)
 
 
-def build_epoch_ab_mask(history_path: str, sig, res,
+def build_epoch_ab_mask(history_path: "str | Path", sig, res,
                         cutoff_ts: float) -> np.ndarray:
     """Row mask for model_space_pbo's --epoch-ab experiment arm: True =
     include in the arm's TRAINING subset. Keeps every LIVE-source row plus
@@ -289,18 +291,49 @@ def build_epoch_ab_mask(history_path: str, sig, res,
     from its X/y/w/sig/res return, so recovering 'source' needs a fresh
     read. The two passes are joined on (signal_ts, ts) — the same
     ordering key load_training_data itself sorts and purges by (ml/
-    history.py: sig/res, argsort(sig)); a clash-deduped candidate twin
-    resolves at a DIFFERENT ts than its live counterpart (a distinct
-    resolution event), so it is not expected to collide with a surviving
-    row's key in practice. A row this scan cannot match (lookup miss, or
-    an unreadable/missing history file) fails OPEN — included, never
-    silently dropped — since this is a report-only diagnostic, not a
-    correctness-critical production filter."""
+    history.py: sig/res, argsort(sig)) — because `sig`/`res` are the ONLY
+    two values load_training_data hands back per row; there is no richer
+    per-row identity to join on from the OUTPUT side no matter how the
+    RAW-CSV side keys itself.
+
+    T3.2 review CRITICAL fix: (signal_ts, ts) alone is NOT guaranteed
+    unique — candidates from several assets are routinely written in the
+    same poll() batch (shared append-time `ts`, and 5m candles land on a
+    shared wall-clock grid, so `signal_ts`/bar_time collides too), and the
+    production corpus measurably collides on this key ~15% of the time.
+    A naive last-write-wins dict (the pre-fix behavior) could therefore
+    resolve a LIVE row's key to a `"candidate"` row's source and wrongly
+    drop it from the arm's training set — never acceptable (a live label
+    must NEVER be excluded, in any era, for any reason). The fix: track
+    every DISTINCT source seen at each (signal_ts, ts) key (using
+    `position_id` — HistoryStore's own per-row primary key, unique for
+    every row it ever appends, live trade id or CandidateLabeler's salted
+    `cand-{salt}-{seq}` id alike — to tell genuinely distinct rows apart
+    at a shared key; `candidate_id` is a LIVE row's back-reference to its
+    origin candidate, never a row's own identity, so it is not used for
+    this). A key is resolved to a single source ONLY when every row
+    mapped to it agrees; a key where sources DISAGREE (a live row and a
+    candidate row truly sharing (signal_ts, ts)) is AMBIGUOUS and is
+    never resolved to "candidate" — it fails OPEN (kept), exactly like a
+    lookup miss. This makes misclassifying a live row as a candidate
+    structurally impossible: the only way a row gets dropped is an
+    UNAMBIGUOUS "candidate" verdict. A blank/missing `position_id` (older
+    rows, or a minimal fixture) still counts as its own anonymous row for
+    collision detection — it just can't be named in the warning.
+    A colliding key (regardless of whether it resolves) is logged once as
+    an aggregate warning rather than silently overwritten. Any row this
+    scan cannot match at all (lookup miss), or an unreadable/missing
+    history file, still fails OPEN — included, never silently dropped —
+    since this is a report-only diagnostic, not a correctness-critical
+    production filter."""
     sig = np.asarray(sig, float)
     res = np.asarray(res, float)
-    source_by_key: dict = {}
+    # key -> {"sources": set of distinct source values seen,
+    #         "ids": set of distinct non-blank position_ids seen,
+    #         "n_blank": count of rows at this key with no position_id}
+    seen: dict = {}
     try:
-        with open(history_path, encoding="utf-8") as f:
+        with Path(history_path).open(encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 if (row.get("book") or "5m") == "long":
                     continue
@@ -311,14 +344,46 @@ def build_epoch_ab_mask(history_path: str, sig, res,
                     continue
                 if not (np.isfinite(s) and np.isfinite(t)):
                     continue
-                source_by_key[(round(s, 6), round(t, 6))] = \
-                    row.get("source") or ""
+                key = (round(s, 6), round(t, 6))
+                entry = seen.setdefault(
+                    key, {"sources": set(), "ids": set(), "n_blank": 0})
+                entry["sources"].add(row.get("source") or "")
+                rid = (row.get("position_id") or "").strip()
+                if rid:
+                    entry["ids"].add(rid)
+                else:
+                    entry["n_blank"] += 1
     except (OSError, csv.Error):
         return np.ones(len(sig), dtype=bool)
+
+    n_ambiguous = 0
+    n_collided = 0
+    for entry in seen.values():
+        n_distinct_rows = len(entry["ids"]) + entry["n_blank"]
+        if n_distinct_rows > 1:
+            n_collided += 1
+            if len(entry["sources"]) > 1:
+                n_ambiguous += 1
+    if n_collided:
+        log.warning(
+            "epoch-ab mask: %d/%d (signal_ts, ts) key(s) in %s were shared "
+            "by more than one row (candidates from several assets commonly "
+            "share a poll-cycle append time) - %d of them mixed live and "
+            "candidate sources and were left UNRESOLVED (kept, never "
+            "dropped, since a live row must never be excluded); the rest "
+            "agreed on source and were resolved normally",
+            n_collided, len(seen), history_path, n_ambiguous)
+
     mask = np.ones(len(sig), dtype=bool)
     for i in range(len(sig)):
-        source = source_by_key.get((round(float(sig[i]), 6),
-                                    round(float(res[i]), 6)))
+        key = (round(float(sig[i]), 6), round(float(res[i]), 6))
+        entry = seen.get(key)
+        if entry is None:
+            continue                       # lookup miss -> fail open, keep
+        sources = entry["sources"]
+        if len(sources) != 1:
+            continue                       # ambiguous/ unknown -> keep
+        source = next(iter(sources))
         if source == "candidate" and res[i] < cutoff_ts:
             mask[i] = False
     return mask
