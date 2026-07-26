@@ -95,3 +95,13 @@ Fourth crossing (2026-07-25 evening): 5/3 → 4/4 at 4,633 rows; inertness
 proven again (9e3bdd6 × current corpus in a worktree → identical 4/4;
 triggering diff was dashboard code-label decode only). Conscious
 baseline: 4/4. The oscillation reading stands.
+
+Fifth crossing (2026-07-26, Phase-1 battery for the learnaccel drought
+floor): 4/4 -> 5/3 at 4,692 rows (+27 fresh PC rows merged at session
+start). Inertness proven again, strongest form yet: cc57019 x current
+corpus in a worktree reproduces not just the 5/3 count but md5-identical
+per-check verdict lines (all three fails are the OF-1 memorization-gap
+checks; PBO 0.07). The triggering diff (SZ-048 drought floor + test/doc
+pins, b550b6f..34bb82d) touches probe admission at runtime only — no
+corpus, model, or selection code. Conscious baseline: 5/3. The
+oscillation reading stands.
