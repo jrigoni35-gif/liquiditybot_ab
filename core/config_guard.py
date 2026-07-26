@@ -697,6 +697,20 @@ def validate(config: dict) -> list:
                   f"[1, 168] hours - must bucket meaningfully within a "
                   f"trading week")
 
+    # --- ml.linkage: T2.4 FS-EM record-linkage report (scripts/
+    # corpus_linkage_report.py) - report-only, no weight authority ---------
+    lk = config.get("ml", {}).get("linkage", {}) or {}
+    if lk:
+        thr = float(_f(config, "ml.linkage.posterior_threshold", 0.9))
+        if not (0.5 <= thr <= 0.999):
+            fatal(f"ml.linkage.posterior_threshold ({thr}) outside "
+                  f"[0.5, 0.999] - below 0.5 links majority-non-match "
+                  f"patterns; 1.0 links nothing")
+        lseed = _f(config, "ml.linkage.seed", 7)
+        if not isinstance(lseed, int) or isinstance(lseed, bool) or lseed < 0:
+            fatal(f"ml.linkage.seed ({lseed!r}) must be a non-negative "
+                  f"integer - EM init determinism")
+
     # --- markout: post-fill mark-out measurement (execution/markout.py) ---
     # window <= 0 makes MarkoutTracker's _obs a deque(maxlen<=0): 0 is a
     # silent blackhole (every observation discarded on append, the tracker

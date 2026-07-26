@@ -199,6 +199,9 @@ class Code(str, Enum):
     ML_SIM_DIVERGENCE = "ML-078"  # candidate-vs-live label-mean divergence
     #   inside live-covered time windows + coverage stat (T2.2a, C4
     #   surviving form) - detection-only, no reweighting authority
+    ML_LINKAGE_REPORT = "ML-079"  # FS-EM corpus linkage report emitted
+    #   (T2.4): probabilistically-linked live/candidate pairs + expanded
+    #   agreement stat - report-only, no weight authority (Phase-4 gated)
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

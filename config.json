@@ -669,7 +669,12 @@
       "lineage_min_pairs": 10,
       "divergence_window_h": 24.0
     },
-    "_telemetry_doc": "T2.2 report-only sim-to-live instruments (learnaccel Phase 2). lineage_min_pairs: minimum dedup-twin pairs before the ML-077 agreement log line fires (the stat itself always computes into last_load_stats). divergence_window_h: bucket width for the ML-078 live-covered-window divergence score (Task 4). Neither value is read by any decision path."
+    "_telemetry_doc": "T2.2 report-only sim-to-live instruments (learnaccel Phase 2). lineage_min_pairs: minimum dedup-twin pairs before the ML-077 agreement log line fires (the stat itself always computes into last_load_stats). divergence_window_h: bucket width for the ML-078 live-covered-window divergence score (Task 4). Neither value is read by any decision path.",
+    "linkage": {
+      "posterior_threshold": 0.9,
+      "seed": 7
+    },
+    "_linkage_doc": "T2.4 Fellegi-Sunter EM record linkage (ported from fast-er, MIT, Morrier/Kishore/Alvarez 2024; seeded + print-free). Report-only: scripts/corpus_linkage_report.py links live closes to candidate twins beyond exact lineage keys and expands the T2.2b agreement sample. posterior_threshold: minimum P(match|pattern) to count a pair as linked - [0.5, 0.999] guarded; below 0.5 would link majority-non-match patterns. seed: EM init determinism. Feeds NO weights - density-ratio consumption is Phase 4, own gates."
   },
   "sentiment": {
     "description": "Free multi-source sentiment (Google News RSS per figure, crypto news RSS, Hacker News crowd via Algolia public API). FILTER ONLY - shades risk/confidence within clamps, never triggers trades. No API keys.",
