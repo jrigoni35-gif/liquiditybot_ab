@@ -696,6 +696,26 @@ def validate(config: dict) -> list:
             fatal(f"ml.telemetry.divergence_window_h ({dwh}) outside "
                   f"[1, 168] hours - must bucket meaningfully within a "
                   f"trading week")
+        # ML-080 barrier/exit-reason mix-drift alarm (label-era
+        # instrumentation, DEEP DIVE progress.md) - report-only, same
+        # bounds philosophy as the prior-skew detector above (a window
+        # too short/long can't bucket meaningfully; a threshold too low
+        # is noise, too high never fires).
+        emdw = float(_f(config, "ml.telemetry.era_mix_drift_window_h", 24.0))
+        if not (1.0 <= emdw <= 168.0):
+            fatal(f"ml.telemetry.era_mix_drift_window_h ({emdw}) outside "
+                  f"[1, 168] hours - must bucket meaningfully within a "
+                  f"trading week")
+        emmr = int(_f(config, "ml.telemetry.era_mix_drift_min_rows", 30))
+        if emmr < 10:
+            fatal(f"ml.telemetry.era_mix_drift_min_rows ({emmr}) < 10 - the "
+                  f"recent-window mix is meaningless on fewer rows")
+        emt = float(_f(config, "ml.telemetry.era_mix_drift_tvd_threshold",
+                      0.3))
+        if not (0.05 <= emt <= 0.9):
+            fatal(f"ml.telemetry.era_mix_drift_tvd_threshold ({emt}) "
+                  f"outside [0.05, 0.9] - below is noise, above never "
+                  f"fires (TVD is bounded [0, 1])")
 
     # --- ml.linkage: T2.4 FS-EM record-linkage report (scripts/
     # corpus_linkage_report.py) - report-only, no weight authority ---------

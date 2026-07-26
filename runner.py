@@ -638,7 +638,11 @@ class BotRunner:
                    "retrain_failures": getattr(bot, "_retrain_failures", 0),
                    # AFML corpus-quality stats from the last training load:
                    # clean live count (evidence gate), mean average-uniqueness
-                   # (overlap redundancy), ML-074 prior-skew flag
+                   # (overlap redundancy), ML-074 prior-skew flag, and (label-
+                   # era instrumentation, DEEP DIVE progress.md) per-era/per-
+                   # exit-reason label rates ("label_era") + the ML-080
+                   # barrier-mix drift alarm ("era_mix_drift") - written
+                   # verbatim, so these ride along for free
                    "load_stats": getattr(bot.history, "last_load_stats", {}),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,

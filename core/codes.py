@@ -202,6 +202,12 @@ class Code(str, Enum):
     ML_LINKAGE_REPORT = "ML-079"  # FS-EM corpus linkage report emitted
     #   (T2.4): probabilistically-linked live/candidate pairs + expanded
     #   agreement stat - report-only, no weight authority (Phase-4 gated)
+    ML_BARRIER_MIX_DRIFT = "ML-080"  # label-era instrumentation (DEEP DIVE,
+    #   progress.md): recent-window exit-reason mix diverges (TVD) from
+    #   the trailing corpus past a config-lifted threshold - the missing
+    #   instrument for the `trail` 49.5%->0.0% mix shift that silently
+    #   collapsed the label rate. Report-only: never gates training,
+    #   blocks a retrain, or changes a label/weight/row.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

@@ -95,9 +95,13 @@ def test_history_header_contract_is_stable(tmp_path):
     # book joined 2026-07-24 (Compounder Phase C, Task C1): 5m/long strategy
     # book tag — appended last so meta order (and every past bump) stays
     # stable
+    # label_era joined 2026-07-26 (label-era instrumentation, DEEP DIVE
+    # progress.md): which label DEFINITION produced the row's barrier —
+    # appended last so meta order (and every past bump) stays stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                "barrier", "probe", "disp", "candidate_id", "book"]
+                "barrier", "probe", "disp", "candidate_id", "book",
+                "label_era"]
     assert hs._header == expected
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.features import FEATURE_NAMES  # noqa: E402
-from ml.history import HistoryStore  # noqa: E402
+from ml.history import HistoryStore, label_era_of  # noqa: E402
 from ml.features import (CONTEXT_NEUTRAL, PATTERN_NEUTRAL,  # noqa: E402
                          TOX_NEUTRAL, TRIO_NEUTRAL)
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
@@ -110,7 +110,16 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # 5m/long strategy book tag - every bundle this script
                     # can migrate predates the long book, so "5m" is not
                     # just a fallback, it is the FACT of every such row
-                    r.get("book") or "5m"])
+                    r.get("book") or "5m",
+                    # label_era joined 2026-07-26 (label-era instrumentation,
+                    # DEEP DIVE progress.md): derived from THIS row's own
+                    # (possibly-migrated) barrier value via the same
+                    # label_era_of the live loader uses for a legacy row -
+                    # identical derivation, computed once here rather than
+                    # left to the loader's own fallback, so a migrated row
+                    # is the FULL current width like every other trailing
+                    # field above.
+                    label_era_of(r.get("barrier") or "")])
     return out, padded
 
 

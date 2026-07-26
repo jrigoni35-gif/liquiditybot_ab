@@ -43,11 +43,14 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         header = f.readline().strip().split(",")
         row = f.readline().strip().split(",")
-    assert header[-5] == "barrier" and row[-5] == "time"
-    assert header[-4] == "probe" and row[-4] == ""   # candidates: unmarked
-    assert header[-3] == "disp" and row[-3] == ""    # no pipeline verdict
-    assert header[-2] == "candidate_id" and row[-2] == ""  # no lineage set
-    assert header[-1] == "book" and row[-1] == "5m"  # default book
+    assert header[-6] == "barrier" and row[-6] == "time"
+    assert header[-5] == "probe" and row[-5] == ""   # candidates: unmarked
+    assert header[-4] == "disp" and row[-4] == ""    # no pipeline verdict
+    assert header[-3] == "candidate_id" and row[-3] == ""  # no lineage set
+    assert header[-2] == "book" and row[-2] == "5m"  # default book
+    # label_era joined 2026-07-26 (label-era instrumentation): derived
+    # from THIS row's own barrier="time" -> exit_sim (see label_era_of)
+    assert header[-1] == "label_era" and row[-1] == "exit_sim"
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -58,11 +61,13 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         f.readline()
         tail = f.readline().strip().split(",")
-        assert tail[-5] == "realized"
-        assert tail[-4] == "0"        # un-flagged live close = conviction
-        assert tail[-3] == "entered"  # a live row IS an entered trade
-        assert tail[-2] == ""         # no matching candidate -> no lineage
-        assert tail[-1] == "5m"       # default book
+        assert tail[-6] == "realized"
+        assert tail[-5] == "0"        # un-flagged live close = conviction
+        assert tail[-4] == "entered"  # a live row IS an entered trade
+        assert tail[-3] == ""         # no matching candidate -> no lineage
+        assert tail[-2] == "5m"       # default book
+        # label_era joined 2026-07-26: barrier="realized" -> exit_sim
+        assert tail[-1] == "exit_sim"
 
 
 # ---- average uniqueness ----------------------------------------------------

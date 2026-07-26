@@ -227,6 +227,189 @@ def _regime_of_csv_row(row: dict) -> "str | None":
     return best_lbl
 
 
+# ---- label-era instrumentation (learnaccel: DEEP DIVE, progress.md) -------
+# The training label silently pooled THREE incompatible definitions in one
+# corpus with nothing recorded to tell them apart (barrier-alone AUC 0.769
+# beat the 62-feature model's 0.597 - the label largely WAS the barrier).
+# This block makes the era that produced each row's barrier value a first-
+# class, persisted fact - never a label/weight/row change (task scope:
+# tagging + accounting + a report-only drift alarm, nothing else).
+LABEL_ERA_LEGACY = "legacy"                    # plain triple-barrier era
+LABEL_ERA_EXIT_SIM = "exit_sim"                # simulate_exit_policy() replay
+LABEL_ERA_TIME_STOP = "exit_sim_time_stop"     # + P2 time-stop rung
+LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
+
+# Barrier strings simulate_exit_policy() (ml/labeling.py:180-360) can emit,
+# MINUS "time_stop" (its own era below) and "pt" (triple_barrier() ONLY,
+# ml/labeling.py:363-401 - never emitted by the exit-policy simulator).
+# "realized" is not actually emitted by either labeler - it is log_close()'s
+# own hardcoded tag for a LIVE row's realized close (a live fill has no
+# barrier vocabulary of its own); it groups here because a live row is
+# always contemporary with whichever labeler is configured, never with the
+# pre-instrumentation legacy window. "sl" and "time" are each producible by
+# BOTH labelers in principle and so are not decisive standalone signatures -
+# the DEEP DIVE measured the real corpus's legacy window as blank-barrier
+# ONLY (1781 rows, 07-13->07-19), so grouping them with exit_sim matches
+# the measured era table exactly (task-label-brief.md), not a re-derivation.
+_EXIT_SIM_BARRIERS = frozenset({"trail", "realized", "tier", "floor",
+                               "sl", "time"})
+
+
+def label_era_of(barrier: "str | None", ts: "float | None" = None) -> str:
+    """Which LABEL DEFINITION produced a row, derived from its own
+    `barrier` cell - the DEEP DIVE's (progress.md) measured era signature,
+    never a calendar cutoff: a hardcoded date would silently mis-tag a
+    backfill or a replay run under a DIFFERENT ml.label_mode/config than
+    whatever was actually live on that historical date. Three known eras:
+      legacy              - blank/absent barrier (pre-instrumentation
+                            candidate rows - _emit_label only started
+                            threading `out.barrier` once ml.label_mode's
+                            default flipped to "exit_policy", commit
+                            c36aa90), or "pt" (see _EXIT_SIM_BARRIERS'
+                            comment: triple_barrier() is the ONLY labeler
+                            that can ever emit it).
+      exit_sim            - _EXIT_SIM_BARRIERS: simulate_exit_policy()
+                            replaying the live exit ladder.
+      exit_sim_time_stop  - "time_stop": same simulator, the P2 time-stop
+                            rung (commit 5f26d3f, 2026-07-23).
+    `ts` is accepted (the brief's stated derivation basis is (barrier,
+    ts)) but is NOT exercised by any branch below: no barrier string the
+    current vocabulary can produce is actually ambiguous given the
+    measured era table above. It is kept in the signature so a genuinely
+    new/unrecognized future barrier value has a documented parameter to
+    resolve through rather than a signature change - LABEL_ERA_UNKNOWN
+    appearing in last_load_stats is the signal that day has come, not a
+    silent mis-tag into legacy or exit_sim."""
+    b = (barrier or "").strip()
+    if not b or b == "pt":
+        return LABEL_ERA_LEGACY
+    if b == "time_stop":
+        return LABEL_ERA_TIME_STOP
+    if b in _EXIT_SIM_BARRIERS:
+        return LABEL_ERA_EXIT_SIM
+    return LABEL_ERA_UNKNOWN
+
+
+def _row_label_era(row: dict, ts: float) -> str:
+    """Prefer a row's OWN persisted `label_era` (every row written after
+    this task carries one explicitly - HistoryStore._append_row); fall
+    back to deriving it from `barrier` for a row written before the
+    column existed, so an old corpus loads with no crash and no manual
+    migration. Split to a module-level helper (single call site in
+    load_training_data's per-row loop, no boolean operator there) purely
+    to keep that method's mccabe complexity under the C901 ceiling
+    (pyproject.toml) - no behavior difference from inlining it there."""
+    persisted = (row.get("label_era") or "").strip()
+    return persisted if persisted else label_era_of(row.get("barrier") or "",
+                                                     ts)
+
+
+def _reason_mix_tvd(baseline: dict, recent: dict) -> float:
+    """Total-variation distance between two exit-reason mixes (each a
+    {reason: count} dict over arbitrary, possibly-disjoint category
+    sets): 0.5 * sum(|p_recent(r) - p_baseline(r)|), bounded [0, 1],
+    symmetric, and - unlike ml.calibration.psi()'s log-ratio - needs no
+    epsilon smoothing for a reason that is 0 in one window and >0 in the
+    other, which is EXACTLY the DEEP DIVE's own failure mode (`trail`:
+    49.5% -> 0.0% of daily rows). psi() also bakes in a FIXED uniform
+    10-decile "expected" for a CONTINUOUS feature's deciles - not a fit
+    for a handful of categorical exit-reason buckets compared against
+    their own non-uniform trailing baseline - so TVD is the correct
+    generalization of the same idea (a bounded distance between two
+    proportion mixes) to this shape, not a different metric invented
+    from scratch."""
+    cats = set(baseline) | set(recent)
+    nb, nr = sum(baseline.values()), sum(recent.values())
+    if nb <= 0 or nr <= 0:
+        return 0.0
+    return 0.5 * sum(abs(recent.get(c, 0) / nr - baseline.get(c, 0) / nb)
+                     for c in cats)
+
+
+def _era_reason_stats(eras: list, meta: list, labels: list) -> dict:
+    """Per-label-era, per-exit-reason row count and label rate over rows
+    that SURVIVE into the trained corpus (same convention as
+    sim_live_divergence/prior-skew: the corpus the model actually trains
+    on, not the raw file). DEEP DIVE (progress.md) measured a 100x label-
+    rate spread across exit reasons (time_stop 0.0071 .. trail 0.6867)
+    that was invisible for six days; this is the missing instrument.
+    Accounting only - never touches weights, labels, or which rows train.
+    `meta` is load_training_data's own (asset, ts, source, barrier) tuple
+    list; `eras[i]`/`meta[i]`/`labels[i]` line up by construction (all
+    three are appended together, once per kept row, in that loop)."""
+    eras_out: dict = {}
+    for era, m, y in zip(eras, meta, labels, strict=True):
+        reason = m[3] or ""
+        eb = eras_out.setdefault(era, {"n": 0, "s": 0.0, "by_reason": {}})
+        eb["n"] += 1
+        eb["s"] += y
+        rb = eb["by_reason"].setdefault(reason, {"n": 0, "s": 0.0})
+        rb["n"] += 1
+        rb["s"] += y
+    out: dict = {}
+    for era, eb in eras_out.items():
+        out[era] = {
+            "rows": eb["n"],
+            "label_rate": round(eb["s"] / eb["n"], 4),
+            "by_reason": {
+                r: {"rows": rb["n"], "label_rate": round(rb["s"] / rb["n"], 4)}
+                for r, rb in eb["by_reason"].items()
+            },
+        }
+    return out
+
+
+def _era_mix_drift_check(meta: list, tele_cfg: dict) -> dict:
+    """Barrier/exit-reason MIX drift alarm (binding behaviour #3; DEEP
+    DIVE finding #3: `trail` went 49.5% -> 0.0% of daily rows over six
+    days while sl+time_stop went 27% -> 100% - a MIX SHIFT, not a market
+    move, and nothing detected it). Compares the recent-window exit-
+    reason mix against the mix over the WHOLE surviving corpus (same
+    convention ML-074's prior-skew detector already uses: the baseline
+    includes the recent rows too, softening rather than sharpening the
+    signal) via total-variation distance (_reason_mix_tvd - see that
+    docstring for why TVD over ml.calibration.psi()).
+
+    Config-lifted (ml.telemetry.era_mix_drift_*, config_guard-bounded).
+    Past the threshold: logs ONE warning + the registered ML-080 code.
+    Report-only - never gates training, blocks a retrain, or touches a
+    label/weight/row (mirrors ML-074's own restraint exactly).
+
+    SILENT (fired=False, no log line at all) when the recent window has
+    too few rows to trust its own mix - firing on a handful of rows would
+    be worse noise than the blind spot this replaces."""
+    win_h = float(tele_cfg.get("era_mix_drift_window_h", 24.0))
+    min_rows = int(tele_cfg.get("era_mix_drift_min_rows", 30))
+    thresh = float(tele_cfg.get("era_mix_drift_tvd_threshold", 0.3))
+    out = {"tvd": None, "fired": False, "n_recent": 0, "n_total": len(meta)}
+    if not meta:
+        return out
+    tmax = max(m[1] for m in meta)
+    baseline: dict = {}
+    recent: dict = {}
+    n_recent = 0
+    for m in meta:
+        reason = m[3] or ""
+        baseline[reason] = baseline.get(reason, 0) + 1
+        if m[1] >= tmax - win_h * 3600.0:
+            recent[reason] = recent.get(reason, 0) + 1
+            n_recent += 1
+    out["n_recent"] = n_recent
+    if n_recent < min_rows:
+        return out                    # SILENT: too few rows to trust the mix
+    tvd = _reason_mix_tvd(baseline, recent)
+    out["tvd"] = round(tvd, 4)
+    if tvd > thresh:
+        out["fired"] = True
+        log.warning(
+            "%s: exit-reason mix drift tvd=%.3f over trailing %.0fh "
+            "(%d/%d rows) exceeds %.2f - recent-window reason mix "
+            "diverges from the trailing corpus; detection only, no "
+            "label/weight/row-count change", Code.ML_BARRIER_MIX_DRIFT.value,
+            tvd, win_h, n_recent, len(meta), thresh)
+    return out
+
+
 class HistoryStore:
     def __init__(self, path: str = "outputs/signal_history.csv"):
         self.path = Path(path)
@@ -251,7 +434,8 @@ class HistoryStore:
         # whichever column came last.
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
-                        "barrier", "probe", "disp", "candidate_id", "book"]
+                        "barrier", "probe", "disp", "candidate_id", "book",
+                        "label_era"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -278,9 +462,23 @@ class HistoryStore:
         # book (Compounder Phase C, Task C1): which strategy book opened
         # this position - "5m" (existing scalping flow, the default for
         # every pre-C row and every caller that never heard of the long
-        # book) or "long" (risk/long_book.py). LAST column so every
-        # existing 5m row/consumer is untouched but for this one trailing
-        # field. BOOKKEEPING ONLY - never a feature.
+        # book) or "long" (risk/long_book.py). BOOKKEEPING ONLY - never a
+        # feature.
+        # label_era (label-era instrumentation, DEEP DIVE progress.md):
+        # which LABEL DEFINITION produced this row's barrier value -
+        # "legacy" (plain triple-barrier, blank/absent barrier or
+        # barrier=="pt"), "exit_sim" (simulate_exit_policy() replay:
+        # trail/realized/sl/time/tier/floor), or "exit_sim_time_stop"
+        # (barrier=="time_stop", the P2 rung, commit 5f26d3f). See
+        # label_era_of (module-level, above) for the full derivation.
+        # Computed and written EXPLICITLY at append time from this same
+        # row's `barrier` argument (never left blank for a new row); a
+        # row written before this column existed gets the IDENTICAL
+        # derivation applied at LOAD time (load_training_data via
+        # _row_label_era) - no migration, no rewritten history. LAST
+        # column so every existing row/consumer is untouched but for
+        # this one trailing field. BOOKKEEPING ONLY - never a feature,
+        # and this task NEVER changes a label/weight/row (report-only).
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -327,11 +525,11 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 10 != len(self._header):
+        if 3 + len(feats) + 11 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 10} - stale pre-rotation "
+                f"schema {len(self._header) - 11} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
@@ -357,7 +555,8 @@ class HistoryStore:
                                     label, f"{pnl_usd:.2f}", source,
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier, probe, disp, candidate_id, book])
+                                    barrier, probe, disp, candidate_id, book,
+                                    label_era_of(barrier)])
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -644,6 +843,12 @@ class HistoryStore:
         _div_t: list = []
         _div_s: list = []
         _div_y: list = []
+        # label-era instrumentation (DEEP DIVE, progress.md): which LABEL
+        # DEFINITION produced each SURVIVING row, one tag per kept row -
+        # lines up with meta/y by construction (appended together below,
+        # once per row that reaches X/y/w). Feeds _era_reason_stats/
+        # _era_mix_drift_check after the loop; never influences X/y/w.
+        _era_tags: list = []
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 # task C5: same book=="long" exclusion as the prescan
@@ -749,6 +954,7 @@ class HistoryStore:
                 _div_t.append(sr)
                 _div_s.append("live" if row.get("source") == "live" else "cand")
                 _div_y.append(yr)
+                _era_tags.append(_row_label_era(row, sr))
         if dropped_clash:
             log.info("training load: dropped %d synthetic candidate row(s) "
                      "that duplicated a real live trade (kept the realized "
@@ -837,6 +1043,14 @@ class HistoryStore:
             "prior_recent": p_recent, "prior_overall": p_all,
             "prior_skew": skew_flag,
             "epoch_excluded": epoch_excluded,
+            # label-era instrumentation (DEEP DIVE, progress.md): per-era,
+            # per-exit-reason row count + label rate (_era_reason_stats),
+            # and the barrier/exit-reason MIX drift alarm (binding
+            # behaviour #3, _era_mix_drift_check) - both report-only,
+            # both computed over the same surviving-corpus rows as
+            # prior_skew above, never touching X/y/w.
+            "label_era": _era_reason_stats(_era_tags, meta, y),
+            "era_mix_drift": _era_mix_drift_check(meta, _tele_cfg),
         }
         # lineage-pair agreement stat (T2.2b, ML-077): simulator-fidelity
         # telemetry over the dedup-discarded (proxy label, realized label)

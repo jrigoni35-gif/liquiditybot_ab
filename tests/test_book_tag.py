@@ -70,10 +70,14 @@ def test_persistence_defaults_book_for_legacy_snapshot_without_key():
 # history schema: header, width guard, row threading
 # ---------------------------------------------------------------------
 
-def test_history_header_ends_with_book(tmp_path):
+def test_history_header_ends_with_label_era(tmp_path):
+    # label-era instrumentation (DEEP DIVE, progress.md) added ANOTHER
+    # trailing column after `book` - same additive pattern this file's
+    # own docstring describes for `book` itself.
     hs = HistoryStore(str(tmp_path / "h.csv"))
-    assert hs._header[-1] == "book"
-    assert hs._header[-2] == "candidate_id"
+    assert hs._header[-1] == "label_era"
+    assert hs._header[-2] == "book"
+    assert hs._header[-3] == "candidate_id"
 
 
 def test_width_guard_accepts_current_shape(tmp_path, caplog):
@@ -107,7 +111,10 @@ def test_append_row_book_param_writes_tag(tmp_path):
 def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch):
     """Pins that adding `book` changed NOTHING about the pre-existing row
     shape/formatting for a caller that never heard of it — the new column
-    is purely additive at the end, defaulting "5m"."""
+    is purely additive at the end, defaulting "5m". Extended (label-era
+    instrumentation, DEEP DIVE progress.md) to also pin the NEXT additive
+    column: barrier="realized" derives label_era "exit_sim" (see
+    label_era_of/_EXIT_SIM_BARRIERS in ml/history.py)."""
     import ml.history as history_mod
     fixed_now = 1700000000.0
     monkeypatch.setattr(history_mod.time, "time", lambda: fixed_now)
@@ -125,14 +132,16 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
 
     # this is exactly the pre-C1 serialization (mirrors _append_row's
     # csv.writer(f).writerow([...]) call, verified against the in-tree
-    # source before this change) with "5m" appended as the new last column
+    # source before this change) with "5m" (book) and "exit_sim"
+    # (label_era, derived from barrier="realized") appended as the two
+    # newest trailing columns
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
-                "cand-9", "5m"]
+                "cand-9", "5m", "exit_sim"]
     assert row == expected
-    assert header[-1] == "book"
+    assert header[-1] == "label_era"
     assert len(row) == len(header)
 
 
