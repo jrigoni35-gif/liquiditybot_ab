@@ -152,3 +152,88 @@ def test_epoch_excluded_stat_counts_multiple_drops(tmp_path, monkeypatch):
 
     assert len(X) == 1
     assert hs.last_load_stats["epoch_excluded"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Whole-phase review Fix 2: clash-dedup must run BEFORE the epoch check, or
+# (a) a pre-cutoff candidate that is a live row's lineage twin never reaches
+# the dedup branch that populates pair_flags -> lineage_agreement collapses
+# to n_pairs=0 the moment the epoch filter is on, and (b) epoch_excluded
+# double-counts rows dedup would have dropped anyway, so it no longer equals
+# the true number of rows the epoch filter itself removed. Both fixtures
+# below use CLASHING candidate/live pairs (via candidate_id lineage) -
+# test_epoch_excluded_stat_counts_multiple_drops above uses only
+# non-clashing rows and structurally cannot catch either regression.
+# ---------------------------------------------------------------------------
+def test_epoch_filter_on_still_populates_lineage_pair_flags(
+        tmp_path, monkeypatch):
+    import ml.history as history_mod
+    hs = _store(tmp_path)
+    # every candidate/live pair appended BEFORE the cutoff - the epoch
+    # filter alone would want every one of these candidate rows dropped.
+    monkeypatch.setattr(history_mod.time, "time", lambda: 1000.0)
+    for i in range(5):
+        cid = f"cand-{i}"
+        hs._append_row(cid, "ETH", "long", _feats(float(i)), 1, 0.0,
+                       "candidate", signal_ts=100.0 + i)
+        hs._append_row(f"live-{i}", "ETH", "long",
+                       _feats(float(1000 + i)), 1, 5.0, "live",
+                       signal_ts=100.0 + i, candidate_id=cid)
+
+    monkeypatch.setattr(history_mod.time, "time", lambda: 9500.0)
+    X, y, w = hs.load_training_data(
+        epoch_cfg={"exclude_old_candidates": True,
+                  "candidate_cutoff_ts": CUTOFF})
+
+    la = hs.last_load_stats["lineage_agreement"]
+    assert la["n_pairs"] == 5, (
+        "clash-dedup must run before the epoch check so every pre-cutoff "
+        "lineage-twin candidate still reaches the pair_flags branch "
+        "instead of the ML-077 lineage instrument going dark")
+    assert la["agreement"] == 1.0
+    assert hs.last_load_stats["dropped_clash"] == 5
+    # dedup caught every one of these before the epoch check ever saw
+    # them - the epoch filter itself removed nothing here
+    assert hs.last_load_stats["epoch_excluded"] == 0
+    assert len(X) == 5   # the 5 live rows only; every candidate twin deduped
+
+
+def test_epoch_excluded_counts_only_true_epoch_removals(
+        tmp_path, monkeypatch):
+    """epoch_excluded must equal exactly the rows the epoch filter itself
+    removes - not rows clash-dedup would have dropped anyway. Mixes 2
+    pre-cutoff candidates with a live lineage twin (dedup drops these),
+    3 pre-cutoff candidates with NO live twin (only the epoch filter
+    removes these), and 1 post-cutoff candidate (survives both)."""
+    import ml.history as history_mod
+    hs = _store(tmp_path)
+    monkeypatch.setattr(history_mod.time, "time", lambda: 1000.0)  # < cutoff
+    for i in range(2):
+        cid = f"clash-{i}"
+        hs._append_row(cid, "ETH", "long", _feats(float(i)), 1, 0.0,
+                       "candidate", signal_ts=100.0 + i)
+        hs._append_row(f"live-{i}", "ETH", "long",
+                       _feats(float(1000 + i)), 1, 5.0, "live",
+                       signal_ts=100.0 + i, candidate_id=cid)
+    for i in range(3):
+        hs._append_row(f"solo-old-{i}", "BTC", "long",
+                       _feats(float(50 + i)), 1, 0.0,
+                       "candidate", signal_ts=200.0 + i)
+    monkeypatch.setattr(history_mod.time, "time", lambda: 9000.0)  # >= cutoff
+    hs._append_row("solo-new", "SOL", "long", _feats(99.0), 1, 0.0,
+                   "candidate", signal_ts=500.0)
+
+    monkeypatch.setattr(history_mod.time, "time", lambda: 9500.0)
+    X, y, w = hs.load_training_data(
+        epoch_cfg={"exclude_old_candidates": True,
+                  "candidate_cutoff_ts": CUTOFF})
+
+    stats = hs.last_load_stats
+    assert stats["dropped_clash"] == 2
+    assert stats["lineage_agreement"]["n_pairs"] == 2
+    # true epoch-filter removals: only the 3 solo pre-cutoff candidates -
+    # NOT the 2 clash rows dedup already accounted for (the pre-fix bug
+    # counted 5 here: 2 clash + 3 solo, because the epoch check ran first
+    # and never let the clash rows reach dedup at all)
+    assert stats["epoch_excluded"] == 3
+    assert len(X) == 3   # 2 surviving live rows + 1 post-cutoff candidate

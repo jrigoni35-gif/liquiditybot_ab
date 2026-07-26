@@ -210,10 +210,19 @@ unresolved, then fixed).
   gbt_d4_lr05, gbt_d2_lr10, gbt_mono, mlp_small` (`adaptive_gbt` evidence-
   gated out at `n_live=240 < 250`, same as every other run this document
   reports — unaffected by gbt_mono's presence)
-- **Pairwise `gbt_mono` vs `gbt_d4_lr05`** (its designated next-complex
-  step in both `ml.walkforward._COMPLEXITY` and `model_space_pbo`'s
-  `_BASE_ORDER` — "sits DIRECTLY AFTER gbt"), computed by reusing the
-  actual production helpers (`_fit_predict_arm`, `pbo_cscv`,
+- **Pairwise `gbt_mono` vs `gbt_d4_lr05`** — `gbt_mono`'s designated
+  next-complex step in `model_space_pbo`'s `_BASE_ORDER` only (`_BASE_ORDER`
+  places `gbt_mono` directly after `gbt_d4_lr05`). This is a NARROWER,
+  CONFOUNDED claim than it may read: in `ml.walkforward._COMPLEXITY` — the
+  ladder the bot actually runs — `gbt_mono`'s predecessor is plain `gbt`
+  (the untuned depth-2/lr-0.03 default), not `gbt_d4_lr05`, and `gbt` has
+  no counterpart of its own in the measured PBO space. So this pairing
+  measures an architecture change (added monotone constraints) AND a
+  hyperparameter change (depth 2→4, lr 0.03→0.05) TOGETHER, not the
+  monotone constraint in isolation — the clean same-hyperparameter
+  comparison (`gbt` vs `gbt_mono`, both depth-2/lr-0.03, the pairing
+  `_COMPLEXITY` actually runs) was NOT measured here. Computed by reusing
+  the actual production helpers (`_fit_predict_arm`, `pbo_cscv`,
   `BRIER_MARGIN` — not a reimplementation, so this can't silently drift
   from what the shipped code does for the other two arms): mean
   neg-Brier `gbt_d4_lr05=-0.165588` vs `gbt_mono=-0.197256` (Δ=-0.0317,
@@ -231,7 +240,12 @@ weak added candidate that the ladder never selects can only leave the
 selection-bias reading flat or lower — but that is irrelevant once the
 primary "must win" clause has already failed. No re-baseline decision
 follows from a DEFER; the +1-rung reading is filed here as the measured
-answer, not adopted.
+answer, not adopted. **Caveat carried into §7's summary row**: because
+the pairing above measures architecture and hyperparameters together
+(`_BASE_ORDER`'s predecessor, not `_COMPLEXITY`'s), this reading must
+not later be cited as "monotone constraints were measured [against their
+actual `_COMPLEXITY` predecessor, `gbt`] and lost" — that clean
+same-hyperparameter comparison was not measured this round.
 
 ## 6. Ambient baseline noise — not Phase 3's doing
 
@@ -261,7 +275,16 @@ the reference point every widened-space pbo above is compared against.
 | schema-ab, policy-cleared (5 feat) | `gbt_d3_lr05` vs `gbt_d3_lr05_schema_ab` | **gbt_d3_lr05 (base)** | widened 0.21 / pairwise 0.94 | **DEFER** |
 | schema-ab, raw (8 feat, contrast only) | same pair | gbt_d3_lr05_schema_ab (arm) | widened 0.17 / pairwise 0.07 | not a valid verdict basis (coverage floor) |
 | epoch-ab | `gbt_d3_lr05` vs `gbt_d3_lr05_epoch_ab` | **gbt_d3_lr05 (base)** | widened 0.37 / pairwise 0.47 | **DEFER** (degrades pbo too) |
-| gbt_mono +1 rung | `gbt_d4_lr05` vs `gbt_mono` | **gbt_d4_lr05 (base)** | widened 0.1286 / pairwise 0.0 | **DEFER** |
+| gbt_mono +1 rung | `gbt_d4_lr05` vs `gbt_mono`¹ | **gbt_d4_lr05 (base)** | widened 0.1286 / pairwise 0.0 | **DEFER** |
+
+¹ Confounded pairing (see §5): `gbt_d4_lr05` is `gbt_mono`'s predecessor
+in `model_space_pbo`'s `_BASE_ORDER` only, NOT in `ml.walkforward.
+_COMPLEXITY` (the ladder actually run), where `gbt_mono`'s predecessor is
+plain `gbt` (untuned depth-2/lr-0.03) — a family absent from the measured
+PBO space. This row therefore measures the monotone constraint AND a
+hyperparameter change together; the clean same-hyperparameter comparison
+was NOT measured, and this DEFER must not be cited as "monotone
+constraints were measured [against `gbt`] and lost".
 
 **Verdict rule applied throughout**: ADOPT requires the variant to win
 under the DEPLOYED simplicity-ladder rule (`BRIER_MARGIN` climb, never

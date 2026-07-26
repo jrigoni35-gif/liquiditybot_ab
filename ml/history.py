@@ -553,7 +553,13 @@ class HistoryStore:
         candidate_cutoff_ts is a valid number (_epoch_cutoff), CANDIDATE
         rows whose resolve `ts` is strictly before the cutoff are
         excluded from training, counted into
-        self.last_load_stats["epoch_excluded"]. LIVE rows are NEVER
+        self.last_load_stats["epoch_excluded"]. This check runs AFTER the
+        SYNTHETIC-vs-REAL clash-dedup below, so epoch_excluded counts only
+        rows this filter itself removes (not rows dedup would have
+        dropped anyway) and a pre-cutoff candidate that is a live row's
+        lineage twin still reaches the dedup branch first, keeping the
+        ML-077 lineage-agreement stat populated with the filter on. LIVE
+        rows are NEVER
         excluded by this filter, structurally - the check only ever runs
         inside the `source == "candidate"` branch below, so no
         combination of config, malformed rows, or missing fields can
@@ -647,14 +653,13 @@ class HistoryStore:
                 # depth for the dedup keys, this one is the real gate).
                 if (row.get("book") or "5m") == "long":
                     continue
-                # T3.6 loader seam: structurally scoped to source==
-                # "candidate" so a live row can never be reached by this
-                # continue, no matter what config/row data says - see
-                # _row_epoch_excluded's docstring for the full guarantee.
-                if row.get("source") == "candidate" and \
-                        _row_epoch_excluded(row, epoch_cutoff):
-                    epoch_excluded += 1
-                    continue
+                # Clash-dedup runs BEFORE the epoch check (reordered - see
+                # note below): this is the only branch that populates
+                # pair_flags, so every candidate row - pre- or post-cutoff -
+                # must reach it first, or the lineage-twin instrument
+                # (last_load_stats["lineage_agreement"]) silently goes dark
+                # whenever the epoch filter is on and a pre-cutoff candidate
+                # happens to be the lineage twin of a live row.
                 if row.get("source") == "candidate" and \
                         (live_keys or live_cand_ids):
                     self_id = (row.get("position_id") or "").strip()
@@ -675,6 +680,29 @@ class HistoryStore:
                             continue     # legacy fallback: exact-vector match
                     except KeyError:
                         pass
+                # T3.6 loader seam: structurally scoped to source==
+                # "candidate" so a live row can never be reached by this
+                # continue, no matter what config/row data says - see
+                # _row_epoch_excluded's docstring for the full guarantee.
+                # Runs AFTER clash-dedup (reordered, whole-phase review
+                # Fix 2): with the epoch check first, a pre-cutoff candidate
+                # that clash-dedup would have dropped anyway was instead
+                # counted as epoch_excluded and never reached the dedup
+                # branch, which (a) undercounted dropped_clash/pair_flags -
+                # collapsing the ML-077 lineage instrument to n_pairs=0
+                # whenever the epoch filter is on - and (b) overcounted
+                # epoch_excluded with rows dedup would have removed anyway,
+                # so it no longer equalled the true number of rows the
+                # epoch filter itself removed. Ordering dedup first fixes
+                # both: epoch_excluded now counts only rows THIS filter
+                # actually removes. Flag OFF -> epoch_cutoff is None ->
+                # _row_epoch_excluded is always False -> this continue never
+                # fires either way, so the off-path (shipped default) is
+                # byte-identical to before this reorder.
+                if row.get("source") == "candidate" and \
+                        _row_epoch_excluded(row, epoch_cutoff):
+                    epoch_excluded += 1
+                    continue
                 # ATOMIC per row: build every column into a local first, and
                 # only extend the four parallel lists once ALL parse. A bare
                 # X.append() before a later ValueError (e.g. an empty label

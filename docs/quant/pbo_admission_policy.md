@@ -95,3 +95,56 @@ onset, tail event) the feature would start to matter. Any prune admission
 must therefore clear a **coverage floor** in addition to appearing in
 `always_dead`, and the burden of proof sits with the prune, not with the
 feature.
+
+The coverage floor is currently applied by hand, case by case, not read
+off a fixed number: `opt_oi_pcr_z` cleared it at 5.45% nonzero coverage,
+`th_metronome` did not at 1.49%. Its only load-bearing use is to BLOCK a
+prune, so the ambiguity errs safe (when in doubt, don't prune) — but this
+doc is BINDING, so that judgment call must be made explicit rather than
+left implicit: **there is no numeric coverage threshold.** Every
+coverage-floor call is a judgment call and requires a named, written
+justification in the doc/commit that applies it (which is what §2 of
+`docs/quant/2026-07-26_phase3_adjudication.md` did for `equity_risk_z`/
+`opt_oi_pcr_z` vs. `sent_fear`/`th_clockwork`/`th_metronome`) — never a
+bare `nonzero_frac > X` cutoff applied without that reasoning attached.
+
+## Required steps before flipping `ml.epoch.exclude_old_candidates`
+
+Precedent above (rule 1: "a policy-class challenger enters OF-3's CSCV
+as a measured config before it may become champion-swap eligible")
+applies here with a sharper edge than usual: as of this phase, only 1 of
+6 training-corpus consumers in this repo receives `epoch_cfg` at all —
+`main.py:4626` (the production retrain path) passes it through to
+`ml/history.py`'s `load_training_data`. The other five load the corpus
+UNFILTERED, with no `epoch_cfg` argument, regardless of what
+`ml.epoch.exclude_old_candidates` says:
+
+1. `scripts/overfit_check.py:179` — OF-3's own corpus load (`load_dataset`)
+2. `scripts/train_meta.py:146` — the standalone retrain CLI
+3. `scripts/interpret_report.py:151` — the post-hoc interpretability report
+4. `scripts/feature_stability.py:277` — T3.1's dead-feature stability screen
+5. `scripts/smoke_test.py:1006` — the smoke-test corpus load
+
+This is harmless today because the flag ships `false` (every consumer
+loads the identical unfiltered corpus, filtered or not is moot). It stops
+being harmless the moment `ml.epoch.exclude_old_candidates` flips to
+`true`: `main.py` would then train the deployed champion on a
+row-epoch-filtered corpus while `scripts/overfit_check.py` (OF-3, the
+PBO measurement) keeps measuring the OLD unfiltered corpus — a direct
+violation of the project invariant that **PBO measures the rule the
+system actually runs**, not a rule it used to run or a superset of it.
+An adoption reading taken under that mismatch would certify a selection
+process the bot no longer trains on.
+
+**Before `ml.epoch.exclude_old_candidates` may be flipped to `true` in
+any shipped config, every one of the five consumers above must be made
+CONSISTENT with the production loader** — either updated to thread the
+same `ml.epoch` config through to its own `load_training_data` call, or
+consciously EXEMPTED with a named, written reason (e.g.
+`scripts/smoke_test.py`'s synthetic fixtures may have no real
+`ml.epoch.candidate_cutoff_ts`-relevant rows to filter, making the
+inconsistency moot for that consumer specifically — but that judgment
+must be written down at the time of the flip, not assumed). This is a
+documentation/consistency prerequisite, not a code change owed by this
+phase: the flag stays `false` and none of the five call sites above are
+touched by this fix.

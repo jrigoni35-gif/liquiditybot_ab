@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.feature_stability import (                # noqa: E402
     _parse_int_list, _unique_stem, compute_candidate_prune_list,
     compute_persistence, compute_snapshot, load_corpus, load_prior_snapshots,
-    render_markdown, run_snapshot)
+    main, render_markdown, run_snapshot)
 
 SEEDS = [7, 11]
 N_SPLITS = [4]
@@ -193,6 +193,56 @@ def test_persistence_and_candidate_prune_list_wired_through_run_snapshot(
 def test_parse_int_list():
     assert _parse_int_list("7,11,13") == [7, 11, 13]
     assert _parse_int_list("4, 5, 6") == [4, 5, 6]
+
+
+def test_parse_int_list_empty_returns_empty_list():
+    # documents the raw helper's behavior that main()'s guard exists to
+    # catch before it ever reaches run_snapshot
+    assert _parse_int_list("") == []
+    assert _parse_int_list("   ") == []
+    assert _parse_int_list(" , , ") == []
+
+
+# ------------------------------------------------ empty --seeds guard (Fix 1)
+def test_main_rejects_empty_seeds_before_writing_snapshot(tmp_path, capsys):
+    """Whole-phase review Fix 1: an empty --seeds must not silently write a
+    dated snapshot (combos=[], always_dead=[], stability_ratio=1.0) that
+    would permanently poison every later run's candidate_prune_list via
+    the append-only-snapshot intersection. It must error out BEFORE
+    load_corpus/run_snapshot ever runs, so out-dir stays empty."""
+    out_dir = tmp_path / "reports"
+    with pytest.raises(SystemExit) as exc:
+        main(["--seeds", "", "--out-dir", str(out_dir)])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--seeds" in err
+    assert not out_dir.exists() or list(out_dir.glob("stability_*.json")) == []
+
+
+def test_main_rejects_whitespace_only_seeds(tmp_path, capsys):
+    out_dir = tmp_path / "reports"
+    with pytest.raises(SystemExit) as exc:
+        main(["--seeds", "   ", "--out-dir", str(out_dir)])
+    assert exc.value.code == 2
+    assert not out_dir.exists() or list(out_dir.glob("stability_*.json")) == []
+
+
+def test_main_rejects_empty_n_splits_list(tmp_path, capsys):
+    out_dir = tmp_path / "reports"
+    with pytest.raises(SystemExit) as exc:
+        main(["--n-splits-list", "", "--out-dir", str(out_dir)])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--n-splits-list" in err
+    assert not out_dir.exists() or list(out_dir.glob("stability_*.json")) == []
+
+
+def test_main_rejects_all_commas_n_splits_list(tmp_path, capsys):
+    out_dir = tmp_path / "reports"
+    with pytest.raises(SystemExit) as exc:
+        main(["--n-splits-list", ",,", "--out-dir", str(out_dir)])
+    assert exc.value.code == 2
+    assert not out_dir.exists() or list(out_dir.glob("stability_*.json")) == []
 
 
 def test_render_markdown_contains_sections(synth_snapshot):

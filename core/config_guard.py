@@ -752,9 +752,15 @@ def validate(config: dict) -> list:
     # not silently surface only after an operator later flips enabled:true.
     # FEATURE_NAMES is imported HERE, lazily, inside the check - NOT at
     # module scope - because config_guard is deliberately kept free of
-    # in-repo cross-package imports (guard purity: it must be importable
-    # before the rest of the package is fully wired); this is the one
-    # narrow, load-time-only exception, scoped to exactly this block.
+    # in-repo cross-package imports AT MODULE SCOPE (guard purity: it must
+    # be importable before the rest of the package is fully wired). This
+    # is not the only such lazy, load-time-only in-repo import in this
+    # file (see e.g. the skimmer pair-meta check's `from data.kraken_feed
+    # import PAIR_META_FALLBACK` and the exploration/sizer breakeven
+    # checks' `from risk.position_sizer import payoff_ratio_from_config`,
+    # further down) - the invariant this file actually holds is ZERO
+    # in-repo imports at MODULE level, not "at most one in-repo import
+    # anywhere in the file".
     gm = config.get("ml", {}).get("gbt_mono", {}) or {}
     constraints = gm.get("constraints", {}) or {}
     if constraints:

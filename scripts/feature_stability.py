@@ -307,6 +307,26 @@ def main(argv=None) -> int:
 
     seeds = _parse_int_list(args.seeds)
     n_splits_list = _parse_int_list(args.n_splits_list)
+    # An empty (or all-whitespace/comma) --seeds or --n-splits-list parses
+    # to [] silently (no ValueError - _parse_int_list's own strip/filter
+    # swallows it). run_snapshot would then write a dated snapshot with
+    # combos=[], always_dead=[], stability_ratio=1.0 - and because
+    # snapshots are append-only BY DESIGN (never overwritten) and
+    # compute_candidate_prune_list INTERSECTS every prior snapshot's
+    # always_dead, that one empty run permanently poisons every later
+    # run's candidate_prune_list to [] until someone manually deletes the
+    # file. Reject before load_corpus/run_snapshot ever executes, so no
+    # snapshot is written.
+    if not seeds:
+        ap.error(f"--seeds must contain at least one integer, got {args.seeds!r} "
+                 "- an empty --seeds would write a permanently poisoning "
+                 "snapshot (combos=[], always_dead=[], stability_ratio=1.0) "
+                 "that compute_candidate_prune_list intersects into every "
+                 "later run until the file is deleted")
+    if not n_splits_list:
+        ap.error(f"--n-splits-list must contain at least one integer, got "
+                 f"{args.n_splits_list!r} - same permanently-poisoning-"
+                 "snapshot risk as an empty --seeds")
     min_rows = (args.min_rows if args.min_rows is not None
                else len(FEATURE_NAMES) * 10)
 

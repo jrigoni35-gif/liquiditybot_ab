@@ -223,10 +223,16 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
 _SCHEMA_AB_BASE_FAMILY = "gbt_d3_lr05"
 _EPOCH_AB_BASE_FAMILY = "gbt_d3_lr05"
 
-# Per-fold floor for a row-masked arm's TRAINING subset (tr ∩ mask): mirrors
-# the SAME per-fold class-balance floor purged_walk_forward's callers apply
-# everywhere else in this file (train_test_gap, shuffled_label_check,
-# model_space_pbo's own `folds` filter above) — not a new invented number.
+# Per-fold floor for a row-masked arm's TRAINING subset (tr ∩ mask).
+# _ARM_MIN_CLASS=5 IS the same per-fold class-balance floor purged_walk_
+# forward's callers apply everywhere else in this file (train_test_gap,
+# shuffled_label_check, model_space_pbo's own `folds` filter above at
+# lines 581/803) — not a new invented number. _ARM_MIN_TRAIN_ROWS=30 is a
+# DIFFERENT quantity with a different referent: it matches REGIME_MIN_N
+# (below) — OF-5's "how many labeled outcomes before a point statistic
+# means anything" evidence floor — reused here as the same bare row-count
+# question applied to a row-masked arm's training subset, not the
+# per-fold class-balance check.
 _ARM_MIN_TRAIN_ROWS = 30
 _ARM_MIN_CLASS = 5
 
@@ -498,7 +504,22 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     just measured over a caller-widened space. A per-arm pairwise report
     (vs its base, using the SAME BRIER_MARGIN ladder-climb logic) lands in
     the returned 'experiments' dict, added ONLY when at least one arm was
-    actually requested."""
+    actually requested.
+
+    Passing BOTH schema_ab_cols and epoch_ab_mask in the same call chains
+    the arms in insertion order: <base> -> <base>_schema_ab ->
+    <base>_epoch_ab -> <next base rung> (today: gbt_d3_lr05 ->
+    gbt_d3_lr05_schema_ab -> gbt_d3_lr05_epoch_ab -> gbt_d3_lr10). The
+    epoch arm's ladder-climb INCUMBENT is therefore whatever sits directly
+    before it in `order`, which is the schema arm, not the plain base, once
+    both are active. Each arm's own 'experiments' entry is still computed
+    against ITS OWN base family via the same pairwise BRIER_MARGIN logic
+    regardless (unaffected by what else is in the space), so no per-arm
+    pairwise number is contaminated — but the WIDENED-SPACE pbo/
+    argmax-stress read this function returns is only interpretable ONE ARM
+    AT A TIME: measure schema_ab_cols and epoch_ab_mask in separate calls
+    (as this phase's adjudication did) if you need to attribute the
+    widened-space aggregate to a single experiment."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     ac = adaptive_cfg or {}
