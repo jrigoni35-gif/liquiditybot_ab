@@ -69,9 +69,6 @@ def _freeze(monkeypatch, t):
 ])
 def test_label_era_of_barrier_vocabulary(barrier, expected):
     assert label_era_of(barrier) == expected
-    # ts is accepted but must never flip a decisive vocabulary verdict
-    assert label_era_of(barrier, ts=0.0) == expected
-    assert label_era_of(barrier, ts=9_999_999_999.0) == expected
 
 
 def test_era_boundary_from_deep_dive_is_barrier_driven_not_time_driven(

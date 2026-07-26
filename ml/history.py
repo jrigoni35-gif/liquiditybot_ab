@@ -255,7 +255,7 @@ _EXIT_SIM_BARRIERS = frozenset({"trail", "realized", "tier", "floor",
                                "sl", "time"})
 
 
-def label_era_of(barrier: "str | None", ts: "float | None" = None) -> str:
+def label_era_of(barrier: "str | None") -> str:
     """Which LABEL DEFINITION produced a row, derived from its own
     `barrier` cell - the DEEP DIVE's (progress.md) measured era signature,
     never a calendar cutoff: a hardcoded date would silently mis-tag a
@@ -271,15 +271,7 @@ def label_era_of(barrier: "str | None", ts: "float | None" = None) -> str:
       exit_sim            - _EXIT_SIM_BARRIERS: simulate_exit_policy()
                             replaying the live exit ladder.
       exit_sim_time_stop  - "time_stop": same simulator, the P2 time-stop
-                            rung (commit 5f26d3f, 2026-07-23).
-    `ts` is accepted (the brief's stated derivation basis is (barrier,
-    ts)) but is NOT exercised by any branch below: no barrier string the
-    current vocabulary can produce is actually ambiguous given the
-    measured era table above. It is kept in the signature so a genuinely
-    new/unrecognized future barrier value has a documented parameter to
-    resolve through rather than a signature change - LABEL_ERA_UNKNOWN
-    appearing in last_load_stats is the signal that day has come, not a
-    silent mis-tag into legacy or exit_sim."""
+                            rung (commit 5f26d3f, 2026-07-23)."""
     b = (barrier or "").strip()
     if not b or b == "pt":
         return LABEL_ERA_LEGACY
@@ -290,7 +282,7 @@ def label_era_of(barrier: "str | None", ts: "float | None" = None) -> str:
     return LABEL_ERA_UNKNOWN
 
 
-def _row_label_era(row: dict, ts: float) -> str:
+def _row_label_era(row: dict) -> str:
     """Prefer a row's OWN persisted `label_era` (every row written after
     this task carries one explicitly - HistoryStore._append_row); fall
     back to deriving it from `barrier` for a row written before the
@@ -300,8 +292,7 @@ def _row_label_era(row: dict, ts: float) -> str:
     to keep that method's mccabe complexity under the C901 ceiling
     (pyproject.toml) - no behavior difference from inlining it there."""
     persisted = (row.get("label_era") or "").strip()
-    return persisted if persisted else label_era_of(row.get("barrier") or "",
-                                                     ts)
+    return persisted if persisted else label_era_of(row.get("barrier") or "")
 
 
 def _reason_mix_tvd(baseline: dict, recent: dict) -> float:
@@ -410,6 +401,24 @@ def _era_mix_drift_check(meta: list, tele_cfg: dict) -> dict:
     return out
 
 
+# One-way marker (rollout hazard fix, task-rotation-report.md): when
+# _ensure_schema rotates the corpus (old-header production file under new
+# code), every consumer reading it - evidence-gate row floors, a scheduled
+# retrain, status.json's row count - sees a near-empty file until
+# scripts/corpus_sync.py's recover_local_baks() merges the fresh .bak_*
+# back in. That normally waits for the supervisor's hourly corpus-sync
+# cadence (scripts/pc_supervisor.py CORPUS_SYNC_SEC). Dropping a marker
+# file next to the corpus - the SAME cross-process seam this codebase
+# already uses (status.json, control/ command files) - lets the
+# supervisor collapse that wait to its next ~30s tick instead, with NO
+# import of scripts/ from here: this module writes a file, it does not
+# know what a supervisor is. Written on rotation only; the supervisor
+# owns clearing it (self-clearing + idempotent - see
+# pc_supervisor._corpus_sync_due), so a write here is a cheap, best-effort
+# touch, never a merge, never a git op.
+CORPUS_ROTATION_MARKER_NAME = ".corpus_rotated"
+
+
 class HistoryStore:
     def __init__(self, path: str = "outputs/signal_history.csv"):
         self.path = Path(path)
@@ -500,8 +509,21 @@ class HistoryStore:
             bak = self.path.with_suffix(f".bak_{int(time.time())}")
             os.replace(self.path, bak)      # cross-platform atomic
             log.warning(f"history schema changed - old file kept at {bak}")
+            self._mark_rotated()
         with open(self.path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(self._header)
+
+    def _mark_rotated(self) -> None:
+        """Drop CORPUS_ROTATION_MARKER_NAME next to the corpus so the
+        supervisor's next tick runs corpus_sync (recovery) immediately
+        instead of waiting out the hourly cadence - see the module-level
+        comment above. Best-effort: an unwritable outputs/ (ACL, disk
+        full) must never block the rotation itself, only lose the fast
+        path (recovery still lands on the normal hourly cadence)."""
+        try:
+            (self.path.parent / CORPUS_ROTATION_MARKER_NAME).touch()
+        except OSError:
+            pass
 
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray, probe: bool = False,
@@ -954,7 +976,7 @@ class HistoryStore:
                 _div_t.append(sr)
                 _div_s.append("live" if row.get("source") == "live" else "cand")
                 _div_y.append(yr)
-                _era_tags.append(_row_label_era(row, sr))
+                _era_tags.append(_row_label_era(row))
         if dropped_clash:
             log.info("training load: dropped %d synthetic candidate row(s) "
                      "that duplicated a real live trade (kept the realized "

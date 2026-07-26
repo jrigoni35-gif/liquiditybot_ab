@@ -82,6 +82,20 @@ except ValueError:
     TELEM_BACKUP_SEC = 3600.0
 _TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
+# rotation-hazard fast path (task-rotation-report.md): ml/history.py's
+# _ensure_schema rotates the corpus to a fresh .bak_<ts> the instant it sees
+# an old-header production file under new code, leaving the live file near-
+# empty until scripts/corpus_sync.py's recover_local_baks() merges the .bak
+# back in. Waiting out the up-to-CORPUS_SYNC_SEC cadence for that meant
+# everything reading the corpus in between (evidence-gate row floors, a
+# scheduled retrain, status.json row counts) saw a near-empty file for as
+# long as an hour. HistoryStore._mark_rotated() drops this marker NEXT TO
+# the corpus on rotation (ml/history.py owns writing it, has zero knowledge
+# of this module); its mere presence here means "run corpus_sync NOW", not
+# on the hourly clock. Named distinctly from _CORPUS_SYNC_STAMP (that one is
+# a "last ran at" cadence stamp; this one is a "something happened, act on
+# it" event marker) - see _corpus_sync_due for the self-clearing contract.
+_CORPUS_ROTATION_MARKER = OUT / ".corpus_rotated"
 # ONE-SHOT prompt sweep (operator request 2026-07-20): close the DEAD Command
 # Prompt windows the pre-fix code left open. Runs once, then the stamp holds
 # forever (delete the stamp to run it again). v2 stamp: the v1 sweep could
@@ -254,6 +268,49 @@ def _stamp_due(stamp: Path, period_sec: float) -> bool:
         stamp.touch()
     except OSError:
         pass
+    return True
+
+
+def _corpus_sync_due() -> bool:
+    """True when corpus_sync.py should run THIS tick: the normal hourly
+    cadence (_stamp_due against _CORPUS_SYNC_STAMP), OR
+    ml.history._ensure_schema left a rotation marker behind
+    (_CORPUS_ROTATION_MARKER) - a schema-mismatch rotation that would
+    otherwise sit near-empty for up to CORPUS_SYNC_SEC before recovery
+    (corpus_sync.recover_local_baks) ever runs. See the marker's
+    declaration above for the full rollout-hazard writeup.
+
+    Self-clearing + idempotent: a present marker is consumed (unlinked)
+    HERE, unconditionally, the instant it's observed - regardless of
+    whether the spawn the caller makes afterward actually lands a live
+    child. That mirrors every other stamp in this module (a failed spawn
+    is invisible to us; the fallback is simply the normal cadence, no
+    worse than before this marker existed) and guarantees a stale marker
+    can never wedge into a tight loop: nothing re-creates it except a
+    genuine NEW rotation. The caller gates this whole call behind
+    LB_NO_CORPUS_SYNC (short-circuited, never invoked when the switch is
+    set), so the kill switch cannot silently eat a pending marker - it
+    simply waits, un-cleared, for the switch to lift.
+
+    A marker hit also re-touches the cadence stamp (when it wasn't already
+    due) so a rotation landing seconds before the hourly mark doesn't fire
+    the sync twice back-to-back; harmless either way since the merge is
+    idempotent, just wasted network. A MISSING marker never suppresses the
+    normal cadence - the two conditions are OR'd, not coupled."""
+    marker_hit = _CORPUS_ROTATION_MARKER.exists()
+    cadence_due = _stamp_due(_CORPUS_SYNC_STAMP, CORPUS_SYNC_SEC)
+    if not marker_hit:
+        return cadence_due
+    try:
+        _CORPUS_ROTATION_MARKER.unlink()
+    except OSError:
+        pass
+    if not cadence_due:
+        try:
+            OUT.mkdir(exist_ok=True)
+            _CORPUS_SYNC_STAMP.touch()
+        except OSError:
+            pass
     return True
 
 
@@ -467,7 +524,7 @@ def tick() -> None:
         _spawn([PY, "scripts/remote_control.py", "--push-status"],
                own_log=False)
     if (not os.environ.get("LB_NO_CORPUS_SYNC")
-            and _stamp_due(_CORPUS_SYNC_STAMP, CORPUS_SYNC_SEC)):
+            and _corpus_sync_due()):
         _spawn([PY, "scripts/corpus_sync.py"], own_log=False)
     # corpus EXPORT: the PC is THE bot, so ITS file is the canonical
     # learning corpus — checkpoint it durably under its own label (the
