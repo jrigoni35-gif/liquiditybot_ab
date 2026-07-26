@@ -7,6 +7,19 @@ flips a config default. This closes Phase 3 by actually running the
 instruments Tasks 1–5 shipped inert and adjudicating them against the
 binding rule in `docs/quant/pbo_admission_policy.md`.
 
+Scope of "inert", stated precisely: with the shipped config, deployed
+behavior is identical to the pre-phase main (`e843b92`) — proven by
+running that commit in a worktree against today's corpus and getting
+md5-identical OF verdict lines (`f68296e3775e3787f3c473c461563a92`, all
+eight checks), and separately by an `evaluate_and_select` retrain-path
+comparison that is md5-identical per family. There is exactly ONE
+observable difference: `last_load_stats` now always carries
+`epoch_excluded` (0 while the filter is off), and `runner.py` writes
+`last_load_stats` verbatim into `status.json`, so `status.json` gains one
+additive key. No consumer reads it; the "extend, don't break" schema rule
+permits it. Recorded here so no later reader takes "changes nothing"
+literally and is surprised by a new status key.
+
 Corpus for every reading below: `outputs/signal_history.csv`, 4,642 rows
 (240 live), unchanged across all three stability snapshots and all four
 OF-3 experiment runs — every comparison in this document is apples-to-
