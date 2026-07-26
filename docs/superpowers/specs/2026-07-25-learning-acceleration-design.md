@@ -45,8 +45,9 @@ bleed priced: probes were −$22.87 of −$31.68 net; 69% of closes):
 - T1.2 (F0b) Drought floor, all eight C2 conditions binding: activates
   only when zero admissions of ANY kind ≥ N spans (reuse ML-073
   `_last_entry_admit_ts` drought clock) AND share cap is the binding
-  denial; span/count-keyed, never wall-clock; `exploration.drought_spans`
-  + `exploration.floor_rate` in config.json, config_guard derivation
+  denial; span/count-keyed, never wall-clock; [AS BUILT, Phase 1: knobs
+  shipped as `ml.exploration.drought_floor.{enabled, drought_hours,
+  min_spacing_hours}` — the plan governs naming] config_guard derivation
   tied to the 8h label horizon (≤ K probes per horizon); new SZ-* code
   for floor admissions, recorded into the window; non-drought behavior
   byte-identical (test-pinned); conviction-never-throttled invariant

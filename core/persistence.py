@@ -443,6 +443,10 @@ class StateStore:
                 # must survive the same deploy-restart cadence as the
                 # window above - unpersisted, every deploy would reset
                 # the trickle bound and allow an immediate re-fire.
+                # Deliberately RAW (wall-comparable) unlike the drought
+                # clock's elapsed-anchored persistence: downtime counts
+                # toward SPACING (can only deny sooner re-fires, safe)
+                # but never toward the DROUGHT itself.
                 "last_floor_admit_ts": getattr(
                     bot, "_last_floor_admit_ts", None),
                 # Compounder Phase C (task C4): the shared EvidenceLadder

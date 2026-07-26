@@ -2412,6 +2412,14 @@ class LiquidityBot:
         a floor admission's submit may still be vetoed downstream
         (min-ticket, manip, SZ-046), and recording on decision keeps the
         window honest about floor USE and self-bounds repeat fires.
+        Decision-time recording has two accepted costs, both in the
+        conservative (over-throttling) direction: a floor probe whose
+        submit SUCCEEDS is counted twice (decision here + submit site;
+        bounded to one per drought episode, since the submit resets the
+        drought clock), and a drought whose floor probes keep getting
+        VETOED downstream accumulates one True per spacing span, tilting
+        the 40-slot window toward denial for the 40 admissions after the
+        drought ends.
         Unreachable outside a drought, so non-drought behavior is
         byte-identical to P3 (test-pinned). Engine `now` only - wall
         clock here would break replay determinism."""
