@@ -54,6 +54,58 @@ def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return ((center - half) / denom, (center + half) / denom)
 
 
+def sim_live_divergence(times, sources, labels,
+                        window_sec: float) -> dict:
+    """Weighted |mean(live label) - mean(candidate label)| over time
+    buckets containing BOTH sources (weight = candidate count in bucket);
+    coverage = candidate rows in such buckets / all candidate rows.
+    Report-only: quantifies where the simulator's labels disagree with
+    realized outcomes, only where realized outcomes exist to compare."""
+    buckets: dict = {}
+    n_cand = 0
+    for t, s, y in zip(times, sources, labels, strict=True):
+        b = buckets.setdefault(int(float(t) // window_sec),
+                               [0.0, 0, 0.0, 0])
+        if s == "live":
+            b[0] += y
+            b[1] += 1
+        else:
+            b[2] += y
+            b[3] += 1
+            n_cand += 1
+    num = den = covered = 0.0
+    windows_both = 0
+    for b in buckets.values():
+        if b[1] and b[3]:
+            windows_both += 1
+            covered += b[3]
+            num += abs(b[0] / b[1] - b[2] / b[3]) * b[3]
+            den += b[3]
+    return {"score": (round(num / den, 4) if den else None),
+            "coverage": round((covered / n_cand) if n_cand else 0.0, 4),
+            "windows_both": windows_both, "n_cand": n_cand}
+
+
+def _sim_divergence_stat(div_t: list, div_s: list, div_y: list,
+                         tele_cfg: dict) -> dict:
+    """Compute the T2.2a live-covered-window divergence stat over the
+    rows captured by load_training_data's second pass and (when a score
+    exists) emit the detection-only ML-078 log line. Split out of
+    load_training_data purely to keep that method's mccabe complexity
+    under the C901 ceiling (pyproject.toml) - no behavior difference
+    from inlining it there."""
+    dwh = float(tele_cfg.get("divergence_window_h", 24.0))
+    div = sim_live_divergence(div_t, div_s, div_y, dwh * 3600.0)
+    div["window_h"] = dwh
+    if div["score"] is not None:
+        log.info(
+            "%s: sim-live divergence %.3f over %d shared window(s), "
+            "coverage %.0f%% of candidate rows - detection only",
+            Code.ML_SIM_DIVERGENCE.value, div["score"],
+            div["windows_both"], 100 * div["coverage"])
+    return div
+
+
 def _regime_of_feats(feats) -> "str | None":
     """Which of the 5 macro-regime one-hots a feature row marks, or None
     for an all-zero/ambiguous row (schema-migration padding, or a legacy
@@ -394,7 +446,12 @@ class HistoryStore:
         `telemetry_cfg` (config ml.telemetry) gates only the ML-077 log
         line's threshold (lineage_min_pairs); the lineage-twin agreement
         stat itself (T2.2b) is always computed into
-        self.last_load_stats["lineage_agreement"] regardless."""
+        self.last_load_stats["lineage_agreement"] regardless. It also
+        supplies `divergence_window_h` (default 24.0), the bucket width for
+        the T2.2a live-covered-window divergence score (ML-078), always
+        computed into self.last_load_stats["sim_live_divergence"] over rows
+        that survive into the trained corpus - detection only, never
+        reweighting."""
         empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0), np.empty(0))
         self.last_load_stats = {}
         if not self.path.exists():
@@ -477,6 +534,14 @@ class HistoryStore:
         # lineage-match drop below (1 = agree, 0 = disagree). The exact-vector
         # fallback match has no defensible pairing and captures nothing.
         pair_flags: list = []
+        # T2.2a: (signal_ts, "live"|"cand", label) per row that SURVIVES into
+        # the dataset - the corpus the model actually trains on. Deduped
+        # clash drops are NOT captured here (they're already covered by the
+        # T2.2b lineage-pair stat above); this feeds sim_live_divergence
+        # below, computed after the loop.
+        _div_t: list = []
+        _div_s: list = []
+        _div_y: list = []
         with open(self.path, encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 # task C5: same book=="long" exclusion as the prescan
@@ -549,6 +614,9 @@ class HistoryStore:
                 w.append(wr)
                 meta.append((row.get("asset") or "", float(row.get("ts") or now),
                              row.get("source") or "", row.get("barrier") or ""))
+                _div_t.append(sr)
+                _div_s.append("live" if row.get("source") == "live" else "cand")
+                _div_y.append(yr)
         if dropped_clash:
             log.info("training load: dropped %d synthetic candidate row(s) "
                      "that duplicated a real live trade (kept the realized "
@@ -656,6 +724,12 @@ class HistoryStore:
         else:
             la = {"n_pairs": 0, "agreement": None, "wilson95": None}
         self.last_load_stats["lineage_agreement"] = la
+        # live-covered-window divergence score (T2.2a, ML-078): candidate-
+        # vs-live label-mean divergence inside windows where BOTH sources
+        # appear in the surviving corpus, plus the coverage stat. Report-
+        # only - no reweighting, no authority over what trains.
+        self.last_load_stats["sim_live_divergence"] = _sim_divergence_stat(
+            _div_t, _div_s, _div_y, _tele_cfg)
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)

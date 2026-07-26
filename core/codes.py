@@ -196,6 +196,9 @@ class Code(str, Enum):
     ML_LINEAGE_AGREEMENT = "ML-077"  # dedup-twin proxy-vs-realized label
     #   agreement stat (T2.2b): simulator-fidelity telemetry over
     #   gate-passing signals only - detection-only, weights untouched
+    ML_SIM_DIVERGENCE = "ML-078"  # candidate-vs-live label-mean divergence
+    #   inside live-covered time windows + coverage stat (T2.2a, C4
+    #   surviving form) - detection-only, no reweighting authority
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
