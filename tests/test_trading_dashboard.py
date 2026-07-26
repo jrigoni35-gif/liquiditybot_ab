@@ -225,6 +225,62 @@ def test_all_boards_use_supported_panel_types():
         assert kinds <= allowed, f"{fname}: unexpected panel type {kinds}"
 
 
+def test_timeseries_never_spans_an_outage():
+    # 2026-07-26: the bot was dark 03:05->14:55 UTC and the equity + Brier
+    # panels drew SMOOTH GLIDES across the whole 11.8h hole, because every
+    # timeseries carried spanNulls=True (connect any gap, however long).
+    # The outage read as a gentle downward trend. Feed latency, a `stat`
+    # sparkline that never spanned, showed the same gap honestly — so the
+    # board was simultaneously telling the truth and lying about one event.
+    # spanNulls must be a BOUNDED millisecond budget, never True.
+    period_ms = 30 * 1000        # gc_pusher GC_PERIOD_SEC default
+    seen = 0
+    for fname in gen.DASHBOARDS:
+        for p in _all_panels(_shipped(fname)):
+            if p["type"] != "timeseries":
+                continue
+            seen += 1
+            span = p["fieldConfig"]["defaults"]["custom"]["spanNulls"]
+            assert span is not True, (
+                f"{fname}/{p['title']}: spanNulls=True draws a line across "
+                "an outage of ANY length — an 11.8h hole renders as a trend")
+            assert isinstance(span, int) and not isinstance(span, bool), \
+                f"{fname}/{p['title']}: spanNulls must be a ms budget"
+            # tolerate restart jitter, break on real downtime
+            assert 2 * period_ms <= span <= 30 * period_ms, (
+                f"{fname}/{p['title']}: spanNulls={span}ms outside "
+                f"[{2*period_ms}, {30*period_ms}] — too tight breaks on a "
+                "routine restart, too loose hides an outage")
+            # a bounded budget can leave isolated samples either side of a
+            # gap; showPoints="never" would render those as literally
+            # nothing, and a blank panel reads as "fine", not "no data"
+            assert p["fieldConfig"]["defaults"]["custom"]["showPoints"] \
+                != "never", (
+                f"{fname}/{p['title']}: with bounded spanNulls, showPoints "
+                "must not be 'never' — isolated samples would be invisible")
+    assert seen >= 5, f"expected the known timeseries panels, saw {seen}"
+
+
+def test_every_board_surfaces_telemetry_age():
+    # The companion to the spanNulls fix. Value tiles reduce with
+    # "lastNotNull", so while the bot is dead they keep displaying the last
+    # push — during the 2026-07-26 outage the execution board showed a
+    # confident Brier, model rung and fill stats for 11.8h with NO cue that
+    # the runner was gone (it had zero staleness panels). gc_pusher is
+    # honest at the source (past STALE_AFTER_SEC it pushes running=0 +
+    # stale=1 and withholds market/PnL gauges) — the board has to be honest
+    # too. Every board carries a red-at-300s age tile.
+    for fname in gen.DASHBOARDS:
+        exprs = " ".join(
+            t.get("expr", "")
+            for p in _all_panels(_shipped(fname))
+            for t in (p.get("targets") or []))
+        assert "liquiditybot_status_age_sec" in exprs, (
+            f"{fname}: no telemetry-age panel — every value tile on this "
+            "board reduces with lastNotNull and will show pre-outage "
+            "numbers as if they were live")
+
+
 def test_refresh_cadence_matches_push_period():
     # gc_pusher exports every 30s (GC_PERIOD_SEC default); a 30s dashboard
     # refresh doubles the query/render churn for zero extra information.

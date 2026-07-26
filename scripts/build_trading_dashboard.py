@@ -44,6 +44,19 @@ from pathlib import Path
 
 DS = {"type": "prometheus", "uid": "grafanacloud-prom"}
 
+# Longest gap a timeseries line may be drawn ACROSS, in milliseconds.
+# gc_pusher exports every 30s (GC_PERIOD_SEC), so 5 min is 10x cadence:
+# generous enough that a routine restart or a deploy's test-gate pause
+# stays one continuous line, decisive enough that real downtime reads as
+# a hole. `spanNulls: True` (the old value) connects ANY gap, which is
+# how the 2026-07-26 outage rendered: the bot was dark 03:05->14:55 UTC
+# and the equity + Brier panels drew smooth glides straight through the
+# dead air — an 11.8h hole that looked like a gentle trend, on the same
+# board where Feed latency (a `stat` sparkline, which never spanned)
+# showed the break honestly. A monitoring board that turns "the bot was
+# down" into "a mild decline" is worse than no board.
+SPAN_NULLS_MS = 300_000
+
 # Plain-language decode for every reason code that renders on a panel
 # ("decode them", 2026-07-25). Keys are the literal code strings from
 # core/codes.py; tests/test_trading_dashboard.py enforces FULL coverage of
@@ -281,7 +294,12 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
     fld = {"unit": unit, "custom": {
         "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
         "fillOpacity": fill, "gradientMode": "opacity",
-        "showPoints": "never", "spanNulls": True, "pointSize": 5,
+        # showPoints "auto" (not "never"): with a BOUNDED spanNulls a series
+        # can be left as isolated samples around an outage, and "never" would
+        # render those as nothing at all — a blank panel reads as "no problem"
+        # instead of "no data". "auto" only draws points when density is low,
+        # so at the 30s push cadence normal traces look unchanged.
+        "showPoints": "auto", "spanNulls": SPAN_NULLS_MS, "pointSize": 5,
         "axisPlacement": "auto",
         "scaleDistribution": {"type": "linear"}},
         "color": {"mode": "palette-classic"}}
@@ -890,6 +908,19 @@ def _positions_table():
 # ================= board 2 · models · inventory · execution ================
 def _author_execution():
     row("🧠 DECISION MODEL")
+    # Telemetry age FIRST on every board (2026-07-26): this board carries the
+    # Brier timeseries but had NO staleness cue at all, so during the 11.8h
+    # outage every tile here showed a confident pre-crash number with nothing
+    # to say the bot was dead. Value tiles reduce with lastNotNull, which
+    # keeps painting the last push forever; the age tile is what makes that
+    # honest. Same thresholds as the Command board's copy.
+    stat("Telemetry age", M("liquiditybot_status_age_sec"), 4, 5, unit="s",
+         decimals=0, mode="background", graph="none",
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 120},
+                {"color": "red", "value": 300}],
+         desc="Seconds since the runner last wrote status.json. Red = the "
+              "numbers on this board are stale, not calm.")
     stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)",
          4, 5, text_mode="name", steps=BLUE, graph="none",
          display_name="${__field.labels.kind}",
@@ -1172,9 +1203,19 @@ def _author_problem():
 # ==================== board 4 · asset screening ============================
 def _author_screening():
     row("🔎 SKIMMER — candidate universe")
-    stat("Candidates scanned", M("liquiditybot_skimmer_candidates"), 5, 5,
+    # see _author_execution: every board carries the staleness cue, because
+    # every value tile here reduces with lastNotNull and will happily show a
+    # pre-outage number as though it were live (2026-07-26)
+    stat("Telemetry age", M("liquiditybot_status_age_sec"), 4, 5, unit="s",
+         decimals=0, mode="background", graph="none",
+         steps=[{"color": "green", "value": None},
+                {"color": "yellow", "value": 120},
+                {"color": "red", "value": 300}],
+         desc="Seconds since the runner last wrote status.json. Red = the "
+              "numbers on this board are stale, not calm.")
+    stat("Candidates scanned", M("liquiditybot_skimmer_candidates"), 4, 5,
          decimals=0, steps=BLUE, desc="Off-universe pairs ranked.")
-    stat("Promoted", M("liquiditybot_skimmer_promoted_count"), 5, 5,
+    stat("Promoted", M("liquiditybot_skimmer_promoted_count"), 4, 5,
          decimals=0, steps=GRN, desc="Pairs promoted into the tradeable "
          "set.")
     stat("Positions open", M("liquiditybot_positions_open"), 4, 5, decimals=0,
