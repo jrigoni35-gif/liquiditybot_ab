@@ -68,6 +68,10 @@ def merge_skimmer_universe(config: dict,
         # read above degrades to []) can't KeyError on the write-back
         config.setdefault("exchanges", {}).setdefault(
             "kraken", {})["trading_pairs"] = core + extra
+        # Guard-visible provenance: promoted pairs already consumed the
+        # promotion budget, so config_guard must not count max_extra against
+        # them again (2026-07-25 false FATAL: 6 core + 6 merged read as 18).
+        config.setdefault("skimmer", {})["_merged_promoted"] = list(extra)
         log.warning("skimmer: universe widened for this boot: %d core + "
                     "promoted %s", len(core), extra)
     return extra

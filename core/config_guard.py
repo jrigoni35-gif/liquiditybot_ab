@@ -1628,9 +1628,15 @@ def validate(config: dict) -> list:
         # the REST-fallback envelope: with the WS down, N pairs cost
         # ~N*6 book calls + tickers + candles per 30s against 3 req/s (=90).
         # Past ~12 active pairs the fallback falls behind exactly when the
-        # primary feed is already degraded.
-        if len(core) + max_extra > 12:
-            fatal(f"skimmer: core ({len(core)}) + max_extra ({max_extra}) "
+        # primary feed is already degraded. `core` here already includes any
+        # promotions merge_skimmer_universe wrote back into trading_pairs, so
+        # subtract them (via the runtime-only _merged_promoted marker) before
+        # charging max_extra again — they already consumed the promotion
+        # budget once (2026-07-25 false FATAL: 6 core + 6 merged read as 18).
+        promoted = set(_f(config, "skimmer._merged_promoted", []) or [])
+        base = [c for c in core if c not in promoted]
+        if len(base) + max_extra > 12:
+            fatal(f"skimmer: core ({len(base)}) + max_extra ({max_extra}) "
                   f"exceeds the 12-pair REST-fallback envelope - a WS outage "
                   f"would starve the book poll at 3 req/s")
         pscore = float(_f(config, "skimmer.promote_score", 0.55))

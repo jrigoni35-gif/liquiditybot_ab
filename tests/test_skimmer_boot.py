@@ -33,6 +33,7 @@ def test_dry_run_merges_promotions(tmp_path):
     assert merged == ["SOL/USD", "ADA/USD"]
     assert cfg["exchanges"]["kraken"]["trading_pairs"] == \
         _CORE + ["SOL/USD", "ADA/USD"]
+    assert cfg["skimmer"]["_merged_promoted"] == merged
 
 
 def test_live_requires_explicit_flag(tmp_path):
@@ -56,8 +57,9 @@ def test_merge_validates_and_caps(tmp_path):
     path = _active(tmp_path, ["ETH/USD", "SOL/USD", "X/USDT", "ADA/USD",
                               "DOT/USD"])
     cfg = _cfg(max_extra=2)
-    assert merge_skimmer_universe(cfg, active_path=path) == \
-        ["SOL/USD", "ADA/USD"]
+    merged = merge_skimmer_universe(cfg, active_path=path)
+    assert merged == ["SOL/USD", "ADA/USD"]
+    assert cfg["skimmer"]["_merged_promoted"] == merged
 
 
 def test_missing_file_is_noop(tmp_path):
@@ -65,6 +67,7 @@ def test_missing_file_is_noop(tmp_path):
     assert merge_skimmer_universe(
         cfg, active_path=str(tmp_path / "absent.json")) == []
     assert cfg["exchanges"]["kraken"]["trading_pairs"] == _CORE
+    assert cfg["skimmer"].get("_merged_promoted", []) == []
 
 
 def test_engine_path_never_reads_promotions(tmp_path, monkeypatch):
