@@ -105,3 +105,30 @@ checks; PBO 0.07). The triggering diff (SZ-048 drought floor + test/doc
 pins, b550b6f..34bb82d) touches probe admission at runtime only — no
 corpus, model, or selection code. Conscious baseline: 5/3. The
 oscillation reading stands.
+
+Sixth crossing (2026-07-26, Phase-3 measured-headroom branch): 5/3 -> 4/4
+at 4,642 rows. Note the corpus is SMALLER than the fifth crossing's
+4,692 — not a loss: the raw file grew to 4,722 rows while clash-dedup
+absorbed more duplicate candidate/live pairs, so survivors fell. Row
+count alone is therefore not a monotone clock; read it with the dedup
+stats.
+
+Inertness proven in the strongest form yet: e843b92 (the pre-Phase-3
+main) checked out in a worktree and run against TODAY's corpus produces
+md5-identical PASS/FAIL verdict lines to HEAD (15bb8b6) —
+f68296e3775e3787f3c473c461563a92 on both sides, all eight checks,
+including the identical gap trio (0.186/0.224/0.278), pbo=0.23, and
+dead_frac=0.60. Phase 3 shipped four instruments (feature-stability
+screen, PBO variant axes, monotone GBT rung, loader epoch filter) and
+every one of them is inert by construction — flags default off and
+`scripts/overfit_check.py` never passes `epoch_cfg`.
+
+The flipped check is OF-7's dead-feature fraction (0.52 -> 0.60, gate
+0.55), a SINGLE-POINT reading at seed=7/n_splits=5. Phase 3's T3.1
+screen supersedes that view: across 3 seeds x 3 n_splits the same corpus
+yields 30-37 dead per combo but only 13 unanimously dead, and the
+three-snapshot intersection is 8 — of which only 5 clear the coverage
+floor in docs/quant/pbo_admission_policy.md. A single-point dead_frac is
+therefore a noisy estimator of the quantity the gate cares about; do not
+tune the gate to it. Conscious baseline: 4/4. The {3,4,5}-band
+oscillation reading stands, now with six documented crossings.
