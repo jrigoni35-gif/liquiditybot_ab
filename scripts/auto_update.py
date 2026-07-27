@@ -104,7 +104,8 @@ def _venv_python() -> str:
 def decide(local: str, remote: str, dirty: bool,
            remote_is_ancestor: bool = False,
            local_is_ancestor: bool = True) -> str:
-    """Pure decision (unit-testable): 'current' (nothing to do), 'ahead'
+    """Pure decision (unit-testable): 'current' (nothing to do, tree
+    matches git), 'ahead'
     (local is AHEAD of the remote tip — deploying would be a no-op or a
     rollback; never act), 'diverged' (histories split: local has commits the
     remote lacks AND the remote has commits local lacks, so neither is an
@@ -119,7 +120,13 @@ def decide(local: str, remote: str, dirty: bool,
     existing callers) — only an explicit local_is_ancestor=False can
     produce 'diverged'."""
     if not remote or remote == local:
-        return "current"
+        # No action either way — but the OUTCOME is the only off-box channel
+        # that can reveal operator edits (2026-07-27 divergence audit: a PC
+        # running locally-modified code stamped "current" for as long as no
+        # new remote commit arrived, so telemetry could not distinguish
+        # "runs the code in git" from "runs edits nobody reviewed"). A
+        # dirty tree therefore reports "dirty" even with nothing to pull.
+        return "dirty" if dirty else "current"
     if remote_is_ancestor:
         return "ahead"
     if not local_is_ancestor:

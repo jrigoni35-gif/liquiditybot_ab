@@ -27,9 +27,15 @@ def test_equal_heads_is_current():
     assert decide("abc123", "abc123", False) == "current"
 
 
-def test_equal_heads_current_even_when_dirty():
-    # nothing to pull -> local edits are irrelevant, no action
-    assert decide("abc123", "abc123", True) == "current"
+def test_equal_heads_dirty_tree_is_reported_not_hidden():
+    # 2026-07-27 divergence audit: equal heads used to win over dirty, so a
+    # PC running locally-edited code reported "current" off-box — the ONE
+    # channel that could reveal operator edits said everything matched git.
+    # Nothing to pull still means no action, but the OUTCOME must tell the
+    # truth: the stamp is observability, not just a deploy decision.
+    assert decide("abc123", "abc123", True) == "dirty"
+    assert decide("abc123", "", True) == "dirty"     # offline, still dirty
+    assert "dirty" in au.OK_OUTCOMES     # visible, but never an alarm state
 
 
 def test_new_commits_clean_tree_gates_on_battery():
