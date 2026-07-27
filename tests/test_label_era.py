@@ -328,3 +328,32 @@ def test_load_training_data_xyw_unchanged_by_label_era_instrumentation(
     assert np.array_equal(X, X2)
     assert np.array_equal(y, y2)
     assert np.array_equal(w, w2)
+
+
+# ---------------------------------------------------------------------
+# 6. V1 (geometry-alignment plan, task-1-brief.md / spec D6): pins the
+#    era-mapping foundation later tasks build on. tb_* barrier strings
+#    must route to the triple_barrier era regardless of row source (live
+#    or candidate) - label_era_of is a pure function of the barrier
+#    string alone, never the source column - while today's tier-policy
+#    realized reasons must NOT: that is the exact live-row exclusion Task
+#    5 closes by changing what live bracket closes EMIT, never by
+#    bending this map.
+# ---------------------------------------------------------------------
+
+def test_tb_realized_reasons_join_the_triple_barrier_era():
+    # Task 5 will make live bracket closes emit the label's own
+    # vocabulary; the era map must already route those rows into
+    # tb-era training regardless of row source (live or candidate).
+    from ml.history import LABEL_ERA_TRIPLE_BARRIER, label_era_of
+    for b in ("tb_pt", "tb_sl", "tb_time"):
+        assert label_era_of(b) == LABEL_ERA_TRIPLE_BARRIER
+
+
+def test_tier_policy_realized_reasons_stay_out_of_the_tb_era():
+    # the V1 hole, pinned: today's tier-exit live rows are OLD-era by
+    # definition of the era map - this is the exclusion Task 5 closes
+    # by changing what live closes EMIT, never by bending the map.
+    from ml.history import LABEL_ERA_TRIPLE_BARRIER, label_era_of
+    for b in ("tier", "trail", "floor", "realized", "time_stop"):
+        assert label_era_of(b) != LABEL_ERA_TRIPLE_BARRIER
