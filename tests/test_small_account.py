@@ -62,8 +62,21 @@ def test_hedge_floor_usable_at_small_equity():
 
 
 def test_guard_clean_at_small_capital():
+    # Subject: small-CAPITAL bootability. Profit goals scale with the
+    # capital this test shrinks: goals are absolute dollars sized to the
+    # SHIPPED capital (operator raised monthly to $350 on $5k,
+    # 2026-07-27), and shrinking capital 10x without shrinking the goal
+    # tests an incoherent combination the guard rightly FATALs
+    # (unreachable-goal reachability bound, 4x the hard-stop loss).
+    base_cap = float(_CFG["capital_management"]["starting_capital_usd"])
     for cap in (500, 800):
         cfg = json.loads(json.dumps(_CFG))          # deep copy
-        cfg["capital_management"]["starting_capital_usd"] = cap
+        cm = cfg["capital_management"]
+        cm["starting_capital_usd"] = cap
+        scale = cap / base_cap
+        cm["weekly_profit_goal_usd"] = round(
+            float(cm["weekly_profit_goal_usd"]) * scale, 2)
+        cm["monthly_profit_goal_usd"] = round(
+            float(cm["monthly_profit_goal_usd"]) * scale, 2)
         fatals = [m for s, m in validate(cfg) if s == "FATAL"]
         assert not fatals, f"at ${cap}: {fatals}"   # WARNs are advisory
