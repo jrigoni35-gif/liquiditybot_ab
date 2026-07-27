@@ -386,9 +386,20 @@ def test_committed_verifier_reports_mixed_commit(repos, tmp_path):
     # Build the corrupt tree DIRECTLY (mutate a manifest-listed file after
     # manifest write, commit with plain git) so the verifier is judged on
     # committed bytes, independent of push_bundle's own staging.
+    #
+    # PC-battery parity (this test's first version was REJECTED by the
+    # Windows updater, 2026-07-27): the PC commits under autocrlf=true, so
+    # a bundle committed WITHOUT the `* -text` pin gets its blobs EOL-
+    # normalized and the verifier correctly reports bytes != manifest —
+    # a true positive about the harness, not the code. Simulate the PC on
+    # every platform (autocrlf=true + CRLF payload) and stage the same
+    # -text pin production push_bundle writes, so blob == disk everywhere.
     root, _ = repos
+    _git("config", "core.autocrlf", "true", cwd=root)
+    (root / ".gitattributes").write_text("* -text\n", encoding="utf-8")
+    _git("add", ".gitattributes", cwd=root)
     b = _consistent_bundle(root / "sessions" / "mixed",
-                           '{"generated_at": 1.0}\n')
+                           '{"generated_at": 1.0}\r\n')
     _git("add", "-A", "--", "sessions/mixed", cwd=root)
     _git("commit", "-m", "good", cwd=root)
     good_commitish = subprocess.run(
