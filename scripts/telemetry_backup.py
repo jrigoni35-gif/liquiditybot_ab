@@ -109,6 +109,49 @@ def bundle_inconsistency(bundle: Path) -> str | None:
     return None
 
 
+def _run_bytes(argv: list, cwd: Path) -> bytes:
+    """Run a fixed-argv command returning RAW stdout bytes — the committed-
+    tree verifier hashes blobs, and text-mode decoding would corrupt CRLF
+    or non-UTF-8 bytes before they reach the hash."""
+    p = subprocess.run(argv, cwd=str(cwd), capture_output=True,  # nosec B603
+                       **_NOWIN)
+    if p.returncode != 0:
+        err = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
+        raise RuntimeError(
+            f"{' '.join(argv[:3])}… exit {p.returncode}: {err.strip()[:200]}")
+    return p.stdout
+
+
+def committed_bundle_inconsistency(repo: Path, rev: str,
+                                   label: str) -> str | None:
+    """Verify the bundle AS COMMITTED at `rev` against the manifest in that
+    same commit. Returns None when consistent, else a one-line reason.
+
+    WHY this exists on top of bundle_inconsistency(): the pre-push check
+    reads the bundle DIRECTORY, but what ships is what git STAGED — and
+    staging can diverge from disk (2026-07-27: `git add` under
+    core.checkStat=minimal kept a stale same-size/same-mtime-second
+    manifest blob while staging the fresh digest; 2026-07-18: autocrlf
+    rewrote sibling blobs at commit). Hashing the committed blobs is the
+    only check that sees exactly what a future restore will see."""
+    base = f"sessions/{label}"
+    try:
+        man = json.loads(_run_bytes(
+            ["git", "cat-file", "blob", f"{rev}:{base}/manifest.json"],
+            repo).decode("utf-8"))
+    except (RuntimeError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        return f"manifest unreadable in commit: {str(e)[:120]}"
+    for name, meta in (man.get("files") or {}).items():
+        try:
+            blob = _run_bytes(
+                ["git", "cat-file", "blob", f"{rev}:{base}/{name}"], repo)
+        except RuntimeError:
+            return f"{name}: listed in manifest but missing from commit"
+        if hashlib.sha256(blob).hexdigest() != (meta or {}).get("sha256"):
+            return f"{name}: committed bytes != manifest sha256"
+    return None
+
+
 def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
     """Commit `bundle` to sessions/<label>/ on the durable branch and push,
     in an isolated worktree so `root`'s checkout/index/branch are untouched.
@@ -180,6 +223,19 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
             # integrity check for every puller (lived 2026-07-18: one
             # pc-live push corrupted hourly-latest/nightshift/dated bundles).
             # A push must be idempotent w.r.t. bundles it is not writing.
+            #
+            # STAT-BLIND STAGING (2026-07-27 cloud-mirror corruption): drop
+            # this label's index entries before adding, so git hashes every
+            # file's CONTENT instead of trusting checkout-time stat data.
+            # Under core.checkStat=minimal (size + mtime-seconds only — the
+            # container's global git config) a replaced file whose size
+            # matches the checked-out one and whose copy2-preserved mtime
+            # lands in the same wall-clock second is silently kept at its
+            # stale blob: the first post-boot tick committed the previous
+            # tick's manifest (size-stable at 3291 bytes) with the fresh
+            # digest, and every later restore refused the bundle whole.
+            _run(["git", "rm", "-r", "-q", "--cached", "--ignore-unmatch",
+                  "--", f"sessions/{cfg['label']}"], cwd=wt)
             _run(["git", "add", "-A", "--", f"sessions/{cfg['label']}",
                   ".gitattributes"], cwd=wt)
             if not _run(["git", "status", "--porcelain"], cwd=wt):
@@ -188,9 +244,17 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
             _run(["git", "commit", "-m",
                   f"telemetry: sidecar backup @ {sha} "
                   f"({rows} rows, {cfg['label']})"], cwd=wt)
+            new = _run(["git", "rev-parse", "HEAD"], cwd=wt)
+            # LAST GATE before the tip changes: verify the bundle as
+            # COMMITTED, not as staged-from-disk — the restore hook will
+            # read these exact blobs. Raising here costs one tick; pushing
+            # an inconsistent commit costs every future cold start.
+            bad = committed_bundle_inconsistency(wt, new, cfg["label"])
+            if bad:
+                raise RuntimeError(
+                    f"refusing to push inconsistent commit: {bad}")
             if cfg["dry_run"]:
                 return f"DRY-RUN committed {rows} rows (not pushed)"
-            new = _run(["git", "rev-parse", "HEAD"], cwd=wt)
             _run(["git", "push", cfg["remote"],
                   f"{new}:refs/heads/{cfg['branch']}"], cwd=root)
             return f"pushed {rows} rows -> {cfg['branch']}"

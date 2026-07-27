@@ -284,6 +284,154 @@ def test_crlf_bundle_survives_autocrlf_pusher_byte_exact(repos, tmp_path):
     assert ".gitattributes" in _branch_files(bare)
 
 
+# ---------------------------------------------------------------------
+# Stat-blind staging (the 2026-07-27 cloud-mirror corruption): the first
+# push after a container boot committed the PREVIOUS tick's manifest with
+# the fresh tick's session_digest.json — an internally inconsistent bundle
+# every future restore refuses. Mechanism: `git worktree add` records
+# (size, mtime) per file in the fresh index; copytree/copy2 preserves the
+# bundle's mtimes; and under core.checkStat=minimal (the container's
+# global git config) `git add -A` trusts size+mtime-seconds alone. The
+# manifest is size-STABLE across generations (fixed-width timestamp,
+# 12-char sha, 64-char hashes: 3291 bytes every tick), so when the export
+# and the checkout landed in the same wall-clock second, git silently kept
+# the stale manifest blob while staging the (1-byte-different) digest.
+# The fix is two independent layers: staging drops the index entries
+# first (`git rm -r --cached`) so content is always hashed, and the
+# COMMITTED tree is re-verified against its own manifest before push.
+# ---------------------------------------------------------------------
+def _sha(p: Path) -> str:
+    import hashlib
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _consistent_bundle(d: Path, digest_body: str, rows=5) -> Path:
+    """A bundle whose manifest correctly hashes its files (passes both the
+    on-disk and the committed-tree checks when unmolested)."""
+    import json
+    d.mkdir(parents=True, exist_ok=True)
+    lines = ["position_id,feature_a"] + [f"p{i},{i}" for i in range(rows)]
+    (d / "signal_history.csv").write_text("\n".join(lines) + "\n",
+                                          encoding="utf-8")
+    (d / "session_digest.json").write_text(digest_body, encoding="utf-8")
+    files = {n: {"sha256": _sha(d / n), "bytes": (d / n).stat().st_size}
+             for n in ("signal_history.csv", "session_digest.json")}
+    (d / "manifest.json").write_text(
+        json.dumps({"files": files}, indent=2), encoding="utf-8")
+    return d
+
+
+def test_same_second_same_size_swap_cannot_ship_stale_manifest(
+        repos, tmp_path, monkeypatch):
+    import os
+    import shutil
+    import time
+    root, bare = repos
+    # the stat mode the incident shipped under; set explicitly so the test
+    # is hermetic on machines whose global config differs
+    _git("config", "core.checkStat", "minimal", cwd=root)
+    # v1 on the tip; v2's digest differs in SIZE (17- vs 16-char float repr,
+    # exactly the live incident) while both manifests are equal-length
+    v1 = _consistent_bundle(tmp_path / "v1",
+                            '{"generated_at": 1785151614.9607148}\n')
+    v2 = _consistent_bundle(tmp_path / "v2",
+                            '{"generated_at": 1785153507.328078}\n')
+    m1 = (v1 / "manifest.json").read_bytes()
+    m2 = (v2 / "manifest.json").read_bytes()
+    assert m1 != m2 and len(m1) == len(m2)   # the trap's precondition
+    assert tb.push_bundle(_cfg(), v1, root=root).startswith("pushed")
+
+    real_copytree = shutil.copytree
+
+    def trap_copytree(src, dst, **kw):
+        # Recreate the boot-tick timing deterministically: make the index
+        # record a past mtime for the checked-out bundle, then give the
+        # copied-in replacement files that SAME mtime-second.
+        wt = Path(dst).parents[1]
+        rel = str(Path(dst).relative_to(wt))
+        _git("checkout", "--", rel, cwd=wt)          # restore tip's copy
+        past = int(time.time()) - 10
+        for f in Path(dst).rglob("*"):
+            if f.is_file():
+                os.utime(f, (past, past))
+        _git("update-index", "--refresh", cwd=wt)    # index: mtime=past
+        shutil.rmtree(dst)
+        real_copytree(src, dst, **kw)
+        for f in Path(dst).rglob("*"):
+            if f.is_file():
+                os.utime(f, (past, past))            # same second, same size
+        return dst
+
+    monkeypatch.setattr(tb.shutil, "copytree", trap_copytree)
+    tb.push_bundle(_cfg(), v2, root=root)
+    # the committed bundle must be v2 WHOLE: fresh manifest, and internally
+    # consistent (extract the tip and run the same check the restore uses)
+    got = subprocess.run(
+        ["git", "cat-file", "-p",
+         "paper-telemetry:sessions/nightshift/manifest.json"],
+        cwd=str(bare), check=True, capture_output=True).stdout
+    assert got == m2                       # stale-manifest mix = the incident
+    ext = tmp_path / "extracted"
+    ext.mkdir()
+    for n in ("manifest.json", "signal_history.csv", "session_digest.json"):
+        blob = subprocess.run(
+            ["git", "cat-file", "-p",
+             f"paper-telemetry:sessions/nightshift/{n}"],
+            cwd=str(bare), check=True, capture_output=True).stdout
+        (ext / n).write_bytes(blob)
+    assert tb.bundle_inconsistency(ext) is None
+
+
+def test_committed_verifier_reports_mixed_commit(repos, tmp_path):
+    # Build the corrupt tree DIRECTLY (mutate a manifest-listed file after
+    # manifest write, commit with plain git) so the verifier is judged on
+    # committed bytes, independent of push_bundle's own staging.
+    root, _ = repos
+    b = _consistent_bundle(root / "sessions" / "mixed",
+                           '{"generated_at": 1.0}\n')
+    _git("add", "-A", "--", "sessions/mixed", cwd=root)
+    _git("commit", "-m", "good", cwd=root)
+    good_commitish = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(root), check=True,
+        capture_output=True, text=True).stdout.strip()
+    assert tb.committed_bundle_inconsistency(root, good_commitish,
+                                             "mixed") is None
+    (b / "session_digest.json").write_text('{"generated_at": 2.0}\n',
+                                           encoding="utf-8")
+    _git("add", "-A", "--", "sessions/mixed", cwd=root)
+    _git("commit", "-m", "mixed", cwd=root)
+    bad = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(root), check=True,
+        capture_output=True, text=True).stdout.strip()
+    reason = tb.committed_bundle_inconsistency(root, bad, "mixed")
+    assert reason is not None and "session_digest.json" in reason
+    # a manifest-listed file absent from the commit is also inconsistent
+    _git("rm", "-q", "sessions/mixed/session_digest.json", cwd=root)
+    _git("commit", "-m", "missing", cwd=root)
+    gone = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(root), check=True,
+        capture_output=True, text=True).stdout.strip()
+    reason = tb.committed_bundle_inconsistency(root, gone, "mixed")
+    assert reason is not None and "missing" in reason
+
+
+def test_push_refused_when_committed_tree_inconsistent(
+        repos, tmp_path, monkeypatch):
+    root, bare = repos
+    tb.push_bundle(_cfg(), _make_bundle(tmp_path / "a", 5), root=root)
+    tip_before = subprocess.run(
+        ["git", "rev-parse", "paper-telemetry"], cwd=str(bare),
+        check=True, capture_output=True, text=True).stdout.strip()
+    monkeypatch.setattr(tb, "committed_bundle_inconsistency",
+                        lambda repo, rev, label: "boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        tb.push_bundle(_cfg(), _make_bundle(tmp_path / "b", 6), root=root)
+    tip_after = subprocess.run(
+        ["git", "rev-parse", "paper-telemetry"], cwd=str(bare),
+        check=True, capture_output=True, text=True).stdout.strip()
+    assert tip_before == tip_after         # garbage never becomes the tip
+
+
 def test_push_only_touches_its_own_label_never_siblings(repos, tmp_path):
     # regression (2026-07-18): push_bundle used `git add -A`, which re-staged
     # EVERY sibling bundle. Combined with the -text pin and a Windows
