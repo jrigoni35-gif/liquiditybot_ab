@@ -746,6 +746,212 @@ def test_collect_long_book_empty_section_emits_nothing(tmp_path):
     assert not [n for n in names if n.startswith("liquiditybot_longbook_")]
 
 
+# ---- label-era transition (era-gated training exclusion, docs/quant/
+# 2026-07-26_era_exclusion.md) — ml.load_stats' era_exclusion/label_era/
+# era_mix_drift blocks (ml/history.py last_load_stats, written verbatim by
+# runner.py). Shapes copied from the brief's measured example (the bot's
+# own status.json the morning the era machinery went live).
+def _era_load_stats(**over):
+    ls = {
+        "live_clean": 233, "mean_uniqueness": 0.42,
+        "era_exclusion": {
+            "armed": True, "active": True, "forced_off": False,
+            "forced_on": False, "min_new_era_rows": 150,
+            "new_era_rows": 233,
+            "excluded": {
+                "total": 4850,
+                "by_era_source": {
+                    "exit_sim_time_stop": {"candidate": 457},
+                    "exit_sim": {"candidate": 2436, "live": 195},
+                    "legacy": {"live": 47, "candidate": 1715},
+                }}},
+        "label_era": {
+            "triple_barrier": {
+                "rows": 233, "label_rate": 0.3991,
+                "by_reason": {
+                    "tb_pt": {"rows": 103, "label_rate": 0.8738},
+                    "tb_sl": {"rows": 122, "label_rate": 0.0},
+                    "tb_time": {"rows": 8, "label_rate": 0.375}}},
+            "legacy": {"rows": 1762, "label_rate": 0.2611, "by_reason": {}},
+            "exit_sim": {"rows": 2436, "label_rate": 0.1345, "by_reason": {}},
+            "exit_sim_time_stop": {"rows": 457, "label_rate": 0.0066,
+                                   "by_reason": {}},
+        },
+        "era_mix_drift": {"tvd": 0.41, "fired": True, "n_recent": 233,
+                          "n_total": 4897},
+    }
+    ls.update(over)
+    return ls
+
+
+def test_collect_emits_era_exclusion_and_label_era_metrics(tmp_path):
+    status = {"written_at": time.time(), "ml": {"load_stats": _era_load_stats()}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    names = _names(m)
+    for expect in ("liquiditybot_era_excl_armed", "liquiditybot_era_excl_active",
+                   "liquiditybot_era_excl_new_rows", "liquiditybot_era_excl_min_rows",
+                   "liquiditybot_era_excl_dropped", "liquiditybot_era_rows",
+                   "liquiditybot_era_label_rate", "liquiditybot_era_reason_rows",
+                   "liquiditybot_era_reason_label_rate",
+                   "liquiditybot_era_mix_tvd", "liquiditybot_era_mix_alarm"):
+        assert expect in names, f"missing metric {expect}"
+
+    assert _val(m, "liquiditybot_era_excl_armed") == 1.0
+    assert _val(m, "liquiditybot_era_excl_active") == 1.0
+    assert _val(m, "liquiditybot_era_excl_new_rows") == 233.0
+    assert _val(m, "liquiditybot_era_excl_min_rows") == 150.0
+    assert _val(m, "liquiditybot_era_excl_dropped") == 4850.0
+
+    # the 0.0066 -> 0.3991 repair, one series per era
+    assert _val(m, "liquiditybot_era_label_rate",
+                era="triple_barrier") == pytest.approx(0.3991)
+    assert _val(m, "liquiditybot_era_label_rate",
+                era="exit_sim_time_stop") == pytest.approx(0.0066)
+    assert _val(m, "liquiditybot_era_label_rate",
+                era="exit_sim") == pytest.approx(0.1345)
+    assert _val(m, "liquiditybot_era_label_rate",
+                era="legacy") == pytest.approx(0.2611)
+    assert _val(m, "liquiditybot_era_rows", era="triple_barrier") == 233.0
+
+    # tb_pt high / tb_sl zero / tb_time mixed — the healthy-label signature
+    assert _val(m, "liquiditybot_era_reason_label_rate",
+                era="triple_barrier", reason="tb_pt") == pytest.approx(0.8738)
+    assert _val(m, "liquiditybot_era_reason_label_rate",
+                era="triple_barrier", reason="tb_sl") == pytest.approx(0.0)
+    assert _val(m, "liquiditybot_era_reason_label_rate",
+                era="triple_barrier", reason="tb_time") == pytest.approx(0.375)
+    assert _val(m, "liquiditybot_era_reason_rows",
+                era="triple_barrier", reason="tb_pt") == 103.0
+
+    assert _val(m, "liquiditybot_era_mix_tvd") == pytest.approx(0.41)
+    assert _val(m, "liquiditybot_era_mix_alarm") == 1.0
+
+
+def test_collect_era_load_stats_empty_emits_nothing(tmp_path):
+    # a just-restarted bot with no retrain yet — ml.load_stats == {} — must
+    # emit NOTHING for the era section (never zeros: a zero would read as
+    # "exclusion off" when the truth is "not yet measured")
+    status = {"written_at": time.time(), "ml": {"load_stats": {}}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_era_")]
+
+
+def test_collect_era_pre_era_task_status_has_no_excl_block(tmp_path):
+    # older ml.load_stats (live_clean/mean_uniqueness only, predating the
+    # era-exclusion task) has no era_exclusion/label_era/era_mix_drift keys
+    # at all — the armed/active gauges must not fabricate a 0
+    status = {"written_at": time.time(),
+              "ml": {"load_stats": {"live_clean": 40, "mean_uniqueness": 0.3}}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_era_")]
+    assert "liquiditybot_ml_live_clean" in names   # rest of the block unaffected
+
+
+def test_collect_era_cardinality_clamp_garbage_strings(tmp_path):
+    # a malformed era/reason string must clamp to "other", never mint a new
+    # Prometheus series from garbage
+    ls = _era_load_stats()
+    ls["label_era"] = {
+        "totally-not-a-real-era": {
+            "rows": 5, "label_rate": 0.2,
+            "by_reason": {"nonsense-barrier-xyz": {"rows": 5,
+                                                     "label_rate": 0.2}}}}
+    status = {"written_at": time.time(), "ml": {"load_stats": ls}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_era_rows", era="other") == 5.0
+    assert _val(m, "liquiditybot_era_rows", era="totally-not-a-real-era") is None
+    assert _val(m, "liquiditybot_era_reason_rows", era="other",
+                reason="other") == 5.0
+    assert _val(m, "liquiditybot_era_reason_rows", era="other",
+                reason="nonsense-barrier-xyz") is None
+
+
+def test_collect_era_reason_blank_clamps_to_none(tmp_path):
+    ls = _era_load_stats()
+    ls["label_era"] = {"exit_sim": {
+        "rows": 10, "label_rate": 0.5,
+        "by_reason": {"": {"rows": 10, "label_rate": 0.5}}}}
+    status = {"written_at": time.time(), "ml": {"load_stats": ls}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_era_reason_rows", era="exit_sim",
+                reason="none") == 10.0
+
+
+def test_collect_era_mix_drift_silent_below_min_rows_emits_nothing(tmp_path):
+    # _era_mix_drift_check returns tvd=None (SILENT) when the recent window
+    # has too few rows to trust its own mix — honest-unknown, never a
+    # fabricated 0/"not exceeded"
+    ls = _era_load_stats(era_mix_drift={"tvd": None, "fired": False,
+                                        "n_recent": 3, "n_total": 50})
+    status = {"written_at": time.time(), "ml": {"load_stats": ls}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert "liquiditybot_era_mix_tvd" not in names
+    assert "liquiditybot_era_mix_alarm" not in names
+
+
+def test_collect_era_exclusion_inert_shape(tmp_path):
+    # era_cfg=None caller (structurally inert): armed=active=False, no
+    # rows excluded — must still emit real 0-valued gauges (this IS a
+    # measured state, not an absence)
+    ls = _era_load_stats(era_exclusion={
+        "armed": False, "active": False, "forced_off": False,
+        "forced_on": False, "min_new_era_rows": 150, "new_era_rows": 12,
+        "excluded": {"total": 0, "by_era_source": {}}})
+    status = {"written_at": time.time(), "ml": {"load_stats": ls}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_era_excl_armed") == 0.0
+    assert _val(m, "liquiditybot_era_excl_active") == 0.0
+    assert _val(m, "liquiditybot_era_excl_new_rows") == 12.0
+    assert _val(m, "liquiditybot_era_excl_dropped") == 0.0
+
+
+def test_collect_era_survives_malformed_entries(tmp_path):
+    # a non-dict era-block or reason-block value must be skipped, never
+    # crash and black out the whole metric batch
+    ls = _era_load_stats()
+    ls["label_era"] = {
+        "legacy": "garbage",
+        "exit_sim": {"rows": 4, "label_rate": 0.1, "by_reason": {
+            "sl": "garbage", "time": {"rows": 4, "label_rate": 0.1}}}}
+    status = {"written_at": time.time(), "halted": True,
+              "ml": {"load_stats": ls}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))                    # must not raise
+    assert _by_name(m, "liquiditybot_halted")  # rest of the batch still ships
+    assert _val(m, "liquiditybot_era_rows", era="legacy") is None
+    assert _val(m, "liquiditybot_era_reason_rows", era="exit_sim",
+                reason="sl") is None
+    assert _val(m, "liquiditybot_era_reason_rows", era="exit_sim",
+                reason="time") == 4.0
+
+
+def test_collect_era_stale_batch_never_includes_era_metrics(tmp_path):
+    # DL-6: a status.json older than STALE_AFTER_SEC pushes the alarm-only
+    # batch; a stale era snapshot must never masquerade as current
+    status = {"written_at": time.time() - 600,
+              "ml": {"load_stats": _era_load_stats()}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    names = _names(gp.collect(str(p)))
+    assert not [n for n in names if n.startswith("liquiditybot_era_")]
+    assert "liquiditybot_status_stale" in names
+
+
 def test_collect_long_book_survives_malformed_values(tmp_path):
     # non-numeric rung/ceiling/exposure/adds and a non-bool
     # context_aligned_last must be skipped, never crash and black out the

@@ -67,10 +67,47 @@ _SYNTH_STATUS = {
            "smc_faults": 0, "retrain_failures": 0, "retrain_flag": False,
            "model_kind": "blend",
            "labels_by_source": {"live": 20, "candidate": 80},
-           # AFML corpus-quality stats (history.last_load_stats via runner)
+           # AFML corpus-quality stats (history.last_load_stats via runner),
+           # extended with the era-gated training exclusion + label-era
+           # transition instrumentation (docs/quant/2026-07-26_era_
+           # exclusion.md) — shapes copied verbatim from the brief's
+           # measured example (the bot's own status.json the morning the
+           # era machinery went live).
            "load_stats": {"live_clean": 20, "mean_uniqueness": 0.42,
                           "dropped_dirty": 0, "dropped_clash": 3,
-                          "prior_skew": False},
+                          "prior_skew": False,
+                          "era_exclusion": {
+                              "armed": True, "active": True,
+                              "forced_off": False, "forced_on": False,
+                              "min_new_era_rows": 150, "new_era_rows": 233,
+                              "excluded": {
+                                  "total": 4850,
+                                  "by_era_source": {
+                                      "exit_sim_time_stop": {"candidate": 457},
+                                      "exit_sim": {"candidate": 2436,
+                                                   "live": 195},
+                                      "legacy": {"live": 47,
+                                                 "candidate": 1715}}}},
+                          "label_era": {
+                              "triple_barrier": {
+                                  "rows": 233, "label_rate": 0.3991,
+                                  "by_reason": {
+                                      "tb_pt": {"rows": 103,
+                                                "label_rate": 0.8738},
+                                      "tb_sl": {"rows": 122,
+                                                "label_rate": 0.0},
+                                      "tb_time": {"rows": 8,
+                                                  "label_rate": 0.375}}},
+                              "legacy": {"rows": 1762, "label_rate": 0.2611,
+                                        "by_reason": {}},
+                              "exit_sim": {"rows": 2436,
+                                          "label_rate": 0.1345,
+                                          "by_reason": {}},
+                              "exit_sim_time_stop": {"rows": 457,
+                                                     "label_rate": 0.0066,
+                                                     "by_reason": {}}},
+                          "era_mix_drift": {"tvd": 0.41, "fired": True,
+                                           "n_recent": 233, "n_total": 4897}},
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
                           "weights": {"if_1_flow_persistence": 0.9}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,

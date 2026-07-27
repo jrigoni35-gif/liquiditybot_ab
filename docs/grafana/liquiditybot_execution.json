@@ -1415,6 +1415,141 @@
     },
     {
       "id": 16,
+      "type": "bargauge",
+      "title": "New-era outcomes by barrier",
+      "description": "Label rate per exit reason on NEW-era (triple_barrier) rows. Healthy signature: tb_pt high (profit-taking barrier), tb_sl ~0 (stop-loss barrier — expected, not a fault), tb_time mixed (no-move rows).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_era_reason_label_rate{era=\"triple_barrier\",job=\"liquiditybot\"}*100",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Era mix drift (TVD)",
+      "description": "ML-080: recent-window exit-reason mix vs the trailing corpus mix (total-variation distance). Yellow at 0.30 (era_mix_drift_tvd_threshold) — detection only, never gates training or reweights a row.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.3
+              },
+              {
+                "color": "#FF453A",
+                "value": 0.5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_era_mix_tvd{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 18,
       "type": "row",
       "title": "📦 INVENTORY & POSITIONING",
       "collapsed": false,
@@ -1422,12 +1557,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 30
       },
       "panels": []
     },
     {
-      "id": 17,
+      "id": 19,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -1439,7 +1574,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1493,7 +1628,7 @@
       "transparent": true
     },
     {
-      "id": 18,
+      "id": 20,
       "type": "gauge",
       "title": "Portfolio heat",
       "description": "CVaR portfolio heat vs cap.",
@@ -1505,7 +1640,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1559,7 +1694,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 21,
       "type": "stat",
       "title": "Open positions",
       "description": "Open count (max 5).",
@@ -1571,7 +1706,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1622,7 +1757,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 22,
       "type": "stat",
       "title": "Open risk",
       "description": "$ at risk to stops.",
@@ -1634,7 +1769,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1685,7 +1820,7 @@
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 23,
       "type": "stat",
       "title": "Open uPnL",
       "description": "Unrealized across positions.",
@@ -1697,7 +1832,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1752,7 +1887,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 24,
       "type": "stat",
       "title": "Gross exposure $",
       "description": "Gross notional $.",
@@ -1764,7 +1899,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 24
+        "y": 31
       },
       "fieldConfig": {
         "defaults": {
@@ -1815,7 +1950,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 25,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -1827,7 +1962,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 36
       },
       "fieldConfig": {
         "defaults": {
@@ -2217,7 +2352,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 26,
       "type": "bargauge",
       "title": "uPnL by instrument",
       "description": "Unrealized P&L ranked across open instruments.",
@@ -2229,7 +2364,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 36
       },
       "fieldConfig": {
         "defaults": {
@@ -2286,7 +2421,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 27,
       "type": "row",
       "title": "⚡ EXECUTION QUALITY",
       "collapsed": false,
@@ -2294,12 +2429,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 41
       },
       "panels": []
     },
     {
-      "id": 26,
+      "id": 28,
       "type": "piechart",
       "title": "Maker / taker mix",
       "description": "Fill composition — maker is the cheap side; the exit ladder's final rung is the only taker path.",
@@ -2311,7 +2446,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 35
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -2405,7 +2540,7 @@
       "transparent": true
     },
     {
-      "id": 27,
+      "id": 29,
       "type": "bargauge",
       "title": "Slippage vs arrival (bps)",
       "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement).",
@@ -2417,7 +2552,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 35
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -2489,7 +2624,7 @@
       "transparent": true
     },
     {
-      "id": 28,
+      "id": 30,
       "type": "bargauge",
       "title": "Fills — maker vs taker",
       "description": "Fill counts in the window; taker fills are exit-ladder rungs.",
@@ -2501,7 +2636,7 @@
         "h": 6,
         "w": 6,
         "x": 12,
-        "y": 35
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -2565,7 +2700,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 31,
       "type": "bargauge",
       "title": "Notional — maker vs taker ($)",
       "description": "Filled notional split by liquidity side.",
@@ -2577,7 +2712,7 @@
         "h": 6,
         "w": 6,
         "x": 18,
-        "y": 35
+        "y": 42
       },
       "fieldConfig": {
         "defaults": {
@@ -2641,7 +2776,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 32,
       "type": "stat",
       "title": "Venue RTT",
       "description": "Private POST RTT (order path).",
@@ -2653,7 +2788,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 41
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -2712,7 +2847,7 @@
       "transparent": true
     },
     {
-      "id": 31,
+      "id": 33,
       "type": "stat",
       "title": "Venue rejects",
       "description": "OM-021 AddOrder rejects.",
@@ -2724,7 +2859,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 41
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -2783,7 +2918,7 @@
       "transparent": true
     },
     {
-      "id": 32,
+      "id": 34,
       "type": "stat",
       "title": "Dead-man failures",
       "description": "OM-050 refresh failures — resting orders unguarded.",
@@ -2795,7 +2930,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 41
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -2850,7 +2985,7 @@
       "transparent": true
     },
     {
-      "id": 33,
+      "id": 35,
       "type": "gauge",
       "title": "Maker share",
       "description": "% fills that were maker (cheaper).",
@@ -2862,7 +2997,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 41
+        "y": 48
       },
       "fieldConfig": {
         "defaults": {
@@ -2917,7 +3052,7 @@
       "transparent": true
     },
     {
-      "id": 34,
+      "id": 36,
       "type": "table",
       "title": "Post-fill mark-out (adverse selection)",
       "description": "Price drift after our fill at 5/30/60s per asset; persistently negative = picked off. Absent cells (·) = no fills measured at that horizon yet.",
@@ -2929,7 +3064,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 52
       },
       "fieldConfig": {
         "defaults": {
@@ -3163,7 +3298,7 @@
       "transparent": true
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "row",
       "title": "🎯 CONVICTION — admission detail",
       "collapsed": true,
@@ -3171,11 +3306,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 58
       },
       "panels": [
         {
-          "id": 36,
+          "id": 38,
           "type": "stat",
           "title": "Evaluated",
           "description": "Total conviction-channel evaluations since boot.",
@@ -3187,7 +3322,7 @@
             "h": 5,
             "w": 4,
             "x": 0,
-            "y": 52
+            "y": 59
           },
           "fieldConfig": {
             "defaults": {
@@ -3239,7 +3374,7 @@
           "transparent": true
         },
         {
-          "id": 37,
+          "id": 39,
           "type": "stat",
           "title": "Admitted",
           "description": "Total conviction admits since boot.",
@@ -3251,7 +3386,7 @@
             "h": 5,
             "w": 4,
             "x": 4,
-            "y": 52
+            "y": 59
           },
           "fieldConfig": {
             "defaults": {
@@ -3303,7 +3438,7 @@
           "transparent": true
         },
         {
-          "id": 38,
+          "id": 40,
           "type": "stat",
           "title": "Admit share",
           "description": "Rolling admit share over the cadence window.",
@@ -3315,7 +3450,7 @@
             "h": 5,
             "w": 4,
             "x": 8,
-            "y": 52
+            "y": 59
           },
           "fieldConfig": {
             "defaults": {
@@ -3367,7 +3502,7 @@
           "transparent": true
         },
         {
-          "id": 39,
+          "id": 41,
           "type": "stat",
           "title": "Alarm",
           "description": "Cadence governor: sustained admit share outside [share_lo, share_hi].",
@@ -3379,7 +3514,7 @@
             "h": 5,
             "w": 4,
             "x": 12,
-            "y": 52
+            "y": 59
           },
           "fieldConfig": {
             "defaults": {
@@ -3453,7 +3588,7 @@
           "transparent": true
         },
         {
-          "id": 40,
+          "id": 42,
           "type": "bargauge",
           "title": "Regime window size (n)",
           "description": "Rolling-window sample count per regime — alarms only fire once a regime clears share_min_n.",
@@ -3465,7 +3600,7 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 52
+            "y": 59
           },
           "fieldConfig": {
             "defaults": {
@@ -3518,7 +3653,7 @@
           "transparent": true
         },
         {
-          "id": 41,
+          "id": 43,
           "type": "table",
           "title": "Denials by code (detail)",
           "description": "CV-* disposition tally in full detail.",
@@ -3530,7 +3665,7 @@
             "h": 5,
             "w": 16,
             "x": 0,
-            "y": 57
+            "y": 64
           },
           "fieldConfig": {
             "defaults": {
@@ -3831,7 +3966,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 63
+        "y": 70
       },
       "transparent": true,
       "options": {

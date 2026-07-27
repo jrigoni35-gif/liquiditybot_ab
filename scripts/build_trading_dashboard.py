@@ -698,6 +698,24 @@ def _author_command():
           desc="ML-074: trailing-window label prior vs corpus prior — "
                "SKEWED = a one-sided batch (e.g. all-zero quiet weekend) "
                "is moving calibration; detection only, weights untouched.")
+    stat("New-era rows", M("liquiditybot_era_excl_new_rows"), 4, 4,
+         decimals=0, steps=[{"color": "text", "value": None},
+         {"color": "green", "value": 150}],
+         desc="Corpus rows tagged the NEW label era (triple_barrier). "
+              "Arms the era exclusion at 150 (min_new_era_rows) — the "
+              "floor past which old-era rows stop training the model.")
+    state("Era exclusion", M("liquiditybot_era_excl_active"), 4, 4,
+          {"0": ("INERT", "blue"), "1": ("ACTIVE", "green")},
+          desc="ACTIVE = old-era rows (legacy/exit_sim/exit_sim_time_stop), "
+               "INCLUDING live, are excluded from training — see "
+               "liquiditybot_era_excl_dropped for the row count.")
+    timeseries("Label rate by era",
+               'max by (era) (liquiditybot_era_label_rate' + JOB + ')',
+               16, 6, unit="percentunit", legend="{{era}}", decimals=2,
+               desc="Per-era label rate on the surviving corpus — the "
+                    "instrument that shows the 0.0066 (exit_sim_time_stop) "
+                    "-> 0.3991 (triple_barrier) repair as the new era "
+                    "takes over.")
 
     row("⚖️ EDGE — per-asset performance", collapsed=True)
     bargauge("Net $ by asset", _pa("liquiditybot_perf_asset_net_usd"), 8, 8,
@@ -972,6 +990,20 @@ def _author_execution():
     table("Learned gate weights", 8, 5,
           cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD, "text")],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
+    bargauge("New-era outcomes by barrier",
+             'liquiditybot_era_reason_label_rate{era="triple_barrier",'
+             'job="liquiditybot"}*100', 16, 6, unit="percent", decimals=1,
+             steps=BLUE, legend="{{reason}}",
+             desc="Label rate per exit reason on NEW-era (triple_barrier) "
+                  "rows. Healthy signature: tb_pt high (profit-taking "
+                  "barrier), tb_sl ~0 (stop-loss barrier — expected, not "
+                  "a fault), tb_time mixed (no-move rows).")
+    stat("Era mix drift (TVD)", M("liquiditybot_era_mix_tvd"), 8, 6,
+         decimals=3, steps=DRIFT,
+         desc="ML-080: recent-window exit-reason mix vs the trailing "
+              "corpus mix (total-variation distance). Yellow at 0.30 "
+              "(era_mix_drift_tvd_threshold) — detection only, never "
+              "gates training or reweights a row.")
 
     row("📦 INVENTORY & POSITIONING")
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5,

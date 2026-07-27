@@ -79,6 +79,30 @@ def _num(x, default: float = 0.0) -> float:
 STALE_AFTER_SEC = 120.0    # runner writes ~2s cadence; 120s = frozen/dead
                            # (mirrors the watchdog's stale_critical_sec)
 
+# ---- label-era transition cardinality clamp (docs/quant/2026-07-26_
+# era_exclusion.md) — bounded label sets, matching ml/history.py's own
+# vocabularies (label_era_of's four known eras + "unknown", and the
+# triple_barrier-mode / exit_sim-mode barrier strings). Cardinality is
+# bounded or it does not ship: a malformed/garbage era or exit-reason
+# string from a corrupted status.json must never mint a new Prometheus
+# series — it clamps to "other" (or "none" for a blank reason) instead.
+_ERA_KNOWN = frozenset({"legacy", "exit_sim", "exit_sim_time_stop",
+                        "triple_barrier", "unknown"})
+_REASON_KNOWN = frozenset({"pt", "sl", "time", "trail", "realized", "tier",
+                          "floor", "time_stop", "tb_pt", "tb_sl", "tb_time"})
+
+
+def _era_label(era) -> str:
+    e = str(era or "").strip()
+    return e if e in _ERA_KNOWN else "other"
+
+
+def _reason_label(reason) -> str:
+    r = str(reason or "").strip()
+    if not r:
+        return "none"
+    return r if r in _REASON_KNOWN else "other"
+
 
 def collect(status_path: str) -> list:
     # W2-14 re-decision (2026-07-23, operator-delegated): a missing or
@@ -528,6 +552,79 @@ def collect(status_path: str) -> list:
     if "prior_skew" in ls:
         m.append(gauge("liquiditybot_ml_prior_skew",
                        1.0 if ls.get("prior_skew") else 0.0, ts=ts))
+    # ---- label-era transition (era-gated training exclusion, docs/quant/
+    # 2026-07-26_era_exclusion.md) — armed/active decision, dropped-row
+    # count, per-era/per-exit-reason row counts and label rates (the
+    # 0.0066->0.3991 repair this instrumentation exists to show), and the
+    # ML-080 barrier-mix drift alarm. All read from ml.load_stats (ml/
+    # history.py's last_load_stats, written verbatim by runner.py).
+    # load_stats == {} (a just-restarted bot, no retrain yet — observed
+    # live for hours) emits NOTHING here, same silent degrade as every
+    # other ls-scoped gauge above: a fabricated 0 would read as
+    # "exclusion off" when the truth is "not yet measured".
+    if ls:
+        excl = ls.get("era_exclusion") or {}
+        if excl:      # sub-block itself present (a pre-era-task status.json
+                       # has ls non-empty but no era_exclusion key at all)
+            m.append(gauge("liquiditybot_era_excl_armed",
+                           1.0 if excl.get("armed") else 0.0, ts=ts))
+            m.append(gauge("liquiditybot_era_excl_active",
+                           1.0 if excl.get("active") else 0.0, ts=ts))
+            new_rows = excl.get("new_era_rows")
+            if isinstance(new_rows, (int, float)) \
+                    and not isinstance(new_rows, bool):
+                m.append(gauge("liquiditybot_era_excl_new_rows", new_rows,
+                               ts=ts))
+            min_rows = excl.get("min_new_era_rows")
+            if isinstance(min_rows, (int, float)) \
+                    and not isinstance(min_rows, bool):
+                m.append(gauge("liquiditybot_era_excl_min_rows", min_rows,
+                               ts=ts))
+            dropped = (excl.get("excluded") or {}).get("total")
+            if isinstance(dropped, (int, float)) \
+                    and not isinstance(dropped, bool):
+                m.append(gauge("liquiditybot_era_excl_dropped", dropped,
+                               ts=ts))
+        for era, eb in (ls.get("label_era") or {}).items():
+            if not isinstance(eb, dict):
+                continue        # malformed era entry: skip, never crash
+            era_lab = _era_label(era)
+            rows = eb.get("rows")
+            if isinstance(rows, (int, float)) and not isinstance(rows, bool):
+                m.append(gauge("liquiditybot_era_rows", rows,
+                               {"era": era_lab}, ts))
+            rate = eb.get("label_rate")
+            if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+                m.append(gauge("liquiditybot_era_label_rate", rate,
+                               {"era": era_lab}, ts))
+            for reason, rb in (eb.get("by_reason") or {}).items():
+                if not isinstance(rb, dict):
+                    continue    # malformed reason entry: skip, never crash
+                reason_lab = _reason_label(reason)
+                r_rows = rb.get("rows")
+                if isinstance(r_rows, (int, float)) \
+                        and not isinstance(r_rows, bool):
+                    m.append(gauge("liquiditybot_era_reason_rows", r_rows,
+                                   {"era": era_lab, "reason": reason_lab},
+                                   ts))
+                r_rate = rb.get("label_rate")
+                if isinstance(r_rate, (int, float)) \
+                        and not isinstance(r_rate, bool):
+                    m.append(gauge("liquiditybot_era_reason_label_rate",
+                                   r_rate,
+                                   {"era": era_lab, "reason": reason_lab},
+                                   ts))
+        # ML-080 barrier-mix drift: tvd is None (SILENT — too few recent
+        # rows to trust the mix) whenever _era_mix_drift_check declines to
+        # fire; honest-unknown, never a fabricated 0/"not exceeded" — the
+        # alarm gauge only ships alongside a real tvd value.
+        mix = ls.get("era_mix_drift")
+        if isinstance(mix, dict):
+            tvd = mix.get("tvd")
+            if isinstance(tvd, (int, float)) and not isinstance(tvd, bool):
+                m.append(gauge("liquiditybot_era_mix_tvd", tvd, ts=ts))
+                m.append(gauge("liquiditybot_era_mix_alarm",
+                               1.0 if mix.get("fired") else 0.0, ts=ts))
     m.append(gauge("liquiditybot_audit_dropped_writes",
                    float(s.get("audit_dropped_writes") or 0), ts=ts))
     m.append(gauge("liquiditybot_audit_tail_truncations",

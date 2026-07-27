@@ -3073,11 +3073,224 @@
             }
           ],
           "transparent": true
+        },
+        {
+          "id": 43,
+          "type": "stat",
+          "title": "New-era rows",
+          "description": "Corpus rows tagged the NEW label era (triple_barrier). Arms the era exclusion at 150 (min_new_era_rows) — the floor past which old-era rows stop training the model.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 73
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  },
+                  {
+                    "color": "#30D158",
+                    "value": 150
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_era_excl_new_rows{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 44,
+          "type": "stat",
+          "title": "Era exclusion",
+          "description": "ACTIVE = old-era rows (legacy/exit_sim/exit_sim_time_stop), INCLUDING live, are excluded from training — see liquiditybot_era_excl_dropped for the row count.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 73
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "INERT",
+                      "color": "#0A84FF",
+                      "index": 0
+                    },
+                    "1": {
+                      "text": "ACTIVE",
+                      "color": "#30D158",
+                      "index": 1
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "textMode": "value",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_era_excl_active{job=\"liquiditybot\"})",
+              "instant": true,
+              "range": false,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 45,
+          "type": "timeseries",
+          "title": "Label rate by era",
+          "description": "Per-era label rate on the surviving corpus — the instrument that shows the 0.0066 (exit_sim_time_stop) -> 0.3991 (triple_barrier) repair as the new era takes over.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 16,
+            "x": 8,
+            "y": 73
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 18,
+                "gradientMode": "opacity",
+                "showPoints": "auto",
+                "spanNulls": 300000,
+                "pointSize": 5,
+                "axisPlacement": "auto",
+                "scaleDistribution": {
+                  "type": "linear"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max by (era) (liquiditybot_era_label_rate{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": "{{era}}"
+            }
+          ],
+          "transparent": true
         }
       ]
     },
     {
-      "id": 43,
+      "id": 46,
       "type": "row",
       "title": "⚖️ EDGE — per-asset performance",
       "collapsed": true,
@@ -3085,11 +3298,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 73
+        "y": 79
       },
       "panels": [
         {
-          "id": 44,
+          "id": 47,
           "type": "bargauge",
           "title": "Net $ by asset",
           "description": "Realized net per asset — where P&L actually comes from.",
@@ -3101,7 +3314,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 74
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -3159,7 +3372,7 @@
           "transparent": true
         },
         {
-          "id": 45,
+          "id": 48,
           "type": "bargauge",
           "title": "Signal concentration",
           "description": "0 diffuse average .. 1 pinpointed setup.",
@@ -3171,7 +3384,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 74
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -3233,7 +3446,7 @@
           "transparent": true
         },
         {
-          "id": 46,
+          "id": 49,
           "type": "bargauge",
           "title": "Confidence",
           "description": "Model conviction per asset.",
@@ -3245,7 +3458,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 74
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -3307,7 +3520,7 @@
           "transparent": true
         },
         {
-          "id": 47,
+          "id": 50,
           "type": "table",
           "title": "Asset scorecard",
           "description": "One row per asset; color-coded so a green row (positive net, high concentration, low manip, tight spread) reads instantly. Absent cells (·) mean the asset hasn't traded yet — not a fault.",
@@ -3319,7 +3532,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 82
+            "y": 88
           },
           "fieldConfig": {
             "defaults": {
@@ -3897,7 +4110,7 @@
       ]
     },
     {
-      "id": 48,
+      "id": 51,
       "type": "row",
       "title": "🎯 CONVICTION — entry admission formula",
       "collapsed": true,
@@ -3905,11 +4118,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 90
+        "y": 96
       },
       "panels": [
         {
-          "id": 49,
+          "id": 52,
           "type": "stat",
           "title": "Admit share",
           "description": "Rolling admit share over the cadence window — the formula's own selectivity. Report mode: nothing is blocked yet, this is measurement only.",
@@ -3921,7 +4134,7 @@
             "h": 5,
             "w": 8,
             "x": 0,
-            "y": 91
+            "y": 97
           },
           "fieldConfig": {
             "defaults": {
@@ -3973,7 +4186,7 @@
           "transparent": true
         },
         {
-          "id": 50,
+          "id": 53,
           "type": "stat",
           "title": "Window n",
           "description": "Evaluations in the rolling cadence window (global).",
@@ -3985,7 +4198,7 @@
             "h": 5,
             "w": 8,
             "x": 8,
-            "y": 91
+            "y": 97
           },
           "fieldConfig": {
             "defaults": {
@@ -4037,7 +4250,7 @@
           "transparent": true
         },
         {
-          "id": 51,
+          "id": 54,
           "type": "stat",
           "title": "Alarm",
           "description": "Cadence governor: admit share sustained outside [share_lo, share_hi] on a state TRANSITION — it never auto-tunes a threshold.",
@@ -4049,7 +4262,7 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 91
+            "y": 97
           },
           "fieldConfig": {
             "defaults": {
@@ -4123,7 +4336,7 @@
           "transparent": true
         },
         {
-          "id": 52,
+          "id": 55,
           "type": "bargauge",
           "title": "Admit share by regime",
           "description": "Per-regime admit share — a regime pinned always-on or always-off is the T4 coverage / EV-multiple floor misfiring for that regime specifically.",
@@ -4135,7 +4348,7 @@
             "h": 6,
             "w": 12,
             "x": 0,
-            "y": 96
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4198,7 +4411,7 @@
           "transparent": true
         },
         {
-          "id": 53,
+          "id": 56,
           "type": "bargauge",
           "title": "Denials by code",
           "description": "CV-* disposition tally — which term denies most (agreement / EV-multiple / regime-known / context).",
@@ -4210,7 +4423,7 @@
             "h": 6,
             "w": 12,
             "x": 12,
-            "y": 96
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4350,7 +4563,7 @@
       ]
     },
     {
-      "id": 54,
+      "id": 57,
       "type": "row",
       "title": "🌐 CONTEXT — cycle & macro state",
       "collapsed": true,
@@ -4358,11 +4571,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 102
+        "y": 108
       },
       "panels": [
         {
-          "id": 55,
+          "id": 58,
           "type": "stat",
           "title": "Halving phase",
           "description": "Days-since-halving bucket — a labeled CONVENTION over n=3 completed halving cycles (evidence doc 2026-07-24_compounder_context_evidence.md), not a statistical finding. Telemetry only this phase.",
@@ -4374,7 +4587,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 103
+            "y": 109
           },
           "fieldConfig": {
             "defaults": {
@@ -4427,7 +4640,7 @@
           "transparent": true
         },
         {
-          "id": 56,
+          "id": 59,
           "type": "stat",
           "title": "Days since halving",
           "description": "Pure UTC calendar-date math from the last chain-history halving date.",
@@ -4439,7 +4652,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 103
+            "y": 109
           },
           "fieldConfig": {
             "defaults": {
@@ -4491,7 +4704,7 @@
           "transparent": true
         },
         {
-          "id": 57,
+          "id": 60,
           "type": "stat",
           "title": "Days to next halving",
           "description": "To the configured next_halving_date — a block-clock ESTIMATE, not a fact.",
@@ -4503,7 +4716,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 103
+            "y": 109
           },
           "fieldConfig": {
             "defaults": {
@@ -4555,7 +4768,7 @@
           "transparent": true
         },
         {
-          "id": 58,
+          "id": 61,
           "type": "gauge",
           "title": "Macro stress",
           "description": "Mean of three clip_z terms (funding-rate delta, yield-curve inversion, VIX); absent (not zero) when any of the three sources is dark — see Sources ok below.",
@@ -4567,7 +4780,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 103
+            "y": 109
           },
           "fieldConfig": {
             "defaults": {
@@ -4622,7 +4835,7 @@
           "transparent": true
         },
         {
-          "id": 59,
+          "id": 62,
           "type": "stat",
           "title": "COT z (crowding)",
           "description": "Leveraged-funds net-position weekly delta, clip-z'd. A crowding/fragility dial for JOINT reading with basis_bps (pass-2 §1.3c) — never a signed directional input alone.",
@@ -4634,7 +4847,7 @@
             "h": 5,
             "w": 8,
             "x": 0,
-            "y": 108
+            "y": 114
           },
           "fieldConfig": {
             "defaults": {
@@ -4686,7 +4899,7 @@
           "transparent": true
         },
         {
-          "id": 60,
+          "id": 63,
           "type": "stat",
           "title": "Stablecoin Δ (wk %)",
           "description": "Week-over-week %change in total circulating stablecoin USD (DefiLlama) — an independent flow dial from COT.",
@@ -4698,7 +4911,7 @@
             "h": 5,
             "w": 8,
             "x": 8,
-            "y": 108
+            "y": 114
           },
           "fieldConfig": {
             "defaults": {
@@ -4750,7 +4963,7 @@
           "transparent": true
         },
         {
-          "id": 61,
+          "id": 64,
           "type": "stat",
           "title": "Event window",
           "description": "CME BTC futures expiry / FOMC cadence-pause window (spec §3.4) — gates cadence only, never direction.",
@@ -4762,7 +4975,7 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 108
+            "y": 114
           },
           "fieldConfig": {
             "defaults": {
@@ -4830,7 +5043,7 @@
           "transparent": true
         },
         {
-          "id": 62,
+          "id": 65,
           "type": "bargauge",
           "title": "Sources ok",
           "description": "Per-source freshness (3x-poll-cadence grace, mirroring webdata_feed.py): a dark source degrades its dial to unknown — a STATE, never a stale value read as fresh.",
@@ -4842,7 +5055,7 @@
             "h": 5,
             "w": 24,
             "x": 0,
-            "y": 113
+            "y": 119
           },
           "fieldConfig": {
             "defaults": {
@@ -4907,7 +5120,7 @@
       ]
     },
     {
-      "id": 63,
+      "id": 66,
       "type": "row",
       "title": "🌱 LONG BOOK — evidence ladder",
       "collapsed": true,
@@ -4915,11 +5128,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 124
       },
       "panels": [
         {
-          "id": 64,
+          "id": 67,
           "type": "stat",
           "title": "Rung",
           "description": "Evidence ladder (spec §5): rung 0 is paper-only; r1-r3 unlock progressively wider LIVE ceilings on realized, book-tagged closes. A drawdown breach drops one rung instantly; re-earning it back is gradual (redemption).",
@@ -4931,7 +5144,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 119
+            "y": 125
           },
           "fieldConfig": {
             "defaults": {
@@ -5010,7 +5223,7 @@
           "transparent": true
         },
         {
-          "id": 65,
+          "id": 68,
           "type": "gauge",
           "title": "Ceiling",
           "description": "Equity-fraction ceiling for the CURRENT track (paper floors at r1 regardless of earned rung; live is 0 at rung 0) — bounded by the shared combined-envelope 35% portfolio heat cap; the long book never gets its own risk stack.",
@@ -5022,7 +5235,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 119
+            "y": 125
           },
           "fieldConfig": {
             "defaults": {
@@ -5077,7 +5290,7 @@
           "transparent": true
         },
         {
-          "id": 66,
+          "id": 69,
           "type": "stat",
           "title": "Book exposure",
           "description": "Open long-book position notional + resting entry-order notional, book-wide across every configured asset.",
@@ -5089,7 +5302,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 119
+            "y": 125
           },
           "fieldConfig": {
             "defaults": {
@@ -5141,7 +5354,7 @@
           "transparent": true
         },
         {
-          "id": 67,
+          "id": 70,
           "type": "stat",
           "title": "Adds placed",
           "description": "Post_only maker bids placed since boot — averaging adds into the book's one growing position per asset (never a second same-book position, never a short).",
@@ -5153,7 +5366,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 119
+            "y": 125
           },
           "fieldConfig": {
             "defaults": {
@@ -5205,7 +5418,7 @@
           "transparent": true
         },
         {
-          "id": 68,
+          "id": 71,
           "type": "stat",
           "title": "Paused",
           "description": "Last add-cycle disposition: any deny (spacing wait, ceiling exhaustion, context gate, event window, halt) reads paused. New-risk cadence only — exits are always allowed regardless of this state.",
@@ -5217,7 +5430,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 124
+            "y": 130
           },
           "fieldConfig": {
             "defaults": {
@@ -5286,7 +5499,7 @@
           "transparent": true
         },
         {
-          "id": 69,
+          "id": 72,
           "type": "stat",
           "title": "PF (live)",
           "description": "Running live-track profit factor — the same evidence r2/r3 gate on (pf_floor).",
@@ -5298,7 +5511,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 124
+            "y": 130
           },
           "fieldConfig": {
             "defaults": {
@@ -5358,7 +5571,7 @@
           "transparent": true
         },
         {
-          "id": 70,
+          "id": 73,
           "type": "bargauge",
           "title": "Closed (paper vs live)",
           "description": "Realized book-tagged closes per evidence track — the ladder's raw input (r1 gates on paper evidence; r2/r3 gate on live evidence + live profit factor).",
@@ -5370,7 +5583,7 @@
             "h": 5,
             "w": 12,
             "x": 12,
-            "y": 124
+            "y": 130
           },
           "fieldConfig": {
             "defaults": {
@@ -5425,7 +5638,7 @@
       ]
     },
     {
-      "id": 71,
+      "id": 74,
       "type": "row",
       "title": "🏛️ THALES — footprint & manipulation defense",
       "collapsed": true,
@@ -5433,18 +5646,18 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 129
+        "y": 135
       },
       "panels": [
         {
-          "id": 72,
+          "id": 75,
           "type": "text",
           "title": "What THALES is",
           "gridPos": {
             "h": 9,
             "w": 8,
             "x": 0,
-            "y": 130
+            "y": 136
           },
           "transparent": true,
           "options": {
@@ -5458,7 +5671,7 @@
           }
         },
         {
-          "id": 73,
+          "id": 76,
           "type": "table",
           "title": "THALES detector scorecard (higher = more suspicious)",
           "description": "Per-asset footprint scores (0-1) + feed-integrity counters. THALES only ATTENUATES (shade size / down-weight the training row) — it never triggers a trade.",
@@ -5470,7 +5683,7 @@
             "h": 9,
             "w": 16,
             "x": 8,
-            "y": 130
+            "y": 136
           },
           "fieldConfig": {
             "defaults": {
@@ -6153,7 +6366,7 @@
           "transparent": true
         },
         {
-          "id": 74,
+          "id": 77,
           "type": "bargauge",
           "title": "Spoof-flicker pressure (bid)",
           "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
@@ -6165,7 +6378,7 @@
             "h": 6,
             "w": 8,
             "x": 0,
-            "y": 139
+            "y": 145
           },
           "fieldConfig": {
             "defaults": {
@@ -6227,7 +6440,7 @@
           "transparent": true
         },
         {
-          "id": 75,
+          "id": 78,
           "type": "bargauge",
           "title": "Stop-hunt zone proximity",
           "description": "Proximity to round-number stop clusters per asset.",
@@ -6239,7 +6452,7 @@
             "h": 6,
             "w": 8,
             "x": 8,
-            "y": 139
+            "y": 145
           },
           "fieldConfig": {
             "defaults": {
@@ -6301,7 +6514,7 @@
           "transparent": true
         },
         {
-          "id": 76,
+          "id": 79,
           "type": "bargauge",
           "title": "Manipulation suspicion",
           "description": "Parameter-free max of the manipulation footprints per asset.",
@@ -6313,7 +6526,7 @@
             "h": 6,
             "w": 8,
             "x": 16,
-            "y": 139
+            "y": 145
           },
           "fieldConfig": {
             "defaults": {
@@ -6377,7 +6590,7 @@
       ]
     },
     {
-      "id": 77,
+      "id": 80,
       "type": "row",
       "title": "🛡️ POSITIONS & RISK",
       "collapsed": false,
@@ -6385,12 +6598,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 145
+        "y": 151
       },
       "panels": []
     },
     {
-      "id": 78,
+      "id": 81,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -6402,7 +6615,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 146
+        "y": 152
       },
       "fieldConfig": {
         "defaults": {
@@ -6792,7 +7005,7 @@
       "transparent": true
     },
     {
-      "id": 79,
+      "id": 82,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -6804,7 +7017,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 146
+        "y": 152
       },
       "fieldConfig": {
         "defaults": {
@@ -6863,7 +7076,7 @@
       "transparent": true
     },
     {
-      "id": 80,
+      "id": 83,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -6875,7 +7088,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 146
+        "y": 152
       },
       "fieldConfig": {
         "defaults": {
@@ -6926,7 +7139,7 @@
       "transparent": true
     },
     {
-      "id": 81,
+      "id": 84,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -6938,7 +7151,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 146
+        "y": 152
       },
       "fieldConfig": {
         "defaults": {
@@ -6989,7 +7202,7 @@
       "transparent": true
     },
     {
-      "id": 82,
+      "id": 85,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -7001,7 +7214,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 151
+        "y": 157
       },
       "fieldConfig": {
         "defaults": {
@@ -7292,7 +7505,7 @@
       "transparent": true
     },
     {
-      "id": 83,
+      "id": 86,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -7304,7 +7517,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 151
+        "y": 157
       },
       "fieldConfig": {
         "defaults": {
@@ -7428,7 +7641,7 @@
       "transparent": true
     },
     {
-      "id": 84,
+      "id": 87,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -7440,7 +7653,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 151
+        "y": 157
       },
       "fieldConfig": {
         "defaults": {
@@ -7494,7 +7707,7 @@
       "transparent": true
     },
     {
-      "id": 85,
+      "id": 88,
       "type": "stat",
       "title": "Positions open",
       "description": "Open count (max 5).",
@@ -7506,7 +7719,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 151
+        "y": 157
       },
       "fieldConfig": {
         "defaults": {
@@ -7565,7 +7778,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 157
+        "y": 163
       },
       "transparent": true,
       "options": {
