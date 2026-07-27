@@ -138,6 +138,27 @@ class PositionSizer:
                                               risk_cfg or {},
                                               rt_cost_pct=self.rt_cost_pct,
                                               reach_decay=self.tier_reach_decay)
+        # DERIVED ENTRY BAR (2026-07-27 drought diagnosis, operator-directed):
+        # an absolute min_p_win is geometry-blind — the shipped 0.55 sat BELOW
+        # the net-Kelly breakeven (0.632 at current tiers/stop/fees), a
+        # phantom the config guard had been flagging: entries in
+        # [bar, breakeven) passed the bar only to die SZ-030 one step later,
+        # and any tier/fee change silently re-breaks an absolute number.
+        # mode "derived" pins the bar to the geometry itself:
+        # max(breakeven + p_bar_edge_margin, min_p_win floor). The floor is
+        # min_p_win's honest remaining role. Margin ships 0.0 — pure
+        # de-phantomization, no new fitted number; the exploration synthetic
+        # p (0.64) must keep clearing the bar or the F0b probe trickle dies,
+        # which the config guard enforces with clearance headroom.
+        # mode "absolute" (code default) preserves the historical bar for
+        # every existing caller (CLAUDE.md invariant 7).
+        self.p_bar_mode = str(cfg.get("p_bar_mode", "absolute"))
+        self.p_bar_edge_margin = float(cfg.get("p_bar_edge_margin", 0.0))
+        if self.p_bar_mode == "derived":
+            self.p_bar_base = max(1.0 / (1.0 + self.b_net)
+                                  + self.p_bar_edge_margin, self.min_p_win)
+        else:
+            self.p_bar_base = self.min_p_win
         # vol scaling of the ticket: LIFTED from a buried
         # `35.0 / max(sigma, 5.0)` clamped [0.3, 1.5] — an undocumented
         # SECOND vol-targeting layer living in the sizing path (the explicit
@@ -188,11 +209,12 @@ class PositionSizer:
         self._last_entry: dict = {}
         log.info("sizer payoff b=%.2f gross / %.2f net of %.2f%% rt cost "
                  "(net p(win) breakeven %.3f), kelly_fraction=%s, "
-                 "min p(win)=%s, dd throttle power=%.1f floor=%.2f",
+                 "p(win) bar=%.3f (%s, floor %s), dd throttle "
+                 "power=%.1f floor=%.2f",
                  self.b, self.b_net, self.rt_cost_pct,
                  1.0 / (1.0 + self.b_net), self.kelly_fraction,
-                 self.min_p_win, self.dd_throttle_power,
-                 self.dd_throttle_floor)
+                 self.p_bar_base, self.p_bar_mode, self.min_p_win,
+                 self.dd_throttle_power, self.dd_throttle_floor)
 
     @staticmethod
     def _open_heat_frac(state, marks, equity) -> float:
@@ -331,13 +353,17 @@ class PositionSizer:
                                  f"regime {macro_state.label} blocks "
                                  f"{direction}"))
             return d
-        p_bar = self.min_p_win
+        p_bar = self.p_bar_base
         if macro_state.is_counter_trend(direction):
             p_bar += macro_state.playbook.get("counter_trend_conf_bonus",
                                               0.15)
         if p_win < p_bar:
+            basis = (f" (net breakeven {1.0 / (1.0 + self.b_net):.3f}"
+                     f" + margin {self.p_bar_edge_margin:.3f}, derived)"
+                     if self.p_bar_mode == "derived" else "")
             d.reasons.append(tag(Code.SZ_PWIN_BAR,
-                                 f"p {p_win:.2f} below bar {p_bar:.2f}"))
+                                 f"p {p_win:.2f} below bar {p_bar:.2f}"
+                                 f"{basis}"))
             return d
 
         # ---- Kelly core on NET payoffs --------------------------------------

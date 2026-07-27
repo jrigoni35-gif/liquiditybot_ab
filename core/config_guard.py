@@ -2032,6 +2032,9 @@ def validate(config: dict) -> list:
             # config-honesty note, not an operational concern (the bot trades
             # correctly): the sizer's own p(win) floor screens entries first,
             # so an arm bar below it simply arms on every approved entry.
+            # (Compared against the min_p_win FLOOR, not the derived bar:
+            # in derived mode the effective bar is higher still, so the
+            # note only understates - it never false-alarms.)
             advisory(f"grid_ladder.p_win_arm={gl_arm} sits below the sizer's "
                      f"entry floor ({gl_min_pwin}) - the ladder arms on "
                      f"every approved entry (hysteresis still applies)")
@@ -2485,6 +2488,16 @@ def validate(config: dict) -> list:
     # later. WARN (not fatal — the bot trades correctly) so the configured
     # number is honest. exploration.p_win IS guarded above; min_p_win was not.
     mpw = float(_f(config, "position_sizer.min_p_win", 0.55))
+    pb_mode = str(_f(config, "position_sizer.p_bar_mode", "absolute"))
+    pb_margin = float(_f(config, "position_sizer.p_bar_edge_margin", 0.0))
+    if pb_mode not in ("absolute", "derived"):
+        fatal(f"position_sizer.p_bar_mode={pb_mode!r} must be 'absolute' or "
+              f"'derived' - an unknown mode silently falls back and the "
+              f"operator's intended bar is not the one running")
+    if not (0.0 <= pb_margin <= 0.2):
+        fatal(f"position_sizer.p_bar_edge_margin={pb_margin} must be in "
+              f"[0, 0.2] - negative re-creates the phantom bar; above 0.2 "
+              f"demands breakeven+20pp and no plausible model ever enters")
     try:
         from risk.position_sizer import payoff_ratio_from_config
         pt = config.get("pretrade", {}) or {}
@@ -2492,16 +2505,44 @@ def validate(config: dict) -> list:
               + float(pt.get("taker_fee_bps", 40.0))) / 100.0
         be = 1.0 / (1.0 + payoff_ratio_from_config(
             config.get("profit_taking", {}) or {},
-            config.get("risk", {}) or {}, rt_cost_pct=rt))
+            config.get("risk", {}) or {}, rt_cost_pct=rt,
+            reach_decay=float(_f(config,
+                                 "position_sizer.tier_reach_decay", 0.65))))
     except Exception:
         be = None
-    if be is not None and mpw < be - 1e-6:
-        advisory(
-            f"position_sizer.min_p_win={mpw:.3f} is below the net-Kelly "
-            f"breakeven {be:.3f}, so the EFFECTIVE entry bar is {be:.3f} (the "
-            f"sizer floors Kelly at 0 below it, SZ-030) - the configured "
-            f"min_p_win is not the real minimum. Raise it to >= the breakeven "
-            f"to make the bar honest, or keep it as an intentional soft floor.")
+    if pb_mode == "absolute":
+        # phantom-bar honesty note applies ONLY to the absolute mode: in
+        # derived mode the bar is pinned at/above the breakeven by
+        # construction and min_p_win's role is the floor, not the bar.
+        if be is not None and mpw < be - 1e-6:
+            advisory(
+                f"position_sizer.min_p_win={mpw:.3f} is below the net-Kelly "
+                f"breakeven {be:.3f}, so the EFFECTIVE entry bar is {be:.3f} "
+                f"(the sizer floors Kelly at 0 below it, SZ-030) - the "
+                f"configured min_p_win is not the real minimum. Raise it to "
+                f">= the breakeven, or switch p_bar_mode to 'derived' to pin "
+                f"the bar to the geometry permanently.")
+    elif be is not None:
+        derived_bar = max(be + pb_margin, mpw)
+        # PROBE-STRANGULATION INTERLOCK: the exploration synthetic p is the
+        # F0b trickle's ticket through the bar. Geometry drift (tier/fee/stop
+        # changes) that pushes the derived bar into the synthetic p kills the
+        # only entry flow a distrusted model allows - the exact shape of the
+        # Jul-24 drought, re-created from the bar side. Scream BEFORE it
+        # binds: WARN when clearance falls under 0.005.
+        exp_p = float(_f(config, "ml.exploration.p_win", 0.62))
+        if exp_p < derived_bar + 0.005:
+            warn(f"ml.exploration.p_win={exp_p:.3f} has less than 0.005 "
+                 f"clearance over the derived entry bar {derived_bar:.4f} "
+                 f"(breakeven {be:.4f} + margin {pb_margin}) - probes die at "
+                 f"SZ-023 the moment geometry drift closes the gap, "
+                 f"extinguishing the F0b learning trickle. Raise "
+                 f"exploration.p_win or improve the payoff geometry.")
+        if derived_bar > 0.90:
+            warn(f"derived entry bar {derived_bar:.3f} exceeds 0.90 - the "
+                 f"payoff geometry (tiers/stop/fees) is so cost-heavy that "
+                 f"no plausible model clears it; fix the geometry, the bar "
+                 f"is only reporting it")
 
     findings.extend(_conviction_checks(config))
     findings.extend(_context_checks(config))
