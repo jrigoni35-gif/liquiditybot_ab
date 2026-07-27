@@ -978,3 +978,182 @@ def test_collect_long_book_survives_malformed_values(tmp_path):
     # paused is unconditional (a free-form detail string's truthiness),
     # never skipped
     assert _val(m, "liquiditybot_longbook_paused") == 0.0
+
+
+# ---- audit wf_c730ca1b: DL6-A fail-stale written_at ------------------------
+# `ts = float(s.get("written_at") or time.time())` re-derived ts as NOW on
+# every call whenever written_at was absent/null/0 — a frozen status file
+# without the key showed running=1/stale=0/equity=... forever, the ONE
+# liveness check in the tree that defaulted toward FRESH instead of STALE.
+def test_written_at_missing_fails_stale_not_fresh(tmp_path):
+    status = {"runner_state": "RUNNING", "equity": 12345.0, "positions": []}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    names = _names(m)
+    assert _val(m, "liquiditybot_status_stale") == 1.0
+    assert _val(m, "liquiditybot_running") == 0.0
+    assert "liquiditybot_equity" not in names, \
+        "missing written_at must never masquerade as a fresh healthy batch"
+
+
+def test_written_at_null_fails_stale_not_fresh(tmp_path):
+    status = {"runner_state": "RUNNING", "equity": 999.0, "written_at": None}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_status_stale") == 1.0
+    assert _val(m, "liquiditybot_running") == 0.0
+    assert "liquiditybot_equity" not in _names(m)
+
+
+def test_written_at_zero_fails_stale_not_fresh(tmp_path):
+    status = {"runner_state": "RUNNING", "equity": 999.0, "written_at": 0}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_status_stale") == 1.0
+    assert _val(m, "liquiditybot_running") == 0.0
+    assert "liquiditybot_equity" not in _names(m)
+
+
+def test_written_at_present_and_fresh_still_pushes_full_batch(tmp_path):
+    # guard against over-correcting: a real, current written_at must still
+    # read as fresh (not everything defaults to stale now)
+    status = {"runner_state": "RUNNING", "equity": 12345.0,
+              "written_at": time.time()}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_status_stale") == 0.0
+    assert _val(m, "liquiditybot_running") == 1.0
+    assert _val(m, "liquiditybot_equity") == 12345.0
+
+
+# ---- audit wf_c730ca1b: DL6-B malformed-but-parseable status ---------------
+# A status.json that PARSES but has the wrong SHAPE (top-level null/list,
+# "goals" as a list, "positions" as an int, written_at as a non-numeric
+# string, ...) used to raise OUT of collect() entirely — main()'s
+# push(cfg, collect(...)) is one expression, so push() never ran and ZERO
+# gauges shipped, not even the alarm batch. The blanket fallback must emit
+# the alarm-only batch plus liquiditybot_status_malformed=1.0.
+def _malformed_status_texts():
+    return {
+        "top_level_null": "null",
+        "top_level_list": "[1, 2, 3]",
+        "goals_as_list": json.dumps({"written_at": time.time(),
+                                     "goals": [1, 2, 3]}),
+        "positions_as_int": json.dumps({"written_at": time.time(),
+                                        "positions": 5}),
+        "written_at_bad_string": json.dumps({"written_at": "not-a-number",
+                                             "runner_state": "RUNNING",
+                                             "equity": 999.0}),
+    }
+
+
+def test_malformed_status_shapes_emit_malformed_alarm_batch(tmp_path):
+    for label, text in _malformed_status_texts().items():
+        p = tmp_path / f"{label}.json"
+        p.write_text(text, encoding="utf-8")
+        m = gp.collect(str(p))                      # must not raise
+        assert m, f"{label}: collect() must never return empty"
+        assert _val(m, "liquiditybot_status_malformed") == 1.0, label
+        assert _val(m, "liquiditybot_running") == 0.0, label
+        assert _val(m, "liquiditybot_status_stale") == 1.0, label
+        assert "liquiditybot_equity" not in _names(m), label
+
+
+def test_malformed_status_push_receives_nonempty_batch_end_to_end(
+        tmp_path, monkeypatch):
+    # end-to-end: main()'s `push(cfg, collect(...))` must still execute
+    # with a real, non-empty OTLP payload on a malformed status.json
+    p = tmp_path / "status.json"
+    p.write_text("null", encoding="utf-8")
+    captured = {}
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _fake_urlopen(req, timeout=30):
+        captured["body"] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(gp.urllib.request, "urlopen", _fake_urlopen)
+    cfg = {"url": "https://example.invalid/otlp", "auth": "x"}
+    code = gp.push(cfg, gp.collect(str(p)))
+    assert code == 200
+    metrics = captured["body"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+    assert metrics, "push() must ship a non-empty batch even on malformed status"
+    names = {mm["name"] for mm in metrics}
+    assert "liquiditybot_status_malformed" in names
+
+
+def test_malformed_flag_zero_on_fresh_and_stale_healthy_paths(tmp_path):
+    # mirrors liquiditybot_status_missing's existing pattern: the malformed
+    # series must always exist (0.0) whenever the file parsed and the
+    # fresh-path body completed, whether stale or fresh
+    fresh = tmp_path / "fresh.json"
+    fresh.write_text(json.dumps({"written_at": time.time(), "equity": 1.0}),
+                     encoding="utf-8")
+    assert _val(gp.collect(str(fresh)), "liquiditybot_status_malformed") == 0.0
+
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps({"written_at": time.time() - 600,
+                                 "equity": 1.0}), encoding="utf-8")
+    assert _val(gp.collect(str(stale)), "liquiditybot_status_malformed") == 0.0
+
+
+# ---- audit wf_c730ca1b: F1 labels{source=} cardinality clamp ---------------
+def test_ml_labels_source_clamps_garbage_to_other(tmp_path):
+    # HistoryStore.source_counts() keys ride verbatim off the CSV column
+    # (r[idx] or "unknown"), bounded today only by the two literal write
+    # sites ("live"/"candidate"). A corrupted/hand-edited row must clamp at
+    # the EMISSION site here, never mint a new Prometheus series.
+    status = {"written_at": time.time(),
+              "ml": {"labels_by_source": {"live": 5,
+                                          "garbage-source-xyz": 3}}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_ml_labels", source="live") == 5.0
+    assert _val(m, "liquiditybot_ml_labels", source="other") == 3.0
+    assert _val(m, "liquiditybot_ml_labels", source="garbage-source-xyz") \
+        is None
+
+
+def test_ml_labels_source_known_values_pass_through_unclamped(tmp_path):
+    status = {"written_at": time.time(),
+              "ml": {"labels_by_source": {"live": 21, "candidate": 400}}}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_ml_labels", source="live") == 21.0
+    assert _val(m, "liquiditybot_ml_labels", source="candidate") == 400.0
+
+
+# ---- audit wf_c730ca1b: DL6-D dropped-nonfinite visibility (Minor, judgment
+# call: implemented rather than document-and-skip — cheap, and the existing
+# finiteness filter already has the hook point) -----------------------------
+def test_dropped_nonfinite_counter_zero_when_clean(tmp_path):
+    status = {"written_at": time.time(), "equity": 100.0}
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps(status), encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_gauges_dropped_nonfinite") == 0.0
+
+
+def test_dropped_nonfinite_counter_reflects_nan_storm(tmp_path):
+    status_text = ('{"written_at": %f, "equity": NaN, "daily_pnl": Infinity, '
+                  '"weekly_pnl": -Infinity, "drawdown_pct": 0.5}'
+                  % time.time())
+    p = tmp_path / "status.json"
+    p.write_text(status_text, encoding="utf-8")
+    m = gp.collect(str(p))
+    assert _val(m, "liquiditybot_gauges_dropped_nonfinite") == 3.0
+    assert _val(m, "liquiditybot_drawdown_pct") == 0.5

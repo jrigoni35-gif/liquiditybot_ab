@@ -27,10 +27,14 @@ without also renaming the dashboard's queried metrics in the same change.)
 """
 import base64
 import json
+import logging
 import math
 import os
 import time
 import urllib.request
+
+
+log = logging.getLogger("gc_pusher")
 
 
 def _cfg() -> dict:
@@ -104,6 +108,20 @@ def _reason_label(reason) -> str:
     return r if r in _REASON_KNOWN else "other"
 
 
+# ---- ml_labels{source=} cardinality clamp (F1) — HistoryStore.
+# source_counts() keys ride verbatim off the CSV column; bounded today
+# only by the two literal write sites ("live"/"candidate"). A corrupted
+# or hand-edited row must clamp to "other" here at the emission site,
+# never mint a new Prometheus series (same clamp idiom as _era_label/
+# _reason_label above; ml/history.py itself is left reporting truth).
+_SOURCE_KNOWN = frozenset({"live", "candidate"})
+
+
+def _source_label(source) -> str:
+    s = str(source or "").strip()
+    return s if s in _SOURCE_KNOWN else "other"
+
+
 def collect(status_path: str) -> list:
     # W2-14 re-decision (2026-07-23, operator-delegated): a missing or
     # unreadable status file used to raise out of here and abort the push
@@ -122,606 +140,634 @@ def collect(status_path: str) -> list:
         return [gauge("liquiditybot_status_missing", 1.0, ts=now),
                 gauge("liquiditybot_running", 0.0, ts=now),
                 gauge("liquiditybot_status_stale", 1.0, ts=now)]
-    ts = float(s.get("written_at") or time.time())
-    m = []
-    # stamped with NOW, not written_at: a frozen runner (or stale file)
-    # shows up as a rising age even while runner_state still says RUNNING
-    age = max(0.0, time.time() - ts)
-    m.append(gauge("liquiditybot_status_age_sec", age, ts=time.time()))
-    # DL-6: a frozen runner leaves a stale status file that still says
-    # RUNNING with healthy equity/cycle numbers - pushing those painted a
-    # live bot on every panel while only the age gauge told the truth.
-    # Past the staleness threshold push the ALARM-ONLY batch: age,
-    # running=0, and an explicit stale flag. No stale gauge ever masquerades
-    # as current market/PnL state again.
-    # status_missing=0 whenever the file was readable (stale or fresh) so
-    # the alert rule can distinguish "runner frozen" from "file gone"
-    m.append(gauge("liquiditybot_status_missing", 0.0, ts=time.time()))
-    if age > STALE_AFTER_SEC:
-        m.append(gauge("liquiditybot_running", 0.0, ts=time.time()))
-        m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))
-        return m
-    m.append(gauge("liquiditybot_status_stale", 0.0, ts=time.time()))
-    for key in ("equity", "daily_pnl", "weekly_pnl", "monthly_pnl", "savings",
-                "reserve", "drawdown_pct", "cycle",
-                "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
-                "fees_total", "realized_total", "equity_drift_pct",
-                # hardening guards (rising = a book position or the whole
-                # cycle is wedging its own escape path — see the incidents
-                # dashboard). Emitted as gauges; 0 in steady state.
-                "exit_eval_failures", "cycle_consecutive_failures"):
-        v = s.get(key)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_{key}", v, ts=ts))
-    # profit-goal progress (measurement only): goal + running attainment %
-    # per period, so a Grafana panel can show goal-vs-actual live. Absent
-    # goals block (older status) -> no gauges, panel reads "no data".
-    for per, g in (s.get("goals") or {}).items():
-        if not isinstance(g, dict):
-            continue
-        m.append(gauge("liquiditybot_goal_target", _num(g.get("goal")),
-                       {"period": str(per)}, ts))
-        att = g.get("attainment_pct")
-        if isinstance(att, (int, float)):
-            m.append(gauge("liquiditybot_goal_attainment_pct", att,
+    try:
+        ts = float(s.get("written_at") or 0.0)
+        m = []
+        # stamped with NOW, not written_at: a frozen runner (or stale file)
+        # shows up as a rising age even while runner_state still says RUNNING
+        age = max(0.0, time.time() - ts)
+        m.append(gauge("liquiditybot_status_age_sec", age, ts=time.time()))
+        # DL-6: a frozen runner leaves a stale status file that still says
+        # RUNNING with healthy equity/cycle numbers - pushing those painted a
+        # live bot on every panel while only the age gauge told the truth.
+        # Past the staleness threshold push the ALARM-ONLY batch: age,
+        # running=0, and an explicit stale flag. No stale gauge ever masquerades
+        # as current market/PnL state again.
+        # status_missing=0 whenever the file was readable (stale or fresh) so
+        # the alert rule can distinguish "runner frozen" from "file gone"
+        m.append(gauge("liquiditybot_status_missing", 0.0, ts=time.time()))
+        # liquiditybot_status_malformed mirrors status_missing exactly:
+        # 0.0 here (file parsed AND the fresh-path body below completed) so
+        # the series always exists; 1.0 only from the except Exception
+        # fallback below (any wrong-shape field anywhere past this point).
+        m.append(gauge("liquiditybot_status_malformed", 0.0, ts=time.time()))
+        if age > STALE_AFTER_SEC:
+            m.append(gauge("liquiditybot_running", 0.0, ts=time.time()))
+            m.append(gauge("liquiditybot_status_stale", 1.0, ts=time.time()))
+            return m
+        m.append(gauge("liquiditybot_status_stale", 0.0, ts=time.time()))
+        for key in ("equity", "daily_pnl", "weekly_pnl", "monthly_pnl", "savings",
+                    "reserve", "drawdown_pct", "cycle",
+                    "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
+                    "fees_total", "realized_total", "equity_drift_pct",
+                    # hardening guards (rising = a book position or the whole
+                    # cycle is wedging its own escape path — see the incidents
+                    # dashboard). Emitted as gauges; 0 in steady state.
+                    "exit_eval_failures", "cycle_consecutive_failures"):
+            v = s.get(key)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_{key}", v, ts=ts))
+        # profit-goal progress (measurement only): goal + running attainment %
+        # per period, so a Grafana panel can show goal-vs-actual live. Absent
+        # goals block (older status) -> no gauges, panel reads "no data".
+        for per, g in (s.get("goals") or {}).items():
+            if not isinstance(g, dict):
+                continue
+            m.append(gauge("liquiditybot_goal_target", _num(g.get("goal")),
                            {"period": str(per)}, ts))
-    m.append(gauge("liquiditybot_positions_open",
-                   len(s.get("positions") or []), ts=ts))
-    m.append(gauge("liquiditybot_running",
-                   1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
-    ml = s.get("ml") or {}          # bound once; §4 + ML blocks below read it
-    # ---- live positions (§2): net per instrument (symbol,side) --------------
-    # Aggregated per (symbol, side), NOT per ephemeral lot-id: putting the
-    # per-position id in a label would churn Prometheus cardinality unbounded
-    # (a Grafana footgun). This is the desk view — net exposure/uPnL/risk per
-    # instrument. mark/upnl are already computed by the runner at venue
-    # precision; hedges are excluded (they carry no tiers/stops of their own).
-    # Also the risk-on banner: total unrealized, gross exposure, $-at-risk if
-    # every stop filled. Instant queries on these show only OPEN positions
-    # (a closed one stops updating and drops out of the lookback).
-    agg: dict = {}
-    for p in (s.get("positions") or []):
-        if not isinstance(p, dict) or p.get("hedge"):
-            continue
-        sym, side = str(p.get("symbol") or "?"), str(p.get("direction") or "?")
-        entry, mark = _num(p.get("entry")), _num(p.get("mark"))
-        size, stop = abs(_num(p.get("size"))), _num(p.get("stop"))
-        a = agg.setdefault((sym, side), {
-            "notional": 0.0, "upnl": 0.0, "cost": 0.0, "risk": 0.0,
-            "lots": 0, "tier": 0, "age": 0.0, "conv_w": 0.0, "stop_dist": None})
-        notional = size * mark
-        a["notional"] += notional
-        a["upnl"] += _num(p.get("upnl_usd"))
-        a["cost"] += size * entry
-        a["lots"] += 1
-        a["tier"] = max(a["tier"], int(_num(p.get("tiers_fired"))))
-        a["age"] = max(a["age"], _num(p.get("age_h")))
-        a["conv_w"] += _num(p.get("p_win")) * notional
-        if stop > 0 and entry > 0:
-            a["risk"] += abs(entry - stop) * size
-            sd = abs(entry - stop) / entry * 100.0
-            a["stop_dist"] = sd if a["stop_dist"] is None \
-                else min(a["stop_dist"], sd)          # tightest (nearest) stop
-    tot_upnl = tot_notional = tot_risk = 0.0
-    for (sym, side), a in agg.items():
-        lab = {"symbol": sym, "side": side}
-        m.append(gauge("liquiditybot_position_notional_usd", a["notional"], lab, ts))
-        m.append(gauge("liquiditybot_position_upnl_usd", a["upnl"], lab, ts))
-        m.append(gauge("liquiditybot_position_lots", float(a["lots"]), lab, ts))
-        m.append(gauge("liquiditybot_position_tiers_fired", float(a["tier"]), lab, ts))
-        m.append(gauge("liquiditybot_position_age_hours", a["age"], lab, ts))
-        if a["cost"] > 0:
-            m.append(gauge("liquiditybot_position_upnl_pct",
-                           a["upnl"] / a["cost"] * 100.0, lab, ts))
-        # conviction divides by NOTIONAL, which is 0 when the mark is null
-        # while cost>0 — that ZeroDivisionError aborted collect() and blacked
-        # out the ENTIRE metric batch (audit DL-1 2026-07-17); guard its own
-        # denominator, never a proxy's
-        if a["notional"] > 0:
-            m.append(gauge("liquiditybot_position_conviction",
-                           a["conv_w"] / a["notional"], lab, ts))
-        if a["risk"] > 0:
-            m.append(gauge("liquiditybot_position_r_multiple",
-                           a["upnl"] / a["risk"], lab, ts))
-        if a["stop_dist"] is not None:
-            m.append(gauge("liquiditybot_position_stop_dist_pct",
-                           a["stop_dist"], lab, ts))
-        tot_upnl += a["upnl"]
-        tot_notional += a["notional"]
-        tot_risk += a["risk"]
-    m.append(gauge("liquiditybot_open_upnl_usd", tot_upnl, ts=ts))
-    m.append(gauge("liquiditybot_gross_exposure_usd", tot_notional, ts=ts))
-    m.append(gauge("liquiditybot_open_risk_usd", tot_risk, ts=ts))
-    _eq = _num(s.get("equity"))
-    if _eq > 0:
-        m.append(gauge("liquiditybot_gross_exposure_pct",
-                       tot_notional / _eq * 100.0, ts=ts))
-    # ---- performance ledger (§1): win-rate / PF / expectancy / streak -------
-    # Portfolio-wide + per asset. None-valued fields (expectancy_r with no
-    # stops, payoff_ratio with no losses) are simply not numeric -> skipped.
-    perf = s.get("performance") or {}
-    for k in ("trades", "win_rate", "win_rate_lcb", "profit_factor",
-              "expectancy_usd", "expectancy_r", "payoff_ratio", "sharpe",
-              "sortino", "cur_loss_streak", "max_loss_streak", "net_usd",
-              "gross_profit_usd", "gross_loss_usd", "avg_win_usd",
-              "avg_loss_usd"):
-        v = (perf.get("overall") or {}).get(k)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_perf_{k}", v, ts=ts))
-    for asset, st in (perf.get("by_asset") or {}).items():
-        if not isinstance(st, dict):
-            continue
-        for k in ("trades", "win_rate", "profit_factor", "expectancy_usd",
-                  "net_usd", "cur_loss_streak", "max_loss_streak"):
-            v = st.get(k)
+            att = g.get("attainment_pct")
+            if isinstance(att, (int, float)):
+                m.append(gauge("liquiditybot_goal_attainment_pct", att,
+                               {"period": str(per)}, ts))
+        m.append(gauge("liquiditybot_positions_open",
+                       len(s.get("positions") or []), ts=ts))
+        m.append(gauge("liquiditybot_running",
+                       1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
+        ml = s.get("ml") or {}          # bound once; §4 + ML blocks below read it
+        # ---- live positions (§2): net per instrument (symbol,side) --------------
+        # Aggregated per (symbol, side), NOT per ephemeral lot-id: putting the
+        # per-position id in a label would churn Prometheus cardinality unbounded
+        # (a Grafana footgun). This is the desk view — net exposure/uPnL/risk per
+        # instrument. mark/upnl are already computed by the runner at venue
+        # precision; hedges are excluded (they carry no tiers/stops of their own).
+        # Also the risk-on banner: total unrealized, gross exposure, $-at-risk if
+        # every stop filled. Instant queries on these show only OPEN positions
+        # (a closed one stops updating and drops out of the lookback).
+        agg: dict = {}
+        for p in (s.get("positions") or []):
+            if not isinstance(p, dict) or p.get("hedge"):
+                continue
+            sym, side = str(p.get("symbol") or "?"), str(p.get("direction") or "?")
+            entry, mark = _num(p.get("entry")), _num(p.get("mark"))
+            size, stop = abs(_num(p.get("size"))), _num(p.get("stop"))
+            a = agg.setdefault((sym, side), {
+                "notional": 0.0, "upnl": 0.0, "cost": 0.0, "risk": 0.0,
+                "lots": 0, "tier": 0, "age": 0.0, "conv_w": 0.0, "stop_dist": None})
+            notional = size * mark
+            a["notional"] += notional
+            a["upnl"] += _num(p.get("upnl_usd"))
+            a["cost"] += size * entry
+            a["lots"] += 1
+            a["tier"] = max(a["tier"], int(_num(p.get("tiers_fired"))))
+            a["age"] = max(a["age"], _num(p.get("age_h")))
+            a["conv_w"] += _num(p.get("p_win")) * notional
+            if stop > 0 and entry > 0:
+                a["risk"] += abs(entry - stop) * size
+                sd = abs(entry - stop) / entry * 100.0
+                a["stop_dist"] = sd if a["stop_dist"] is None \
+                    else min(a["stop_dist"], sd)          # tightest (nearest) stop
+        tot_upnl = tot_notional = tot_risk = 0.0
+        for (sym, side), a in agg.items():
+            lab = {"symbol": sym, "side": side}
+            m.append(gauge("liquiditybot_position_notional_usd", a["notional"], lab, ts))
+            m.append(gauge("liquiditybot_position_upnl_usd", a["upnl"], lab, ts))
+            m.append(gauge("liquiditybot_position_lots", float(a["lots"]), lab, ts))
+            m.append(gauge("liquiditybot_position_tiers_fired", float(a["tier"]), lab, ts))
+            m.append(gauge("liquiditybot_position_age_hours", a["age"], lab, ts))
+            if a["cost"] > 0:
+                m.append(gauge("liquiditybot_position_upnl_pct",
+                               a["upnl"] / a["cost"] * 100.0, lab, ts))
+            # conviction divides by NOTIONAL, which is 0 when the mark is null
+            # while cost>0 — that ZeroDivisionError aborted collect() and blacked
+            # out the ENTIRE metric batch (audit DL-1 2026-07-17); guard its own
+            # denominator, never a proxy's
+            if a["notional"] > 0:
+                m.append(gauge("liquiditybot_position_conviction",
+                               a["conv_w"] / a["notional"], lab, ts))
+            if a["risk"] > 0:
+                m.append(gauge("liquiditybot_position_r_multiple",
+                               a["upnl"] / a["risk"], lab, ts))
+            if a["stop_dist"] is not None:
+                m.append(gauge("liquiditybot_position_stop_dist_pct",
+                               a["stop_dist"], lab, ts))
+            tot_upnl += a["upnl"]
+            tot_notional += a["notional"]
+            tot_risk += a["risk"]
+        m.append(gauge("liquiditybot_open_upnl_usd", tot_upnl, ts=ts))
+        m.append(gauge("liquiditybot_gross_exposure_usd", tot_notional, ts=ts))
+        m.append(gauge("liquiditybot_open_risk_usd", tot_risk, ts=ts))
+        _eq = _num(s.get("equity"))
+        if _eq > 0:
+            m.append(gauge("liquiditybot_gross_exposure_pct",
+                           tot_notional / _eq * 100.0, ts=ts))
+        # ---- performance ledger (§1): win-rate / PF / expectancy / streak -------
+        # Portfolio-wide + per asset. None-valued fields (expectancy_r with no
+        # stops, payoff_ratio with no losses) are simply not numeric -> skipped.
+        perf = s.get("performance") or {}
+        for k in ("trades", "win_rate", "win_rate_lcb", "profit_factor",
+                  "expectancy_usd", "expectancy_r", "payoff_ratio", "sharpe",
+                  "sortino", "cur_loss_streak", "max_loss_streak", "net_usd",
+                  "gross_profit_usd", "gross_loss_usd", "avg_win_usd",
+                  "avg_loss_usd"):
+            v = (perf.get("overall") or {}).get(k)
             if isinstance(v, (int, float)):
-                m.append(gauge(f"liquiditybot_perf_asset_{k}", v,
-                               {"asset": str(asset)}, ts))
-    # ---- signal & edge (§4) --------------------------------------------------
-    # confirmed + per-gate pass as 1/0 gauges: avg_over_time() in Grafana turns
-    # them into confirmed-rate / gate pass-rate, so "which gate blocks most" is
-    # answerable without a new counter. Bounded: assets x 8 gates.
-    for asset, sig in (s.get("signals") or {}).items():
-        if not isinstance(sig, dict):
-            continue
-        m.append(gauge("liquiditybot_signal_confirmed",
-                       1.0 if sig.get("confirmed") else 0.0,
-                       {"asset": asset}, ts))
-        for gname, passed in (sig.get("gates") or {}).items():
-            m.append(gauge("liquiditybot_signal_gate_passed",
-                           1.0 if passed else 0.0,
-                           {"asset": asset, "gate": str(gname)}, ts))
-    gs = ml.get("gate_stats") or {}
-    for gname, w in (gs.get("weights") or {}).items():
-        if isinstance(w, (int, float)):
-            m.append(gauge("liquiditybot_gate_weight", w,
-                           {"gate": str(gname)}, ts))
-    for k in ("labeled", "base_rate"):
-        v = gs.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge(f"liquiditybot_gate_{k}", v, ts=ts))
-    # per-asset regime context: numerics as plain gauges; the label strings ride
-    # an info-style gauge (value 1, labels macro/vol/liq — the standard *_info
-    # pattern; a superseded label-set goes stale and drops out of instant views)
-    for asset, r in (s.get("regimes") or {}).items():
-        if not isinstance(r, dict):
-            continue
-        for k in ("momentum", "vol_pct", "spread_bps", "basis_bps", "spoof"):
-            v = r.get(k)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                m.append(gauge(f"liquiditybot_regime_{k}", v,
-                               {"asset": asset}, ts))
-        m.append(gauge("liquiditybot_regime_info", 1.0,
-                       {"asset": asset, "macro": str(r.get("macro", "?")),
-                        "vol": str(r.get("vol", "?")),
-                        "liq": str(r.get("liq", "?"))}, ts))
-    # entry-decision reason codes in FULL (PT/SZ families): EV-gate rejects,
-    # exploration bypasses (PT-050), sizing vetoes — the per-code trend view
-    for code, cnt in ((s.get("code_stats") or {}).get("entry_codes")
-                      or {}).items():
-        if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
-            m.append(gauge("liquiditybot_code_count_detail", cnt,
-                           {"code": str(code)}, ts))
-    # ---- conviction formula (#120, Compounder Phase A, risk/conviction.py) --
-    # admission cadence + regime breakdown + denial-code tally for the
-    # CONVICTION (non-probe) entry channel. Missing/empty section (older
-    # status.json predating this feature, or a writer that emits {} rather
-    # than omitting the key) degrades to NOTHING emitted here — never a
-    # crash, never a partial metric set that reads as a healthy subsystem.
-    cv = s.get("conviction") or {}
-    if cv:
-        ev, ad = cv.get("evaluated"), cv.get("admitted")
-        if isinstance(ev, (int, float)) and not isinstance(ev, bool):
-            m.append(gauge("liquiditybot_conviction_evaluated", ev, ts=ts))
-        if isinstance(ad, (int, float)) and not isinstance(ad, bool):
-            m.append(gauge("liquiditybot_conviction_admitted", ad, ts=ts))
-        share, n = cv.get("share"), cv.get("n")
-        if isinstance(share, (int, float)) and not isinstance(share, bool):
-            m.append(gauge("liquiditybot_conviction_share", share, ts=ts))
-        if isinstance(n, (int, float)) and not isinstance(n, bool):
-            m.append(gauge("liquiditybot_conviction_n", n, ts=ts))
-        for code, cnt in (cv.get("denials") or {}).items():
-            if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
-                m.append(gauge("liquiditybot_conviction_denials", cnt,
-                               {"code": str(code)}, ts))
-        for regime, rec in (cv.get("by_regime") or {}).items():
-            if not isinstance(rec, dict):
-                continue        # malformed regime entry: skip, never crash
-            r_share, r_n = rec.get("share"), rec.get("n")
-            if isinstance(r_share, (int, float)) \
-                    and not isinstance(r_share, bool):
-                m.append(gauge("liquiditybot_conviction_regime_share",
-                               r_share, {"regime": str(regime)}, ts))
-            if isinstance(r_n, (int, float)) and not isinstance(r_n, bool):
-                m.append(gauge("liquiditybot_conviction_regime_n", r_n,
-                               {"regime": str(regime)}, ts))
-        # ok=0 / low=1 / high=2; an unrecognized string degrades to -1
-        # rather than silently reading as "ok" (state() maps -1 too)
-        m.append(gauge("liquiditybot_conviction_alarm",
-                       {"ok": 0.0, "low": 1.0, "high": 2.0}
-                       .get(str(cv.get("alarm")), -1.0), ts=ts))
-    # ---- context engine (Compounder Phase B, data/context_engine.py --------
-    # ContextFeed.status()) — halving clock, macro-stress dial, flow dials,
-    # event-window state, per-source ok/dark map. TELEMETRY ONLY (spec §3):
-    # no gate/entry/exit/sizing path reads this in this phase; status, audit
-    # and gc_pusher are the sole consumers. Missing/empty section (older
-    # status.json predating this feature, or a writer that emits {} rather
-    # than omitting the key) degrades to NOTHING emitted here — same silent
-    # degrade as the conviction block above, never a crash.
-    cx = s.get("context") or {}
-    if cx:
-        for key, suffix in (("stress", "stress"), ("cot_z", "cot_z"),
-                            ("stable_wk_pct", "stable_wk_pct"),
-                            ("days_since", "days_since_halving"),
-                            ("days_to_next", "days_to_next_halving")):
-            v = cx.get(key)
-            # honest unknown: a None dial (source dark / no prior poll) is
-            # simply not emitted this pass — never a fabricated 0 (source_ok
-            # below is what makes "0" and "unknown" distinguishable)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                m.append(gauge(f"liquiditybot_context_{suffix}", v, ts=ts))
-        m.append(gauge("liquiditybot_context_event_window",
-                       1.0 if cx.get("in_event_window") else 0.0, ts=ts))
-        sources = cx.get("sources")
-        if isinstance(sources, dict):
-            for source, ok in sources.items():
-                m.append(gauge("liquiditybot_context_source_ok",
-                               1.0 if ok else 0.0,
-                               {"source": str(source)}, ts))
-        # one-hot: the standard *_info label pattern (see liquiditybot_
-        # regime_info / liquiditybot_ml_model_info above) — only the
-        # CURRENT bucket is emitted; an empty phase (no poll has run yet)
-        # is honestly absent, never a fake active bucket
-        phase = cx.get("halving_phase")
-        if phase:
-            m.append(gauge("liquiditybot_context_phase", 1.0,
-                           {"phase": str(phase)}, ts))
-    # ---- long-horizon accumulation book (Task C6, Compounder Phase C, -----
-    # runner.py BotRunner._long_book_status()) — evidence-ladder rung +
-    # ceiling, combined-envelope exposure, add cadence, live-track profit
-    # factor, paper/live closed counts, last add-cycle paused/context-
-    # aligned disposition. Missing/empty section (a bot built before
-    # long_ladder existed, or the status writer's own except-Exception {}
-    # degrade) -> NOTHING emitted here, same silent degrade as conviction/
-    # context above, never a crash.
-    lb = s.get("long_book") or {}
-    if lb:
-        rung = lb.get("rung")
-        if isinstance(rung, (int, float)) and not isinstance(rung, bool):
-            m.append(gauge("liquiditybot_longbook_rung", rung, ts=ts))
-        ceiling = lb.get("ceiling_frac")
-        if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool):
-            m.append(gauge("liquiditybot_longbook_ceiling_frac", ceiling,
-                           ts=ts))
-        exposure = lb.get("book_exposure_usd")
-        if isinstance(exposure, (int, float)) \
-                and not isinstance(exposure, bool):
-            m.append(gauge("liquiditybot_longbook_exposure_usd", exposure,
-                           ts=ts))
-        adds = lb.get("adds_placed")
-        if isinstance(adds, (int, float)) and not isinstance(adds, bool):
-            m.append(gauge("liquiditybot_longbook_adds_placed", adds, ts=ts))
-        for key, track in (("closed_paper", "paper"), ("closed_live", "live")):
-            v = lb.get(key)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                m.append(gauge("liquiditybot_longbook_closed", v,
-                               {"track": track}, ts))
-        pf = lb.get("pf_live")
-        # honest unknown: pf_live is already JSON-safe at the source
-        # (runner.py rounds a finite pf, or None for the raw `inf`/no-
-        # evidence read) — None is never faked as 0
-        if isinstance(pf, (int, float)) and not isinstance(pf, bool):
-            m.append(gauge("liquiditybot_longbook_pf_live", pf, ts=ts))
-        # paused: honest 0/1 off the free-form paused_reason detail string
-        # (main._long_last_deny) — "" (last add attempt succeeded, or none
-        # has run yet) is unconditionally 0; ANY non-empty detail (a
-        # routine spacing wait, ceiling exhaustion, halt, an event window,
-        # ...) is unconditionally 1. Emitted every pass — the field is
-        # always a string on a real bot, never absent/None.
-        m.append(gauge("liquiditybot_longbook_paused",
-                       1.0 if lb.get("paused_reason") else 0.0, ts=ts))
-        # context_aligned_last: True/False/None (risk/conviction.py's own
-        # None=N/A convention) — None (no cycle has run yet, or the
-        # context stress dial is dark/unknown) is honestly NOT emitted,
-        # never a fabricated 0/1 (Global Constraint: context before
-        # conviction, CX-030 on unknown).
-        ctx_aligned = lb.get("context_aligned_last")
-        if isinstance(ctx_aligned, bool):
-            m.append(gauge("liquiditybot_longbook_context_aligned",
-                           1.0 if ctx_aligned else 0.0, ts=ts))
-    for key in ("history_rows", "open_candidates", "pending_labels"):
-        v = ml.get(key)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_ml_{key}", v, ts=ts))
-    for asset, v in (s.get("manip_suspect") or {}).items():
-        # DL-1: this was the ONLY per-asset loop with no isinstance-numeric
-        # guard; one non-numeric value raised inside collect() and blacked
-        # out the ENTIRE metric batch (including the alarm gauges) every
-        # tick — matches the guard every sibling per-asset loop already has.
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge("liquiditybot_manip_suspect", v,
+                m.append(gauge(f"liquiditybot_perf_{k}", v, ts=ts))
+        for asset, st in (perf.get("by_asset") or {}).items():
+            if not isinstance(st, dict):
+                continue
+            for k in ("trades", "win_rate", "profit_factor", "expectancy_usd",
+                      "net_usd", "cur_loss_streak", "max_loss_streak"):
+                v = st.get(k)
+                if isinstance(v, (int, float)):
+                    m.append(gauge(f"liquiditybot_perf_asset_{k}", v,
+                                   {"asset": str(asset)}, ts))
+        # ---- signal & edge (§4) --------------------------------------------------
+        # confirmed + per-gate pass as 1/0 gauges: avg_over_time() in Grafana turns
+        # them into confirmed-rate / gate pass-rate, so "which gate blocks most" is
+        # answerable without a new counter. Bounded: assets x 8 gates.
+        for asset, sig in (s.get("signals") or {}).items():
+            if not isinstance(sig, dict):
+                continue
+            m.append(gauge("liquiditybot_signal_confirmed",
+                           1.0 if sig.get("confirmed") else 0.0,
                            {"asset": asset}, ts))
-    for asset, sig in (s.get("signals") or {}).items():
-        if isinstance(sig, dict):
-            # concentration (0 diffuse .. 1 pinpointed): the per-asset
-            # decision-quality signal - lets the desk compare a concentrated
-            # conviction against a blended-average signal side by side
-            for k in ("confidence", "urgency", "concentration"):
-                if isinstance(sig.get(k), (int, float)):
-                    m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
-                                   {"asset": asset}, ts))
-    # THALES footprint detectors per asset: periodicity (grid/metronome/
-    # clockwork), round-number stop-hunt proximity (stop_zone), bar-close
-    # clustering (barclose), spoof-flicker EWMA per side (spoof_bid/ask,
-    # TH-017), feed integrity (feed_dirty + lapse/hole counters). All bounded
-    # [0,1] except the counters — the dashboard reads them as a manipulation
-    # scorecard.
-    for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
-        if not isinstance(th, dict):
-            continue                    # malformed asset entry: skip, never crash
-        for k in ("grid", "metronome", "clockwork", "stop_zone", "barclose",
-                  "spoof_bid", "spoof_ask", "feed_dirty", "lapses",
-                  "bar_holes", "lapse_warmup_sec"):
-            v = th.get(k)
-            # exclude bool VALUES (bool is an int subclass) — the guard must
-            # test the value, not the loop key (always a str, never bool)
+            for gname, passed in (sig.get("gates") or {}).items():
+                m.append(gauge("liquiditybot_signal_gate_passed",
+                               1.0 if passed else 0.0,
+                               {"asset": asset, "gate": str(gname)}, ts))
+        gs = ml.get("gate_stats") or {}
+        for gname, w in (gs.get("weights") or {}).items():
+            if isinstance(w, (int, float)):
+                m.append(gauge("liquiditybot_gate_weight", w,
+                               {"gate": str(gname)}, ts))
+        for k in ("labeled", "base_rate"):
+            v = gs.get(k)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
-                m.append(gauge(f"liquiditybot_thales_{k}", v,
-                               {"asset": asset}, ts))
-    mm = s.get("moomoo") or {}
-    for k in ("risk_z", "opt_pcr_z", "opt_oi_pcr_z", "opt_iv_skew"):
-        v = mm.get(k)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_moomoo_{k}", v, ts=ts))
-    # Kraken v2 ws feed health: connected (1/0) and live cached books. A
-    # dropping feed shows up as connected->0 / books falling while the bot
-    # silently keeps trading on the REST fallback.
-    kws = s.get("ws_kraken") or {}
-    m.append(gauge("liquiditybot_ws_kraken_connected",
-                   1.0 if kws.get("connected") else 0.0, ts=ts))
-    for k in ("books", "reconnects"):
-        v = kws.get(k)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_ws_kraken_{k}", v, ts=ts))
-    # ---- fault & health signals (the incidents dashboard) --------------
-    # These were tracked internally but never exported; a degrading subsystem
-    # showed up only in a log line nobody was watching.
-    m.append(gauge("liquiditybot_halted",
-                   1.0 if s.get("halted") else 0.0, ts=ts))
-    m.append(gauge("liquiditybot_entries_enabled",
-                   1.0 if s.get("entries_enabled") else 0.0, ts=ts))
-    # ML governor kill-switch level: 0 ok / 1 degraded / 2 model killed
-    mon = s.get("monitor") or {}
-    if isinstance(mon.get("level"), (int, float)):
-        m.append(gauge("liquiditybot_monitor_level", mon["level"], ts=ts))
-    # input feature-drift share (0..1): fraction of MARKET features past the PSI
-    # threshold. Transient blips self-heal via auto-retrain; a value pinned high
-    # WHILE monitor_level rises is the real signal (see the incidents alert rule).
-    if isinstance(mon.get("drift_share"), (int, float)):
-        m.append(gauge("liquiditybot_ml_drift_share", mon["drift_share"], ts=ts))
-    # outcome-side model health — present ONLY when the judge window is full
-    # (>= min_trades_to_judge closed trades on the DEPLOYED model). The rolling
-    # Brier vs its base-rate baseline is the "are the predictions any good"
-    # signal: brier - baseline_brier > 3*brier_margin is the governor's failing
-    # (kill) line, which the outcome alert rule keys on. Absent = not yet
-    # judgeable (too few outcomes) -> no metric -> alert stays OK, never a false
-    # ping. This is INDEPENDENT of input drift: predictions can rot with stable
-    # inputs, and inputs can drift while predictions still hold.
-    for k in ("brier", "baseline_brier", "calibration_gap", "window_trades",
-              # §5 model health: promised (avg_p) vs delivered (hit_rate,
-              # Wilson LCB) + governor throttles + the deployed champion's bar
-              "hit_rate", "hit_rate_lcb", "avg_p", "shrinkage", "kelly_mult",
-              "stop_widen", "edge_ratio_bump", "champion_brier"):
-        v = mon.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
-    m.append(gauge("liquiditybot_ml_use_model",
-                   1.0 if mon.get("use_model") else 0.0, ts=ts))
-    m.append(gauge("liquiditybot_ml_retrain_flag",
-                   1.0 if ml.get("retrain_flag") else 0.0, ts=ts))
-    # labels by source: live = ground truth, candidate = triple-barrier proxy
-    for src, cnt in (ml.get("labels_by_source") or {}).items():
-        if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
-            m.append(gauge("liquiditybot_ml_labels", cnt,
-                           {"source": str(src)}, ts))
-    # deployed model rung on the simplicity ladder (info-style label gauge).
-    # When no champion is loaded the bot IS the prior - say so instead of
-    # going silent: after the v7 schema bump the width guard correctly
-    # refused the 58-wide champion and the model panel showed "No data"
-    # for hours, which read as broken telemetry (lived 2026-07-20).
-    kind = ml.get("model_kind") or ("prior" if not ml.get("trained") else "")
-    if kind:
-        m.append(gauge("liquiditybot_ml_model_info", 1.0,
-                       {"kind": str(kind)}, ts))
-    # ML fault counters (fallbacks/inference faults/contract breaches/SMC
-    # degrades/retrain failures) — rising = a subsystem quietly dying
-    for k in ("model_fallbacks", "infer_faults", "contract_failed",
-              "smc_faults", "retrain_failures"):
-        v = ml.get(k)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
-    # AFML corpus-quality stats from the last training load: clean live
-    # count (what the evidence gate actually sees), mean average-uniqueness
-    # (label-overlap redundancy, AFML ch.4), ML-074 one-sided-batch flag
-    ls = ml.get("load_stats") or {}
-    for k in ("live_clean", "mean_uniqueness", "dropped_dirty",
-              "dropped_clash"):
-        v = ls.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
-    if "prior_skew" in ls:
-        m.append(gauge("liquiditybot_ml_prior_skew",
-                       1.0 if ls.get("prior_skew") else 0.0, ts=ts))
-    # ---- label-era transition (era-gated training exclusion, docs/quant/
-    # 2026-07-26_era_exclusion.md) — armed/active decision, dropped-row
-    # count, per-era/per-exit-reason row counts and label rates (the
-    # 0.0066->0.3991 repair this instrumentation exists to show), and the
-    # ML-080 barrier-mix drift alarm. All read from ml.load_stats (ml/
-    # history.py's last_load_stats, written verbatim by runner.py).
-    # load_stats == {} (a just-restarted bot, no retrain yet — observed
-    # live for hours) emits NOTHING here, same silent degrade as every
-    # other ls-scoped gauge above: a fabricated 0 would read as
-    # "exclusion off" when the truth is "not yet measured".
-    if ls:
-        excl = ls.get("era_exclusion") or {}
-        if excl:      # sub-block itself present (a pre-era-task status.json
-                       # has ls non-empty but no era_exclusion key at all)
-            m.append(gauge("liquiditybot_era_excl_armed",
-                           1.0 if excl.get("armed") else 0.0, ts=ts))
-            m.append(gauge("liquiditybot_era_excl_active",
-                           1.0 if excl.get("active") else 0.0, ts=ts))
-            new_rows = excl.get("new_era_rows")
-            if isinstance(new_rows, (int, float)) \
-                    and not isinstance(new_rows, bool):
-                m.append(gauge("liquiditybot_era_excl_new_rows", new_rows,
+                m.append(gauge(f"liquiditybot_gate_{k}", v, ts=ts))
+        # per-asset regime context: numerics as plain gauges; the label strings ride
+        # an info-style gauge (value 1, labels macro/vol/liq — the standard *_info
+        # pattern; a superseded label-set goes stale and drops out of instant views)
+        for asset, r in (s.get("regimes") or {}).items():
+            if not isinstance(r, dict):
+                continue
+            for k in ("momentum", "vol_pct", "spread_bps", "basis_bps", "spoof"):
+                v = r.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m.append(gauge(f"liquiditybot_regime_{k}", v,
+                                   {"asset": asset}, ts))
+            m.append(gauge("liquiditybot_regime_info", 1.0,
+                           {"asset": asset, "macro": str(r.get("macro", "?")),
+                            "vol": str(r.get("vol", "?")),
+                            "liq": str(r.get("liq", "?"))}, ts))
+        # entry-decision reason codes in FULL (PT/SZ families): EV-gate rejects,
+        # exploration bypasses (PT-050), sizing vetoes — the per-code trend view
+        for code, cnt in ((s.get("code_stats") or {}).get("entry_codes")
+                          or {}).items():
+            if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+                m.append(gauge("liquiditybot_code_count_detail", cnt,
+                               {"code": str(code)}, ts))
+        # ---- conviction formula (#120, Compounder Phase A, risk/conviction.py) --
+        # admission cadence + regime breakdown + denial-code tally for the
+        # CONVICTION (non-probe) entry channel. Missing/empty section (older
+        # status.json predating this feature, or a writer that emits {} rather
+        # than omitting the key) degrades to NOTHING emitted here — never a
+        # crash, never a partial metric set that reads as a healthy subsystem.
+        cv = s.get("conviction") or {}
+        if cv:
+            ev, ad = cv.get("evaluated"), cv.get("admitted")
+            if isinstance(ev, (int, float)) and not isinstance(ev, bool):
+                m.append(gauge("liquiditybot_conviction_evaluated", ev, ts=ts))
+            if isinstance(ad, (int, float)) and not isinstance(ad, bool):
+                m.append(gauge("liquiditybot_conviction_admitted", ad, ts=ts))
+            share, n = cv.get("share"), cv.get("n")
+            if isinstance(share, (int, float)) and not isinstance(share, bool):
+                m.append(gauge("liquiditybot_conviction_share", share, ts=ts))
+            if isinstance(n, (int, float)) and not isinstance(n, bool):
+                m.append(gauge("liquiditybot_conviction_n", n, ts=ts))
+            for code, cnt in (cv.get("denials") or {}).items():
+                if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+                    m.append(gauge("liquiditybot_conviction_denials", cnt,
+                                   {"code": str(code)}, ts))
+            for regime, rec in (cv.get("by_regime") or {}).items():
+                if not isinstance(rec, dict):
+                    continue        # malformed regime entry: skip, never crash
+                r_share, r_n = rec.get("share"), rec.get("n")
+                if isinstance(r_share, (int, float)) \
+                        and not isinstance(r_share, bool):
+                    m.append(gauge("liquiditybot_conviction_regime_share",
+                                   r_share, {"regime": str(regime)}, ts))
+                if isinstance(r_n, (int, float)) and not isinstance(r_n, bool):
+                    m.append(gauge("liquiditybot_conviction_regime_n", r_n,
+                                   {"regime": str(regime)}, ts))
+            # ok=0 / low=1 / high=2; an unrecognized string degrades to -1
+            # rather than silently reading as "ok" (state() maps -1 too)
+            m.append(gauge("liquiditybot_conviction_alarm",
+                           {"ok": 0.0, "low": 1.0, "high": 2.0}
+                           .get(str(cv.get("alarm")), -1.0), ts=ts))
+        # ---- context engine (Compounder Phase B, data/context_engine.py --------
+        # ContextFeed.status()) — halving clock, macro-stress dial, flow dials,
+        # event-window state, per-source ok/dark map. TELEMETRY ONLY (spec §3):
+        # no gate/entry/exit/sizing path reads this in this phase; status, audit
+        # and gc_pusher are the sole consumers. Missing/empty section (older
+        # status.json predating this feature, or a writer that emits {} rather
+        # than omitting the key) degrades to NOTHING emitted here — same silent
+        # degrade as the conviction block above, never a crash.
+        cx = s.get("context") or {}
+        if cx:
+            for key, suffix in (("stress", "stress"), ("cot_z", "cot_z"),
+                                ("stable_wk_pct", "stable_wk_pct"),
+                                ("days_since", "days_since_halving"),
+                                ("days_to_next", "days_to_next_halving")):
+                v = cx.get(key)
+                # honest unknown: a None dial (source dark / no prior poll) is
+                # simply not emitted this pass — never a fabricated 0 (source_ok
+                # below is what makes "0" and "unknown" distinguishable)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m.append(gauge(f"liquiditybot_context_{suffix}", v, ts=ts))
+            m.append(gauge("liquiditybot_context_event_window",
+                           1.0 if cx.get("in_event_window") else 0.0, ts=ts))
+            sources = cx.get("sources")
+            if isinstance(sources, dict):
+                for source, ok in sources.items():
+                    m.append(gauge("liquiditybot_context_source_ok",
+                                   1.0 if ok else 0.0,
+                                   {"source": str(source)}, ts))
+            # one-hot: the standard *_info label pattern (see liquiditybot_
+            # regime_info / liquiditybot_ml_model_info above) — only the
+            # CURRENT bucket is emitted; an empty phase (no poll has run yet)
+            # is honestly absent, never a fake active bucket
+            phase = cx.get("halving_phase")
+            if phase:
+                m.append(gauge("liquiditybot_context_phase", 1.0,
+                               {"phase": str(phase)}, ts))
+        # ---- long-horizon accumulation book (Task C6, Compounder Phase C, -----
+        # runner.py BotRunner._long_book_status()) — evidence-ladder rung +
+        # ceiling, combined-envelope exposure, add cadence, live-track profit
+        # factor, paper/live closed counts, last add-cycle paused/context-
+        # aligned disposition. Missing/empty section (a bot built before
+        # long_ladder existed, or the status writer's own except-Exception {}
+        # degrade) -> NOTHING emitted here, same silent degrade as conviction/
+        # context above, never a crash.
+        lb = s.get("long_book") or {}
+        if lb:
+            rung = lb.get("rung")
+            if isinstance(rung, (int, float)) and not isinstance(rung, bool):
+                m.append(gauge("liquiditybot_longbook_rung", rung, ts=ts))
+            ceiling = lb.get("ceiling_frac")
+            if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool):
+                m.append(gauge("liquiditybot_longbook_ceiling_frac", ceiling,
                                ts=ts))
-            min_rows = excl.get("min_new_era_rows")
-            if isinstance(min_rows, (int, float)) \
-                    and not isinstance(min_rows, bool):
-                m.append(gauge("liquiditybot_era_excl_min_rows", min_rows,
+            exposure = lb.get("book_exposure_usd")
+            if isinstance(exposure, (int, float)) \
+                    and not isinstance(exposure, bool):
+                m.append(gauge("liquiditybot_longbook_exposure_usd", exposure,
                                ts=ts))
-            dropped = (excl.get("excluded") or {}).get("total")
-            if isinstance(dropped, (int, float)) \
-                    and not isinstance(dropped, bool):
-                m.append(gauge("liquiditybot_era_excl_dropped", dropped,
-                               ts=ts))
-        for era, eb in (ls.get("label_era") or {}).items():
-            if not isinstance(eb, dict):
-                continue        # malformed era entry: skip, never crash
-            era_lab = _era_label(era)
-            rows = eb.get("rows")
-            if isinstance(rows, (int, float)) and not isinstance(rows, bool):
-                m.append(gauge("liquiditybot_era_rows", rows,
-                               {"era": era_lab}, ts))
-            rate = eb.get("label_rate")
-            if isinstance(rate, (int, float)) and not isinstance(rate, bool):
-                m.append(gauge("liquiditybot_era_label_rate", rate,
-                               {"era": era_lab}, ts))
-            for reason, rb in (eb.get("by_reason") or {}).items():
-                if not isinstance(rb, dict):
-                    continue    # malformed reason entry: skip, never crash
-                reason_lab = _reason_label(reason)
-                r_rows = rb.get("rows")
-                if isinstance(r_rows, (int, float)) \
-                        and not isinstance(r_rows, bool):
-                    m.append(gauge("liquiditybot_era_reason_rows", r_rows,
-                                   {"era": era_lab, "reason": reason_lab},
-                                   ts))
-                r_rate = rb.get("label_rate")
-                if isinstance(r_rate, (int, float)) \
-                        and not isinstance(r_rate, bool):
-                    m.append(gauge("liquiditybot_era_reason_label_rate",
-                                   r_rate,
-                                   {"era": era_lab, "reason": reason_lab},
-                                   ts))
-        # ML-080 barrier-mix drift: tvd is None (SILENT — too few recent
-        # rows to trust the mix) whenever _era_mix_drift_check declines to
-        # fire; honest-unknown, never a fabricated 0/"not exceeded" — the
-        # alarm gauge only ships alongside a real tvd value.
-        mix = ls.get("era_mix_drift")
-        if isinstance(mix, dict):
-            tvd = mix.get("tvd")
-            if isinstance(tvd, (int, float)) and not isinstance(tvd, bool):
-                m.append(gauge("liquiditybot_era_mix_tvd", tvd, ts=ts))
-                m.append(gauge("liquiditybot_era_mix_alarm",
-                               1.0 if mix.get("fired") else 0.0, ts=ts))
-    m.append(gauge("liquiditybot_audit_dropped_writes",
-                   float(s.get("audit_dropped_writes") or 0), ts=ts))
-    m.append(gauge("liquiditybot_audit_tail_truncations",
-                   float(s.get("audit_tail_truncations") or 0), ts=ts))
-    # central fault authority: op-state as a severity ladder (0 ARMED nominal,
-    # 1 DEGRADED no-new-risk, 2 HALTED flatten-and-stop) + latched-fault count.
-    _fault = s.get("fault") or {}
-    _op = {"ARMED": 0.0, "DEGRADED": 1.0, "HALTED": 2.0}.get(
-        str(_fault.get("state")), -1.0)
-    m.append(gauge("liquiditybot_op_state", _op, ts=ts))
-    m.append(gauge("liquiditybot_fault_count",
-                   float(len(_fault.get("faults") or {})), ts=ts))
-    # post-fill mark-out (bps) per asset+horizon — negative = adverse selection
-    for asset, hs in (s.get("markout") or {}).get("by_asset", {}).items():
-        for hz, rec in (hs or {}).items():
-            v = (rec or {}).get("markout_bps")
+            adds = lb.get("adds_placed")
+            if isinstance(adds, (int, float)) and not isinstance(adds, bool):
+                m.append(gauge("liquiditybot_longbook_adds_placed", adds, ts=ts))
+            for key, track in (("closed_paper", "paper"), ("closed_live", "live")):
+                v = lb.get(key)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m.append(gauge("liquiditybot_longbook_closed", v,
+                                   {"track": track}, ts))
+            pf = lb.get("pf_live")
+            # honest unknown: pf_live is already JSON-safe at the source
+            # (runner.py rounds a finite pf, or None for the raw `inf`/no-
+            # evidence read) — None is never faked as 0
+            if isinstance(pf, (int, float)) and not isinstance(pf, bool):
+                m.append(gauge("liquiditybot_longbook_pf_live", pf, ts=ts))
+            # paused: honest 0/1 off the free-form paused_reason detail string
+            # (main._long_last_deny) — "" (last add attempt succeeded, or none
+            # has run yet) is unconditionally 0; ANY non-empty detail (a
+            # routine spacing wait, ceiling exhaustion, halt, an event window,
+            # ...) is unconditionally 1. Emitted every pass — the field is
+            # always a string on a real bot, never absent/None.
+            m.append(gauge("liquiditybot_longbook_paused",
+                           1.0 if lb.get("paused_reason") else 0.0, ts=ts))
+            # context_aligned_last: True/False/None (risk/conviction.py's own
+            # None=N/A convention) — None (no cycle has run yet, or the
+            # context stress dial is dark/unknown) is honestly NOT emitted,
+            # never a fabricated 0/1 (Global Constraint: context before
+            # conviction, CX-030 on unknown).
+            ctx_aligned = lb.get("context_aligned_last")
+            if isinstance(ctx_aligned, bool):
+                m.append(gauge("liquiditybot_longbook_context_aligned",
+                               1.0 if ctx_aligned else 0.0, ts=ts))
+        for key in ("history_rows", "open_candidates", "pending_labels"):
+            v = ml.get(key)
             if isinstance(v, (int, float)):
-                m.append(gauge("liquiditybot_markout_bps", v,
-                               {"asset": asset, "horizon_sec": str(hz)}, ts))
-    # moomoo up/down (options + basket feed) — was dark
-    m.append(gauge("liquiditybot_moomoo_options_available",
-                   1.0 if mm.get("options_available") else 0.0, ts=ts))
-    m.append(gauge("liquiditybot_moomoo_available",
-                   1.0 if mm.get("available") else 0.0, ts=ts))
-    # watchdog trips — each blocks new entries
-    wd = s.get("watchdog") or {}
-    for k in ("entries_blocked", "critical_stale", "velocity_tripped"):
-        m.append(gauge(f"liquiditybot_watchdog_{k}",
-                       1.0 if wd.get(k) else 0.0, ts=ts))
-    m.append(gauge("liquiditybot_watchdog_divergent",
-                   float(len(wd.get("divergent") or [])), ts=ts))
-    m.append(gauge("liquiditybot_watchdog_stale_assets",
-                   float(len(wd.get("stale_assets") or [])), ts=ts))
-    # risk firewall: latched fault (1/0) + per-code reject/clamp tallies
-    fw = s.get("firewall") or {}
-    m.append(gauge("liquiditybot_firewall_fault",
-                   1.0 if fw.get("fault") else 0.0, ts=ts))
-    for code, cnt in (fw.get("counters") or {}).items():
-        if isinstance(cnt, (int, float)):
-            m.append(gauge("liquiditybot_firewall_count", cnt,
-                           {"code": str(code)}, ts))
-    # order manager: venue rejects (OM-021) + dead-man refresh failures (OM-050)
-    # + execution quality (§3): maker/taker split, rolling slippage, venue RTT.
-    # None-valued fields (no fills yet) fail the numeric guard -> not emitted.
-    om = s.get("order_manager") or {}
-    for k in ("venue_rejects", "deadman_failures", "latency_ms",
-              "maker_fills", "taker_fills", "maker_share",
-              "maker_notional_usd", "taker_notional_usd",
-              "avg_slip_bps", "worst_slip_bps"):
-        v = om.get(k)
-        if isinstance(v, (int, float)):
-            m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
-    # ---- asset skimmer (§7): candidate rankings + promotions -----------------
-    sk = s.get("skimmer") or {}
-    for pair, rec in (sk.get("scores") or {}).items():
-        v = (rec or {}).get("score")
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge("liquiditybot_skimmer_score", v,
-                           {"pair": str(pair)}, ts))
-    if sk:
-        m.append(gauge("liquiditybot_skimmer_promoted_count",
-                       float(len(sk.get("promoted") or [])), ts=ts))
-        m.append(gauge("liquiditybot_skimmer_candidates",
-                       float(sk.get("candidates") or 0), ts=ts))
-        for pair in (sk.get("promoted") or []):
-            m.append(gauge("liquiditybot_skimmer_promoted_info", 1.0,
-                           {"pair": str(pair)}, ts))
-    # ---- per-asset circuit breaker -------------------------------------------
-    cb = s.get("circuit_breaker") or {}
-    if cb:
-        m.append(gauge("liquiditybot_cb_tripped_count",
-                       float(len(cb.get("tripped") or {})), ts=ts))
-        for asset, hrs in (cb.get("tripped") or {}).items():
-            if isinstance(hrs, (int, float)) and not isinstance(hrs, bool):
-                m.append(gauge("liquiditybot_cb_paused_hours_left", hrs,
-                               {"asset": str(asset)}, ts))
-        for asset, streak in (cb.get("streaks") or {}).items():
-            if isinstance(streak, (int, float)) and not isinstance(streak, bool):
-                m.append(gauge("liquiditybot_cb_loss_streak", streak,
-                               {"asset": str(asset)}, ts))
-    # ---- risk-protocol posture (§6) ------------------------------------------
-    rp = s.get("risk_protocols") or {}
-    for k in ("daily_budget_used_frac", "weekly_budget_used_frac",
-              "taper_mult", "heat_frac", "heat_cap_frac", "dd_throttle_mult"):
-        v = rp.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            m.append(gauge(f"liquiditybot_rp_{k}", v, ts=ts))
-    # central reason-code frequency ledger, aggregated by prefix (SZ/PT/RP/FW/…)
-    for prefix, cnt in ((s.get("code_stats") or {}).get("by_prefix") or {}).items():
-        if isinstance(cnt, (int, float)):
-            m.append(gauge("liquiditybot_code_count", cnt,
-                           {"prefix": str(prefix)}, ts))
-    # single choke point: a NaN/inf that slipped through any guard above (json
-    # round-trips NaN happily) must not reach the wire — ONE non-finite gauge
-    # invalidates the whole OTLP JSON batch and blacks out EVERY metric.
-    return [x for x in m
-            if math.isfinite(x["gauge"]["dataPoints"][0]["asDouble"])]
+                m.append(gauge(f"liquiditybot_ml_{key}", v, ts=ts))
+        for asset, v in (s.get("manip_suspect") or {}).items():
+            # DL-1: this was the ONLY per-asset loop with no isinstance-numeric
+            # guard; one non-numeric value raised inside collect() and blacked
+            # out the ENTIRE metric batch (including the alarm gauges) every
+            # tick — matches the guard every sibling per-asset loop already has.
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge("liquiditybot_manip_suspect", v,
+                               {"asset": asset}, ts))
+        for asset, sig in (s.get("signals") or {}).items():
+            if isinstance(sig, dict):
+                # concentration (0 diffuse .. 1 pinpointed): the per-asset
+                # decision-quality signal - lets the desk compare a concentrated
+                # conviction against a blended-average signal side by side
+                for k in ("confidence", "urgency", "concentration"):
+                    if isinstance(sig.get(k), (int, float)):
+                        m.append(gauge(f"liquiditybot_signal_{k}", sig[k],
+                                       {"asset": asset}, ts))
+        # THALES footprint detectors per asset: periodicity (grid/metronome/
+        # clockwork), round-number stop-hunt proximity (stop_zone), bar-close
+        # clustering (barclose), spoof-flicker EWMA per side (spoof_bid/ask,
+        # TH-017), feed integrity (feed_dirty + lapse/hole counters). All bounded
+        # [0,1] except the counters — the dashboard reads them as a manipulation
+        # scorecard.
+        for asset, th in ((s.get("thales") or {}).get("assets") or {}).items():
+            if not isinstance(th, dict):
+                continue                    # malformed asset entry: skip, never crash
+            for k in ("grid", "metronome", "clockwork", "stop_zone", "barclose",
+                      "spoof_bid", "spoof_ask", "feed_dirty", "lapses",
+                      "bar_holes", "lapse_warmup_sec"):
+                v = th.get(k)
+                # exclude bool VALUES (bool is an int subclass) — the guard must
+                # test the value, not the loop key (always a str, never bool)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    m.append(gauge(f"liquiditybot_thales_{k}", v,
+                                   {"asset": asset}, ts))
+        mm = s.get("moomoo") or {}
+        for k in ("risk_z", "opt_pcr_z", "opt_oi_pcr_z", "opt_iv_skew"):
+            v = mm.get(k)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_moomoo_{k}", v, ts=ts))
+        # Kraken v2 ws feed health: connected (1/0) and live cached books. A
+        # dropping feed shows up as connected->0 / books falling while the bot
+        # silently keeps trading on the REST fallback.
+        kws = s.get("ws_kraken") or {}
+        m.append(gauge("liquiditybot_ws_kraken_connected",
+                       1.0 if kws.get("connected") else 0.0, ts=ts))
+        for k in ("books", "reconnects"):
+            v = kws.get(k)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_ws_kraken_{k}", v, ts=ts))
+        # ---- fault & health signals (the incidents dashboard) --------------
+        # These were tracked internally but never exported; a degrading subsystem
+        # showed up only in a log line nobody was watching.
+        m.append(gauge("liquiditybot_halted",
+                       1.0 if s.get("halted") else 0.0, ts=ts))
+        m.append(gauge("liquiditybot_entries_enabled",
+                       1.0 if s.get("entries_enabled") else 0.0, ts=ts))
+        # ML governor kill-switch level: 0 ok / 1 degraded / 2 model killed
+        mon = s.get("monitor") or {}
+        if isinstance(mon.get("level"), (int, float)):
+            m.append(gauge("liquiditybot_monitor_level", mon["level"], ts=ts))
+        # input feature-drift share (0..1): fraction of MARKET features past the PSI
+        # threshold. Transient blips self-heal via auto-retrain; a value pinned high
+        # WHILE monitor_level rises is the real signal (see the incidents alert rule).
+        if isinstance(mon.get("drift_share"), (int, float)):
+            m.append(gauge("liquiditybot_ml_drift_share", mon["drift_share"], ts=ts))
+        # outcome-side model health — present ONLY when the judge window is full
+        # (>= min_trades_to_judge closed trades on the DEPLOYED model). The rolling
+        # Brier vs its base-rate baseline is the "are the predictions any good"
+        # signal: brier - baseline_brier > 3*brier_margin is the governor's failing
+        # (kill) line, which the outcome alert rule keys on. Absent = not yet
+        # judgeable (too few outcomes) -> no metric -> alert stays OK, never a false
+        # ping. This is INDEPENDENT of input drift: predictions can rot with stable
+        # inputs, and inputs can drift while predictions still hold.
+        for k in ("brier", "baseline_brier", "calibration_gap", "window_trades",
+                  # §5 model health: promised (avg_p) vs delivered (hit_rate,
+                  # Wilson LCB) + governor throttles + the deployed champion's bar
+                  "hit_rate", "hit_rate_lcb", "avg_p", "shrinkage", "kelly_mult",
+                  "stop_widen", "edge_ratio_bump", "champion_brier"):
+            v = mon.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+        m.append(gauge("liquiditybot_ml_use_model",
+                       1.0 if mon.get("use_model") else 0.0, ts=ts))
+        m.append(gauge("liquiditybot_ml_retrain_flag",
+                       1.0 if ml.get("retrain_flag") else 0.0, ts=ts))
+        # labels by source: live = ground truth, candidate = triple-barrier proxy
+        for src, cnt in (ml.get("labels_by_source") or {}).items():
+            if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
+                m.append(gauge("liquiditybot_ml_labels", cnt,
+                               {"source": _source_label(src)}, ts))
+        # deployed model rung on the simplicity ladder (info-style label gauge).
+        # When no champion is loaded the bot IS the prior - say so instead of
+        # going silent: after the v7 schema bump the width guard correctly
+        # refused the 58-wide champion and the model panel showed "No data"
+        # for hours, which read as broken telemetry (lived 2026-07-20).
+        kind = ml.get("model_kind") or ("prior" if not ml.get("trained") else "")
+        if kind:
+            m.append(gauge("liquiditybot_ml_model_info", 1.0,
+                           {"kind": str(kind)}, ts))
+        # ML fault counters (fallbacks/inference faults/contract breaches/SMC
+        # degrades/retrain failures) — rising = a subsystem quietly dying
+        for k in ("model_fallbacks", "infer_faults", "contract_failed",
+                  "smc_faults", "retrain_failures"):
+            v = ml.get(k)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+        # AFML corpus-quality stats from the last training load: clean live
+        # count (what the evidence gate actually sees), mean average-uniqueness
+        # (label-overlap redundancy, AFML ch.4), ML-074 one-sided-batch flag
+        ls = ml.get("load_stats") or {}
+        for k in ("live_clean", "mean_uniqueness", "dropped_dirty",
+                  "dropped_clash"):
+            v = ls.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+        if "prior_skew" in ls:
+            m.append(gauge("liquiditybot_ml_prior_skew",
+                           1.0 if ls.get("prior_skew") else 0.0, ts=ts))
+        # ---- label-era transition (era-gated training exclusion, docs/quant/
+        # 2026-07-26_era_exclusion.md) — armed/active decision, dropped-row
+        # count, per-era/per-exit-reason row counts and label rates (the
+        # 0.0066->0.3991 repair this instrumentation exists to show), and the
+        # ML-080 barrier-mix drift alarm. All read from ml.load_stats (ml/
+        # history.py's last_load_stats, written verbatim by runner.py).
+        # load_stats == {} (a just-restarted bot, no retrain yet — observed
+        # live for hours) emits NOTHING here, same silent degrade as every
+        # other ls-scoped gauge above: a fabricated 0 would read as
+        # "exclusion off" when the truth is "not yet measured".
+        if ls:
+            excl = ls.get("era_exclusion") or {}
+            if excl:      # sub-block itself present (a pre-era-task status.json
+                           # has ls non-empty but no era_exclusion key at all)
+                m.append(gauge("liquiditybot_era_excl_armed",
+                               1.0 if excl.get("armed") else 0.0, ts=ts))
+                m.append(gauge("liquiditybot_era_excl_active",
+                               1.0 if excl.get("active") else 0.0, ts=ts))
+                new_rows = excl.get("new_era_rows")
+                if isinstance(new_rows, (int, float)) \
+                        and not isinstance(new_rows, bool):
+                    m.append(gauge("liquiditybot_era_excl_new_rows", new_rows,
+                                   ts=ts))
+                min_rows = excl.get("min_new_era_rows")
+                if isinstance(min_rows, (int, float)) \
+                        and not isinstance(min_rows, bool):
+                    m.append(gauge("liquiditybot_era_excl_min_rows", min_rows,
+                                   ts=ts))
+                dropped = (excl.get("excluded") or {}).get("total")
+                if isinstance(dropped, (int, float)) \
+                        and not isinstance(dropped, bool):
+                    m.append(gauge("liquiditybot_era_excl_dropped", dropped,
+                                   ts=ts))
+            for era, eb in (ls.get("label_era") or {}).items():
+                if not isinstance(eb, dict):
+                    continue        # malformed era entry: skip, never crash
+                era_lab = _era_label(era)
+                rows = eb.get("rows")
+                if isinstance(rows, (int, float)) and not isinstance(rows, bool):
+                    m.append(gauge("liquiditybot_era_rows", rows,
+                                   {"era": era_lab}, ts))
+                rate = eb.get("label_rate")
+                if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+                    m.append(gauge("liquiditybot_era_label_rate", rate,
+                                   {"era": era_lab}, ts))
+                for reason, rb in (eb.get("by_reason") or {}).items():
+                    if not isinstance(rb, dict):
+                        continue    # malformed reason entry: skip, never crash
+                    reason_lab = _reason_label(reason)
+                    r_rows = rb.get("rows")
+                    if isinstance(r_rows, (int, float)) \
+                            and not isinstance(r_rows, bool):
+                        m.append(gauge("liquiditybot_era_reason_rows", r_rows,
+                                       {"era": era_lab, "reason": reason_lab},
+                                       ts))
+                    r_rate = rb.get("label_rate")
+                    if isinstance(r_rate, (int, float)) \
+                            and not isinstance(r_rate, bool):
+                        m.append(gauge("liquiditybot_era_reason_label_rate",
+                                       r_rate,
+                                       {"era": era_lab, "reason": reason_lab},
+                                       ts))
+            # ML-080 barrier-mix drift: tvd is None (SILENT — too few recent
+            # rows to trust the mix) whenever _era_mix_drift_check declines to
+            # fire; honest-unknown, never a fabricated 0/"not exceeded" — the
+            # alarm gauge only ships alongside a real tvd value.
+            mix = ls.get("era_mix_drift")
+            if isinstance(mix, dict):
+                tvd = mix.get("tvd")
+                if isinstance(tvd, (int, float)) and not isinstance(tvd, bool):
+                    m.append(gauge("liquiditybot_era_mix_tvd", tvd, ts=ts))
+                    m.append(gauge("liquiditybot_era_mix_alarm",
+                                   1.0 if mix.get("fired") else 0.0, ts=ts))
+        m.append(gauge("liquiditybot_audit_dropped_writes",
+                       float(s.get("audit_dropped_writes") or 0), ts=ts))
+        m.append(gauge("liquiditybot_audit_tail_truncations",
+                       float(s.get("audit_tail_truncations") or 0), ts=ts))
+        # central fault authority: op-state as a severity ladder (0 ARMED nominal,
+        # 1 DEGRADED no-new-risk, 2 HALTED flatten-and-stop) + latched-fault count.
+        _fault = s.get("fault") or {}
+        _op = {"ARMED": 0.0, "DEGRADED": 1.0, "HALTED": 2.0}.get(
+            str(_fault.get("state")), -1.0)
+        m.append(gauge("liquiditybot_op_state", _op, ts=ts))
+        m.append(gauge("liquiditybot_fault_count",
+                       float(len(_fault.get("faults") or {})), ts=ts))
+        # post-fill mark-out (bps) per asset+horizon — negative = adverse selection
+        for asset, hs in (s.get("markout") or {}).get("by_asset", {}).items():
+            for hz, rec in (hs or {}).items():
+                v = (rec or {}).get("markout_bps")
+                if isinstance(v, (int, float)):
+                    m.append(gauge("liquiditybot_markout_bps", v,
+                                   {"asset": asset, "horizon_sec": str(hz)}, ts))
+        # moomoo up/down (options + basket feed) — was dark
+        m.append(gauge("liquiditybot_moomoo_options_available",
+                       1.0 if mm.get("options_available") else 0.0, ts=ts))
+        m.append(gauge("liquiditybot_moomoo_available",
+                       1.0 if mm.get("available") else 0.0, ts=ts))
+        # watchdog trips — each blocks new entries
+        wd = s.get("watchdog") or {}
+        for k in ("entries_blocked", "critical_stale", "velocity_tripped"):
+            m.append(gauge(f"liquiditybot_watchdog_{k}",
+                           1.0 if wd.get(k) else 0.0, ts=ts))
+        m.append(gauge("liquiditybot_watchdog_divergent",
+                       float(len(wd.get("divergent") or [])), ts=ts))
+        m.append(gauge("liquiditybot_watchdog_stale_assets",
+                       float(len(wd.get("stale_assets") or [])), ts=ts))
+        # risk firewall: latched fault (1/0) + per-code reject/clamp tallies
+        fw = s.get("firewall") or {}
+        m.append(gauge("liquiditybot_firewall_fault",
+                       1.0 if fw.get("fault") else 0.0, ts=ts))
+        for code, cnt in (fw.get("counters") or {}).items():
+            if isinstance(cnt, (int, float)):
+                m.append(gauge("liquiditybot_firewall_count", cnt,
+                               {"code": str(code)}, ts))
+        # order manager: venue rejects (OM-021) + dead-man refresh failures (OM-050)
+        # + execution quality (§3): maker/taker split, rolling slippage, venue RTT.
+        # None-valued fields (no fills yet) fail the numeric guard -> not emitted.
+        om = s.get("order_manager") or {}
+        for k in ("venue_rejects", "deadman_failures", "latency_ms",
+                  "maker_fills", "taker_fills", "maker_share",
+                  "maker_notional_usd", "taker_notional_usd",
+                  "avg_slip_bps", "worst_slip_bps"):
+            v = om.get(k)
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))
+        # ---- asset skimmer (§7): candidate rankings + promotions -----------------
+        sk = s.get("skimmer") or {}
+        for pair, rec in (sk.get("scores") or {}).items():
+            v = (rec or {}).get("score")
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge("liquiditybot_skimmer_score", v,
+                               {"pair": str(pair)}, ts))
+        if sk:
+            m.append(gauge("liquiditybot_skimmer_promoted_count",
+                           float(len(sk.get("promoted") or [])), ts=ts))
+            m.append(gauge("liquiditybot_skimmer_candidates",
+                           float(sk.get("candidates") or 0), ts=ts))
+            for pair in (sk.get("promoted") or []):
+                m.append(gauge("liquiditybot_skimmer_promoted_info", 1.0,
+                               {"pair": str(pair)}, ts))
+        # ---- per-asset circuit breaker -------------------------------------------
+        cb = s.get("circuit_breaker") or {}
+        if cb:
+            m.append(gauge("liquiditybot_cb_tripped_count",
+                           float(len(cb.get("tripped") or {})), ts=ts))
+            for asset, hrs in (cb.get("tripped") or {}).items():
+                if isinstance(hrs, (int, float)) and not isinstance(hrs, bool):
+                    m.append(gauge("liquiditybot_cb_paused_hours_left", hrs,
+                                   {"asset": str(asset)}, ts))
+            for asset, streak in (cb.get("streaks") or {}).items():
+                if isinstance(streak, (int, float)) and not isinstance(streak, bool):
+                    m.append(gauge("liquiditybot_cb_loss_streak", streak,
+                                   {"asset": str(asset)}, ts))
+        # ---- risk-protocol posture (§6) ------------------------------------------
+        rp = s.get("risk_protocols") or {}
+        for k in ("daily_budget_used_frac", "weekly_budget_used_frac",
+                  "taper_mult", "heat_frac", "heat_cap_frac", "dd_throttle_mult"):
+            v = rp.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                m.append(gauge(f"liquiditybot_rp_{k}", v, ts=ts))
+        # central reason-code frequency ledger, aggregated by prefix (SZ/PT/RP/FW/…)
+        for prefix, cnt in ((s.get("code_stats") or {}).get("by_prefix") or {}).items():
+            if isinstance(cnt, (int, float)):
+                m.append(gauge("liquiditybot_code_count", cnt,
+                               {"prefix": str(prefix)}, ts))
+        # single choke point: a NaN/inf that slipped through any guard above (json
+        # round-trips NaN happily) must not reach the wire — ONE non-finite gauge
+        # invalidates the whole OTLP JSON batch and blacks out EVERY metric.
+        kept = [x for x in m
+                if math.isfinite(x["gauge"]["dataPoints"][0]["asDouble"])]
+        # DL6-D: a NaN/inf gauge dropped by the finiteness filter above used to
+        # vanish with no trace — a sudden NaN storm reads identically to "no
+        # problem". Count what the filter dropped so it is visible instead of
+        # silent; 0.0 in steady state, like every other always-on counter here.
+        kept.append(gauge("liquiditybot_gauges_dropped_nonfinite",
+                           float(len(m) - len(kept)), ts=ts))
+        return kept
+    except Exception:
+        # Blanket backstop, not per-site hardening (~20 (s.get(X) or {}).
+        # items() sites above): a status.json that PARSES but has the
+        # wrong shape (top-level null/list, "goals" as a list,
+        # "positions" as an int, written_at as a non-numeric string, ...)
+        # used to raise OUT of collect() — main()'s push(cfg, collect(...))
+        # is one expression, so push() never ran and ZERO gauges shipped,
+        # not even the alarm batch. Degraded truth beats silence.
+        log.exception("gc_pusher: malformed status.json shape at %s",
+                      status_path)
+        now = time.time()
+        return [gauge("liquiditybot_status_malformed", 1.0, ts=now),
+                gauge("liquiditybot_running", 0.0, ts=now),
+                gauge("liquiditybot_status_stale", 1.0, ts=now),
+                gauge("liquiditybot_status_missing", 0.0, ts=now)]
 
 
 def push(cfg: dict, metrics: list) -> int:
