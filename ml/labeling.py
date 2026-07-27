@@ -29,6 +29,28 @@ from risk.profit_tiers import (conviction_runner_params, conviction_trail_mult,
 EPS = 1e-12
 
 
+def barrier_geometry(sigma_bar: float, cost_pct: float, pt_mult: float,
+                     sl_mult: float, pt_cost_mult: float) -> tuple:
+    """(pt_frac, sl_frac) for the triple-barrier bet, cost-floored.
+
+    WHY the floor (spec D2, 2026-07-27): sigma-scaled barriers at
+    typical 5m vol put the profit target ~1% out while the round-trip
+    cost is ~0.5% — costs eat half the profit distance and the AVERAGE
+    bracket bet is EV-negative regardless of signal. Flooring the SIGMA
+    INPUT (never the distances) keeps pt:sl at its configured ratio by
+    construction: sigma_eff = max(sigma_bar,
+    pt_cost_mult * cost_frac / pt_mult), so at the floor the profit
+    distance is exactly pt_cost_mult round-trip costs. pt_cost_mult=0
+    disables the floor (legacy behavior). Pure function — BOTH the
+    candidate labeler and the live bracket-exit engine call this, which
+    is what makes the label's bet and the traded bet the same bet."""
+    sigma_eff = sigma_bar
+    if pt_cost_mult > 0.0 and pt_mult > 0.0:
+        sigma_eff = max(sigma_bar, pt_cost_mult * (cost_pct / 100.0)
+                        / pt_mult)
+    return pt_mult * sigma_eff, sl_mult * sigma_eff
+
+
 @dataclass
 class BarrierOutcome:
     label: int          # 1 = win (net of costs), 0 = loss/scratch

@@ -29,7 +29,7 @@ import numpy as np
 from core.codes import Code
 from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
                          REGIME_LABELS, REGIME_ONE_HOT_FEATURES)
-from ml.labeling import simulate_exit_policy, triple_barrier
+from ml.labeling import barrier_geometry, simulate_exit_policy, triple_barrier
 
 log = logging.getLogger("liquiditybot.ml.history")
 
@@ -1459,6 +1459,12 @@ class CandidateLabeler:
         self.horizon = int(cfg.get("label_max_bars", 96))
         self.pt = float(cfg.get("label_pt_vol_mult", 8.0))
         self.sl = float(cfg.get("label_sl_vol_mult", 6.0))
+        # cost-floored barrier geometry (spec D2, 2026-07-27,
+        # geometry-alignment T2): floors the SIGMA INPUT to
+        # barrier_geometry() so the profit distance is never < N round-trip
+        # costs, one knob, pt:sl ratio preserved by construction. Code
+        # default 0.0 = legacy (no floor); config.json ships 4.0.
+        self.pt_cost_mult = float(cfg.get("label_pt_cost_mult", 0.0))
         # round-trip cost subtracted before the win/loss label. Defaults to the
         # maker round-trip (2 x 25bps = 0.5%) so labels reflect REALIZED net
         # profitability, not an optimistic ~0 - a 6bps default here taught the
@@ -1711,7 +1717,16 @@ class CandidateLabeler:
                                         self.exit_policy, max_bars=self.horizon,
                                         cost_pct=cost, conviction=conviction,
                                         est_cost_bps=cost * 100.0)
-        out = triple_barrier(closes, highs, lows, i, side, sigma_bar,
+        # cost-floored geometry (spec D2): floor the SIGMA INPUT via the
+        # shared barrier_geometry() helper (also consumed by the live
+        # bracket-exit engine, Task 5), then back out the equivalent
+        # sigma so triple_barrier()'s own pt_mult*sigma/sl_mult*sigma math
+        # reproduces exactly the same (pt_frac, sl_frac) — the function's
+        # signature does not change.
+        pt_frac, _sl_frac = barrier_geometry(sigma_bar, cost, self.pt,
+                                             self.sl, self.pt_cost_mult)
+        sigma_eff = pt_frac / self.pt if self.pt > 0 else sigma_bar
+        out = triple_barrier(closes, highs, lows, i, side, sigma_eff,
                              self.pt, self.sl, self.horizon, cost_pct=cost)
         return replace(out, barrier=f"tb_{out.barrier}")
 
@@ -1740,11 +1755,15 @@ class CandidateLabeler:
         if not self.horizons or self.shadow_store is None:
             return
         try:
+            pt_frac, _sl_frac = barrier_geometry(cand["sigma_bar"], cost,
+                                                 self.pt, self.sl,
+                                                 self.pt_cost_mult)
+            sigma_eff = pt_frac / self.pt if self.pt > 0 else cand["sigma_bar"]
             for h in self.horizons:
                 if len(closes) - 1 - i < h:
                     continue
                 o = triple_barrier(closes, highs, lows, i, side,
-                                   cand["sigma_bar"], self.pt, self.sl,
+                                   sigma_eff, self.pt, self.sl,
                                    h, cost_pct=cost)
                 self.shadow_store.append(
                     cand["id"], cand["asset"], cand["direction"], h,

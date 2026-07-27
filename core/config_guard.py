@@ -571,6 +571,25 @@ def validate(config: dict) -> list:
              f"net-losing trades as wins, biasing the model to overtrade")
     if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
         fatal("ml.label_spread_cap_bps must be >= 0")
+
+    # cost-floored barrier geometry (spec D2/D5, 2026-07-27,
+    # geometry-alignment task 2, docs/superpowers/specs/
+    # 2026-07-27-geometry-alignment-design.md): ml.label_pt_cost_mult floors
+    # the SIGMA INPUT ml/labeling.py's barrier_geometry() feeds both the
+    # labeler and (Task 5) the live bracket-exit engine, so the profit
+    # distance never falls below pt_cost_mult round-trip costs. 0 disables
+    # the floor (legacy bare 8sigma/6sigma) - config nonsense outside
+    # [0, 20], FATAL regardless of dry_run like the label_mode check above
+    # (which label geometry trains the model, not a live-risk bound).
+    pt_cost_mult = float(_f(config, "ml.label_pt_cost_mult", 0.0))
+    if not (0.0 <= pt_cost_mult <= 20.0):
+        fatal(f"ml.label_pt_cost_mult={pt_cost_mult} outside [0, 20] - 0 "
+              f"disables the cost floor (legacy), values above 20 floor "
+              f"sigma into an unrecognizable barrier")
+    elif 0.0 < pt_cost_mult < 2.0:
+        warn(f"ml.label_pt_cost_mult={pt_cost_mult} floors the profit "
+             f"distance at under 2x round-trip cost - costs above 50% of "
+             f"the profit distance, the bet the floor exists to prevent")
     sgf = float(_f(config, "ml.postmortem.stop_gap_factor", 2.0))
     if sgf <= 1.0:
         fatal(f"ml.postmortem.stop_gap_factor={sgf} must be > 1.0 - at or "
