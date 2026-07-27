@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from ml.features import FEATURE_NAMES
-from ml.history import CandidateLabeler, HistoryStore
+from ml.history import CandidateLabeler, HistoryStore, bootstrap_dataset
 from ml.labeling import barrier_geometry  # noqa: E402
 
 
@@ -90,3 +90,60 @@ def test_unfloored_labeler_hits_tb_pt(tmp_path):
 
 def test_floored_labeler_never_reaches_pt_hits_tb_time(tmp_path):
     assert _labeled_barrier(tmp_path, 4.0) == "tb_time"
+
+
+# ============================================================================
+# bootstrap_dataset cost floor (T2 review finding): the cold-start EMA-cross
+# corpus scripts/train_meta.py vstacks with the live candidate corpus must
+# use the SAME cost-floored bet geometry as CandidateLabeler._label, or one
+# training call mixes two bet geometries. pt_cost_mult threads the floor
+# into bootstrap_dataset's triple_barrier branch only (the exit_policy
+# branch mirrors the exit-policy labeler and has its own, unrelated floor).
+# ============================================================================
+
+def _synthetic_low_vol_path(seed=20260741, n=900, sigma=0.0015):
+    # a fixed-seed GBM-like random walk (NOT the global numpy RNG - a local
+    # np.random.default_rng(seed), so this is exactly reproducible run to
+    # run/machine to machine) at a per-bar vol (0.15%) chosen so the
+    # trailing-60-bar sigma_bar bootstrap_dataset computes at its EMA
+    # crosses lands ABOVE cost_frac/pt_mult (the unfloored pt clears
+    # round-trip cost, so at least one cross can WIN unfloored) and BELOW
+    # the floor's sigma_eff = pt_cost_mult*cost_frac/pt_mult (so the same
+    # cross's floored barrier is far enough out that its path often times
+    # out or resolves differently instead) - i.e., squarely in the regime
+    # the T2 review finding says training was mixing. A tight synthetic
+    # intrabar wick (0.03%) keeps barrier touches driven by the actual
+    # closes path, not an incidental wick artifact.
+    rng = np.random.default_rng(seed)
+    rets = rng.normal(0.0, sigma, n - 1)
+    closes = [100.0]
+    for r in rets:
+        closes.append(closes[-1] * np.exp(r))
+    return [{"time": 1000 + 300 * i, "close": c, "high": c * 1.0003,
+             "low": c * 0.9997, "volume": 100.0}
+            for i, c in enumerate(closes)]
+
+
+def test_bootstrap_dataset_cost_floor_flips_a_cold_start_label():
+    candles = _synthetic_low_vol_path()
+    X0, y0 = bootstrap_dataset(candles, pt_cost_mult=0.0, max_bars=40,
+                               cost_pct=0.5)
+    X4, y4 = bootstrap_dataset(candles, pt_cost_mult=4.0, max_bars=40,
+                               cost_pct=0.5)
+    assert len(y0) > 0 and len(y4) > 0, "the synthetic path must still cross"
+    assert len(y0) == len(y4), \
+        "the floor changes the LABEL, never which crosses register"
+    assert np.array_equal(X0, X4), \
+        "features never depend on pt_cost_mult, only out.label does"
+    assert not np.array_equal(y0, y4), \
+        "the floor must change >=1 cold-start label vs the unfloored bet"
+
+
+def test_bootstrap_dataset_pt_cost_mult_omitted_is_legacy_default():
+    candles = _synthetic_low_vol_path()
+    X_default, y_default = bootstrap_dataset(candles, max_bars=40,
+                                             cost_pct=0.5)
+    X0, y0 = bootstrap_dataset(candles, pt_cost_mult=0.0, max_bars=40,
+                               cost_pct=0.5)
+    assert np.array_equal(X_default, X0)
+    assert np.array_equal(y_default, y0)

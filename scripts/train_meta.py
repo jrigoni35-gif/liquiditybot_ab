@@ -179,6 +179,7 @@ def main():
                 sl_mult=float(ml_cfg.get("label_sl_vol_mult", 6)),
                 max_bars=int(ml_cfg.get("label_max_bars", 96)),
                 cost_pct=float(ml_cfg.get("label_round_trip_cost_pct", 0.5)),
+                pt_cost_mult=float(ml_cfg.get("label_pt_cost_mult", 0.0)),
                 label_mode=str(ml_cfg.get("label_mode", "exit_policy")),
                 exit_policy=ExitPolicy.from_config(config))
             if len(xs):

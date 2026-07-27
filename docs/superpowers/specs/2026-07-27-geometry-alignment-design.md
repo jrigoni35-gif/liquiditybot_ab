@@ -115,8 +115,9 @@ in the commit message and docs/quant note. If Kraken's real tier is
 
 ## D5 — Guards (core/config_guard.py)
 
-- FATAL: `ml.label_pt_cost_mult` outside [1, 20]; WARN below 2 (costs
-  >50% of the profit distance — the bet the floor exists to prevent).
+- FATAL: `ml.label_pt_cost_mult` outside [0, 20] (0 = legacy floor-disable,
+  not FATAL); WARN below 2 (costs >50% of the profit distance — the bet
+  the floor exists to prevent).
 - FATAL: `bracket_exits.enabled` with `ml.label_mode != "triple_barrier"`
   (the bracket trades the tb bet; incoherent otherwise).
 - Probe-clearance interlock extended: WARN when `ml.exploration.p_win`

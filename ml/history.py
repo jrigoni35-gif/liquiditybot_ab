@@ -1849,6 +1849,7 @@ def _ema(closes: np.ndarray, period: int) -> np.ndarray:
 def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
                     pt_mult: float = 8.0, sl_mult: float = 6.0,
                     max_bars: int = 96, cost_pct: float = 0.5,
+                    pt_cost_mult: float = 0.0,
                     label_mode: str = "triple_barrier", exit_policy=None):
     """EMA-cross pseudo-signals -> labels over history.
 
@@ -1857,6 +1858,15 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
     the candidate labeler; "triple_barrier" is the legacy symmetric pt/sl.
     Defaults to triple_barrier so existing callers are behavior-exact until
     they opt in.
+
+    `pt_cost_mult` (default 0.0 = legacy, no floor) cost-floors the
+    triple_barrier branch's SIGMA INPUT exactly like CandidateLabeler._label
+    does post-88a7e09 (spec D2): via the shared barrier_geometry() helper,
+    so the cold-start bootstrap corpus and the live candidate corpus that
+    scripts/train_meta.py vstacks together are the same bet geometry. Only
+    the triple_barrier branch is floored — barrier_geometry() is a
+    triple-barrier concept; the exit_policy branch already replays the live
+    exit engine's own (unrelated) tier-1 cost floor and is untouched.
 
     DOCUMENTED RESIDUAL (W2-1): these EMA-cross pseudo-signals carry no meta
     p(win), so no conviction is threaded into the exit-policy sim — bootstrap
@@ -1892,13 +1902,22 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         # restated inline so the type checker narrows the Optional. Same
         # cost basis threaded into the tier-1 floor as the candidate path
         # (Task 1, #103): est_cost_bps = cost_pct * 100.0 (pct -> bps).
-        out = simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
-                                   exit_policy, max_bars=max_bars,
-                                   cost_pct=cost_pct,
-                                   est_cost_bps=cost_pct * 100.0) \
-            if use_policy and exit_policy is not None \
-            else triple_barrier(closes, highs, lows, i, side, sigma_bar,
-                                pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
+        if use_policy and exit_policy is not None:
+            out = simulate_exit_policy(closes, highs, lows, i, side, sigma_bar,
+                                       exit_policy, max_bars=max_bars,
+                                       cost_pct=cost_pct,
+                                       est_cost_bps=cost_pct * 100.0)
+        else:
+            # cost-floored geometry (spec D2), mirrors CandidateLabeler._label:
+            # floor the SIGMA INPUT via the shared barrier_geometry() helper,
+            # then back out the equivalent sigma so triple_barrier()'s own
+            # pt_mult*sigma/sl_mult*sigma math reproduces the same
+            # (pt_frac, sl_frac) — the function's signature does not change.
+            pt_frac, _sl_frac = barrier_geometry(sigma_bar, cost_pct, pt_mult,
+                                                 sl_mult, pt_cost_mult)
+            sigma_eff = pt_frac / pt_mult if pt_mult > 0 else sigma_bar
+            out = triple_barrier(closes, highs, lows, i, side, sigma_eff,
+                                 pt_mult, sl_mult, max_bars, cost_pct=cost_pct)
         feats = np.zeros(len(FEATURE_NAMES))
 
         def setf(name, val, _feats=feats):
