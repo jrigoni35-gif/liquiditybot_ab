@@ -152,6 +152,11 @@ def committed_bundle_inconsistency(repo: Path, rev: str,
     return None
 
 
+class _NonFastForward(RuntimeError):
+    """The push lost a tip race on the shared branch (another writer —
+    e.g. the PC's 10-minute status pusher — advanced it mid-flow)."""
+
+
 def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
     """Commit `bundle` to sessions/<label>/ on the durable branch and push,
     in an isolated worktree so `root`'s checkout/index/branch are untouched.
@@ -175,6 +180,31 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
         _run(["git", "push", cfg["remote"],
               f"{root_commit}:refs/heads/{cfg['branch']}"], cwd=root)
     _run(["git", "fetch", cfg["remote"], cfg["branch"]], cwd=root)
+    # NON-FF RETRY (2026-07-26/27 pc-live outage): the PC's status pusher
+    # writes to the SAME branch every 10 minutes at :x3:24 — squarely
+    # between this flow's fetch and its push on the supervisor's :53
+    # cadence — so the tip moved mid-flow and the non-force push was
+    # rejected non-fast-forward EVERY tick. Treating that as a generic
+    # failure meant waiting an hour for the phase-locked collision to
+    # repeat (20+ hours of live corpus stranded on one disk). Losing the
+    # race is NORMAL on a shared branch: re-fetch, rebuild the commit on
+    # the fresh tip, try again — bounded, and never force (the
+    # interleaved writer's commit must survive).
+    last_err: Exception | None = None
+    for attempt in range(3):
+        if attempt:
+            _run(["git", "fetch", cfg["remote"], cfg["branch"]], cwd=root)
+        try:
+            return _push_attempt(cfg, bundle, root, sha)
+        except _NonFastForward as e:
+            last_err = e
+    raise RuntimeError(f"push lost the branch race 3 times: {last_err}")
+
+
+def _push_attempt(cfg: dict, bundle: Path, root: Path, sha: str) -> str:
+    """One worktree build+commit+push attempt against the CURRENT
+    origin/<branch> tip. Raises _NonFastForward when the push loses a tip
+    race, so push_bundle can re-fetch and rebuild on the moved tip."""
     remote_ref = f"{cfg['remote']}/{cfg['branch']}"
     with tempfile.TemporaryDirectory(prefix="lb_backup_wt_") as wtd:
         wt = Path(wtd) / "wt"
@@ -255,8 +285,15 @@ def push_bundle(cfg: dict, bundle: Path, root: Path = ROOT) -> str:
                     f"refusing to push inconsistent commit: {bad}")
             if cfg["dry_run"]:
                 return f"DRY-RUN committed {rows} rows (not pushed)"
-            _run(["git", "push", cfg["remote"],
-                  f"{new}:refs/heads/{cfg['branch']}"], cwd=root)
+            try:
+                _run(["git", "push", cfg["remote"],
+                      f"{new}:refs/heads/{cfg['branch']}"], cwd=root)
+            except RuntimeError as e:
+                msg = str(e)
+                if ("non-fast-forward" in msg or "[rejected]" in msg
+                        or "fetch first" in msg):
+                    raise _NonFastForward(msg) from e
+                raise
             return f"pushed {rows} rows -> {cfg['branch']}"
         finally:
             _run(["git", "worktree", "remove", "--force", str(wt)],

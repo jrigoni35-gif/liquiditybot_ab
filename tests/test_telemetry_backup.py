@@ -443,6 +443,87 @@ def test_push_refused_when_committed_tree_inconsistent(
     assert tip_before == tip_after         # garbage never becomes the tip
 
 
+# ---------------------------------------------------------------------
+# Non-fast-forward retry (the 2026-07-26/27 pc-live outage): the PC's
+# status pusher writes control/pc_status.json to the SAME branch every 10
+# minutes at :x3:24 — squarely between the backup's fetch (~:53:05) and
+# its push (~:53:35). The tip moves mid-flow, the non-force push is
+# rejected non-fast-forward, and the old code treated that as a generic
+# failure and waited an hour — where the phase-locked collision repeated,
+# every tick, for 20+ hours. push_bundle must re-fetch and rebuild the
+# commit on the fresh tip (bounded retries), and the interleaved commit
+# must SURVIVE — never force over it.
+# ---------------------------------------------------------------------
+def test_nonff_race_retries_and_preserves_interleaved_commit(
+        repos, tmp_path, monkeypatch):
+    root, bare = repos
+    b = _make_bundle(tmp_path / "b", 5)
+
+    def interleave_status_push():
+        # simulate remote_control.py: another writer advances the branch
+        clone = tmp_path / "statuswriter"
+        _git("clone", "-q", "--branch", "paper-telemetry", str(bare),
+             str(clone), cwd=tmp_path)
+        _git("config", "user.email", "s@s.s", cwd=clone)
+        _git("config", "user.name", "s", cwd=clone)
+        _git("config", "commit.gpgsign", "false", cwd=clone)
+        (clone / "control").mkdir(exist_ok=True)
+        (clone / "control" / "pc_status.json").write_text(
+            '{"pushed_at": 1}', encoding="utf-8")
+        _git("add", "-A", cwd=clone)
+        _git("commit", "-m", "remote-control: control/pc_status.json",
+             cwd=clone)
+        _git("push", "-q", "origin", "paper-telemetry", cwd=clone)
+
+    real_run = tb._run
+    state = {"fired": False}
+
+    def racing_run(argv, cwd=None, check=True):
+        if argv[:2] == ["git", "push"] and not state["fired"]:
+            state["fired"] = True
+            interleave_status_push()          # tip moves BEFORE our push
+        return real_run(argv, cwd=cwd, check=check)
+
+    monkeypatch.setattr(tb, "_run", racing_run)
+    msg = tb.push_bundle(_cfg(), b, root=root)
+    assert "pushed 5 rows" in msg
+    assert state["fired"]                     # the race actually happened
+    # BOTH commits on the branch: the interleaved status write survived
+    # (non-force) and the bundle landed on top of it
+    logout = subprocess.run(
+        ["git", "log", "--format=%s", "paper-telemetry"], cwd=str(bare),
+        check=True, capture_output=True, text=True).stdout
+    assert "remote-control: control/pc_status.json" in logout
+    assert "telemetry: sidecar backup" in logout
+    files = _branch_files(bare)
+    assert "control/pc_status.json" in files
+    assert "sessions/nightshift/signal_history.csv" in files
+
+
+def test_nonff_exhaustion_raises_after_bounded_retries(
+        repos, tmp_path, monkeypatch):
+    # a tip that moves before EVERY push attempt must exhaust the bounded
+    # retries and raise (the hourly cadence retries) — never loop forever,
+    # never fall back to force
+    root, bare = repos
+    b = _make_bundle(tmp_path / "b", 5)
+    counter = {"n": 0}
+    real_run = tb._run
+
+    def losing_run(argv, cwd=None, check=True):
+        if argv[:2] == ["git", "push"]:
+            counter["n"] += 1
+            raise RuntimeError(
+                "git push origin… exit 1: ! [rejected] "
+                "abc -> paper-telemetry (non-fast-forward)")
+        return real_run(argv, cwd=cwd, check=check)
+
+    monkeypatch.setattr(tb, "_run", losing_run)
+    with pytest.raises(RuntimeError, match="non-fast-forward"):
+        tb.push_bundle(_cfg(), b, root=root)
+    assert counter["n"] == 3                  # bounded, not infinite
+
+
 def test_push_only_touches_its_own_label_never_siblings(repos, tmp_path):
     # regression (2026-07-18): push_bundle used `git add -A`, which re-staged
     # EVERY sibling bundle. Combined with the -text pin and a Windows
