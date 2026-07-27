@@ -631,7 +631,7 @@ class HistoryStore:
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
                         "barrier", "probe", "disp", "candidate_id", "book",
-                        "label_era"]
+                        "label_era", "pt_frac", "sl_frac"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -675,6 +675,21 @@ class HistoryStore:
         # column so every existing row/consumer is untouched but for
         # this one trailing field. BOOKKEEPING ONLY - never a feature,
         # and this task NEVER changes a label/weight/row (report-only).
+        # pt_frac, sl_frac (geometry-alignment T3, 2026-07-27, spec D2/D6):
+        # the barrier_geometry() (pt_frac, sl_frac) this row's label was
+        # computed under, FRACTIONS of entry (0.02 = 2%) - every row becomes
+        # self-describing so Task 6's live-vs-label comparator can read the
+        # exact bet a row was labeled on without recomputing it from sigma/
+        # cost at a possibly-different config. Written EXPLICITLY at append
+        # time from CandidateLabeler._label's triple_barrier branch (the
+        # ONLY call site whose output reaches the persisted corpus, see that
+        # method's docstring); every other caller (live rows via log_close,
+        # exit_policy-mode labels, pre-bump rows) defaults 0.0 = "unknown/
+        # legacy geometry" - no migration derives a value for them, unlike
+        # label_era above, because there is no single fixed bracket to back
+        # out for an exit_policy replay. LAST two columns so every existing
+        # row/consumer is untouched but for these two trailing fields.
+        # BOOKKEEPING ONLY - never a feature.
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -726,7 +741,8 @@ class HistoryStore:
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
                     barrier: str = "", probe: str = "", disp: str = "",
-                    candidate_id: str = "", book: str = "5m"):
+                    candidate_id: str = "", book: str = "5m",
+                    pt_frac: float = 0.0, sl_frac: float = 0.0):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -734,11 +750,13 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        if 3 + len(feats) + 11 != len(self._header):
+        # 13 trailing meta columns (label..label_era, pt_frac, sl_frac -
+        # geometry-alignment T3 added the last two).
+        if 3 + len(feats) + 13 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 11} - stale pre-rotation "
+                f"schema {len(self._header) - 13} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
@@ -749,13 +767,16 @@ class HistoryStore:
         # engine should never emit one; if it does, dropping the label is far
         # cheaper than silently corrupting every retrain that reads it.
         fa = np.asarray(feats, dtype=float)
-        if not np.all(np.isfinite(fa)) or not np.isfinite(float(pnl_usd)):
+        if (not np.all(np.isfinite(fa)) or not np.isfinite(float(pnl_usd))
+                or not np.isfinite(float(pt_frac))
+                or not np.isfinite(float(sl_frac))):
             bad = [FEATURE_NAMES[i] for i in np.flatnonzero(~np.isfinite(fa))
                    if i < len(FEATURE_NAMES)]
             log.warning(
                 f"{Code.ML_DIRTY_LABEL.value}: refusing non-finite {source} "
                 f"row {position_id[:12]} ({asset}): "
-                f"{bad or 'pnl'} not finite - label dropped, corpus kept clean")
+                f"{bad or 'pnl/pt_frac/sl_frac'} not finite - label dropped, "
+                f"corpus kept clean")
             return
         with open(self.path, "a", newline="", encoding="utf-8") as f:
             now = time.time()
@@ -765,7 +786,8 @@ class HistoryStore:
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
                                     barrier, probe, disp, candidate_id, book,
-                                    label_era_of(barrier)])
+                                    label_era_of(barrier),
+                                    f"{pt_frac:.6f}", f"{sl_frac:.6f}"])
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -1723,12 +1745,18 @@ class CandidateLabeler:
         # sigma so triple_barrier()'s own pt_mult*sigma/sl_mult*sigma math
         # reproduces exactly the same (pt_frac, sl_frac) — the function's
         # signature does not change.
-        pt_frac, _sl_frac = barrier_geometry(sigma_bar, cost, self.pt,
-                                             self.sl, self.pt_cost_mult)
+        pt_frac, sl_frac = barrier_geometry(sigma_bar, cost, self.pt,
+                                            self.sl, self.pt_cost_mult)
         sigma_eff = pt_frac / self.pt if self.pt > 0 else sigma_bar
         out = triple_barrier(closes, highs, lows, i, side, sigma_eff,
                              self.pt, self.sl, self.horizon, cost_pct=cost)
-        return replace(out, barrier=f"tb_{out.barrier}")
+        # (geometry-alignment T3) stamp the exact bracket this row's label
+        # was decided under, so the persisted row is self-describing -
+        # Task 6's comparator reads pt_frac/sl_frac straight off the row
+        # instead of recomputing them from sigma/cost at a possibly-
+        # different config.
+        return replace(out, barrier=f"tb_{out.barrier}",
+                       pt_frac=pt_frac, sl_frac=sl_frac)
 
     def _emit_label(self, cand: dict, out) -> int:
         self.store._append_row(cand["id"], cand["asset"],
@@ -1736,7 +1764,9 @@ class CandidateLabeler:
                             out.label, 0.0, "candidate",
                             signal_ts=float(cand["bar_time"]),
                             barrier=str(getattr(out, "barrier", "") or ""),
-                            disp=str(cand.get("disp") or ""))
+                            disp=str(cand.get("disp") or ""),
+                            pt_frac=float(getattr(out, "pt_frac", 0.0) or 0.0),
+                            sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

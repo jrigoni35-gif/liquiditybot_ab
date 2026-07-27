@@ -71,13 +71,15 @@ def test_persistence_defaults_book_for_legacy_snapshot_without_key():
 # ---------------------------------------------------------------------
 
 def test_history_header_ends_with_label_era(tmp_path):
-    # label-era instrumentation (DEEP DIVE, progress.md) added ANOTHER
-    # trailing column after `book` - same additive pattern this file's
-    # own docstring describes for `book` itself.
+    # geometry-alignment T3 (2026-07-27) added TWO MORE trailing columns
+    # after `label_era` - same additive pattern this file's own docstring
+    # describes for `book` itself.
     hs = HistoryStore(str(tmp_path / "h.csv"))
-    assert hs._header[-1] == "label_era"
-    assert hs._header[-2] == "book"
-    assert hs._header[-3] == "candidate_id"
+    assert hs._header[-1] == "sl_frac"
+    assert hs._header[-2] == "pt_frac"
+    assert hs._header[-3] == "label_era"
+    assert hs._header[-4] == "book"
+    assert hs._header[-5] == "candidate_id"
 
 
 def test_width_guard_accepts_current_shape(tmp_path, caplog):
@@ -114,7 +116,10 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     is purely additive at the end, defaulting "5m". Extended (label-era
     instrumentation, DEEP DIVE progress.md) to also pin the NEXT additive
     column: barrier="realized" derives label_era "exit_sim" (see
-    label_era_of/_EXIT_SIM_BARRIERS in ml/history.py)."""
+    label_era_of/_EXIT_SIM_BARRIERS in ml/history.py). Extended again
+    (geometry-alignment T3, 2026-07-27) to pin the two NEWEST trailing
+    columns, pt_frac/sl_frac — a caller that never heard of them (this one)
+    defaults both to 0.0."""
     import ml.history as history_mod
     fixed_now = 1700000000.0
     monkeypatch.setattr(history_mod.time, "time", lambda: fixed_now)
@@ -132,16 +137,16 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
 
     # this is exactly the pre-C1 serialization (mirrors _append_row's
     # csv.writer(f).writerow([...]) call, verified against the in-tree
-    # source before this change) with "5m" (book) and "exit_sim"
-    # (label_era, derived from barrier="realized") appended as the two
-    # newest trailing columns
+    # source before this change) with "5m" (book), "exit_sim" (label_era,
+    # derived from barrier="realized"), and "0.000000"/"0.000000"
+    # (pt_frac/sl_frac defaults) appended as the newest trailing columns
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
-                "cand-9", "5m", "exit_sim"]
+                "cand-9", "5m", "exit_sim", "0.000000", "0.000000"]
     assert row == expected
-    assert header[-1] == "label_era"
+    assert header[-1] == "sl_frac"
     assert len(row) == len(header)
 
 

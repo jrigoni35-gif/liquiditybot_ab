@@ -135,7 +135,9 @@ def test_era_boundary_from_deep_dive_is_barrier_driven_not_time_driven(
 
 def test_old_corpus_without_label_era_column_loads_as_legacy(tmp_path):
     hs = _store(tmp_path)
-    old_header = hs._header[:-1]           # schema as it existed pre-task
+    # schema as it existed pre-task: drop label_era AND the two
+    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac)
+    old_header = hs._header[:-3]
     feats = _feats(42)
     row = ["p1", "BTC", "long", *[f"{v:.6f}" for v in feats],
            1, "5.00", "candidate", "1700000000", "1700000000",

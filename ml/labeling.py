@@ -64,6 +64,19 @@ class BarrierOutcome:
     # full horizon. Generalizes the old `barrier in ("pt","sl")` check across
     # both the triple-barrier and the exit-policy labelers.
     final: bool = True
+    # (pt_frac, sl_frac): the barrier_geometry() distances this outcome was
+    # labeled under (geometry-alignment T3, 2026-07-27), FRACTIONS of entry
+    # (0.02 = 2%). Populated ONLY by CandidateLabeler._label's triple_barrier
+    # branch - the sole call site whose output reaches the persisted corpus
+    # (see that method's docstring) - via `dataclasses.replace`. Every other
+    # constructor call (triple_barrier's own internal returns, the
+    # exit_policy replay) leaves these at the 0.0 default: exit_policy has no
+    # single fixed bracket to report, so 0.0 there means "not a fixed-
+    # geometry bet", the SAME "unknown/legacy" meaning HistoryStore gives an
+    # unpopulated pt_frac/sl_frac column on a pre-bump row. Row METADATA
+    # only - never consumed as a feature.
+    pt_frac: float = 0.0
+    sl_frac: float = 0.0
 
 
 @dataclass

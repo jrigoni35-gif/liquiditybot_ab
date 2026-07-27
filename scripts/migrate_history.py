@@ -119,7 +119,18 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # left to the loader's own fallback, so a migrated row
                     # is the FULL current width like every other trailing
                     # field above.
-                    label_era_of(r.get("barrier") or "")])
+                    label_era_of(r.get("barrier") or ""),
+                    # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment
+                    # T3): the barrier_geometry() bracket a row's label was
+                    # decided under. Pass an already-migrated row's own real
+                    # value through UNCHANGED (idempotence: a second
+                    # migration pass must never clobber real geometry with
+                    # the neutral default) - only a row that predates this
+                    # column pads "0.000000" = "unknown/legacy geometry",
+                    # the same meaning HistoryStore gives an unpopulated
+                    # column on a live-written row.
+                    r.get("pt_frac") or "0.000000",
+                    r.get("sl_frac") or "0.000000"])
     return out, padded
 
 

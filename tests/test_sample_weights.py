@@ -43,14 +43,18 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         header = f.readline().strip().split(",")
         row = f.readline().strip().split(",")
-    assert header[-6] == "barrier" and row[-6] == "time"
-    assert header[-5] == "probe" and row[-5] == ""   # candidates: unmarked
-    assert header[-4] == "disp" and row[-4] == ""    # no pipeline verdict
-    assert header[-3] == "candidate_id" and row[-3] == ""  # no lineage set
-    assert header[-2] == "book" and row[-2] == "5m"  # default book
+    assert header[-8] == "barrier" and row[-8] == "time"
+    assert header[-7] == "probe" and row[-7] == ""   # candidates: unmarked
+    assert header[-6] == "disp" and row[-6] == ""    # no pipeline verdict
+    assert header[-5] == "candidate_id" and row[-5] == ""  # no lineage set
+    assert header[-4] == "book" and row[-4] == "5m"  # default book
     # label_era joined 2026-07-26 (label-era instrumentation): derived
     # from THIS row's own barrier="time" -> exit_sim (see label_era_of)
-    assert header[-1] == "label_era" and row[-1] == "exit_sim"
+    assert header[-3] == "label_era" and row[-3] == "exit_sim"
+    # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): this
+    # call never supplies a bracket -> the documented 0.0 default
+    assert header[-2] == "pt_frac" and row[-2] == "0.000000"
+    assert header[-1] == "sl_frac" and row[-1] == "0.000000"
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -61,13 +65,17 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         f.readline()
         tail = f.readline().strip().split(",")
-        assert tail[-6] == "realized"
-        assert tail[-5] == "0"        # un-flagged live close = conviction
-        assert tail[-4] == "entered"  # a live row IS an entered trade
-        assert tail[-3] == ""         # no matching candidate -> no lineage
-        assert tail[-2] == "5m"       # default book
+        assert tail[-8] == "realized"
+        assert tail[-7] == "0"        # un-flagged live close = conviction
+        assert tail[-6] == "entered"  # a live row IS an entered trade
+        assert tail[-5] == ""         # no matching candidate -> no lineage
+        assert tail[-4] == "5m"       # default book
         # label_era joined 2026-07-26: barrier="realized" -> exit_sim
-        assert tail[-1] == "exit_sim"
+        assert tail[-3] == "exit_sim"
+        # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): a
+        # live close never supplies a bracket -> the documented 0.0 default
+        assert tail[-2] == "0.000000"
+        assert tail[-1] == "0.000000"
 
 
 # ---- average uniqueness ----------------------------------------------------
