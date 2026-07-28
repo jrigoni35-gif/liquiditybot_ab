@@ -132,3 +132,58 @@ floor in docs/quant/pbo_admission_policy.md. A single-point dead_frac is
 therefore a noisy estimator of the quantity the gate cares about; do not
 tune the gate to it. Conscious baseline: 4/4. The {3,4,5}-band
 oscillation reading stands, now with six documented crossings.
+
+## Seventh crossing (2026-07-28): 4/4 -> 5 passed / 3 failed
+
+Standing baseline through the entire geometry-alignment feature
+(T1-T8, 2026-07-27/28): 5 passed / 3 failed, measured identically on
+at least eight independent battery runs. The three fails are the OF-1
+gap trio alone (gap[logistic]=+0.198, gap[gbt]=+0.297, gap[mlp]=+0.236
+at 4,907 dedup-surviving rows); every other check passes, including
+the two that flipped this band upward:
+
+- OF-7 dead_frac recovered 0.60 -> 0.52 (gate 0.55) as the corpus grew
+  from 4,642 to 4,907 survivors — consistent with the sixth crossing's
+  own caution that a single-point dead_frac is a noisy estimator; the
+  band oscillation continues to be corpus-driven, not code-driven.
+- OF-3 PBO collapsed 0.23 -> 0.03 over 7 configs / 70 splits (deployed
+  simplicity-ladder rule; argmax stress also 0.03) — the healthiest
+  PBO reading recorded in this document.
+
+Conscious baseline: 5/3. No gate touched, no threshold moved. The
+geometry-alignment feature shipped with this baseline pinned unmoved
+across every task battery (see docs/quant/2026-07-28_geometry_
+alignment_adjudication.md), so the crossing is attributable to corpus
+growth between the sixth crossing's snapshot and this one — the
+new-era rows accumulating under the triple-barrier label repair. Seven
+documented crossings; the {3,4,5}-band oscillation reading stands.
+
+## Eighth transition (2026-07-28, REGIME CHANGE): era exclusion ACTIVATED
+## — the baseline series restarts on the clean corpus
+
+Hours after the seventh crossing was recorded, the 2026-07-28 pc-live
+import (611 fresh rows) pushed the new-era (triple_barrier) count to
+663 — past ml.era_exclusion.min_new_era_rows=150 — and the era-gated
+training exclusion armed and activated exactly as designed (operator
+decision 2026-07-26, docs/quant/2026-07-26_era_exclusion.md). From this
+point every corpus consumer, overfit_check included, measures the
+CLEAN new-era view only.
+
+This is NOT a crossing within the old series — it is the end of that
+series. All seven prior crossings measured the mixed-era corpus
+(legacy + exit_sim + time_stop + tb); that population no longer exists
+for these instruments. New baseline, first reading, 661 rows:
+
+- 3 passed / 4 failed. Fails: the OF-1 gap trio (+0.319/+0.346/+0.438
+  — wider than the mixed-era readings, expected: a 661-row corpus
+  memorizes more per parameter) and OF-7 dead_frac 0.58 (thin-corpus
+  reading, same noisy-estimator caveat as the sixth crossing).
+- Passes: shuffle (z=0.6), purge (leak_closed=-0.006), pbo, dof floor
+  (rows/feature=10.7, just above the 10 floor — the corpus only barely
+  qualifies to be measured at all).
+
+Conscious baseline going forward: 3/4 on the era-excluded view,
+expected to IMPROVE as the clean corpus grows (the old series took
+~5k rows to reach 5/3). No gate touched, no threshold moved, nothing
+compensated. Movement in either direction from here reads against the
+new-era corpus size first.

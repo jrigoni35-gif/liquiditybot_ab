@@ -55,7 +55,8 @@ log = logging.getLogger("train_meta")
 
 def _deploy_challenger(config: dict, model, challenger_brier: float,
                        extra: dict, model_path: str,
-                       n_oof: int | None = None) -> bool:
+                       n_oof: int | None = None,
+                       X=None, y=None, oof_idx=None) -> bool:
     """Champion/challenger deploy gate for a manually-trained model. Mirrors
     the gate main.py's in-process auto-retrain already enforces (ModelMonitor
     .should_deploy/.note_deployed) so a CLI retrain cannot silently swap in
@@ -72,6 +73,34 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
     monitor = ModelMonitor(ml_cfg.get("monitor", {}))
     if state_data:
         monitor.restore(state_data.get("monitor") or {})
+    # STALE-BADGE GUARD, CLI lane (ML-042 parity, 2026-07-28): the
+    # restored champion_brier is a birth certificate from an older corpus
+    # era. The engine's auto-retrain rescored the frozen champion on the
+    # same fresh OOF rows before gating (main.py, 8b91f69) — but this CLI
+    # gate kept comparing against the badge, reproducing the exact squat
+    # that fix removed: a stale-low badge rejects every honestly-scored
+    # CLI challenger forever. When the caller supplies the OOF context,
+    # rescore the on-disk champion on it and realign; any load/score
+    # failure keeps the badge (rescore_frozen is fail-safe by contract).
+    if X is not None and y is not None and oof_idx is not None:
+        try:
+            from ml.meta_model import MetaModelService
+            champ = MetaModelService({"model_path": model_path,
+                                      **({} if not isinstance(ml_cfg, dict)
+                                         else ml_cfg)})
+            champ.reload()
+            champ_fresh = ModelMonitor.rescore_frozen(
+                champ.model, champ.calibrator, X, y, oof_idx,
+                champ.trained_rows, monitor.deploy_min_oof)
+        except Exception:                # noqa: BLE001 - fail-safe realign
+            champ_fresh = None
+        if champ_fresh is not None and \
+                abs(champ_fresh - monitor.champion_brier) > 1e-9:
+            log.warning("champion badge realigned on fresh OOF: "
+                        "%.4f -> %.4f (frozen champion rescored on the "
+                        "challenger's own OOF rows — ML-042 parity)",
+                        monitor.champion_brier, champ_fresh)
+            monitor.champion_brier = champ_fresh
     prev_champion = monitor.champion_brier
 
     # W2-2 stale-gate CAS: snapshot the on-disk champion's identity right
@@ -276,7 +305,9 @@ def main():
                         .get("background_rows", 64)))}
     deployed = _deploy_challenger(config, results["model"], oof_brier,
                                   extra, model_path,
-                                  n_oof=int(len(oof_cal)))
+                                  n_oof=int(len(oof_cal)),
+                                  X=X, y=y,
+                                  oof_idx=results.get("oof_idx"))
     from ml.retrain_log import append_retrain, retrain_record
     append_retrain(
         ml_cfg.get("retrain_history_path",

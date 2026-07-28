@@ -132,3 +132,50 @@ def test_uncontested_deploy_unaffected_by_the_cas_wiring(tmp_path):
     assert deployed is True
     updated = json.loads(state_path.read_text(encoding="utf-8"))
     assert updated["monitor"]["champion_brier"] == 0.10
+
+
+def test_stale_badge_cannot_squat_against_cli_challenger(tmp_path):
+    """ML-042 parity for the CLI lane (2026-07-28): the engine's
+    auto-retrain rescores the FROZEN champion on the same fresh OOF rows
+    before gating (main.py stale-badge guard); the CLI gate compared
+    against the RESTORED badge — a birth certificate from an older corpus
+    era — so an unbeatable stale badge (0.05 here) could squat forever
+    against every honestly-scored CLI challenger. With X/y/oof_idx
+    provided, the CLI gate must realign the badge from the on-disk
+    champion's own fresh-OOF rescore before deciding."""
+    from ml.features import FEATURE_NAMES
+    model_path = tmp_path / "meta_model.json"
+    state_path = tmp_path / "state.json"
+    rng = np.random.default_rng(11)
+    # REAL feature width: MetaModelService.reload() enforces the schema/
+    # width guard (#17) and refuses narrow artifacts — the realign must be
+    # exercised through the honest loader, not around it
+    X = rng.normal(size=(200, len(FEATURE_NAMES)))
+    y_train = (X[:, 0] > 0).astype(float)
+    champ = GradientBoostedStumps(seed=5).fit(X, y_train)
+    assert save_model(champ, str(model_path), extra={})
+    _seed_state(state_path, champion_brier=0.05)       # unbeatable badge
+    config = {"ml": {"monitor": {}}, "system": {"state_path": str(state_path)}}
+    y_fresh = 1.0 - y_train              # champion anti-predictive on fresh
+    challenger = GradientBoostedStumps(seed=9).fit(X, y_fresh)
+    deployed = _deploy_challenger(config, challenger,
+                                  challenger_brier=0.20, extra={},
+                                  model_path=str(model_path),
+                                  n_oof=len(X), X=X, y=y_fresh,
+                                  oof_idx=np.arange(len(X)))
+    assert deployed is True
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["monitor"]["champion_brier"] == 0.20  # note_deployed won
+
+
+def test_gate_without_oof_context_keeps_restored_badge_behavior(tmp_path):
+    # the realign only runs when the caller supplies the OOF context —
+    # legacy callers (and failure paths) keep the exact prior behavior
+    model_path = tmp_path / "meta_model.json"
+    state_path = tmp_path / "state.json"
+    _seed_state(state_path, champion_brier=0.05)
+    config = {"ml": {"monitor": {}}, "system": {"state_path": str(state_path)}}
+    deployed = _deploy_challenger(config, _fitted_gbt(),
+                                  challenger_brier=0.20, extra={},
+                                  model_path=str(model_path))
+    assert deployed is False                            # badge still gates
