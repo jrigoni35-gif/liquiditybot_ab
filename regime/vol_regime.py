@@ -35,6 +35,14 @@ class VolState:
     sigma_annual_pct: float = 60.0   # annualized, %
     percentile: float = 50.0         # vs. own daily history
     label: str = "normal"            # low | normal | elevated | extreme
+    # True only once update() has computed the fast estimate from real
+    # candles this session. The numeric defaults above are PLACEHOLDERS,
+    # not measurements: consumers whose geometry scales off sigma (the
+    # exit-floor arm, vol-scaled tiers) must treat measured=False as "no
+    # vol feed" (pass None), never do arithmetic on 0.05 — that exact
+    # arithmetic armed the give-back ratchet on a 0.18% peak 38s after a
+    # restart and exited a restored position (LINK 3ea2a851, 2026-07-28).
+    measured: bool = False
 
 
 class VolRegimeEngine:
@@ -68,6 +76,7 @@ class VolRegimeEngine:
             pk = float(self._parkinson(highs, lows).mean())
             sigma_bar = 0.5 * cc + 0.5 * pk           # blended per-bar vol
             st.sigma_bar_pct = sigma_bar * 100.0
+            st.measured = True
             st.sigma_annual_pct = sigma_bar * np.sqrt(BARS_5M_PER_YEAR) * 100.0
             st.sigma_daily_pct = sigma_bar * np.sqrt(288) * 100.0
 

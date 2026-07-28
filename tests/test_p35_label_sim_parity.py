@@ -388,6 +388,10 @@ def test_manage_open_position_threads_tier_action_reason_code_end_to_end():
     # tests/test_t5_riding_minors.py)
     fake._has_resting_profit_take = types.MethodType(
         main_mod.LiquidityBot._has_resting_profit_take, fake)
+    # real cold-sigma gate over the stub vol (duck-typed state has no
+    # `measured` -> the stub's sigma_bar_pct passes through unchanged)
+    fake._exit_sigma = types.MethodType(main_mod.LiquidityBot._exit_sigma,
+                                        fake)
     pos = Position(position_id="p1", symbol="ETH/USD", direction="long",
                   entry_price=100.0, size=1.0, original_size=1.0,
                   tier_closed=0, high_water=100.0,
