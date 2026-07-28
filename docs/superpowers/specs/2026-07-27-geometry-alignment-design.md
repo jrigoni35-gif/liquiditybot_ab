@@ -1,6 +1,6 @@
 # Geometry Alignment: one bet from label to fill
 
-**Date:** 2026-07-27 · **Status:** approved by operator (design dialogue)
+**Date:** 2026-07-27 · **Status:** implemented @ 35753e3 (T1-T8)
 · **Origin:** systematic-debugging of the entry drought + derived-bar work
 (commit ae4b531). Operator decisions recorded below are binding.
 

@@ -257,7 +257,8 @@ class Code(str, Enum):
     RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue
     RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)
 
-    # ---- execution-truth harness (XV) — replay gate + fill calibration ---
+    # ---- execution-truth harness (XV) — replay gate + fill calibration
+    # + cost truth --------------------------------------------------------
     XV_GATE_PASS = "XV-000"  # nosec B105 - reason code, not a secret (name has "PASS")
     XV_GATE_SKIP = "XV-001"          # no recordings present — gate dormant (not a fail)
     XV_DETERMINISM_FAIL = "XV-010"   # two replays of one recording disagree (engine regression)

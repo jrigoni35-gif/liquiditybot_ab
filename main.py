@@ -3592,7 +3592,8 @@ class LiquidityBot:
                         self.state, reserved_entries):
                     can_enter = False
                 log.info(
-                    f"ENTRY {signal.direction} {symbol} [{plan.style}]: ${sized.usd:,.0f} "
+                    f"ENTRY {signal.direction} {symbol} [{plan.style}]: "
+                    f"${decision.size_units * entry_price:,.0f} "
                     f"({decision.size_units:.6f}) @ "
                     f"{self._px(symbol, entry_price)} | "
                     f"p={p_win:.2f} edge={decision.est_edge_bps:.0f}bps "
@@ -4393,7 +4394,8 @@ class LiquidityBot:
             max(len(lplan.rungs) - 1, 1)
         log.info(
             f"ENTRY-LADDER {signal.direction} {symbol}: "
-            f"{placed}/{len(lplan.rungs)} rungs, ${sized.usd:,.0f} "
+            f"{placed}/{len(lplan.rungs)} rungs, "
+            f"${decision.size_units * entry_price:,.0f} "
             f"total | p={p_win:.2f} spacing={step_bps:.1f}bps | "
             f"{lplan.reason}")
         if not self.capital.can_open_new_position(self.state,

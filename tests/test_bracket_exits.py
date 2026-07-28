@@ -226,6 +226,15 @@ def test_bracket_for_entry_upward_rescale_is_clamped_to_pass1_ceiling():
         "PASS-1's approval is a CEILING: a bracket whose risk-in-size "
         "wants MORE notional must never grow decision.size_units past "
         "what the pretrade gate already cleared (ratio clamped <= 1.0)")
+    # T8 nit (carried from T5 review): the <= above also passes on an
+    # accidental additional downscale - pin the EXACT clamped case too.
+    # rescale_ratio = min(bracket_units/pass1_units, 1.0) clamps to
+    # EXACTLY 1.0 here (bracket wants > 1.4x), so decision.size_units
+    # (seeded at sized1.units, multiplied by that exact 1.0) must equal
+    # the PASS-1 approved units bit-for-bit, not merely bound it.
+    assert decision.size_units == sized1.units, (
+        "clamped case must reproduce PASS-1's approved units EXACTLY "
+        "(ratio pinned at 1.0), not just fall under the ceiling")
 
 
 def test_bracket_for_entry_downward_rescale_is_unaffected_by_the_clamp():

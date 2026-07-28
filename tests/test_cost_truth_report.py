@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from core.codes import Code
 from scripts.cost_truth_report import (
     Verdict,
     build_report,
@@ -278,7 +279,7 @@ def test_build_report_dangerous_direction_end_to_end(tmp_path):
 
     report = build_report(cfg_path, pm_path, audit_path)
     assert "DANGEROUS" in report
-    assert f"[{__import__('core.codes', fromlist=['Code']).Code.XV_COST_DANGEROUS.value}]" in report
+    assert f"[{Code.XV_COST_DANGEROUS.value}]" in report
 
 
 def test_build_report_insufficient_data_both_sources(tmp_path):
