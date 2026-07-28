@@ -1197,6 +1197,7 @@ class LiquidityBot:
                   "edge_bps": meta_t.get("edge_bps", 0.0),
                   "est_cost_bps": meta_t.get("est_cost_bps", 0.0),
                   "features": meta_t.get("features"),
+                  "gate_components": meta_t.get("gate_components") or {},
                   "probe": bool(meta_t.get("probe", False)),
                   "candidate_id": meta_t.get("candidate_id") or "",
                   "algo_parent": parent.parent_id,
@@ -1490,7 +1491,8 @@ class LiquidityBot:
                                         probe=pos.is_probe,
                                         candidate_id=order.meta.get(
                                             "candidate_id"),
-                                        book=pos.book)
+                                        book=pos.book,
+                                        gate_components=order.meta.get("gate_components"))
                 if pos.book == "long":
                     self._register_long_book_thesis(
                         pos, position_id, event.fill_price, now)
@@ -3538,6 +3540,7 @@ class LiquidityBot:
                     "probe": explored,
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or [],
+                    "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
                     "bracket_deadline_ts": bracket_deadline_ts}
@@ -3613,6 +3616,7 @@ class LiquidityBot:
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or [],
+                    "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
                     "bracket_deadline_ts": bracket_deadline_ts},
@@ -4501,6 +4505,7 @@ class LiquidityBot:
                       "ladder_rung": rung.idx,
                       "candidate_id": cand_id or "",
                       "thales_fired": self._thales_fired.get(asset) or [],
+                      "gate_components": dict(getattr(signal, "components", None) or {}),
                       "bracket_pt_frac": bracket_pt_frac,
                       "bracket_sl_frac": bracket_sl_frac,
                       "bracket_deadline_ts": bracket_deadline_ts},

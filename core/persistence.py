@@ -379,7 +379,15 @@ class StateStore:
                           # slot; older tuples lack it) - "5m" default
                           # threads through restore() the same way every
                           # other pre-C tuple shape does.
-                          "book": e[6] if len(e) > 6 else "5m"}
+                          "book": e[6] if len(e) > 6 else "5m",
+                          # gate-truth T4 (T2 review's carried gap): the
+                          # informed-flow component scores captured at
+                          # signal time (8th slot; older tuples lack it) -
+                          # without this a restart on a still-open position
+                          # silently degrades its eventual sg_* telemetry
+                          # to all-zero even though log_entry recorded the
+                          # real components.
+                          "gate_components": e[7] if len(e) > 7 else {}}
                     for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
@@ -705,7 +713,12 @@ class StateStore:
                         # same convention as position_from_dict's own book
                         # default (never silently reclassify onto the
                         # long book on restore).
-                        h.get("book") or "5m")
+                        h.get("book") or "5m",
+                        # gate-truth T4 (T2 review's carried gap): pre-T4
+                        # snapshots lack this key -> {} default, same
+                        # inert convention _append_row already applies to
+                        # a missing/None gate_components argument.
+                        h.get("gate_components") or {})
         except Exception:
             log.exception("history section malformed - skipped")
 

@@ -179,3 +179,74 @@ def test_candidate_row_carries_components_through_labeler(tmp_path):
     assert by_asset["ETH"]["sg_flow"] == "0.5000"
     assert by_asset["ETH"]["sg_conc"] == "0.4000"
     assert by_asset["SOL"]["sg_flow"] == "0.0000"
+
+
+# ---- Task 4: live-path threading (entry meta -> fill -> close) ----------
+
+
+def test_all_three_entry_paths_thread_gate_components():
+    """Source contract (same idiom as test_label_realize's): every entry
+    meta block and the fill->log_entry handoff thread the components."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    # 3 entry meta blocks (direct, ladder, algo) name the key
+    assert src.count('"gate_components": ') >= 3
+    # the fill handoff passes it into the pending tuple
+    assert 'gate_components=order.meta.get("gate_components")' in src
+
+
+def _persist_stub_bot(history):
+    """Minimal bot stub good enough for a real StateStore.snapshot()/
+    restore() round trip - same shape as
+    test_probe_throttle.py::_persist_stub_bot (established precedent for
+    exercising the ACTUAL save/restore code, not a hand-mirrored dict)."""
+    import types
+
+    from core.state import PortfolioState
+    b = types.SimpleNamespace()
+    b.dry_run = True
+    b.state = PortfolioState(starting_capital=800)
+    b.orders = types.SimpleNamespace(open_orders=lambda: [], _orders={})
+    b.history = history
+    b.sizer = types.SimpleNamespace(_last_entry={})
+    b._pos_realized = {}
+    b._halted = False
+    b._stop_hit = {}
+    b._rows_at_last_train = 0
+    hollow = types.SimpleNamespace(to_dict=lambda: {}, restore=lambda d: None)
+    b.monitor = hollow
+    b.postmortem = hollow
+    b.candidates = hollow
+    b.gate_stats = hollow
+    b.risk_protocols = None
+    return b
+
+
+def test_pending_snapshot_round_trips_gate_components(tmp_path):
+    """FOLDED-IN gap (T2 review): core/persistence.py explicitly rebuilds
+    fixed-shape history_pending tuples on save/restore. Before this fix the
+    8th (gate_components) slot was silently dropped by that rebuild - a
+    restart on a still-open position degraded its eventual sg_* row to all
+    zeros even though log_entry recorded real components. Round-trip
+    through the REAL snapshot()/restore() code (not a hand-mirrored dict):
+    save a len-8 pending entry, restore into a fresh HistoryStore, close
+    it, and assert the sg_* cells survive."""
+    from core.persistence import StateStore
+
+    store = StateStore(str(tmp_path / "state.json"))
+    hs = _mk_store(tmp_path / "src")
+    hs.log_entry("posA", "ETH", "long", _feats(), probe=False,
+                 candidate_id="cand-9", book="5m", gate_components=SG)
+    assert len(hs._pending["posA"]) == 8
+    bot = _persist_stub_bot(hs)
+    assert store.snapshot(bot)
+
+    hs2 = _mk_store(tmp_path / "dst")
+    revived = _persist_stub_bot(hs2)
+    assert store.restore(revived)
+    assert len(hs2._pending["posA"]) == 8
+    hs2.log_close("posA", 3.0)
+    rows = list(csv.DictReader(open(hs2.path, encoding="utf-8")))
+    assert rows[0]["sg_flow"] == "0.5000"
+    assert rows[0]["sg_conc"] == "0.4000"
