@@ -170,10 +170,12 @@ def test_candidate_row_carries_components_through_labeler(tmp_path):
     lab.update_candles("ETH", bars)
     lab.update_candles("SOL", bars)
     wrote = lab.poll()
-    assert wrote >= 1
+    # the +5.5% high is a barrier touch for BOTH (ETH long pt at +4%,
+    # SOL short sl at +3%) - both label on this one poll, so the legacy
+    # zero-assertion below can never silently skip (T3 review ⚠️)
+    assert wrote == 2
     rows = list(csv.DictReader(open(store.path, encoding="utf-8")))
     by_asset = {r["asset"]: r for r in rows}
     assert by_asset["ETH"]["sg_flow"] == "0.5000"
     assert by_asset["ETH"]["sg_conc"] == "0.4000"
-    if "SOL" in by_asset:
-        assert by_asset["SOL"]["sg_flow"] == "0.0000"
+    assert by_asset["SOL"]["sg_flow"] == "0.0000"
