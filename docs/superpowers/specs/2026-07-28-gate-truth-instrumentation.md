@@ -59,8 +59,11 @@ alignment is derived at read time (report), never baked in.
 mutates). Sections: [1] instrumentation coverage (instrumented = any
 |sg_*| > 0, era = triple_barrier); [2] per-component realized win-rate
 aligned-vs-opposed + rank AUC of `s_i × direction` vs label; [3]
-weight-vs-data table (config `strategies.weights` vs measured AUC
-ranks); [4] gate_confidence calibration buckets. Verdict: XV-040
+weight-vs-data table (config `informed_flow.weights` — corrected at T5:
+the engine is constructed from config["informed_flow"], and config_guard
+validates weights there; this spec originally said strategies.weights,
+which nothing reads — vs measured AUC ranks); [4] gate_confidence
+calibration buckets. Verdict: XV-040
 ALIGNED / XV-041 MISALIGNED (weight rank order vs AUC rank order,
 Spearman ≥ 0 on the five components = aligned) / XV-042 INSUFFICIENT
 (< 100 instrumented era rows — documented floor, cost-truth precedent).
