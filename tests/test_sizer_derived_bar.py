@@ -41,7 +41,7 @@ def _sizer(**over):
     return PositionSizer(cfg, PROFIT_CFG, RISK_CFG, pretrade_cfg=PRETRADE)
 
 
-def _size(sizer, p_win):
+def _size(sizer, p_win, bracket=None):
     state = PortfolioState(starting_capital=EQUITY)
     lev = LeverageGovernor({"use_margin": False}).decide(
         state, {}, EQUITY, 60.0, 2.0, 0.0)
@@ -50,7 +50,7 @@ def _size(sizer, p_win):
     return sizer.size("ETH", "long", 2000.0, p_win, EQUITY, state, bull,
                       VolState("ETH", sigma_annual_pct=50.0),
                       LiquidityState("ETH", size_mult=1.0), 1.0,
-                      InventoryManager({}), lev, {})
+                      InventoryManager({}), lev, {}, bracket=bracket)
 
 
 def _breakeven():
@@ -123,3 +123,73 @@ def test_exploration_synthetic_p_still_clears_the_shipped_derived_bar():
     assert explore_p > bar, (
         f"probe synthetic p {explore_p} must clear the derived bar {bar:.4f}"
         f" or the F0b trickle dies at SZ-023")
+
+
+# ---------------------------------------------------------------------------
+# Task 4: per-trade bracket bar + risk-in-size notional
+# ---------------------------------------------------------------------------
+
+def test_bracket_overrides_the_global_bar_per_trade():
+    s = _sizer(p_bar_mode="derived")
+    # wide bracket (pt 4%, sl 3%): b=(4-.65)/(3+.65)=0.918, bar 0.521
+    d = _size(s, 0.55, bracket=(4.0, 3.0))
+    assert not any("SZ-023" in r for r in d.reasons)   # clears 0.521
+    d2 = _size(s, 0.50, bracket=(4.0, 3.0))
+    assert any("SZ-023" in r for r in d2.reasons)      # below it
+
+
+def test_bracket_notional_scales_dollar_risk_to_the_stop():
+    s = _sizer(p_bar_mode="derived")
+    d_legacy_like = _size(s, 0.80, bracket=(2.667, 2.0))  # sl == 2%
+    d_wide = _size(s, 0.80, bracket=(5.334, 4.0))         # sl 2x wider
+    assert d_legacy_like.approved and d_wide.approved
+    # same p, same b (ratio equal) -> same f; notional halves as sl doubles
+    assert abs(d_wide.usd - d_legacy_like.usd / 2.0) < max(
+        0.02 * d_legacy_like.usd, 1.0)
+
+
+def test_no_bracket_is_byte_identical_legacy():
+    s = _sizer(p_bar_mode="derived")
+    a = _size(s, 0.70)
+    b = _size(s, 0.70, bracket=None)
+    assert (a.usd, a.kelly_f, a.reasons) == (b.usd, b.kelly_f, b.reasons)
+
+
+def test_bracket_invalid_values_fail_closed():
+    # nonfinite or non-positive bracket legs are a fail-closed SZ_INVALID_INPUT,
+    # never a silent fall-through to the legacy geometry
+    s = _sizer(p_bar_mode="derived")
+    for bad in ((0.0, 2.0), (4.0, 0.0), (float("nan"), 2.0),
+               (4.0, float("nan")), (4.0, float("inf")),
+               (float("-inf"), 2.0), (-1.0, 2.0)):
+        d = _size(s, 0.90, bracket=bad)
+        assert d.usd == 0.0, f"bracket={bad!r} should fail closed"
+        assert any("SZ-010" in r for r in d.reasons), (
+            f"bracket={bad!r} missing SZ-010: {d.reasons}")
+
+
+def test_absolute_mode_bracket_bar_unchanged_but_payoff_b_reports_bracket():
+    # absolute mode: the bar stays the fixed p_bar_base regardless of any
+    # bracket (D3 conditional: derived formula only applies when
+    # p_bar_mode == "derived"). Use a TIGHT bracket whose own breakeven
+    # (~0.913) sits well above the fixed absolute bar (0.55) -- if the bar
+    # incorrectly picked up the bracket geometry in absolute mode, this
+    # p_win would die SZ-023; it must not, because the bar ignores it here.
+    s = _sizer()                                   # absolute mode, default
+    assert s.p_bar_mode == "absolute"
+    tight = (1.0, 3.0)                              # b_net=(1-.65)/(3+.65)=0.0959
+    d = _size(s, 0.70, bracket=tight)
+    assert not any("SZ-023" in r for r in d.reasons)  # bar == 0.55, unaffected
+    # tight bracket's own breakeven (~0.913) is above 0.70, so net-Kelly
+    # correctly still vetoes it -- just not via the bar
+    assert not d.approved
+
+    # a generous bracket that clears both the (unchanged) absolute bar and
+    # its own Kelly breakeven: approved, and payoff_b must report the
+    # BRACKET b (~0.918), not the legacy config b_net (~0.583)
+    wide = (4.0, 3.0)
+    d2 = _size(s, 0.85, bracket=wide)
+    assert d2.approved
+    expected_b = (4.0 - s.rt_cost_pct) / (3.0 + s.rt_cost_pct)
+    assert abs(d2.payoff_b - expected_b) < 1e-6
+    assert abs(d2.payoff_b - s.b_net) > 0.05        # distinct from legacy net b

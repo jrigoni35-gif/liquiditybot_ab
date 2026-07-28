@@ -138,6 +138,13 @@ class PositionSizer:
                                               risk_cfg or {},
                                               rt_cost_pct=self.rt_cost_pct,
                                               reach_decay=self.tier_reach_decay)
+        # per-trade BRACKET reference: the legacy stop_loss_pct this rev's
+        # config was tuned around. A bracket call's post-Kelly notional is
+        # scaled by (stop_loss_pct_ref / sl_pct) so risk-in-size stays on
+        # the same dollar-risk scale as the legacy 2%-stop geometry as the
+        # per-trade stop widens or tightens (spec D3).
+        self.stop_loss_pct_ref = float((risk_cfg or {}).get(
+            "stop_loss_pct", 2.0))
         # DERIVED ENTRY BAR (2026-07-27 drought diagnosis, operator-directed):
         # an absolute min_p_win is geometry-blind — the shipped 0.55 sat BELOW
         # the net-Kelly breakeven (0.632 at current tiers/stop/fees), a
@@ -328,7 +335,8 @@ class PositionSizer:
              marks: dict, now: Optional[float] = None,
              risk_scale: float = 1.0,
              symbol: Optional[str] = None,
-             floor_to_min: bool = False) -> SizeDecision:
+             floor_to_min: bool = False,
+             bracket: "tuple[float, float] | None" = None) -> SizeDecision:
         d = SizeDecision(usd=0.0, units=0.0,
                          p_win=p_win if _fin(p_win) else 0.0,
                          kelly_f=0.0, payoff_b=self.b)
@@ -353,14 +361,40 @@ class PositionSizer:
                                  f"regime {macro_state.label} blocks "
                                  f"{direction}"))
             return d
-        p_bar = self.p_bar_base
+        # per-trade BRACKET (spec D3): when a caller passes a labeled
+        # (pt_pct, sl_pct) bracket, THAT bet - not the config-average tier
+        # geometry - drives the breakeven, the bar (in derived mode), the
+        # Kelly f*, and the notional. None preserves self.b_net exactly,
+        # so every legacy caller is byte-identical (CLAUDE.md invariant 7).
+        b_net = self.b_net
+        pt_pct = sl_pct = None
+        if bracket is not None:
+            pt_pct, sl_pct = float(bracket[0]), float(bracket[1])
+            if not (_fin(pt_pct) and _fin(sl_pct) and pt_pct > EPS
+                    and sl_pct > EPS):
+                d.reasons.append(tag(Code.SZ_INVALID_INPUT,
+                                     f"bracket={bracket!r}"))
+                return d
+            # the bet being sized IS the labeled bracket: worst-case costs,
+            # per-trade breakeven, and dollar-risk normalized to the legacy
+            # 2%-stop scale (risk lives in SIZE - operator decision, sl is
+            # never capped here).
+            b_net = max((pt_pct - self.rt_cost_pct)
+                        / max(sl_pct + self.rt_cost_pct, EPS), EPS)
+        p_bar = (max(1.0 / (1.0 + b_net) + self.p_bar_edge_margin,
+                     self.min_p_win)
+                 if (bracket is not None and self.p_bar_mode == "derived")
+                 else self.p_bar_base)
         if macro_state.is_counter_trend(direction):
             p_bar += macro_state.playbook.get("counter_trend_conf_bonus",
                                               0.15)
         if p_win < p_bar:
-            basis = (f" (net breakeven {1.0 / (1.0 + self.b_net):.3f}"
+            basis = (f" (net breakeven {1.0 / (1.0 + b_net):.3f}"
                      f" + margin {self.p_bar_edge_margin:.3f}, derived)"
                      if self.p_bar_mode == "derived" else "")
+            if bracket is not None:
+                basis += (f" [bracket pt={pt_pct:.2f}% sl={sl_pct:.2f}% "
+                         f"b={b_net:.3f}]")
             d.reasons.append(tag(Code.SZ_PWIN_BAR,
                                  f"p {p_win:.2f} below bar {p_bar:.2f}"
                                  f"{basis}"))
@@ -370,7 +404,7 @@ class PositionSizer:
         # f* > 0 on the net distribution IS the net-expectancy check:
         # p must exceed 1/(1+b_net) or the structure loses money after
         # fees regardless of sizing.
-        f_star = p_win - (1.0 - p_win) / self.b_net
+        f_star = p_win - (1.0 - p_win) / b_net
         f = max(f_star, 0.0) * self.kelly_fraction
         f = min(f, self.kelly_cap)
         d.kelly_f = f
@@ -378,11 +412,21 @@ class PositionSizer:
             d.reasons.append(tag(Code.SZ_KELLY_ZERO,
                                  f"net-Kelly f* <= 0: p {p_win:.2f} below "
                                  f"net breakeven "
-                                 f"{1.0 / (1.0 + self.b_net):.3f} "
-                                 f"(b_net={self.b_net:.2f})"))
+                                 f"{1.0 / (1.0 + b_net):.3f} "
+                                 f"(b_net={b_net:.2f})"))
             return d
 
         usd = equity * f
+        if bracket is not None:
+            # risk-in-size: normalize dollar risk to the legacy 2%-stop
+            # scale so a per-trade stop that is 2x as wide sizes to half
+            # the notional at the same edge (spec D3 risk-in-size).
+            # sl_pct is always set here: bracket is not None only reaches
+            # this point via the validated branch above, which returns
+            # before here on any bad bracket (narrows for the type checker).
+            assert sl_pct is not None
+            usd *= (self.stop_loss_pct_ref / sl_pct)
+        d.payoff_b = b_net
 
         # ---- drawdown throttle (SZ-050): decelerate toward the halt --------
         try:
