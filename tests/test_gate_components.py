@@ -55,5 +55,12 @@ def test_warmup_return_has_empty_components():
 def test_fault_path_has_empty_components():
     from strategies.informed_flow import InformedFlowEngine
     eng = InformedFlowEngine({})
-    r = eng.evaluate_asset("ETH", {"candles": [{"close": "not-a-number"}]})
+    # a non-dict candle raises inside _evaluate (int has no .get) BEFORE
+    # the warmup check - this exercises the fail-closed except branch,
+    # which the warmup test above cannot reach
+    r = eng.evaluate_asset("ETH", {"candles": [42]})
     assert r.components == {}
+    assert r.direction is None and r.confidence == 0.0
+    # discriminator: warmup returns {"v3_data_sufficiency": False}; the
+    # fail-closed branch returns an EMPTY gates dict
+    assert r.gates_passed == {}
