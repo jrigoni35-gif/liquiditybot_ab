@@ -73,13 +73,17 @@ def test_persistence_defaults_book_for_legacy_snapshot_without_key():
 def test_history_header_ends_with_label_era(tmp_path):
     # geometry-alignment T3 (2026-07-27) added TWO MORE trailing columns
     # after `label_era` - same additive pattern this file's own docstring
-    # describes for `book` itself.
+    # describes for `book` itself. gate-truth instrumentation T2
+    # (2026-07-28) added 7 more sg_* columns after THOSE - pt_frac/sl_frac
+    # are no longer last, but their relative order is preserved.
     hs = HistoryStore(str(tmp_path / "h.csv"))
-    assert hs._header[-1] == "sl_frac"
-    assert hs._header[-2] == "pt_frac"
-    assert hs._header[-3] == "label_era"
-    assert hs._header[-4] == "book"
-    assert hs._header[-5] == "candidate_id"
+    assert hs._header[-1] == "sg_conc"
+    assert hs._header[-7] == "sg_flow"
+    assert hs._header[-8] == "sl_frac"
+    assert hs._header[-9] == "pt_frac"
+    assert hs._header[-10] == "label_era"
+    assert hs._header[-11] == "book"
+    assert hs._header[-12] == "candidate_id"
 
 
 def test_width_guard_accepts_current_shape(tmp_path, caplog):
@@ -119,7 +123,10 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     label_era_of/_EXIT_SIM_BARRIERS in ml/history.py). Extended again
     (geometry-alignment T3, 2026-07-27) to pin the two NEWEST trailing
     columns, pt_frac/sl_frac — a caller that never heard of them (this one)
-    defaults both to 0.0."""
+    defaults both to 0.0. Extended again (gate-truth instrumentation T2,
+    2026-07-28) to pin the 7 NEWEST trailing columns, sg_flow..sg_conc —
+    a caller that never heard of `gate_components` (this one) defaults
+    all seven to 0.0."""
     import ml.history as history_mod
     fixed_now = 1700000000.0
     monkeypatch.setattr(history_mod.time, "time", lambda: fixed_now)
@@ -138,15 +145,17 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     # this is exactly the pre-C1 serialization (mirrors _append_row's
     # csv.writer(f).writerow([...]) call, verified against the in-tree
     # source before this change) with "5m" (book), "exit_sim" (label_era,
-    # derived from barrier="realized"), and "0.000000"/"0.000000"
-    # (pt_frac/sl_frac defaults) appended as the newest trailing columns
+    # derived from barrier="realized"), "0.000000"/"0.000000" (pt_frac/
+    # sl_frac defaults) and "0.0000" x7 (sg_flow..sg_conc defaults)
+    # appended as the newest trailing columns
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
-                "cand-9", "5m", "exit_sim", "0.000000", "0.000000"]
+                "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
+                *(["0.0000"] * 7)]
     assert row == expected
-    assert header[-1] == "sl_frac"
+    assert header[-1] == "sg_conc"
     assert len(row) == len(header)
 
 

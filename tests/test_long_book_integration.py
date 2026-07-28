@@ -1256,7 +1256,7 @@ def test_long_book_fill_stamps_features_and_writes_book_tagged_history_row(
         "the fill must log_entry a pending row (main._handle_fill's " \
         "'features' in order.meta guard must now fire for a long fill)"
     (pend_asset, pend_dir, pend_feats, _pend_ts, pend_probe,
-     _pend_cand, pend_book) = bot.history._pending[pos.position_id]
+     _pend_cand, pend_book, _pend_gate) = bot.history._pending[pos.position_id]
     assert pend_book == "long"
     assert pend_dir == "long"
     assert pend_asset == "BTC"

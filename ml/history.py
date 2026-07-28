@@ -254,6 +254,13 @@ LABEL_ERA_TIME_STOP = "exit_sim_time_stop"     # + P2 time-stop rung
 LABEL_ERA_TRIPLE_BARRIER = "triple_barrier"
 LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 
+# gate-truth instrumentation (2026-07-28): the informed-flow component
+# vocabulary, ONE source of truth for capture (SignalResult.components),
+# persistence (the sg_* trailing columns below) and the offline grader
+# (scripts/gate_truth_report.py). Order IS the column order.
+SG_COMPONENT_KEYS = ("flow", "delta", "accum", "burst", "trend",
+                     "evidence", "conc")
+
 # Vertical-barrier reasons: "price touched NEITHER profit nor stop inside the
 # horizon". This is a POPULATION, not a spelling, and the sample-weight
 # correction below (time_barrier_zero_weight) keys off it — a no-move is
@@ -654,7 +661,8 @@ class HistoryStore:
         self._header = ["position_id", "asset", "side", *FEATURE_NAMES,
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
                         "barrier", "probe", "disp", "candidate_id", "book",
-                        "label_era", "pt_frac", "sl_frac"]
+                        "label_era", "pt_frac", "sl_frac",
+                        *[f"sg_{k}" for k in SG_COMPONENT_KEYS]]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -713,6 +721,16 @@ class HistoryStore:
         # out for an exit_policy replay. LAST two columns so every existing
         # row/consumer is untouched but for these two trailing fields.
         # BOOKKEEPING ONLY - never a feature.
+        # sg_flow..sg_conc (gate-truth instrumentation, 2026-07-28): the
+        # informed-flow engine's RAW signed component scores at signal
+        # time (positive = long evidence), the fused evidence Σw·s and
+        # the normalized-HHI concentration — SG_COMPONENT_KEYS order.
+        # 0.0 = pre-instrumentation row / legacy five_gate engine /
+        # warmup. Direction alignment is derived at READ time
+        # (scripts/gate_truth_report.py: s_i × direction), never baked
+        # in. Non-finite values sanitize to 0.0 at append — telemetry
+        # never drops a row. LAST seven columns so every existing
+        # row/consumer is untouched. BOOKKEEPING ONLY — never a feature.
 
     def _ensure_schema(self):
         """Rotate-or-create, WRITE PATH ONLY. Rotation used to live in
@@ -752,20 +770,23 @@ class HistoryStore:
 
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray, probe: bool = False,
-                candidate_id: "str | None" = None, book: str = "5m"):
+                candidate_id: "str | None" = None, book: str = "5m",
+                gate_components: "dict | None" = None):
         # signal time captured HERE: rows are appended at label time, and
         # the purged walk-forward must order/purge by when the SIGNAL
         # happened, not when its barrier resolved
         self._pending[position_id] = (asset, direction, features.copy(),
                                       time.time(), bool(probe),
-                                      candidate_id or "", book)
+                                      candidate_id or "", book,
+                                      dict(gate_components or {}))
 
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
                     barrier: str = "", probe: str = "", disp: str = "",
                     candidate_id: str = "", book: str = "5m",
-                    pt_frac: float = 0.0, sl_frac: float = 0.0):
+                    pt_frac: float = 0.0, sl_frac: float = 0.0,
+                    gate_components: "dict | None" = None):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -773,13 +794,13 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        # 13 trailing meta columns (label..label_era, pt_frac, sl_frac -
-        # geometry-alignment T3 added the last two).
-        if 3 + len(feats) + 13 != len(self._header):
+        # 20 trailing meta columns (label..label_era, pt_frac, sl_frac,
+        # sg_flow..sg_conc - gate-truth instrumentation added the last 7).
+        if 3 + len(feats) + 20 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 13} - stale pre-rotation "
+                f"schema {len(self._header) - 20} - stale pre-rotation "
                 f"vector, row would misalign under the current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
@@ -801,6 +822,14 @@ class HistoryStore:
                 f"{bad or 'pnl/pt_frac/sl_frac'} not finite - label dropped, "
                 f"corpus kept clean")
             return
+        sg = {}
+        src_sg = gate_components if isinstance(gate_components, dict) else {}
+        for k in SG_COMPONENT_KEYS:
+            try:
+                v = float(src_sg.get(k, 0.0))
+            except (TypeError, ValueError):
+                v = 0.0
+            sg[k] = v if np.isfinite(v) else 0.0
         with open(self.path, "a", newline="", encoding="utf-8") as f:
             now = time.time()
             csv.writer(f).writerow([position_id, asset, direction,
@@ -810,7 +839,9 @@ class HistoryStore:
                                     f"{signal_ts if signal_ts else now:.0f}",
                                     barrier, probe, disp, candidate_id, book,
                                     label_era_of(barrier),
-                                    f"{pt_frac:.6f}", f"{sl_frac:.6f}"])
+                                    f"{pt_frac:.6f}", f"{sl_frac:.6f}",
+                                    *[f"{sg[k]:.4f}" for k in
+                                      SG_COMPONENT_KEYS]])
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -863,7 +894,11 @@ class HistoryStore:
         probe = False
         cand_id = ""
         book = "5m"
-        if len(entry) == 7:
+        gate_comp = None
+        if len(entry) == 8:
+            (asset, direction, feats, sig_ts, probe, cand_id, book,
+             gate_comp) = entry
+        elif len(entry) == 7:
             asset, direction, feats, sig_ts, probe, cand_id, book = entry
         elif len(entry) == 6:
             asset, direction, feats, sig_ts, probe, cand_id = entry
@@ -880,7 +915,8 @@ class HistoryStore:
                         barrier=barrier or "realized",
                         probe="1" if probe else "0", disp="entered",
                         candidate_id=cand_id or "", book=book or "5m",
-                        pt_frac=pt_frac, sl_frac=sl_frac)
+                        pt_frac=pt_frac, sl_frac=sl_frac,
+                        gate_components=gate_comp)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
         if barrier in ("tb_pt", "tb_sl", "tb_time"):

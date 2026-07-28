@@ -12,7 +12,7 @@ import numpy as np
 
 from ml.calibration import IsotonicCalibrator
 from ml.features import FEATURE_NAMES
-from ml.history import HistoryStore
+from ml.history import SG_COMPONENT_KEYS, HistoryStore
 from ml.models import GradientBoostedStumps, LogisticModel, load_model, save_model
 
 
@@ -101,10 +101,14 @@ def test_history_header_contract_is_stable(tmp_path):
     # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): the
     # barrier_geometry() bracket a row's label was decided under —
     # appended last so meta order (and every past bump) stays stable
+    # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation T2):
+    # the informed-flow engine's component scores at signal time —
+    # appended last so meta order (and every past bump) stays stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
                 "barrier", "probe", "disp", "candidate_id", "book",
-                "label_era", "pt_frac", "sl_frac"]
+                "label_era", "pt_frac", "sl_frac",
+                *[f"sg_{k}" for k in SG_COMPONENT_KEYS]]
     assert hs._header == expected
 
 

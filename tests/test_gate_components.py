@@ -2,7 +2,10 @@
 component scores on the SignalResult so the realization path can grade
 them (2026-07-28 audit: components were computed and discarded — the
 weights were unfalsifiable)."""
+import csv
 import math
+
+import numpy as np
 
 from strategies.signal_gates import SignalResult
 
@@ -64,3 +67,73 @@ def test_fault_path_has_empty_components():
     # discriminator: warmup returns {"v3_data_sufficiency": False}; the
     # fail-closed branch returns an EMPTY gates dict
     assert r.gates_passed == {}
+
+
+# ---- Task 2: history schema +7 sg_* telemetry columns --------------------
+
+
+def _mk_store(tmp_path):
+    from ml.history import HistoryStore
+    return HistoryStore(str(tmp_path / "hist.csv"))
+
+
+def _feats():
+    from ml.features import FEATURE_NAMES
+    return np.zeros(len(FEATURE_NAMES))
+
+
+SG = {"flow": 0.5, "delta": -0.25, "accum": 0.1, "burst": 0.0,
+      "trend": 0.33, "evidence": 0.91, "conc": 0.4}
+
+
+def test_header_gains_seven_sg_columns_last(tmp_path):
+    hs = _mk_store(tmp_path)
+    assert hs._header[-7:] == ["sg_flow", "sg_delta", "sg_accum",
+                               "sg_burst", "sg_trend", "sg_evidence",
+                               "sg_conc"]
+    assert hs._header[-9:-7] == ["pt_frac", "sl_frac"]   # order preserved
+
+
+def test_append_row_writes_components_and_defaults_zero(tmp_path):
+    hs = _mk_store(tmp_path)
+    hs._append_row("p1", "ETH", "long", _feats(), 1, 0.0, "candidate",
+                   gate_components=SG)
+    hs._append_row("p2", "ETH", "long", _feats(), 0, 0.0, "candidate")
+    rows = list(csv.DictReader(open(hs.path, encoding="utf-8")))
+    assert rows[0]["sg_flow"] == "0.5000"
+    assert rows[0]["sg_delta"] == "-0.2500"
+    assert rows[0]["sg_evidence"] == "0.9100"
+    assert rows[1]["sg_flow"] == "0.0000"          # default: uninstrumented
+
+
+def test_nonfinite_component_sanitizes_never_drops(tmp_path):
+    hs = _mk_store(tmp_path)
+    bad = dict(SG, flow=float("nan"), conc=float("inf"))
+    hs._append_row("p3", "ETH", "long", _feats(), 1, 0.0, "candidate",
+                   gate_components=bad)
+    rows = list(csv.DictReader(open(hs.path, encoding="utf-8")))
+    assert len(rows) == 1                          # row kept
+    assert rows[0]["sg_flow"] == "0.0000"
+    assert rows[0]["sg_conc"] == "0.0000"
+    assert rows[0]["sg_delta"] == "-0.2500"        # good keys survive
+
+
+def test_live_row_carries_components_via_pending_tuple(tmp_path):
+    hs = _mk_store(tmp_path)
+    hs.log_entry("pos9", "ETH", "short", _feats(), probe=True,
+                 candidate_id="cand-1", book="5m", gate_components=SG)
+    hs.log_close("pos9", -1.25, barrier="tb_sl")
+    rows = list(csv.DictReader(open(hs.path, encoding="utf-8")))
+    assert rows[0]["source"] == "live" and rows[0]["barrier"] == "tb_sl"
+    assert rows[0]["sg_flow"] == "0.5000"
+    assert rows[0]["sg_trend"] == "0.3300"
+
+
+def test_legacy_pending_tuple_shapes_still_close(tmp_path):
+    # a pre-instrumentation snapshot restores 7-element pending tuples —
+    # closing one must still write a row (sg_* all zero)
+    hs = _mk_store(tmp_path)
+    hs._pending["old1"] = ("ETH", "long", _feats(), 123.0, False, "", "5m")
+    hs.log_close("old1", 2.0)
+    rows = list(csv.DictReader(open(hs.path, encoding="utf-8")))
+    assert len(rows) == 1 and rows[0]["sg_flow"] == "0.0000"

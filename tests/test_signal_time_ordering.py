@@ -49,7 +49,9 @@ def test_signal_ts_flows_from_log_entry_to_row(tmp_path):
     feats = np.zeros(len(FEATURE_NAMES))
     store.log_entry("p1", "BTC", "long", feats)
     entry = store._pending["p1"]
-    assert len(entry) == 7 and entry[3] > 0, "log_entry must stamp signal time"
+    # gate-truth instrumentation T2 (2026-07-28) appended an 8th pending-
+    # tuple element (gate_components dict)
+    assert len(entry) == 8 and entry[3] > 0, "log_entry must stamp signal time"
     sig_ts = entry[3]
     store.log_close("p1", 5.0)
     row = list(csv.DictReader(open(store.path)))[0]

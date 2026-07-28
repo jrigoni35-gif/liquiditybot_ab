@@ -86,9 +86,11 @@ def test_rollout_rotation_end_to_end_recovers_rows_with_correct_era(tmp_path):
     out.mkdir()
     dest = out / "signal_history.csv"
     hs = HistoryStore(str(dest))
-    # production schema pre-label_era: drop label_era AND the two
-    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac)
-    old_header = hs._header[:-3]
+    # production schema pre-label_era: drop label_era, the two
+    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac),
+    # and the 7 gate-truth instrumentation T2 columns after those (sg_flow..
+    # sg_conc) - 10 trailing columns total.
+    old_header = hs._header[:-10]
 
     # known rows spanning all three label-era buckets, so a recovery that
     # silently defaulted everything to "legacy" (or dropped barrier) would

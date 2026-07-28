@@ -227,9 +227,11 @@ def test_pre_task_row_without_label_era_column_still_excludable(
     import csv
     import ml.history as history_mod
     hs = _store(tmp_path)
-    # schema as it existed pre-instrumentation: drop label_era AND the two
-    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac)
-    old_header = hs._header[:-3]
+    # schema as it existed pre-instrumentation: drop label_era, the two
+    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac),
+    # and the 7 gate-truth instrumentation T2 columns after those (sg_flow..
+    # sg_conc) - 10 trailing columns total.
+    old_header = hs._header[:-10]
     feats = _feats(42.0)
     old_row = ["p-old", "BTC", "long", *[f"{v:.6f}" for v in feats],
               1, "5.00", "candidate", "1700000000", "1700000000",

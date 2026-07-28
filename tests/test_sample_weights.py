@@ -43,18 +43,25 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         header = f.readline().strip().split(",")
         row = f.readline().strip().split(",")
-    assert header[-8] == "barrier" and row[-8] == "time"
-    assert header[-7] == "probe" and row[-7] == ""   # candidates: unmarked
-    assert header[-6] == "disp" and row[-6] == ""    # no pipeline verdict
-    assert header[-5] == "candidate_id" and row[-5] == ""  # no lineage set
-    assert header[-4] == "book" and row[-4] == "5m"  # default book
+    # gate-truth instrumentation T2 (2026-07-28) appended 7 sg_* columns
+    # after sl_frac - every index below shifts left by 7.
+    assert header[-15] == "barrier" and row[-15] == "time"
+    assert header[-14] == "probe" and row[-14] == ""   # candidates: unmarked
+    assert header[-13] == "disp" and row[-13] == ""    # no pipeline verdict
+    assert header[-12] == "candidate_id" and row[-12] == ""  # no lineage set
+    assert header[-11] == "book" and row[-11] == "5m"  # default book
     # label_era joined 2026-07-26 (label-era instrumentation): derived
     # from THIS row's own barrier="time" -> exit_sim (see label_era_of)
-    assert header[-3] == "label_era" and row[-3] == "exit_sim"
+    assert header[-10] == "label_era" and row[-10] == "exit_sim"
     # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): this
     # call never supplies a bracket -> the documented 0.0 default
-    assert header[-2] == "pt_frac" and row[-2] == "0.000000"
-    assert header[-1] == "sl_frac" and row[-1] == "0.000000"
+    assert header[-9] == "pt_frac" and row[-9] == "0.000000"
+    assert header[-8] == "sl_frac" and row[-8] == "0.000000"
+    # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation T2):
+    # this call never supplies gate_components -> the documented 0.0 default
+    assert header[-7:] == ["sg_flow", "sg_delta", "sg_accum", "sg_burst",
+                           "sg_trend", "sg_evidence", "sg_conc"]
+    assert row[-7:] == ["0.0000"] * 7
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -65,17 +72,23 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     with open(hs.path, encoding="utf-8") as f:
         f.readline()
         tail = f.readline().strip().split(",")
-        assert tail[-8] == "realized"
-        assert tail[-7] == "0"        # un-flagged live close = conviction
-        assert tail[-6] == "entered"  # a live row IS an entered trade
-        assert tail[-5] == ""         # no matching candidate -> no lineage
-        assert tail[-4] == "5m"       # default book
+        # gate-truth instrumentation T2 (2026-07-28) appended 7 sg_*
+        # columns after sl_frac - every index below shifts left by 7.
+        assert tail[-15] == "realized"
+        assert tail[-14] == "0"        # un-flagged live close = conviction
+        assert tail[-13] == "entered"  # a live row IS an entered trade
+        assert tail[-12] == ""         # no matching candidate -> no lineage
+        assert tail[-11] == "5m"       # default book
         # label_era joined 2026-07-26: barrier="realized" -> exit_sim
-        assert tail[-3] == "exit_sim"
+        assert tail[-10] == "exit_sim"
         # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): a
         # live close never supplies a bracket -> the documented 0.0 default
-        assert tail[-2] == "0.000000"
-        assert tail[-1] == "0.000000"
+        assert tail[-9] == "0.000000"
+        assert tail[-8] == "0.000000"
+        # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation
+        # T2): a live close never supplies gate_components -> the
+        # documented 0.0 default
+        assert tail[-7:] == ["0.0000"] * 7
 
 
 # ---- average uniqueness ----------------------------------------------------

@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.features import FEATURE_NAMES  # noqa: E402
-from ml.history import HistoryStore, label_era_of  # noqa: E402
+from ml.history import HistoryStore, SG_COMPONENT_KEYS, label_era_of  # noqa: E402
 from ml.features import (CONTEXT_NEUTRAL, PATTERN_NEUTRAL,  # noqa: E402
                          TOX_NEUTRAL, TRIO_NEUTRAL)
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
@@ -130,7 +130,17 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # the same meaning HistoryStore gives an unpopulated
                     # column on a live-written row.
                     r.get("pt_frac") or "0.000000",
-                    r.get("sl_frac") or "0.000000"])
+                    r.get("sl_frac") or "0.000000",
+                    # sg_flow..sg_conc joined 2026-07-28 (gate-truth
+                    # instrumentation T2): informed-flow component scores at
+                    # signal time. Pass an already-migrated row's own real
+                    # value through UNCHANGED (idempotence - same precedent
+                    # as pt_frac/sl_frac above); a row that predates this
+                    # column pads "0.0000" = pre-instrumentation/
+                    # uninstrumented, the same meaning HistoryStore gives an
+                    # unpopulated column on a live-written row.
+                    *[r.get(f"sg_{k}") or "0.0000" for k in
+                      SG_COMPONENT_KEYS]])
     return out, padded
 
 
