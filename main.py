@@ -226,11 +226,33 @@ def pick_label_mature_unwind(positions: list, rows: int, until_live_rows: int,
     banking its live label and freeing a slot — one per call, so the book
     drains gradually, not in a flatten. Auto-off once exploration has
     graduated (rows >= until_live_rows): past that, exits belong entirely to
-    the tier engine/ratchet. Caller gates on dry_run (never live)."""
+    the tier engine/ratchet. Caller gates on dry_run (never live).
+
+    BRACKET positions (geometry-alignment follow-up, 2026-07-28): a
+    position trading its labeled bracket (bracket_pt_frac armed, T5) is
+    mature ONLY once its OWN bracket_deadline_ts has passed — never on
+    the mature_h clock. The VOI fastpath (spans < 1) realized SUI
+    efc8f3e2 at 2.0h of an 8h bracket with barrier="realized", whose
+    exit_sim label era the era-exclusion filter drops from training: the
+    slot was recycled for a label the trainer threw away, and the traded
+    bet stopped being the labeled bet. Before the deadline the bet is
+    UNRESOLVED; past it this close IS the vertical barrier (the caller
+    threads reason "tb_time" so the row trains). An armed bracket with
+    NO deadline (defensive — the fast tb_time leg can never fire on it)
+    keeps the legacy clock or the position would be immortal.
+    getattr-guarded: pre-T5 doubles/snapshots may lack the fields."""
     if rows >= until_live_rows or not positions or mature_h <= 0:
         return None
-    mature = [p for p in positions if not p.is_hedge and
-              (now - p.opened_at.timestamp()) / 3600.0 >= mature_h]
+
+    def _mature(p) -> bool:
+        if p.is_hedge:
+            return False
+        if getattr(p, "bracket_pt_frac", 0.0) > EPS and \
+                getattr(p, "bracket_deadline_ts", 0.0) > EPS:
+            return now >= p.bracket_deadline_ts
+        return (now - p.opened_at.timestamp()) / 3600.0 >= mature_h
+
+    mature = [p for p in positions if _mature(p)]
     if not mature:
         return None
     return max(mature, key=lambda p: now - p.opened_at.timestamp())
@@ -4724,18 +4746,32 @@ class LiquidityBot:
                 and self._mark_fresh(pos.symbol, now)):
             return
         age_h = (now - pos.opened_at.timestamp()) / 3600.0
+        # bracket positions are only ever picked PAST their own deadline
+        # (pick_label_mature_unwind) - this close IS the vertical barrier,
+        # so the reason threads "tb_time" verbatim and log_close files the
+        # row under LABEL_ERA_TRIPLE_BARRIER (it trains). The legacy
+        # "realized" string joins the exit_sim era the era-exclusion
+        # filter drops - correct for a non-bracket position, label-
+        # destroying for a bracket one.
+        bracket_backstop = getattr(pos, "bracket_pt_frac", 0.0) > EPS and \
+            getattr(pos, "bracket_deadline_ts", 0.0) > EPS
+        reason = "tb_time" if bracket_backstop else \
+            "label-mature realization (ML-073)"
         get_audit().log("engine", Code.ML_LABEL_REALIZE,
                         f"label-mature realize {pos.symbol} "
                         f"{pos.position_id[:8]}: held {age_h:.1f}h past the "
-                        f"{mature_h:.1f}h label horizon - banking the live "
-                        f"label, freeing a teach slot",
+                        + ("bracket deadline - banking the tb_time label, "
+                           "freeing a teach slot" if bracket_backstop else
+                           f"{mature_h:.1f}h label horizon - banking the "
+                           f"live label, freeing a teach slot"),
                         {"position_id": pos.position_id,
-                         "age_h": round(age_h, 2)})
+                         "age_h": round(age_h, 2),
+                         "barrier": "tb_time" if bracket_backstop
+                         else "realized"})
         log.warning(f"{Code.ML_LABEL_REALIZE.value}: realizing {pos.symbol} "
                     f"{pos.position_id[:8]} - {age_h:.1f}h > {mature_h:.1f}h "
                     f"label horizon; banking live label")
-        self._submit_exit(pos, 100.0,
-                          "label-mature realization (ML-073)", now=now)
+        self._submit_exit(pos, 100.0, reason, now=now)
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence

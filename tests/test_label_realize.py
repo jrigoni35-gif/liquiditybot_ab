@@ -134,7 +134,7 @@ def test_learning_unwinds_gate_on_trusted_marks():
     assert src.count("self._mark_fresh(pos.symbol, now)") >= 3
     # and both unwind exits run on injected engine time, not wall clock
     assert 'self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)",' in src
-    assert '"label-mature realization (ML-073)", now=now)' in src
+    assert "self._submit_exit(pos, 100.0, reason, now=now)" in src
 
 
 def _order(purpose, pid, post_only=False):
@@ -170,3 +170,83 @@ def test_horizon_derives_from_label_window_default_8h():
     # a 9h position is past it, a 7h one is not
     assert pick_label_mature_unwind([_pos(9.0)], 35, 500, NOW, mature_h)
     assert pick_label_mature_unwind([_pos(7.0)], 35, 500, NOW, mature_h) is None
+
+
+# ------------------------------------------------- bracket-aware ML-073
+# Geometry-alignment follow-up (2026-07-28, live evidence SUI efc8f3e2):
+# the VOI fastpath (spans 0.25 = 2h of an 8h label window) realized an
+# ARMED bracket probe mid-bet with barrier="realized" — whose exit_sim
+# label era the now-active era-exclusion filter drops from training. The
+# teach slot was recycled for a label the trainer then threw away. A
+# bracket position's bet runs to its OWN vertical barrier: before
+# bracket_deadline_ts ML-073 must never touch it; past the deadline the
+# close IS tb_time (the caller threads that reason so the row trains).
+
+def _bpos(age_h, deadline_in_h, pid="b", pt=0.03):
+    p = _pos(age_h, pid=pid)
+    p.bracket_pt_frac = pt
+    p.bracket_deadline_ts = NOW + deadline_in_h * 3600.0
+    return p
+
+
+def test_bracket_position_immune_to_fastpath_before_its_deadline():
+    # 2.1h-old bracket probe, fastpath mature_h 2.0, deadline 5.9h out:
+    # the labeled bet is unresolved - never realized early
+    assert pick_label_mature_unwind([_bpos(2.1, deadline_in_h=5.9)],
+                                    35, 500, NOW, 2.0) is None
+
+
+def test_bracket_position_realizable_once_its_deadline_passed():
+    # deadline crossed: the vertical barrier has fired; ML-073 may bank it
+    pick = pick_label_mature_unwind([_bpos(8.2, deadline_in_h=-0.1)],
+                                    35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "b"
+
+
+def test_legacy_positions_keep_the_exact_fastpath_clock():
+    # no bracket fields at all (pre-T5 double) -> byte-identical legacy
+    pick = pick_label_mature_unwind([_pos(2.1, pid="legacy")],
+                                    35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "legacy"
+
+
+def test_degenerate_bracket_without_deadline_falls_back_to_legacy():
+    # pt_frac armed but deadline 0 (defensive): the fast tb_time leg can
+    # never fire on it, so the legacy clock must keep owning the unwind
+    # or the position is immortal
+    p = _pos(2.1, pid="degen")
+    p.bracket_pt_frac = 0.03
+    p.bracket_deadline_ts = 0.0
+    pick = pick_label_mature_unwind([p], 35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "degen"
+
+
+def test_stalest_selection_respects_bracket_immunity():
+    # the STALEST position is a bracket probe mid-bet; the younger legacy
+    # one is the only realizable pick - staleness never overrides immunity
+    positions = [_bpos(6.0, deadline_in_h=2.0, pid="mid-bet"),
+                 _pos(3.0, pid="legacy")]
+    pick = pick_label_mature_unwind(positions, 35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "legacy"
+
+
+def test_expired_bracket_beats_younger_legacy_on_staleness():
+    # both realizable -> the established stalest-first rule still decides
+    positions = [_bpos(9.0, deadline_in_h=-0.5, pid="expired-bracket"),
+                 _pos(3.0, pid="legacy")]
+    pick = pick_label_mature_unwind(positions, 35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "expired-bracket"
+
+
+def test_bracket_backstop_threads_tb_time_reason():
+    """Source contract: when ML-073 realizes a bracket position (only ever
+    past its deadline - see the picker tests above), the exit reason must
+    thread "tb_time" verbatim so log_close files the row under
+    LABEL_ERA_TRIPLE_BARRIER (it trains); the legacy path keeps the exact
+    "label-mature realization (ML-073)" string (barrier "realized")."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    assert '"tb_time" if bracket_backstop' in src
+    assert '"label-mature realization (ML-073)"' in src
+    assert "self._submit_exit(pos, 100.0, reason, now=now)" in src
