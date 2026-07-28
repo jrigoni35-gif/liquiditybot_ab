@@ -1728,7 +1728,8 @@ class CandidateLabeler:
     def register(self, asset: str, direction: str, features: np.ndarray,
                 sigma_bar: float, bar_time, gates_passed=None,
                 spread_bps: float = 0.0,
-                confidence: "float | None" = None) -> bool:
+                confidence: "float | None" = None,
+                gate_components: "dict | None" = None) -> bool:
         """Returns True when a candidate row was actually appended -
         the SCS latch must only be consumed by a REAL append (a dedup
         no-op would silently discard the state-change lesson the
@@ -1770,7 +1771,15 @@ class CandidateLabeler:
                             # bools); the labeled outcome feeds per-gate stats
                             "gates": {str(g): bool(v) for g, v in
                                       gates_passed.items()}
-                            if isinstance(gates_passed, dict) else None})
+                            if isinstance(gates_passed, dict) else None,
+                            # gate-truth instrumentation: the RAW signed
+                            # component scores at signal time — persisted
+                            # onto this candidate's labeled row so the
+                            # realization path can grade the weights.
+                            "gate_components": (dict(gate_components)
+                                                if isinstance(
+                                                    gate_components, dict)
+                                                else None)})
         return True
 
     def open_candidate_id(self, asset: str, direction: str) -> "str | None":
@@ -1942,7 +1951,8 @@ class CandidateLabeler:
                             barrier=str(getattr(out, "barrier", "") or ""),
                             disp=str(cand.get("disp") or ""),
                             pt_frac=float(getattr(out, "pt_frac", 0.0) or 0.0),
-                            sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0))
+                            sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0),
+                            gate_components=cand.get("gate_components"))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

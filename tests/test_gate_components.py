@@ -137,3 +137,43 @@ def test_legacy_pending_tuple_shapes_still_close(tmp_path):
     hs.log_close("old1", 2.0)
     rows = list(csv.DictReader(open(hs.path, encoding="utf-8")))
     assert len(rows) == 1 and rows[0]["sg_flow"] == "0.0000"
+
+
+# ---- Task 3: candidate-path threading (register -> _emit_label) ---------
+
+
+def test_candidate_row_carries_components_through_labeler(tmp_path):
+    """register(gate_components=...) -> poll() -> the persisted candidate
+    row carries the scores; a candidate registered without them writes
+    zeros. Drives CandidateLabeler directly with the same register() /
+    update_candles() / poll() idiom as
+    tests/test_early_labeling.py::test_barrier_hit_labels_immediately (a
+    pt/sl barrier touch inside the window is early-decidable, so both
+    candidates label on the first poll() - no need to feed a full horizon
+    of bars)."""
+    from ml.history import CandidateLabeler, HistoryStore
+    cfg = {"label_max_bars": 96, "label_pt_vol_mult": 8.0,
+           "label_sl_vol_mult": 6.0, "label_round_trip_cost_pct": 0.1,
+           "label_include_spread": False}
+    store = HistoryStore(str(tmp_path / "hist.csv"))
+    lab = CandidateLabeler(store, cfg)
+    feats = _feats()
+    lab.register("ETH", "long", feats, 0.005, 0,
+                 gates_passed={"g": True}, gate_components=SG)
+    lab.register("SOL", "short", feats, 0.005, 0)   # no components: legacy
+    # bar 5 jumps +5.5% -> a barrier touch for either direction, decidable
+    # immediately (see ml/history.py CandidateLabeler.poll's EARLY
+    # DECIDABILITY note) - only 10 of 96 horizon bars needed
+    bars = [{"time": k * 300, "open": 100.0, "close": 100.0,
+             "high": 105.5 if k >= 5 else 100.01, "low": 99.99}
+            for k in range(10)]
+    lab.update_candles("ETH", bars)
+    lab.update_candles("SOL", bars)
+    wrote = lab.poll()
+    assert wrote >= 1
+    rows = list(csv.DictReader(open(store.path, encoding="utf-8")))
+    by_asset = {r["asset"]: r for r in rows}
+    assert by_asset["ETH"]["sg_flow"] == "0.5000"
+    assert by_asset["ETH"]["sg_conc"] == "0.4000"
+    if "SOL" in by_asset:
+        assert by_asset["SOL"]["sg_flow"] == "0.0000"
