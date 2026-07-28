@@ -1,12 +1,12 @@
 {
- "pushed_at": 1785247444.1597352,
+ "pushed_at": 1785248044.3210466,
  "host": "DESKTOP-OS02KQS",
- "status_age_sec": 1.4,
+ "status_age_sec": 4.5,
  "status_stale": false,
  "status": {
-  "ts": 1785247442.7715955,
-  "cycle": 351,
-  "cycle_lifetime": 201480,
+  "ts": 1785248039.855951,
+  "cycle": 468,
+  "cycle_lifetime": 201597,
   "runner_state": "RUNNING",
   "mode": "DRY_RUN",
   "entries_enabled": true,
@@ -42,7 +42,7 @@
   "fees_total": 37.46,
   "drawdown_pct": 0.73,
   "latency_ms": 0.0,
-  "feed_latency_ms": 130.2,
+  "feed_latency_ms": 132.2,
   "marks_age_sec": 0.0,
   "positions": [],
   "open_orders": [],
@@ -50,9 +50,27 @@
    "ETH": {
     "confirmed": false,
     "direction": null,
-    "confidence": 0.75,
+    "confidence": 0.875,
     "urgency": 0.0,
-    "concentration": 0.041,
+    "concentration": 0.07,
+    "gates": {
+     "if_1_flow_persistence": false,
+     "if_2_accumulation": true,
+     "if_3_directional_burst": true,
+     "if_4_funding_sanity": true,
+     "if_5_trend_alignment": true,
+     "v3_evidence": true,
+     "v3_agreement": true,
+     "v3_no_absorption": true
+    },
+    "ts": 1785248014.8539062
+   },
+   "BTC": {
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.625,
+    "urgency": 0.0,
+    "concentration": 0.081,
     "gates": {
      "if_1_flow_persistence": false,
      "if_2_accumulation": true,
@@ -60,73 +78,37 @@
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
      "v3_evidence": false,
-     "v3_agreement": true,
+     "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
-   },
-   "BTC": {
-    "confirmed": true,
-    "direction": "long",
-    "confidence": 1.0,
-    "urgency": 0.88,
-    "concentration": 0.052,
-    "gates": {
-     "if_1_flow_persistence": true,
-     "if_2_accumulation": true,
-     "if_3_directional_burst": true,
-     "if_4_funding_sanity": true,
-     "if_5_trend_alignment": true,
-     "v3_evidence": true,
-     "v3_agreement": true,
-     "v3_no_absorption": true
-    },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "SUI": {
-    "confirmed": true,
-    "direction": "short",
-    "confidence": 0.752,
-    "urgency": 0.57,
-    "concentration": 0.263,
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.627,
+    "urgency": 0.0,
+    "concentration": 0.228,
     "gates": {
-     "if_1_flow_persistence": true,
-     "if_2_accumulation": false,
+     "if_1_flow_persistence": false,
+     "if_2_accumulation": true,
      "if_3_directional_burst": false,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
-     "v3_evidence": true,
+     "v3_evidence": false,
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "SOL": {
     "confirmed": false,
     "direction": null,
-    "confidence": 0.752,
+    "confidence": 0.75,
     "urgency": 0.0,
-    "concentration": 0.158,
+    "concentration": 0.116,
     "gates": {
      "if_1_flow_persistence": false,
-     "if_2_accumulation": true,
-     "if_3_directional_burst": false,
-     "if_4_funding_sanity": true,
-     "if_5_trend_alignment": true,
-     "v3_evidence": true,
-     "v3_agreement": true,
-     "v3_no_absorption": true
-    },
-    "ts": 1785247432.7709184
-   },
-   "XRP": {
-    "confirmed": false,
-    "direction": null,
-    "confidence": 0.875,
-    "urgency": 0.0,
-    "concentration": 0.427,
-    "gates": {
-     "if_1_flow_persistence": true,
      "if_2_accumulation": true,
      "if_3_directional_burst": true,
      "if_4_funding_sanity": true,
@@ -135,32 +117,50 @@
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
+   },
+   "XRP": {
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.749,
+    "urgency": 0.0,
+    "concentration": 0.242,
+    "gates": {
+     "if_1_flow_persistence": true,
+     "if_2_accumulation": false,
+     "if_3_directional_burst": true,
+     "if_4_funding_sanity": true,
+     "if_5_trend_alignment": true,
+     "v3_evidence": true,
+     "v3_agreement": false,
+     "v3_no_absorption": true
+    },
+    "ts": 1785248014.8539062
    },
    "MINA": {
-    "confirmed": true,
-    "direction": "short",
-    "confidence": 0.877,
-    "urgency": 0.6,
-    "concentration": 0.149,
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.752,
+    "urgency": 0.0,
+    "concentration": 0.16,
     "gates": {
      "if_1_flow_persistence": true,
      "if_2_accumulation": true,
      "if_3_directional_burst": false,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
-     "v3_evidence": true,
+     "v3_evidence": false,
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "FLOW": {
     "confirmed": false,
     "direction": null,
     "confidence": 0.376,
     "urgency": 0.0,
-    "concentration": 0.16,
+    "concentration": 0.312,
     "gates": {
      "if_1_flow_persistence": false,
      "if_2_accumulation": true,
@@ -171,50 +171,68 @@
      "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "LINK": {
     "confirmed": false,
     "direction": null,
-    "confidence": 0.875,
+    "confidence": 0.75,
     "urgency": 0.0,
-    "concentration": 0.042,
+    "concentration": 0.091,
     "gates": {
      "if_1_flow_persistence": false,
      "if_2_accumulation": true,
      "if_3_directional_burst": true,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
-     "v3_evidence": true,
+     "v3_evidence": false,
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "DOGE": {
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.627,
+    "urgency": 0.0,
+    "concentration": 0.194,
+    "gates": {
+     "if_1_flow_persistence": false,
+     "if_2_accumulation": true,
+     "if_3_directional_burst": false,
+     "if_4_funding_sanity": true,
+     "if_5_trend_alignment": true,
+     "v3_evidence": false,
+     "v3_agreement": true,
+     "v3_no_absorption": true
+    },
+    "ts": 1785248014.8539062
+   },
+   "DOT": {
     "confirmed": true,
     "direction": "long",
-    "confidence": 1.0,
-    "urgency": 0.56,
-    "concentration": 0.148,
+    "confidence": 0.877,
+    "urgency": 0.49,
+    "concentration": 0.269,
     "gates": {
      "if_1_flow_persistence": true,
      "if_2_accumulation": true,
-     "if_3_directional_burst": true,
+     "if_3_directional_burst": false,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
      "v3_evidence": true,
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
-   "DOT": {
+   "ARB": {
     "confirmed": false,
     "direction": null,
     "confidence": 0.627,
     "urgency": 0.0,
-    "concentration": 0.094,
+    "concentration": 0.209,
     "gates": {
      "if_1_flow_persistence": true,
      "if_2_accumulation": true,
@@ -225,43 +243,25 @@
      "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
-   },
-   "ARB": {
-    "confirmed": true,
-    "direction": "long",
-    "confidence": 0.877,
-    "urgency": 0.59,
-    "concentration": 0.205,
-    "gates": {
-     "if_1_flow_persistence": true,
-     "if_2_accumulation": true,
-     "if_3_directional_burst": false,
-     "if_4_funding_sanity": true,
-     "if_5_trend_alignment": true,
-     "v3_evidence": true,
-     "v3_agreement": true,
-     "v3_no_absorption": true
-    },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    },
    "ADA": {
     "confirmed": false,
     "direction": null,
-    "confidence": 0.502,
+    "confidence": 0.624,
     "urgency": 0.0,
-    "concentration": 0.241,
+    "concentration": 0.189,
     "gates": {
-     "if_1_flow_persistence": false,
+     "if_1_flow_persistence": true,
      "if_2_accumulation": false,
-     "if_3_directional_burst": false,
+     "if_3_directional_burst": true,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
-     "v3_evidence": true,
+     "v3_evidence": false,
      "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1785247432.7709184
+    "ts": 1785248014.8539062
    }
   },
   "exec_algos": {
@@ -275,10 +275,10 @@
     "momentum": -0.33,
     "vol": "low",
     "vol_pct": 26.0,
-    "liq": "liquid",
-    "spread_bps": 0.4,
-    "spoof": 0.03,
-    "basis_bps": 1.5
+    "liq": "thin",
+    "spread_bps": 0.9,
+    "spoof": 0.01,
+    "basis_bps": -0.8
    },
    "BTC": {
     "macro": "range",
@@ -288,7 +288,7 @@
     "liq": "liquid",
     "spread_bps": 0.0,
     "spoof": 0.0,
-    "basis_bps": 0.8
+    "basis_bps": -1.0
    },
    "SUI": {
     "macro": "range",
@@ -297,8 +297,8 @@
     "vol_pct": 6.0,
     "liq": "liquid",
     "spread_bps": 1.5,
-    "spoof": 0.07,
-    "basis_bps": -1.2
+    "spoof": 0.02,
+    "basis_bps": -0.8
    },
    "ARB": {
     "macro": "range",
@@ -308,17 +308,17 @@
     "liq": "thin",
     "spread_bps": 12.8,
     "spoof": 0.0,
-    "basis_bps": 4.8
+    "basis_bps": 0.7
    },
    "MINA": {
     "macro": "range",
     "momentum": -1.0,
     "vol": "low",
-    "vol_pct": 3.0,
+    "vol_pct": 4.0,
     "liq": "spoofy",
     "spread_bps": 18.8,
-    "spoof": 0.95,
-    "basis_bps": -7.6
+    "spoof": 0.79,
+    "basis_bps": -4.1
    },
    "FLOW": {
     "macro": "range",
@@ -326,9 +326,9 @@
     "vol": "low",
     "vol_pct": 8.0,
     "liq": "spoofy",
-    "spread_bps": 82.3,
-    "spoof": 0.99,
-    "basis_bps": -2.5
+    "spread_bps": 40.9,
+    "spoof": 0.94,
+    "basis_bps": -8.5
    },
    "SOL": {
     "macro": "range",
@@ -336,9 +336,9 @@
     "vol": "low",
     "vol_pct": 8.0,
     "liq": "liquid",
-    "spread_bps": 2.8,
+    "spread_bps": 2.7,
     "spoof": 0.0,
-    "basis_bps": -2.3
+    "basis_bps": -1.6
    },
    "XRP": {
     "macro": "range",
@@ -346,9 +346,9 @@
     "vol": "low",
     "vol_pct": 16.0,
     "liq": "liquid",
-    "spread_bps": 0.5,
+    "spread_bps": 0.3,
     "spoof": 0.0,
-    "basis_bps": 0.8
+    "basis_bps": 0.7
    },
    "ADA": {
     "macro": "range",
@@ -356,19 +356,19 @@
     "vol": "low",
     "vol_pct": 15.0,
     "liq": "liquid",
-    "spread_bps": 3.9,
+    "spread_bps": 4.2,
     "spoof": 0.0,
-    "basis_bps": 0.8
+    "basis_bps": -1.6
    },
    "LINK": {
     "macro": "range",
     "momentum": -0.33,
     "vol": "low",
-    "vol_pct": 8.0,
+    "vol_pct": 9.0,
     "liq": "liquid",
-    "spread_bps": 1.8,
-    "spoof": 0.13,
-    "basis_bps": -1.6
+    "spread_bps": 0.0,
+    "spoof": 0.04,
+    "basis_bps": -0.6
    },
    "DOGE": {
     "macro": "range",
@@ -376,9 +376,9 @@
     "vol": "low",
     "vol_pct": 6.0,
     "liq": "liquid",
-    "spread_bps": 0.0,
+    "spread_bps": 1.7,
     "spoof": 0.0,
-    "basis_bps": -1.8
+    "basis_bps": 0.6
    },
    "DOT": {
     "macro": "range",
@@ -386,9 +386,9 @@
     "vol": "low",
     "vol_pct": 23.0,
     "liq": "spoofy",
-    "spread_bps": 4.0,
-    "spoof": 0.65,
-    "basis_bps": 1.6
+    "spread_bps": 1.3,
+    "spoof": 0.5,
+    "basis_bps": 1.2
    }
   },
   "sentiment": {
@@ -412,8 +412,8 @@
   },
   "webdata": {
    "fear_greed": 29.0,
-   "btc_dominance": 56.31,
-   "dominance_delta": -0.045,
+   "btc_dominance": 56.3,
+   "dominance_delta": -0.011,
    "available": true
   },
   "context": {
@@ -438,7 +438,7 @@
     "calendar": true,
     "halving": true
    },
-   "last_poll_age_sec": 1798.4
+   "last_poll_age_sec": 2395.8
   },
   "moomoo": {
    "risk_z": 0.0,
@@ -453,16 +453,16 @@
    "options_available": false
   },
   "manip_suspect": {
-   "ETH": 0.066,
-   "BTC": 0.036,
-   "SUI": 0.067,
+   "ETH": 0.2,
+   "BTC": 0.09,
+   "SUI": 0.021,
    "SOL": 0.0,
    "XRP": 0.0,
-   "MINA": 0.952,
-   "FLOW": 0.988,
-   "LINK": 0.131,
+   "MINA": 0.791,
+   "FLOW": 0.942,
+   "LINK": 0.042,
    "DOGE": 0.0,
-   "DOT": 0.649,
+   "DOT": 0.497,
    "ARB": 0.0,
    "ADA": 0.0
   },
@@ -513,8 +513,8 @@
    "book_exposure_usd": 0.0,
    "positions": 0,
    "adds_placed": 0,
-   "last_add_age_h": 12.96,
-   "paused_reason": "ETH: 78018s since last add < required 24.0h",
+   "last_add_age_h": 13.13,
+   "paused_reason": "ETH: 78600s since last add < required 24.0h",
    "closed_paper": 4,
    "closed_live": 0,
    "pf_live": 0.0,
@@ -525,9 +525,9 @@
    "drift_share": 0.0,
    "drifting": [],
    "model_kind": "blend",
-   "history_rows": 5702,
+   "history_rows": 5704,
    "labels_by_source": {
-    "candidate": 5454,
+    "candidate": 5456,
     "live": 248
    },
    "pending_labels": 0,
@@ -547,7 +547,7 @@
    },
    "gate_stats": {
     "enabled": true,
-    "labeled": 5450,
+    "labeled": 5452,
     "base_rate": 0.19,
     "weights": {
      "if_1_flow_persistence": 0.98,
@@ -1151,19 +1151,19 @@
     "FW": 5,
     "LT": 7,
     "CX": 1,
-    "LB": 118,
-    "TH": 367,
-    "SZ": 245
+    "LB": 156,
+    "TH": 467,
+    "SZ": 335
    },
    "top": {
-    "TH-000": 163,
-    "SZ-023": 150,
-    "TH-013": 130,
-    "LB-010": 118,
-    "SZ-047": 82,
-    "TH-017": 64,
-    "SZ-045": 13,
-    "TH-012": 8,
+    "TH-000": 221,
+    "SZ-023": 194,
+    "TH-013": 159,
+    "LB-010": 156,
+    "SZ-047": 114,
+    "TH-017": 76,
+    "SZ-045": 27,
+    "TH-012": 9,
     "LT-010": 7,
     "TH-016": 2,
     "FW-050": 1,
@@ -1173,63 +1173,63 @@
     "FW-030": 1
    },
    "entry_codes": {
-    "SZ-023": 150,
-    "SZ-047": 82,
-    "SZ-045": 13
+    "SZ-023": 194,
+    "SZ-047": 114,
+    "SZ-045": 27
    }
   },
   "thales": {
    "influence": "shadow",
    "assets": {
     "ETH": {
-     "grid": 0.007,
+     "grid": 0.006,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.509,
-     "barclose": 0.0,
-     "spoof_bid": 0.275,
-     "spoof_ask": 0.275,
+     "stop_zone": 0.772,
+     "barclose": 0.003,
+     "spoof_bid": 0.196,
+     "spoof_ask": 0.267,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 1,
      "lapse_warmup_sec": 0
     },
     "BTC": {
-     "grid": 0.007,
+     "grid": 0.004,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.0,
-     "barclose": 0.01,
-     "spoof_bid": 0.261,
-     "spoof_ask": 0.566,
+     "stop_zone": 0.071,
+     "barclose": 0.019,
+     "spoof_bid": 0.441,
+     "spoof_ask": 0.308,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 1,
      "lapse_warmup_sec": 0
     },
     "SUI": {
-     "grid": 0.54,
+     "grid": 0.574,
      "metronome": 0.0,
-     "clockwork": 0.139,
-     "clockwork_dir": -1,
-     "stop_zone": 0.412,
-     "barclose": 0.021,
-     "spoof_bid": 0.274,
-     "spoof_ask": 0.227,
+     "clockwork": 0.0,
+     "clockwork_dir": 0,
+     "stop_zone": 0.608,
+     "barclose": 0.02,
+     "spoof_bid": 0.326,
+     "spoof_ask": 0.292,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "ARB": {
-     "grid": 0.625,
+     "grid": 0.628,
      "metronome": 0.0,
-     "clockwork": 0.71,
+     "clockwork": 0.642,
      "clockwork_dir": -1,
      "stop_zone": 0.144,
-     "barclose": 0.0,
+     "barclose": 0.008,
      "spoof_bid": 0.0,
      "spoof_ask": 0.0,
      "feed_dirty": 0.0,
@@ -1238,13 +1238,13 @@
      "lapse_warmup_sec": 0
     },
     "MINA": {
-     "grid": 0.144,
+     "grid": 0.122,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.057,
-     "barclose": 0.03,
-     "spoof_bid": 0.053,
+     "stop_zone": 0.0,
+     "barclose": 0.027,
+     "spoof_bid": 0.038,
      "spoof_ask": 0.007,
      "feed_dirty": 0.0,
      "lapses": 0,
@@ -1252,98 +1252,98 @@
      "lapse_warmup_sec": 0
     },
     "FLOW": {
-     "grid": 0.376,
+     "grid": 0.421,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
      "stop_zone": 0.0,
      "barclose": 0.0,
-     "spoof_bid": 0.007,
-     "spoof_ask": 0.119,
+     "spoof_bid": 0.081,
+     "spoof_ask": 0.0,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "SOL": {
-     "grid": 0.497,
+     "grid": 0.583,
      "metronome": 0.0,
-     "clockwork": 0.276,
+     "clockwork": 0.167,
      "clockwork_dir": -1,
-     "stop_zone": 0.817,
-     "barclose": 0.026,
-     "spoof_bid": 0.049,
-     "spoof_ask": 0.096,
+     "stop_zone": 0.725,
+     "barclose": 0.022,
+     "spoof_bid": 0.022,
+     "spoof_ask": 0.0,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "XRP": {
-     "grid": 0.014,
+     "grid": 0.019,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.848,
-     "barclose": 0.01,
-     "spoof_bid": 0.474,
-     "spoof_ask": 0.309,
+     "stop_zone": 0.371,
+     "barclose": 0.003,
+     "spoof_bid": 0.58,
+     "spoof_ask": 0.28,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "ADA": {
-     "grid": 0.007,
+     "grid": 0.005,
      "metronome": 0.0,
-     "clockwork": 0.781,
+     "clockwork": 0.634,
      "clockwork_dir": -1,
      "stop_zone": 0.0,
-     "barclose": 0.005,
-     "spoof_bid": 0.415,
-     "spoof_ask": 0.111,
+     "barclose": 0.006,
+     "spoof_bid": 0.141,
+     "spoof_ask": 0.04,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "LINK": {
-     "grid": 0.007,
+     "grid": 0.003,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.191,
-     "barclose": 0.005,
-     "spoof_bid": 0.759,
-     "spoof_ask": 0.234,
+     "stop_zone": 0.593,
+     "barclose": 0.001,
+     "spoof_bid": 0.599,
+     "spoof_ask": 0.502,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "DOGE": {
-     "grid": 0.004,
+     "grid": 0.002,
      "metronome": 0.0,
-     "clockwork": 0.2,
+     "clockwork": 0.124,
      "clockwork_dir": -1,
-     "stop_zone": 0.0,
-     "barclose": 0.004,
-     "spoof_bid": 0.215,
-     "spoof_ask": 0.394,
+     "stop_zone": 0.047,
+     "barclose": 0.0,
+     "spoof_bid": 0.646,
+     "spoof_ask": 0.409,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "DOT": {
-     "grid": 0.398,
+     "grid": 0.199,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.472,
-     "barclose": 0.012,
-     "spoof_bid": 0.274,
-     "spoof_ask": 0.367,
+     "stop_zone": 0.03,
+     "barclose": 0.019,
+     "spoof_bid": 0.183,
+     "spoof_ask": 0.054,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
@@ -1352,41 +1352,20 @@
    },
    "recent_advice": [
     {
-     "ts": 1785247402.8,
-     "asset": "BTC",
+     "ts": 1785247834.8,
+     "asset": "DOT",
      "dir": "long",
-     "mult": 1.0554,
+     "mult": 0.9528,
      "applied": false,
      "scores": {
       "grid": 0.004,
       "metronome": 0.0,
       "clockwork": 0.0,
       "clockwork_dir": 0,
-      "stop_zone": 0.016,
-      "barclose": 0.013,
-      "spoof_bid": 0.314,
-      "spoof_ask": 0.406,
-      "feed_dirty": 0.0,
-      "lapses": 0,
-      "bar_holes": 1,
-      "lapse_warmup_sec": 0
-     }
-    },
-    {
-     "ts": 1785247402.8,
-     "asset": "XRP",
-     "dir": "long",
-     "mult": 0.8696,
-     "applied": false,
-     "scores": {
-      "grid": 0.036,
-      "metronome": 0.0,
-      "clockwork": 0.0,
-      "clockwork_dir": 0,
-      "stop_zone": 0.612,
-      "barclose": 0.013,
-      "spoof_bid": 0.637,
-      "spoof_ask": 0.301,
+      "stop_zone": 0.736,
+      "barclose": 0.031,
+      "spoof_bid": 0.287,
+      "spoof_ask": 0.002,
       "feed_dirty": 0.0,
       "lapses": 0,
       "bar_holes": 0,
@@ -1394,65 +1373,86 @@
      }
     },
     {
-     "ts": 1785247432.8,
-     "asset": "DOGE",
-     "dir": "long",
-     "mult": 1.0037,
-     "applied": false,
-     "scores": {
-      "grid": 0.002,
-      "metronome": 0.0,
-      "clockwork": 0.2,
-      "clockwork_dir": -1,
-      "stop_zone": 0.0,
-      "barclose": 0.004,
-      "spoof_bid": 0.297,
-      "spoof_ask": 0.369,
-      "feed_dirty": 0.0,
-      "lapses": 0,
-      "bar_holes": 0,
-      "lapse_warmup_sec": 0
-     }
-    },
-    {
-     "ts": 1785247432.8,
-     "asset": "BTC",
-     "dir": "long",
-     "mult": 1.0537,
+     "ts": 1785247834.8,
+     "asset": "LINK",
+     "dir": "short",
+     "mult": 0.8887,
      "applied": false,
      "scores": {
       "grid": 0.008,
       "metronome": 0.0,
       "clockwork": 0.0,
       "clockwork_dir": 0,
-      "stop_zone": 0.0,
-      "barclose": 0.011,
-      "spoof_bid": 0.185,
-      "spoof_ask": 0.575,
+      "stop_zone": 0.925,
+      "barclose": 0.014,
+      "spoof_bid": 0.56,
+      "spoof_ask": 0.397,
       "feed_dirty": 0.0,
       "lapses": 0,
-      "bar_holes": 1,
+      "bar_holes": 0,
       "lapse_warmup_sec": 0
      }
     },
     {
-     "ts": 1785247432.8,
-     "asset": "SUI",
+     "ts": 1785247864.8,
+     "asset": "LINK",
      "dir": "short",
-     "mult": 1.0083,
+     "mult": 0.8696,
      "applied": false,
      "scores": {
-      "grid": 0.541,
+      "grid": 0.004,
       "metronome": 0.0,
-      "clockwork": 0.139,
-      "clockwork_dir": -1,
-      "stop_zone": 0.412,
-      "barclose": 0.022,
-      "spoof_bid": 0.172,
-      "spoof_ask": 0.314,
+      "clockwork": 0.0,
+      "clockwork_dir": 0,
+      "stop_zone": 0.925,
+      "barclose": 0.012,
+      "spoof_bid": 0.614,
+      "spoof_ask": 0.706,
       "feed_dirty": 0.0,
       "lapses": 0,
       "bar_holes": 0,
+      "lapse_warmup_sec": 0
+     }
+    },
+    {
+     "ts": 1785247864.8,
+     "asset": "DOT",
+     "dir": "long",
+     "mult": 0.9528,
+     "applied": false,
+     "scores": {
+      "grid": 0.004,
+      "metronome": 0.0,
+      "clockwork": 0.0,
+      "clockwork_dir": 0,
+      "stop_zone": 0.736,
+      "barclose": 0.028,
+      "spoof_bid": 0.217,
+      "spoof_ask": 0.001,
+      "feed_dirty": 0.0,
+      "lapses": 0,
+      "bar_holes": 0,
+      "lapse_warmup_sec": 0
+     }
+    },
+    {
+     "ts": 1785247954.8,
+     "asset": "BTC",
+     "dir": "short",
+     "mult": 0.9582,
+     "applied": false,
+     "scores": {
+      "grid": 0.003,
+      "metronome": 0.0,
+      "clockwork": 0.0,
+      "clockwork_dir": 0,
+      "stop_zone": 0.198,
+      "barclose": 0.024,
+      "spoof_bid": 0.149,
+      "spoof_ask": 0.418,
+      "feed_dirty": 0.0,
+      "lapses": 0,
+      "bar_holes": 1,
       "lapse_warmup_sec": 0
      }
     }
@@ -1471,7 +1471,7 @@
   "ws_kraken": {
    "enabled": true,
    "connected": true,
-   "reconnects": 1,
+   "reconnects": 2,
    "checksum_failures": 0,
    "lib_available": true,
    "books": 12,
@@ -1482,12 +1482,12 @@
    "force_fear_cycles": 0,
    "force_regime": {}
   },
-  "written_at": 1785247442.7715955
+  "written_at": 1785248039.855951
  },
  "deploy": {
   "head": "e4b3da83",
   "auto_update": {
-   "ts": 1785246845.4322987,
+   "ts": 1785247745.5843806,
    "outcome": "current",
    "head": "e4b3da83",
    "remote": "e4b3da83",
