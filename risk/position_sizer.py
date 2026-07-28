@@ -547,9 +547,9 @@ class PositionSizer:
         # legacy config-average self.b / self.b_net, even on a bracket-
         # priced approval -- it is not re-derived from the per-trade
         # bracket b_net used above for the bar/Kelly/notional math. Only
-        # SZ_PWIN_BAR's detail (above) carries the bracket basis today.
-        # Task 5 may extend this string to report the bracket-priced b
-        # when one drove the decision.
+        # SZ_PWIN_BAR's detail (above) carries the bracket basis — a
+        # deliberate scope bound: this approval string reports the legacy
+        # config-average b/b_net even on bracket-priced approvals.
         d.reasons.append(tag(Code.SZ_APPROVED,
                              f"p={p_win:.2f} b={self.b:.2f} "
                              f"(net {self.b_net:.2f}) f={f:.3f} "
