@@ -156,7 +156,12 @@ def test_main_register_gated_by_latch_and_consumed():
     reg = _MAIN.index("self.candidates.register(asset, signal.direction")
     assert _MAIN.index(gate) < reg
     consume = _MAIN.index("self._scs_pending[asset] = False")
-    assert reg < consume < reg + 700          # consumed right after register
+    # window covers the register call + its inline comments only (gate-truth
+    # T3's gate_components arg grew the block past the original 700)
+    assert reg < consume < reg + 900          # consumed right after register
+    # and nothing else registers in between - the proximity claim, made
+    # structural instead of purely char-counted
+    assert "self.candidates.register(" not in _MAIN[reg + 1:consume]
 
 
 def test_main_carries_the_unbiasedness_invariant_comment():
