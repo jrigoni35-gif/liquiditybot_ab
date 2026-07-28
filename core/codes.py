@@ -258,7 +258,7 @@ class Code(str, Enum):
     RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)
 
     # ---- execution-truth harness (XV) — replay gate + fill calibration
-    # + cost truth --------------------------------------------------------
+    # + cost truth + gate truth -------------------------------------------
     XV_GATE_PASS = "XV-000"  # nosec B105 - reason code, not a secret (name has "PASS")
     XV_GATE_SKIP = "XV-001"          # no recordings present — gate dormant (not a fail)
     XV_DETERMINISM_FAIL = "XV-010"   # two replays of one recording disagree (engine regression)
@@ -275,6 +275,12 @@ class Code(str, Enum):
     XV_COST_WITHIN_TOLERANCE = "XV-031"  # measured within D4's +/-20% tolerance
     XV_COST_OUTSIDE_TOLERANCE = "XV-032"  # outside tolerance, configured overestimates (conservative direction)
     XV_COST_DANGEROUS = "XV-033"     # measured EXCEEDS configured beyond tolerance - gate underprices real cost
+    # gate_truth_report (gate-truth instrumentation, T5) - report-only verdict
+    # comparing configured informed_flow.weights rank order against realized
+    # per-component AUC (sg_* telemetry x direction, triple_barrier rows).
+    XV_GATE_TRUTH_ALIGNED = "XV-040"     # gate weights rank-agree with realized component AUCs
+    XV_GATE_TRUTH_MISALIGNED = "XV-041"  # weight order contradicts measured discrimination
+    XV_GATE_TRUTH_THIN = "XV-042"        # < SG_MIN_ROWS instrumented era rows — no verdict
 
     # ---- liquidity-tier isolation (LT) — regime/liquidity_regime.py ------
     LT_TIER_ASSIGNED = "LT-010"      # asset (re)classified into a liquidity
