@@ -266,6 +266,14 @@ class Code(str, Enum):
     XV_CALIB_DEFERRED = "XV-020"     # fill calibration underpowered/not-near-touch: no recommendation
     XV_CALIB_RECOMMEND = "XV-021"    # fill calibration recommends a passive_base_prob change
     XV_CALIB_MISSPECIFIED = "XV-022"  # per-distance buckets disagree: forward model misspecified
+    # cost_truth_report (T7, spec D4 "measured, never assumed") - report-only
+    # verdicts comparing measured realized cost against configured
+    # pretrade.maker_fee_bps/taker_fee_bps; never printed via tag() (a one-off
+    # CLI report must not bump the live process's code_stats tally).
+    XV_COST_INSUFFICIENT = "XV-030"  # a measured source has zero usable samples
+    XV_COST_WITHIN_TOLERANCE = "XV-031"  # measured within D4's +/-20% tolerance
+    XV_COST_OUTSIDE_TOLERANCE = "XV-032"  # outside tolerance, configured overestimates (conservative direction)
+    XV_COST_DANGEROUS = "XV-033"     # measured EXCEEDS configured beyond tolerance - gate underprices real cost
 
     # ---- liquidity-tier isolation (LT) — regime/liquidity_regime.py ------
     LT_TIER_ASSIGNED = "LT-010"      # asset (re)classified into a liquidity
