@@ -155,6 +155,57 @@ def read_postmortem_overruns(path) -> tuple:
     return overruns, n_rows, n_dupe
 
 
+# ------------------------------------------------- population fill scan
+def read_audit_fill_costs(path) -> tuple:
+    """Returns (entry_bps, exit_bps, n_fills_seen, n_skipped_no_notional)
+    from OM-000 terminal-fill audit records. This is the POPULATION
+    measurement the postmortem subset ([2]) cannot give: every terminal
+    fill since 2026-07-28 carries filled_units/notional_usd (added for
+    exactly this purpose - fees_usd alone yields no RATE), so
+    fee_bps = fees_usd / notional_usd * 1e4 per fill, bucketed by leg
+    (purpose entry/exit; hedge legs are neither and are not bucketed).
+    Legacy records without notional are COUNTED and skipped - reported,
+    never fabricated into a rate. Malformed lines skipped (forensic
+    read; chain integrity is core/audit.py's job)."""
+    p = _resolve(str(path))
+    if not p.exists():
+        return [], [], 0, 0
+    entry_bps: list = []
+    exit_bps: list = []
+    n_seen = 0
+    n_skipped = 0
+    try:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if r.get("code") != Code.OM_CLEAN_TERMINAL.value:
+                    continue
+                data = r.get("data") or {}
+                terminal = data.get("terminal") or (
+                    "filled" if "terminal=filled" in (r.get("msg") or "")
+                    else "")
+                if terminal != "filled":
+                    continue
+                n_seen += 1
+                fees = _finite_float(data.get("fees_usd"))
+                notional = _finite_float(data.get("notional_usd"))
+                if fees is None or notional is None or notional <= 0.0:
+                    n_skipped += 1
+                    continue
+                bps = fees / notional * 1e4
+                purpose = str(data.get("purpose") or "")
+                if purpose == "entry":
+                    entry_bps.append(bps)
+                elif purpose == "exit":
+                    exit_bps.append(bps)
+    except OSError:
+        return [], [], 0, 0
+    return entry_bps, exit_bps, n_seen, n_skipped
+
+
 # ------------------------------------------------------------------ OM-080
 def read_om080_fee_recon(path) -> tuple:
     """Returns (maker_actual_bps, taker_actual_bps, n_records, n_pairs) from
@@ -316,6 +367,42 @@ def build_report(config_path=DEFAULT_CONFIG,
         lines.append(f"    delta = {rt_verdict.delta_bps:+.2f} bps "
                      f"({rt_verdict.delta_pct * 100:+.1f}%)")
         lines.append(f"    VERDICT [{rt_verdict.code}]: {rt_verdict.label}")
+    lines.append("")
+
+    e_bps, x_bps, n_fills, n_noqty = read_audit_fill_costs(audit_path)
+    lines.append("[3] POPULATION fee bps — source: OM-000 terminal-fill "
+                 f"audit records ({audit_path})")
+    lines.append(f"    n_fills_seen={n_fills}  entry_legs={len(e_bps)}  "
+                 f"exit_legs={len(x_bps)}")
+    if n_noqty:
+        lines.append(f"    {n_noqty} legacy fill(s) lack notional "
+                     "(records predate 2026-07-28's filled_units/"
+                     "notional_usd fields) — skipped, not fabricated")
+    if e_bps and x_bps and (len(e_bps) + len(x_bps)) >= 10:
+        mean_e = sum(e_bps) / len(e_bps)
+        mean_x = sum(x_bps) / len(x_bps)
+        pop_rt = mean_e + mean_x
+        pop_verdict = classify(pop_rt, round_trip_cfg, tolerance)
+        if (len(e_bps) + len(x_bps)) < 30:
+            lines.append("    (n<30: sample is thin — interpret cautiously)")
+        lines.append(f"    mean entry-leg = {mean_e:.2f} bps vs configured "
+                     f"maker {maker_cfg:.2f}")
+        lines.append(f"    mean exit-leg = {mean_x:.2f} bps vs configured "
+                     f"taker {taker_cfg:.2f}")
+        lines.append(f"    measured round-trip = {mean_e:.2f} + "
+                     f"{mean_x:.2f} = {pop_rt:.2f} bps")
+        lines.append(f"    configured round-trip = {round_trip_cfg:.2f} bps")
+        lines.append(f"    delta = {pop_verdict.delta_bps:+.2f} bps "
+                     f"({pop_verdict.delta_pct * 100:+.1f}%)")
+        lines.append(f"    VERDICT [{pop_verdict.code}]: {pop_verdict.label}")
+        lines.append("    (unlike [2], this is the WHOLE fill population — "
+                     "no postmortem trigger bias; excludes non-fee costs "
+                     "like slippage, which [2] includes)")
+    else:
+        lines.append(
+            f"    insufficient data (entry={len(e_bps)} exit={len(x_bps)}, "
+            "need both legs and >=10 total) — accrues from every terminal "
+            "fill going forward")
     lines.append("")
 
     lines.append("=== Notes / caveats ===")

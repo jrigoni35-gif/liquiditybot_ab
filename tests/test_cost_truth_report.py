@@ -336,3 +336,69 @@ def test_report_never_writes_config_json_even_when_dangerous(tmp_path):
     assert "DANGEROUS" in report
     assert cfg_path.stat().st_mtime_ns == before_mtime
     assert cfg_path.read_text(encoding="utf-8") == before_content
+
+
+# ---------------------------------------------------------------------------
+# [3] POPULATION — audit terminal-fill scan (2026-07-28). Terminal OM-000
+# records now carry filled_units/notional_usd, so fee RATE is measurable
+# over the WHOLE fill population, not the biased postmortem subset that
+# forced XV-033's caveat. Legacy records without notional are counted and
+# skipped honestly — never fabricated into a rate.
+# ---------------------------------------------------------------------------
+def _fill_line(purpose, fees_usd, notional_usd=None, code="OM-000"):
+    data = {"purpose": purpose, "avg_price": 100.0,
+            "fees_usd": fees_usd, "terminal": "filled"}
+    if notional_usd is not None:
+        data["filled_units"] = notional_usd / 100.0
+        data["notional_usd"] = notional_usd
+    return json.dumps({"code": code, "msg": "x terminal=filled (sim)",
+                       "data": data, "ts": 1.0})
+
+
+def test_audit_fill_costs_reader_exact_bps(tmp_path):
+    from scripts.cost_truth_report import read_audit_fill_costs
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("\n".join([
+        _fill_line("entry", 2.5, 1000.0),      # 25.0 bps
+        _fill_line("exit", 4.0, 1000.0),       # 40.0 bps
+        _fill_line("entry", 0.03),             # legacy shape: no notional
+        json.dumps({"code": "SZ-023", "msg": "not a fill"}),
+    ]) + "\n", encoding="utf-8")
+    entry_bps, exit_bps, n_seen, n_skipped = read_audit_fill_costs(audit)
+    assert entry_bps == [25.0]
+    assert exit_bps == [40.0]
+    assert n_seen == 3 and n_skipped == 1
+
+
+def test_population_section_verdict_and_never_mutates_config(tmp_path):
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(
+        {"pretrade": {"maker_fee_bps": 25.0, "taker_fee_bps": 40.0}}),
+        encoding="utf-8")
+    before = cfg_path.read_bytes()
+    audit = tmp_path / "audit.jsonl"
+    lines = [_fill_line("entry", 2.5, 1000.0) for _ in range(5)]
+    lines += [_fill_line("exit", 4.0, 1000.0) for _ in range(5)]
+    audit.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    report = build_report(cfg_path, tmp_path / "missing_pm.csv", audit)
+    assert "[3] POPULATION" in report
+    assert "measured round-trip = 25.00 + 40.00 = 65.00 bps" in report
+    pop = report.split("[3] POPULATION")[1]
+    assert "within tolerance" in pop            # exact match: 65 vs 65
+    assert "XV-031" in pop                      # the WITHIN verdict code
+    assert cfg_path.read_bytes() == before      # report-only, still
+
+
+def test_population_insufficient_when_only_legacy_records(tmp_path):
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(
+        {"pretrade": {"maker_fee_bps": 25.0, "taker_fee_bps": 40.0}}),
+        encoding="utf-8")
+    audit = tmp_path / "audit.jsonl"
+    audit.write_text("\n".join(
+        [_fill_line("entry", 0.03) for _ in range(20)]) + "\n",
+        encoding="utf-8")
+    report = build_report(cfg_path, tmp_path / "missing_pm.csv", audit)
+    assert "[3] POPULATION" in report
+    assert "insufficient" in report.split("[3] POPULATION")[1].split("===")[0]
+    assert "20 legacy fill(s) lack notional" in report

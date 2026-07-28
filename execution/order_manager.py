@@ -269,7 +269,17 @@ class OrderManager:
                              "terminal": new,
                              "created_ts": order.created_ts,
                              "fill_ratio": round(order.fill_ratio, 4),
-                             "reprices": order.reprices})
+                             "reprices": order.reprices,
+                             # fee-RATE measurability (2026-07-28 cost
+                             # truth): fees_usd alone cannot yield bps —
+                             # 466 historical fills were population-
+                             # unmeasurable without notional, forcing the
+                             # cost report onto the biased postmortem
+                             # subset. Every terminal record now carries
+                             # the fill's own notional.
+                             "filled_units": round(order.filled, 8),
+                             "notional_usd": round(
+                                 order.filled * order.avg_price, 4)})
         return True
 
     def _retire(self, order: ManagedOrder):

@@ -466,3 +466,31 @@ def test_zero_format_market_exit_ignores_price_field():
                  ordertype="market", ref_price=100.0)
     assert o is not None, "market exit volume formats fine; must not be blocked"
     assert "price" not in calls[0][1]
+
+
+# ---------------------------------------------------------------------------
+# Terminal-fill audit records carry the fill's NOTIONAL (2026-07-28 cost
+# truth): fees_usd without units/notional cannot yield a fee RATE, which
+# left 466 historical fills population-unmeasurable (XV-031 forced the
+# cost-truth report onto the biased postmortem subset). Every terminal
+# record now carries filled_units + notional_usd so scripts/
+# cost_truth_report.py can measure the whole population going forward.
+# ---------------------------------------------------------------------------
+def test_terminal_fill_audit_carries_units_and_notional():
+    import json as _json
+    om = OrderManager(feed=None, config={}, dry_run=True)
+    o = _order(status="partial", filled=0.6)
+    o.avg_price = 105.0
+    o.fees_usd = 0.0157
+    om._orders[o.order_id] = o
+    mark = _audit_mark()
+    assert om._transition(o, "filled", "sim cross") is True
+    path, before = mark
+    after = path.read_text(encoding="utf-8")
+    new_lines = [ln for ln in after[len(before):].strip().splitlines()
+                 if ln.strip()]
+    rec = next(_json.loads(ln) for ln in new_lines
+               if _json.loads(ln)["code"] == Code.OM_CLEAN_TERMINAL.value)
+    data = rec["data"]
+    assert data["filled_units"] == 0.6
+    assert abs(data["notional_usd"] - 63.0) < 1e-9   # 0.6 * 105.0
