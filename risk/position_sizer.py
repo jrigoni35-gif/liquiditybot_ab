@@ -426,7 +426,13 @@ class PositionSizer:
             # before here on any bad bracket (narrows for the type checker).
             assert sl_pct is not None
             usd *= (self.stop_loss_pct_ref / sl_pct)
-        d.payoff_b = b_net
+        # payoff_b reports the bet actually priced: the bracket's own b_net
+        # when one was supplied, otherwise the GROSS legacy self.b (matches
+        # the dataclass default at construction) -- never the legacy NET
+        # b_net, which would silently change a public field on every
+        # no-bracket caller (CLAUDE.md invariant 7: byte-identical legacy
+        # path; see test_no_bracket_is_byte_identical_legacy).
+        d.payoff_b = b_net if bracket is not None else self.b
 
         # ---- drawdown throttle (SZ-050): decelerate toward the halt --------
         try:
@@ -537,6 +543,13 @@ class PositionSizer:
 
         d.usd = usd
         d.units = usd / price
+        # NOTE (T4 scope bound): this detail string always reports the
+        # legacy config-average self.b / self.b_net, even on a bracket-
+        # priced approval -- it is not re-derived from the per-trade
+        # bracket b_net used above for the bar/Kelly/notional math. Only
+        # SZ_PWIN_BAR's detail (above) carries the bracket basis today.
+        # Task 5 may extend this string to report the bracket-priced b
+        # when one drove the decision.
         d.reasons.append(tag(Code.SZ_APPROVED,
                              f"p={p_win:.2f} b={self.b:.2f} "
                              f"(net {self.b_net:.2f}) f={f:.3f} "

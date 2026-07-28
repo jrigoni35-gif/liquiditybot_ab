@@ -131,19 +131,61 @@ def test_exploration_synthetic_p_still_clears_the_shipped_derived_bar():
 
 def test_bracket_overrides_the_global_bar_per_trade():
     s = _sizer(p_bar_mode="derived")
-    # wide bracket (pt 4%, sl 3%): b=(4-.65)/(3+.65)=0.918, bar 0.521
+    # wide bracket (pt 4%, sl 3%): b_net=(4-.65)/(3+.65)=0.9178, own
+    # breakeven 1/(1+0.9178)=0.5214 -- but min_p_win=0.55 FLOORS it, so the
+    # operative bar is max(0.5214, 0.55) = 0.55, not the bare 0.5214
+    # breakeven (a prior comment here mis-stated the bar as 0.521).
     d = _size(s, 0.55, bracket=(4.0, 3.0))
-    assert not any("SZ-023" in r for r in d.reasons)   # clears 0.521
+    assert not any("SZ-023" in r for r in d.reasons)   # clears 0.55
     d2 = _size(s, 0.50, bracket=(4.0, 3.0))
     assert any("SZ-023" in r for r in d2.reasons)      # below it
 
 
-def test_bracket_notional_scales_dollar_risk_to_the_stop():
+def test_bracket_breakeven_above_the_floor_sets_the_operative_bar():
+    # bracket (pt 2.0%, sl 2.5%): b_net=(2.0-.65)/(2.5+.65)=1.35/3.15=0.4286,
+    # own breakeven 1/(1+0.4286)=0.70 -- genuinely ABOVE the 0.55 floor, so
+    # here the bracket's own geometry (not min_p_win) sets the bar, unlike
+    # the wide-bracket case above where the floor wins.
     s = _sizer(p_bar_mode="derived")
-    d_legacy_like = _size(s, 0.80, bracket=(2.667, 2.0))  # sl == 2%
-    d_wide = _size(s, 0.80, bracket=(5.334, 4.0))         # sl 2x wider
+    d = _size(s, 0.72, bracket=(2.0, 2.5))
+    assert not any("SZ-023" in r for r in d.reasons)   # clears 0.70
+    d2 = _size(s, 0.68, bracket=(2.0, 2.5))
+    assert any("SZ-023" in r for r in d2.reasons)      # below 0.70
+
+
+def test_bracket_notional_scales_dollar_risk_to_the_stop():
+    # Doubling BOTH bracket legs does NOT preserve b_net: rt_cost_pct (c)
+    # is additive, not multiplicative, so (2*pt-c)/(2*sl+c) != (pt-c)/(sl+c)
+    # in general. A prior version of this test used p_win=0.80 with legs
+    # literally doubled and passed only because BOTH resulting f values
+    # saturated kelly_cap (0.12) -- the assertion was blind to the actual
+    # b_net drift and tested nothing about notional scaling specifically.
+    #
+    # Here b_net is matched BY CONSTRUCTION so the test exercises the real
+    # thing (risk-in-size notional scaling), with p=0.70 and f kept clear
+    # of the cap (asserted below). Solve for pt2 given sl2 = 2*sl1 such
+    # that b_net(pt2, sl2) == b_net(pt1, sl1), with c = rt_cost_pct = 0.65
+    # (25 maker + 40 taker bps):
+    #   pt2 = c + (pt1 - c) * (sl2 + c) / (sl1 + c)
+    # pt1=2.667, sl1=2.0, sl2=4.0:
+    #   pt2 = 0.65 + (2.667-0.65) * (4.0+0.65)/(2.0+0.65)
+    #       = 0.65 + 2.017 * 4.65/2.65 = 0.65 + 3.5393 = 4.1893  (~4.1894)
+    # b_net(2.667, 2.0)  = (2.667-0.65)/(2.0+0.65)  = 2.017/2.65  = 0.76113
+    # b_net(4.1894, 4.0) = (4.1894-0.65)/(4.0+0.65) = 3.5394/4.65 = 0.76116
+    # (equal to within 5e-5 -- genuine, not a cap-saturation coincidence)
+    # f* = p - (1-p)/b_net = 0.70 - 0.30/0.7611            = 0.3058
+    # f  = f* * kelly_fraction (0.25)                       = 0.0764
+    # 0.0764 is well under kelly_cap (0.12); asserted explicitly below so a
+    # future config/tolerance change can never silently let cap saturation
+    # sneak back in and make this pass for the wrong reason again.
+    s = _sizer(p_bar_mode="derived")
+    d_legacy_like = _size(s, 0.70, bracket=(2.667, 2.0))   # sl == 2%
+    d_wide = _size(s, 0.70, bracket=(4.1894, 4.0))         # sl 2x wider, b_net matched
     assert d_legacy_like.approved and d_wide.approved
-    # same p, same b (ratio equal) -> same f; notional halves as sl doubles
+    assert d_legacy_like.kelly_f < s.kelly_cap
+    assert d_wide.kelly_f < s.kelly_cap
+    # same p, same b_net (matched by construction, not by cap saturation)
+    # -> same f; notional halves as sl doubles
     assert abs(d_wide.usd - d_legacy_like.usd / 2.0) < max(
         0.02 * d_legacy_like.usd, 1.0)
 
@@ -153,6 +195,12 @@ def test_no_bracket_is_byte_identical_legacy():
     a = _size(s, 0.70)
     b = _size(s, 0.70, bracket=None)
     assert (a.usd, a.kelly_f, a.reasons) == (b.usd, b.kelly_f, b.reasons)
+    # payoff_b must stay the GROSS legacy value (self.b) on the no-bracket
+    # path -- a prior bug unconditionally set d.payoff_b = b_net (the NET
+    # value), silently changing a public field's meaning for every legacy
+    # caller that never passes a bracket (CLAUDE.md invariant 7: public
+    # interfaces stay stable / byte-identical legacy path).
+    assert a.payoff_b == b.payoff_b == s.b
 
 
 def test_bracket_invalid_values_fail_closed():
