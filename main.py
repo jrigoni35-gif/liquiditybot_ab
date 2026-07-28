@@ -92,7 +92,7 @@ from execution.grid_ladder import GridLadderEngine
 from ml.features import FEATURE_NAMES, REGIME_LABELS, build_features
 from ml.meta_model import MetaModelService
 from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
-from ml.labeling import ExitPolicy
+from ml.labeling import ExitPolicy, barrier_geometry
 from ml.event_sampler import StateChangeSampler
 from ml.monitor import ModelMonitor
 from core.performance import PerformanceTracker
@@ -718,6 +718,22 @@ class LiquidityBot:
         # corpus), never entries/exploration/gates/exits.
         self.scs = StateChangeSampler(config.get("ml", {}).get("sampling", {}))
         self._scs_pending: dict = {}        # asset -> teachable event latched
+        # geometry-alignment T5 (spec D1): model-lane bracket exits - "the
+        # traded bet is the labeled bet". false is the escape hatch
+        # (config_guard FATALs the incoherent enabled+non-triple_barrier
+        # combination, so runtime here just trusts the flag). The four
+        # knobs mirror ml/history.py CandidateLabeler's own parse
+        # (label_pt_vol_mult/label_sl_vol_mult/label_pt_cost_mult/
+        # label_max_bars) exactly, so the live bracket-exit engine and
+        # the candidate labeler read the SAME config the SAME way -
+        # structural alignment, not by convention.
+        self._bracket_exits_enabled = bool(
+            config.get("bracket_exits", {}).get("enabled", True))
+        _ml_cfg_t5 = config.get("ml", {}) or {}
+        self._label_pt_vol_mult = float(_ml_cfg_t5.get("label_pt_vol_mult", 8.0))
+        self._label_sl_vol_mult = float(_ml_cfg_t5.get("label_sl_vol_mult", 6.0))
+        self._label_pt_cost_mult = float(_ml_cfg_t5.get("label_pt_cost_mult", 0.0))
+        self._label_max_bars = int(_ml_cfg_t5.get("label_max_bars", 96))
         # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
         # over public books/candles; shadow by default (telemetry only),
         # bounded confidence shading only when influence=advise
@@ -1142,7 +1158,11 @@ class LiquidityBot:
                   "probe": bool(meta_t.get("probe", False)),
                   "candidate_id": meta_t.get("candidate_id") or "",
                   "algo_parent": parent.parent_id,
-                  "algo_child_seq": child.seq},
+                  "algo_child_seq": child.seq,
+                  "bracket_pt_frac": meta_t.get("bracket_pt_frac", 0.0),
+                  "bracket_sl_frac": meta_t.get("bracket_sl_frac", 0.0),
+                  "bracket_deadline_ts": meta_t.get(
+                      "bracket_deadline_ts", 0.0)},
             now=now,
         )
         if order:
@@ -1247,13 +1267,29 @@ class LiquidityBot:
     # fill handling
     # ------------------------------------------------------------------
     def _finalize_position(self, pos: Position, total_net: float,
-                           now: float) -> None:
+                           now: float, close_reason: str = "") -> None:
         """Single close-out path (fill-flat and dust-flat both land here):
         history close, postmortem observation, ledger removal, counter
         cleanup. Keeping this in one place means the two exits can never
-        drift apart."""
+        drift apart.
+
+        `close_reason` (geometry-alignment T5, spec D1; default "" -
+        every legacy caller unchanged) is the exit order's own `reason`
+        string (order.meta["reason"]) that triggered THIS flattening
+        fill. Threaded VERBATIM into the live-label barrier column only
+        when it is one of the bracket-exit engine's own three reasons
+        (tb_pt/tb_sl/tb_time) - label_era_of then tags the row
+        LABEL_ERA_TRIPLE_BARRIER, joining the live corpus to the era the
+        model trains on (V1's closure). Any OTHER reason (tier/stop/
+        hard-stop/ratchet/flatten/force_dry/...) falls back to
+        log_close's own "realized" default, byte-identical to before
+        this task."""
         asset = self._asset_of(pos.symbol)
-        self.history.log_close(pos.position_id, total_net)
+        barrier = close_reason if close_reason in (
+            "tb_pt", "tb_sl", "tb_time") else "realized"
+        self.history.log_close(pos.position_id, total_net, barrier=barrier,
+                               pt_frac=pos.bracket_pt_frac,
+                               sl_frac=pos.bracket_sl_frac)
         # rolling performance ledger — every full close, real positions only
         # (hedges carry no thesis/stop of their own). total_net is the popped
         # cumulative (all tier closes + final), so this is the whole trade.
@@ -1353,6 +1389,15 @@ class LiquidityBot:
                     est_cost_bps=order.meta.get("est_cost_bps", 0.0),
                     leverage=order.leverage,
                     book=order.meta.get("book", "5m"),
+                    # geometry-alignment T5 (spec D1): 0.0 defaults keep a
+                    # non-bracket entry (bracket_exits.enabled=false, or
+                    # any order.meta that predates T5) exactly inert - the
+                    # exit-evaluation seam below reads bracket_pt_frac>0
+                    # as "this position trades the bracket".
+                    bracket_pt_frac=order.meta.get("bracket_pt_frac", 0.0),
+                    bracket_sl_frac=order.meta.get("bracket_sl_frac", 0.0),
+                    bracket_deadline_ts=order.meta.get(
+                        "bracket_deadline_ts", 0.0),
                 )
                 if pos.book == "long":
                     # Compounder Phase C (task C4): a wide, non-trailing
@@ -1364,6 +1409,17 @@ class LiquidityBot:
                     pos.stop_price = thesis_stop_price(
                         pos.entry_price, float(self.config.get(
                             "long_book", {}).get("thesis_stop_pct", 12.0)))
+                elif pos.bracket_sl_frac > EPS:
+                    # T5: the sl LEG of this position's bracket - the
+                    # existing protective-stop check in
+                    # _manage_open_position reuses pos.stop_price
+                    # unmodified (same escalation ladder, same OM-011
+                    # final-rung market exception); only the LEVEL is the
+                    # labeled bracket's own sl_frac, entry*(1-/+sl_frac),
+                    # never the config vol-scaled distance below.
+                    pos.stop_price = pos.entry_price * (
+                        1.0 - pos.bracket_sl_frac) if pos.direction == "long" \
+                        else pos.entry_price * (1.0 + pos.bracket_sl_frac)
                 else:
                     pos.stop_price = self._stop_price_for(
                         pos.direction, pos.entry_price, self._asset_of(pos.symbol))
@@ -1487,7 +1543,9 @@ class LiquidityBot:
                     f"net ${trade_net:+,.2f} (remaining {pos.size:.6f})")
             if pos.size <= pos.original_size * 1e-4 or pos.size <= EPS:
                 total_net = self._pos_realized.pop(pos.position_id, trade_net)
-                self._finalize_position(pos, total_net, now)
+                self._finalize_position(
+                    pos, total_net, now,
+                    close_reason=str(order.meta.get("reason", "")))
                 log.info(f"FLAT {pos.symbol} position {pos.position_id[:8]}: "
                         f"total net ${total_net:+,.2f}")
 
@@ -1587,7 +1645,7 @@ class LiquidityBot:
                         f"remainder {pos.size:.8f} below venue minimum "
                         f"{omin} - closing the book on it (total net "
                         f"${total_net:+,.2f})")
-            self._finalize_position(pos, total_net, now)
+            self._finalize_position(pos, total_net, now, close_reason=reason)
             return
 
         attempts = self._exit_attempts.get(pos.position_id, 0)
@@ -2182,9 +2240,15 @@ class LiquidityBot:
                 (pos.direction == "long" and px <= pos.stop_price) or
                 (pos.direction == "short" and px >= pos.stop_price)):
             self._stop_hit[pos.position_id] = True
-            self._submit_exit(pos, 100.0,
-                              f"stop {self._px(pos.symbol, pos.stop_price)} hit",
-                              now=now,
+            # geometry-alignment T5 (spec D1): for a bracket position,
+            # pos.stop_price IS the sl leg (entry*(1-/+sl_frac), stamped
+            # at fill time - see _handle_fill) - the reason threads
+            # VERBATIM into the live-label barrier column so this close
+            # joins LABEL_ERA_TRIPLE_BARRIER (ml/history.py label_era_of),
+            # not the legacy "stop $X hit" string.
+            reason = "tb_sl" if pos.bracket_sl_frac > EPS else \
+                f"stop {self._px(pos.symbol, pos.stop_price)} hit"
+            self._submit_exit(pos, 100.0, reason, now=now,
                               # Compounder Phase C (task C4): this same
                               # unconditional stop check enforces the long
                               # book's thesis stop too (pos.stop_price is
@@ -2245,8 +2309,26 @@ class LiquidityBot:
                     # EX-8/DL-5: the engine's injected clock reaches the trail's
                     # time-tightening - the last wall-clock read in the exit path
                     now=now)
+            # geometry-alignment T5 (spec D1): a bracket position's pt/
+            # deadline legs REPLACE the tier engine's own scheduled
+            # profit-take and PT-060 time-stop for THIS position (never
+            # both - "the traded bet is the labeled bet"). The tier
+            # engine above is still called UNCONDITIONALLY (never
+            # skipped) so its give-back/chandelier/break-even floor - a
+            # SENIOR overlay, not a scheduled tier (CLAUDE.md invariant
+            # 5: overlays stay senior) - keeps ratcheting pos.high_water/
+            # trailing_stop_price and can still fire exactly as it does
+            # for a non-bracket position; only a TIER TRIGGER
+            # (is_profit_take) or the PT-060 TIME-STOP
+            # (reason_code==PT_TIME_STOP) is suppressed here, because the
+            # bracket's own pt leg / deadline leg below own those two
+            # dispositions instead.
+            is_bracket = pos.book != "long" and pos.bracket_pt_frac > EPS
+            bracket_exit_pending = is_bracket
             if action.should_close_partial and action.close_pct > 0:
                 is_time_stop = action.reason_code == Code.PT_TIME_STOP.value
+                suppressed_for_bracket = is_bracket and (
+                    action.is_profit_take or is_time_stop)
                 # sub-25s reclamp sliver (whole-program review Minor #6): a
                 # resting maker tier-1 take on a still-virgin position
                 # (tier_closed increments on FILL, not on submit) can be
@@ -2260,7 +2342,7 @@ class LiquidityBot:
                 # back below) is untouched; exits stay always-allowed.
                 suppress_pt060 = is_time_stop and \
                     self._has_resting_profit_take(pos)
-                if not suppress_pt060:
+                if not suppressed_for_bracket and not suppress_pt060:
                     # PT-060 review fix: a time-stop scratch previously
                     # logged as "tier trail" via the tier_fired-or-'trail'
                     # fallback (tier_fired==0 on a time-stop) - correct for
@@ -2280,6 +2362,38 @@ class LiquidityBot:
                                     tier_fired=action.tier_fired, now=now,
                                     profit_take=action.is_profit_take,
                                     reason_code=reason_code)
+                    bracket_exit_pending = False
+            if bracket_exit_pending:
+                self._evaluate_bracket_exit(pos, px, now)
+
+    def _evaluate_bracket_exit(self, pos: Position, px: float,
+                              now: float) -> None:
+        """pt/deadline legs of a model-lane bracket position's exit
+        geometry (geometry-alignment T5, spec D1). The sl leg is NOT
+        duplicated here - it reuses the existing hard protective-stop
+        check at the top of _manage_open_position (pos.stop_price was
+        stamped to entry*(1-/+bracket_sl_frac) at fill time, see
+        _handle_fill). Called only when the tier engine's own action did
+        not already submit an exit this cycle - the give-back/chandelier
+        floor (a senior overlay) always gets first refusal (invariant 5)."""
+        if pos.direction == "long":
+            hit = px >= pos.entry_price * (1.0 + pos.bracket_pt_frac)
+        else:
+            hit = px <= pos.entry_price * (1.0 - pos.bracket_pt_frac)
+        if hit:
+            # maker-first profit exit (spec D1): profit_take=True gives
+            # this its own first-attempt rest on our own side of the book
+            # (_submit_exit's maker_first gate), same as a legacy tier
+            # take - escalates into the marketable ladder if it expires.
+            self._submit_exit(pos, 100.0, "tb_pt", now=now,
+                              profit_take=True)
+            return
+        if pos.bracket_deadline_ts > EPS and now >= pos.bracket_deadline_ts:
+            # vertical barrier: an aging bracket gets no special leniency
+            # (marketable-first, like the legacy time-stop scratch it
+            # replaces for this position) - being out fast beats holding
+            # a thesis whose label horizon has already expired.
+            self._submit_exit(pos, 100.0, "tb_time", now=now)
 
     def _has_resting_profit_take(self, pos: Position) -> bool:
         """True iff `pos` already has an OPEN resting (post-only) profit-
@@ -2646,6 +2760,62 @@ class LiquidityBot:
         log.log(logging.INFO if explored else logging.DEBUG,
                 "[%s] sizer veto: %s", asset,
                 "; ".join(str(r) for r in reasons) or "(no reason recorded)")
+
+    def _bracket_for_entry(self, *, asset: str, symbol: str, direction: str,
+                          price: float, p_win: float, equity: float,
+                          macro_state, vol_state, liq_state, verdict,
+                          lev_decision, now: float, decision,
+                          explored: bool, aggressive: bool,
+                          explore_scale: float, manip_scale: float,
+                          sized):
+        """geometry-alignment T5 (spec D1): "the traded bet is the labeled
+        bet". Computes THIS entry's triple-barrier bracket
+        (barrier_geometry() - ml/labeling.py, the SAME pure helper the
+        candidate labeler calls, T2) from the entry's own sigma_bar and
+        the pretrade decision's own (real, post-participation-clamp)
+        est_cost_bps, then re-sizes through the labeled bracket (spec D3:
+        per-trade bar/Kelly/risk-in-size notional) - a PASS-2 sizer.size()
+        call, never a re-run of price discovery or the pretrade EV gate
+        (`decision` itself, computed by the caller against PASS-1's
+        `sized`, stays the entry's one approval).
+
+        Returns (pt_frac, sl_frac, deadline_ts, sized, veto_reasons):
+          * bracket_exits.enabled=false -> (0.0, 0.0, 0.0, `sized`
+            unchanged, []) - byte-identical legacy (CLAUDE.md invariant
+            7): the caller's own PASS-1 `sized`/`decision.size_units`
+            reproduce exactly.
+          * enabled, bracket-sizing APPROVED -> the labeled fractions,
+            entry + ml.label_max_bars bars, the NEW (PASS-2) SizeDecision
+            (`decision.size_units` is rescaled here, in place, to the
+            SAME proportion PASS-2's notional bears to PASS-1's - the
+            participation-clamped size the pretrade gate already
+            approved just scales with the bracket-driven notional, never
+            re-validated against the gate a second time).
+          * enabled, bracket-sizing VETOED -> (pt_frac, sl_frac, 0.0,
+            None, reasons) - `sized is None` is the caller's signal to
+            veto this entry exactly like an ordinary sizer veto."""
+        if not self._bracket_exits_enabled:
+            return 0.0, 0.0, 0.0, sized, []
+        from ml.walkforward import BAR_SECONDS
+        sigma_bar = vol_state.sigma_bar_pct / 100.0
+        cost_pct = decision.est_cost_bps / 100.0
+        pt_frac, sl_frac = barrier_geometry(
+            sigma_bar, cost_pct, self._label_pt_vol_mult,
+            self._label_sl_vol_mult, self._label_pt_cost_mult)
+        bracket_sized = self.sizer.size(
+            asset, direction, price, p_win, equity, self.state,
+            macro_state, vol_state, liq_state, verdict.risk_multiplier,
+            self.inventory, lev_decision, self.marks, now,
+            risk_scale=self.monitor.kelly_mult * explore_scale
+            * manip_scale,
+            symbol=symbol, floor_to_min=(explored and not aggressive),
+            bracket=(pt_frac * 100.0, sl_frac * 100.0))
+        if not bracket_sized.approved:
+            return pt_frac, sl_frac, 0.0, None, bracket_sized.reasons
+        if sized.units > EPS:
+            decision.size_units *= bracket_sized.units / sized.units
+        deadline_ts = now + self._label_max_bars * BAR_SECONDS
+        return pt_frac, sl_frac, deadline_ts, bracket_sized, []
 
     def _fetch_market_payloads(self) -> list:
         """Fetch each market feed CONCURRENTLY (one thread per feed; each
@@ -3145,6 +3315,33 @@ class LiquidityBot:
                                 str((decision.reasons or ["pretrade"])[0])[:40])
                 continue
 
+            # geometry-alignment T5 (spec D1): "the traded bet is the
+            # labeled bet". Every model-lane entry (conviction AND probe
+            # alike, operator decision 1) computes its own triple-barrier
+            # bracket - see _bracket_for_entry's docstring. bracket_exits.
+            # enabled=false reproduces `sized`/`decision.size_units` from
+            # the PASS-1 call above byte-identical (CLAUDE.md invariant 7).
+            (bracket_pt_frac, bracket_sl_frac, bracket_deadline_ts,
+             bracket_sized, bracket_veto_reasons) = self._bracket_for_entry(
+                asset=asset, symbol=symbol, direction=signal.direction,
+                price=self.marks.get(symbol) or fv_state.kraken_mid or 0.0,
+                p_win=p_win, equity=equity, macro_state=macro_state,
+                vol_state=vol_state, liq_state=liq_state, verdict=verdict,
+                lev_decision=lev_decision, now=now, decision=decision,
+                explored=explored, aggressive=aggressive,
+                explore_scale=explore_scale, manip_scale=manip_scale,
+                sized=sized)
+            if bracket_sized is None:
+                # bracket-driven sizing vetoed this entry (e.g. the
+                # labeled bracket's own breakeven no longer clears p_win) -
+                # treated exactly like an ordinary sizer veto.
+                self._log_sizer_veto(asset, bracket_veto_reasons, explored)
+                self._mark_cand(asset, signal.direction,
+                                str((bracket_veto_reasons or
+                                    ["sizer"])[0])[:40])
+                continue
+            sized = bracket_sized
+
             # Compounder Phase A: conviction formula disposition. None ->
             # proceed (always, in report mode); a Code -> the enforce-mode
             # skip path (registered CV-*, candidate marked, no bare string).
@@ -3220,7 +3417,10 @@ class LiquidityBot:
                     "post_only": plan.post_only,
                     "probe": explored,
                     "candidate_id": cand_id or "",
-                    "thales_fired": self._thales_fired.get(asset) or []}
+                    "thales_fired": self._thales_fired.get(asset) or [],
+                    "bracket_pt_frac": bracket_pt_frac,
+                    "bracket_sl_frac": bracket_sl_frac,
+                    "bracket_deadline_ts": bracket_deadline_ts}
                 self._mark_cand(asset, signal.direction, "entered")
                 # admission-record asymmetry fix (post-program review): the
                 # probe-share window records "an order actually went out" -
@@ -3257,7 +3457,9 @@ class LiquidityBot:
                 ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
                 target_pct=target_pct, now=now,
                 reserved_entries=reserved_entries, can_enter=can_enter,
-                cand_id=cand_id)
+                cand_id=cand_id, bracket_pt_frac=bracket_pt_frac,
+                bracket_sl_frac=bracket_sl_frac,
+                bracket_deadline_ts=bracket_deadline_ts)
             if handled:
                 continue
 
@@ -3290,7 +3492,10 @@ class LiquidityBot:
                     "est_cost_bps": decision.est_cost_bps,
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
-                    "thales_fired": self._thales_fired.get(asset) or []},
+                    "thales_fired": self._thales_fired.get(asset) or [],
+                    "bracket_pt_frac": bracket_pt_frac,
+                    "bracket_sl_frac": bracket_sl_frac,
+                    "bracket_deadline_ts": bracket_deadline_ts},
                 now=now,
             )
             if order:
@@ -4054,7 +4259,8 @@ class LiquidityBot:
                       fv_state, macro_state, liq_state, verdict, feats,
                       explored, p_win, model_p, shadow_p, ev_pct,
                       stop_pct_eff, target_pct, now, reserved_entries,
-                      can_enter, cand_id=None):
+                      can_enter, cand_id=None, bracket_pt_frac=0.0,
+                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0):
         """v10 ladder pathway for one approved entry. Returns the updated
         (reserved_entries, can_enter, handled): handled=True means the ladder
         placed (or consciously consumed) this entry and the caller skips the
@@ -4080,7 +4286,10 @@ class LiquidityBot:
             macro_state=macro_state, liq_state=liq_state, verdict=verdict,
             feats=feats, explored=explored, p_win=p_win, model_p=model_p,
             shadow_p=shadow_p, ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
-            target_pct=target_pct, now=now, cand_id=cand_id)
+            target_pct=target_pct, now=now, cand_id=cand_id,
+            bracket_pt_frac=bracket_pt_frac,
+            bracket_sl_frac=bracket_sl_frac,
+            bracket_deadline_ts=bracket_deadline_ts)
         if not placed:
             # every rung rejected (firewall/collar/venue-min) — the
             # approved entry must fall back to the legacy single-entry
@@ -4112,7 +4321,8 @@ class LiquidityBot:
                       signal, decision, lev, equity, vol_state, fv_state,
                       macro_state, liq_state, verdict, feats, explored,
                       p_win, model_p, shadow_p, ev_pct, stop_pct_eff,
-                      target_pct, now, cand_id=None) -> int:
+                      target_pct, now, cand_id=None, bracket_pt_frac=0.0,
+                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0) -> int:
         """Submit an armed ladder's rungs as maker-only limit entries through
         the FULL existing rail (firewall, collar, venue minimums). Every rung
         is its own position with its own postmortem thesis, so labels stay
@@ -4168,7 +4378,10 @@ class LiquidityBot:
                       "features": feats, "probe": explored,
                       "ladder_rung": rung.idx,
                       "candidate_id": cand_id or "",
-                      "thales_fired": self._thales_fired.get(asset) or []},
+                      "thales_fired": self._thales_fired.get(asset) or [],
+                      "bracket_pt_frac": bracket_pt_frac,
+                      "bracket_sl_frac": bracket_sl_frac,
+                      "bracket_deadline_ts": bracket_deadline_ts},
                 now=now)
             if not rung_order:
                 continue

@@ -47,6 +47,28 @@ class Position:
     # (and every restored legacy snapshot) exactly "5m" - zero 5m
     # contamination by construction.
     book: str = "5m"
+    # geometry-alignment T5 (spec D1, docs/superpowers/specs/
+    # 2026-07-27-geometry-alignment-design.md): "the traded bet is the
+    # labeled bet". A model-lane entry (conviction AND probe alike) taken
+    # under bracket_exits.enabled carries the triple-barrier bracket
+    # (ml/labeling.py's barrier_geometry() - the SAME helper the candidate
+    # labeler calls) computed at fill time from this entry's own sigma_bar
+    # and the pretrade decision's own cost estimate. bracket_pt_frac/
+    # bracket_sl_frac are FRACTIONS of entry_price (0.02 = 2%, matching
+    # ml/history.py's persisted pt_frac/sl_frac columns); the exit-
+    # evaluation seam (main._manage_open_position) reads
+    # bracket_pt_frac > 0 as "this position's exits are the bracket, not
+    # the tier engine". bracket_deadline_ts is the epoch second the
+    # vertical (time) barrier closes the remainder (entry_ts +
+    # ml.label_max_bars bars). Defaults 0.0 are LEGACY-INERT: any
+    # pre-T5 construction site, any restored snapshot, and every position
+    # opened while bracket_exits.enabled=false never sets these, so the
+    # bracket branch is unreachable for them and behavior is byte-
+    # identical to before this task (the long book, book=="long", never
+    # sets these either - brackets are a 5m/model-lane concept only).
+    bracket_pt_frac: float = 0.0
+    bracket_sl_frac: float = 0.0
+    bracket_deadline_ts: float = 0.0
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
         """Unrealized PnL in PERCENT of entry price, sign-correct for

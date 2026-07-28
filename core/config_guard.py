@@ -590,6 +590,21 @@ def validate(config: dict) -> list:
         warn(f"ml.label_pt_cost_mult={pt_cost_mult} floors the profit "
              f"distance at under 2x round-trip cost - costs above 50% of "
              f"the profit distance, the bet the floor exists to prevent")
+
+    # bracket exits (spec D1/D5, 2026-07-27, geometry-alignment task 5,
+    # docs/superpowers/specs/2026-07-27-geometry-alignment-design.md):
+    # a bracket position's exits trade the triple-barrier bet - incoherent
+    # (and untested) if the model isn't even labeled that way. FATAL
+    # regardless of dry_run, same class as the label_mode check above
+    # (config-nonsense about which bet is traded, not a live-risk bound).
+    if bool(_f(config, "bracket_exits.enabled", False)) \
+            and lbl_mode != "triple_barrier":
+        fatal(f"bracket_exits.enabled=true requires ml.label_mode="
+              f"'triple_barrier' (got {lbl_mode!r}) - the bracket trades "
+              f"the triple-barrier bet (barrier_geometry(), same helper "
+              f"the candidate labeler calls); trading it while the model "
+              f"is labeled under a different definition prices a bet "
+              f"nobody is training on")
     sgf = float(_f(config, "ml.postmortem.stop_gap_factor", 2.0))
     if sgf <= 1.0:
         fatal(f"ml.postmortem.stop_gap_factor={sgf} must be > 1.0 - at or "
@@ -2498,6 +2513,52 @@ def validate(config: dict) -> list:
                   f"breakeven {breakeven:.3f} (maker+taker round-trip cost) - "
                   f"every exploration entry SZ-030-vetoes and the DRY-RUN "
                   f"learning lane goes silent. Raise p_win above the breakeven.")
+
+        # geometry-alignment T5 (spec D5): extend the probe-clearance
+        # interlock to the WORST-CASE FLOORED bracket - the tightest bet
+        # a bracket-sized entry can ever demand (barrier_geometry's cost
+        # floor, ml.label_pt_cost_mult, pins pt/sl at their absolute
+        # minimum regardless of sigma; the sizer's own worst-case
+        # maker+taker rt_cost then eats the LARGEST possible share of
+        # that minimum pt/sl, which is the HIGHEST possible breakeven -
+        # b_net rises, never falls, as sigma grows past the floor). WARN
+        # (not FATAL): a probe that only barely clears this bar risks
+        # going net-thin the moment the bracket floor binds - a real
+        # operational concern, but the bot still trades correctly report-
+        # mode, unlike the FATAL above. COMPUTED, never hardcoded (0.614
+        # at the shipped config, docs/superpowers/specs/
+        # 2026-07-27-geometry-alignment-design.md spec D2's own worked
+        # example: (2.0-0.65)/(1.5+0.65)=0.628 -> bar 1/1.628=0.614).
+        # Only meaningful under the SAME label_mode=triple_barrier gate
+        # the FATAL above requires, and only when the floor is actually
+        # armed (pt_cost_mult>0, pt_vol_mult>0) - 0 disables the floor
+        # (legacy bare sigma-scaling has no fixed worst case to compute).
+        if lbl_mode == "triple_barrier":
+            pcm = float(_f(config, "ml.label_pt_cost_mult", 0.0))
+            ptm = float(_f(config, "ml.label_pt_vol_mult", 8.0))
+            slm = float(_f(config, "ml.label_sl_vol_mult", 6.0))
+            lbl_rt = float(_f(config, "ml.label_round_trip_cost_pct", 0.5))
+            if pcm > 0.0 and ptm > 0.0:
+                pt_floor_pct = pcm * lbl_rt
+                sl_floor_pct = (slm / ptm) * pt_floor_pct
+                sizer_rt_pct = (float(_f(config, "pretrade.maker_fee_bps",
+                                        25.0))
+                               + float(_f(config, "pretrade.taker_fee_bps",
+                                         40.0))) / 100.0
+                b_net_worst = max(
+                    (pt_floor_pct - sizer_rt_pct)
+                    / max(sl_floor_pct + sizer_rt_pct, 1e-9), 1e-9)
+                worst_bar = 1.0 / (1.0 + b_net_worst)
+                ep2 = float(_f(config, "ml.exploration.p_win", 0.62))
+                clearance = ep2 - worst_bar
+                if bool(_f(config, "ml.exploration.enabled", False)) \
+                        and clearance < 0.005:
+                    warn(f"ml.exploration.p_win={ep2:.3f} clears the "
+                         f"worst-case floored-bracket breakeven "
+                         f"{worst_bar:.3f} by only {clearance:.3f} "
+                         f"(< 0.005) - a small config drift (fees, the "
+                         f"cost floor, or p_win itself) silences probe "
+                         f"admission once the bracket floor binds")
 
     # --- sizer entry-bar coherence: min_p_win is the EARLY p(win) gate, but the
     # net-Kelly step floors size at 0 below the breakeven (SZ-030) regardless.

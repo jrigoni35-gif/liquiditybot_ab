@@ -806,7 +806,26 @@ class HistoryStore:
                 except OSError:
                     pass
 
-    def log_close(self, position_id: str, net_pnl_usd: float):
+    def log_close(self, position_id: str, net_pnl_usd: float,
+                 barrier: str = "realized", pt_frac: float = 0.0,
+                 sl_frac: float = 0.0):
+        """`barrier` (geometry-alignment T5, spec D1): defaults to
+        "realized" - the exact legacy hardcoded tag, so every caller that
+        predates T5's bracket-exit engine is byte-identical. A closed
+        BRACKET position's caller (main._finalize_position) passes the
+        VERBATIM close reason ("tb_pt"/"tb_sl"/"tb_time") only when that
+        is what actually closed it - label_era_of then tags the row
+        LABEL_ERA_TRIPLE_BARRIER, joining the live corpus to the era the
+        model is trained on (V1's closure - see the geometry-alignment
+        design doc). Any OTHER close reason (tier/stop/hard-stop/ratchet/
+        flatten/...) still falls back to the "realized" default -
+        deliberately never threaded verbatim (label_era_of's vocabulary
+        would tag most of them LABEL_ERA_UNKNOWN).
+
+        `pt_frac`/`sl_frac` (T5): the bracket geometry this position was
+        entered under (0.0 = no bracket / legacy), threaded into the SAME
+        persisted columns candidate rows already carry (T3) so every live
+        row is self-describing regardless of which reason closed it."""
         entry = self._pending.pop(position_id, None)
         if entry is None:
             return
@@ -827,9 +846,10 @@ class HistoryStore:
         label = int(net_pnl_usd > 0)
         self._append_row(position_id, asset, direction, feats, label,
                         net_pnl_usd, "live", signal_ts=sig_ts,
-                        barrier="realized",
+                        barrier=barrier or "realized",
                         probe="1" if probe else "0", disp="entered",
-                        candidate_id=cand_id or "", book=book or "5m")
+                        candidate_id=cand_id or "", book=book or "5m",
+                        pt_frac=pt_frac, sl_frac=sl_frac)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
 

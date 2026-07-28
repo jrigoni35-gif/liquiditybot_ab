@@ -64,6 +64,10 @@ def position_to_dict(pos) -> dict:
         "is_probe": pos.is_probe,
         "est_cost_bps": pos.est_cost_bps,
         "book": pos.book,
+        # geometry-alignment T5: bracket geometry, legacy-inert 0.0 default
+        "bracket_pt_frac": pos.bracket_pt_frac,
+        "bracket_sl_frac": pos.bracket_sl_frac,
+        "bracket_deadline_ts": pos.bracket_deadline_ts,
     }
 
 
@@ -93,6 +97,14 @@ def position_from_dict(d: dict):
         # "5m", the existing scalping book, so a legacy restore never
         # silently reclassifies a position onto the long book.
         book=d.get("book", "5m"),
+        # geometry-alignment T5: pre-T5 snapshots lack these keys ->
+        # default 0.0, exactly inert (the bracket exit-evaluation branch
+        # in main._manage_open_position is unreachable at bracket_pt_
+        # frac<=0, so a restored legacy position keeps trading the tier
+        # engine exactly as before).
+        bracket_pt_frac=float(d.get("bracket_pt_frac", 0.0)),
+        bracket_sl_frac=float(d.get("bracket_sl_frac", 0.0)),
+        bracket_deadline_ts=float(d.get("bracket_deadline_ts", 0.0)),
     )
 
 

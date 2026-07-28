@@ -525,6 +525,13 @@ def test_entry_fill_exit_path():
     # legacy fixed-% path; rev-3 vol-scaled calculus is covered by
     # tests/test_rev3.py
     cfg["profit_taking"] = dict(cfg["profit_taking"], vol_scaled=False)
+    # geometry-alignment T5: config.json ships bracket_exits.enabled=true,
+    # which would trade this forced entry's exits through the LABELED
+    # bracket instead of the tier ladder this scenario is actually
+    # exercising - disabled here so the legacy tier-plumbing subject stays
+    # isolated (bracket exit behavior has its own coverage,
+    # tests/test_bracket_exits.py).
+    cfg["bracket_exits"] = dict(cfg.get("bracket_exits", {}), enabled=False)
     Path(str(TMP / "smoke_history2.csv")).unlink(missing_ok=True)
 
     prices = {"ETH": 2000.0, "BTC": 60000.0}
@@ -755,6 +762,12 @@ def test_persistence_roundtrip():
     # the live default) starves a tiny order behind realistic mock depth — that
     # realism is exercised in tests/test_sim_fill_queue, not here.
     cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})["queue_aware"] = False
+    # geometry-alignment T5: this scenario's subject is snapshot/restore
+    # plumbing, not exit geometry - disabled so the "tiers must fire"
+    # assertion below exercises the legacy tier ladder it was written
+    # against, not the shipped bracket default (own coverage in
+    # tests/test_bracket_exits.py).
+    cfg["bracket_exits"] = dict(cfg.get("bracket_exits", {}), enabled=False)
     Path(str(TMP / "smoke_history3.csv")).unlink(missing_ok=True)
     Path(str(TMP / "smoke_state.json")).unlink(missing_ok=True)
 
