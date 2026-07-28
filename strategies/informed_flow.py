@@ -451,9 +451,16 @@ class InformedFlowEngine:
                      evidence, agree, concentration, s_flow, s_delta, s_accum,
                      s_burst, s_trend, vol_z, urgency)
 
+        def _fin(v: float) -> float:
+            return float(v) if math.isfinite(float(v)) else 0.0
+
         return SignalResult(
             symbol=symbol,
             direction=direction if all_confirmed else None,
             confidence=confidence, size=0.0,
             all_confirmed=all_confirmed, gates_passed=gates,
-            urgency=urgency, evidence_concentration=round(concentration, 3))
+            urgency=urgency, evidence_concentration=round(concentration, 3),
+            components={"flow": _fin(s_flow), "delta": _fin(s_delta),
+                        "accum": _fin(s_accum), "burst": _fin(s_burst),
+                        "trend": _fin(s_trend), "evidence": _fin(evidence),
+                        "conc": _fin(concentration)})

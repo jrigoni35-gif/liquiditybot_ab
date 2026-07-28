@@ -77,6 +77,15 @@ class SignalResult:
     # SHADOW diagnostic only - it changes no decision; it exists so the brain
     # can later tell a concentrated conviction from a blended-average signal.
     evidence_concentration: float = 0.0
+    # gate-truth instrumentation (2026-07-28 audit): the informed-flow
+    # engine's RAW signed component scores {flow, delta, accum, burst,
+    # trend} plus the fused "evidence" (Σ w·s) and "conc" (normalized-HHI
+    # concentration). Persisted per row (sg_* columns, ml/history.py) so
+    # realized outcomes can grade WHICH evidence was right — the weights
+    # stop being unfalsifiable. {} = legacy engine / warmup / fault path;
+    # downstream writes zeros. TELEMETRY ONLY — never a feature, never a
+    # decision input.
+    components: dict = field(default_factory=dict)
 
 
 class SignalGateEngine:
