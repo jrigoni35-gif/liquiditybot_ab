@@ -644,6 +644,14 @@ class BotRunner:
                    # barrier-mix drift alarm ("era_mix_drift") - written
                    # verbatim, so these ride along for free
                    "load_stats": getattr(bot.history, "last_load_stats", {}),
+                   # geometry-alignment T6 (spec D6, ML-082): labeled-vs-
+                   # realized bracket comparator, a bounded window updated
+                   # incrementally at CLOSE time (unlike load_stats above,
+                   # which only refreshes on a retrain) - see HistoryStore.
+                   # bracket_divergence_summary's docstring. Report-only.
+                   "bracket_divergence": bot.history.bracket_divergence_summary()
+                   if hasattr(bot.history, "bracket_divergence_summary")
+                   else {},
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
             # torn final lines recovered on adoption (unclean stops). Rising ->

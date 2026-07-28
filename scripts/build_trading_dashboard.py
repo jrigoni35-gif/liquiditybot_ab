@@ -1004,6 +1004,20 @@ def _author_execution():
               "corpus mix (total-variation distance). Yellow at 0.30 "
               "(era_mix_drift_tvd_threshold) — detection only, never "
               "gates training or reweights a row.")
+    stat("Bracket divergence",
+         M("liquiditybot_bracket_divergence_rate", "*100"), 8, 6,
+         unit="percent", decimals=1,
+         steps=[{"color": "red", "value": None},
+                {"color": "yellow", "value": 60},
+                {"color": "green", "value": 80}],
+         no_value="no bracket closes yet",
+         desc="ML-082: rolling agreement rate between each bracket "
+              "close's REALIZED net return and the LABELED counter-"
+              "factual its own stamped pt_frac/sl_frac implies (tb_pt/"
+              "tb_sl → the fixed barrier distance net of cost, tb_time → "
+              "realized itself, so it always agrees). Report-only PROOF "
+              "instrument — never gates an entry/exit/size decision; "
+              "feeds the D4 cost model as evidence, not the reverse.")
 
     row("📦 INVENTORY & POSITIONING")
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5,

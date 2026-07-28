@@ -1290,13 +1290,26 @@ class LiquidityBot:
         model trains on (V1's closure). Any OTHER reason (tier/stop/
         hard-stop/ratchet/flatten/force_dry/...) falls back to
         log_close's own "realized" default, byte-identical to before
-        this task."""
+        this task.
+
+        geometry-alignment T6 (spec D6, ML-082): a bracket close ALSO
+        threads this entry's own notional (entry_usd) and cost estimate
+        (est_cost_bps -> cost_pct) plus the ml.telemetry config block, so
+        log_close can run its own report-only labeled-vs-realized
+        comparator (see ml/history.py for the counterfactual it computes
+        and why). getattr(self, "config", {}) is self-healing for the
+        stub-bot unit-test harnesses (this method predates a real bot
+        always carrying self.config)."""
         asset = self._asset_of(pos.symbol)
         barrier = close_reason if close_reason in (
             "tb_pt", "tb_sl", "tb_time") else "realized"
-        self.history.log_close(pos.position_id, total_net, barrier=barrier,
-                               pt_frac=pos.bracket_pt_frac,
-                               sl_frac=pos.bracket_sl_frac)
+        self.history.log_close(
+            pos.position_id, total_net, barrier=barrier,
+            pt_frac=pos.bracket_pt_frac, sl_frac=pos.bracket_sl_frac,
+            entry_usd=pos.entry_price * pos.original_size,
+            cost_pct=pos.est_cost_bps / 100.0,
+            telemetry_cfg=getattr(self, "config", {})
+            .get("ml", {}).get("telemetry", {}))
         # rolling performance ledger — every full close, real positions only
         # (hedges carry no thesis/stop of their own). total_net is the popped
         # cumulative (all tier closes + final), so this is the whole trade.

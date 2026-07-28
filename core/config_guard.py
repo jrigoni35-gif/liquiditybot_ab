@@ -766,6 +766,25 @@ def validate(config: dict) -> list:
             fatal(f"ml.telemetry.era_mix_drift_tvd_threshold ({emt}) "
                   f"outside [0.05, 0.9] - below is noise, above never "
                   f"fires (TVD is bounded [0, 1])")
+        # ML-082 labeled-vs-realized bracket comparator (geometry-alignment
+        # T6, spec D6) - report-only, same bounds philosophy: a tolerance
+        # too tight flags every close as "disagree" on ordinary fee/
+        # slippage noise, too loose never flags a genuine execution gap; a
+        # window too short (< 10) is a coin flip, absurdly long buries a
+        # recent regression under stale history.
+        bdt = float(_f(config, "ml.telemetry.bracket_divergence_tolerance_pct",
+                      0.15))
+        if not (0.01 <= bdt <= 5.0):
+            fatal(f"ml.telemetry.bracket_divergence_tolerance_pct ({bdt}) "
+                  f"outside [0.01, 5.0] percentage points - below is noise "
+                  f"on ordinary fee/slippage rounding, above never flags a "
+                  f"real execution gap")
+        bdw = int(_f(config, "ml.telemetry.bracket_divergence_window_n", 100))
+        if not (10 <= bdw <= 5000):
+            fatal(f"ml.telemetry.bracket_divergence_window_n ({bdw}) "
+                  f"outside [10, 5000] - too few closes is a coin flip, "
+                  f"too many buries a recent regression under stale "
+                  f"history")
 
     # --- ml.linkage: T2.4 FS-EM record-linkage report (scripts/
     # corpus_linkage_report.py) - report-only, no weight authority ---------

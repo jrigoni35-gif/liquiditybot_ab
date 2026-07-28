@@ -685,9 +685,11 @@
       "divergence_window_h": 24.0,
       "era_mix_drift_window_h": 24.0,
       "era_mix_drift_min_rows": 30,
-      "era_mix_drift_tvd_threshold": 0.3
+      "era_mix_drift_tvd_threshold": 0.3,
+      "bracket_divergence_tolerance_pct": 0.15,
+      "bracket_divergence_window_n": 100
     },
-    "_telemetry_doc": "T2.2 report-only sim-to-live instruments (learnaccel Phase 2). lineage_min_pairs: minimum dedup-twin pairs before the ML-077 agreement log line fires (the stat itself always computes into last_load_stats). divergence_window_h: bucket width for the ML-078 live-covered-window divergence score (Task 4). era_mix_drift_window_h/_min_rows/_tvd_threshold: the ML-080 barrier/exit-reason mix-drift alarm (label-era instrumentation, DEEP DIVE progress.md) - recent-window vs trailing-corpus exit-reason mix via total-variation distance; min_rows gates the alarm SILENT (not a spurious warning) when the recent window is too thin to trust; threshold is the TVD past which last_load_stats['era_mix_drift']['fired'] flips true and ML-080 logs. Report-only: never read by any decision path, never gates training/retrain, never touches a label/weight/row.",
+    "_telemetry_doc": "T2.2 report-only sim-to-live instruments (learnaccel Phase 2). lineage_min_pairs: minimum dedup-twin pairs before the ML-077 agreement log line fires (the stat itself always computes into last_load_stats). divergence_window_h: bucket width for the ML-078 live-covered-window divergence score (Task 4). era_mix_drift_window_h/_min_rows/_tvd_threshold: the ML-080 barrier/exit-reason mix-drift alarm (label-era instrumentation, DEEP DIVE progress.md) - recent-window vs trailing-corpus exit-reason mix via total-variation distance; min_rows gates the alarm SILENT (not a spurious warning) when the recent window is too thin to trust; threshold is the TVD past which last_load_stats['era_mix_drift']['fired'] flips true and ML-080 logs. bracket_divergence_tolerance_pct/_window_n: the ML-082 labeled-vs-realized bracket comparator (geometry-alignment T6, spec D6) - percentage-point tolerance between a bracket close's realized net return and its own stamped-geometry counterfactual before it counts 'disagree', and the rolling close-count window ml/history.py's bracket_divergence_summary() reports over. Report-only: never read by any decision path, never gates training/retrain/entry/exit/size, never touches a label/weight/row.",
     "linkage": {
       "posterior_threshold": 0.9,
       "seed": 7

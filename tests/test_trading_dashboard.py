@@ -108,6 +108,14 @@ _SYNTH_STATUS = {
                                                      "by_reason": {}}},
                           "era_mix_drift": {"tvd": 0.41, "fired": True,
                                            "n_recent": 233, "n_total": 4897}},
+           # geometry-alignment T6 (spec D6, ML-082): labeled-vs-realized
+           # bracket comparator, ml/history.py's bracket_divergence_
+           # summary() shape — a SIBLING of load_stats (updated at close
+           # time, not only on a retrain). n>0 here so check 3
+           # (test_every_query_hits_an_emitted_metric) exercises the new
+           # liquiditybot_bracket_divergence_rate/_n gauges.
+           "bracket_divergence": {"n": 42, "agree_rate": 0.881,
+                                  "mean_abs_ret_delta_pct": 0.09},
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
                           "weights": {"if_1_flow_persistence": 0.9}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,

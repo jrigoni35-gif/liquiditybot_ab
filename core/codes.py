@@ -217,6 +217,19 @@ class Code(str, Enum):
     #   explicit override of ml.epoch's live-rows-never rule) - from the
     #   training view. Logged once per transition, never once per load;
     #   a load-time VIEW only, no row is ever removed from disk.
+    ML_BRACKET_DIVERGENCE = "ML-082"  # geometry-alignment T6 (spec D6)
+    #   PROOF instrument: at every bracket-traded close (barrier in
+    #   tb_pt/tb_sl/tb_time), compares the REALIZED net return against
+    #   the LABELED counterfactual its own stamped pt_frac/sl_frac would
+    #   imply (tb_pt -> +pt_frac*100-cost, tb_sl -> -sl_frac*100-cost,
+    #   tb_time -> realized itself, since a time-barrier close has no
+    #   fixed-distance counterfactual to diverge from) - "is the traded
+    #   bet's outcome the labeled bet's outcome". Logged ONCE per close,
+    #   rolled into a bounded window surfaced at status["ml"]["bracket_
+    #   divergence"] (ml/history.py's bracket_divergence_summary()).
+    #   Report-only: never gates an entry/exit/size decision, never
+    #   reweights a row - the divergence itself is what D4's cost model
+    #   is judged against, not the other way around.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

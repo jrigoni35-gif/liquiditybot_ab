@@ -617,6 +617,17 @@ class HistoryStore:
         # stats of the most recent load_training_data pass (clean live count
         # for the evidence gate, uniqueness mean, prior-skew flag)
         self.last_load_stats: dict = {}
+        # geometry-alignment T6 (spec D6, ML-082): bounded rolling window of
+        # {"agree": bool, "abs_delta_pct": float} — one entry per BRACKET
+        # close (barrier in tb_pt/tb_sl/tb_time), appended incrementally by
+        # log_close -> _record_bracket_divergence at CLOSE time (never at a
+        # training load, unlike last_load_stats above — a close happens far
+        # more often than a retrain and this instrument must not wait for
+        # one). Process-local, never snapshotted: report-only telemetry, a
+        # restart costs at most one window's worth of history (mirrors
+        # last_load_stats' own non-persistence — the durable source of
+        # truth is the CSV corpus itself). See bracket_divergence_summary().
+        self._bracket_divergence: list = []
         # Task 4 (#103) regime-coverage hold: per-regime LIVE label counts,
         # O(1) at admission time via regime_live_count(). Load-time init
         # (first call runs ONE full-CSV scan, mtime/size-cached exactly
@@ -820,7 +831,8 @@ class HistoryStore:
 
     def log_close(self, position_id: str, net_pnl_usd: float,
                  barrier: str = "realized", pt_frac: float = 0.0,
-                 sl_frac: float = 0.0):
+                 sl_frac: float = 0.0, entry_usd: float = 0.0,
+                 cost_pct: float = 0.0, telemetry_cfg: "dict | None" = None):
         """`barrier` (geometry-alignment T5, spec D1): defaults to
         "realized" - the exact legacy hardcoded tag, so every caller that
         predates T5's bracket-exit engine is byte-identical. A closed
@@ -837,7 +849,14 @@ class HistoryStore:
         `pt_frac`/`sl_frac` (T5): the bracket geometry this position was
         entered under (0.0 = no bracket / legacy), threaded into the SAME
         persisted columns candidate rows already carry (T3) so every live
-        row is self-describing regardless of which reason closed it."""
+        row is self-describing regardless of which reason closed it.
+
+        `entry_usd`/`cost_pct`/`telemetry_cfg` (T6, spec D6, ML-082): new,
+        all default-inert (0.0 / {}) so every caller that predates the
+        bracket-divergence comparator is byte-identical. Feed
+        _record_bracket_divergence below - see that method's docstring for
+        why the comparator uses the position's OWN stamped geometry instead
+        of re-running triple_barrier() on recorded bars."""
         entry = self._pending.pop(position_id, None)
         if entry is None:
             return
@@ -864,6 +883,95 @@ class HistoryStore:
                         pt_frac=pt_frac, sl_frac=sl_frac)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
+        if barrier in ("tb_pt", "tb_sl", "tb_time"):
+            self._record_bracket_divergence(
+                barrier, pt_frac, sl_frac, cost_pct, net_pnl_usd, entry_usd,
+                telemetry_cfg or {})
+
+    def _record_bracket_divergence(self, barrier: str, pt_frac: float,
+                                   sl_frac: float, cost_pct: float,
+                                   net_pnl_usd: float, entry_usd: float,
+                                   tele_cfg: dict) -> None:
+        """ML-082 (geometry-alignment T6, spec D6): labeled-vs-realized
+        bracket comparator - "is the traded bet's outcome the labeled bet's
+        outcome". Report-only PROOF instrument, never gates anything.
+
+        APPROACH CHOSEN, and why: the spec's preferred approach re-runs
+        triple_barrier() on the recorded bars spanning this position's
+        entry, using the position's OWN stamped pt_frac/sl_frac. The live
+        engine keeps no such bar history per position (Position/
+        PortfolioState carry price/size/fractions, not an OHLC window; the
+        vol engine's candle cache is a rolling per-ASSET snapshot, already
+        overwritten by the time a position closes hours later) and adding
+        one would be new data-collection infrastructure, not
+        instrumentation - out of this task's scope (spec D6 lists this as
+        a report-only proof instrument, not a data-pipeline task). This
+        method therefore takes the spec's own documented fallback: the
+        labeled counterfactual is derived ANALYTICALLY from the barrier
+        that fired plus the position's own stamped geometry and entry cost
+        estimate - the exact bet the label formula (ml/labeling.py's
+        triple_barrier/BarrierOutcome) would have booked if bars had
+        behaved exactly as the barrier distance implies:
+          tb_pt   -> +pt_frac*100 - cost_pct   (profit barrier, net of cost)
+          tb_sl   -> -sl_frac*100 - cost_pct   (stop barrier, net of cost)
+          tb_time -> realized_ret_pct itself   (no fixed distance to a time
+                     barrier - triple_barrier()'s own "time" branch prices
+                     off the ACTUAL close at the horizon, i.e. exactly what
+                     the live close realized, so there is no separate
+                     counterfactual to diverge from; delta is 0 by
+                     construction and every tb_time close "agrees")
+        The comparator this produces answers "did live EXECUTION (fills,
+        slippage, actual fees vs the entry's cost estimate) land where the
+        label's own formula says a clean pt/sl bracket resolution should
+        land" - divergence flags execution quality against the labeling
+        assumption, which is exactly what feeds the cost model (D4).
+
+        `entry_usd` <= 0 (unknown notional, e.g. a legacy/test caller that
+        never threads it) skips recording entirely - never fabricate a
+        return off a zero denominator (mirrors postmortem.on_close's own
+        NaN-on-zero-notional guard)."""
+        if entry_usd <= 1e-9:
+            return
+        realized_ret_pct = net_pnl_usd / entry_usd * 100.0
+        if barrier == "tb_pt":
+            counterfactual_ret_pct = pt_frac * 100.0 - cost_pct
+        elif barrier == "tb_sl":
+            counterfactual_ret_pct = -sl_frac * 100.0 - cost_pct
+        else:                                    # tb_time
+            counterfactual_ret_pct = realized_ret_pct
+        delta = abs(realized_ret_pct - counterfactual_ret_pct)
+        tol = float(tele_cfg.get("bracket_divergence_tolerance_pct", 0.15))
+        win = max(int(tele_cfg.get("bracket_divergence_window_n", 100)), 10)
+        agree = delta <= tol
+        self._bracket_divergence.append(
+            {"agree": agree, "abs_delta_pct": delta})
+        if len(self._bracket_divergence) > win:
+            self._bracket_divergence = self._bracket_divergence[-win:]
+        log.info(
+            f"{Code.ML_BRACKET_DIVERGENCE.value}: {barrier} realized="
+            f"{realized_ret_pct:+.3f}% counterfactual="
+            f"{counterfactual_ret_pct:+.3f}% delta={delta:.3f}pp "
+            f"agree={agree}")
+
+    def bracket_divergence_summary(self) -> dict:
+        """ML-082 status surface (T6): {"n", "agree_rate",
+        "mean_abs_ret_delta_pct"} over the rolling window
+        _record_bracket_divergence maintains. n=0/agree_rate=None/
+        mean_abs_ret_delta_pct=None whenever no bracket close has been
+        recorded yet - honest absence (DL-6), never a fabricated 0/0/0
+        that would read as "perfect agreement" instead of "not measured".
+        Read by runner.py's status build into status["ml"]["bracket_
+        divergence"] and scripts/gc_pusher.py's gauge emission ONLY -
+        report-only, never consumed by a decision path."""
+        win = self._bracket_divergence
+        n = len(win)
+        if n == 0:
+            return {"n": 0, "agree_rate": None,
+                    "mean_abs_ret_delta_pct": None}
+        agree_rate = sum(1 for w in win if w["agree"]) / n
+        mean_abs = sum(w["abs_delta_pct"] for w in win) / n
+        return {"n": n, "agree_rate": round(agree_rate, 4),
+                "mean_abs_ret_delta_pct": round(mean_abs, 4)}
 
     def row_count(self) -> int:
         if not self.path.exists():

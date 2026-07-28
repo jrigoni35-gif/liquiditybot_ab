@@ -649,6 +649,25 @@ def collect(status_path: str) -> list:
                     m.append(gauge("liquiditybot_era_mix_tvd", tvd, ts=ts))
                     m.append(gauge("liquiditybot_era_mix_alarm",
                                    1.0 if mix.get("fired") else 0.0, ts=ts))
+        # ML-082 labeled-vs-realized bracket comparator (geometry-alignment
+        # T6, spec D6, ml/history.py's bracket_divergence_summary()) — a
+        # SIBLING of load_stats above (updated at close time, not only on a
+        # retrain), so it is read off `ml` directly, never `ls`. DL-6 honest
+        # absence: the block missing entirely (older status.json / pre-
+        # first-bracket-close) AND the block present with n==0 (the shaped
+        # "not yet measured" shape bracket_divergence_summary returns)
+        # BOTH emit nothing — a fabricated 0% agreement/0 count would read
+        # as "every bracket close disagreed" instead of "none measured
+        # yet". No labels: single portfolio-wide window, not per-asset.
+        bd = ml.get("bracket_divergence") or {}
+        bd_n = bd.get("n")
+        if isinstance(bd_n, (int, float)) and not isinstance(bd_n, bool) \
+                and bd_n > 0:
+            m.append(gauge("liquiditybot_bracket_divergence_n", bd_n, ts=ts))
+            rate = bd.get("agree_rate")
+            if isinstance(rate, (int, float)) and not isinstance(rate, bool):
+                m.append(gauge("liquiditybot_bracket_divergence_rate", rate,
+                               ts=ts))
         m.append(gauge("liquiditybot_audit_dropped_writes",
                        float(s.get("audit_dropped_writes") or 0), ts=ts))
         m.append(gauge("liquiditybot_audit_tail_truncations",
