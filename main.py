@@ -719,16 +719,23 @@ class LiquidityBot:
         self.scs = StateChangeSampler(config.get("ml", {}).get("sampling", {}))
         self._scs_pending: dict = {}        # asset -> teachable event latched
         # geometry-alignment T5 (spec D1): model-lane bracket exits - "the
-        # traded bet is the labeled bet". false is the escape hatch
-        # (config_guard FATALs the incoherent enabled+non-triple_barrier
-        # combination, so runtime here just trusts the flag). The four
-        # knobs mirror ml/history.py CandidateLabeler's own parse
-        # (label_pt_vol_mult/label_sl_vol_mult/label_pt_cost_mult/
-        # label_max_bars) exactly, so the live bracket-exit engine and
-        # the candidate labeler read the SAME config the SAME way -
-        # structural alignment, not by convention.
+        # traded bet is the labeled bet". Default FALSE when the key is
+        # absent entirely (T5 review IMPORTANT-3 fix, 2026-07-28): must
+        # match core/config_guard.py's own bracket_exits.enabled default
+        # (False) - the two parses had drifted (this one defaulted True),
+        # so a KEYLESS config traded the bracket with the coherence FATAL
+        # (enabled + non-triple_barrier label_mode, right below) never
+        # even evaluated. config.json ships bracket_exits.enabled=true
+        # EXPLICITLY, so shipped behavior is unchanged; only a config
+        # that OMITS the key now falls back to legacy tier exits instead
+        # of silently opting into the bracket. The four knobs mirror
+        # ml/history.py CandidateLabeler's own parse (label_pt_vol_mult/
+        # label_sl_vol_mult/label_pt_cost_mult/label_max_bars) exactly,
+        # so the live bracket-exit engine and the candidate labeler read
+        # the SAME config the SAME way - structural alignment, not by
+        # convention.
         self._bracket_exits_enabled = bool(
-            config.get("bracket_exits", {}).get("enabled", True))
+            config.get("bracket_exits", {}).get("enabled", False))
         _ml_cfg_t5 = config.get("ml", {}) or {}
         self._label_pt_vol_mult = float(_ml_cfg_t5.get("label_pt_vol_mult", 8.0))
         self._label_sl_vol_mult = float(_ml_cfg_t5.get("label_sl_vol_mult", 6.0))
@@ -2314,15 +2321,26 @@ class LiquidityBot:
             # profit-take and PT-060 time-stop for THIS position (never
             # both - "the traded bet is the labeled bet"). The tier
             # engine above is still called UNCONDITIONALLY (never
-            # skipped) so its give-back/chandelier/break-even floor - a
-            # SENIOR overlay, not a scheduled tier (CLAUDE.md invariant
-            # 5: overlays stay senior) - keeps ratcheting pos.high_water/
+            # skipped) so its give-back ratchet - a SENIOR overlay, not a
+            # scheduled tier (CLAUDE.md invariant 5: overlays stay
+            # senior) - keeps ratcheting pos.high_water/
             # trailing_stop_price and can still fire exactly as it does
             # for a non-bracket position; only a TIER TRIGGER
             # (is_profit_take) or the PT-060 TIME-STOP
             # (reason_code==PT_TIME_STOP) is suppressed here, because the
             # bracket's own pt leg / deadline leg below own those two
-            # dispositions instead.
+            # dispositions instead. (T5 review MINOR-4 correction: the
+            # chandelier trail - trailing_stop.activate_after_tier,
+            # default 2 - and the break-even floor - be_after_tier,
+            # default 1 - are both TIER-PROGRESS-gated
+            # (position.tier_closed >= that threshold) inside
+            # ProfitTierEngine._exit_floor_hit. tier_closed never
+            # advances on a bracket position (the scheduled take that
+            # would advance it is always suppressed here), so those two
+            # never actually arm on a bracket position by design - "the
+            # labeled bet has no trail/BE". The give-back floor (armed
+            # off the PEAK move, not tier progress) and the hard stop
+            # above are the only overlays that actually live here.)
             is_bracket = pos.book != "long" and pos.bracket_pt_frac > EPS
             bracket_exit_pending = is_bracket
             if action.should_close_partial and action.close_pct > 0:
@@ -2363,6 +2381,39 @@ class LiquidityBot:
                                     profit_take=action.is_profit_take,
                                     reason_code=reason_code)
                     bracket_exit_pending = False
+                elif suppressed_for_bracket:
+                    # T5 review fix (IMPORTANT-2): ProfitTierEngine.
+                    # evaluate() RETURNS EARLY on the tier-1 trigger / the
+                    # PT-060 time-stop branch just suppressed above -
+                    # _exit_floor_hit (the give-back floor) is never
+                    # reached internally THIS cycle, so an armed floor
+                    # sitting ABOVE that early-return's price (e.g. a
+                    # give-back floor still above tier-1's own trigger
+                    # price) would otherwise never be evaluated at all
+                    # while gain stays >= the suppressed trigger - an
+                    # armed floor crossing produces NO exit in that band
+                    # (reviewer-demonstrated: entry 100, floor armable at
+                    # 102, px 101.5 -> no exit, pre-fix). high_water was
+                    # already updated THIS cycle by evaluate()'s own
+                    # _update_high_water call at its top (unconditional,
+                    # runs before the early return), so calling the SAME
+                    # engine instance's _exit_floor_hit here sees the
+                    # current peak and reuses its exact math (never a
+                    # duplicate). The reason string matches exactly what
+                    # a non-occluded floor-hit would have produced
+                    # ("tier trail" - pos.tier_closed stays 0 on a
+                    # bracket position, see the MINOR-4 note above) -
+                    # NEVER tb_* (this is an overlay exit, not a
+                    # labeled-bet disposition).
+                    if self._tier_engine(scale)._exit_floor_hit(
+                            pos, px,
+                            sigma_bar_pct=self.vol.state(asset).sigma_bar_pct,
+                            signal_alive=signal_alive, now=now):
+                        self._submit_exit(
+                            pos, 100.0, f"tier {pos.tier_closed or 'trail'}",
+                            tier_fired=pos.tier_closed, now=now,
+                            profit_take=False)
+                        bracket_exit_pending = False
             if bracket_exit_pending:
                 self._evaluate_bracket_exit(pos, px, now)
 
@@ -2374,8 +2425,11 @@ class LiquidityBot:
         check at the top of _manage_open_position (pos.stop_price was
         stamped to entry*(1-/+bracket_sl_frac) at fill time, see
         _handle_fill). Called only when the tier engine's own action did
-        not already submit an exit this cycle - the give-back/chandelier
-        floor (a senior overlay) always gets first refusal (invariant 5)."""
+        not already submit an exit this cycle - the give-back floor (a
+        senior overlay; T5 review MINOR-4: chandelier/break-even are
+        tier-progress-gated and never arm on a bracket position, see
+        _manage_open_position's own comment) always gets first refusal
+        (invariant 5)."""
         if pos.direction == "long":
             hit = px >= pos.entry_price * (1.0 + pos.bracket_pt_frac)
         else:
@@ -2790,7 +2844,9 @@ class LiquidityBot:
             SAME proportion PASS-2's notional bears to PASS-1's - the
             participation-clamped size the pretrade gate already
             approved just scales with the bracket-driven notional, never
-            re-validated against the gate a second time).
+            re-validated against the gate a second time - CLAMPED so it
+            can only shrink, never grow past PASS-1's approval; see the
+            rescale_ratio comment below, T5 review IMPORTANT-1).
           * enabled, bracket-sizing VETOED -> (pt_frac, sl_frac, 0.0,
             None, reasons) - `sized is None` is the caller's signal to
             veto this entry exactly like an ordinary sizer veto."""
@@ -2813,7 +2869,22 @@ class LiquidityBot:
         if not bracket_sized.approved:
             return pt_frac, sl_frac, 0.0, None, bracket_sized.reasons
         if sized.units > EPS:
-            decision.size_units *= bracket_sized.units / sized.units
+            # T5 review fix (IMPORTANT-1): PASS-1's `decision` is the
+            # ENTRY'S ONE APPROVAL against the participation/impact/EV
+            # cost stack (pretrade.evaluate()) - a CEILING, never
+            # revisited here. PositionSizer.size()'s risk-in-size scales
+            # notional by (stop_loss_pct_ref / sl_pct) for a bracket call
+            # (risk/position_sizer.py), so a FLOORED bracket whose sl_pct
+            # sits below stop_loss_pct_ref can demand MORE notional than
+            # PASS-1 ever cleared (measured 1.46x at a floored case) -
+            # scaling decision.size_units up by that ratio would put size
+            # on the market the gate never approved. Clamping the ratio
+            # at 1.0 preserves the DOWNSCALE case exactly (a smaller
+            # bracket-driven size still shrinks decision.size_units) while
+            # forbidding any growth without a second pretrade-gate pass
+            # (which this function never runs).
+            rescale_ratio = min(bracket_sized.units / sized.units, 1.0)
+            decision.size_units *= rescale_ratio
         deadline_ts = now + self._label_max_bars * BAR_SECONDS
         return pt_frac, sl_frac, deadline_ts, bracket_sized, []
 

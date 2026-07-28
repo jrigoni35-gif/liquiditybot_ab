@@ -268,28 +268,40 @@ _VERTICAL_BARRIER_REASONS = frozenset({"time", "tb_time"})
 # Barrier strings simulate_exit_policy() (ml/labeling.py:180-360) can emit,
 # MINUS "time_stop" (its own era below) and "pt" (triple_barrier() ONLY,
 # ml/labeling.py:363-401 - never emitted by the exit-policy simulator).
-# "realized" is not actually emitted by either labeler - it is log_close()'s
-# own hardcoded tag for a LIVE row's realized close (a live fill has no
-# barrier vocabulary of its own); it groups here because a live row is
-# always contemporary with whichever labeler is configured, never with the
-# pre-instrumentation legacy window. "sl" and "time" are each producible by
-# BOTH labelers in principle and so are not decisive standalone signatures -
-# the DEEP DIVE measured the real corpus's legacy window as blank-barrier
-# ONLY (1781 rows, 07-13->07-19), so grouping them with exit_sim matches
-# the measured era table exactly (task-label-brief.md), not a re-derivation.
+# "realized" is neither labeler's own vocabulary - it is log_close()'s
+# DEFAULT for its `barrier` parameter (geometry-alignment T5, spec D1):
+# every non-bracket live close still threads it, byte-identical to the
+# pre-T5 hardcoded tag. Post-T5, a live BRACKET position's close threads
+# "tb_pt"/"tb_sl"/"tb_time" verbatim through that SAME parameter instead
+# (main._finalize_position passes the close reason on; see
+# HistoryStore.log_close's own docstring) - those three land in
+# _TRIPLE_BARRIER_BARRIERS below, never here. "realized" groups in THIS
+# set because a live row defaulting to it is always contemporary with
+# whichever labeler is configured, never with the pre-instrumentation
+# legacy window. "sl" and "time" are each producible by BOTH labelers in
+# principle and so are not decisive standalone signatures - the DEEP DIVE
+# measured the real corpus's legacy window as blank-barrier ONLY (1781
+# rows, 07-13->07-19), so grouping them with exit_sim matches the
+# measured era table exactly (task-label-brief.md), not a re-derivation.
 # NEVER extend this set with the "tb_pt"/"tb_sl"/"tb_time" strings below -
 # those are a disjoint vocabulary (LABEL_ERA_TRIPLE_BARRIER), not more
 # spellings of the same bare "sl"/"time" this set already claims.
 _EXIT_SIM_BARRIERS = frozenset({"trail", "realized", "tier", "floor",
                                "sl", "time"})
 
-# The triple-barrier-mode-only vocabulary (2026-07-26 signal-quality task):
-# CandidateLabeler._label prefixes triple_barrier()'s own bare "pt"/"sl"/
-# "time" with "tb_" at the ONLY call site whose output reaches the
-# persisted corpus (ml/history.py CandidateLabeler._label), so these three
-# strings can never be emitted by anything else - not simulate_exit_policy,
-# not a live row's hardcoded "realized" tag, not the pre-instrumentation
-# legacy window.
+# The triple-barrier-mode-only vocabulary (2026-07-26 signal-quality task,
+# extended 2026-07-27 geometry-alignment T5 spec D1): CandidateLabeler._label
+# prefixes triple_barrier()'s own bare "pt"/"sl"/"time" with "tb_" at its
+# call site in the persisted corpus (ml/history.py CandidateLabeler._label).
+# Post-T5, a LIVE bracket position's close emits these SAME three strings
+# too - main._finalize_position passes the close reason ("tb_pt"/"tb_sl"/
+# "tb_time", verbatim, only when that literal string is what actually
+# closed the position) into HistoryStore.log_close's `barrier` parameter,
+# so this is no longer "the training corpus's vocabulary alone" - it is
+# shared by the offline labeler AND the live bracket-exit engine, by
+# construction (both call barrier_geometry(), T2). Any OTHER close reason
+# (tier/stop/hard-stop/ratchet/flatten/...) still falls back to
+# log_close's "realized" default and never lands here.
 _TRIPLE_BARRIER_BARRIERS = frozenset({"tb_pt", "tb_sl", "tb_time"})
 
 

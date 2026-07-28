@@ -162,9 +162,17 @@ def test_bracket_for_entry_floored_case_matches_shared_helper():
 def test_bracket_for_entry_rescales_decision_size_units_to_pass2_notional():
     """decision.size_units (the participation-clamped PASS-1 amount) must
     scale by the SAME ratio PASS-2's units bear to PASS-1's - never a
-    re-run of the pretrade gate."""
+    re-run of the pretrade gate.
+
+    T5 review IMPORTANT-1 note: sigma_bar_pct=0.6 (not the floored 0.1
+    case - see test_bracket_for_entry_upward_rescale_is_clamped_to_
+    pass1_ceiling below, which owns that upward/clamped scenario) gives a
+    genuine DOWNWARD rescale here, so this test keeps proving the ratio
+    is a real, non-trivial multiplier that threads through to
+    decision.size_units - not accidentally exercising the ceiling
+    clamp's cap."""
     bot = _bracket_bot()
-    vol_state = VolState("ETH", sigma_bar_pct=0.1)      # floored -> tight sl
+    vol_state = VolState("ETH", sigma_bar_pct=0.6)   # sl=3.6% > stop_loss_pct_ref
     sized1 = _pass1(bot, vol_state=vol_state)
     assert sized1.approved and sized1.units > 0
     # simulate a participation-clamp: decision.size_units is HALF of sized1
@@ -182,9 +190,64 @@ def test_bracket_for_entry_rescales_decision_size_units_to_pass2_notional():
     # the bracket's own b_net_trade genuinely differs from the legacy
     # tier-average b_net at this floor -> PASS-2's notional is NOT
     # PASS-1's (a non-trivial ratio, not a vacuous 1.0x check)
-    assert sized2.units != pytest.approx(sized1.units)
+    assert sized2.units < sized1.units, (
+        "fixture must reproduce a genuine downward rescale (ratio < 1.0) "
+        "or this test can no longer distinguish 'ratio threaded through' "
+        "from 'ratio clamped at the ceiling'")
     expected_ratio = sized2.units / sized1.units
     assert abs(decision.size_units - sized1.units * 0.5 * expected_ratio) < 1e-6
+
+
+def test_bracket_for_entry_upward_rescale_is_clamped_to_pass1_ceiling():
+    """T5 review IMPORTANT-1: PASS-1's `sized`/`decision.size_units` is the
+    entry's ONE approval against the participation/impact/EV cost stack
+    (pretrade.evaluate()) - a CEILING. A FLOORED bracket (sigma_bar_pct=0.1
+    -> sl=1.5% < stop_loss_pct_ref=2.0%) inflates PASS-2's notional via
+    risk-in-size (stop_loss_pct_ref/sl_pct, risk/position_sizer.py) -
+    measured 1.46x at this exact fixture (the reviewer's own number).
+    decision.size_units must never be scaled ABOVE what PASS-1 approved;
+    only downscale is allowed."""
+    bot = _bracket_bot()
+    vol_state = VolState("ETH", sigma_bar_pct=0.1)
+    sized1 = _pass1(bot, vol_state=vol_state)
+    decision = types.SimpleNamespace(est_cost_bps=50.0, size_units=sized1.units)
+    pt, sl, deadline, sized2, reasons = bot._bracket_for_entry(
+        asset="ETH", symbol="ETH/USD", direction="long", price=2000.0,
+        p_win=0.75, equity=EQUITY, macro_state=_bull(), vol_state=vol_state,
+        liq_state=LiquidityState("ETH"),
+        verdict=types.SimpleNamespace(risk_multiplier=1.0),
+        lev_decision=_lev(), now=1000.0, decision=decision, explored=False,
+        aggressive=False, explore_scale=1.0, manip_scale=1.0, sized=sized1)
+    assert sized2 is not None and sized2.units > sized1.units * 1.4, (
+        "fixture must reproduce the reviewer's upward-rescale case "
+        "(bracket-driven notional materially ABOVE PASS-1's) or this "
+        "test proves nothing")
+    assert decision.size_units <= sized1.units + 1e-9, (
+        "PASS-1's approval is a CEILING: a bracket whose risk-in-size "
+        "wants MORE notional must never grow decision.size_units past "
+        "what the pretrade gate already cleared (ratio clamped <= 1.0)")
+
+
+def test_bracket_for_entry_downward_rescale_is_unaffected_by_the_clamp():
+    """Companion to the ceiling test above: an ordinary DOWNWARD rescale
+    (bracket-driven notional smaller than PASS-1's) must still shrink
+    decision.size_units exactly as before - the clamp only caps growth."""
+    bot = _bracket_bot()
+    vol_state = VolState("ETH", sigma_bar_pct=0.6)   # sl=3.6% > stop_loss_pct_ref=2.0%
+    sized1 = _pass1(bot, vol_state=vol_state)
+    decision = types.SimpleNamespace(est_cost_bps=50.0, size_units=sized1.units)
+    pt, sl, deadline, sized2, reasons = bot._bracket_for_entry(
+        asset="ETH", symbol="ETH/USD", direction="long", price=2000.0,
+        p_win=0.75, equity=EQUITY, macro_state=_bull(), vol_state=vol_state,
+        liq_state=LiquidityState("ETH"),
+        verdict=types.SimpleNamespace(risk_multiplier=1.0),
+        lev_decision=_lev(), now=1000.0, decision=decision, explored=False,
+        aggressive=False, explore_scale=1.0, manip_scale=1.0, sized=sized1)
+    assert sized2 is not None and sized2.units < sized1.units, (
+        "fixture must reproduce a genuine downward rescale or this test "
+        "proves nothing")
+    expected = sized1.units * (sized2.units / sized1.units)
+    assert abs(decision.size_units - expected) < 1e-9
 
 
 def test_bracket_for_entry_probe_path_also_computes_bracket():
@@ -641,6 +704,49 @@ def test_give_back_ratchet_still_fires_on_a_bracket_position():
     assert exits2[0].get("profit_take") is not True
 
 
+TIERS_LOW_TIER1_OCCLUDED_GIVE_BACK = dict(TIERS_LOW_TIER1, **{
+    "give_back": {"enabled": True, "arm_gain_pct": 2.0, "giveback_frac": 0.2}})
+
+
+def test_give_back_floor_fires_in_the_tier1_occluded_band():
+    """T5 review IMPORTANT-2: ProfitTierEngine.evaluate() returns EARLY on
+    the tier-1 trigger (gain_pct >= 1%) BEFORE it ever reaches
+    _exit_floor_hit - and tier_closed never advances for a bracket
+    position (the scheduled take that would advance it is always
+    suppressed), so that early return recurs EVERY cycle gain stays >=1%.
+    An armed give-back floor sitting ABOVE tier-1's own trigger price
+    (giveback_frac=0.2 keeps 80% of a 2% peak -> floor=101.6; tier-1's
+    trigger price is 101) would otherwise never be checked at all while
+    price sits anywhere in [101, 102) - the occluded band the reviewer
+    demonstrated (entry 100, floor armable at 102, px 101.5 -> no exit,
+    pre-fix). Cycle 1 at px=102 only arms the floor; cycle 2 at px=101.5
+    (1.5% gain, still >= tier-1's 1%) has crossed 101.6 and must exit with
+    the overlay reason ("tier trail"), never tb_*."""
+    bot = _exit_bot(TIERS_LOW_TIER1_OCCLUDED_GIVE_BACK)
+    pos = _bracket_pos(pt_frac=0.10, sl_frac=0.10)   # both far from px
+    exits1 = _run(bot, pos, px=102.0, now=1000.0)
+    assert exits1 == [], "cycle 1 only arms the floor (peak=102 > floor 101.6)"
+    exits2 = _run(bot, pos, px=101.5, now=1005.0)
+    assert len(exits2) == 1, (
+        "the give-back floor crossed at 101.5 (< armed floor 101.6) must "
+        "fire even though gain (1.5%) is still >= tier-1's 1% trigger")
+    assert exits2[0]["reason"] == "tier trail"
+    assert exits2[0]["reason"] not in ("tb_pt", "tb_sl", "tb_time")
+    assert exits2[0].get("profit_take") is not True
+
+
+def test_give_back_floor_not_crossed_in_occluded_band_no_false_exit():
+    """Companion to the test above: the SAME occluded-band setup, but
+    price stays ABOVE the armed floor (101.7 > 101.6) - no exit fires.
+    The fix must not introduce a false positive."""
+    bot = _exit_bot(TIERS_LOW_TIER1_OCCLUDED_GIVE_BACK)
+    pos = _bracket_pos(pt_frac=0.10, sl_frac=0.10)
+    exits1 = _run(bot, pos, px=102.0, now=1000.0)
+    assert exits1 == []
+    exits2 = _run(bot, pos, px=101.7, now=1005.0)
+    assert exits2 == [], "floor (101.6) not crossed at 101.7 - no exit"
+
+
 def test_bracket_pt_time_stop_suppressed_for_bracket_position():
     """PT-060 time-stop (a tier-engine scratch mechanism) must ALSO be
     suppressed for a bracket position - the bracket's own deadline leg
@@ -660,12 +766,17 @@ def test_bracket_pt_time_stop_suppressed_for_bracket_position():
         "bracket's own vertical never fires here either)")
 
 
-def test_bracket_mutation_disabling_flag_flips_bracket_branch_off():
-    """Mutation check (scratchpad-copy semantics, never git checkout --):
-    with bracket_pt_frac left at its 0.0 default (the runtime effect of
-    bracket_exits.enabled=false - no entry ever stamps it), the bracket
-    branch in _manage_open_position is provably unreachable and the
-    position falls through to the ordinary tier engine."""
+def test_disabled_flag_takes_the_legacy_branch():
+    """T5 review MINOR-6 rename (was
+    test_bracket_mutation_disabling_flag_flips_bracket_branch_off - this
+    is a DEFAULT-STATE test, not a mutation check: it never mutates any
+    source line, it constructs a position the way bracket_exits.enabled=
+    false actually leaves one - bracket_pt_frac at its 0.0 default (no
+    entry ever stamps it) - and asserts the is_bracket gate in
+    _manage_open_position routes it to the ordinary tier engine. The
+    REAL mutation checks (forcing the enabled-flag branch/is_bracket
+    condition itself) are run separately, outside pytest, per the task's
+    scratchpad-copy-restore protocol."""
     bot = _exit_bot(TIERS_LOW_TIER1)
     pos = Position("p1", "ETH/USD", "long", 100.0, 1.0, 1.0,
                   datetime.now(timezone.utc))
@@ -726,7 +837,15 @@ def test_probe_clearance_worst_case_bracket_bar_pins_shipped_number():
     """The shipped config.json numbers (pt_cost_mult=4.0, rt_cost_pct=0.5,
     fees 25/40bps) must compute the worst-case floored-bracket bar to
     0.614 (spec D2's own worked example), COMPUTED here from the guard's
-    inputs, never hardcoded in the guard itself."""
+    inputs, never hardcoded in the guard itself.
+
+    T5 review MINOR-7 strengthening: the arithmetic above only proves
+    THIS test's own hand-derivation is self-consistent - it never called
+    validate(), so it never actually pinned the GUARD's internal number.
+    Mirrors tests/test_config_guard_min_pwin.py's
+    test_probe_clearance_interlock_warns_before_the_trickle_dies pattern:
+    push a config's clearance under 0.005 and assert THROUGH validate()'s
+    own WARN output that it fires with this SAME hand-derived 0.614."""
     pcm, ptm, slm, lbl_rt = 4.0, 8.0, 6.0, 0.5
     pt_floor_pct = pcm * lbl_rt
     sl_floor_pct = (slm / ptm) * pt_floor_pct
@@ -734,6 +853,20 @@ def test_probe_clearance_worst_case_bracket_bar_pins_shipped_number():
     b_net_worst = (pt_floor_pct - sizer_rt_pct) / (sl_floor_pct + sizer_rt_pct)
     worst_bar = 1.0 / (1.0 + b_net_worst)
     assert abs(worst_bar - 0.614) < 5e-4
+
+    # close the clearance to just under 0.005 and assert the WARN fires
+    # THROUGH validate() with the guard's OWN internally computed
+    # worst_bar matching this test's hand-derived 0.614 - not just a
+    # coincidental WARN on unrelated numbers.
+    cfg = _base_cfg(**{"ml.exploration.p_win": worst_bar + 0.004})
+    findings = validate(cfg)
+    warns = [m for sev, m in findings if sev == "WARN"
+            if "floored-bracket breakeven" in m]
+    assert warns, "a margin that closes clearance under 0.005 must WARN"
+    assert any(f"{worst_bar:.3f}" in m for m in warns), (
+        "the guard's own WARN message must cite the SAME worst_bar this "
+        "test hand-derived (0.614), proving validate() computes it "
+        "identically rather than off a hardcoded constant")
 
 
 def test_probe_clearance_warn_fires_below_005_headroom():
@@ -868,6 +1001,42 @@ def test_full_engine_bracket_disabled_stamps_nothing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     prices = {"ETH": 2000.0, "BTC": 60000.0}
     bot = _entry_bot(_entry_cfg(bracket_enabled=False), prices)
+    _force_confirmed_signals(bot)
+    _drive(bot, n=30)
+    open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
+    assert open_5m, "the forced confirmed signal never produced a fill"
+    assert all(p.bracket_pt_frac == 0.0 and p.bracket_sl_frac == 0.0
+              and p.bracket_deadline_ts == 0.0 for p in open_5m)
+
+
+def test_bracket_exits_key_absent_defaults_to_disabled(tmp_path, monkeypatch):
+    """T5 review IMPORTANT-3: main.py's runtime default for
+    bracket_exits.enabled must match core/config_guard.py's own default
+    (False, core/config_guard.py:~600) - the two had drifted (main.py
+    defaulted True), so a config that OMITS the key entirely traded the
+    bracket with the coherence FATAL (enabled + non-triple_barrier
+    label_mode) never even evaluated. Cheap unit check on the parsed
+    attribute, no cycle driving needed."""
+    monkeypatch.chdir(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60000.0}
+    cfg = _entry_cfg(bracket_enabled=True)
+    del cfg["bracket_exits"]
+    bot = _entry_bot(cfg, prices)
+    assert bot._bracket_exits_enabled is False
+
+
+def test_full_engine_bracket_keyless_config_stamps_nothing(tmp_path,
+                                                           monkeypatch):
+    """Behavior 4 (byte-identical legacy), keyless variant: a config with
+    NO bracket_exits key at all must produce the exact same "no bracket
+    fields stamped" result as bracket_exits.enabled=false explicitly -
+    proving the default flip is really wired end to end, not just the
+    parsed attribute."""
+    monkeypatch.chdir(tmp_path)
+    prices = {"ETH": 2000.0, "BTC": 60000.0}
+    cfg = _entry_cfg(bracket_enabled=True)
+    del cfg["bracket_exits"]
+    bot = _entry_bot(cfg, prices)
     _force_confirmed_signals(bot)
     _drive(bot, n=30)
     open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
