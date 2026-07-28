@@ -2,11 +2,11 @@
 
 **Verdict: SD-005 postmortem realized% contradicts its own excursions**
 
-- Window: 2026-07-13 10:33 UTC -> 2026-07-24 14:20 UTC (267.79h, ~1726 cycles)
+- Window: 2026-07-13 10:33 UTC -> 2026-07-28 00:52 UTC (350.33h, ~1726 cycles)
 - Equity: $800.00 -> $4,996.58 (range $4,201.35) | realized PnL $-3.42 | fees $2.07
 - Activity: 0 open | 242 live labeled trades | 4747 candidates | 17 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 242 | cold=True
-- Audit: 1558 records (923 non-routine) | dominant OM-040 (22% of non-routine) | chain_ok=False (tamper=False, seams=4) | retrain_requests 120
+- Audit: 1560 records (925 non-routine) | dominant OM-040 (22% of non-routine) | chain_ok=False (tamper=False, seams=4) | retrain_requests 120
 - Liquidity: spoofy 44% of classified cycles | feed errors 70
 
 ## Diagnostics
