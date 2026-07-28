@@ -238,6 +238,41 @@ def test_expired_bracket_beats_younger_legacy_on_staleness():
     assert pick is not None and pick.position_id == "expired-bracket"
 
 
+def test_long_book_positions_are_never_teach_inventory():
+    """Live evidence (ETH 15403f29, 2026-07-28 18:32Z): ML-073's fastpath
+    realized a LONG-BOOK thesis position (12% structural stop, built to run
+    for days) at exactly 2.0h, banking a training-dead exit_sim label and
+    defeating the compounder lane - the long book shipped after ML-073 and
+    was never exempted. A book=="long" position is not a teach trade: the
+    recycler must never pick it, at any age."""
+    p = _pos(50.0, pid="thesis")
+    p.book = "long"
+    assert pick_label_mature_unwind([p], 35, 500, NOW, 2.0) is None
+    # and a teachable 5m sibling is still picked right past it
+    positions = [p, _pos(3.0, pid="teach")]
+    pick = pick_label_mature_unwind(positions, 35, 500, NOW, 2.0)
+    assert pick is not None and pick.position_id == "teach"
+
+
+def test_ml071_unteachable_unwind_also_skips_the_long_book():
+    """Same lane rule for the anti-wedge: a long-book position is not dead
+    weight blocking the row pipeline - it is the compounder holding its
+    slot by design. ML-071 may still unwind unteachable 5m positions
+    around it."""
+    from main import pick_unteachable_unwind
+    thesis = _pos(50.0, pid="thesis")
+    thesis.book = "long"
+    stale_5m = _pos(20.0, pid="stale-5m")
+    pick = pick_unteachable_unwind([thesis, stale_5m], pending_ids=set(),
+                                   at_capacity=True, rows=35,
+                                   until_live_rows=500, now=NOW,
+                                   min_age_h=1.0)
+    assert pick is not None and pick.position_id == "stale-5m"
+    # a book of ONLY long-book positions is never force-drained
+    assert pick_unteachable_unwind([thesis], set(), True, 35, 500,
+                                   NOW, 1.0) is None
+
+
 def test_bracket_backstop_threads_tb_time_reason():
     """Source contract: when ML-073 realizes a bracket position (only ever
     past its deadline - see the picker tests above), the exit reason must

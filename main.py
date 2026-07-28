@@ -139,7 +139,12 @@ def pick_unteachable_unwind(positions: list, pending_ids: set,
         return None
     if any(p.position_id in pending_ids for p in positions):
         return None
+    # book=="long" is exempt (same lane rule as ML-073's picker below): a
+    # Phase-C thesis position is not dead weight blocking the row
+    # pipeline - it is the compounder holding its slot by design. The
+    # anti-wedge may still drain unteachable 5m positions around it.
     old_enough = [p for p in positions if not p.is_hedge and
+                  getattr(p, "book", "5m") != "long" and
                   (now - p.opened_at.timestamp()) / 3600.0 >= min_age_h]
     if not old_enough:
         return None
@@ -245,7 +250,15 @@ def pick_label_mature_unwind(positions: list, rows: int, until_live_rows: int,
         return None
 
     def _mature(p) -> bool:
-        if p.is_hedge:
+        # LONG-BOOK exemption (live evidence ETH 15403f29, 2026-07-28
+        # 18:32Z): the fastpath realized a Phase-C thesis position (12%
+        # structural stop, built to run for days) at exactly 2.0h,
+        # banking a training-dead exit_sim label and defeating the
+        # compounder lane - the long book shipped after ML-073 and was
+        # never exempted. A book=="long" position is not teach
+        # inventory, at any age. getattr default "5m" keeps pre-Phase-C
+        # doubles/snapshots on the legacy clock.
+        if p.is_hedge or getattr(p, "book", "5m") == "long":
             return False
         if getattr(p, "bracket_pt_frac", 0.0) > EPS and \
                 getattr(p, "bracket_deadline_ts", 0.0) > EPS:
