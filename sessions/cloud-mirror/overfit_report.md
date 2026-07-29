@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-29 03:26 UTC
+# Overfit audit — 2026-07-29 03:38 UTC
 
 Dataset: live history (1020 rows)
 
@@ -37,4 +37,4 @@ Dataset: live history (1020 rows)
 - **INFO** lc[n=1020] — oof_n=850 auc=0.523 brier=0.2366
 - **INFO** learning curve trend — FLAT (|delta_auc=-0.022| <= 0.03) — representation-limited: more rows alone are not buying skill; feature/label quality is the binding constraint, not corpus size
 
-3 passed, 4 failed (23s)
+3 passed, 4 failed (22s)
