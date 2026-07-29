@@ -1260,17 +1260,18 @@ class LiquidityBot:
         gate on this so they never fire off a frozen price; escapes never do."""
         return (now - self._mark_ts.get(symbol, 0.0)) <= self._mark_stale_sec
 
-    def _exit_sigma(self, asset: str) -> Optional[float]:
-        """Per-bar vol for the EXIT-FLOOR geometry (tier evaluate /
-        _exit_floor_hit), or None until the estimator has actually measured
-        this asset this session. VolState's dataclass default (0.05) is a
-        placeholder: the fast cycle evaluates restored positions before the
-        slow cycle's first vol.update, and feeding the placeholder to the
-        tier engine collapsed the vol-scaled give-back arm to 0.10% and
-        instantly exited an underwater restored short 38s after a reboot
-        (LINK 3ea2a851, 2026-07-28). None selects the engine's designed
-        static fallbacks (arm_gain_pct / legacy triggers / trail_pct) —
-        arming input only; the fire path never blocks an exit."""
+    def _measured_sigma(self, asset: str) -> Optional[float]:
+        """Per-bar vol for sigma-scaled geometry (exit-floor tier evaluate /
+        _exit_floor_hit, SCS sigma hint), or None until the estimator has
+        actually measured this asset this session. VolState's dataclass
+        default (0.05) is a placeholder: the fast cycle evaluates restored
+        positions before the slow cycle's first vol.update, and feeding the
+        placeholder to the tier engine collapsed the vol-scaled give-back
+        arm to 0.10% and instantly exited an underwater restored short 38s
+        after a reboot (LINK 3ea2a851, 2026-07-28). None selects each
+        consumer's designed no-vol-feed fallback (static arm_gain_pct /
+        legacy triggers / trail_pct; the sampler's own EWMA) — arming input
+        only; the fire path never blocks an exit."""
         st = self.vol.state(asset)
         # getattr tolerance mirrors the restored-Position convention: only
         # the real VolState carries the placeholder-vs-measured distinction
@@ -2355,7 +2356,7 @@ class LiquidityBot:
                     self.state, asset, self.marks, equity))
                 action = self.long_tier_engine.evaluate(
                     pos, px,
-                    sigma_bar_pct=self._exit_sigma(asset),
+                    sigma_bar_pct=self._measured_sigma(asset),
                     # no 5m signal exists for this book's thesis - unknown
                     # stays None (no-op), same convention the tier engine
                     # itself uses for "no fresh evaluation"
@@ -2378,7 +2379,7 @@ class LiquidityBot:
                         sig_snap.get("direction") == pos.direction
                 action = self._tier_engine(scale).evaluate(
                     pos, px,
-                    sigma_bar_pct=self._exit_sigma(asset),
+                    sigma_bar_pct=self._measured_sigma(asset),
                     signal_alive=signal_alive,
                     inventory_pressure=min(inv_ratio, 1.0),
                     # EX-8/DL-5: the engine's injected clock reaches the trail's
@@ -2475,7 +2476,7 @@ class LiquidityBot:
                     # labeled-bet disposition).
                     if self._tier_engine(scale)._exit_floor_hit(
                             pos, px,
-                            sigma_bar_pct=self._exit_sigma(asset),
+                            sigma_bar_pct=self._measured_sigma(asset),
                             signal_alive=signal_alive, now=now):
                         self._submit_exit(
                             pos, 100.0, f"tier {pos.tier_closed or 'trail'}",
@@ -3099,8 +3100,7 @@ class LiquidityBot:
                 # lost. Samples the learning corpus only; no entry/exit/
                 # gate decision reads this.
                 if self.scs.observe(asset, closes[asset],
-                                    sigma_bar_pct=self.vol.state(asset)
-                                    .sigma_bar_pct,
+                                    sigma_bar_pct=self._measured_sigma(asset),
                                     regime_label=label,
                                     liq_label=ls.label):
                     self._scs_pending[asset] = True

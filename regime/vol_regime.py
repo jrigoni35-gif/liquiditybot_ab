@@ -25,6 +25,11 @@ log = logging.getLogger("liquiditybot.regime.vol")
 EPS = 1e-12
 BARS_5M_PER_YEAR = 288 * 365
 DAYS_PER_YEAR = 365
+# Minimum 5m bars before the fast estimate is trusted (VolState.measured).
+# config_guard pins informed_flow's V3 sufficiency floor to >= this, so
+# every signal-driven entry path is warm-by-construction: no decision
+# geometry ever does arithmetic on the placeholder defaults below.
+FAST_WARMUP_BARS = 20
 
 
 @dataclass
@@ -66,7 +71,7 @@ class VolRegimeEngine:
         st = self._states.get(asset) or VolState(asset=asset)
 
         # --- fast estimate from 5m bars ---
-        if candles_5m and len(candles_5m) >= 20:
+        if candles_5m and len(candles_5m) >= FAST_WARMUP_BARS:
             c5 = candles_5m[-self.fast_bars:]
             closes = np.array([c["close"] for c in c5], dtype=float)
             highs = np.array([c["high"] for c in c5], dtype=float)

@@ -123,10 +123,38 @@ def test_warm_vol_arming_is_unchanged_by_the_fix():
     assert eng._give_back_candidate(p, sigma_bar_pct=0.3) is not None
 
 
+# ---- the SAME placeholder fed the vol-scaled tier triggers ------------------
+
+def test_cold_none_sigma_restores_legacy_tier_trigger():
+    # vol-scaled trigger clamps to [0.5x, 3x] legacy: the placeholder 0.05
+    # bottomed tier 1 out at HALF its configured trigger (2.0 x 0.05 =
+    # 0.10 -> clamp 1.0) at the first post-boot cycles; None restores the
+    # exact legacy trigger (the engine's designed no-vol-feed mode)
+    eng = ProfitTierEngine({
+        "vol_scaled": True,
+        "tier_1": {"trigger_pct_gain": 2.0, "trigger_vol_mult": 2.0,
+                   "close_pct_of_position": 25}})
+    tier = eng.tiers[0]
+    assert eng._tier_trigger_pct(tier, 0.05) == 1.0     # the placeholder bug
+    assert eng._tier_trigger_pct(tier, None) == 2.0     # cold -> legacy
+    assert eng._tier_trigger_pct(tier, 0.5) == 1.0      # warm floor unchanged
+    assert eng._tier_trigger_pct(tier, 2.0) == 4.0      # warm scaling unchanged
+
+
+def test_placeholder_never_tightened_the_trail():
+    # the chandelier distance is max(legacy, k*sig*sqrt(bars)): the tiny
+    # placeholder term always lost to the legacy floor, so trail geometry
+    # was never at risk - pinned so a refactor can't remove the floor
+    eng = _deployed_engine()
+    p = _link_short()
+    assert eng._trail_distance_frac(p, 0.05) == \
+        eng._trail_distance_frac(p, None)
+
+
 # ---- main.py wiring contract (source pin) -----------------------------------
 
-def test_main_defines_exit_sigma_gate():
-    assert "def _exit_sigma(self, asset" in _MAIN
+def test_main_defines_measured_sigma_gate():
+    assert "def _measured_sigma(self, asset" in _MAIN
     # the helper's contract: unmeasured vol reads as None, never a number
     # (getattr tolerance: only the real VolState carries the flag; a
     # duck-typed test stub without it means its number)
@@ -136,8 +164,54 @@ def test_main_defines_exit_sigma_gate():
 def test_main_exit_floor_sites_use_the_gate():
     # all three exit-floor consumers (long-book evaluate, 5m evaluate, the
     # floor un-occlusion _exit_floor_hit) take the gated sigma
-    assert _MAIN.count("sigma_bar_pct=self._exit_sigma(asset)") >= 3
+    assert _MAIN.count("sigma_bar_pct=self._measured_sigma(asset)") >= 3
     # and the raw state read no longer feeds the tier-evaluate calls
     assert "evaluate(\n                    pos, px,\n" \
            "                    sigma_bar_pct=self.vol.state(asset)" \
            not in _MAIN
+
+
+def test_main_scs_hint_is_measured_gated():
+    # the state-change sampler's sigma HINT is gated too: the placeholder
+    # bypassed the sampler's own designed EWMA fallback with a fabricated
+    # h = k * 0.0005 for sparse (<warmup) assets
+    assert "self.scs.observe(asset, closes[asset],\n" \
+           "                                    sigma_bar_pct=self." \
+           "_measured_sigma(asset)," in _MAIN
+
+
+# ---- vol-warmup floor is a named constant + guard-pinned --------------------
+
+def test_fast_warmup_bars_constant_is_the_measurement_floor():
+    from regime.vol_regime import FAST_WARMUP_BARS
+    assert FAST_WARMUP_BARS == 20
+    eng = VolRegimeEngine({})
+    assert eng.update("X", _candles(FAST_WARMUP_BARS), []).measured is True
+    eng2 = VolRegimeEngine({})
+    assert eng2.update("X", _candles(FAST_WARMUP_BARS - 1), []) \
+        .measured is False
+
+
+def _guard_cfg(slow, ad):
+    return {"system": {"dry_run": True},
+            "informed_flow": {"slow_period": slow, "ad_lookback_bars": ad}}
+
+
+def _guard_fatals(cfg):
+    from core.config_guard import validate
+    return [m for s, m in validate(cfg) if s == "FATAL"]
+
+
+def test_guard_sufficiency_must_cover_vol_warmup():
+    # entry-side warm-by-construction rests on informed_flow's V3
+    # sufficiency floor max(slow+2, ad+1, 14) being >= the vol estimator's
+    # 20-bar warmup: a config below it would evaluate signals (and price
+    # bracket geometry) off the unmeasured placeholder. Deployed 21/24
+    # (floor 25) passes; a 12/13 config (floor 14) is FATAL; exactly-20
+    # combos are legal.
+    assert not any("sufficiency" in m for m in _guard_fatals(
+        _guard_cfg(21, 24)))
+    assert any("sufficiency" in m for m in _guard_fatals(
+        _guard_cfg(12, 13)))
+    assert not any("sufficiency" in m for m in _guard_fatals(
+        _guard_cfg(18, 19)))                     # max(20, 20, 14) == 20

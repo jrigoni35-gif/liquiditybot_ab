@@ -95,7 +95,7 @@ def _reclamp_bot(open_orders):
                                         fake)
     # real cold-sigma gate over the stub vol (duck-typed state has no
     # `measured` -> the stub's sigma_bar_pct passes through unchanged)
-    fake._exit_sigma = types.MethodType(main_mod.LiquidityBot._exit_sigma,
+    fake._measured_sigma = types.MethodType(main_mod.LiquidityBot._measured_sigma,
                                         fake)
     fake._has_resting_profit_take = types.MethodType(
         main_mod.LiquidityBot._has_resting_profit_take, fake)

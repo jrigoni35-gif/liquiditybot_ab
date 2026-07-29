@@ -30,6 +30,8 @@ Returns a list of (severity, message); severity is "FATAL" or "WARN".
 import logging
 from typing import Any
 
+from regime.vol_regime import FAST_WARMUP_BARS
+
 log = logging.getLogger("liquiditybot.core.config_guard")
 
 # Kraken spot public schedule, bottom tier (highest fees). If the
@@ -2172,6 +2174,28 @@ def validate(config: dict) -> list:
               f"fast_period ({if_fast}) - EMA cross is meaningless "
               f"otherwise (the engine silently clamps this at runtime, "
               f"which is not the same as the configured intent being sane)")
+    # V3 sufficiency floor must cover the vol estimator's warmup: signals
+    # (and the bracket geometry they price) may only evaluate once
+    # VolState.measured is true, i.e. >= FAST_WARMUP_BARS candles. The
+    # engine's floor is max(slow_period+2, ad_lookback_bars+1, 14) AFTER
+    # its runtime clamps (fast>=2, slow>fast, ad>=4) - mirrored here so
+    # the guard judges the numbers the engine will actually run. Below
+    # the warmup, entry decisions would do arithmetic on the VolState
+    # placeholder (the cold-sigma failure class of LINK 3ea2a851,
+    # 2026-07-28 - the exit side is gated in code; this pins the entry
+    # side, which is warm-by-construction only while this holds).
+    if_ad = int(_f(config, "informed_flow.ad_lookback_bars", 24))
+    eff_fast = max(if_fast, 2)
+    eff_slow = max(if_slow, eff_fast + 1)
+    eff_ad = max(if_ad, 4)
+    if_min_bars = max(eff_slow + 2, eff_ad + 1, 14)
+    if if_min_bars < FAST_WARMUP_BARS:
+        fatal(f"informed_flow V3 sufficiency floor {if_min_bars} bars "
+              f"(max(slow_period+2, ad_lookback_bars+1, 14)) is below the "
+              f"vol estimator's {FAST_WARMUP_BARS}-bar warmup - signals "
+              f"would evaluate on an UNMEASURED VolState placeholder "
+              f"(sigma 0.05), pricing entry/bracket geometry off a "
+              f"fabricated number")
     if_weights = _f(config, "informed_flow.weights", {}) or {}
     if isinstance(if_weights, dict):
         neg = [k for k, v in if_weights.items()
