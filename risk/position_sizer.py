@@ -62,14 +62,28 @@ def payoff_ratio_from_config(profit_cfg: dict, risk_cfg: dict,
     each next tier is `reach_decay` times as likely as the previous — a
     modeling assumption that feeds b/b_net and therefore the Kelly
     breakeven, so it is a CONFIG knob (position_sizer.tier_reach_decay),
-    not a buried constant. Default preserves the historical 0.65."""
+    not a buried constant. Default preserves the historical 0.65.
+
+    Tier weights compound in ORIGINAL-position space (2026-07-29 unit
+    audit): the engine's `close_pct_of_position` contract is % of the
+    CURRENT (remaining) size (risk/profit_tiers.py:191,351), so tier k
+    banks `close_frac_k x prod(1-close_frac_j, j<k)` of the original
+    position — 25% each = 25.0/18.75/14.06/10.55 of original, not 25
+    flat. The old flat weighting silently treated the knob as
+    %-of-original, overstating deep-tier mass and b_net (~0.58 vs the
+    true ~0.45 on the shipped geometry) and sitting the derived p-bar
+    ~0.06 too low. `reach_decay` stays likelihood-only, exactly as its
+    docstring says — the size decay is a separate factor, not a re-tune
+    of reach."""
     tiers = [profit_cfg.get(f"tier_{i}", {}) for i in range(1, 5)]
-    reach, w_sum, p_sum = 1.0, 0.0, 0.0
+    reach, remaining, w_sum, p_sum = 1.0, 1.0, 0.0, 0.0
     for t in tiers:
         trig = float(t.get("trigger_pct_gain", 0.0))
-        frac = float(t.get("close_pct_of_position", 0.0)) / 100.0
-        w_sum += reach * trig * frac
-        p_sum += reach * frac
+        close_frac = float(t.get("close_pct_of_position", 0.0)) / 100.0
+        orig_frac = remaining * close_frac
+        w_sum += reach * trig * orig_frac
+        p_sum += reach * orig_frac
+        remaining *= max(1.0 - close_frac, 0.0)
         reach *= reach_decay
     avg_win = w_sum / p_sum if p_sum > 0 else 2.0
     avg_loss = float(risk_cfg.get("stop_loss_pct", 2.0))

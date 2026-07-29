@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -124,13 +125,28 @@ def trade_through_counts(frames: list, life_polls: int, dist_bps_grid: list,
     return out
 
 
+BAR_SEC = 300.0        # the forward model's sigma unit: per 5-MINUTE bar
+
+
 def estimate_sigma_bps(frames: list) -> float:
-    """Per-frame realized vol (bps) from mid log-returns; floored at 1."""
-    mids = []
+    """PER-BAR realized vol (bps) from mid log-returns.
+
+    2026-07-29 unit audit: the forward model this script inverts
+    (core/fill_calibration.py; order_manager sigma_bps =
+    sigma_bar_pct*100) is denominated per 5-MINUTE BAR, but frames are
+    recorded once per fast poll (~5s), so the raw per-frame std was
+    ~sqrt(60) too small — inflating every recommended sf_base and
+    tripping the D_MAX gate/bucket-agreement check spuriously. The
+    per-frame std is now rescaled by sqrt(BAR_SEC / median frame gap)
+    using the frames' own timestamps (irregular gaps handled by the
+    median; a gap of 0/unknown falls back to the per-bar fallback 30).
+    Floored at 1."""
+    mids, tss = [], []
     for fr in frames:
         bid, ask = _f(fr.get("bid")), _f(fr.get("ask"))
         if bid > 0 and ask > 0:
             mids.append(0.5 * (bid + ask))
+            tss.append(_f(fr.get("ts")))
     if len(mids) < 3:
         return 30.0
     arr = np.asarray(mids, dtype=float)
@@ -138,7 +154,13 @@ def estimate_sigma_bps(frames: list) -> float:
     rets = rets[np.isfinite(rets)]
     if rets.size < 2:
         return 30.0
-    return max(float(np.std(rets)) * 1e4, 1.0)
+    gaps = np.diff(np.asarray(tss, dtype=float))
+    gaps = gaps[(gaps > 0) & np.isfinite(gaps)]
+    if gaps.size == 0:
+        return 30.0
+    frame_sec = float(np.median(gaps))
+    scale = math.sqrt(BAR_SEC / max(frame_sec, 1e-3))
+    return max(float(np.std(rets)) * 1e4 * scale, 1.0)
 
 
 def extract_frames(recording_path, venue: str = "kraken") -> dict:
@@ -283,8 +305,13 @@ def main() -> int:
     om = cfg.get("order_manager", {}) or {}
     sf = om.get("sim_fill", {}) or {}
     sf_base_current = _f(sf.get("passive_base_prob", 0.45), 0.45)
-    poll_sec = _f(cfg.get("system", {}).get("cycle_interval_sec")
-                  or om.get("poll_sec") or 5.0, 5.0)
+    # system.polling_interval_sec is the REAL key (main.py/runner.py/
+    # config_guard all read it) — the old lookups (cycle_interval_sec /
+    # order_manager.poll_sec) exist in no config, silently pinning
+    # poll_sec to the literal 5.0 and mis-deriving n_bar the moment the
+    # operator changes the poll rate (2026-07-29 unit audit).
+    poll_sec = _f(cfg.get("system", {}).get("polling_interval_sec")
+                  or 5.0, 5.0)
     life_sec = _f(om.get("order_timeout_sec", 25.0), 25.0)
     n_bar = max(life_sec / max(poll_sec, 1e-6), 1.0)
     life_polls = max(int(round(n_bar)), 1)

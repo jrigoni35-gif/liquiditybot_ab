@@ -14,11 +14,16 @@ _RISK = {"stop_loss_pct": 2.0}
 
 
 def _old_payoff(rt_cost_pct=0.0):
-    """The pre-lift formula, verbatim (hardcoded 0.65 reach decay)."""
-    reach, w, p = 1.0, 0.0, 0.0
+    """The tier-average payoff twin, mirroring the ORIGINAL-position
+    compounding contract (2026-07-29 unit audit: close_pct is % of
+    CURRENT size per profit_tiers.py:191, so tier k banks
+    close_frac x prod(1-close_frac) of the original position — the old
+    flat 0.25 weighting overstated deep-tier mass and b_net)."""
+    reach, remaining, w, p = 1.0, 1.0, 0.0, 0.0
     for t in (1.0, 2.0, 3.5, 5.0):
-        w += reach * t * 0.25
-        p += reach * 0.25
+        w += reach * t * remaining * 0.25
+        p += reach * remaining * 0.25
+        remaining *= 0.75
         reach *= 0.65
     avg_win = w / p
     win_net = max(avg_win - rt_cost_pct, 0.0)
@@ -30,6 +35,24 @@ def test_default_payoff_ratio_identical_to_old_formula():
         pytest.approx(_old_payoff(), rel=1e-12)
     assert payoff_ratio_from_config(_PROFIT, _RISK, rt_cost_pct=0.65) == \
         pytest.approx(_old_payoff(0.65), rel=1e-12)
+
+
+def test_payoff_compounds_in_original_position_space():
+    """Worked regression for the audit finding: shipped geometry
+    (1/2/3.5/5%, 25% each, reach 0.65, rt 0.65%, stop 2%) must yield
+    b_net ~= 0.449 (breakeven p ~= 0.690), NOT the flat-weighted 0.583
+    (breakeven 0.632) that sized trades a real ~0.06 of win-probability
+    too generously."""
+    b_net = payoff_ratio_from_config(_PROFIT, _RISK, rt_cost_pct=0.65)
+    assert b_net == pytest.approx(0.4488, abs=5e-4)
+    assert 1.0 / (1.0 + b_net) == pytest.approx(0.690, abs=1e-3)
+    # 100%-close tier 1 degenerates correctly: later tiers carry zero mass
+    one_shot = {"tier_1": {"trigger_pct_gain": 1.0,
+                           "close_pct_of_position": 100},
+                "tier_2": {"trigger_pct_gain": 9.0,
+                           "close_pct_of_position": 100}}
+    assert payoff_ratio_from_config(one_shot, {"stop_loss_pct": 2.0}) == \
+        pytest.approx(1.0 / 2.0, rel=1e-12)
 
 
 def test_default_sizer_b_identical():

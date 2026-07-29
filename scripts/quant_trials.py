@@ -104,7 +104,13 @@ TRANS = np.array([[0.984, 0.012, 0.004],
                   [0.030, 0.010, 0.960]])
 MU = np.array([0.00000, 0.00040, -0.00180])      # per-bar drift
 SIG = np.array([0.0020, 0.0035, 0.0110])         # per-bar vol
-TDOF = np.array([12.0, 8.0, 3.0])                # tail thickness
+# NOTE (2026-07-29 unit audit): ALL states draw t(3) innovations — the
+# per-state dof array that once lived here (calm 12 / trend 8 / crisis 3)
+# was declared but never wired, so the G1-G5 gate constants were
+# baselined under uniformly fat tails. Removed rather than wired: both
+# arms share paths (fair A/B either way), and switching the world model
+# now would move every gate number — a conscious 200x1200 re-baseline,
+# not a drive-by. If per-state tails are ever adopted, re-baseline.
 JUMP_P = np.array([0.000, 0.001, 0.020])         # crisis gap risk
 JUMP_SCALE = np.array([0.0, 0.01, 0.05])
 

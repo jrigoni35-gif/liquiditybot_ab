@@ -67,6 +67,26 @@ def test_measured_is_per_asset():
     assert eng.state("BTC").measured is False
 
 
+def test_percentile_fallback_uses_parkinson_when_unmeasured():
+    # daily history warm (>=40) but 5m estimate cold: the percentile must
+    # come from the last-5-daily-bars Parkinson fallback, NOT from the
+    # truthy sigma_daily_pct=2.0 placeholder (which put `current` at 0.02
+    # regardless of the actual market). Daily bars with ~0.35% range give
+    # a Parkinson daily vol ~0.0021 — far below the 0.02 placeholder, so
+    # the two paths give opposite percentile extremes.
+    daily = [{"open": 100.0, "high": 100.35, "low": 100.0, "close": 100.2}
+             for _ in range(50)]
+    eng = VolRegimeEngine({})
+    st = eng.update("X", _candles(5), daily)          # 5m cold, daily warm
+    assert st.measured is False
+    # fallback: current == mean of the same distribution -> mid percentile,
+    # never the ~100th the 2.0% placeholder produced against 0.21% history
+    assert st.percentile < 90.0
+    # and a measured update still uses the fast estimate (unchanged path)
+    st2 = VolRegimeEngine({}).update("Y", _candles(30), daily)
+    assert st2.measured is True
+
+
 # ---- engine-level regression: the exact LINK geometry -----------------------
 
 def _deployed_engine():

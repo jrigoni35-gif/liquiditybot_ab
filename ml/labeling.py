@@ -17,6 +17,7 @@ size. It is the highest-signal, lowest-overfit way to bolt learning
 onto an existing rule engine.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -54,7 +55,12 @@ def barrier_geometry(sigma_bar: float, cost_pct: float, pt_mult: float,
 @dataclass
 class BarrierOutcome:
     label: int          # 1 = win (net of costs), 0 = loss/scratch
-    ret_pct: float      # signed trade return, %
+    # signed trade return, %. UNIT TRAP (2026-07-29 audit, documented not
+    # yet unified): triple_barrier writes this NET of cost_pct; the
+    # exit_policy sim writes it GROSS (cost applies only inside its label
+    # test). The two differ by exactly cost_pct — never aggregate/compare
+    # ret_pct across labelers without normalizing. label is net on BOTH.
+    ret_pct: float
     bars_held: int
     barrier: str        # pt | sl | time | tier | trail | floor | time_stop
     # True when the trade fully RESOLVED before running out of bars (a decisive
@@ -96,13 +102,26 @@ class ExitPolicy:
     vol_scaled: bool = True
     be_after_tier: int = 1               # break-even floor armed after tier N
     be_buffer_frac: float = 0.0006       # be_buffer_bps
+    # BE fee term (2026-07-29 unit audit): the live BE floor is
+    # (2*est_fee_bps + be_buffer_bps)/1e4 (profit_tiers.py:655) — the sim
+    # omitted the fee term entirely (~80bps of exit level at the shipped
+    # 40bps fee). Default 0.0 matches the live engine's CODE default.
+    est_fee_bps: float = 0.0
     trail_after_tier: int = 2            # trailing floor armed after tier N
     trail_frac: float = 0.010            # trailing_stop.trail_pct
-    gb_enabled: bool = True
+    # chandelier mirror (2026-07-29 unit audit): live trail distance is
+    # max(trail_pct, chandelier_k * sigma * sqrt(chandelier_bars)) — the
+    # sim used the static trail_pct only (2.2x tighter at sigma 0.3%).
+    # Defaults match the live engine's parse (profit_tiers.py:219-220).
+    chandelier_k: float = 3.0
+    chandelier_bars: int = 6
+    # live-engine CODE defaults (2026-07-29 audit: these had drifted —
+    # gb_enabled True vs live False, tighten 4.0 vs live 0.0=off)
+    gb_enabled: bool = False
     gb_arm_frac: float = 0.015           # give_back.arm_gain_pct (fallback)
     gb_arm_vol_mult: float = 0.0         # give_back.arm_vol_mult (0 = static)
     gb_frac: float = 0.40                # give_back.giveback_frac (lock 1-frac)
-    gb_tighten_frac: float = 0.040       # give_back.tighten_gain_pct
+    gb_tighten_frac: float = 0.0         # give_back.tighten_gain_pct (0 = off)
     gb_tight_frac: float = 0.25          # give_back.tight_frac (lock 1-frac)
     # CONVICTION RUNNER (rev 6): the live engine tightens the chandelier trail
     # multiplicatively for a low-entry-conviction position. Populated from
@@ -150,20 +169,23 @@ class ExitPolicy:
             stop_vol_mult=float(risk.get("stop_vol_mult", 4.0)),
             tiers=tiers or ExitPolicy().tiers,
             # SAME key and SAME default as the live engine reads
-            # (risk/profit_tiers.py: cfg.get("vol_scaled", False)) — the old
-            # "vol_scaled_triggers" key does not exist in any config, so the
-            # labeler could never see the knob it exists to mirror and the
-            # defaults disagreed (audit LP-2 2026-07-17)
-            vol_scaled=bool(pt.get("vol_scaled", False)),
+            # (risk/profit_tiers.py:215: cfg.get("vol_scaled", True) — the
+            # live default moved to True and this mirror had gone stale at
+            # False, so a config omitting the key labeled on FIXED triggers
+            # while the live engine fired vol-scaled ones; 2026-07-29 audit)
+            vol_scaled=bool(pt.get("vol_scaled", True)),
             be_after_tier=int(pt.get("be_after_tier", 1)),
             be_buffer_frac=float(pt.get("be_buffer_bps", 6)) / 1e4,
+            est_fee_bps=max(float(pt.get("est_fee_bps", 0.0)), 0.0),
             trail_after_tier=int(tr.get("activate_after_tier", 2)),
             trail_frac=max(float(tr.get("trail_pct", 1.0)), 0.01) / 100.0,
-            gb_enabled=bool(gb.get("enabled", True)),
+            chandelier_k=max(float(pt.get("chandelier_k", 3.0)), 0.5),
+            chandelier_bars=max(int(pt.get("chandelier_bars", 6)), 1),
+            gb_enabled=bool(gb.get("enabled", False)),
             gb_arm_frac=float(gb.get("arm_gain_pct", 1.5)) / 100.0,
             gb_arm_vol_mult=float(gb.get("arm_vol_mult", 0.0)),
             gb_frac=float(gb.get("giveback_frac", 0.4)),
-            gb_tighten_frac=float(gb.get("tighten_gain_pct", 4.0)) / 100.0,
+            gb_tighten_frac=float(gb.get("tighten_gain_pct", 0.0)) / 100.0,
             gb_tight_frac=float(gb.get("tight_frac", 0.25)),
             cr_enabled=cr[0], cr_neutral_conf=cr[1],
             cr_min_conf=cr[2], cr_min_trail_mult=cr[3],
@@ -369,22 +391,33 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
         # 3) ratchet the exit floor to the tightest armed protection
         floor = stop_level
         if tier_idx >= policy.be_after_tier:
-            floor = max(floor, policy.be_buffer_frac)        # break-even+buf
+            # live BE floor = (2*fee + buffer) in gain-level terms
+            # (profit_tiers.py:655) — the fee term was missing here until
+            # the 2026-07-29 audit (~80bps of exit level at 40bps fees)
+            floor = max(floor, 2.0 * policy.est_fee_bps / 1e4
+                        + policy.be_buffer_frac)
         # vol-scaled arm mirrors the live engine (sigma_bar is a
         # fraction here, same units as peak_gain); static fallback
         _gb_arm = (policy.gb_arm_vol_mult * sigma_bar
                    if policy.gb_arm_vol_mult > 0 and sigma_bar > 0
                    else policy.gb_arm_frac)
         if policy.gb_enabled and peak_gain >= _gb_arm:
-            lock = (1.0 - (policy.gb_tight_frac
-                           if peak_gain >= policy.gb_tighten_frac
-                           else policy.gb_frac))
+            # live semantics (profit_tiers.py:587): tighten_gain_pct == 0
+            # DISABLES the tighten rung; the old unconditional >= made 0
+            # mean "always tight" — inverted (2026-07-29 audit)
+            tight = (0.0 < policy.gb_tighten_frac <= peak_gain)
+            lock = 1.0 - (policy.gb_tight_frac if tight else policy.gb_frac)
             floor = max(floor, lock * peak_gain)             # give-back lock
         if tier_idx >= policy.trail_after_tier:
-            # conviction-tightened trail distance (conv_mult <= 1.0 shrinks the
-            # leash, ratcheting the floor CLOSER to the peak -> exits sooner),
-            # mirroring the live chandelier's decay_mult composition
-            floor = max(floor, peak_gain - policy.trail_frac * conv_mult)
+            # live chandelier distance (profit_tiers.py:429-437):
+            # max(static trail, k * sigma * sqrt(bars)), conviction-
+            # tightened multiplicatively (conv_mult <= 1.0 shrinks the
+            # leash). The static-only distance was 2.2x tighter than the
+            # live leash at routine vol (2026-07-29 audit).
+            dist = max(policy.trail_frac,
+                       policy.chandelier_k * sigma_bar
+                       * math.sqrt(policy.chandelier_bars))
+            floor = max(floor, peak_gain - dist * conv_mult)
         stop_level = max(stop_level, floor)         # ratchet-only
 
     # vertical barrier: close the remainder at the final bar (NOT final — more

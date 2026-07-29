@@ -12,9 +12,14 @@ profitable-or-silent:
   wins and the event is logged once.
 
   DIMENSIONAL HYGIENE. sigma enters as per-bar fraction of price and
-  tau in bars; the vol term (gamma*sigma^2*tau normalized by sigma to
-  spread scale — the standard practical normalization) and the
-  intensity term ln(1+gamma/k)/gamma * sigma are both pure fractions.
+  tau in bars; the vol term is 0.5*gamma*sigma*sqrt(tau) — diffusion
+  scaling over the quote horizon (sigma*sqrt(tau) = expected |move|
+  over tau bars, gamma-weighted). The 2026-07-29 unit audit found this
+  docstring previously claimed gamma*sigma^2*tau/sigma = gamma*sigma*tau
+  (linear in tau) while the code shipped sqrt(tau); the CODE is the
+  contract — sqrt(tau) is the deliberate choice (quote width tracks the
+  diffusion envelope, not linear time), and the doc now matches it. The
+  intensity term ln(1+gamma/k)/gamma * sigma is a pure fraction too.
   All inputs validated finite; garbage in -> quote at maximum-width
   posture around the last sane value rather than a NaN quote.
 

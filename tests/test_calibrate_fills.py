@@ -83,3 +83,24 @@ def test_trade_through_counts_empty_frames_safe():
     assert trade_through_counts([], life_polls=3, dist_bps_grid=[50.0],
                                 sigma_bps=40.0) == [
         {"dist_bps": 50.0, "d_bar": 50.0 / 40.0, "k": 0, "n": 0}]
+
+
+def test_sigma_is_rescaled_to_the_bar_clock():
+    """2026-07-29 unit audit: the forward model's sigma is per 5-MINUTE
+    bar; frames arrive per ~5s poll. The estimator must rescale the
+    per-frame std by sqrt(BAR_SEC/frame_gap) or every recommendation
+    inflates ~sqrt(60)x."""
+    from scripts.calibrate_fills import estimate_sigma_bps
+
+    # alternating +-10bps mid moves, 5s apart -> per-frame std ~10bps
+    px, frames = 100.0, []
+    for i in range(200):
+        px *= (1.001 if i % 2 == 0 else 1.0 / 1.001)
+        frames.append({"ts": 1000.0 + 5.0 * i,
+                       "bid": px * 0.9999, "ask": px * 1.0001})
+    sig = estimate_sigma_bps(frames)
+    assert 70.0 < sig < 85.0        # 10bps x sqrt(300/5) ~= 77.5 per bar
+    # frames already on the bar clock need (almost) no rescale
+    frames300 = [{"ts": 1000.0 + 300.0 * i, "bid": f["bid"], "ask": f["ask"]}
+                 for i, f in enumerate(frames)]
+    assert 8.0 < estimate_sigma_bps(frames300) < 12.0

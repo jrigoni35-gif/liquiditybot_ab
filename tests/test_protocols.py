@@ -132,6 +132,62 @@ def test_heat_headroom_monotone():
     assert a == 0.35 and 0.0 <= b < a
 
 
+# ------------------------------------------------- CVaR return-sample cadence
+# 2026-07-29 unit audit (cross-confirmed by two independent auditors): the
+# CVaR buffer's parameterization is per-5m-BAR (lookback_bars 288 = one day,
+# sqrt(horizon_bars) holding scale, min_obs 120 = 10h) and both CI harnesses
+# (scripts/quant_trials.py, scripts/smoke_test.py) feed one observe per 300s
+# bar — but live, observe() ran every ~5s poll and appended PER-POLL returns,
+# deflating es_bar by ~sqrt(60) and loosening the RP-040 cap ~7.75x. The fix
+# samples the buffer on the bar clock regardless of poll cadence.
+
+def test_cvar_returns_sample_on_the_bar_clock_not_the_poll_clock():
+    import math
+    st = RiskProtocolStack({"enabled": True})
+    t0 = 1_700_000_000.0
+    st.observe(1000.0, {"ETH/USD": 100.0}, now=t0)             # bar anchor
+    # 59 fast polls inside the bar: marks move, buffer must NOT grow
+    for i in range(1, 60):
+        st.observe(1000.0, {"ETH/USD": 100.0 + i * 0.01}, now=t0 + 5.0 * i)
+    assert len(st._rets.get("ETH/USD", [])) == 0
+    # bar boundary: exactly ONE compound bar return, anchored bar-close to
+    # bar-close — never the last 5s tick return
+    st.observe(1000.0, {"ETH/USD": 103.0}, now=t0 + 300.0)
+    buf = list(st._rets["ETH/USD"])
+    assert len(buf) == 1
+    assert abs(buf[0] - math.log(103.0 / 100.0)) < 1e-12
+    # next bar continues from the new anchor
+    st.observe(1000.0, {"ETH/USD": 103.0}, now=t0 + 355.0)     # intra-bar
+    st.observe(1000.0, {"ETH/USD": 101.0}, now=t0 + 600.0)     # boundary
+    buf = list(st._rets["ETH/USD"])
+    assert len(buf) == 2
+    assert abs(buf[1] - math.log(101.0 / 103.0)) < 1e-12
+
+
+def test_cvar_harness_bar_cadence_appends_every_step():
+    # the quant-trials/smoke cadence (one observe per 300s) must behave
+    # byte-identically to before the fix: every step appends one return
+    st = RiskProtocolStack({"enabled": True})
+    t0, px = 1_700_000_000.0, 100.0
+    st.observe(1000.0, {"ETH/USD": px}, now=t0)
+    for i in range(1, 6):
+        px *= 1.001
+        st.observe(1000.0, {"ETH/USD": px}, now=t0 + 300.0 * i)
+    assert len(st._rets["ETH/USD"]) == 5
+
+
+def test_cvar_per_asset_bar_clocks_are_independent():
+    st = RiskProtocolStack({"enabled": True})
+    t0 = 1_700_000_000.0
+    st.observe(1000.0, {"ETH/USD": 100.0}, now=t0)
+    st.observe(1000.0, {"BTC/USD": 50_000.0}, now=t0 + 100.0)  # later anchor
+    st.observe(1000.0, {"ETH/USD": 101.0, "BTC/USD": 50_500.0},
+               now=t0 + 300.0)
+    # ETH bar elapsed (300s since its anchor); BTC bar has not (200s)
+    assert len(st._rets.get("ETH/USD", [])) == 1
+    assert len(st._rets.get("BTC/USD", [])) == 0
+
+
 def test_stack_warmup_is_neutral_and_never_raises():
     st = RiskProtocolStack({"enabled": True})
     m, reasons = st.entry_multiplier(proposed_frac=0.05, equity=10_000.0,

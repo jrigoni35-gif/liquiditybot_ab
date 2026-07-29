@@ -304,7 +304,7 @@ def test_sizer_and_filter():
     # edge_p above the honest net breakeven (~0.632 after the maker+taker
     # round-trip cost fix): d1 must APPROVE on a genuine edge; d2/d3 veto on
     # regime/direction regardless of p, so they share the same probability.
-    edge_p = 0.66
+    edge_p = 0.72
     d1 = sizer.size("ETH", "long", 2000.0, edge_p, 10000, state, bull, vol, liq,
                     1.0, inv, lev, {})
     check("sizer approves bull + edge", d1.approved, f"{d1.reasons}")
@@ -508,10 +508,10 @@ def test_entry_fill_exit_path():
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
     qa_redirect_paths(cfg, "lifecycle")
-    # 0.66: above the honest net breakeven (~0.632 after the maker+taker
+    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). Subject is the order pipeline, not cost policy,
     # so the forced entry must clear net-Kelly to produce an order.
-    cfg["ml"]["cold_start_prior_p"] = 0.66
+    cfg["ml"]["cold_start_prior_p"] = 0.72
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history2.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1   # let the forced signal through
@@ -745,11 +745,11 @@ def test_persistence_roundtrip():
     cfg["system"]["state_path"] = str(TMP / "smoke_state.json")
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
-    # 0.66: above the honest net breakeven (~0.632 after the maker+taker
+    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). This test's subject is persistence, not gate
     # economics, so the synthetic entry must clear net-Kelly to have a
     # position to snapshot (0.62 now sits below breakeven -> SZ-030 veto).
-    cfg["ml"]["cold_start_prior_p"] = 0.66
+    cfg["ml"]["cold_start_prior_p"] = 0.72
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history3.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
@@ -1434,9 +1434,9 @@ def test_record_replay_sweep():
     cfg["ml"]["history_path"] = str(TMP / "smoke_rec" / "hist.csv")
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
-    # 0.66: above the honest net breakeven (~0.632 after the maker+taker
+    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). Subject is the recorder, not cost policy.
-    cfg["ml"]["cold_start_prior_p"] = 0.66
+    cfg["ml"]["cold_start_prior_p"] = 0.72
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False  # subject: recorder, not cost policy
 

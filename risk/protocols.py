@@ -151,6 +151,16 @@ class RiskProtocolStack:
         self.cv_min_obs = int(cv.get("min_obs", 120))
         self.cv_budget = float(cv.get("es_budget_frac", 0.010))
         self.cv_horizon = float(cv.get("horizon_bars", 24))
+        # Return-sample bar length. Every _bars knob above is denominated
+        # in 5-minute bars (lookback 288 = one day, min_obs 120 = 10h,
+        # sqrt(horizon_bars) holding scale), and both CI harnesses feed
+        # one observe() per 300s bar — but the LIVE caller polls every
+        # ~5s, and appending per-poll returns deflated es_bar by
+        # ~sqrt(60), loosening the RP-040 cap ~7.75x (2026-07-29 unit
+        # audit, cross-confirmed). observe() now samples the buffer on
+        # THIS bar clock regardless of poll cadence, so live and
+        # simulated CVaR see the same statistic by construction.
+        self.cv_bar_sec = max(float(cv.get("bar_sec", 300.0)), 1.0)
 
         gp = cfg.get("gap", {}) or {}
         self.gap_enabled = bool(gp.get("enabled", True))
@@ -174,6 +184,7 @@ class RiskProtocolStack:
         # state
         self._rets: dict[str, deque] = {}
         self._last_mark: dict[str, float] = {}
+        self._bar_anchor_ts: dict[str, float] = {}
         self._day_anchor: Optional[float] = None
         self._day_key: Optional[str] = None
         self._week_anchor: Optional[float] = None
@@ -202,12 +213,25 @@ class RiskProtocolStack:
                 if not (isinstance(px, (int, float)) and math.isfinite(px)
                         and px > EPS):
                     continue
+                # bar-clock sampling: _last_mark holds the anchor BAR
+                # close, not the last poll tick. A return is appended
+                # only once cv_bar_sec has elapsed since the anchor, and
+                # it compounds the whole bar (anchor close -> this px),
+                # so poll cadence cannot change the statistic. Harness
+                # callers stepping exactly one bar per observe() append
+                # on every call — byte-identical to the old behavior.
+                anchor_ts = self._bar_anchor_ts.get(sym)
                 last = self._last_mark.get(sym)
-                self._last_mark[sym] = float(px)
-                if last is not None and last > EPS:
+                if anchor_ts is None or last is None or last <= EPS:
+                    self._bar_anchor_ts[sym] = now
+                    self._last_mark[sym] = float(px)
+                    continue
+                if now - anchor_ts >= self.cv_bar_sec:
                     buf = self._rets.setdefault(
                         sym, deque(maxlen=self.cv_lookback))
                     buf.append(math.log(px / last))
+                    self._bar_anchor_ts[sym] = now
+                    self._last_mark[sym] = float(px)
         except Exception:  # fed from the hot loop; must never raise  # nosec B110
             pass
 

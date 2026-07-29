@@ -2162,6 +2162,20 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         setf("turbulence_pct", 0.5)
         setf("direction", float(side))
         setf("gate_confidence", 1.0)
+        # NEUTRALS, not zero-corners (2026-07-29 unit audit): several
+        # features define a non-zero "no information" point, and leaving
+        # them at the zeros-init made every bootstrap row claim "settling
+        # this instant / extreme fear / 0th vol percentile / zero depth"
+        # — a systematic train/serve offset on the cold-start prior. Each
+        # value is that feature's OWN documented neutral (ml/features.py).
+        for name, neutral in (("book_touch_share", 0.2),
+                              ("funding_dist", 0.5),
+                              ("pd_zone", 0.5),
+                              ("regime_age", 0.5),
+                              ("fear_greed", 0.5),
+                              ("vol_percentile", 0.5)):
+            if name in name_idx:
+                setf(name, neutral)
         X.append(feats)
         y.append(float(out.label))
     return np.array(X, float), np.array(y, float)

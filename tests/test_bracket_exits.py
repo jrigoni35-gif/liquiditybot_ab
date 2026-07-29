@@ -172,7 +172,7 @@ def test_bracket_for_entry_rescales_decision_size_units_to_pass2_notional():
     decision.size_units - not accidentally exercising the ceiling
     clamp's cap."""
     bot = _bracket_bot()
-    vol_state = VolState("ETH", sigma_bar_pct=0.6)   # sl=3.6% > stop_loss_pct_ref
+    vol_state = VolState("ETH", sigma_bar_pct=1.2)   # sl=7.2%: risk-in-size factor 2/7.2 pushes pass-2 below pass-1 under the 2026-07-29 honest (compounded) legacy b_net
     sized1 = _pass1(bot, vol_state=vol_state)
     assert sized1.approved and sized1.units > 0
     # simulate a participation-clamp: decision.size_units is HALF of sized1
@@ -242,7 +242,7 @@ def test_bracket_for_entry_downward_rescale_is_unaffected_by_the_clamp():
     (bracket-driven notional smaller than PASS-1's) must still shrink
     decision.size_units exactly as before - the clamp only caps growth."""
     bot = _bracket_bot()
-    vol_state = VolState("ETH", sigma_bar_pct=0.6)   # sl=3.6% > stop_loss_pct_ref=2.0%
+    vol_state = VolState("ETH", sigma_bar_pct=1.2)   # sl=7.2%: risk-in-size factor 2/7.2 pushes pass-2 below pass-1 under the 2026-07-29 honest (compounded) legacy b_net=2.0%
     sized1 = _pass1(bot, vol_state=vol_state)
     decision = types.SimpleNamespace(est_cost_bps=50.0, size_units=sized1.units)
     pt, sl, deadline, sized2, reasons = bot._bracket_for_entry(

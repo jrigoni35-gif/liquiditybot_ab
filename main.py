@@ -3428,8 +3428,16 @@ class LiquidityBot:
             entry_price = plan.price
             side = "buy" if signal.direction == "long" else "sell"
 
-            exp_alpha_bps = max((p_win - 0.5) * 2.0, 0.0) * \
-                self.sizer.b * self.base_stop_pct * 100.0
+            # exact per-trade EV in the sizer's reference geometry:
+            # EV = p*target - (1-p)*stop with target = b*stop
+            #    = stop * (p*(1+b) - 1), floored at 0. The old shorthand
+            # (2p-1)*b*stop equals this ONLY at b=1 (2026-07-29 unit
+            # audit) - it understated edge ~10% at the shipped b>1 and
+            # would overstate it for any b<1. base_stop_pct (not the
+            # vol-widened stop) is the correct pair: sizer.b is derived
+            # against this same reference stop.
+            exp_alpha_bps = max(p_win * (1.0 + self.sizer.b) - 1.0, 0.0) * \
+                self.base_stop_pct * 100.0
             ctx = PreTradeContext(
                 kraken_book=self.kraken_books.get(asset) or {},
                 sigma_daily_pct=vol_state.sigma_daily_pct,
@@ -3508,6 +3516,18 @@ class LiquidityBot:
             target_pct = self.sizer.b * stop_pct_eff
             ev_pct = (p_win * target_pct - (1 - p_win) * stop_pct_eff) - \
                 decision.est_cost_bps / 100.0
+            # the thesis must record the bet actually TRADED: with an armed
+            # bracket the exit geometry is the bracket's own legs, not the
+            # legacy stop/target above (2026-07-29 unit audit - postmortem's
+            # stop-gap check graded bracket positions against a stop they
+            # do not trade). Threads to BOTH thesis sites (direct entry and
+            # every ladder rung) since both read these three names.
+            if bracket_pt_frac > EPS and bracket_sl_frac > EPS:
+                stop_pct_eff = bracket_sl_frac * 100.0
+                target_pct = bracket_pt_frac * 100.0
+                ev_pct = (p_win * target_pct
+                          - (1 - p_win) * stop_pct_eff) \
+                    - decision.est_cost_bps / 100.0
             # ML-075 shadow score: the CHAMPION's armed prediction, captured even
             # when the governor has KILLED the model (use_model=False) so it
             # never reached the sizer. Telemetry-only - it changes no trade;

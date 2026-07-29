@@ -780,6 +780,13 @@ def main() -> int:
         _explore_on = False                     # unreadable config: full gate
 
     def _dsr_of(r):
+        # UNIT NOTE (2026-07-29 audit): r is per-trade USD PnL, so this is
+        # a NOTIONAL-WEIGHTED Sharpe — identical to return-based Sharpe
+        # only while per-trade notional is ~constant (true today: probes
+        # and conviction tickets are floor-dominated ~$10-40). The history
+        # schema carries no entry_usd, so a true per-trade-return DSR
+        # needs a schema addition first; revisit when sizing starts
+        # varying materially (Kelly off the floor).
         sr = float(r.mean() / (r.std() + 1e-12))
         d = deflated_sharpe(sr, len(r),
                             skew=float(((r - r.mean()) ** 3).mean()

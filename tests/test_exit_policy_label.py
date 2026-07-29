@@ -121,3 +121,80 @@ def test_replay_differs_from_triple_barrier_on_a_dip_then_target():
                               cost_pct=0.5)
     assert tb.label == 1 and tb.barrier == "pt"  # barrier calls it a win
     assert ep.label == 0 and ep.barrier == "sl"  # the real policy stops out
+
+
+# --- 2026-07-29 unit-audit mirrors (BE fee term, chandelier, tighten-0) ------
+
+def test_be_floor_includes_the_live_fee_term():
+    """Live BE floor = (2*est_fee_bps + be_buffer_bps)/1e4 as a gain level
+    (profit_tiers.py:655). With 40bps fees + 6bps buffer that is +0.86%;
+    the old sim floor was the 6bps buffer alone (+0.06%) — an ~80bps exit-
+    level divergence on every BE event."""
+    p = _flat_policy()
+    p.be_after_tier, p.trail_after_tier = 1, 9
+    p.gb_enabled, p.ts_enabled = False, False
+    p.est_fee_bps, p.be_buffer_frac = 40.0, 6.0 / 1e4
+    # bar1 fires tier 1 (+1%); bar2 pulls back through the BE floor but
+    # stays above the raw buffer (low +0.30%)
+    c, h, ll = _bars([(101.2, 100.6, 101.0), (101.0, 100.30, 100.4)])
+    out = simulate_exit_policy(c, h, ll, 0, +1, 0.0, p,
+                               max_bars=96, cost_pct=0.5)
+    assert out.barrier == "trail"                # floored out, not stopped
+    # realized = tier1 0.25*1% + remainder 0.75 * floor 0.0086
+    expected = (0.25 * 0.01 + 0.75 * (2 * 40.0 / 1e4 + 6.0 / 1e4)) * 100
+    assert abs(out.ret_pct - expected) < 1e-9
+    # and with fees zeroed the old buffer-only floor is NOT hit by +0.30%
+    p2 = _flat_policy()
+    p2.be_after_tier, p2.trail_after_tier = 1, 9
+    p2.gb_enabled, p2.ts_enabled = False, False
+    p2.est_fee_bps, p2.be_buffer_frac = 0.0, 6.0 / 1e4
+    out2 = simulate_exit_policy(c, h, ll, 0, +1, 0.0, p2,
+                                max_bars=96, cost_pct=0.5)
+    assert out2.barrier == "time"                # rides through the pullback
+
+
+def test_trail_distance_mirrors_the_live_chandelier():
+    """Live trail distance = max(trail_pct, k*sigma*sqrt(bars))
+    (profit_tiers.py:429-437). At sigma_bar=0.003, k=3, bars=6 the
+    chandelier term is 2.205% — the old static 1% leash stopped runners
+    the live engine kept."""
+    p = _flat_policy()
+    p.trail_after_tier, p.be_after_tier = 1, 9
+    p.gb_enabled, p.ts_enabled = False, False
+    p.trail_frac, p.chandelier_k, p.chandelier_bars = 0.010, 3.0, 6
+    p.tiers = [(0.01, 0.0, 0.25)]        # single tier: arms trail, 75% rides
+    # tier 1 fires (+1%), peak +5%, pullback to +3.5% (1.5% off peak:
+    # inside the 2.205% chandelier leash, OUTSIDE the old 1% one)
+    c, h, ll = _bars([(101.2, 100.8, 101.0), (105.0, 103.5, 104.0),
+                      (104.2, 103.5, 103.8)])
+    out = simulate_exit_policy(c, h, ll, 0, +1, 0.003, p,
+                               max_bars=96, cost_pct=0.5)
+    assert out.barrier == "time"                 # survives the pullback
+    # a pullback past peak-2.205% (low +2.5%) fires the trail
+    c2, h2, ll2 = _bars([(101.2, 100.8, 101.0), (105.0, 103.5, 104.0),
+                         (104.2, 102.5, 102.8)])
+    out2 = simulate_exit_policy(c2, h2, ll2, 0, +1, 0.003, p,
+                                max_bars=96, cost_pct=0.5)
+    assert out2.barrier == "trail"
+
+
+def test_giveback_tighten_zero_means_off_like_live():
+    """profit_tiers.py:587: 0 < tighten_gain <= peak arms the tight rung —
+    0 disables it. The old sim treated 0 as always-tight (locking 75%
+    instead of 60% of the peak): inverted semantics."""
+    p = _flat_policy()
+    p.gb_enabled, p.be_after_tier, p.trail_after_tier = True, 9, 9
+    p.ts_enabled = False
+    p.gb_arm_frac, p.gb_arm_vol_mult = 0.005, 0.0
+    p.gb_frac, p.gb_tight_frac, p.gb_tighten_frac = 0.40, 0.25, 0.0
+    p.tiers = [(0.99, 0.0, 0.25)]        # tiers out of reach: pure give-back
+    # peak +2% then a full retrace: with tighten OFF the lock is 60% of
+    # peak (exit +1.2%); always-tight would have locked 75% (+1.5%)
+    c, h, ll = _bars([(102.0, 101.0, 101.5), (101.5, 99.0, 99.5)])
+    out = simulate_exit_policy(c, h, ll, 0, +1, 0.0, p,
+                               max_bars=96, cost_pct=0.5)
+    # barrier tags "sl" (no tier fired -> tier_idx==0 names the adverse
+    # branch); the VALUE proves the give-back floor: exit at +1.2%
+    # (0.6 * 2% lock), not -2% (stop) and not +1.5% (always-tight 0.75)
+    assert out.barrier == "sl"
+    assert abs(out.ret_pct - 1.2) < 1e-9

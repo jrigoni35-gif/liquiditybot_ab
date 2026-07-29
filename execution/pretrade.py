@@ -18,10 +18,17 @@ loses money at Kraken's 25/40bps fee tier:
 
      EV = p_fill x (edge - cost) - (1 - p_fill) x miss_cost
 
-  p_fill uses the same distance-decay family as the dry-run fill
-  simulator (p0 x exp(-dist_bps / sigma_bar_bps)), so paper results and
-  the gate's arithmetic agree by construction. Both knobs ship gentle
-  (miss_cost 0.5bps, ev_min 0) — tighten via replay sweeps, not vibes.
+  p_fill uses the same distance-decay FAMILY as the dry-run fill
+  simulator (p0 x exp(-dist_bps / sigma_bar_bps)) — but NOT the same
+  time horizon (2026-07-29 unit audit): the simulator applies that
+  expression PER POLL and an order lives ~order_timeout/poll polls, so
+  its per-ORDER fill rate is 1-(1-p)^n — flatter and higher than this
+  gate's single application. The gate is therefore conservative
+  (under-credits maker EV, over-vetoes deep rungs); it never fabricates
+  edge. The honest per-order number is exactly what the A4 fill
+  calibrator measures — recalibrate maker_fill_p0 from its output, not
+  by matching the sim's p0. Both knobs ship gentle (miss_cost 0.5bps,
+  ev_min 0) — tighten via replay sweeps, not vibes.
 
 Everything is fail-closed: any non-finite input rejects (PT-010). All
 verdicts carry codes from core.codes. Interface unchanged.

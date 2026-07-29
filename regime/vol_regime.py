@@ -90,9 +90,15 @@ class VolRegimeEngine:
             dh = np.array([c["high"] for c in candles_daily], dtype=float)
             dl = np.array([c["low"] for c in candles_daily], dtype=float)
             pv = self._parkinson(dh, dl)
-            # compare the fast (intraday-derived) daily vol to history; if the
-            # fast estimate is missing, fall back to last 5 daily bars
-            current = st.sigma_daily_pct / 100.0 if st.sigma_daily_pct else float(pv[-5:].mean())
+            # compare the fast (intraday-derived) daily vol to history; if
+            # the fast estimate is missing, fall back to last 5 daily bars.
+            # Gate on `measured`, not truthiness: the dataclass placeholder
+            # sigma_daily_pct=2.0 is truthy, which made this fallback dead
+            # code and fabricated the percentile from a constant whenever
+            # daily candles were warm before the 5m estimate (2026-07-29
+            # unit audit).
+            current = st.sigma_daily_pct / 100.0 if st.measured \
+                else float(pv[-5:].mean())
             st.percentile = float((pv < current).mean() * 100.0)
 
         if st.percentile >= self.extreme_pct:

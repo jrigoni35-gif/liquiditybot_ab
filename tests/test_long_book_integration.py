@@ -2185,7 +2185,7 @@ def _real_taker_entry_cfg(tmp_path) -> dict:
     order instead of a silent veto."""
     cfg = _full_cfg(tmp_path)
     cfg["grid_ladder"] = dict(cfg.get("grid_ladder", {}), enabled=False)
-    cfg["ml"]["cold_start_prior_p"] = 0.66
+    cfg["ml"]["cold_start_prior_p"] = 0.72
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False
     cfg.setdefault("order_manager", {}).setdefault(
