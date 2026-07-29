@@ -1,10 +1,10 @@
 {
-  "generated_at": 1785344081.9798102,
+  "generated_at": 1785347683.3689072,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1785344074.0,
-    "duration_h": 465.02
+    "end": 1785347674.0,
+    "duration_h": 466.02
   },
   "pnl": {
     "starting_capital": 5000.0,
@@ -16,23 +16,23 @@
     "realized_pnl_total": -21.58,
     "fees_paid_total": 38.3124,
     "open_positions": 0,
-    "samples": 99061
+    "samples": 99287
   },
   "activity": {
-    "signal_rows_total": 6282,
+    "signal_rows_total": 6294,
     "live_labeled_trades": 253,
-    "candidate_rows": 6029
+    "candidate_rows": 6041
   },
   "audit": {
-    "records": 22968,
-    "signal_records": 20399,
+    "records": 23080,
+    "signal_records": 20511,
     "by_src": {
-      "exploration": 20833,
+      "exploration": 20931,
       "order_manager": 759,
-      "ml_governor": 701,
-      "startup": 237,
-      "fault": 216,
-      "long_book": 104,
+      "ml_governor": 703,
+      "startup": 238,
+      "fault": 217,
+      "long_book": 114,
       "engine": 56,
       "circuit_breaker": 39,
       "conviction": 21,
@@ -41,7 +41,7 @@
     "top_codes": [
       [
         "SZ-047",
-        18001
+        18099
       ],
       [
         "ML-070",
@@ -57,11 +57,11 @@
       ],
       [
         "CG-000",
-        237
+        238
       ],
       [
         "FT-020",
-        216
+        217
       ],
       [
         "ML-031",
@@ -73,11 +73,11 @@
       ],
       [
         "ML-041",
-        149
+        150
       ],
       [
         "ML-016",
-        127
+        128
       ],
       [
         "ML-042",
@@ -98,13 +98,41 @@
     "chain_seams": 5
   },
   "events": {
-    "records": 12052,
+    "records": 13327,
     "by_level": {
-      "INFO": 12026,
-      "WARNING": 25,
+      "INFO": 13290,
+      "WARNING": 36,
       "CRITICAL": 1
     },
     "top_warnings": [
+      [
+        "control: stop  -> ok (runner=RUNNING)",
+        2
+      ],
+      [
+        "config: profit_taking.time_stop.max_bars_no_progress (36) sits below profit_taking.tighten_after_bars (96) - the time-stop shadows tighten_a",
+        2
+      ],
+      [
+        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+        2
+      ],
+      [
+        "config: give_back.arm_gain_pct=0.6% arms inside the break-even buffer (86bps) - the locked share of such small moves is fee noise",
+        2
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
+        2
+      ],
+      [
+        "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        2
+      ],
+      [
+        "TH-016: ETH: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        2
+      ],
       [
         "POSTMORTEM LINK/USD 83cbfa97: underperformance \u2014 realized -0.63% vs expected -0.11% -> outputs\\postmortems\\20260729_080239_LINK_83cbfa97.md",
         1
@@ -116,42 +144,14 @@
       [
         "ML-080: exit-reason mix drift tvd=0.800 over trailing 24h (526/6025 rows) exceeds 0.30 - recent-window reason mix diverges from the trailing",
         1
-      ],
-      [
-        "auto-retrain: 1170 rows (36 new)",
-        1
-      ],
-      [
-        "ML-031: feature drift 21/58 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        1
-      ],
-      [
-        "ML-031: feature drift 18/58 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
-        1
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.795 over trailing 24h (514/6063 rows) exceeds 0.30 - recent-window reason mix diverges from the trailing",
-        1
-      ],
-      [
-        "auto-retrain: 1208 rows (38 new)",
-        1
-      ],
-      [
-        "ML-031: feature drift 19/58 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
-        1
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.788 over trailing 24h (499/6114 rows) exceeds 0.30 - recent-window reason mix diverges from the trailing",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2679,
-      "thin": 1581
+      "spoofy": 2937,
+      "thin": 1721
     },
-    "spoofy_frac": 0.629,
-    "cycles_estimate": 1027,
+    "spoofy_frac": 0.631,
+    "cycles_estimate": 1139,
     "feed_error_events": 0
   },
   "model": {
@@ -200,7 +200,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 88% of 20399 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 88% of 20511 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
