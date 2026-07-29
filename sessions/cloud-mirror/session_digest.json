@@ -1,5 +1,5 @@
 {
-  "generated_at": 1785303281.609779,
+  "generated_at": 1785319955.6947181,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783938784.183,
@@ -19,9 +19,9 @@
     "samples": 10759
   },
   "activity": {
-    "signal_rows_total": 6046,
-    "live_labeled_trades": 251,
-    "candidate_rows": 5795
+    "signal_rows_total": 6113,
+    "live_labeled_trades": 252,
+    "candidate_rows": 5861
   },
   "audit": {
     "records": 1560,
@@ -160,7 +160,7 @@
     "kelly_mult": 0.7,
     "champion_brier": 0.18867418679534387,
     "brier": "n/a",
-    "history_rows": 251,
+    "history_rows": 252,
     "cold": true
   },
   "postmortems": {
@@ -191,7 +191,7 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=251, brier=n/a) yet retrain was requested 120x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 22% of the audit trail"
+      "detail": "model is cold (live training rows=252, brier=n/a) yet retrain was requested 120x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 22% of the audit trail"
     },
     {
       "id": "SD-010",
