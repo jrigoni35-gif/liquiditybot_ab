@@ -9,7 +9,17 @@ row's `direction` feature (±1) — rows store RAW signed scores.
 
 SG_MIN_ROWS (=100): below this the verdict is XV-042 (thin) — the same
 documented-floor approach as cost_truth_report's both-legs floor, never
-a config knob (this is a measurement standard, not a tunable).
+a config knob (this is a measurement standard, not a tunable). The floor
+is applied to EFFECTIVE n (uniqueness-weighted independent observations,
+operator-approved 2026-07-29), not the raw row count: overlapping
+same-asset label windows share one return path (de Prado average
+uniqueness, AFML ch.4 — the loader's exact algorithm computed within
+this report's sample), so 100 fully-concurrent rows are ~one
+independent fact and prove nothing. At the 2026-07-29 corpus's mean
+uniqueness (~0.16), 100 raw rows ≈ 16 independent observations — the
+detectable per-component effect at that size (~0.17 AUC) exceeds every
+deviation the weights could plausibly carry, which is exactly why the
+honest unit matters.
 
 Weight source: config `informed_flow.weights` — NOT `strategies.weights`
 (main.py:544 constructs InformedFlowEngine(config.get("informed_flow",
@@ -87,13 +97,61 @@ def _spearman(a, b):
     return num / (da * db) if da and db else 0.0
 
 
-def classify_alignment(weights, aucs, n):
-    """(code_value, human_line) for the weight-vs-data verdict."""
-    if n < SG_MIN_ROWS:
+# Mirrors ml.history.load_training_data's uniqueness computation (config
+# ml.sample_weights defaults): 5m concurrency grid, 14-day span cap
+# against corrupt far-future timestamps. Report constants, not knobs.
+_UNIQ_GRID_SEC = 300.0
+_UNIQ_CAP_BARS = int(14 * 86400 // _UNIQ_GRID_SEC)
+
+
+def effective_n(rows):
+    """(n_eff, mean_uniqueness) of a row sample — the number of
+    INDEPENDENT observations its statistics actually run on.
+
+    De Prado average uniqueness (AFML ch.4), the loader's exact
+    algorithm computed WITHIN this sample: per-(asset, 5m-bar)
+    concurrency over each row's [signal_ts, ts] label lifespan; per-row
+    uniqueness u_i = mean(1/concurrency) over its bars; n_eff = sum(u_i).
+    N fully-concurrent same-asset rows contribute ~1.0 total; disjoint
+    rows contribute 1.0 each; different assets never share a path. A
+    missing/zero signal_ts falls back to ts (single-bar lifespan) rather
+    than fabricating a [0, ts] mega-span that overlaps everything.
+    Empty sample -> (0.0, 0.0)."""
+    if not rows:
+        return 0.0, 0.0
+    conc: dict = {}
+    spans = []
+    for r in rows:
+        ts = _f(r.get("ts"))
+        sig = _f(r.get("signal_ts"))
+        if sig <= 0.0:
+            sig = ts
+        b0 = int(sig // _UNIQ_GRID_SEC)
+        b1 = min(int(max(ts, sig) // _UNIQ_GRID_SEC), b0 + _UNIQ_CAP_BARS)
+        asset = r.get("asset") or ""
+        spans.append((asset, b0, b1))
+        for b in range(b0, b1 + 1):
+            conc[(asset, b)] = conc.get((asset, b), 0) + 1
+    uniqs = [sum(1.0 / conc[(a, b)] for b in range(b0, b1 + 1))
+             / (b1 - b0 + 1) for a, b0, b1 in spans]
+    return float(sum(uniqs)), float(sum(uniqs) / len(uniqs))
+
+
+def classify_alignment(weights, aucs, n, n_eff=None):
+    """(code_value, human_line) for the weight-vs-data verdict.
+
+    `n_eff` (uniqueness-weighted independent-observation count) is the
+    number the SG_MIN_ROWS floor is judged against when provided — the
+    unit the AUC statistics actually run on; None preserves the legacy
+    raw-n gate byte-identically (existing callers/tests)."""
+    gate_n = n if n_eff is None else n_eff
+    if gate_n < SG_MIN_ROWS:
+        unit = (f"only {n} instrumented era rows" if n_eff is None else
+                f"only {n_eff:.1f} effective independent observations "
+                f"(raw {n} rows deflated by label overlap)")
         return (Code.XV_GATE_TRUTH_THIN.value,
-                f"{Code.XV_GATE_TRUTH_THIN.value}: only {n} instrumented "
-                f"era rows (< {SG_MIN_ROWS}) - no verdict yet, keep "
-                f"accruing")
+                f"{Code.XV_GATE_TRUTH_THIN.value}: {unit} "
+                f"(< {SG_MIN_ROWS}) - no verdict yet, keep accruing")
     keys = [k for k in _WEIGHT_KEYS if k in weights and k in aucs]
     if any(math.isnan(aucs[k]) for k in keys):
         # Degenerate one-class sample (e.g. all winners/all losers) makes
@@ -107,15 +165,16 @@ def classify_alignment(weights, aucs, n):
                 f"AUC (NaN) for component(s) [{nan_keys}] - no verdict "
                 f"yet, keep accruing")
     rho = _spearman([weights[k] for k in keys], [aucs[k] for k in keys])
+    counts = f"n={n}" if n_eff is None else f"n={n}, n_eff={n_eff:.0f}"
     if rho >= 0.0:
         return (Code.XV_GATE_TRUTH_ALIGNED.value,
                 f"{Code.XV_GATE_TRUTH_ALIGNED.value}: weight order "
                 f"rank-agrees with realized AUCs (spearman {rho:+.2f}, "
-                f"n={n})")
+                f"{counts})")
     return (Code.XV_GATE_TRUTH_MISALIGNED.value,
             f"{Code.XV_GATE_TRUTH_MISALIGNED.value}: weight order "
             f"CONTRADICTS realized discrimination (spearman {rho:+.2f}, "
-            f"n={n}) - re-weight decision needs the full gate battery, "
+            f"{counts}) - re-weight decision needs the full gate battery, "
             f"never a blind tune")
 
 
@@ -135,10 +194,15 @@ def build_report(history_path="outputs/signal_history.csv",
     era = [r for r in rows if (r.get("label_era") or "") == "triple_barrier"]
     inst = [r for r in era if any(abs(_f(r.get(f"sg_{k}"))) > 0.0
                                   for k in SG_COMPONENT_KEYS)]
+    n_eff, mean_u = effective_n(inst)
     out = ["GATE TRUTH REPORT", "=" * 60,
            "[1] instrumentation coverage",
            f"  corpus rows: {len(rows)}  era rows: {len(era)}  "
-           f"instrumented era rows: {len(inst)}", ""]
+           f"instrumented era rows: {len(inst)}",
+           f"  effective n (uniqueness-weighted): {n_eff:.1f}  "
+           f"mean uniqueness: {mean_u:.3f}  "
+           f"(independent observations - the unit the floor and every "
+           f"AUC below actually run on)", ""]
 
     y = [1.0 if r.get("label") == "1" else 0.0 for r in inst]
     aucs = {}
@@ -195,7 +259,7 @@ def build_report(history_path="outputs/signal_history.csv",
                f"(vs label; <0.5 = anti-calibrated)")
     out.append("")
 
-    code, line = classify_alignment(weights, aucs, len(inst))
+    code, line = classify_alignment(weights, aucs, len(inst), n_eff=n_eff)
     out += ["[5] verdict", f"  {line}", ""]
     return "\n".join(out)
 

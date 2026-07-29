@@ -4,7 +4,8 @@ import csv
 import re
 
 from scripts.gate_truth_report import (SG_MIN_ROWS, _rank_auc,
-                                       build_report, classify_alignment)
+                                       build_report, classify_alignment,
+                                       effective_n)
 
 
 def test_rank_auc_basics():
@@ -159,6 +160,115 @@ def test_build_report_all_winners_nan_guard(tmp_path):
     text = build_report(str(p), "config.json")
     assert "XV-042" in text
     assert "XV-041" not in text
+
+
+# ---- effective n (uniqueness-weighted independent observations) -----------
+# Operator-approved 2026-07-29: XV-042 speaks in the unit the statistics
+# actually run on. Overlapping same-asset label windows share one return
+# path (de Prado average uniqueness, the loader's exact algorithm computed
+# within the report's sample) — N fully-concurrent rows are ~one
+# independent observation, not N.
+
+def _u_row(i, asset="ETH", sig=0.0, ts=1200.0):
+    return {"asset": asset, "signal_ts": str(sig), "ts": str(ts),
+            "position_id": f"u{i}"}
+
+
+def test_effective_n_overlap_vs_disjoint_vs_cross_asset():
+    # 4 same-asset rows over the SAME 5-bar window -> concurrency 4 on
+    # every bar -> u=0.25 each -> n_eff 1.0
+    full = [_u_row(i, sig=0.0, ts=1499.0) for i in range(4)]
+    n_eff, mean_u = effective_n(full)
+    assert abs(n_eff - 1.0) < 1e-9 and abs(mean_u - 0.25) < 1e-9
+    # 4 same-asset rows on DISJOINT windows -> u=1 each -> n_eff 4.0
+    disj = [_u_row(i, sig=i * 3000.0, ts=i * 3000.0 + 299.0)
+            for i in range(4)]
+    n_eff, mean_u = effective_n(disj)
+    assert abs(n_eff - 4.0) < 1e-9 and abs(mean_u - 1.0) < 1e-9
+    # same window, DIFFERENT assets -> no shared path -> n_eff 4.0
+    cross = [_u_row(i, asset=f"A{i}", sig=0.0, ts=1499.0)
+             for i in range(4)]
+    n_eff, _ = effective_n(cross)
+    assert abs(n_eff - 4.0) < 1e-9
+
+
+def test_effective_n_empty_and_bad_signal_ts():
+    assert effective_n([]) == (0.0, 0.0)
+    # signal_ts missing/zero falls back to ts (single-bar lifespan) rather
+    # than fabricating a [0, ts] mega-span that overlaps everything
+    lone = [_u_row(0, sig=0.0, ts=900000.0),
+            _u_row(1, sig=0.0, ts=1800000.0)]
+    lone[0]["signal_ts"] = ""
+    lone[1]["signal_ts"] = "0"
+    n_eff, _ = effective_n(lone)
+    assert abs(n_eff - 2.0) < 1e-9
+
+
+def test_classify_thin_speaks_in_effective_n():
+    w = {"flow": 1.0, "delta": 0.6, "accum": 0.9, "burst": 0.8,
+         "trend": 0.7}
+    good = {"flow": 0.60, "delta": 0.52, "accum": 0.58, "burst": 0.55,
+            "trend": 0.53}
+    # raw n clears the floor but effective n does not -> THIN, and the
+    # line names the honest unit
+    code, line = classify_alignment(w, good, n=500, n_eff=40.0)
+    assert code == "XV-042"
+    assert "effective" in line
+    # effective n clears -> verdict proceeds and reports both counts
+    code, line = classify_alignment(w, good, n=500, n_eff=320.0)
+    assert code == "XV-040"
+    assert "n_eff=320" in line
+    # n_eff omitted -> byte-identical legacy behavior (raw-n gate)
+    code, _ = classify_alignment(w, good, n=500)
+    assert code == "XV-040"
+
+
+def test_build_report_effective_n_gates_the_verdict(tmp_path):
+    """120 raw instrumented rows (>= SG_MIN_ROWS) that all share ONE label
+    window are ~one independent observation -> the report must show the
+    effective count and verdict XV-042 THIN, never a verdict scored on the
+    inflated raw n."""
+    p = tmp_path / "hist.csv"
+    rows = []
+    for i in range(120):
+        win = i % 2 == 0
+        rows.append({"position_id": f"p{i}", "asset": "ETH", "side": "long",
+                     "direction": "1.000000", "label": "1" if win else "0",
+                     "source": "candidate",
+                     "barrier": "tb_pt" if win else "tb_sl",
+                     "label_era": "triple_barrier", "ts": "1499",
+                     "signal_ts": "1", "sg_flow": "0.5000" if win
+                     else "-0.5000", "sg_delta": "0.1000",
+                     "sg_evidence": "1.0000", "sg_conc": "0.3000",
+                     "gate_confidence": "0.500000"})
+    _write_corpus(p, rows)
+    text = build_report(str(p), "config.json")
+    assert "effective n" in text
+    assert "XV-042" in text and "XV-040" not in text and "XV-041" not in text
+
+
+def test_build_report_independent_rows_still_reach_a_verdict(tmp_path):
+    """120 genuinely disjoint rows keep effective n ~= raw n -> the floor
+    clears and the verdict is scored (the deflator must not make verdicts
+    unreachable on honest data)."""
+    p = tmp_path / "hist.csv"
+    rows = []
+    for i in range(120):
+        win = i % 2 == 0
+        t0 = i * 3000
+        rows.append({"position_id": f"p{i}", "asset": "ETH", "side": "long",
+                     "direction": "1.000000", "label": "1" if win else "0",
+                     "source": "candidate",
+                     "barrier": "tb_pt" if win else "tb_sl",
+                     "label_era": "triple_barrier", "ts": str(t0 + 299),
+                     "signal_ts": str(t0), "sg_flow": "0.5000" if win
+                     else "-0.5000", "sg_delta": "0.1000",
+                     "sg_evidence": "1.0000", "sg_conc": "0.3000",
+                     "gate_confidence": "0.500000"})
+    _write_corpus(p, rows)
+    text = build_report(str(p), "config.json")
+    assert "XV-040" in text or "XV-041" in text
+    assert "n_eff=120" in text
 
 
 def test_section_headers_are_renumbered_1_through_5(tmp_path):
