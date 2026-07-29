@@ -1377,10 +1377,14 @@ class LiquidityBot:
                                 f"{asset} paused: "
                                 f"{self.breaker.loss_streak} consecutive "
                                 f"losses", {"asset": asset})
-            # THALES V2 vindication: grade the detectors that shaded this
-            # trade's entry against its realized outcome
+            # THALES V2 vindication: grade the detectors that advised on
+            # this trade's entry against its realized outcome. 2026-07-29
+            # (audit A-1/B-2): an EMPTY fired list still grades — it feeds
+            # the __base__ outcome ledger that _rel_weight uses as its
+            # base-rate null, so every model-lane close counts exactly
+            # once whether or not a detector fired on it.
             fired = self._pos_thales.pop(pos.position_id, None)
-            if fired:
+            if fired is not None:
                 self.thales.note_outcome(fired, total_net > 0)
             # Compounder Phase C (task C4): feed this book-tagged close
             # into the shared evidence ladder (risk/long_book.py) - the
@@ -1501,7 +1505,11 @@ class LiquidityBot:
                 order.position_id = position_id
                 self.state.add_position(pos)
                 fired = order.meta.get("thales_fired")
-                if fired and not pos.is_hedge:
+                # 2026-07-29 (THALES A-1/B-2): empty lists are stored too
+                # — a close with no detector fired still grades the
+                # __base__ outcome ledger (the reliability null). Only
+                # orders that never carried the key (hedges/legacy) skip.
+                if fired is not None and not pos.is_hedge:
                     self._pos_thales[position_id] = list(fired)
                 self.postmortem.note_fill(position_id, event.fill_price)
                 if not pos.is_hedge and "features" in order.meta:
@@ -2964,7 +2972,17 @@ class LiquidityBot:
             self.inventory, lev_decision, self.marks, now,
             risk_scale=self.monitor.kelly_mult * explore_scale
             * manip_scale,
-            symbol=symbol, floor_to_min=(explored and not aggressive),
+            # 2026-07-29 (THALES audit B-1b): the explore floor must not
+            # RE-INFLATE a manip-downsized probe — with manip in the
+            # downsize band (manip_scale < 1) the SZ-045 haircut was
+            # measured being floored right back to the $15 probe minimum,
+            # leaving the 0.6-0.9 band void for exactly the floor-sized
+            # probe flow it most needs to bind on. A suspect book pays
+            # for its label at honest (downsized) size or not at all;
+            # the training-weight discount already halves such rows'
+            # learning value, so full-price tuition was never justified.
+            symbol=symbol, floor_to_min=(explored and not aggressive
+                                         and manip_scale >= 1.0 - 1e-9),
             bracket=(pt_frac * 100.0, sl_frac * 100.0))
         if not bracket_sized.approved:
             return pt_frac, sl_frac, 0.0, None, bracket_sized.reasons
@@ -3272,11 +3290,18 @@ class LiquidityBot:
                                     signal, "evidence_concentration", 0.0)), 3),
                                  "conf": round(_pre, 3),
                                  "mult": round(_cmult, 3)})
-            # V2 vindication loop: remember which detectors shaded THIS
-            # signal so a resulting position's close can grade them
-            # (advise mode only — shadow advice never influenced the trade)
-            self._thales_fired[asset] = (
-                list(th.fired) if self.thales.influence == "advise" else [])
+            # V2 vindication loop: remember which detectors advised on
+            # THIS signal so a resulting position's close can grade them.
+            # 2026-07-29 correction (THALES audit B-2): grading is
+            # OBSERVATIONAL — advice quality is measurable whether or not
+            # the shade was applied, and shadow-mode grades are exactly
+            # the promotion evidence the reliability bar requires. The
+            # old advise-only gate was a chicken-and-egg: promotion to
+            # advise required shadow evidence, but the ledger only
+            # learned in advise — so it stayed empty forever. Influence
+            # gating still lives where it belongs: shade_confidence
+            # applies mult only in advise mode.
+            self._thales_fired[asset] = list(th.fired)
             if th.notes and abs(th.would_mult - 1.0) > 1e-6:
                 log.info(f"thales {asset}: {'; '.join(th.notes)}")
             self.last_signals[asset] = {
@@ -3438,7 +3463,10 @@ class LiquidityBot:
                 verdict.risk_multiplier, self.inventory, lev_decision,
                 self.marks, now,
                 risk_scale=self.monitor.kelly_mult * explore_scale * manip_scale,
-                symbol=symbol, floor_to_min=(explored and not aggressive))
+                # floor withheld under manip suspicion — see the PASS-2
+                # site in _bracket_for_entry for the full B-1b rationale
+                symbol=symbol, floor_to_min=(explored and not aggressive
+                                             and manip_scale >= 1.0 - 1e-9))
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
                 self._mark_cand(asset, signal.direction,
@@ -5203,6 +5231,37 @@ class LiquidityBot:
             # clause still decides on the challenger's full-span score,
             # exactly as before.
             if self.meta.model is None:
+                _deploy_ok = self.monitor.should_deploy(challenger_brier,
+                                                        n_oof=len(oof_cal))
+            elif int(self.meta.trained_rows) > len(X):
+                # 2026-07-29 ERA-ORPHAN UNLOCK (ML-083): the champion's
+                # trained_rows watermark indexes a corpus POPULATION that
+                # no longer exists - era exclusion (ML-081) rebuilt the
+                # training matrix smaller than the watermark itself
+                # (measured live: champion rows=4823 vs post-exclusion
+                # matrix 1516), so idx >= trained_rows is empty BY
+                # CONSTRUCTION and the fail-closed branch below would
+                # REJECT every retrain forever (observed: RETRAIN flag
+                # stuck QUEUED, deploys structurally impossible). An
+                # unfalsifiable badge may not gate forever (ML-076
+                # doctrine): fall back to the no-champion clause - the
+                # challenger must clear the SAME absolute cold-start bar
+                # (should_deploy's own thresholds; nothing widened), and
+                # the incumbent keeps serving until one does. NOTE: if
+                # the corpus regrows past a stale watermark before any
+                # deploy, indexes would misalign silently - this branch
+                # fires first precisely because the watermark exceeds
+                # the matrix, closing that window with an audit record.
+                get_audit().log(
+                    "ml_governor", Code.ML_CHAMPION_ERA_ORPHAN,
+                    f"champion watermark era-orphaned: trained_rows="
+                    f"{int(self.meta.trained_rows)} > corpus {len(X)} - "
+                    f"like-for-like impossible by construction; deploy "
+                    f"gate falls back to the absolute cold-start bar",
+                    {"trained_rows": int(self.meta.trained_rows),
+                     "corpus_rows": int(len(X)),
+                     "challenger_brier": float(challenger_brier),
+                     "n_oof": int(len(oof_cal))})
                 _deploy_ok = self.monitor.should_deploy(challenger_brier,
                                                         n_oof=len(oof_cal))
             else:

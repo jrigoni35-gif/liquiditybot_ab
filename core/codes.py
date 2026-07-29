@@ -217,6 +217,17 @@ class Code(str, Enum):
     #   explicit override of ml.epoch's live-rows-never rule) - from the
     #   training view. Logged once per transition, never once per load;
     #   a load-time VIEW only, no row is ever removed from disk.
+    ML_CHAMPION_ERA_ORPHAN = "ML-083"  # 2026-07-29 deploy-deadlock unlock:
+    #   the loaded champion's trained_rows watermark EXCEEDS the entire
+    #   current training matrix (era exclusion rebuilt the corpus
+    #   population under it), so the like-for-like fresh-row set
+    #   (oof_idx >= trained_rows) is empty BY CONSTRUCTION - now and on
+    #   every future retrain until the corpus regrows past a watermark
+    #   from a population that no longer exists. An unfalsifiable badge
+    #   may not gate forever (ML-076 doctrine, degenerate case): the
+    #   deploy gate falls back to the no-champion clause (the challenger
+    #   must still clear the SAME absolute cold-start bar - no gate is
+    #   widened; the incumbent stays loaded until a challenger clears it).
     ML_BRACKET_DIVERGENCE = "ML-082"  # geometry-alignment T6 (spec D6)
     #   PROOF instrument: at every bracket-traded close (barrier in
     #   tb_pt/tb_sl/tb_time), compares the REALIZED net return against

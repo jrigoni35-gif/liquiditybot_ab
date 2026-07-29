@@ -51,6 +51,15 @@ log = logging.getLogger("liquiditybot.strategies.thales")
 
 EPS = 1e-9
 
+# which way each WEIGHTED detector advises (static by construction - see
+# the shade_confidence fired.append sites). Used by status() to compute
+# each detector's reliability weight against the correct base-rate null
+# (A-1: 'up' advice is nulled by the base WIN rate, 'down' by the base
+# LOSS rate). The unweighted safety shades (spoof flicker, feed
+# integrity) never appear in the ledger.
+_DETECTOR_ADVICE = {"grid": "up", "metronome": "up", "clockwork": "up",
+                    "stop_revert": "up", "stop_prox": "down"}
+
 
 def round_number_grid(mark: float) -> list[float]:
     """Self-scaling round-number magnet grid: steps {1, 2.5, 5, 10, 25,
@@ -65,12 +74,20 @@ def round_number_grid(mark: float) -> list[float]:
     never raises: `mark <= 0` (or non-finite) returns `[]`."""
     if not mark or not math.isfinite(mark) or mark <= 0:
         return []
-    zones = []
+    return [round(mark / step) * step for step in _round_number_steps(mark)]
+
+
+def _round_number_steps(mark: float) -> list[float]:
+    """The accepted round-number STEP sizes for `mark` (the grid
+    spacings behind round_number_grid's nearest-magnet-per-step list).
+    Split out 2026-07-29 so _stop_zones can compute the proximity
+    score's geometric null from the finest spacing (A-2) without
+    re-deriving the step constants. Pure; `mark <= 0` returns []."""
+    if not mark or not math.isfinite(mark) or mark <= 0:
+        return []
     k = 10.0 ** math.floor(math.log10(mark))
-    for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2):
-        if 0.003 * mark <= step <= 0.03 * mark:
-            zones.append(round(mark / step) * step)
-    return zones
+    return [step for step in (k / 100, k / 40, k / 20, k / 10, k / 4, k / 2)
+            if 0.003 * mark <= step <= 0.03 * mark]
 
 
 @dataclass
@@ -134,6 +151,8 @@ class _AssetState:
         # never crossed it (nothing consumed it - it was pulled).
         self.spoof_prev: dict = {"bids": {}, "asks": {}}
         self.spoof_ewma: dict = {"bids": 0.0, "asks": 0.0}
+        self.spoof_last_ts: float = 0.0   # wall-clock of the last spoof
+        # observation (A-3 cadence normalization; 0.0 = none yet)
         # feed-integrity window: 1 = clean book this cycle, 0 = missing or
         # sanitize-rejected. A sustained low clean-rate means a hostile or
         # unreliable venue for THIS asset -> shade its confidence down.
@@ -164,14 +183,20 @@ class ThalesEngine:
         # ---- V2 reliability ledger (evidence-weighted gains) ------------
         # V1 composed detectors with FIXED config gains — hand-crafted
         # priors that nothing ever validated. V2 closes the loop: every
-        # closed trade grades the detectors that shaded its entry
+        # closed trade grades the detectors that advised on its entry
         # (note_outcome), and each detector's gain is scaled by an
-        # evidence weight w = max(0, 2*WilsonLCB(vindication) - 1):
-        # cold start (< min_fired grades) -> w = 1.0, EXACT V1 behavior;
-        # a detector that cannot beat a coin flip out-of-sample loses its
-        # voice (w -> 0); weights only ATTENUATE, never amplify beyond
-        # the configured gain (amplification is knob-tuning and belongs
-        # to the gated tuning pass, not a live feedback loop).
+        # evidence weight = the normalized LIFT of its vindication
+        # WilsonLCB over the contemporaneous outcome base rate (the
+        # __base__ ledger; 2026-07-29 A-1 correction — the original
+        # max(0, 2*LCB - 1) graded against a 0.5 coin-flip null, the
+        # wrong units for a ~16%-win outcome stream: honest up-detectors
+        # were muted at exactly min_fired while no-skill down-detectors
+        # kept ~0.44 weight). Cold start (either ledger < min_fired)
+        # -> w = 1.0, EXACT V1 behavior; a detector with no lift over
+        # base loses its voice (w -> 0) but KEEPS BEING GRADED (probation,
+        # not a life sentence); weights only ATTENUATE, never amplify
+        # beyond the configured gain (amplification is knob-tuning and
+        # belongs to the gated tuning pass, not a live feedback loop).
         rel = cfg.get("reliability", {})
         self.rel_enabled = bool(rel.get("enabled", True))
         self.rel_min_fired = int(rel.get("min_fired", 20))
@@ -196,25 +221,59 @@ class ThalesEngine:
         margin = z * ((p * (1 - p) + z2 / (4 * n)) / n) ** 0.5
         return max(0.0, (centre - margin) / denom)
 
-    def _rel_weight(self, key: str) -> float:
+    def _rel_weight(self, key: str, advice: str = "up") -> float:
         """Evidence weight for a detector's gain. 1.0 until min_fired
-        grades exist (the hand-crafted prior rules cold start), then
-        max(0, 2*LCB - 1): a coin-flip detector is muted, a proven one
-        keeps its full configured gain. Never exceeds 1."""
+        grades exist on BOTH the detector and the shared base ledger
+        (the hand-crafted prior rules cold start); then the normalized
+        LIFT of the detector's Wilson LCB over the contemporaneous BASE
+        RATE of its vindication event.
+
+        2026-07-29 unit-audit correction (THALES A-1): the old weight
+        max(0, 2*LCB - 1) graded vindication against a 0.5 COIN-FLIP
+        null, but vindication proportions live in outcome-base-rate
+        units - at the measured 15.8% live win rate an 'up' detector
+        with a genuine 2x win-rate lift (32% when firing) hit weight
+        0.000 at exactly min_fired grades (muted), while a
+        zero-information 'down' detector (vindicated at the 84% loss
+        rate) kept ~0.44 weight. Same defect family as the CVaR 5s/5m
+        clock and the payoff flat-sum: a number compared against a null
+        in the wrong units. Correct null: base WIN rate for 'up' advice,
+        base LOSS rate for 'down' - both from the __base__ ledger
+        note_outcome maintains over every graded close. Under it the
+        no-skill down detector scores 0 (LCB 0.722 < null 0.842) and
+        the 2x-lift up detector keeps a small, n-growing voice
+        (LCB 0.188 > null 0.158)."""
         if not self.rel_enabled:
             return 1.0
         r = self._rel.get(key)
         if not r or r.get("fired", 0) < self.rel_min_fired:
             return 1.0
+        base = self._rel.get("__base__")
+        if not base or int(base.get("fired", 0)) < self.rel_min_fired:
+            return 1.0     # no honest null yet -> the prior keeps ruling
+        base_win = float(base.get("vindicated", 0)) / max(
+            int(base["fired"]), 1)
+        null = base_win if advice == "up" else 1.0 - base_win
+        null = min(max(null, 0.0), 1.0 - 1e-9)
         lcb = self._wilson_lcb(int(r.get("vindicated", 0)),
                                int(r["fired"]))
-        return min(1.0, max(0.0, 2.0 * lcb - 1.0))
+        return min(1.0, max(0.0, (lcb - null) / (1.0 - null)))
 
     def note_outcome(self, fired: list, won: bool) -> None:
         """Grade every detector that shaded a now-closed trade's entry.
         'up' advice is vindicated by a WIN, 'down' advice by a LOSS.
+        Also maintains the __base__ ledger (one grade per closed trade,
+        fired-or-not) - the contemporaneous outcome base rate that
+        _rel_weight uses as its null (A-1 correction above). Callers
+        should invoke this on EVERY graded close, including ones where
+        no detector fired (empty list), so the null stays unbiased.
         Fail-safe: junk entries are ignored, never raised."""
         try:
+            base = self._rel.setdefault("__base__",
+                                        {"fired": 0, "vindicated": 0})
+            base["fired"] += 1
+            if bool(won):
+                base["vindicated"] += 1
             for item in fired or []:
                 if not (isinstance(item, (list, tuple)) and len(item) == 2):
                     continue
@@ -281,6 +340,7 @@ class ThalesEngine:
         st.marks.clear()              # pre-gap candle_hist via _stop_zones
         st.spoof_prev = {"bids": {}, "asks": {}}   # TH-017: gap-straddling
         st.spoof_ewma = {"bids": 0.0, "asks": 0.0}  # vanish events are fiction
+        st.spoof_last_ts = 0.0    # A-3 dt clock re-seeds after the gap too
         log.warning("%s", tag(Code.TH_LAPSE,
                     f"{asset}: observation gap {now - last:.0f}s (lapse "
                     f"#{st.lapse_count}) - continuity state reset, advice "
@@ -300,12 +360,12 @@ class ThalesEngine:
             self._update_grid(st, bids, asks, mark)
             self._update_metronome(st, bids, asks, now)
             self._update_barclose(st, bids, asks, now)
-            self._update_spoof(st, bids, asks, mark)
+            self._update_spoof(st, bids, asks, mark, now)
         except Exception:
             log.debug("thales observe_fast degraded", exc_info=True)
 
     def _update_spoof(self, st: _AssetState, bids: list, asks: list,
-                      mark: float):
+                      mark: float, now: float = 0.0):
         """TH-017 spoof/layering flicker (Cartea-Jaimungal-Wang: spoofing
         operates through top-of-book imbalance; Korea Exchange evidence:
         imbalance-followers are the victims, thin/volatile books the
@@ -313,13 +373,36 @@ class ThalesEngine:
         neighbors that appears near the top and then VANISHES while the
         mid never crossed its price — pulled, not consumed. Each such
         event bumps a per-side EWMA; the shade path distrusts entries
-        whose direction the flickering side would bait."""
+        whose direction the flickering side would bait.
+
+        2026-07-29 unit-audit correction (THALES A-3): the EWMA used to
+        run in PER-POLL units (decay 0.85 applied once per snapshot,
+        event contribution 1 per snapshot) while the flicker it measures
+        is a wall-time process — the SAME spoofer pulling a wall every
+        10s scored ~0.50 at the calibrated 5s cadence, saturated at 1.0
+        when rate-limiting stretched polls to ~10s, and could NEVER
+        cross thr 0.35 at a hypothetical 2.5s cadence. Now both the
+        decay and the event contribution are normalized to wall time
+        against the calibration cadence (spoof.decay_cal_sec, default
+        5.0 = the nominal fast-poll interval the shipped decay/threshold
+        were tuned at): decay_eff = decay**(dt/cal) and each event
+        counts cal/dt, so the steady-state score for a flip period T is
+        ~cal/T at ANY sampling cadence (0.5 for a 10s spoofer — exactly
+        the calibrated behavior). At dt == cal this is byte-identical
+        to the old recursion."""
         if not bids or not asks or not mark:
             return
         top_n = int(self._sp.get("top_levels", 5))
         big = float(self._sp.get("big_ratio", 3.0))
         drop = float(self._sp.get("drop_frac", 0.8))
         decay = float(self._sp.get("decay", 0.85))
+        cal = max(float(self._sp.get("decay_cal_sec", 5.0)), 1e-6)
+        last = st.spoof_last_ts
+        dt = (now - last) if (now > 0.0 and last > 0.0) else cal
+        dt = min(max(dt, 0.5), 60.0)   # bounded: a pathological clock can
+        st.spoof_last_ts = now         # neither freeze nor flush the EWMA
+        decay_eff = decay ** (dt / cal)
+        evt_scale = cal / dt
         for side, rows in (("bids", bids), ("asks", asks)):
             cur = {}
             sizes = []
@@ -346,8 +429,9 @@ class ThalesEngine:
                         (mark >= px)
                     if not consumed:
                         event = max(event, min(1.0, was / (big * med) - 1.0))
-            st.spoof_ewma[side] = decay * st.spoof_ewma.get(side, 0.0) \
-                + (1.0 - decay) * event
+            st.spoof_ewma[side] = min(1.0, decay_eff
+                * st.spoof_ewma.get(side, 0.0)
+                + (1.0 - decay_eff) * event * evt_scale)
             st.spoof_prev[side] = cur
 
     def _update_grid(self, st: _AssetState, bids: list, asks: list,
@@ -561,6 +645,30 @@ class ThalesEngine:
         prox = 0.0
         if not degenerate:
             zones = round_number_grid(mark)
+            # 2026-07-29 unit-audit correction (THALES A-2): the raw
+            # proximity score has a GEOMETRIC base rate — with magnet
+            # spacing s and tolerance band tol, a uniformly random mark
+            # scores E[max(0, 1 - d/tol)] = tol/s > 0, and at the shipped
+            # zone_tol_pct=0.15 vs the 0.30%-of-mark step floor the band
+            # covers 30-62% of the gap between adjacent magnets (measured
+            # corpus-wide: th_stopzone > 0.5 on 43.4% of 6,462 rows;
+            # realized PnL identical above/below 0.5 — the gauge was
+            # mostly reporting its own null, not stop hunts). Subtract
+            # that null (the same shuffle-null discipline OF-2 applies to
+            # model scores): mu_null = tol_abs / s_eff with s_eff the
+            # finest gap between adjacent magnets near the mark, then
+            # rescale so a random mark reads ~0 while an AT-magnet mark
+            # (d ~ 0) still reads ~1. mu_null = tol_abs / finest accepted
+            # STEP (the true grid spacing - NOT the gap between the
+            # nearest-magnet-per-step prices round_number_grid returns,
+            # which frequently coincide). Coarse grids (mu_null -> 0) are
+            # numerically unchanged; isolated swing hi/lo magnets have no
+            # spacing and need no correction (their null is ~0 already).
+            tol_abs = tol * mark
+            grid_zones = set(zones)      # round-number magnets only (the
+            # swing hi/lo appended below are isolated levels, null ~ 0)
+            steps = _round_number_steps(mark)
+            mu_null = min(tol_abs / min(steps), 1.0 - 1e-9) if steps else 0.0
             swing_hi, swing_lo = swing_high_low(st.candle_hist, lookback)
             # swing_high_low always returns both or neither (never one
             # Optional resolved without the other) - checking both here
@@ -575,7 +683,12 @@ class ThalesEngine:
             for z in zones:
                 d = abs(mark - z) / mark
                 if d < tol:
-                    prox = max(prox, 1.0 - d / tol)
+                    raw = 1.0 - d / tol
+                    # null-subtract ROUND-NUMBER magnets only; swing
+                    # hi/lo are isolated levels whose null is ~0
+                    if mu_null > 0.0 and z in grid_zones:
+                        raw = max(0.0, (raw - mu_null) / (1.0 - mu_null))
+                    prox = max(prox, raw)
         sweep = 0
         if len(hist) >= 2:
             ts, o, hi, lo, c = hist[-1]
@@ -637,13 +750,19 @@ class ThalesEngine:
                 "trend_up", "trend_down")
             mult = 1.0
 
+            # 2026-07-29 dead-mute fix (A-1 companion, all five weighted
+            # detectors below): out.fired is the GRADING ledger, not the
+            # shade - it must accrue whenever the detector fires, even at
+            # w == 0. The old `if w > 0` gate meant a muted detector was
+            # never graded again and could never redeem itself (w=0 was
+            # a life sentence, not a probation). The shade contribution
+            # (mult) still scales by w exactly as before.
             g_thr = float(self._g.get("score_thr", 0.55))
             if st.grid_score > g_thr and trending:
-                w = self._rel_weight("grid")
+                w = self._rel_weight("grid", "up")
                 mult *= 1.0 + w * float(self._g.get("gain", 0.5)) * (
                     st.grid_score - g_thr)
-                if w > 0:
-                    out.fired.append(("grid", "up"))
+                out.fired.append(("grid", "up"))
                 out.notes.append(tag(Code.TH_GRID_LADDER,
                                      f"grid={st.grid_score:.2f} vs trend"
                                      + (f" (w={w:.2f})" if w < 1 else "")))
@@ -651,21 +770,19 @@ class ThalesEngine:
             m_thr = float(self._m.get("score_thr", 0.6))
             if (st.metro_score > m_thr
                     and urgency >= float(self._m.get("urgency_min", 0.5))):
-                w = self._rel_weight("metronome")
+                w = self._rel_weight("metronome", "up")
                 mult *= 1.0 + w * float(self._m.get("gain", 0.4)) * (
                     st.metro_score - m_thr)
-                if w > 0:
-                    out.fired.append(("metronome", "up"))
+                out.fired.append(("metronome", "up"))
                 out.notes.append(tag(Code.TH_METRONOME_MM,
                                      f"metro={st.metro_score:.2f} stale-quote edge"
                                      + (f" (w={w:.2f})" if w < 1 else "")))
 
             c_score, c_dir = self._clockwork(st, now)
             if c_score > 0 and c_dir == d:
-                w = self._rel_weight("clockwork")
+                w = self._rel_weight("clockwork", "up")
                 mult *= 1.0 + w * float(self._c.get("gain", 0.06)) * c_score
-                if w > 0:
-                    out.fired.append(("clockwork", "up"))
+                out.fired.append(("clockwork", "up"))
                 out.notes.append(tag(Code.TH_CLOCKWORK_FLOW,
                                      f"bucket flow z-gated score={c_score:.2f}"
                                      + (f" (w={w:.2f})" if w < 1 else "")))
@@ -673,11 +790,10 @@ class ThalesEngine:
             prox, _ = self._stop_zones(st, mark)
             if prox > 0.5:
                 # shade DOWN: our stop would join the herd's cluster
-                w = self._rel_weight("stop_prox")
+                w = self._rel_weight("stop_prox", "down")
                 mult *= 1.0 - w * float(self._s.get("pre_gain", 0.1)) * (
                     prox - 0.5) * 2.0
-                if w > 0:
-                    out.fired.append(("stop_prox", "down"))
+                out.fired.append(("stop_prox", "down"))
                 out.notes.append(tag(Code.TH_STOP_SWEEP,
                                      f"stop-cluster proximity {prox:.2f}: "
                                      f"not the lemming"
@@ -688,11 +804,10 @@ class ThalesEngine:
                 if int(sweep.get("dir", 0)) == -d:
                     # cluster consumed; fade the overshoot while fresh
                     age = (now - float(sweep["ts"])) / decay
-                    w = self._rel_weight("stop_revert")
+                    w = self._rel_weight("stop_revert", "up")
                     mult *= 1.0 + w * float(self._s.get("post_gain", 0.1)) \
                         * (1.0 - age)
-                    if w > 0:
-                        out.fired.append(("stop_revert", "up"))
+                    out.fired.append(("stop_revert", "up"))
                     out.notes.append(tag(Code.TH_STOP_SWEEP,
                                          f"post-sweep revert window "
                                          f"({1 - age:.0%} left)"
@@ -855,8 +970,12 @@ class ThalesEngine:
                                for a, st in self._assets.items()},
                     "recent_advice": list(self._counterfactuals)[-5:],
                     "reliability": {
-                        k: {**v, "weight": round(self._rel_weight(k), 3)}
-                        for k, v in self._rel.items()}}
+                        k: {**v, "weight": round(self._rel_weight(
+                            k, _DETECTOR_ADVICE.get(k, "up")), 3)}
+                        for k, v in self._rel.items() if k != "__base__"},
+                    # the shared outcome ledger (_rel_weight's null):
+                    # fired = graded closes, vindicated = wins
+                    "reliability_base": dict(self._rel.get("__base__", {}))}
         except Exception:
             log.debug("thales status degraded", exc_info=True)
             return {"influence": self.influence, "assets": {}}
