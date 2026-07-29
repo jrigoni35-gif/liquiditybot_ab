@@ -427,6 +427,47 @@ def learning_curve_diagnostic(X: np.ndarray, y: np.ndarray, w, sig, res,
              f"the binding constraint, not corpus size")
 
 
+# optional-feed features and their documented neutrals (ml/features.py):
+# each imputes its neutral when the feed is dark, and the imputed constant
+# is also a legitimate measured value — so at-neutral share is the honest
+# LIVENESS meter (Rubin/Little missing-data doctrine: this is the
+# report-only precursor to a missingness-indicator column, which costs a
+# schema bump and is only earned when measured liveness makes the column
+# worth the width — 2026-07-29 defect-category audit).
+EXTRAS_NEUTRALS = (("equity_risk_z", 0.0), ("opt_pcr_z", 0.0),
+                   ("opt_oi_pcr_z", 0.0), ("dominance_delta", 0.0),
+                   ("sent_fear", 0.0), ("fear_greed", 0.5))
+
+
+def extras_liveness_diagnostic(X: np.ndarray, on_synthetic: bool) -> None:
+    """REPORT-ONLY (info() only, never check()): share of corpus rows
+    where each optional-feed feature sits exactly at its neutral. ~100%
+    = the feed has been dark for the whole corpus (dead column, wasted
+    capacity); a falling share = the feed came alive mid-corpus, the
+    exact transition where an indicator column starts earning its keep
+    (training on a mostly-imputed column with no indicator attenuates
+    the true coefficient — Kaufman/Rubin class)."""
+    if on_synthetic:
+        info("extras liveness", "SYNTHETIC benchmark dataset — feed "
+             "liveness has no meaning; skipped")
+        return
+    from ml.features import FEATURE_NAMES
+    for name, neutral in EXTRAS_NEUTRALS:
+        if name not in FEATURE_NAMES:
+            continue
+        col = X[:, FEATURE_NAMES.index(name)]
+        share = float((np.abs(col - neutral) < 1e-9).mean())
+        note = ""
+        if share > 0.95:
+            note = " — feed effectively dark corpus-wide (dead column)"
+        elif share < 0.5:
+            note = (" — feed live for most of the corpus; consider the "
+                    "missingness-indicator column (schema bump) if this "
+                    "family earns model importance")
+        info(f"extras[{name}]",
+             f"at-neutral share {share:.1%} (n={len(col)}){note}")
+
+
 def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
                       on_synthetic: bool, csv_path) -> None:
     """#103 T3 — regime-stratified OOF diagnostic, REPORT-ONLY: every line
@@ -787,12 +828,15 @@ def main() -> int:
         # schema carries no entry_usd, so a true per-trade-return DSR
         # needs a schema addition first; revisit when sizing starts
         # varying materially (Kelly off the floor).
-        sr = float(r.mean() / (r.std() + 1e-12))
+        # ddof=1 (Bessel): population moments inflated SR by sqrt(n/(n-1))
+        # (+1.7% at n=30) in the ANTI-conservative direction on the hard
+        # DSR gate (2026-07-29 defect-category audit; CGL 1983 / Higham).
+        sd = float(r.std(ddof=1)) + 1e-12
+        sr = float(r.mean()) / sd
         d = deflated_sharpe(sr, len(r),
-                            skew=float(((r - r.mean()) ** 3).mean()
-                                       / (r.std() + 1e-12) ** 3),
+                            skew=float(((r - r.mean()) ** 3).mean() / sd ** 3),
                             kurtosis=float(((r - r.mean()) ** 4).mean()
-                                           / (r.std() + 1e-12) ** 4),
+                                           / sd ** 4),
                             n_trials=7)
         return d, sr
 
@@ -852,6 +896,11 @@ def main() -> int:
                                   source.startswith("SYNTHETIC"))
     except Exception as e:                                    # noqa: BLE001
         info(f"learning curve diagnostic skipped: {type(e).__name__}: {e}")
+
+    try:
+        extras_liveness_diagnostic(X, source.startswith("SYNTHETIC"))
+    except Exception as e:                                    # noqa: BLE001
+        info(f"extras liveness diagnostic skipped: {type(e).__name__}: {e}")
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)

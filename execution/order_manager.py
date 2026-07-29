@@ -438,7 +438,12 @@ class OrderManager:
                  else self.taker_fee_bps) / 1e4
         self._note_exec(order.post_only, new_fill * seg_px,
                         seg_px, order.arrival_ref or order.price,
-                        order.side)
+                        order.side,
+                        # dust guard context: segment prices are recovered
+                        # from cumulative-average differences, so a dust
+                        # segment's slip is quantization noise (2026-07-29
+                        # defect-category audit)
+                        order_notional_usd=order.size * order.price)
         self._transition(order, "partial", "venue fill")
         return FillEvent(order, new_fill, seg_px, final=False)
 
@@ -494,7 +499,8 @@ class OrderManager:
         return self._transition(order, "cancelled", reason)
 
     def _note_exec(self, maker: bool, notional_usd: float,
-                   fill_price: float, ref_price: float, side: str) -> None:
+                   fill_price: float, ref_price: float, side: str,
+                   order_notional_usd: float = 0.0) -> None:
         """Book one fill into the execution-quality ledger. Slippage is the
         signed implementation shortfall vs `ref_price` — the ARRIVAL mark at
         submit (callers pass `order.arrival_ref or order.price`): positive bps
@@ -518,13 +524,32 @@ class OrderManager:
             if math.isfinite(fill) and math.isfinite(ref) and ref > 0 \
                     and fill > 0:
                 sgn = 1.0 if side == "buy" else -1.0
-                self._slip_bps.append(sgn * (fill - ref) / ref * 1e4)
+                # (slip, notional) pairs: the unweighted mean stays the
+                # legacy avg_slip_bps; the notional-weighted companion
+                # (Cochran ch.6 / Bessembinder 2003, 2026-07-29 defect-
+                # category audit) stops $10 probe fills from outvoting
+                # conviction tickets 4x their size in the operator's
+                # slip read. Zero-notional fills still count in the
+                # unweighted mean, never in the weighted one. DUST GUARD
+                # (same audit, Higham-class): a segment under 1% of the
+                # order recovers its price from the difference of two
+                # near-equal products, amplifying venue quantization of
+                # the cumulative average into bps-scale slip noise -
+                # skip the LEDGER append only (fees/notional booking
+                # above stay exact by construction).
+                dust_floor = 0.01 * float(order_notional_usd or 0.0)
+                if n >= dust_floor or dust_floor <= 0.0:
+                    self._slip_bps.append(
+                        (sgn * (fill - ref) / ref * 1e4, n))
         except (TypeError, ValueError):
             pass
 
     def status(self) -> dict:
         fills = self.maker_fills + self.taker_fills
-        slips = list(self._slip_bps)
+        pairs = list(self._slip_bps)
+        slips = [s for s, _ in pairs]
+        w_num = sum(s * n for s, n in pairs)
+        w_den = sum(n for _, n in pairs)
         return {"open": len(self.open_orders()),
                 "tracked": len(self._orders),
                 "latency_ms": round(self.latency_ms, 1),
@@ -540,6 +565,11 @@ class OrderManager:
                 "taker_notional_usd": round(self.taker_notional_usd, 2),
                 "avg_slip_bps": round(sum(slips) / len(slips), 2)
                 if slips else None,
+                # dollar-weighted twin: what a unit of traded notional
+                # actually paid (extend-don't-break: new key, old key
+                # keeps its per-fill semantics)
+                "slip_bps_notional_weighted": round(w_num / w_den, 2)
+                if w_den > 0 else None,
                 "worst_slip_bps": round(max(slips), 2) if slips else None,
                 # W2-9 remainder: last fee-tier reconciliation result (None
                 # until the first one runs) -> status.json -> telemetry.

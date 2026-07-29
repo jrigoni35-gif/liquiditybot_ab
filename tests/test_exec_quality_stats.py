@@ -283,9 +283,66 @@ def test_live_multi_segment_slippage_uses_segment_price():
     om._poll_live(o, now=o.created_ts + 2.0,
                   batch={"T1": {"vol_exec": "1.0", "price": "2001",
                                 "status": "open"}})
-    slips = list(om._slip_bps)
+    slips = [s for s, _ in om._slip_bps]              # (slip, notional) pairs
     assert slips[0] == pytest.approx(0.0)             # seg 1 at the limit
     assert slips[1] == pytest.approx(10.0)            # seg 2 at its OWN price
     assert om.status()["worst_slip_bps"] == pytest.approx(10.0)
     # notional booked per segment price: 0.5*2000 + 0.5*2002
     assert om.taker_notional_usd == pytest.approx(0.5 * 2000 + 0.5 * 2002)
+
+
+# --- 2026-07-29 defect-category audit: weighted slip + dust guard ------------
+
+def test_slip_ledger_notional_weighted_companion():
+    """avg_slip_bps stays the per-fill mean (legacy key, unchanged);
+    slip_bps_notional_weighted answers what a unit of traded NOTIONAL
+    paid (Cochran ch.6 / Bessembinder 2003): $10 probe fills must not
+    outvote a 3x-notional conviction fill."""
+    om = OrderManager.__new__(OrderManager)
+    om.maker_fee_bps, om.taker_fee_bps = 25.0, 40.0
+    om.maker_fills = om.taker_fills = 0
+    om.maker_notional_usd = om.taker_notional_usd = 0.0
+    om.latency_ms = 0.0
+    om.venue_rejects = om.zero_format_rejects = 0
+    om._deadman_failures = 0
+    om._fee_recon_result = None
+    om._orders = {}
+    from collections import deque
+    om._slip_bps = deque(maxlen=200)
+    # probe fill: $10 at +1bp; conviction fill: $30 at +5bps
+    om._note_exec(False, 10.0, 100.01, 100.0, "buy")
+    om._note_exec(False, 30.0, 100.05, 100.0, "buy")
+    s = om.status()
+    assert s["avg_slip_bps"] == pytest.approx((1.0 + 5.0) / 2, abs=0.01)
+    assert s["slip_bps_notional_weighted"] == pytest.approx(
+        (1.0 * 10 + 5.0 * 30) / 40, abs=0.01)      # 4.0, not 3.0
+    # zero-notional fill counts in the per-fill mean, never the weighted
+    om._note_exec(False, float("nan"), 100.03, 100.0, "buy")
+    s2 = om.status()
+    assert s2["avg_slip_bps"] == pytest.approx((1 + 5 + 3) / 3, abs=0.01)
+    assert s2["slip_bps_notional_weighted"] == pytest.approx(4.0, abs=0.01)
+
+
+def test_dust_segment_skips_slip_ledger_not_fees():
+    """A segment under 1% of the order's notional recovers its price from
+    the difference of two near-equal products (Higham-class cancellation
+    amplifying venue quantization) — it must not pollute the slip ledger,
+    while notional accounting stays exact."""
+    om = OrderManager.__new__(OrderManager)
+    om.maker_fee_bps, om.taker_fee_bps = 25.0, 40.0
+    om.maker_fills = om.taker_fills = 0
+    om.maker_notional_usd = om.taker_notional_usd = 0.0
+    from collections import deque
+    om._slip_bps = deque(maxlen=200)
+    # order notional $2000; dust segment $10 (0.5%) -> ledger skipped
+    om._note_exec(False, 10.0, 101.0, 100.0, "buy",
+                  order_notional_usd=2000.0)
+    assert len(om._slip_bps) == 0
+    assert om.taker_notional_usd == pytest.approx(10.0)   # booking exact
+    # a 5% segment of the same order IS ledgered
+    om._note_exec(False, 100.0, 101.0, 100.0, "buy",
+                  order_notional_usd=2000.0)
+    assert len(om._slip_bps) == 1
+    # no order context (whole-fill callers) -> guard inert, always ledgered
+    om._note_exec(False, 0.5, 101.0, 100.0, "buy")
+    assert len(om._slip_bps) == 2
