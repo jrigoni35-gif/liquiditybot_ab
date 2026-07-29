@@ -46,9 +46,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np                                            # noqa: E402
 
 from ml.history import HistoryStore                            # noqa: E402
-from ml.overfit import (REGIME_DEGRADE_MARGIN_AUC, REGIME_MIN_N,  # noqa: E402
+from ml.models import GradientBoostedStumps                    # noqa: E402
+from ml.overfit import (LC_MIN_OOF, LC_TREND_MARGIN_AUC,       # noqa: E402
+                        REGIME_DEGRADE_MARGIN_AUC, REGIME_MIN_N,
                         REGIME_STRATA, deflated_sharpe,
-                        feature_dof_report, model_space_pbo,
+                        feature_dof_report, learning_curve,
+                        learning_curve_trend, model_space_pbo,
                         purge_leakage_probe, regime_stratified_oof,
                         regime_stratum_labels, shuffled_label_check,
                         train_test_gap)
@@ -361,6 +364,67 @@ def regime_corpus_stats(path) -> dict:
             "base_rate": float(label_a[mask].mean()),
         }
     return out
+
+
+def learning_curve_diagnostic(X: np.ndarray, y: np.ndarray, w, sig, res,
+                              on_synthetic: bool) -> None:
+    """Standing plateau-vs-climb instrument (operator-approved 2026-07-29;
+    Brownlee/MLM's empirical sample-size method), REPORT-ONLY: every line
+    goes through info(), never check() — whatever the trend says, it can
+    not move PASS_N/FAIL_N or the exit code. Skill vs corpus size on
+    expanding chronological prefixes, scored with the same time-purged
+    walk-forward the deployed selector uses (ml.overfit.learning_curve).
+    gbt only — the ladder's workhorse family; one family bounds runtime.
+
+    The verdict answers ONE question as new-era rows accrue: is the model
+    data-starved (CLIMBING — more rows still buy skill) or representation-
+    limited (FLAT — more rows alone buy nothing; improve features/labels
+    instead)? 2026-07-29 baseline on 1,020 era rows: FLAT at ~0.50 AUC."""
+    if on_synthetic:
+        info("learning curve", "SYNTHETIC benchmark dataset — corpus-size "
+             "trend has no market meaning; skipped")
+        return
+    if sig is None:
+        info("learning curve", "no signal-time array — chronological "
+             "prefixes undefined; skipped")
+        return
+    pts = learning_curve(X, y, w, sig, res,
+                         lambda: GradientBoostedStumps(seed=7))
+    info("learning curve caveat",
+         "each point refits gbt on a chronological PREFIX of the corpus "
+         "(time-purged OOF, deployed protocol) — points are the same "
+         "statistic across sizes, but none is OF-1's own pooled number")
+    for p in pts:
+        if p["scored"]:
+            info(f"lc[n={p['n']}]",
+                 f"oof_n={p['n_oof']} auc={p['auc']:.3f} "
+                 f"brier={p['brier']:.4f}")
+        else:
+            info(f"lc[n={p['n']}]",
+                 f"oof_n={p['n_oof']} < {LC_MIN_OOF} — not scored")
+    t = learning_curve_trend(pts)
+    if t["trend"] == "insufficient":
+        info("learning curve trend",
+             f"insufficient ({t['n_scored']} scored point(s) < 3) — no "
+             f"trend claim")
+    elif t["trend"] == "climbing":
+        info("learning curve trend",
+             f"CLIMBING (delta_auc={t['delta_auc']:+.3f} > "
+             f"+{LC_TREND_MARGIN_AUC:.2f}) — data-starved: more rows are "
+             f"still buying skill; corpus growth is the highest-leverage "
+             f"learning input right now")
+    elif t["trend"] == "declining":
+        info("learning curve trend FLAG",
+             f"DECLINING (delta_auc={t['delta_auc']:+.3f} < "
+             f"-{LC_TREND_MARGIN_AUC:.2f}) — later rows are HURTING "
+             f"skill: regime/era drift inside the training window "
+             f"(check ML-080 mix drift and era_exclusion)")
+    else:
+        info("learning curve trend",
+             f"FLAT (|delta_auc={t['delta_auc']:+.3f}| <= "
+             f"{LC_TREND_MARGIN_AUC:.2f}) — representation-limited: more "
+             f"rows alone are not buying skill; feature/label quality is "
+             f"the binding constraint, not corpus size")
 
 
 def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
@@ -773,6 +837,14 @@ def main() -> int:
                           store.path)
     except Exception as e:                                    # noqa: BLE001
         info(f"regime diagnostic skipped: {type(e).__name__}: {e}")
+
+    # same isolation contract as the regime diagnostic above: report-only,
+    # so any failure degrades to one skip line, never the battery
+    try:
+        learning_curve_diagnostic(X, y, w, sig, res,
+                                  source.startswith("SYNTHETIC"))
+    except Exception as e:                                    # noqa: BLE001
+        info(f"learning curve diagnostic skipped: {type(e).__name__}: {e}")
 
     # ---- report ----------------------------------------------------------
     out = Path(args.report_path)

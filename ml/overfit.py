@@ -873,6 +873,107 @@ REGIME_MIN_N = 30
 REGIME_DEGRADE_MARGIN_AUC = 0.12
 
 
+# --------------------------------------------------------- learning curve
+# Standing plateau-vs-climb instrument (operator-approved 2026-07-29,
+# Brownlee/MLM's empirical sample-size method): score expanding
+# CHRONOLOGICAL prefixes of the corpus with the same time-purged
+# walk-forward the deployed selector uses, and call the trend. A CLIMBING
+# curve means the model is data-starved (more rows still buy skill); a
+# FLAT one means representation-limited (more rows alone buy nothing —
+# improve features/labels instead). Report-only in scripts/
+# overfit_check.py: whatever the verdict, it never moves PASS_N/FAIL_N.
+LC_FRACTIONS = (0.25, 0.40, 0.55, 0.70, 0.85, 1.00)
+# Same evidence floor family as REGIME_MIN_N's rationale (how many scored
+# outcomes before a point statistic means anything), scaled up because a
+# curve POINT is compared against its neighbors, not just reported: with
+# fewer than ~40 OOF rows the AUC standard error alone (~0.09 at the
+# corpus base rate) exceeds the trend margin below, making every
+# comparison noise by construction.
+LC_MIN_OOF = 40
+# Climb/decline needs the last-vs-first delta to clear the AUC standard
+# error at typical full-prefix n_oof (~0.03 at 700+ scored rows) — below
+# it the honest read is "flat within noise".
+LC_TREND_MARGIN_AUC = 0.03
+
+
+def learning_curve(X, y, w, sig, res, model_factory,
+                   fractions=LC_FRACTIONS, n_splits: int = 5,
+                   label_span: int = 96, min_oof: int = LC_MIN_OOF) -> list:
+    """Skill vs corpus size on expanding chronological prefixes.
+
+    Rows are sorted by `sig` (signal time) INTERNALLY, so callers may hand
+    the corpus in any order; each prefix is then genuinely "the corpus as
+    it stood earlier", and every prefix is scored with purged_walk_forward
+    (time purge via the sorted sig/res slices — the deployed selector's
+    own leak-free protocol). One model family per call (`model_factory`
+    returns a fresh unfitted model); the runner passes gbt, the ladder's
+    workhorse. Returns one dict per fraction: {n, scored, n_oof, auc,
+    brier} — a prefix whose pooled OOF coverage is under `min_oof` (or
+    single-class) reports scored=False with None metrics, never a noisy
+    point estimate."""
+    X = np.asarray(X, float)
+    y = np.asarray(y, float)
+    sig = np.asarray(sig, float)
+    w = None if w is None else np.asarray(w, float)
+    res = None if res is None else np.asarray(res, float)
+    order = np.argsort(sig, kind="stable")
+    X, y, sig = X[order], y[order], sig[order]
+    w = None if w is None else w[order]
+    res = None if res is None else res[order]
+    points = []
+    for frac in fractions:
+        n = max(int(round(len(X) * frac)), 1)
+        Xp, yp, sp = X[:n], y[:n], sig[:n]
+        wp = None if w is None else w[:n]
+        rp = None if res is None else res[:n]
+        preds = np.full(n, np.nan)
+        for tr, te in purged_walk_forward(n, n_splits, label_span,
+                                          sig=sp, res=rp):
+            if len(tr) < 20 or not 0 < yp[tr].sum() < len(tr):
+                continue
+            m = model_factory()
+            if wp is None:
+                m.fit(Xp[tr], yp[tr])
+            else:
+                m.fit(Xp[tr], yp[tr], sample_weight=wp[tr])
+            preds[te] = np.asarray(m.predict_proba(Xp[te]), float)
+        mask = ~np.isnan(preds)
+        n_oof = int(mask.sum())
+        point = {"n": n, "scored": False, "n_oof": n_oof,
+                 "auc": None, "brier": None}
+        if n_oof >= min_oof and 0 < yp[mask].sum() < n_oof:
+            point["scored"] = True
+            point["auc"] = float(auc_score(yp[mask], preds[mask]))
+            point["brier"] = float(brier_score(yp[mask], preds[mask]))
+        points.append(point)
+    return points
+
+
+def learning_curve_trend(points: list,
+                         margin: float = LC_TREND_MARGIN_AUC) -> dict:
+    """Call the curve: 'climbing' | 'flat' | 'declining' | 'insufficient'.
+
+    Compares the mean AUC of the last two SCORED points against the first
+    two (pairs, not endpoints, so one lucky fold can't flip the verdict);
+    fewer than 3 scored points is 'insufficient' — no trend claim on two
+    dots. Returns {trend, delta_auc, n_scored} with delta_auc None when
+    insufficient."""
+    scored = [p for p in points if p.get("scored")]
+    if len(scored) < 3:
+        return {"trend": "insufficient", "delta_auc": None,
+                "n_scored": len(scored)}
+    head = float(np.mean([p["auc"] for p in scored[:2]]))
+    tail = float(np.mean([p["auc"] for p in scored[-2:]]))
+    delta = tail - head
+    if delta > margin:
+        trend = "climbing"
+    elif delta < -margin:
+        trend = "declining"
+    else:
+        trend = "flat"
+    return {"trend": trend, "delta_auc": delta, "n_scored": len(scored)}
+
+
 def regime_stratum_labels(one_hot) -> np.ndarray:
     """Stratum = argmax over the five regime one-hot columns (column order:
     REGIME_STRATA, matching ml.features.FEATURE_NAMES' regime_bull_quiet,

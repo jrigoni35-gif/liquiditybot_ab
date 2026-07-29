@@ -303,3 +303,108 @@ def test_regime_stratified_oof_flags_material_degrade_vs_pooled():
     not_degraded = regime_stratified_oof(y, np.arange(n), pred, one_hot,
                                          pooled_auc=0.55)
     assert not_degraded["bear"]["degrade"] is False
+
+
+# ------------------------------------------------------- learning curve (MLM)
+# Standing plateau-vs-climb instrument (operator-approved, 2026-07-29): skill
+# vs corpus size on expanding CHRONOLOGICAL prefixes, scored with the same
+# time-purged walk-forward the deployed selector uses. Report-only in
+# scripts/overfit_check.py — these pins cover the pure computation here.
+
+def _lc_factory(seed=7):
+    from ml.models import GradientBoostedStumps
+    return lambda: GradientBoostedStumps(seed=seed)
+
+
+def test_learning_curve_shape_and_prefix_monotonicity():
+    from ml.overfit import LC_FRACTIONS, learning_curve
+    X, y = _interaction_world(700, seed=5)
+    sig = np.arange(700, dtype=float) * 300.0
+    pts = learning_curve(X, y, None, sig, None, _lc_factory(),
+                         label_span=30)
+    assert len(pts) == len(LC_FRACTIONS)
+    ns = [p["n"] for p in pts]
+    assert ns == sorted(ns) and ns[-1] == 700
+    for p in pts:
+        if p["scored"]:
+            assert 0.0 <= p["auc"] <= 1.0
+            assert 0.0 <= p["brier"] <= 1.0
+            assert p["n_oof"] >= 1
+
+
+def test_learning_curve_sorts_by_signal_time_itself():
+    """Prefixes must be CHRONOLOGICAL regardless of row order handed in —
+    a shuffled corpus and its sorted twin produce identical curves."""
+    from ml.overfit import learning_curve
+    X, y = _interaction_world(500, seed=6)
+    sig = np.arange(500, dtype=float) * 300.0
+    rng = np.random.default_rng(0)
+    perm = rng.permutation(500)
+    a = learning_curve(X, y, None, sig, None, _lc_factory(), label_span=30)
+    b = learning_curve(X[perm], y[perm], None, sig[perm], None,
+                       _lc_factory(), label_span=30)
+    for pa, pb in zip(a, b):
+        assert pa["n"] == pb["n"] and pa["scored"] == pb["scored"]
+        if pa["scored"]:
+            assert pa["auc"] == pb["auc"]
+
+
+def test_learning_curve_thin_prefix_not_scored():
+    from ml.overfit import LC_MIN_OOF, learning_curve
+    # 80-row corpus: the 25% prefix (20 rows) can never clear LC_MIN_OOF
+    X, y = _interaction_world(80, seed=7)
+    sig = np.arange(80, dtype=float) * 300.0
+    pts = learning_curve(X, y, None, sig, None, _lc_factory(),
+                         label_span=5)
+    assert pts[0]["scored"] is False
+    assert pts[0]["auc"] is None
+    assert LC_MIN_OOF > 0                     # the floor exists and is real
+
+
+def test_learning_curve_planted_signal_scores_above_chance_at_full_n():
+    # a strong planted signal must be visible at the full prefix — the
+    # instrument can distinguish "there is skill" from noise
+    X, y = _interaction_world(900, d=10, seed=8, dense=True)
+    from ml.overfit import learning_curve
+    sig = np.arange(900, dtype=float) * 300.0
+    pts = learning_curve(X, y, None, sig, None, _lc_factory(),
+                         label_span=30)
+    assert pts[-1]["scored"] and pts[-1]["auc"] > 0.55
+
+
+def test_learning_curve_trend_verdicts():
+    from ml.overfit import LC_TREND_MARGIN_AUC, learning_curve_trend
+
+    def _pts(aucs):
+        return [{"n": 100 * (i + 1), "scored": True, "auc": a,
+                 "brier": 0.25, "n_oof": 100} for i, a in enumerate(aucs)]
+
+    assert learning_curve_trend(_pts([0.48, 0.50, 0.55, 0.58]))["trend"] \
+        == "climbing"
+    assert learning_curve_trend(_pts([0.52, 0.50, 0.51, 0.52]))["trend"] \
+        == "flat"
+    assert learning_curve_trend(_pts([0.58, 0.56, 0.50, 0.48]))["trend"] \
+        == "declining"
+    # unscored points are excluded; < 3 scored points -> insufficient
+    thin = [{"n": 100, "scored": False, "auc": None, "brier": None,
+             "n_oof": 5}] * 4
+    assert learning_curve_trend(thin)["trend"] == "insufficient"
+    two = _pts([0.5, 0.6])
+    assert learning_curve_trend(two)["trend"] == "insufficient"
+    assert 0.0 < LC_TREND_MARGIN_AUC < 0.5
+
+
+def test_overfit_check_learning_curve_section_is_report_only():
+    """The runner's learning-curve section may only info(), never check() —
+    same contract the regime diagnostic pins. Source pin on the script."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts"
+           / "overfit_check.py").read_text(encoding="utf-8")
+    start = src.index("def learning_curve_diagnostic(")
+    end = src.index("\ndef ", start + 10)
+    # judge the CODE, not the docstring (which may itself say "check()")
+    code = src[start:end].split('"""')[2]
+    assert "check(" not in code
+    assert "info(" in code
+    # and main() wraps it in the same degrade-to-a-skip-line isolation
+    assert "learning curve diagnostic skipped" in src
