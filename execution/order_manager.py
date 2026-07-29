@@ -169,7 +169,9 @@ class OrderManager:
         # DRY-RUN passive-fill realism (order_manager.sim_fill). The old
         # model fired a FLAT base probability regardless of how much depth
         # rested ahead of us (MP-7) — the exact Poisson-fill optimism the
-        # queue-position literature (Huang-Lehalle-Rosenbaum; Moallemi-Yuan)
+        # queue-position literature (Huang-Lehalle-Rosenbaum, JASA 2015;
+        # Moallemi-Yuan — the latter a working paper, not verified
+        # peer-reviewed as of the 2026-07-29 literature audit)
         # shows over-credits passive fills, biasing candidate labels toward
         # entries that would never have filled. queue_aware gates the fill
         # on the depth ahead at placement clearing first; the base prob then

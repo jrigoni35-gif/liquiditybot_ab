@@ -1407,6 +1407,13 @@ class HistoryStore:
                         "clean rows remain", Code.ML_DIRTY_LABEL.value,
                         dropped_dirty, len(X))
         # ---- de Prado corrections (config ml.sample_weights; AFML ch.4) ----
+        # KNOWN OMISSION vs the book (2026-07-29 literature audit):
+        # sequential bootstrap (AFML sec. 4.5) is deliberately not
+        # implemented — it only affects resampling-based families
+        # (EnsembleMLP/AdaptiveGBT bags); logistic/GBT consume these
+        # uniqueness weights directly, and the book's own experiments show
+        # the accuracy effect is second-order. Revisit if mean uniqueness
+        # stays < ~0.3 while a bagged family wins selection.
         wc = weights_cfg or {}
         _tele_cfg = telemetry_cfg or {}
         uniq_mean = 1.0

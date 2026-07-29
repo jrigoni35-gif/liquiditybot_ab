@@ -408,3 +408,71 @@ def test_overfit_check_learning_curve_section_is_report_only():
     assert "info(" in code
     # and main() wraps it in the same degrade-to-a-skip-line isolation
     assert "learning curve diagnostic skipped" in src
+
+
+# ------------------------------------------------- DSR expected-max fidelity
+def test_dsr_expected_max_uses_exact_quantiles():
+    """Bailey & LdP's SR0 = sqrt(V)*[(1-g)*Z^-1(1-1/N) + g*Z^-1(1-1/(N*e))]
+    with EXACT inverse-normal quantiles (2026-07-29 literature audit: the
+    old sqrt(2 ln N) asymptotics overstated SR0 +12-17% at N=10-100)."""
+    import math
+
+    from ml.overfit import _norm_cdf, _norm_ppf, deflated_sharpe
+
+    # the inverse is a true inverse of the module's own CDF
+    for p in (0.05, 0.5, 0.9, 0.99, 0.999):
+        assert abs(_norm_cdf(_norm_ppf(p)) - p) < 1e-12
+    em = 0.5772156649
+    for trials in (2, 10, 100):
+        v = 0.04
+        expected = math.sqrt(v) * (
+            (1 - em) * _norm_ppf(1 - 1 / trials)
+            + em * _norm_ppf(1 - 1 / (trials * math.e)))
+        got = deflated_sharpe(0.5, 250, n_trials=trials,
+                              var_trial_sr=v)["sr0_threshold"]
+        assert abs(got - expected) < 1e-12
+    # hand-checked paper value at N=10, V=0.04: Z^-1(0.9)=1.2816,
+    # Z^-1(1-1/(10e))=1.7862 -> SR0 = 0.2*(0.4228*1.2816+0.5772*1.7862)
+    got10 = deflated_sharpe(0.5, 250, n_trials=10,
+                            var_trial_sr=0.04)["sr0_threshold"]
+    assert abs(got10 - 0.3146) < 5e-4
+    # single trial: no deflation
+    assert deflated_sharpe(0.5, 250, n_trials=1)["sr0_threshold"] == 0.0
+
+
+def test_parkinson_rms_is_unbiased_on_planted_gbm():
+    """RMS (variance-domain mean) removes the exact Jensen bias
+    (mean-of-vols / RMS = sqrt(8/pi)/sqrt(4ln2) = 0.9584 under driftless
+    BM — Parkinson 1980). Two pins: (a) the Jensen ratio itself on the
+    planted candles, (b) the blended estimate lands near true sigma at
+    fine intra-bar discretization (the residual gap is Garman-Klass
+    discrete-monitoring bias, ~O(1/sqrt(steps)), NOT the Jensen bias —
+    at 500 steps it is a few percent, protective direction)."""
+    import numpy as np
+
+    from regime.vol_regime import VolRegimeEngine
+
+    rng = np.random.default_rng(3)
+    true_sigma, n, steps = 0.003, 3000, 500
+    candles = []
+    px = 100.0
+    for _ in range(n):
+        path = px * np.exp(np.cumsum(
+            rng.normal(0.0, true_sigma / np.sqrt(steps), steps)))
+        candles.append({"open": px, "high": float(path.max()),
+                        "low": float(path.min()),
+                        "close": float(path[-1])})
+        px = float(path[-1])
+    eng = VolRegimeEngine({"fast_lookback_bars_5m": n})
+    highs = np.array([c["high"] for c in candles])
+    lows = np.array([c["low"] for c in candles])
+    variances = eng._parkinson(highs, lows)
+    rms = float(np.sqrt(variances.mean()))
+    mean_of_vols = float(np.sqrt(variances).mean())     # the OLD estimator
+    assert abs(mean_of_vols / rms - 0.9584) < 0.01      # the exact Jensen gap
+    st = eng.update("X", candles, [])
+    est = st.sigma_bar_pct / 100.0
+    # blend within a few percent of truth; the old form sat ~2.1% lower
+    # ON TOP of discretization by construction
+    assert abs(est - true_sigma) / true_sigma < 0.045
+    assert est > (0.5 * true_sigma + 0.5 * mean_of_vols) - 1e-12

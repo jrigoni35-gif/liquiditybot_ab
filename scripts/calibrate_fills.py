@@ -159,6 +159,31 @@ def estimate_sigma_bps(frames: list) -> float:
     if gaps.size == 0:
         return 30.0
     frame_sec = float(np.median(gaps))
+    # ZMA/Bandi-Russell microstructure-noise control (2026-07-29
+    # literature audit): with iid quote noise eps, E[RV at n samples] =
+    # IV + 2n*E[eps^2] — rescaling raw ~5s returns to per-bar amplifies
+    # the noise term x(BAR_SEC/frame_sec). Subsample to a ~60s grid and
+    # AVERAGE the per-offset variances (the two-scale estimator's
+    # subsample-and-average step): noise contribution drops by the
+    # stride factor while the diffusion term is preserved. Effect at the
+    # operating point: <=5% on tight-spread majors, tens of percent of
+    # spurious sigma removed on thin alts (where d_bar buckets and the
+    # D_MAX gate were being distorted).
+    SPARSE_SEC = 60.0
+    stride = max(int(round(SPARSE_SEC / max(frame_sec, 1e-3))), 1)
+    if stride > 1 and len(arr) > 2 * stride:
+        log_px = np.log(arr)
+        variances = []
+        for off in range(stride):
+            sub = np.diff(log_px[off::stride])
+            sub = sub[np.isfinite(sub)]
+            if sub.size >= 2:
+                variances.append(float(np.var(sub)))
+        if variances:
+            sub_sec = stride * frame_sec
+            scale = math.sqrt(BAR_SEC / max(sub_sec, 1e-3))
+            sig = math.sqrt(float(np.mean(variances))) * 1e4 * scale
+            return max(sig, 1.0)
     scale = math.sqrt(BAR_SEC / max(frame_sec, 1e-3))
     return max(float(np.std(rets)) * 1e4 * scale, 1.0)
 

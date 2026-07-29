@@ -64,8 +64,14 @@ class VolRegimeEngine:
 
     @staticmethod
     def _parkinson(highs: np.ndarray, lows: np.ndarray) -> np.ndarray:
+        """Per-bar Parkinson VARIANCE estimates (hl^2 / 4ln2), NOT vols.
+        Parkinson (1980) defines the estimator in the variance domain;
+        averaging per-bar VOLS instead carries an exact deterministic
+        bias (E[|hl|]/sqrt(4ln2) = sqrt(8/pi)/sqrt(4ln2) = 0.9584, i.e.
+        -4.2% on the leg — 2026-07-29 literature audit). Callers take
+        sqrt(mean(...)) — the RMS — to land in vol space."""
         hl = np.log(np.maximum(highs, EPS) / np.maximum(lows, EPS))
-        return np.sqrt(hl * hl / (4.0 * np.log(2.0)))
+        return hl * hl / (4.0 * np.log(2.0))
 
     def update(self, asset: str, candles_5m: list, candles_daily: list) -> VolState:
         st = self._states.get(asset) or VolState(asset=asset)
@@ -78,7 +84,9 @@ class VolRegimeEngine:
             lows = np.array([c["low"] for c in c5], dtype=float)
             rets = np.diff(np.log(np.maximum(closes, EPS)))
             cc = float(rets.std())
-            pk = float(self._parkinson(highs, lows).mean())
+            # RMS of per-bar Parkinson variances (variance-domain mean,
+            # then sqrt) — the estimator's own domain; see _parkinson
+            pk = float(np.sqrt(self._parkinson(highs, lows).mean()))
             sigma_bar = 0.5 * cc + 0.5 * pk           # blended per-bar vol
             st.sigma_bar_pct = sigma_bar * 100.0
             st.measured = True
@@ -89,16 +97,20 @@ class VolRegimeEngine:
         if candles_daily and len(candles_daily) >= 40:
             dh = np.array([c["high"] for c in candles_daily], dtype=float)
             dl = np.array([c["low"] for c in candles_daily], dtype=float)
-            pv = self._parkinson(dh, dl)
+            # per-day Parkinson VOLS (sqrt of per-day variances — a single
+            # bar per day, so this is the same per-day number as before;
+            # only multi-bar AVERAGES needed the RMS correction)
+            pv = np.sqrt(self._parkinson(dh, dl))
             # compare the fast (intraday-derived) daily vol to history; if
-            # the fast estimate is missing, fall back to last 5 daily bars.
+            # the fast estimate is missing, fall back to the RMS of the
+            # last 5 daily bars (variance-domain mean, same correction).
             # Gate on `measured`, not truthiness: the dataclass placeholder
             # sigma_daily_pct=2.0 is truthy, which made this fallback dead
             # code and fabricated the percentile from a constant whenever
             # daily candles were warm before the 5m estimate (2026-07-29
             # unit audit).
             current = st.sigma_daily_pct / 100.0 if st.measured \
-                else float(pv[-5:].mean())
+                else float(np.sqrt((pv[-5:] ** 2).mean()))
             st.percentile = float((pv < current).mean() * 100.0)
 
         if st.percentile >= self.extreme_pct:

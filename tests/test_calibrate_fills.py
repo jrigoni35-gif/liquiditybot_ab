@@ -86,21 +86,40 @@ def test_trade_through_counts_empty_frames_safe():
 
 
 def test_sigma_is_rescaled_to_the_bar_clock():
-    """2026-07-29 unit audit: the forward model's sigma is per 5-MINUTE
-    bar; frames arrive per ~5s poll. The estimator must rescale the
-    per-frame std by sqrt(BAR_SEC/frame_gap) or every recommendation
-    inflates ~sqrt(60)x."""
+    """2026-07-29 unit audit + literature pass: the forward model's sigma
+    is per 5-MINUTE bar; frames arrive per ~5s poll. A true random walk
+    must come out at per-step-sigma x sqrt(300/step) regardless of the
+    sampling clock (diffusion preserved through the ZMA subsample)."""
+    import numpy as np
+
     from scripts.calibrate_fills import estimate_sigma_bps
 
-    # alternating +-10bps mid moves, 5s apart -> per-frame std ~10bps
+    rng = np.random.default_rng(7)
     px, frames = 100.0, []
-    for i in range(200):
-        px *= (1.001 if i % 2 == 0 else 1.0 / 1.001)
+    for i in range(600):
+        px *= (1.001 if rng.random() < 0.5 else 1.0 / 1.001)  # +-10bps RW
         frames.append({"ts": 1000.0 + 5.0 * i,
                        "bid": px * 0.9999, "ask": px * 1.0001})
     sig = estimate_sigma_bps(frames)
-    assert 70.0 < sig < 85.0        # 10bps x sqrt(300/5) ~= 77.5 per bar
+    assert 60.0 < sig < 95.0        # 10bps x sqrt(60) ~= 77.5 per bar
     # frames already on the bar clock need (almost) no rescale
     frames300 = [{"ts": 1000.0 + 300.0 * i, "bid": f["bid"], "ask": f["ask"]}
                  for i, f in enumerate(frames)]
-    assert 8.0 < estimate_sigma_bps(frames300) < 12.0
+    sig300 = estimate_sigma_bps(frames300)
+    assert 7.0 < sig300 < 14.0
+
+
+def test_sigma_rejects_pure_quote_bounce_as_noise():
+    """ZMA/Bandi-Russell property (2026-07-29 literature audit):
+    perfectly ALTERNATING +-10bps mids are quote bounce (E[RV] = IV +
+    2n*E[eps^2] with IV ~ 0), not diffusion — the raw 5s estimator read
+    them as ~77bps/bar; the 60s subsample-and-average must read them as
+    ~nothing (the 12-step compound of alternation cancels)."""
+    from scripts.calibrate_fills import estimate_sigma_bps
+
+    px, frames = 100.0, []
+    for i in range(600):
+        px *= (1.001 if i % 2 == 0 else 1.0 / 1.001)
+        frames.append({"ts": 1000.0 + 5.0 * i,
+                       "bid": px * 0.9999, "ask": px * 1.0001})
+    assert estimate_sigma_bps(frames) < 15.0    # was ~77.5 pre-subsample

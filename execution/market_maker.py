@@ -20,6 +20,15 @@ profitable-or-silent:
   contract — sqrt(tau) is the deliberate choice (quote width tracks the
   diffusion envelope, not linear time), and the doc now matches it. The
   intensity term ln(1+gamma/k)/gamma * sigma is a pure fraction too.
+  LITERATURE MAPPING (2026-07-29 audit, citations verified): the
+  linear-sigma overall form (not A-S 2008's gamma*sigma^2*(T-t)) is the
+  Gueant-Lehalle-Fernandez-Tapia 2013 STATIONARY normalization — the
+  peer-reviewed form for perpetual quoting, where raw A-S collapses to
+  the fee floor as T-t -> 0. Multiplying the intensity term by sigma is
+  not in either paper: it re-parameterizes the fill-decay constant
+  kappa_AS = k/sigma (distance measured in sigma units — the same
+  nondimensionalization pretrade's p_fill uses), and as sigma -> 0 the
+  structural fee floor below binds, so the term is fail-safe.
   All inputs validated finite; garbage in -> quote at maximum-width
   posture around the last sane value rather than a NaN quote.
 

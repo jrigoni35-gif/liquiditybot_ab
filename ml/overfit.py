@@ -706,6 +706,21 @@ def _norm_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+def _norm_ppf(p: float) -> float:
+    """Exact inverse of _norm_cdf via bisection (stdlib-only, keeping the
+    module's no-scipy stance). 60 halvings of [-10, 10] give ~2e-17
+    interval width — far past float precision for every p we use."""
+    p = min(max(p, 1e-15), 1.0 - 1e-15)
+    lo, hi = -10.0, 10.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if _norm_cdf(mid) < p:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
 def deflated_sharpe(sr_observed: float, n_returns: int, skew: float = 0.0,
                     kurtosis: float = 3.0, n_trials: int = 1,
                     var_trial_sr: float | None = None) -> dict:
@@ -719,15 +734,17 @@ def deflated_sharpe(sr_observed: float, n_returns: int, skew: float = 0.0,
     trials = max(int(n_trials), 1)
     if var_trial_sr is None:
         var_trial_sr = max(sr_observed ** 2, 0.01)
-    # expected max SR under H0 across `trials` tries (Euler-Mascheroni
-    # approximation of E[max of normals])
+    # expected max SR under H0 across `trials` tries — Bailey & LdP's own
+    # form: sqrt(V)*[(1-gamma)*Z^-1(1-1/N) + gamma*Z^-1(1-1/(N*e))] with
+    # exact inverse-normal quantiles. The previous sqrt(2 ln N)
+    # asymptotics overstated SR0 by +12-17% at N=10-100 (+67% at N=2) —
+    # conservative direction, but off the published formula (2026-07-29
+    # literature audit, Danielsson-class scaling review).
     if trials > 1:
         em = 0.5772156649
-        z1 = math.sqrt(2.0 * math.log(trials))
-        e_max = math.sqrt(var_trial_sr) * ((1 - em) * z1 +
-                                           em * math.sqrt(
-                                               2.0 * math.log(trials / math.e))
-                                           if trials > 2 else z1 * 0.8)
+        e_max = math.sqrt(var_trial_sr) * (
+            (1.0 - em) * _norm_ppf(1.0 - 1.0 / trials)
+            + em * _norm_ppf(1.0 - 1.0 / (trials * math.e)))
     else:
         e_max = 0.0
     sr0 = e_max
