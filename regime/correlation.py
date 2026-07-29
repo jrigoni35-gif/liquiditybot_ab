@@ -83,6 +83,13 @@ class CorrelationEngine:
         self.turb_lookback = int(cfg.get("turbulence_lookback_days", 250))
         self._last_close: dict = {}
         self.state = CorrState()
+        # 2026-07-29 log hygiene: "correlation shift detected" used to
+        # dump the FULL pair->shift dict at INFO every intraday update
+        # (~30s) for as long as the shift persisted - hundreds of lines
+        # per episode in the live events feed. Log a compact summary
+        # once on the False->True TRANSITION; the ongoing state stays
+        # visible at DEBUG and in st.shifted/st.corr_shift for status.
+        self._was_shifted = False
 
     # --- per-cycle intraday returns (5m cadence) -----------------------
     def update_intraday(self, closes: dict) -> CorrState:
@@ -113,7 +120,19 @@ class CorrelationEngine:
             st.shifted = any(abs(v) >= self.shift_threshold
                             for v in st.corr_shift.values())
             if st.shifted:
-                log.info(f"correlation shift detected: {st.corr_shift}")
+                if not self._was_shifted:
+                    over = {k: v for k, v in st.corr_shift.items()
+                            if abs(v) >= self.shift_threshold}
+                    top = sorted(over.items(), key=lambda kv: abs(kv[1]),
+                                 reverse=True)[:3]
+                    log.info(
+                        "correlation shift detected: %d pair(s) >= %.2f; "
+                        "largest: %s", len(over), self.shift_threshold,
+                        ", ".join(f"{a}-{b} {v:+.2f}"
+                                  for (a, b), v in top))
+                else:
+                    log.debug("correlation shift ongoing: %s", st.corr_shift)
+            self._was_shifted = st.shifted
         return self.state
 
     # --- daily turbulence (Kritzman-Li) --------------------------------

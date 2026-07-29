@@ -357,6 +357,31 @@ def test_denial_emits_the_registered_code():
     assert any(r["code"] == Code.SZ_PROBE_THROTTLED.value for r in records)
 
 
+def test_throttle_log_line_rate_limited_per_asset_audit_untouched(caplog):
+    """2026-07-29 log hygiene: while the cap binds, the human-readable
+    "probe THROTTLED" line repeats at most once per asset per 10 min;
+    the SZ-047 audit record stays PER-EVENT (invariant 6 - every
+    disposition recorded)."""
+    import logging
+    b = _decision_bot(True, admissions=[True, True, True] + [False] * 7)
+    path = get_audit().path
+    before = path.read_text(encoding="utf-8") if path.exists() else ""
+    with caplog.at_level(logging.INFO):
+        assert b._probe_admission_decision(0.0, "ETH") is False
+        assert b._probe_admission_decision(5.0, "ETH") is False    # < 600s
+        assert b._probe_admission_decision(30.0, "BTC") is False   # own clock
+        assert b._probe_admission_decision(601.0, "ETH") is False  # re-arms
+    lines = [r for r in caplog.records
+             if "probe THROTTLED" in r.getMessage()]
+    assert len(lines) == 3, "ETH@0, BTC@30, ETH@601 - never ETH@5"
+    after = path.read_text(encoding="utf-8") if path.exists() else ""
+    new = [json.loads(ln) for ln in after[len(before):].strip().splitlines()
+           if ln.strip()]
+    assert sum(1 for r in new
+               if r["code"] == Code.SZ_PROBE_THROTTLED.value) == 4, \
+        "audit stays per-event: all four denials recorded"
+
+
 def test_denial_bumps_code_stats():
     # SZ-047's siblings (SZ_CIRCUIT_BREAKER/SZ_MANIP_SUSPECT/SZ_DD_THROTTLE)
     # all reach core.code_stats via tag() - the denial branch must too, not

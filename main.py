@@ -2385,20 +2385,34 @@ class LiquidityBot:
                     # EX-8/DL-5: the engine's injected clock reaches the trail's
                     # time-tightening - the last wall-clock read in the exit path
                     now=now)
-            # geometry-alignment T5 (spec D1): a bracket position's pt/
-            # deadline legs REPLACE the tier engine's own scheduled
-            # profit-take and PT-060 time-stop for THIS position (never
-            # both - "the traded bet is the labeled bet"). The tier
-            # engine above is still called UNCONDITIONALLY (never
-            # skipped) so its give-back ratchet - a SENIOR overlay, not a
-            # scheduled tier (CLAUDE.md invariant 5: overlays stay
-            # senior) - keeps ratcheting pos.high_water/
-            # trailing_stop_price and can still fire exactly as it does
-            # for a non-bracket position; only a TIER TRIGGER
-            # (is_profit_take) or the PT-060 TIME-STOP
-            # (reason_code==PT_TIME_STOP) is suppressed here, because the
-            # bracket's own pt leg / deadline leg below own those two
-            # dispositions instead. (T5 review MINOR-4 correction: the
+            # geometry-alignment T5 (spec D1): a bracket position's pt
+            # leg REPLACES the tier engine's own scheduled profit-take
+            # for THIS position (never both - "the traded bet is the
+            # labeled bet"). The tier engine above is still called
+            # UNCONDITIONALLY (never skipped) so its give-back ratchet -
+            # a SENIOR overlay, not a scheduled tier (CLAUDE.md
+            # invariant 5: overlays stay senior) - keeps ratcheting
+            # pos.high_water/trailing_stop_price and can still fire
+            # exactly as it does for a non-bracket position; only a TIER
+            # TRIGGER (is_profit_take) is suppressed here, because the
+            # bracket's own pt leg below owns that disposition instead.
+            # 2026-07-29 PT-060 WEDGE CORRECTION (live incident, LINK
+            # 3ea2a851): spec D1 originally suppressed the PT-060
+            # time-stop here too, handing "give up on a stale thesis" to
+            # the bracket deadline leg (ml.label_max_bars = 96 bars).
+            # Measured live, that re-opened the exact bleed class PT-060
+            # was shipped to kill (P2, 2026-07-23: no-progress cohort
+            # MFE 0.16% / MAE -1.44%, recovered 0/17): a no-progress
+            # probe (MFE 0.18%) sat wedged for hours - PT-060 due at 36
+            # bars, deadline not due until 96 - and closed -1.69% where
+            # the scratch would have taken ~-0.2%. The time-stop is a
+            # PROTECTIVE overlay (loss-avoidance evidence, not a
+            # scheduled take), so it now stays senior to the bracket
+            # exactly like the give-back ratchet; its close lands
+            # barrier="realized" like every other overlay close (never
+            # tb_*), and the candidate twin still supplies the tb label,
+            # so the labeled bet is untouched. (T5 review MINOR-4
+            # correction: the
             # chandelier trail - trailing_stop.activate_after_tier,
             # default 2 - and the break-even floor - be_after_tier,
             # default 1 - are both TIER-PROGRESS-gated
@@ -2414,8 +2428,10 @@ class LiquidityBot:
             bracket_exit_pending = is_bracket
             if action.should_close_partial and action.close_pct > 0:
                 is_time_stop = action.reason_code == Code.PT_TIME_STOP.value
-                suppressed_for_bracket = is_bracket and (
-                    action.is_profit_take or is_time_stop)
+                # 2026-07-29 wedge correction (see the block comment
+                # above): PT-060 is deliberately NOT in this suppression
+                # - only the scheduled profit-take defers to the bracket.
+                suppressed_for_bracket = is_bracket and action.is_profit_take
                 # sub-25s reclamp sliver (whole-program review Minor #6): a
                 # resting maker tier-1 take on a still-virgin position
                 # (tier_closed increments on FILL, not on submit) can be
@@ -2764,10 +2780,25 @@ class LiquidityBot:
                 "exploration", Code.SZ_PROBE_THROTTLED, detail,
                 {"asset": asset, "window": self._probe_share_window,
                  "max_share": self._probe_max_share})
-            log.info("[%s] probe THROTTLED: rolling share cap (%.0f%% of "
-                     "last %d admissions) - falling through as an ordinary "
-                     "(conviction) entry attempt", asset,
-                     self._probe_max_share * 100, self._probe_share_window)
+            # 2026-07-29 log hygiene: while the cap binds, this fires on
+            # every admission attempt per asset (constant INFO spam in
+            # the live events feed). The SZ-047 audit record above stays
+            # per-event (invariant 6: every disposition is recorded);
+            # the human-readable line repeats at most once per asset per
+            # 10 minutes. getattr-guarded lazy dict: stub-bot unit-test
+            # harnesses build this object via __new__ (the documented
+            # _record_probe_admission pattern).
+            throttle_ts = getattr(self, "_probe_throttle_log_ts", None)
+            if throttle_ts is None:
+                throttle_ts = self._probe_throttle_log_ts = {}
+            last_logged = throttle_ts.get(asset)   # None = first denial ->
+            if last_logged is None or now - last_logged >= 600.0:  # always log
+                throttle_ts[asset] = now
+                log.info("[%s] probe THROTTLED: rolling share cap (%.0f%% "
+                         "of last %d admissions) - falling through as an "
+                         "ordinary (conviction) entry attempt", asset,
+                         self._probe_max_share * 100,
+                         self._probe_share_window)
             return False
         return True
 

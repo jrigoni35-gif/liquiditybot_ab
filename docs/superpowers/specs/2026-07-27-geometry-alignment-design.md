@@ -173,3 +173,13 @@ in-repo UI, any relaxation of hard invariants.
 Ships enabled in DRY_RUN via the normal branch → battery → main → PC
 test-gated updater path. Watch: era panels, divergence stat, drought
 clock. Escape hatch: `bracket_exits.enabled=false` (config, restart).
+
+## Addendum (2026-07-29): PT-060 suppression corrected
+
+Spec D1 originally suppressed the PT-060 time-stop for bracket
+positions (deadline leg owned "give up on a stale thesis"). Live
+incident LINK 3ea2a851 showed this re-opened the measured no-progress
+bleed (36-bar scratch vs 96-bar deadline gap). PT-060 is now a SENIOR
+OVERLAY for bracket positions, like the give-back ratchet. See
+docs/quant/2026-07-29_pt060_bracket_wedge.md. Only the scheduled
+profit-take remains bracket-suppressed.

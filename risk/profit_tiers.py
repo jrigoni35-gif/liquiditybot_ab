@@ -313,6 +313,15 @@ class ProfitTierEngine:
             _f(gb.get("tight_frac", 0.25), 0.25), 0.05)
         self.gb_tight_frac = min(self._gb_tight_frac_cfg, self.gb_frac)
         self._gb_armed_log = set()
+        # 2026-07-29 log hygiene (LINK 3ea2a851 incident): PT-060's INFO
+        # announce used to repeat every fast cycle (~5s) while the caller
+        # deferred the scratch (resting-maker one-cycle deferral, or the
+        # pre-correction bracket suppression) - ~1,900 identical lines in
+        # one live episode. Announce once per position_id; the ACTION is
+        # unchanged and still returned every cycle until the close lands.
+        # Same in-memory-only pattern as _gb_armed_log above (never
+        # persisted; a restart re-announcing once is correct behavior).
+        self._ts_announced = set()
         # TIER-1 COST-MULTIPLE FLOOR (P1, 2026-07-23 P&L diagnosis): the
         # 2026-07-23 live-close audit (209 closes) measured avg win $0.05 vs
         # avg loss $0.19 and a measured cost overrun of ~20.5bps - tier-1
@@ -774,10 +783,15 @@ class ProfitTierEngine:
         if ts_fired:
             pnl = self._estimate_realized_pnl(position, px, 100.0)
             mfe = self._mfe_pct(position)
-            log.info(tag(Code.PT_TIME_STOP,
-                         f"{position.symbol} time-stop: no favorable "
-                         f"progress ({ts_bars:.0f} bars, MFE {mfe:.2f}%) - "
-                         f"scratching full close"))
+            pid = getattr(position, "position_id", "")
+            if pid not in self._ts_announced:
+                if len(self._ts_announced) > 1024:   # bounded; ids of long-
+                    self._ts_announced.clear()       # closed positions only
+                self._ts_announced.add(pid)
+                log.info(tag(Code.PT_TIME_STOP,
+                             f"{position.symbol} time-stop: no favorable "
+                             f"progress ({ts_bars:.0f} bars, MFE {mfe:.2f}%)"
+                             f" - scratching full close"))
             return TierAction(True, 100.0, pnl, tier_fired=next_tier_index,
                               reason_code=Code.PT_TIME_STOP.value)
 

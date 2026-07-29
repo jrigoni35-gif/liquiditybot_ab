@@ -9,8 +9,11 @@ Five binding behaviors, each with its own section below:
      `LiquidityBot._bracket_for_entry` seam (a pure-ish per-trade sizing
      helper) plus `_handle_fill`'s stamping from order.meta.
   2. Exit evaluation for a bracket position REPLACES the tier engine's
-     scheduled profit-take/PT-060 time-stop for that position (never
-     both); overlays (give-back/chandelier ratchet) stay senior.
+     scheduled profit-take for that position (never both); overlays
+     (give-back/chandelier ratchet AND the PT-060 no-progress scratch -
+     2026-07-29 wedge correction, see
+     test_pt060_time_stop_fires_as_senior_overlay_on_bracket_position)
+     stay senior.
   3. Close reasons (tb_pt/tb_sl/tb_time) thread VERBATIM into the live-
      label barrier column - `label_era_of` then tags the row
      LABEL_ERA_TRIPLE_BARRIER.
@@ -39,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pytest
 
+from core.codes import Code
 from core.config_guard import validate
 from core.persistence import position_from_dict, position_to_dict
 from core.state import PortfolioState, Position
@@ -756,10 +760,24 @@ def test_give_back_floor_not_crossed_in_occluded_band_no_false_exit():
     assert exits2 == [], "floor (101.6) not crossed at 101.7 - no exit"
 
 
-def test_bracket_pt_time_stop_suppressed_for_bracket_position():
-    """PT-060 time-stop (a tier-engine scratch mechanism) must ALSO be
-    suppressed for a bracket position - the bracket's own deadline leg
-    owns "give up on a stale thesis" instead."""
+def test_pt060_time_stop_fires_as_senior_overlay_on_bracket_position():
+    """2026-07-29 PT-060 bracket-wedge correction (live incident, LINK
+    position 3ea2a851): the time-stop is a PROTECTIVE scratch, not a
+    scheduled disposition - its P2 derivation (no-progress cohort MFE
+    0.16% / MAE -1.44%, recovered_after_stop 0/17) is loss-avoidance
+    evidence, so it stays SENIOR to the bracket exactly like the
+    give-back ratchet (spec D1: "overlays stay senior", CLAUDE.md
+    invariant 5: exits are always allowed). Spec D1's original
+    disposition table handed "give up on a stale thesis" to the bracket
+    deadline leg (96 bars) and suppressed PT-060 (36 bars) - measured
+    live, that re-opened the exact bleed class PT-060 was shipped to
+    kill: a no-progress probe (MFE 0.18%) rode 5.6h toward the sl leg
+    and closed -1.69% where the scratch would have taken ~-0.2%.
+    Suppression now covers ONLY the scheduled profit-take (the test
+    above); the label side is unaffected - a scratch close lands
+    barrier="realized" like every senior overlay
+    (test_finalize_position_overlay_reason_falls_back_to_realized) and
+    the candidate twin still supplies the tb label."""
     tiers = dict(TIERS_HIGH, **{
         "time_stop": {"enabled": True, "max_bars_no_progress": 1,
                       "min_mfe_frac_of_tier1": 0.99}})
@@ -769,10 +787,35 @@ def test_bracket_pt_time_stop_suppressed_for_bracket_position():
     # max_bars_no_progress=1 (5m bars) - now far past opened_at
     pos.opened_at = datetime.fromtimestamp(1000.0, tz=timezone.utc)
     exits = _run(bot, pos, px=100.1, now=1000.0 + 3600.0)
+    assert len(exits) == 1, (
+        "a due PT-060 scratch must fire on a bracket position - the "
+        "deadline leg (far future here) does not own the no-progress "
+        "class")
+    assert exits[0]["reason"] == "time-stop scratch"
+    assert exits[0]["pct"] == 100.0
+    assert exits[0].get("profit_take") is not True
+    assert exits[0].get("reason_code") == Code.PT_TIME_STOP.value
+
+
+def test_pt060_on_bracket_still_defers_one_cycle_for_resting_maker_take():
+    """The sub-25s reclamp-sliver deferral (P2 review Minor #6) is
+    orthogonal to the wedge correction and must keep working on a
+    bracket position: a resting post-only profit-take exit defers a due
+    PT-060 by exactly one cycle (the maker either fills or expires);
+    the bracket's own legs (pt far, deadline far) stay quiet too."""
+    tiers = dict(TIERS_HIGH, **{
+        "time_stop": {"enabled": True, "max_bars_no_progress": 1,
+                      "min_mfe_frac_of_tier1": 0.99}})
+    bot = _exit_bot(tiers)
+    bot.orders = types.SimpleNamespace(open_orders=lambda: [
+        types.SimpleNamespace(purpose="exit", position_id="p1",
+                              post_only=True)])
+    pos = _bracket_pos(pt_frac=0.05, sl_frac=0.10, deadline_ts=1e12)
+    pos.opened_at = datetime.fromtimestamp(1000.0, tz=timezone.utc)
+    exits = _run(bot, pos, px=100.1, now=1000.0 + 3600.0)
     assert exits == [], (
-        "time-stop would otherwise scratch this position - suppressed "
-        "for a bracket position (deadline_ts=1e12, far future, so the "
-        "bracket's own vertical never fires here either)")
+        "resting maker take working -> the scratch defers this cycle "
+        "(it fires next evaluation once the maker dies unfilled)")
 
 
 def test_disabled_flag_takes_the_legacy_branch():
