@@ -550,8 +550,27 @@ class ModelMonitor:
             return None
 
     def should_deploy(self, challenger_brier: float,
-                      n_oof: int | None = None) -> bool:
-        """Champion/challenger deployment gate."""
+                      n_oof: int | None = None,
+                      ignore_champion: bool = False) -> bool:
+        """Champion/challenger deployment gate.
+
+        `ignore_champion` (default False — every existing caller
+        unchanged, invariant 7): True applies the pure COLD-START
+        standard (beat a coin: Brier < 0.25, plus the deploy_min_oof
+        evidence floor) with the stored badge set aside entirely. The
+        one legitimate caller is the ML-083 era-orphan branch
+        (main.py): when era exclusion rebuilt the corpus population
+        under the champion's trained_rows watermark, the badge is a
+        Brier measured against a DIFFERENT label base rate (measured
+        live: 0.1237 on a 0.169-base population vs a 0.30-base current
+        corpus whose naive base-rate Brier is ~0.21) — comparing across
+        base rates is exactly what the like-for-like gate exists to
+        refuse, and consulting the badge here kept the deadlock alive
+        in a softer form (2026-07-29 wave-4/5 adversarial verification:
+        the no-champion disjunct below only frees the bar when the
+        badge is >= 0.25). Same doctrine as reconcile_champion_badge's
+        ghost-badge reset (ML-076): an unfalsifiable badge may not
+        gate."""
         # evidence floor: when the purge first stops swallowing folds the
         # challenger may carry only a handful of OOF points, and a Brier
         # on 5 points beats a coin by luck. Calibration already demands
@@ -570,6 +589,19 @@ class ModelMonitor:
         # no-champion clause still demands the challenger beat a coin:
         # 0.25 is the Brier of predicting 0.5 forever — shipping a first
         # model WORSE than that would hand Kelly a net-harmful p
+        if ignore_champion:
+            ok = challenger_brier < 0.25
+            get_audit().log("ml_governor",
+                            Code.ML_DEPLOY if ok else Code.ML_DEPLOY_REJECT,
+                            f"challenger brier {challenger_brier:.4f} vs "
+                            f"COLD-START bar 0.25 (badge set aside: "
+                            f"era-orphaned, see ML-083)",
+                            {"decision": "DEPLOY" if ok else "REJECT",
+                             "ignore_champion": True})
+            log.info("challenger brier=%.4f vs cold-start bar 0.25 "
+                     "(era-orphaned badge set aside) -> %s",
+                     challenger_brier, "DEPLOY" if ok else "REJECT")
+            return ok
         ok = challenger_brier < self.champion_brier - self.deploy_margin \
             or (self.champion_brier >= 0.25 and challenger_brier < 0.25)
         get_audit().log("ml_governor",

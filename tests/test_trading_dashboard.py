@@ -53,7 +53,11 @@ _SYNTH_STATUS = {
                       "latency_ms": 40.0, "maker_fills": 7, "taker_fills": 3,
                       "maker_share": 0.7, "maker_notional_usd": 500.0,
                       "taker_notional_usd": 200.0, "avg_slip_bps": -1.0,
-                      "worst_slip_bps": 6.0},
+                      "worst_slip_bps": 6.0,
+                      # Cochran notional-weighted slip (f877de0) — added
+                      # to the pusher whitelist 2026-07-29 (wave-2/3
+                      # verify found it exported nowhere)
+                      "slip_bps_notional_weighted": -0.4},
     "markout": {"horizons_sec": [5.0], "pending": 0, "overall": {},
                 "by_asset": {"BTC": {"5": {"markout_bps": -2.0, "n": 4}}}},
     "monitor": {"level": 0, "drift_share": 0.0, "brier": 0.2,

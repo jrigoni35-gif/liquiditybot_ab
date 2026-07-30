@@ -266,3 +266,30 @@ def test_decision_invariant_to_shared_population_base_rate():
         assert monitor.should_deploy(challenger_brier, n_oof=n_shared), (
             f"base rate {base_rate:.2f}: a comparably skillful challenger "
             f"must deploy regardless of the shared population's base rate")
+
+
+def test_era_orphan_ignore_champion_applies_cold_start_bar():
+    """ML-083 (2026-07-29 wave-4/5 adversarial-verify fix): with the
+    badge BELOW 0.25 (live: 0.1237, measured on the dead pre-exclusion
+    population, base rate 0.169), plain should_deploy still gated
+    challengers against the orphaned badge — a well-calibrated
+    challenger on the NEW corpus (base 0.30, naive base-rate Brier
+    ~0.21) could never clear 0.1237, so the deploy deadlock survived in
+    a softer form. ignore_champion=True sets the badge aside (it is a
+    cross-base-rate Brier, exactly what the like-for-like gate refuses
+    to compare) and applies the true cold-start standard: Brier < 0.25
+    plus the deploy_min_oof evidence floor — nothing widened beyond
+    cold-start parity."""
+    monitor = ModelMonitor({"deploy_min_oof": 20})
+    monitor.champion_brier = 0.1237
+    # badge rules the plain path: 0.20 on the new corpus is real skill
+    # but cannot beat a dead population's 0.1237
+    assert monitor.should_deploy(0.20, n_oof=100) is False
+    assert monitor.should_deploy(0.20, n_oof=100,
+                                 ignore_champion=True) is True
+    # the cold-start bar itself is NOT widened: coin-or-worse stays
+    # rejected, and the evidence floor still binds
+    assert monitor.should_deploy(0.26, n_oof=100,
+                                 ignore_champion=True) is False
+    assert monitor.should_deploy(0.20, n_oof=5,
+                                 ignore_champion=True) is False

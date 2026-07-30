@@ -225,9 +225,12 @@ class Code(str, Enum):
     #   every future retrain until the corpus regrows past a watermark
     #   from a population that no longer exists. An unfalsifiable badge
     #   may not gate forever (ML-076 doctrine, degenerate case): the
-    #   deploy gate falls back to the no-champion clause (the challenger
-    #   must still clear the SAME absolute cold-start bar - no gate is
-    #   widened; the incumbent stays loaded until a challenger clears it).
+    #   deploy gate applies the COLD-START standard with the badge set
+    #   aside entirely (should_deploy ignore_champion=True: Brier < 0.25
+    #   + deploy_min_oof) - the orphaned badge is a Brier measured on
+    #   the dead population's base rate and is not comparable to any
+    #   current-corpus score. No gate is widened beyond cold-start
+    #   parity; the incumbent stays loaded until a challenger clears it.
     ML_BRACKET_DIVERGENCE = "ML-082"  # geometry-alignment T6 (spec D6)
     #   PROOF instrument: at every bracket-traded close (barrier in
     #   tb_pt/tb_sl/tb_time), compares the REALIZED net return against

@@ -16,7 +16,11 @@ Configuration is environment-only, no secrets in the repo or argv:
   GC_TOKEN_FILE    path to a file containing the OTLP write token
                    (chmod 600; NEVER commit the file)
   LB_STATUS        status.json path (default: outputs/status.json)
-  GC_PERIOD_SEC    push interval seconds (default: 30)
+  GC_PERIOD_SEC    push interval seconds (default: 60 — Grafana Cloud
+                   FREE tier meters active series at 1 datapoint/minute;
+                   the boards refresh at 1m, so a faster push buys
+                   nothing and doubles metered usage. 2026-07-29,
+                   operator on the free plan.)
 
 Grafana Cloud's OTLP translator appends a `_ratio` suffix ONLY to gauges
 whose unit is "1"; gauge() below deliberately emits an EMPTY unit so the
@@ -51,7 +55,10 @@ def _cfg() -> dict:
         "url": url,
         "auth": base64.b64encode(f"{instance}:{token}".encode()).decode(),
         "status": os.environ.get("LB_STATUS", "outputs/status.json"),
-        "period": float(os.environ.get("GC_PERIOD_SEC", "30")),
+        # default 60s: Grafana Cloud FREE meters series at 1 DPM and the
+        # boards refresh at 1m — 30s pushes doubled metered usage for
+        # zero visible freshness (2026-07-29 free-plan compatibility)
+        "period": float(os.environ.get("GC_PERIOD_SEC", "60")),
     }
 
 
@@ -746,7 +753,13 @@ def collect(status_path: str) -> list:
         for k in ("venue_rejects", "deadman_failures", "latency_ms",
                   "maker_fills", "taker_fills", "maker_share",
                   "maker_notional_usd", "taker_notional_usd",
-                  "avg_slip_bps", "worst_slip_bps"):
+                  "avg_slip_bps", "worst_slip_bps",
+                  # 2026-07-29 wave-2/3 verify: the notional-weighted
+                  # slip shipped in f877de0 never made this whitelist -
+                  # the Cochran ratio-of-sums estimator was invisible in
+                  # Grafana while the dust-skewed simple mean kept the
+                  # panel
+                  "slip_bps_notional_weighted"):
             v = om.get(k)
             if isinstance(v, (int, float)):
                 m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))

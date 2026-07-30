@@ -174,3 +174,9 @@ def test_era_orphan_deploy_unlock_wired_and_registered():
     src = (ROOT / "main.py").read_text(encoding="utf-8")
     assert "elif int(self.meta.trained_rows) > len(X):" in src
     assert "Code.ML_CHAMPION_ERA_ORPHAN" in src
+    # wave-4/5 verify fix: the branch must set the era-orphaned BADGE
+    # aside too (plain should_deploy still consulted it whenever the
+    # badge sat below 0.25 — the deadlock survived in a softer form);
+    # behavior pinned in tests/test_champion_compare.py::
+    # test_era_orphan_ignore_champion_applies_cold_start_bar
+    assert "ignore_champion=True" in src

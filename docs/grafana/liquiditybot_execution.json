@@ -2615,7 +2615,7 @@
       "id": 30,
       "type": "bargauge",
       "title": "Slippage vs arrival (bps)",
-      "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement).",
+      "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement). 'weighted' is notional-weighted (Cochran ratio estimator, 2026-07-29): the cost of the average DOLLAR, immune to dust-fill skew — trust it over the simple avg when they disagree.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2683,6 +2683,17 @@
         },
         {
           "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_slip_bps_notional_weighted{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "weighted"
+        },
+        {
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"

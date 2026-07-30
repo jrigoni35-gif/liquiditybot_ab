@@ -1097,10 +1097,16 @@ def _author_execution():
     bargauge("Slippage vs arrival (bps)",
              M("liquiditybot_order_avg_slip_bps"), 6, 6, unit="short",
              decimals=1, steps=SLIP, legend="avg",
-             extra=[(M("liquiditybot_order_worst_slip_bps"), "worst")],
+             extra=[(M("liquiditybot_order_slip_bps_notional_weighted"),
+                     "weighted"),
+                    (M("liquiditybot_order_worst_slip_bps"), "worst")],
              no_value="no fills yet",
              desc="Implementation shortfall vs the ARRIVAL mark (positive "
-                  "= paid worse than arrival; negative = improvement).")
+                  "= paid worse than arrival; negative = improvement). "
+                  "'weighted' is notional-weighted (Cochran ratio "
+                  "estimator, 2026-07-29): the cost of the average "
+                  "DOLLAR, immune to dust-fill skew — trust it over the "
+                  "simple avg when they disagree.")
     bargauge("Fills — maker vs taker",
              M("liquiditybot_order_maker_fills"), 6, 6, decimals=0,
              steps=GRN, legend="maker fills",

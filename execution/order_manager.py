@@ -529,8 +529,12 @@ class OrderManager:
                 # (Cochran ch.6 / Bessembinder 2003, 2026-07-29 defect-
                 # category audit) stops $10 probe fills from outvoting
                 # conviction tickets 4x their size in the operator's
-                # slip read. Zero-notional fills still count in the
-                # unweighted mean, never in the weighted one. DUST GUARD
+                # slip read. Zero-notional fills reach the ledger only
+                # via the legacy call path (order_notional_usd=0 ->
+                # dust_floor 0 -> everything admitted, legacy-identical);
+                # with a real notional the dust guard below drops them
+                # from BOTH stats (wave-2/3 verify wording fix). DUST
+                # GUARD
                 # (same audit, Higham-class): a segment under 1% of the
                 # order recovers its price from the difference of two
                 # near-equal products, amplifying venue quantization of

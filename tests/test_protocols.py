@@ -227,3 +227,23 @@ def test_open_heat_full_book_hard_vetoes_entry():
                                      open_heat_frac=0.40)   # over the cap
     assert m == 0.0
     assert any("RP-051" in r for r in reasons), reasons
+
+
+def test_guard_bounds_cvar_bar_sec():
+    """2026-07-29 wave-1 adversarial-verify coverage gap: cvar.bar_sec
+    (the CVaR sampling bar clock shipped in the bar-clock fix) had zero
+    config_guard coverage. Bounds keep it a BAR clock: below 60s it
+    degenerates back toward the per-poll cadence the fix removed (the
+    ~sqrt(60) ES deflation); any non-300 value diverges live measurement
+    from the quant-trials/smoke baseline and must warn."""
+    from core.config_guard import validate
+
+    def _sev(v, s):
+        return [m for sev, m in validate(
+            {"risk_protocols": {"cvar": {"bar_sec": v}}}) if sev == s]
+
+    assert not any("bar_sec" in m for m in _sev(300.0, "FATAL"))
+    assert not any("bar_sec" in m for m in _sev(300.0, "WARN"))
+    assert any("bar_sec" in m for m in _sev(5.0, "FATAL"))
+    assert any("bar_sec" in m for m in _sev(3600.0, "FATAL"))
+    assert any("bar_sec" in m for m in _sev(600.0, "WARN"))

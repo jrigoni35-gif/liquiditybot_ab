@@ -1682,6 +1682,22 @@ def validate(config: dict) -> list:
         fatal("risk_protocols.cvar.es_budget_frac must be in (0, 0.05] - "
               "budgeting >5% of equity to one entry's expected shortfall "
               "is not a cap, it is a wish")
+    # bar_sec (2026-07-29 CVaR bar-clock fix, wave-1 adversarial-verify
+    # coverage gap): the stack samples log returns on this clock so live
+    # measures what quant-trials/smoke baseline at BAR_SECONDS=300.
+    # Bounds keep it a bar clock: below 60s it degenerates back toward
+    # the per-poll cadence the fix removed (the ~sqrt(60) ES deflation);
+    # above 1800s min_obs=120 bars means DAYS of RP-040-neutral warmup.
+    cbs = float(_f(config, "risk_protocols.cvar.bar_sec", 300.0))
+    if not (60.0 <= cbs <= 1800.0):
+        fatal(f"risk_protocols.cvar.bar_sec ({cbs}) must be in [60, 1800] "
+              f"seconds - it is the CVaR sampling bar clock (300 = the "
+              f"5m bar the harness baselines)")
+    if cbs != 300.0:
+        warn(f"risk_protocols.cvar.bar_sec ({cbs}) != 300: live CVaR "
+             f"then measures a different clock than the quant-trials/"
+             f"smoke baseline - re-baseline consciously before trusting "
+             f"the gates")
     ts = float(_f(config, "risk_protocols.budget.taper_start", 0.5))
     fl = float(_f(config, "risk_protocols.budget.floor_mult", 0.15))
     if not (0.0 <= ts < 1.0) or not (0.0 <= fl < 1.0):

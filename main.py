@@ -2451,6 +2451,11 @@ class LiquidityBot:
                 # at the next evaluation. Scoped to the PT-060 branch ONLY
                 # - every other exit (hard stop above, floor/trail/give-
                 # back below) is untouched; exits stay always-allowed.
+                # (Wave-4/5 verify note: during this single <=25s deferral
+                # window a give-back floor crossing is also unseen, because
+                # evaluate() early-returned at the time-stop before its own
+                # _exit_floor_hit - a vol-reclamp corner bounded to one
+                # maker rest; the hard protective stop above stays live.)
                 suppress_pt060 = is_time_stop and \
                     self._has_resting_profit_take(pos)
                 if not suppressed_for_bracket and not suppress_pt060:
@@ -3491,8 +3496,12 @@ class LiquidityBot:
             # EV = p*target - (1-p)*stop with target = b*stop
             #    = stop * (p*(1+b) - 1), floored at 0. The old shorthand
             # (2p-1)*b*stop equals this ONLY at b=1 (2026-07-29 unit
-            # audit) - it understated edge ~10% at the shipped b>1 and
-            # would overstate it for any b<1. base_stop_pct (not the
+            # audit) - it understates edge for b>1 and overstates it for
+            # b<1 (the honest post-payoff-fix shipped b is ~0.92, so the
+            # exact form is the CONSERVATIVE one today; the wave-1
+            # verify pass confirmed pretrade's own clamp at
+            # execution/pretrade.py keeps a negative alpha from passing
+            # either way). base_stop_pct (not the
             # vol-widened stop) is the correct pair: sizer.b is derived
             # against this same reference stop.
             exp_alpha_bps = max(p_win * (1.0 + self.sizer.b) - 1.0, 0.0) * \
@@ -5252,18 +5261,28 @@ class LiquidityBot:
                 # deploy, indexes would misalign silently - this branch
                 # fires first precisely because the watermark exceeds
                 # the matrix, closing that window with an audit record.
+                # ignore_champion=True (wave-4/5 adversarial-verify fix,
+                # same day): the era-orphaned BADGE is set aside too -
+                # it is a Brier measured on the dead population's base
+                # rate and consulting it kept the deadlock alive in a
+                # softer form (should_deploy's no-champion disjunct only
+                # frees the bar when the badge is >= 0.25; the live
+                # badge is 0.1237). The challenger faces the true
+                # cold-start standard: Brier < 0.25 + deploy_min_oof.
                 get_audit().log(
                     "ml_governor", Code.ML_CHAMPION_ERA_ORPHAN,
                     f"champion watermark era-orphaned: trained_rows="
                     f"{int(self.meta.trained_rows)} > corpus {len(X)} - "
                     f"like-for-like impossible by construction; deploy "
-                    f"gate falls back to the absolute cold-start bar",
+                    f"gate applies the cold-start bar with the badge "
+                    f"set aside (era-orphaned, not comparable)",
                     {"trained_rows": int(self.meta.trained_rows),
                      "corpus_rows": int(len(X)),
                      "challenger_brier": float(challenger_brier),
                      "n_oof": int(len(oof_cal))})
-                _deploy_ok = self.monitor.should_deploy(challenger_brier,
-                                                        n_oof=len(oof_cal))
+                _deploy_ok = self.monitor.should_deploy(
+                    challenger_brier, n_oof=len(oof_cal),
+                    ignore_champion=True)
             else:
                 shared = None if champ_fresh is None else \
                     self.monitor.shared_challenger_brier(
