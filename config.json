@@ -711,6 +711,10 @@
       "min_live_rows": {"gbt": 60, "blend": 60, "mlp": 150, "adaptive_gbt": 250},
       "min_total_rows": {"gbt": 150, "blend": 150, "mlp": 400, "adaptive_gbt": 600}
     },
+    "overfit": {
+      "dsr_n_trials": 7,
+      "_dsr_n_trials_doc": "OF-5 deflated-Sharpe trials count (Bailey-Lopez de Prado 2014 E[max] deflation; Harvey-Liu-Zhu RFS 2016 multiple-testing honesty). LIFTED literal (2026-07-30 Debate-1 item A) with the IDENTICAL default the gate always ran - behavior-preserving. Semantics: the number of strategy/model trials the observed max Sharpe was selected over; RAISING it deflates harder (conservative), LOWERING it below the shipped 7 weakens the gate (config_guard WARNs). The full lifetime trials LEDGER that should back this number is deferred behind a written increment policy (Debate-1 A amendment) - until then, change this value only with a recorded rationale in docs/quant/."
+    },
     "telemetry": {
       "lineage_min_pairs": 10,
       "divergence_window_h": 24.0,

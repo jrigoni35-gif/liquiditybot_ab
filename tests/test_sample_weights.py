@@ -282,3 +282,20 @@ def test_vertical_barrier_downweight_covers_triple_barrier_mode(tmp_path):
     # a policy scratch is NOT a vertical barrier: it is "we chose not to
     # wait", not "the market did nothing" - it must stay excluded
     assert "time_stop" not in _VERTICAL_BARRIER_REASONS
+
+# ---- Kish effective sample size (Debate-1 item D, report-only) -------------
+def test_kish_ess_reported_beside_uniqueness(tmp_path, monkeypatch):
+    """ESS = (sum w)^2 / sum(w^2) over the FINAL weights, in
+    last_load_stats. Equal weights -> ESS == n; concentration -> ESS < n."""
+    hs = _store(tmp_path)
+    _freeze(monkeypatch, 3_000.0)
+    for i in range(5):
+        hs._append_row(f"k{i}", "BTC", "long", _feats(60 + i), i % 2, 0.0,
+                       "candidate", signal_ts=0.0)
+    _freeze(monkeypatch, 3_000.0)
+    X, y, w = hs.load_training_data(half_life_days=1e6,
+                                    weights_cfg=_uniq_cfg())
+    ess = hs.last_load_stats["ess_kish"]
+    manual = float(np.sum(w)) ** 2 / float(np.sum(np.asarray(w) ** 2))
+    assert ess == pytest.approx(manual, abs=0.05)
+    assert 0.0 < ess <= len(w) + 1e-9

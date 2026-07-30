@@ -1326,6 +1326,20 @@ def validate(config: dict) -> list:
              "ml.exploration.enabled is false - dead config: the budget "
              "path is only ever reached when exploration itself is on")
 
+    # OF-5 DSR trials count (Debate-1 item A config-lift): the Harvey-Liu
+    # deflation is only as honest as this number. Raising it deflates
+    # harder (conservative); dropping below the shipped 7 weakens the
+    # hard OF-5 gate without a recorded rationale.
+    dnt = float(_f(config, "ml.overfit.dsr_n_trials", 7))
+    if not (1.0 <= dnt <= 10000.0) or dnt != int(dnt):
+        fatal(f"ml.overfit.dsr_n_trials ({dnt}) must be an integer in "
+              f"[1, 10000] - the count of trials the observed max Sharpe "
+              f"was selected over")
+    elif dnt < 7:
+        warn(f"ml.overfit.dsr_n_trials ({int(dnt)}) is below the shipped "
+             f"baseline 7 - weaker deflation on the hard OF-5 gate; only "
+             f"lower this with a recorded rationale in docs/quant/")
+
     # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
     # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
     # bar noise (churn); above 6 sigma it can never arm on a real move.

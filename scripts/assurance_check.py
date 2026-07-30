@@ -310,6 +310,55 @@ def main():
     check("malformed book degrades to AS quote",
           pl.plan_entry("long", q, {}, 0.95).style == "as_quote")
 
+    print("[11] training-corpus timestamp coherence")
+    # TANK Debate 1 item F (docs/superpowers/specs/2026-07-30-tank-
+    # program-design.md, verdict in the session record): the purged
+    # walk-forward and the uniqueness weighting both ASSUME each row's
+    # [signal_ts, ts] span is coherent — nothing audited the raw file
+    # until now. Hard invariants: ts finite/positive, signal_ts <= ts
+    # when present, no far-future stamps. Rows with a missing signal_ts
+    # are the loader's documented legacy fallback (sig := ts) — counted
+    # and reported as a trend, never a failure.
+    import csv as _csv
+    import time as _time
+    hist_path = os.path.join("outputs", "signal_history.csv")
+    if not os.path.exists(hist_path):
+        check("signal_history absent -> vacuously coherent", True)
+    else:
+        bad_order = bad_finite = future = fallback = total = 0
+        horizon = _time.time() + 600.0     # small skew allowance
+        with open(hist_path, encoding="utf-8", newline="") as f:
+            for row in _csv.DictReader(f):
+                total += 1
+                try:
+                    ts = float(row.get("ts") or "nan")
+                except ValueError:
+                    ts = float("nan")
+                sig_raw = (row.get("signal_ts") or "").strip()
+                if not (math.isfinite(ts) and ts > 0):
+                    bad_finite += 1
+                    continue
+                if ts > horizon:
+                    future += 1
+                if not sig_raw:
+                    fallback += 1
+                    continue
+                try:
+                    sig = float(sig_raw)
+                except ValueError:
+                    bad_finite += 1
+                    continue
+                if not (math.isfinite(sig) and sig > 0):
+                    bad_finite += 1
+                elif sig > ts + 1e-6:
+                    bad_order += 1
+        check(f"every ts finite and positive ({total} rows)",
+              bad_finite == 0)
+        check("no signal_ts after its own close ts", bad_order == 0)
+        check("no far-future timestamps", future == 0)
+        print(f"        legacy sig-fallback rows: {fallback}/{total} "
+              f"(informational trend - loader substitutes ts)")
+
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 

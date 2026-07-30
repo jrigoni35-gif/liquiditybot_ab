@@ -814,11 +814,19 @@ def main() -> int:
     conviction, mixed = split_dsr_samples(live_rows)
     try:
         _cfg_p = Path(__file__).resolve().parents[1] / "config.json"
-        _explore_on = bool(((json.loads(_cfg_p.read_text(encoding="utf-8"))
-                             .get("ml") or {}).get("exploration") or {})
+        _ml_cfg = (json.loads(_cfg_p.read_text(encoding="utf-8"))
+                   .get("ml") or {})
+        _explore_on = bool((_ml_cfg.get("exploration") or {})
                            .get("enabled", False))
-    except (OSError, json.JSONDecodeError):
+        # Debate-1 item A: the DSR trials count is a decision-path knob
+        # (Harvey-Liu multiple-testing deflation) — config-lifted with the
+        # identical default; config_guard bounds it and WARNs below the
+        # shipped baseline.
+        _dsr_trials = int((_ml_cfg.get("overfit") or {})
+                          .get("dsr_n_trials", 7))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         _explore_on = False                     # unreadable config: full gate
+        _dsr_trials = 7
 
     def _dsr_of(r):
         # UNIT NOTE (2026-07-29 audit): r is per-trade USD PnL, so this is
@@ -837,7 +845,7 @@ def main() -> int:
                             skew=float(((r - r.mean()) ** 3).mean() / sd ** 3),
                             kurtosis=float(((r - r.mean()) ** 4).mean()
                                            / sd ** 4),
-                            n_trials=7)
+                            n_trials=_dsr_trials)
         return d, sr
 
     # PT-050 probes deliberately bypass the profit-EV gate to buy labels, so

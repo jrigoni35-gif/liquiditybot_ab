@@ -476,3 +476,31 @@ def test_parkinson_rms_is_unbiased_on_planted_gbm():
     # ON TOP of discretization by construction
     assert abs(est - true_sigma) / true_sigma < 0.045
     assert est > (0.5 * true_sigma + 0.5 * mean_of_vols) - 1e-12
+
+
+def test_dsr_trials_config_lifted_with_identical_default():
+    """Debate-1 item A: OF-5's n_trials is a decision-path knob - lifted
+    to ml.overfit.dsr_n_trials (identical default 7), guard-bounded."""
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "scripts" / "overfit_check.py").read_text(encoding="utf-8")
+    assert "n_trials=_dsr_trials" in src, "OF-5 must read the lifted knob"
+    assert "n_trials=7" not in src, "no bare trials literal in OF-5"
+    cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+    assert cfg["ml"]["overfit"]["dsr_n_trials"] == 7, "identical default"
+
+    from core.config_guard import validate
+
+    def _msgs(c, sev):
+        return [m for s, m in validate(c) if s == sev and "dsr_n_trials" in m]
+
+    base = {"system": {"dry_run": True}}
+    assert not _msgs(base, "FATAL"), "default must stay clean"
+    bad = {"system": {"dry_run": True},
+           "ml": {"overfit": {"dsr_n_trials": 0}}}
+    assert _msgs(bad, "FATAL"), "0 trials is not a deflation"
+    low = {"system": {"dry_run": True},
+           "ml": {"overfit": {"dsr_n_trials": 3}}}
+    assert _msgs(low, "WARN") and not _msgs(low, "FATAL"), \
+        "below-baseline trials warns (weaker gate), never fatal"

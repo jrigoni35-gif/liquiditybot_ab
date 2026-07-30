@@ -1546,11 +1546,22 @@ class HistoryStore:
                         "calibration (detection only, weights untouched)",
                         Code.ML_PRIOR_SKEW.value, win_h, p_recent, p_all,
                         thresh)
+        # Kish effective sample size over the FINAL weights (Debate-1
+        # item D, report-only): ESS = (sum w)^2 / sum(w^2) - the honest
+        # "how many independent rows is this really" figure beside
+        # mean_uniqueness (Kish 1965; the rescale above preserves mass,
+        # ESS measures the concentration that remains).
+        _sw = float(sum(w))
+        _sw2 = float(sum(x * x for x in w))
+        ess_kish = (_sw * _sw / _sw2) if _sw2 > 0.0 else 0.0
+        log.info("training load: %d rows, mean_uniqueness %.3f, "
+                 "Kish ESS %.1f", len(w), uniq_mean, ess_kish)
         self.last_load_stats = {
             "rows": len(w), "dropped_dirty": dropped_dirty,
             "dropped_clash": dropped_clash,
             "live_clean": sum(1 for m in meta if m[2] == "live"),
             "mean_uniqueness": round(uniq_mean, 4),
+            "ess_kish": round(ess_kish, 1),
             "prior_recent": p_recent, "prior_overall": p_all,
             "prior_skew": skew_flag,
             "epoch_excluded": epoch_excluded,
