@@ -401,6 +401,16 @@ def simulate_exit_policy(closes: np.ndarray, highs: np.ndarray,
         _gb_arm = (policy.gb_arm_vol_mult * sigma_bar
                    if policy.gb_arm_vol_mult > 0 and sigma_bar > 0
                    else policy.gb_arm_frac)
+        # 2026-07-30 ARM COST FLOOR mirror (live: profit_tiers.
+        # _give_back_candidate — the SEVENTH shared-discipline mirror):
+        # the arm never sits below cost / locked-share, so the sim's
+        # give-back only fires where the live lock clears the entry's
+        # own cost. Uses the SAME est_cost_bps the tier-1 floor mirror
+        # above already threads (both 0-inert together: bootstrap and
+        # trials worlds stay byte-identical).
+        if est_cost_bps > 0.0:
+            _gb_arm = max(_gb_arm, (est_cost_bps / 1e4)
+                          / max(1.0 - policy.gb_frac, 0.05))
         if policy.gb_enabled and peak_gain >= _gb_arm:
             # live semantics (profit_tiers.py:587): tighten_gain_pct == 0
             # DISABLES the tighten rung; the old unconditional >= made 0

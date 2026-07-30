@@ -413,7 +413,11 @@ _ALLOWED_REL = {
     "core/config_guard.py", "config.json",
 }
 _SKIP_DIRS = {".venv", "__pycache__", ".git", "node_modules", "tests",
-             "docs", ".superpowers"}
+             "docs", ".superpowers", ".claude"}
+# .claude added 2026-07-30: agent worktrees (.claude/worktrees/<id>/) are
+# full repo CHECKOUTS living under the repo root — walking into one finds
+# that checkout's own legitimate telemetry-surface files and fails this
+# grep with phantom hits. Same class as .venv/.git: not our tree.
 
 
 def test_bracket_divergence_report_only_grep():

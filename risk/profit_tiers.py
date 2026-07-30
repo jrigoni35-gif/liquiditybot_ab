@@ -590,6 +590,27 @@ class ProfitTierEngine:
             sig = _f(sigma_bar_pct)
             if sig > 0.0:
                 arm = self.gb_arm_vol_mult * sig
+        # 2026-07-30 ARM COST FLOOR (live incident, operator-verified
+        # events.jsonl): in a quiet regime the 2-sigma vol arm armed at
+        # 0.25% (DOGE) / 0.31% (LINK) peaks — inside the ~0.65%
+        # round-trip cost stack — so each "lock 60% of the move" exit
+        # banked a guaranteed NET LOSS (measured -$0.12 / -$0.06), and
+        # every probe closed as a 'realized' overlay before its bracket
+        # legs could resolve (zero tb_* live labels; config_guard's
+        # arms-inside-the-break-even WARN was the standing prophecy).
+        # Same discipline as P1's tier-1 cost-multiple floor: the arm
+        # may never sit below the peak at which the LOCKED share
+        # ((1 - gb_frac) x peak) clears the position's own est_cost_bps.
+        # Fully DERIVED (cost / locked-share) — no new literal, no new
+        # knob. est_cost_bps = 0 (legacy positions, the quant-trials
+        # world, restored snapshots) -> floor 0 -> exactly inert, the
+        # same inertness contract P1 ships. gb_frac here is the CURRENT
+        # effective frac (euphoria-adjusted); the tighten rung only
+        # lowers frac (locks MORE), so flooring against gb_frac is the
+        # conservative bound for every downstream lock.
+        cost_pct = _f(getattr(position, "est_cost_bps", 0.0)) / 100.0
+        if cost_pct > 0.0:
+            arm = max(arm, cost_pct / max(1.0 - self.gb_frac, 0.05))
         if peak_gain < arm:
             return None
         frac = self.gb_frac
