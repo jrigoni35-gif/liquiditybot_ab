@@ -122,6 +122,35 @@ def _source_label(source) -> str:
     return s if s in _SOURCE_KNOWN else "other"
 
 
+def _thales_reliability_metrics(th_state: dict, ts: float) -> list:
+    """THALES V2 reliability ledger (2026-07-29 audit A-1/B-2): per-
+    detector graded evidence (fired/vindicated) + the evidence weight
+    (normalized Wilson-LCB lift over the base rate), plus the shared
+    __base__ null itself (graded closes + base win rate). Structurally
+    EMPTY before the shadow-grading unlock — these series ARE the
+    promotion-to-advise evidence the operator watches accrue ("is THALES
+    earning its keep"). Extracted from collect() (pyright complexity
+    ceiling), same emission idioms."""
+    out: list = []
+    for det, r in (th_state.get("reliability") or {}).items():
+        if not isinstance(r, dict):
+            continue
+        for k in ("fired", "vindicated", "weight"):
+            v = r.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out.append(gauge(f"liquiditybot_thales_rel_{k}", v,
+                                 {"detector": str(det)}, ts))
+    base = th_state.get("reliability_base") or {}
+    bf, bv = base.get("fired"), base.get("vindicated")
+    if isinstance(bf, (int, float)) and not isinstance(bf, bool):
+        out.append(gauge("liquiditybot_thales_base_graded", bf, ts=ts))
+        if isinstance(bv, (int, float)) and not isinstance(bv, bool) \
+                and bf > 0:
+            out.append(gauge("liquiditybot_thales_base_win_rate",
+                             bv / bf, ts=ts))
+    return out
+
+
 def collect(status_path: str) -> list:
     # W2-14 re-decision (2026-07-23, operator-delegated): a missing or
     # unreadable status file used to raise out of here and abort the push
@@ -492,6 +521,7 @@ def collect(status_path: str) -> list:
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     m.append(gauge(f"liquiditybot_thales_{k}", v,
                                    {"asset": asset}, ts))
+        m.extend(_thales_reliability_metrics(s.get("thales") or {}, ts))
         mm = s.get("moomoo") or {}
         for k in ("risk_z", "opt_pcr_z", "opt_oi_pcr_z", "opt_iv_skew"):
             v = mm.get(k)

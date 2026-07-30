@@ -312,7 +312,7 @@
       },
       "options": {
         "renderMode": "data",
-        "content": "<div class=\"pulse-wrap pulse-bot\">\n<div class=\"pulse-rows\">\n<div class=\"pulse-row\"><span class=\"lab\">Time-stop scratches<span class=\"exp\">Trades the max-hold clock closed flat &mdash; patience, not conviction</span></span><span class=\"val\">{{#with data.[0].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Probes held back<span class=\"exp\">Entries the sizer judged too small to be worth the risk</span></span><span class=\"val\">{{#with data.[1].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Learning corpus<span class=\"exp\">Labelled trades feeding the model</span></span><span class=\"val\">{{#with data.[2].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}<span class=\"sub\">{{#with data.[3].[0]}}{{toFixed Value 0}} live{{else}}-- live{{/with}}</span></span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Model<span class=\"exp\">Whether the model is sizing trades or standing aside</span></span><span class=\"val\">{{#if data.[4].[0]}}{{#if (eq data.[4].[0].Value 2)}}watching{{else}}{{#if data.[5].[0].Value}}driving{{else}}standing by{{/if}}{{/if}}{{else}}--{{/if}}</span></div>\n</div>\n<div class=\"pulse-foot\">Live &middot; refreshes with the bot's telemetry</div>\n</div>",
+        "content": "<div class=\"pulse-wrap pulse-bot\">\n<div class=\"pulse-rows\">\n<div class=\"pulse-row\"><span class=\"lab\">Time-stop scratches<span class=\"exp\">Trades the max-hold clock closed flat &mdash; patience, not conviction (covers bracket probes since 2026-07-29; counts scratches, not log lines)</span></span><span class=\"val\">{{#with data.[0].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Probes held back<span class=\"exp\">Entries the sizer judged too small to be worth the risk</span></span><span class=\"val\">{{#with data.[1].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}</span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Learning corpus<span class=\"exp\">Labelled trades feeding the model</span></span><span class=\"val\">{{#with data.[2].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}<span class=\"sub\">{{#with data.[3].[0]}}{{toFixed Value 0}} live{{else}}-- live{{/with}}</span></span></div>\n<div class=\"pulse-row\"><span class=\"lab\">Model<span class=\"exp\">Whether the model is sizing trades or standing aside</span></span><span class=\"val\">{{#if data.[4].[0]}}{{#if (eq data.[4].[0].Value 2)}}watching{{else}}{{#if data.[5].[0].Value}}driving{{else}}standing by{{/if}}{{/if}}{{else}}--{{/if}}</span></div>\n</div>\n<div class=\"pulse-foot\">Live &middot; refreshes with the bot's telemetry</div>\n</div>",
         "defaultContent": "<div class=\"pulse-wrap\"><div class=\"pulse-foot\">waiting for telemetry&hellip;</div></div>",
         "editors": [
           "styles"
@@ -6369,7 +6369,7 @@
           "id": 77,
           "type": "bargauge",
           "title": "Spoof-flicker pressure (bid)",
-          "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there.",
+          "description": "TH-017 spoof EWMA per asset — higher = a book being painted; THALES shades size there. Wall-time normalized 2026-07-29: the score no longer depends on poll cadence, only on the spoofer's actual flip rate.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -6443,7 +6443,7 @@
           "id": 78,
           "type": "bargauge",
           "title": "Stop-hunt zone proximity",
-          "description": "Proximity to round-number stop clusters per asset.",
+          "description": "Proximity to round-number stop clusters per asset. 2026-07-29 recalibration: the geometric base rate (tolerance band / magnet spacing) is now subtracted, so a random mark reads ~0 — before this the gauge sat at 0.4-0.5 everywhere the price grid was fine (43% of history >0.5 with zero PnL discrimination). A high reading now means the mark is genuinely AT a magnet.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -6586,11 +6586,376 @@
             }
           ],
           "transparent": true
+        },
+        {
+          "id": 80,
+          "type": "table",
+          "title": "Detector reliability — lift over base rate (earning its keep)",
+          "description": "THALES V2 vindication ledger (2026-07-29 unlock): every closed model-lane trade grades the detectors that advised on its entry — in SHADOW mode too, so this is the promotion-to-advise evidence accruing live. Weight = the detector's Wilson-LCB win/loss lift over the base rate below (0 = no proven edge over just knowing the base rate; the shade gain scales by it in advise mode). Empty table = ledger still accruing its first min_fired=20 grades per detector.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 151
+          },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "·",
+              "custom": {
+                "align": "auto",
+                "filterable": true,
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "lineWidth": 1
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Graded"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "#0A84FF",
+                          "value": null
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "gradient"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Vindicated"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "#0A84FF",
+                          "value": null
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "gradient"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Weight"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "text",
+                          "value": null
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "gradient"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "sortBy": [
+              {
+                "displayName": "Graded",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "liquiditybot_thales_rel_fired{job=\"liquiditybot\"}",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "liquiditybot_thales_rel_vindicated{job=\"liquiditybot\"}",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "liquiditybot_thales_rel_weight{job=\"liquiditybot\"}",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "joinByField",
+              "options": {
+                "byField": "detector",
+                "mode": "outer"
+              }
+            },
+            {
+              "id": "filterFieldsByName",
+              "options": {
+                "include": {
+                  "pattern": "^(detector|Value.*)$"
+                }
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "renameByName": {
+                  "Value #A": "Graded",
+                  "Value #B": "Vindicated",
+                  "Value #C": "Weight"
+                },
+                "indexByName": {
+                  "detector": 0,
+                  "Graded": 1,
+                  "Vindicated": 2,
+                  "Weight": 3
+                }
+              }
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 81,
+          "type": "stat",
+          "title": "Graded closes",
+          "description": "Closed trades graded into the THALES reliability ledger (the __base__ null's sample size). Started counting 2026-07-29 — was structurally stuck at 0 before (grading was advise-gated while promotion required shadow evidence).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 151
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#0A84FF",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "accruing — 0 graded closes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_thales_base_graded{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 82,
+          "type": "stat",
+          "title": "Base win rate",
+          "description": "Win rate across ALL graded closes — the null each detector must BEAT to earn shade weight ('up' advice vs this, 'down' advice vs its complement). The 2026-07-29 correction replaced the old 0.5 coin-flip null that muted honest detectors on a ~16%-win stream.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 151
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#0A84FF",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "accruing — needs graded closes"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_thales_base_win_rate{job=\"liquiditybot\"})*100",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
         }
       ]
     },
     {
-      "id": 80,
+      "id": 83,
       "type": "row",
       "title": "🛡️ POSITIONS & RISK",
       "collapsed": false,
@@ -6598,12 +6963,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 151
+        "y": 158
       },
       "panels": []
     },
     {
-      "id": 81,
+      "id": 84,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -6615,7 +6980,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 152
+        "y": 159
       },
       "fieldConfig": {
         "defaults": {
@@ -7005,7 +7370,7 @@
       "transparent": true
     },
     {
-      "id": 82,
+      "id": 85,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -7017,7 +7382,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 152
+        "y": 159
       },
       "fieldConfig": {
         "defaults": {
@@ -7076,7 +7441,7 @@
       "transparent": true
     },
     {
-      "id": 83,
+      "id": 86,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -7088,7 +7453,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 152
+        "y": 159
       },
       "fieldConfig": {
         "defaults": {
@@ -7139,7 +7504,7 @@
       "transparent": true
     },
     {
-      "id": 84,
+      "id": 87,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -7151,7 +7516,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 152
+        "y": 159
       },
       "fieldConfig": {
         "defaults": {
@@ -7202,7 +7567,7 @@
       "transparent": true
     },
     {
-      "id": 85,
+      "id": 88,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -7214,7 +7579,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 157
+        "y": 164
       },
       "fieldConfig": {
         "defaults": {
@@ -7505,7 +7870,7 @@
       "transparent": true
     },
     {
-      "id": 86,
+      "id": 89,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -7517,7 +7882,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 157
+        "y": 164
       },
       "fieldConfig": {
         "defaults": {
@@ -7641,7 +8006,7 @@
       "transparent": true
     },
     {
-      "id": 87,
+      "id": 90,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -7653,7 +8018,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 157
+        "y": 164
       },
       "fieldConfig": {
         "defaults": {
@@ -7707,7 +8072,7 @@
       "transparent": true
     },
     {
-      "id": 88,
+      "id": 91,
       "type": "stat",
       "title": "Positions open",
       "description": "Open count (max 5).",
@@ -7719,7 +8084,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 157
+        "y": 164
       },
       "fieldConfig": {
         "defaults": {
@@ -7778,7 +8143,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 163
+        "y": 170
       },
       "transparent": true,
       "options": {

@@ -146,7 +146,14 @@ _SYNTH_STATUS = {
     "thales": {"assets": {"BTC": {
         "grid": 0.1, "metronome": 0.2, "clockwork": 0.0, "clockwork_dir": 0,
         "stop_zone": 0.3, "barclose": 0.1, "spoof_bid": 0.05, "spoof_ask": 0.0,
-        "feed_dirty": 0.0, "lapses": 0, "bar_holes": 0, "lapse_warmup_sec": 0}}},
+        "feed_dirty": 0.0, "lapses": 0, "bar_holes": 0, "lapse_warmup_sec": 0}},
+        # V2 reliability ledger (2026-07-29 shadow-grading unlock):
+        # per-detector graded evidence + weight, and the shared base-
+        # rate null — gc_pusher exports these for the Screening board's
+        # "earning its keep" panels
+        "reliability": {"grid": {"fired": 21, "vindicated": 7,
+                                 "weight": 0.12}},
+        "reliability_base": {"fired": 40, "vindicated": 8}},
     # Compounder Phase A conviction formula (risk/conviction.py status()) —
     # #120 telemetry: admission share + regime breakdown + denial tally.
     "conviction": {

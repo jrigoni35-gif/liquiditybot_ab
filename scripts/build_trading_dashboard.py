@@ -885,14 +885,55 @@ def _author_command():
              _pa("liquiditybot_thales_spoof_bid"), 8, 6, decimals=2,
              steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
              desc="TH-017 spoof EWMA per asset — higher = a book being "
-                  "painted; THALES shades size there.")
+                  "painted; THALES shades size there. Wall-time "
+                  "normalized 2026-07-29: the score no longer depends on "
+                  "poll cadence, only on the spoofer's actual flip rate.")
     bargauge("Stop-hunt zone proximity", _pa("liquiditybot_thales_stop_zone"),
              8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
-             desc="Proximity to round-number stop clusters per asset.")
+             desc="Proximity to round-number stop clusters per asset. "
+                  "2026-07-29 recalibration: the geometric base rate "
+                  "(tolerance band / magnet spacing) is now subtracted, "
+                  "so a random mark reads ~0 — before this the gauge sat "
+                  "at 0.4-0.5 everywhere the price grid was fine (43% of "
+                  "history >0.5 with zero PnL discrimination). A high "
+                  "reading now means the mark is genuinely AT a magnet.")
     bargauge("Manipulation suspicion", _pa("liquiditybot_manip_suspect"),
              8, 6, decimals=2, steps=LOW_GOOD, mn=0, mx=1, legend="{{asset}}",
              desc="Parameter-free max of the manipulation footprints per "
                   "asset.")
+    table("Detector reliability — lift over base rate (earning its keep)",
+          12, 7,
+          cols=[("liquiditybot_thales_rel_fired", "Graded", "short", 0,
+                 BLUE),
+                ("liquiditybot_thales_rel_vindicated", "Vindicated",
+                 "short", 0, BLUE),
+                ("liquiditybot_thales_rel_weight", "Weight", "short", 2,
+                 GRN)],
+          label_keys=["detector"], sort="Graded",
+          desc="THALES V2 vindication ledger (2026-07-29 unlock): every "
+               "closed model-lane trade grades the detectors that advised "
+               "on its entry — in SHADOW mode too, so this is the "
+               "promotion-to-advise evidence accruing live. Weight = the "
+               "detector's Wilson-LCB win/loss lift over the base rate "
+               "below (0 = no proven edge over just knowing the base "
+               "rate; the shade gain scales by it in advise mode). Empty "
+               "table = ledger still accruing its first min_fired=20 "
+               "grades per detector.")
+    stat("Graded closes", M("liquiditybot_thales_base_graded"), 6, 7,
+         decimals=0, steps=BLUE, no_value="accruing — 0 graded closes",
+         desc="Closed trades graded into the THALES reliability ledger "
+              "(the __base__ null's sample size). Started counting "
+              "2026-07-29 — was structurally stuck at 0 before (grading "
+              "was advise-gated while promotion required shadow "
+              "evidence).")
+    stat("Base win rate", M("liquiditybot_thales_base_win_rate", "*100"),
+         6, 7, unit="percent", decimals=1, steps=BLUE,
+         no_value="accruing — needs graded closes",
+         desc="Win rate across ALL graded closes — the null each "
+              "detector must BEAT to earn shade weight ('up' advice vs "
+              "this, 'down' advice vs its complement). The 2026-07-29 "
+              "correction replaced the old 0.5 coin-flip null that muted "
+              "honest detectors on a ~16%-win stream.")
 
     row("🛡️ POSITIONS & RISK")
     _positions_table()
@@ -1450,7 +1491,8 @@ _PULSE_ROWS = """\
 <div class="pulse-rows">
 <div class="pulse-row"><span class="lab">Time-stop scratches\
 <span class="exp">Trades the max-hold clock closed flat &mdash; patience, \
-not conviction</span></span>\
+not conviction (covers bracket probes since 2026-07-29; counts \
+scratches, not log lines)</span></span>\
 <span class="val">{{#with data.[0].[0]}}{{toFixed Value 0}}{{else}}--{{/with}}\
 </span></div>
 <div class="pulse-row"><span class="lab">Probes held back\
