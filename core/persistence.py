@@ -223,6 +223,37 @@ def _restore_probe_admissions_section(bot, data: dict) -> None:
         log.warning("probe_admissions section malformed - skipped")
 
 
+def _restore_probe_budget_section(bot, data: dict) -> None:
+    """SPB-R probe budget (spec §5, main.py `_budget_tokens` /
+    `_budget_tuition`): isolated so a malformed section can't skip
+    anything else in restore() - the same ISOLATION principle (and the
+    same narrow except tuple) as _restore_probe_admissions_section
+    directly above, keeping restore()'s own branch count from growing
+    toward pyproject.toml's frozen C901 ceiling.
+
+    Missing/pre-SPB section -> NO-OP here (whatever the bot already
+    holds survives untouched, mirroring the probe_admissions missing-
+    section semantics); on a real cold start __init__ constructs an
+    empty bucket first, so a pre-SPB snapshot nets tokens=0.0 which
+    simply refills normally. `last_refill_ts` is deliberately NEVER
+    restored (nor persisted): it re-seeds to the first engine `now`
+    after restart, so downtime never accrues tokens - the conservative
+    direction (spec §5)."""
+    try:
+        pb = data.get("probe_budget")
+        if not isinstance(pb, dict):
+            return
+        if hasattr(bot, "_budget_tokens") and "tokens" in pb:
+            bot._budget_tokens = float(pb["tokens"])
+        tu = pb.get("tuition")
+        if isinstance(tu, list) and hasattr(bot, "_budget_tuition"):
+            restored = [(float(t), float(x)) for t, x in tu]
+            bot._budget_tuition.clear()
+            bot._budget_tuition.extend(restored)
+    except (TypeError, ValueError, AttributeError):
+        log.warning("probe_budget section malformed - skipped")
+
+
 def _restore_long_book_section(bot, data: dict) -> None:
     """Compounder Phase C (task C4): the shared EvidenceLadder (follows
     RiskProtocolStack's own to_dict/from_dict pattern - malformed input
@@ -469,6 +500,23 @@ class StateStore:
                 # but never toward the DROUGHT itself.
                 "last_floor_admit_ts": getattr(
                     bot, "_last_floor_admit_ts", None),
+                # SPB-R probe budget (spec §5, MANDATORY): the token
+                # bucket + the trailing-24h clipped-tuition ledger must
+                # survive the same deploy-restart cadence as the window
+                # above, or the auto-updater's restart-per-deploy would
+                # reset the budget every deploy. last_refill_ts is
+                # deliberately NOT persisted: it re-seeds to the first
+                # engine `now` after restart, so downtime never accrues
+                # tokens - degraded toward FEWER probes, the safe
+                # direction (the old deque's restart asymmetry was
+                # permissive; this one is conservative). Order-terminal
+                # refunds need no state here: the cost rides in
+                # order.meta, and OM state has its own lifecycle.
+                "probe_budget": {
+                    "tokens": float(getattr(bot, "_budget_tokens", 0.0)),
+                    "tuition": [[float(t), float(x)] for t, x in
+                                getattr(bot, "_budget_tuition", [])],
+                },
                 # Compounder Phase C (task C4): the shared EvidenceLadder
                 # (closed_paper/closed_live/pf_live/downgrade markers -
                 # risk/long_book.py's own to_dict/from_dict) and the long
@@ -813,6 +861,7 @@ class StateStore:
         except (TypeError, ValueError):
             log.warning("stop_hit section malformed - skipped")
         _restore_probe_admissions_section(bot, data)
+        _restore_probe_budget_section(bot, data)
         try:
             rp = data.get("risk_protocols")
             if rp and getattr(bot, "risk_protocols", None) is not None:

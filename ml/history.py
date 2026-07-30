@@ -646,6 +646,15 @@ class HistoryStore:
         self._regime_live_counts: dict = {}
         self._regime_counts_loaded = False
         self._regime_counts_key = None
+        # SPB-R scarcity pricing (2026-07-30 spec §1.1): per-ASSET LIVE
+        # label counts, O(1) at admission time via asset_live_counts().
+        # Same design as the per-regime counter above - load-time init
+        # ((mtime, size)-cached exactly like source_counts), incremental
+        # maintenance at _append_row, pure derived cache, NEVER
+        # snapshotted (the CSV is the durable source of truth).
+        self._asset_live_counts: dict = {}
+        self._asset_live_loaded = False
+        self._asset_live_key = None
         # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
         # edge-triggered per-INSTANCE flag so the ML-081 activation log fires
         # once per inactive->active transition, never once per load (binding
@@ -859,6 +868,17 @@ class HistoryStore:
                     self._regime_counts_key = (st.st_mtime_ns, st.st_size)
                 except OSError:
                     pass
+        # SPB-R: same incremental fold for the per-ASSET live counter -
+        # skip when never loaded (the eventual first asset_live_counts()
+        # call runs a full scan that already sees this on-disk row).
+        if source == "live" and self._asset_live_loaded:
+            self._asset_live_counts[asset] = \
+                self._asset_live_counts.get(asset, 0) + 1
+            try:
+                st = self.path.stat()
+                self._asset_live_key = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                pass
 
     def log_close(self, position_id: str, net_pnl_usd: float,
                  barrier: str = "realized", pt_frac: float = 0.0,
@@ -1107,6 +1127,48 @@ class HistoryStore:
         (never a per-admission re-read)."""
         self._load_regime_counts()
         return self._regime_live_counts.get(regime_label, 0)
+
+    def _load_asset_live_counts(self) -> None:
+        """SPB-R (spec §1.1): load-time init pass for asset_live_counts -
+        one full CSV scan, (mtime, size)-gated exactly like
+        _load_regime_counts above; live rows this process appends
+        afterward fold in incrementally via _append_row."""
+        try:
+            st = self.path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._asset_live_counts = {}
+            self._asset_live_loaded = True
+            self._asset_live_key = None
+            return
+        if self._asset_live_loaded and self._asset_live_key == key:
+            return
+        counts: dict = {}
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    if row.get("source") != "live":
+                        continue
+                    asset = row.get("asset")
+                    if asset:
+                        counts[asset] = counts.get(asset, 0) + 1
+        except (OSError, csv.Error):
+            return
+        self._asset_live_counts = counts
+        self._asset_live_loaded = True
+        self._asset_live_key = key
+
+    def asset_live_counts(self) -> dict:
+        """SPB-R scarcity pricing (2026-07-30 spec §1.1): per-asset LIVE
+        (real closed-trade) label counts - the n_a term of w_asset =
+        clip(sqrt(T_a/(1+n_a)), F, 1). O(1) at admission time: routes
+        through _load_asset_live_counts (a cheap stat()-and-return once
+        loaded, mirroring regime_live_count exactly); a full CSV re-scan
+        only happens on the very first call or when the file changed
+        under this process. NOT asset_counts() (all labeled rows,
+        candidate-dominated) - scarcity is priced on LIVE labels only."""
+        self._load_asset_live_counts()
+        return dict(self._asset_live_counts)
 
     def load_training_data(self, half_life_days: float = 30.0,
                         candidate_weight: float = 0.4,

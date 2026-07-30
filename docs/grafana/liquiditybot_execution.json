@@ -3960,17 +3960,33 @@
                             "text": "SZ-048 · drought floor probe",
                             "index": 35
                           },
+                          "SZ-049": {
+                            "text": "SZ-049 · probe budget exhausted",
+                            "index": 36
+                          },
                           "SZ-050": {
                             "text": "SZ-050 · drawdown throttle",
-                            "index": 36
+                            "index": 37
+                          },
+                          "SZ-051": {
+                            "text": "SZ-051 · probe priced (admitted)",
+                            "index": 38
+                          },
+                          "SZ-052": {
+                            "text": "SZ-052 · probe cost refunded",
+                            "index": 39
+                          },
+                          "SZ-053": {
+                            "text": "SZ-053 · probe tuition governor",
+                            "index": 40
                           },
                           "SZ-060": {
                             "text": "SZ-060 · inventory aggression scaled",
-                            "index": 37
+                            "index": 41
                           },
                           "SZ-061": {
                             "text": "SZ-061 · inventory skew scaled",
-                            "index": 38
+                            "index": 42
                           }
                         }
                       }
@@ -4041,6 +4057,872 @@
       ]
     },
     {
+      "id": 45,
+      "type": "row",
+      "title": "🎫 PROBE BUDGET — scarcity-priced exploration (SPB-R)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 69
+      },
+      "panels": [
+        {
+          "id": 46,
+          "type": "stat",
+          "title": "Mode",
+          "description": "share_cap = legacy SZ-047 rolling share cap (byte-identical, the escape hatch); budget = SPB-R scarcity-priced token bucket. The flip is a conscious operator config change + restart.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 0,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#0A84FF",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "no probe-budget telemetry yet",
+              "displayName": "${__field.labels.mode}"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "textMode": "name",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "count(liquiditybot_probe_budget_mode_info{job=\"liquiditybot\"}) by (mode)",
+              "instant": true,
+              "range": false,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 47,
+          "type": "stat",
+          "title": "Tokens now",
+          "description": "Token bucket level; negative = bounded placement debt (floor −C by construction, refill climbs it out).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 4,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#0A84FF",
+                    "value": null
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "no probe-budget telemetry yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_tokens{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 48,
+          "type": "stat",
+          "title": "Labels/day (24h)",
+          "description": "Probe closes realized in the trailing 24h — the program's headline number. Book ceiling is 15/day (5 slots × 24h / 8h label horizon); expected ≈ 11-12 at defaults in budget mode.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 8,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#FF453A",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 3
+                  },
+                  {
+                    "color": "#30D158",
+                    "value": 8
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "no probe closes yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_labels_24h{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 49,
+          "type": "stat",
+          "title": "Unlock ETA (days)",
+          "description": "max(0, 60 − tb-era labels) / labels-per-day: days to the 60-label tb-era evidence milestone at the current rate.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 12,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#30D158",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 10
+                  },
+                  {
+                    "color": "#FF453A",
+                    "value": 30
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "no labels yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_unlock_eta_days{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 50,
+          "type": "stat",
+          "title": "Governor factor",
+          "description": "Tuition-governor refill scale: 1.0 nominal; < 1 = trailing-24h clipped probe losses crossed the cap (SZ-053); floored at 0.25 and self-redeeming as the window rolls — probation, never a life sentence.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 16,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#FF453A",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 0.26
+                  },
+                  {
+                    "color": "#30D158",
+                    "value": 1
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              },
+              "noValue": "no probe-budget telemetry yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "auto",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_governor_factor{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": ""
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 51,
+          "type": "gauge",
+          "title": "Tuition vs cap (24h)",
+          "description": "Trailing-24h clipped probe tuition as % of the daily cap (10 bps of equity). Per-close clip = cap/3, so one outlier can never engage the governor alone.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 20,
+            "y": 70
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100.0,
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#30D158",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 60
+                  },
+                  {
+                    "color": "#FF453A",
+                    "value": 90
+                  }
+                ]
+              },
+              "noValue": "no probe-budget telemetry yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_tuition_24h_usd{job=\"liquiditybot\"}) / max(liquiditybot_probe_budget_tuition_cap_usd{job=\"liquiditybot\"}) * 100",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 52,
+          "type": "timeseries",
+          "title": "Token bucket vs capacity",
+          "description": "Bucket level vs capacity C (= one book-fill, 5 tokens at defaults). Time below zero is bounded placement DEBT (worst −C ≈ 8h of refill); pinned at C = arrivals are cheaper than supply — headroom.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 75
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 18,
+                "gradientMode": "opacity",
+                "showPoints": "auto",
+                "spanNulls": 300000,
+                "pointSize": 5,
+                "axisPlacement": "auto",
+                "scaleDistribution": {
+                  "type": "linear"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "decimals": 2
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "tokens"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#5E5CE6"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "capacity"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#8E8E93"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_tokens{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": "tokens"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_capacity{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": "capacity"
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 53,
+          "type": "timeseries",
+          "title": "Avg admission cost (24h)",
+          "description": "Mean scarcity price of admitted probes. Drift toward 1.0 = buying scarce labels (good); toward the clamp = only redundant arms arriving.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 75
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 18,
+                "gradientMode": "opacity",
+                "showPoints": "auto",
+                "spanNulls": 300000,
+                "pointSize": 5,
+                "axisPlacement": "auto",
+                "scaleDistribution": {
+                  "type": "linear"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "decimals": 2
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "avg cost"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#2596AB"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "showLegend": true,
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_avg_cost_24h{job=\"liquiditybot\"})",
+              "instant": false,
+              "range": true,
+              "legendFormat": "avg cost"
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 54,
+          "type": "bargauge",
+          "title": "Admissions (24h)",
+          "description": "Budget-mode admission flow: admits vs the ~12/day target, SZ-052 refunds (unfilled entries hand their cost back), exhausted-bucket denials (SZ-049 brackets), and failed affordability rolls (non-dispositions — counters, not audit spam).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 81
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#0A84FF",
+                    "value": null
+                  }
+                ]
+              },
+              "noValue": "no probe-budget telemetry yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "basic",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_admits_24h{job=\"liquiditybot\"})",
+              "instant": true,
+              "range": false,
+              "legendFormat": "admits"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_refunds_24h{job=\"liquiditybot\"})",
+              "instant": true,
+              "range": false,
+              "legendFormat": "refunds (unfilled)"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_denied_exhausted_24h{job=\"liquiditybot\"})",
+              "instant": true,
+              "range": false,
+              "legendFormat": "denied (exhausted)"
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "max(liquiditybot_probe_budget_rolls_failed_24h{job=\"liquiditybot\"})",
+              "instant": true,
+              "range": false,
+              "legendFormat": "rolls failed"
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 55,
+          "type": "bargauge",
+          "title": "Per-asset eff weight (taper × scarcity)",
+          "description": "The ONE combined per-asset drag number (stats-judge note): label-share taper pass-prob × scarcity weight S(a,r), normalized — never two invisible multiplications. Both factors floored, so no arm can reach zero.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 81
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 3,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#FF453A",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 0.4
+                  },
+                  {
+                    "color": "#30D158",
+                    "value": 0.7
+                  }
+                ]
+              },
+              "noValue": "no probe-budget telemetry yet",
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "basic",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "liquiditybot_probe_asset_eff_weight{job=\"liquiditybot\"}",
+              "instant": true,
+              "range": false,
+              "legendFormat": "{{asset}}"
+            }
+          ],
+          "transparent": true
+        },
+        {
+          "id": 56,
+          "type": "bargauge",
+          "title": "Per-regime live labels",
+          "description": "LIVE labels per regime vs the 60-per-regime coverage floor (corpus_target 300 / 5 regimes) — under-floor regimes hold the decay AND price cheap (same direction, no fight).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 81
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "",
+              "decimals": 0,
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#FF453A",
+                    "value": null
+                  },
+                  {
+                    "color": "#FFD60A",
+                    "value": 30
+                  },
+                  {
+                    "color": "#30D158",
+                    "value": 60
+                  }
+                ]
+              },
+              "noValue": "no live labels yet"
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "basic",
+            "orientation": "horizontal",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "namePlacement": "left",
+            "sizing": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "grafanacloud-prom"
+              },
+              "expr": "liquiditybot_probe_regime_live{job=\"liquiditybot\"}",
+              "instant": true,
+              "range": false,
+              "legendFormat": "{{regime}}"
+            }
+          ],
+          "transparent": true
+        }
+      ]
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -4049,7 +4931,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 70
+        "y": 88
       },
       "transparent": true,
       "options": {

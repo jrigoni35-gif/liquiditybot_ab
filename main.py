@@ -889,6 +889,64 @@ class LiquidityBot:
         # actually runs under.
         self._probe_admissions: Deque[bool] = deque(
             maxlen=self._probe_share_window)
+        # SPB-R probe-admission budget (docs/superpowers/specs/2026-07-30-
+        # probe-budget-spbr-design.md), LANDED DARK: mode defaults to
+        # "share_cap" (the shipped SZ-047 deque path above, byte-identical
+        # including _explore_rng draw counts - test-pinned in
+        # tests/test_probe_budget.py); "budget" replaces the share-cap
+        # branch with refill -> scarcity price -> probabilistic
+        # affordability (see _budget_admission). The legacy deque is fed
+        # in BOTH modes (stateful rollback: one config key + restart
+        # resumes a WARM window).
+        _adm = _ex.get("admission", {}) or {}
+        self._probe_admission_mode = str(_adm.get("mode", "share_cap"))
+        _bg = _adm.get("budget", {}) or {}
+        self._budget_tokens_per_day = float(_bg.get("tokens_per_day", 15))
+        self._budget_burst_hours = float(_bg.get("burst_hours", 8.0))
+        self._budget_scarcity_pricing = bool(
+            _bg.get("scarcity_pricing", True))
+        _bsf = _bg.get("scarcity_floor")
+        self._budget_scarcity_floor: Optional[float] = \
+            float(_bsf) if _bsf is not None else None
+        self._budget_refund_unfilled = bool(
+            _bg.get("refund_unfilled_entry", True))
+        _bgv = _bg.get("governor", {}) or {}
+        self._budget_tuition_frac_max = float(
+            _bgv.get("tuition_daily_frac_max", 0.001))
+        self._budget_outlier_clip_div = float(
+            _bgv.get("outlier_clip_div", 3))
+        # bucket state - RESTART STATE: {tokens, tuition} persisted beside
+        # probe_admissions (core/persistence.py "probe_budget" section);
+        # last_refill_ts deliberately NOT persisted - it re-seeds to the
+        # first engine `now` after restart so downtime never accrues
+        # tokens (degraded toward FEWER probes, the safe direction).
+        self._budget_tokens = 0.0
+        self._budget_last_refill_ts: Optional[float] = None
+        # trailing-24h clipped probe tuition: (close_ts, clipped_loss_usd)
+        # per probe-tagged close, pruned at read, never latched (§1.5)
+        self._budget_tuition: Deque[tuple] = deque()
+        # decision->placement cost stash (§1.4): the decision stashes,
+        # the placement hook (_record_probe_admission) pops and deducts -
+        # a probe vetoed in between never reaches the hook, costs zero.
+        self._pending_probe_cost: dict = {}
+        self._pending_probe_asset: Optional[str] = None
+        self._budget_governor_factor = 1.0
+        # SZ-049 transition bracket state (engaged span + denied count)
+        self._budget_exhausted_since: Optional[float] = None
+        self._budget_denied_arrivals = 0
+        # trailing-window telemetry (§8) - report-only, process-local
+        # (a restart costs at most one window of counters; the durable
+        # SPB-R state is only {tokens, tuition}, spec §5)
+        self._budget_admit_events: Deque[tuple] = deque()    # (ts, cost)
+        self._budget_refund_events: Deque[float] = deque()
+        self._budget_denied_events: Deque[float] = deque()
+        self._budget_rollfail_events: Deque[float] = deque()
+        self._budget_label_events_7d: Deque[float] = deque()
+        # DEDICATED rng stream (§1.3, C2's RNG discipline): _explore_rng's
+        # draw count is untouched in BOTH modes. str-seeding is
+        # deterministic and PYTHONHASHSEED-independent.
+        self._budget_rng = random.Random(  # nosec B311 - admission sampling, not crypto
+            f"{int(config.get('system', {}).get('seed', 42))}:probe-budget")
         # Compounder Phase A: deterministic conviction formula
         # (risk/conviction.py). report mode (default) = dispositions
         # logged, entry behavior byte-identical; the enforce flip is a
@@ -1356,6 +1414,10 @@ class LiquidityBot:
         stub-bot unit-test harnesses (this method predates a real bot
         always carrying self.config)."""
         asset = self._asset_of(pos.symbol)
+        # SPB-R §1.5: probe-tagged closes feed the tuition governor's
+        # trailing-24h clipped-loss window (both modes - warm-flip state;
+        # self-guarded no-op on stub bots and non-probe closes).
+        self._note_probe_tuition(pos, total_net, now)
         barrier = close_reason if close_reason in (
             "tb_pt", "tb_sl", "tb_time") else "realized"
         self.history.log_close(
@@ -1447,6 +1509,13 @@ class LiquidityBot:
     def _handle_fill(self, event, now: Optional[float] = None) -> None:
         now = now if now is not None else time.time()
         order = event.order
+        # SPB-R §1.4 order-terminal seam: an unfilled probe ENTRY terminal
+        # (fill_ratio == 0 on the final event) refunds its placement-time
+        # cost (SZ-052). The helper is self-guarded (meta tag presence,
+        # never raises) - a no-op for every order that never carried a
+        # probe_cost, i.e. all of share_cap mode.
+        if getattr(event, "final", False):
+            self._maybe_refund_probe_order(order, now)
         if event.fill_size > EPS and order.purpose in ("entry", "hedge"):
             pos = self.state.get_position(order.position_id) if order.position_id else None
             if pos is None:
@@ -2718,19 +2787,469 @@ class LiquidityBot:
         probes = sum(1 for p in self._probe_admissions if p)
         return (probes + 1) / self._probe_share_window > self._probe_max_share
 
-    def _record_probe_admission(self, is_probe: bool) -> None:
+    def _record_probe_admission(self, is_probe: bool,
+                                cost: Optional[float] = None) -> None:
         """Feed one ADMITTED entry (an order actually placed, on any of the
         direct/algo/ladder entry paths) into the rolling share-cap window.
         Called for BOTH conviction (False) and probe (True) admissions -
         the share cap denominator counts every admission, not just probes.
         Self-healing (getattr, lazy-init) rather than requiring __init__:
         integration tests exercise _ladder_entry/_place_ladder directly off
-        a minimal LiquidityBot.__new__() stub that never runs __init__."""
+        a minimal LiquidityBot.__new__() stub that never runs __init__.
+
+        SPB-R (spec §1.4), extend-with-defaults: this IS the placement
+        hook - it only fires after orders.submit succeeded - so in
+        mode="budget" a probe admission additionally deducts its
+        scarcity price here (`tokens -= cost`; may go negative: bounded
+        debt, floor -C by construction since admission requires
+        tokens > 0 and cost <= C). `cost` None (every existing caller -
+        the two pinned direct/ladder `(explored)` call sites and the
+        algo child hook) pops the decision-time stash via the
+        `_pending_probe_asset` pointer; the pointer is only ever set by a
+        PRICED admit and cleared at every budget decision, so an SZ-048
+        floor probe (never priced) and any stale vetoed stash can never
+        be charged. share_cap mode returns right after the deque append -
+        byte-identical legacy behavior."""
         admissions = getattr(self, "_probe_admissions", None)
         if admissions is None:
             admissions = deque(maxlen=getattr(self, "_probe_share_window", 40))
             self._probe_admissions = admissions
         admissions.append(bool(is_probe))
+        if getattr(self, "_probe_admission_mode", "share_cap") != "budget" \
+                or not is_probe:
+            return
+        if cost is None:
+            _pa = getattr(self, "_pending_probe_asset", None)
+            if _pa is None:
+                return              # floor probe / stale pointer: costs zero
+            cost = self._pending_probe_cost.pop(_pa, None)
+            self._pending_probe_asset = None
+            if cost is None:
+                return
+        self._budget_tokens = \
+            getattr(self, "_budget_tokens", 0.0) - float(cost)
+
+    def _drought_floor_fire(self, now: float, asset: str) -> bool:
+        """F0b (SZ-048): the caller's throttle is, by position, the binding
+        denial here (_exploration_active already rolled True) - under a
+        proven drought, admit ONE rate-bounded floor probe instead of
+        livelocking the label stream. Recorded into the window IMMEDIATELY
+        (see _drought_floor_admit's docstring for why this differs from
+        the normal path). Extracted VERBATIM from the share-cap deny
+        branch (SPB-R §3.4) so both admission modes share the identical
+        backstop: in share_cap mode it fires when the cap binds during a
+        drought; in budget mode it backstops a budget non-admit and is
+        the livelock CANARY (alert-wired - it should never fire there)."""
+        if not self._drought_floor_admit(now):
+            return False
+        detail = tag(
+            Code.SZ_PROBE_FLOOR,
+            f"drought floor probe {asset}: no admissions for >= "
+            f"{self._drought_min_sec / 3600.0:.1f}h with the share "
+            f"cap binding - one rate-bounded probe admitted")
+        get_audit().log(
+            "exploration", Code.SZ_PROBE_FLOOR, detail,
+            {"asset": asset,
+             "drought_hours": self._drought_min_sec / 3600.0,
+             "spacing_hours": self._floor_spacing_sec / 3600.0})
+        log.info("[%s] drought floor: probe admitted under SZ-048 "
+                 "(share cap was binding, drought >= %.1fh)", asset,
+                 self._drought_min_sec / 3600.0)
+        self._last_floor_admit_ts = now
+        self._record_probe_admission(True)
+        return True
+
+    # ------------------------------------------------------------------
+    # SPB-R: scarcity-priced probe budget, refunded (mode="budget"; spec
+    # docs/superpowers/specs/2026-07-30-probe-budget-spbr-design.md).
+    # All timestamps engine-injected `now` only (the SZ-048 precedent -
+    # wall clock here would break replay determinism); all label counts
+    # LIVE labels only; every method self-heals via getattr for the
+    # stub-bot test harnesses (the _record_probe_admission pattern).
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _prune_budget_events(dq, now: float, window_s: float) -> None:
+        """Drop entries older than `window_s` engine-seconds. Entries are
+        floats (event ts) or (ts, value) tuples - both windows are pruned
+        at read AND write, never latched."""
+        while dq:
+            head = dq[0]
+            ts = head[0] if isinstance(head, tuple) else head
+            if (now - ts) <= window_s:
+                break
+            dq.popleft()
+
+    def _budget_capacity(self) -> float:
+        """C = tokens_per_day x burst_hours/24 (§1.2): 15 x 8/24 = 5.0
+        tokens = exactly one book-fill max burst (the labeler's own 8h
+        horizon)."""
+        return float(getattr(self, "_budget_tokens_per_day", 15.0)) * \
+            float(getattr(self, "_budget_burst_hours", 8.0)) / 24.0
+
+    def _budget_floor_frac(self) -> float:
+        """F (§1.1): scarcity_floor if set, else corpus_decay.floor_frac -
+        ONE trickle-floor concept in the whole config, not two."""
+        sf = getattr(self, "_budget_scarcity_floor", None)
+        if sf is not None:
+            return float(sf)
+        return float(getattr(self, "_corpus_floor_frac", 0.25))
+
+    def _tuition_governor_factor(self, now: float) -> float:
+        """§1.5 tuition governor - a runaway BRAKE (bound, not estimator):
+        X = sum of CLIPPED realized probe losses over the trailing 86400
+        engine-s (fed at the _finalize_position seam, _note_probe_tuition);
+        f = 1 while X <= cap, else clip(cap/X, F, 1) - scale-with-floor,
+        self-redeeming as the window rolls (probation, never a life
+        sentence). Transitions across 1.0 (either way) emit SZ-053; steady
+        state emits nothing. The 86400 s window is the daily budget's own
+        unit - deliberately NOT a knob."""
+        tu = getattr(self, "_budget_tuition", None)
+        if tu is None:
+            return 1.0
+        self._prune_budget_events(tu, now, 86400.0)
+        cap_usd = float(getattr(self, "_budget_tuition_frac_max", 0.001)) \
+            * self._equity()
+        x = sum(loss for _, loss in tu)
+        if x <= cap_usd or cap_usd <= 0.0:
+            f = 1.0
+        else:
+            f = min(max(cap_usd / x, self._budget_floor_frac()), 1.0)
+        prev = getattr(self, "_budget_governor_factor", 1.0)
+        if (f < 1.0) != (prev < 1.0):
+            phase = "engaged" if f < 1.0 else "released"
+            detail = tag(
+                Code.SZ_PROBE_TUITION_GOVERNOR,
+                f"probe tuition governor {phase}: trailing-24h clipped "
+                f"tuition ${x:.2f} vs cap ${cap_usd:.2f} -> refill factor "
+                f"{f:.2f}")
+            get_audit().log(
+                "exploration", Code.SZ_PROBE_TUITION_GOVERNOR, detail,
+                {"phase": phase, "tuition_24h_usd": round(x, 4),
+                 "cap_usd": round(cap_usd, 4), "factor": round(f, 4)})
+            log.info(detail)
+        self._budget_governor_factor = f
+        return f
+
+    def _budget_refill(self, now: float) -> None:
+        """§1.2 token-bucket refill at each budget-mode admission decision:
+        tokens <- min(C, tokens + f_governor x R x dt) with R =
+        tokens_per_day/86400 engine-s. A None clock (first cycle after
+        boot/restart) SEEDS to `now` and accrues nothing: downtime never
+        accrues tokens (§5 - the conservative direction; the old deque's
+        restart asymmetry was permissive, this one is not)."""
+        last = getattr(self, "_budget_last_refill_ts", None)
+        self._budget_last_refill_ts = now
+        if last is None:
+            return
+        dt = max(0.0, now - last)
+        rate = float(getattr(self, "_budget_tokens_per_day", 15.0)) / 86400.0
+        f_gov = self._tuition_governor_factor(now)
+        self._budget_tokens = min(
+            self._budget_capacity(),
+            getattr(self, "_budget_tokens", 0.0) + f_gov * rate * dt)
+
+    def _probe_cost(self, asset: str, regime_label: Optional[str]
+                    ) -> tuple[float, float, float, float]:
+        """§1.1 scarcity price (deterministic, no RNG). Returns
+        (cost, w_asset, w_regime, surcharge):
+
+          w_asset  = clip(sqrt(T_a/(1+n_a)), F, 1), T_a = corpus_target/A
+          w_regime = clip(sqrt(regime_floor_live/(1+n_r)), F, 1)
+          S        = max(w_asset, w_regime)   [EITHER dimension redeems]
+          cost     = min(1/S x surcharge, C)  [clamped: a price > C would
+                                               be a livelock wall]
+
+        An unmapped regime label is treated as n_r = 0 -> w_regime = 1.0,
+        cost 1.0 (fail-safe scarce, the same direction as the existing
+        regime hold). scarcity_pricing=false -> flat cost 1.0 (the 1-knob
+        rule, a REAL config point for the simplicity ladder). The Wilson-
+        UPPER surcharge ships DARK (§1.6): Stage 0 computes NO surcharge
+        (1.0) - the flip is gated on the era-filtered outcomes accessor +
+        the simplicity-ladder race, neither of which exists yet."""
+        cap = self._budget_capacity()
+        if not getattr(self, "_budget_scarcity_pricing", True):
+            return min(1.0, cap), 1.0, 1.0, 1.0
+        floor = self._budget_floor_frac()
+        n_assets = len(getattr(self, "symbol_map", {}) or {})
+        t_a = float(getattr(self, "_corpus_target_live", 300)) \
+            / max(n_assets, 1)
+        _alc: Optional[Callable[[], dict]] = getattr(
+            self.history, "asset_live_counts", None)
+        n_a = int((_alc() if callable(_alc) else {}).get(asset, 0))
+        w_asset = min(max(math.sqrt(t_a / (1.0 + n_a)), floor), 1.0)
+        if regime_label is not None and regime_label in REGIME_LABELS:
+            n_r = int(self.history.regime_live_count(regime_label))
+        else:
+            n_r = 0                     # unmapped: fail-safe scarce
+        rfl = float(getattr(self, "_regime_floor_live", 60))
+        w_regime = min(max(math.sqrt(rfl / (1.0 + n_r)), floor), 1.0)
+        s = max(w_asset, w_regime)
+        surcharge = 1.0                 # §1.6: dark in Stage 0
+        cost = min((1.0 / s) * surcharge, cap)
+        return cost, w_asset, w_regime, surcharge
+
+    def _budget_admission(self, now: float, asset: str,
+                          regime_label: Optional[str]) -> bool:
+        """§1.2-1.3: refill -> price -> probabilistic-affordability roll.
+        Evaluated only AFTER _exploration_active (epsilon x decay x
+        regime-hold x taper) already rolled True - this is the SUPPLY
+        side. ADMIT iff u < p with p = clip(tokens/cost, 0, 1) on the
+        DEDICATED _budget_rng stream (u drawn only when tokens > 0, so
+        replay streams never desync on exhausted spans). Relative
+        admission rates between arms are 1/cost - price = inverse
+        admission weight - and every arm's p > 0 whenever tokens > 0: no
+        starvation wall by construction (the taper lesson). A failed roll
+        is a NON-disposition (like a failed epsilon/taper roll - §4's
+        conscious semantic change); exhaustion is bracketed by SZ-049
+        transition pairs carrying exact denied-arrival counts."""
+        # stash hygiene (§1.4): a probe vetoed between the previous
+        # decision and its placement never reached the hook - clear the
+        # pointer (and this asset's stale entry) so a later placement can
+        # never charge a stale price.
+        self._pending_probe_asset = None
+        self._pending_probe_cost.pop(asset, None)
+        self._budget_refill(now)
+        cost, w_asset, w_regime, surcharge = \
+            self._probe_cost(asset, regime_label)
+        tokens = self._budget_tokens
+        if tokens <= 0.0:
+            if self._budget_exhausted_since is None:
+                self._budget_exhausted_since = now
+                self._budget_denied_arrivals = 0
+                detail = tag(
+                    Code.SZ_PROBE_BUDGET_EXHAUSTED,
+                    f"probe budget exhausted (engaged): tokens "
+                    f"{tokens:.3f} <= 0 - arrivals denied until refill")
+                get_audit().log(
+                    "exploration", Code.SZ_PROBE_BUDGET_EXHAUSTED, detail,
+                    {"phase": "engaged", "tokens": round(tokens, 4),
+                     "asset": asset})
+                log.info(detail)
+            self._budget_denied_arrivals += 1
+            self._budget_denied_events.append(now)
+            self._prune_budget_events(self._budget_denied_events, now,
+                                      86400.0)
+            return False
+        if self._budget_exhausted_since is not None:
+            span = now - self._budget_exhausted_since
+            denied = self._budget_denied_arrivals
+            detail = tag(
+                Code.SZ_PROBE_BUDGET_EXHAUSTED,
+                f"probe budget released: {denied} arrival(s) denied over "
+                f"{span:.0f}s, tokens {tokens:.3f}")
+            get_audit().log(
+                "exploration", Code.SZ_PROBE_BUDGET_EXHAUSTED, detail,
+                {"phase": "released", "arrivals_denied": denied,
+                 "span_s": round(span, 3), "tokens": round(tokens, 4)})
+            log.info(detail)
+            self._budget_exhausted_since = None
+            self._budget_denied_arrivals = 0
+        p = min(max(tokens / cost, 0.0), 1.0)
+        u = self._budget_rng.random()
+        if u >= p:
+            self._budget_rollfail_events.append(now)
+            self._prune_budget_events(self._budget_rollfail_events, now,
+                                      86400.0)
+            return False
+        # ADMIT: stash the price for the placement hook (§1.4 - deduct at
+        # PLACEMENT, not decision; tokens_after below is the level the
+        # deduction WILL produce; a downstream veto discards it unspent).
+        self._pending_probe_cost[asset] = cost
+        self._pending_probe_asset = asset
+        detail = tag(
+            Code.SZ_PROBE_PRICED,
+            f"probe priced {asset}/{regime_label or '?'}: cost "
+            f"{cost:.2f} (w_asset {w_asset:.3f}, w_regime {w_regime:.3f}) "
+            f"p {p:.3f} tokens {tokens:.3f}")
+        get_audit().log(
+            "exploration", Code.SZ_PROBE_PRICED, detail,
+            {"asset": asset, "regime": regime_label or "",
+             "cost": round(cost, 4), "w_asset": round(w_asset, 4),
+             "w_regime": round(w_regime, 4),
+             "surcharge": round(surcharge, 4), "p": round(p, 4),
+             "u": round(u, 6), "tokens_before": round(tokens, 4),
+             "tokens_after": round(tokens - cost, 4)})
+        self._budget_admit_events.append((now, cost))
+        self._prune_budget_events(self._budget_admit_events, now, 86400.0)
+        return True
+
+    def _maybe_refund_probe_order(self, order, now: float) -> None:
+        """§1.4 refund on unfilled probe entry terminal (SZ-052): if a
+        probe ENTRY order terminates with fill_ratio == 0, its placement-
+        time cost (riding in order.meta["probe_cost"] - no orphanable
+        side-table) is refunded, clamped at C. Partial or full fill ->
+        the position exists -> ML-073 realizes a label <= 8h -> no refund
+        (the tag is dropped so a duplicate terminal can never refund
+        either). Leak-proof where a close-keyed reservation was not:
+        OrderManager terminates every entry by construction (25s timeout,
+        <= 1 reprice, 60s deadman). Guarded: refund bookkeeping must
+        never break fill handling."""
+        try:
+            meta = getattr(order, "meta", None)
+            if not isinstance(meta, dict) or "probe_cost" not in meta:
+                return
+            if getattr(order, "purpose", "") != "entry" \
+                    or not meta.get("probe"):
+                return
+            if order.fill_ratio != 0.0:
+                meta.pop("probe_cost", None)    # filled: never refundable
+                return
+            cost = meta.pop("probe_cost", None)
+            if cost is None or \
+                    not getattr(self, "_budget_refund_unfilled", False):
+                return
+            self._budget_tokens = min(
+                self._budget_capacity(),
+                getattr(self, "_budget_tokens", 0.0) + float(cost))
+            asset = getattr(order, "asset", "?")
+            detail = tag(
+                Code.SZ_PROBE_REFUND,
+                f"probe refund {asset}: unfilled entry terminal, "
+                f"{float(cost):.2f} tokens returned "
+                f"(tokens {self._budget_tokens:.3f})")
+            get_audit().log(
+                "exploration", Code.SZ_PROBE_REFUND, detail,
+                {"asset": asset, "cost_refunded": round(float(cost), 4),
+                 "tokens_after": round(self._budget_tokens, 4)})
+            log.info(detail)
+            ev = getattr(self, "_budget_refund_events", None)
+            if ev is not None:
+                ev.append(now)
+                self._prune_budget_events(ev, now, 86400.0)
+        except Exception:
+            log.exception("probe refund failed - fill handling unaffected")
+
+    def _note_probe_tuition(self, pos, total_net: float,
+                            now: float) -> None:
+        """§1.5 governor feed at the _finalize_position seam: every probe-
+        tagged close appends (close_ts, clipped_loss) to the trailing-24h
+        tuition window - clip_usd = cap/outlier_clip_div, so no SINGLE
+        probe may contribute more than a third of the day's cap (one
+        probe is never evidence). Wins append 0.0 loss (the window then
+        doubles as the labels_24h counter - every probe close realizes a
+        live label). Fed in BOTH modes (cheap, no RNG, no behavior) so a
+        flip to mode="budget" starts with a WARM window - the same
+        stateful-rollback rationale as the legacy deque. Guarded: close-
+        path bookkeeping must never block an exit (invariant 5)."""
+        tu = getattr(self, "_budget_tuition", None)
+        if tu is None or getattr(pos, "is_hedge", False) \
+                or not getattr(pos, "is_probe", False):
+            return
+        try:
+            cap_usd = float(getattr(self, "_budget_tuition_frac_max",
+                                    0.001)) * self._equity()
+            div = max(float(getattr(self, "_budget_outlier_clip_div", 3.0)),
+                      1.0)
+            clip_usd = cap_usd / div
+            loss = min(max(0.0, -float(total_net)), clip_usd)
+            tu.append((float(now), loss))
+            self._prune_budget_events(tu, now, 86400.0)
+            lbl = getattr(self, "_budget_label_events_7d", None)
+            if lbl is not None:
+                lbl.append(float(now))
+                self._prune_budget_events(lbl, now, 7 * 86400.0)
+        except Exception:
+            log.exception("probe tuition feed failed - close unaffected")
+
+    def probe_budget_status(self, now: float) -> dict:
+        """§8 telemetry surface, read by the runner's StatusWriter into
+        status.ml.probe_budget and exported by gc_pusher. REPORT-ONLY:
+        no RNG draws, no decision-state mutation beyond window pruning -
+        safe to call in either mode, every loop. per_asset carries the
+        stats-judge's ONE combined-drag number per asset (eff_weight =
+        taper_pass_prob x S, normalized) - never two invisible
+        multiplications. unlock_eta_days keys on the 60-label tb-era
+        milestone (§6/§8); tb_era_labels reads the last training load's
+        triple_barrier era rows (the closest existing measure - refreshed
+        per retrain, honest-absent 0 before the first)."""
+        for dq in (getattr(self, "_budget_admit_events", None),
+                   getattr(self, "_budget_refund_events", None),
+                   getattr(self, "_budget_denied_events", None),
+                   getattr(self, "_budget_rollfail_events", None)):
+            if dq is not None:
+                self._prune_budget_events(dq, now, 86400.0)
+        lbl7 = getattr(self, "_budget_label_events_7d", None)
+        if lbl7 is not None:
+            self._prune_budget_events(lbl7, now, 7 * 86400.0)
+        tu = getattr(self, "_budget_tuition", None)
+        if tu is not None:
+            self._prune_budget_events(tu, now, 86400.0)
+        cap_usd = float(getattr(self, "_budget_tuition_frac_max", 0.001)) \
+            * self._equity()
+        admits: list = list(getattr(self, "_budget_admit_events", None)
+                            or [])
+        labels_24h = sum(1 for ts, _ in (tu or ()) if now - ts <= 86400.0)
+        tb_era = int(((getattr(self.history, "last_load_stats", {}) or {})
+                      .get("label_era", {}) or {})
+                     .get("triple_barrier", {}).get("rows", 0) or 0)
+        horizon_h = float(getattr(self, "_label_max_bars", 96)) * 300.0 \
+            / 3600.0
+        per_asset: dict = {}
+        raw_weights: dict = {}
+        _alc: Optional[Callable[[], dict]] = getattr(
+            self.history, "asset_live_counts", None)
+        live_counts = _alc() if callable(_alc) else {}
+        counts = self.history.asset_counts() \
+            if hasattr(self.history, "asset_counts") else {}
+        total_rows = sum(counts.values())
+        share_min = int(getattr(self, "explore_share_min_rows", 10))
+        max_share = float(getattr(self, "explore_max_asset_share", 0.5))
+        for a in getattr(self, "symbol_map", {}) or {}:
+            r_label = self.macro.state(a).label \
+                if hasattr(self, "macro") else None
+            cost, w_asset, w_regime, _sur = self._probe_cost(a, r_label)
+            share = counts.get(a, 0) / total_rows \
+                if total_rows >= share_min and total_rows > 0 else 0.0
+            taper = 1.0 if share < max_share else max(0.0, 1.0 - share)
+            raw = taper * max(w_asset, w_regime)
+            raw_weights[a] = raw
+            per_asset[a] = {"n_live": int(live_counts.get(a, 0)),
+                            "w_asset": round(w_asset, 4),
+                            "cost": round(cost, 4)}
+        w_total = sum(raw_weights.values())
+        for a, raw in raw_weights.items():
+            per_asset[a]["eff_weight"] = \
+                round(raw / w_total, 4) if w_total > 0 else 0.0
+        open_probes = sum(
+            1 for p in self.state.open_positions()
+            if getattr(p, "is_probe", False)
+            and not getattr(p, "is_hedge", False)) \
+            if hasattr(self, "state") else 0
+        return {
+            "mode": getattr(self, "_probe_admission_mode", "share_cap"),
+            "tokens": round(getattr(self, "_budget_tokens", 0.0), 4),
+            "capacity": round(self._budget_capacity(), 4),
+            "refill_per_day": round(
+                float(getattr(self, "_budget_tokens_per_day", 15.0))
+                * getattr(self, "_budget_governor_factor", 1.0), 4),
+            "governor_factor": round(
+                getattr(self, "_budget_governor_factor", 1.0), 4),
+            "tuition_24h_usd": round(
+                sum(loss for _, loss in (tu or ())), 4),
+            "tuition_cap_usd": round(cap_usd, 4),
+            "admits_24h": len(admits),
+            "refunds_24h": len(getattr(self, "_budget_refund_events", ())
+                               or ()),
+            "denied_exhausted_24h": len(
+                getattr(self, "_budget_denied_events", ()) or ()),
+            "rolls_failed_24h": len(
+                getattr(self, "_budget_rollfail_events", ()) or ()),
+            "avg_cost_24h": round(
+                sum(c for _, c in admits) / len(admits), 4) if admits
+            else None,
+            "labels_24h": labels_24h,
+            "live_labels_per_day_7d": round(len(lbl7 or ()) / 7.0, 4),
+            "tb_era_labels": tb_era,
+            "unlock_eta_days": round(
+                max(0.0, 60.0 - tb_era) / max(labels_24h, 1), 2),
+            "avg_concurrent_probes": round(
+                labels_24h * horizon_h / 24.0, 3),
+            "open_probes": open_probes,
+            "per_asset": per_asset,
+            "per_regime_live": {
+                r: int(self.history.regime_live_count(r))
+                for r in REGIME_LABELS},
+        }
 
     def _probe_admission_decision(self, now: float, asset: str,
                                   regime_label: Optional[str] = None) -> bool:
@@ -2755,29 +3274,18 @@ class LiquidityBot:
         argument" invariant this method's signature carries is unchanged."""
         if not self._exploration_active(now, asset, regime_label=regime_label):
             return False
+        # SPB-R (spec §1.3): in mode="budget" the share-cap branch below is
+        # replaced by refill -> scarcity price -> probabilistic-
+        # affordability roll; on non-admit, fall through to the SZ-048
+        # drought floor exactly as today (verbatim - in budget mode it
+        # should never fire and becomes the livelock CANARY). getattr
+        # default keeps every pre-SPB-R stub bot on the legacy path.
+        if getattr(self, "_probe_admission_mode", "share_cap") == "budget":
+            if self._budget_admission(now, asset, regime_label):
+                return True
+            return self._drought_floor_fire(now, asset)
         if self._probe_share_would_deny():
-            if self._drought_floor_admit(now):
-                # F0b (SZ-048): the cap is, by position, the binding
-                # denial here (_exploration_active already rolled True) -
-                # under a proven drought, admit ONE rate-bounded floor
-                # probe instead of livelocking the label stream. Recorded
-                # into the window IMMEDIATELY (see _drought_floor_admit's
-                # docstring for why this differs from the normal path).
-                detail = tag(
-                    Code.SZ_PROBE_FLOOR,
-                    f"drought floor probe {asset}: no admissions for >= "
-                    f"{self._drought_min_sec / 3600.0:.1f}h with the share "
-                    f"cap binding - one rate-bounded probe admitted")
-                get_audit().log(
-                    "exploration", Code.SZ_PROBE_FLOOR, detail,
-                    {"asset": asset,
-                     "drought_hours": self._drought_min_sec / 3600.0,
-                     "spacing_hours": self._floor_spacing_sec / 3600.0})
-                log.info("[%s] drought floor: probe admitted under SZ-048 "
-                         "(share cap was binding, drought >= %.1fh)", asset,
-                         self._drought_min_sec / 3600.0)
-                self._last_floor_admit_ts = now
-                self._record_probe_admission(True)
+            if self._drought_floor_fire(now, asset):
                 return True
             # route through tag() (not a bare get_audit().log()) so SZ-047
             # bumps core/code_stats.py's frequency tally like every other
@@ -3702,6 +4210,13 @@ class LiquidityBot:
             _lb_guard = getattr(self, "_clear_long_book_bid_before_sell", None)
             if callable(_lb_guard):
                 _lb_guard(asset, side, plan.post_only, reason="entry")
+            # SPB-R §1.4: a budget-mode priced probe carries its scarcity
+            # cost on the order so the unfilled-terminal refund seam
+            # (_maybe_refund_probe_order) can key on the ORDER lifecycle.
+            # share_cap mode has an always-empty stash -> None -> the key
+            # is never added and legacy order.meta stays byte-identical.
+            _spbr_cost = (getattr(self, "_pending_probe_cost", None)
+                          or {}).get(asset) if explored else None
             order = self.orders.submit(
                 asset=asset, symbol=symbol,
                 pair=self.kraken.kraken_pair(symbol), side=side,
@@ -3725,7 +4240,9 @@ class LiquidityBot:
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
-                    "bracket_deadline_ts": bracket_deadline_ts},
+                    "bracket_deadline_ts": bracket_deadline_ts,
+                    **({"probe_cost": _spbr_cost}
+                       if _spbr_cost is not None else {})},
                 now=now,
             )
             if order:

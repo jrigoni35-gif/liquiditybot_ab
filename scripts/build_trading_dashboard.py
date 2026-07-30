@@ -81,7 +81,11 @@ CODE_LABELS = {
     "SZ-046": "SZ-046 · circuit breaker paused",
     "SZ-047": "SZ-047 · probe throttled",
     "SZ-048": "SZ-048 · drought floor probe",
+    "SZ-049": "SZ-049 · probe budget exhausted",
     "SZ-050": "SZ-050 · drawdown throttle",
+    "SZ-051": "SZ-051 · probe priced (admitted)",
+    "SZ-052": "SZ-052 · probe cost refunded",
+    "SZ-053": "SZ-053 · probe tuition governor",
     "SZ-060": "SZ-060 · inventory aggression scaled",
     "SZ-061": "SZ-061 · inventory skew scaled",
     "CV-000": "CV-000 · conviction admitted",
@@ -491,6 +495,21 @@ DRIFT = [{"color": "green", "value": None}, {"color": "yellow", "value": 0.3},
          {"color": "red", "value": 0.5}]
 BUDGET = [{"color": "green", "value": None}, {"color": "yellow", "value": 60},
           {"color": "red", "value": 90}]
+# SPB-R probe budget (spec §8): labels/day vs the 3/day floor pace and the
+# ~12/day expected rate; unlock ETA lower-better; governor factor 1.0
+# nominal (floor 0.25); per-regime live labels vs the 60 coverage floor.
+PROBE_LABELS = [{"color": "red", "value": None},
+                {"color": "yellow", "value": 3},
+                {"color": "green", "value": 8}]
+PROBE_ETA = [{"color": "green", "value": None},
+             {"color": "yellow", "value": 10},
+             {"color": "red", "value": 30}]
+PROBE_GOV = [{"color": "red", "value": None},
+             {"color": "yellow", "value": 0.26},
+             {"color": "green", "value": 1}]
+PROBE_REGIME = [{"color": "red", "value": None},
+                {"color": "yellow", "value": 30},
+                {"color": "green", "value": 60}]
 
 ON_OFF = {"1": ("YES", "green"), "0": ("NO", "#8E8E93")}
 UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
@@ -1169,6 +1188,96 @@ def _author_execution():
           cols=[("liquiditybot_conviction_denials", "Count", "short", 0, BLUE)],
           label_keys=["code"], sort="Count",
           desc="CV-* disposition tally in full detail.")
+
+    row("🎫 PROBE BUDGET — scarcity-priced exploration (SPB-R)",
+        collapsed=True)
+    stat("Mode", "count(liquiditybot_probe_budget_mode_info" + JOB +
+         ") by (mode)", 4, 5, text_mode="name", steps=BLUE, graph="none",
+         display_name="${__field.labels.mode}",
+         no_value="no probe-budget telemetry yet",
+         desc="share_cap = legacy SZ-047 rolling share cap (byte-"
+              "identical, the escape hatch); budget = SPB-R scarcity-"
+              "priced token bucket. The flip is a conscious operator "
+              "config change + restart.")
+    stat("Tokens now", M("liquiditybot_probe_budget_tokens"), 4, 5,
+         decimals=2, steps=BLUE, no_value="no probe-budget telemetry yet",
+         desc="Token bucket level; negative = bounded placement debt "
+              "(floor −C by construction, refill climbs it out).")
+    stat("Labels/day (24h)", M("liquiditybot_probe_budget_labels_24h"),
+         4, 5, decimals=0, steps=PROBE_LABELS,
+         no_value="no probe closes yet",
+         desc="Probe closes realized in the trailing 24h — the "
+              "program's headline number. Book ceiling is 15/day "
+              "(5 slots × 24h / 8h label horizon); expected ≈ 11-12 at "
+              "defaults in budget mode.")
+    stat("Unlock ETA (days)", M("liquiditybot_probe_budget_unlock_eta_days"),
+         4, 5, decimals=1, steps=PROBE_ETA, no_value="no labels yet",
+         desc="max(0, 60 − tb-era labels) / labels-per-day: days to the "
+              "60-label tb-era evidence milestone at the current rate.")
+    stat("Governor factor", M("liquiditybot_probe_budget_governor_factor"),
+         4, 5, decimals=2, steps=PROBE_GOV,
+         no_value="no probe-budget telemetry yet",
+         desc="Tuition-governor refill scale: 1.0 nominal; < 1 = "
+              "trailing-24h clipped probe losses crossed the cap "
+              "(SZ-053); floored at 0.25 and self-redeeming as the "
+              "window rolls — probation, never a life sentence.")
+    gauge("Tuition vs cap (24h)",
+          M("liquiditybot_probe_budget_tuition_24h_usd", " / ") +
+          M("liquiditybot_probe_budget_tuition_cap_usd", " * 100"), 4, 5,
+          mx=100.0, steps=BUDGET,
+          no_value="no probe-budget telemetry yet",
+          desc="Trailing-24h clipped probe tuition as % of the daily cap "
+               "(10 bps of equity). Per-close clip = cap/3, so one "
+               "outlier can never engage the governor alone.")
+    timeseries("Token bucket vs capacity",
+               M("liquiditybot_probe_budget_tokens"), 12, 6,
+               legend="tokens", decimals=2, calcs=["lastNotNull"],
+               extra=[(M("liquiditybot_probe_budget_capacity"),
+                       "capacity")],
+               colors={"tokens": INDIGO, "capacity": GRAY_HEX},
+               desc="Bucket level vs capacity C (= one book-fill, 5 "
+                    "tokens at defaults). Time below zero is bounded "
+                    "placement DEBT (worst −C ≈ 8h of refill); pinned at "
+                    "C = arrivals are cheaper than supply — headroom.")
+    timeseries("Avg admission cost (24h)",
+               M("liquiditybot_probe_budget_avg_cost_24h"), 12, 6,
+               legend="avg cost", decimals=2, calcs=["lastNotNull"],
+               colors={"avg cost": CAT_TEAL},
+               desc="Mean scarcity price of admitted probes. Drift "
+                    "toward 1.0 = buying scarce labels (good); toward "
+                    "the clamp = only redundant arms arriving.")
+    bargauge("Admissions (24h)",
+             M("liquiditybot_probe_budget_admits_24h"), 8, 6, decimals=0,
+             steps=BLUE, legend="admits",
+             extra=[(M("liquiditybot_probe_budget_refunds_24h"),
+                     "refunds (unfilled)"),
+                    (M("liquiditybot_probe_budget_denied_exhausted_24h"),
+                     "denied (exhausted)"),
+                    (M("liquiditybot_probe_budget_rolls_failed_24h"),
+                     "rolls failed")],
+             no_value="no probe-budget telemetry yet",
+             desc="Budget-mode admission flow: admits vs the ~12/day "
+                  "target, SZ-052 refunds (unfilled entries hand their "
+                  "cost back), exhausted-bucket denials (SZ-049 "
+                  "brackets), and failed affordability rolls (non-"
+                  "dispositions — counters, not audit spam).")
+    bargauge("Per-asset eff weight (taper × scarcity)",
+             _pa("liquiditybot_probe_asset_eff_weight"), 8, 6, decimals=3,
+             steps=HIGH_GOOD, mn=0, mx=1, legend="{{asset}}",
+             no_value="no probe-budget telemetry yet",
+             desc="The ONE combined per-asset drag number (stats-judge "
+                  "note): label-share taper pass-prob × scarcity weight "
+                  "S(a,r), normalized — never two invisible "
+                  "multiplications. Both factors floored, so no arm can "
+                  "reach zero.")
+    bargauge("Per-regime live labels",
+             _pa("liquiditybot_probe_regime_live"), 8, 6, decimals=0,
+             steps=PROBE_REGIME, legend="{{regime}}",
+             no_value="no live labels yet",
+             desc="LIVE labels per regime vs the 60-per-regime coverage "
+                  "floor (corpus_target 300 / 5 regimes) — under-floor "
+                  "regimes hold the decay AND price cheap (same "
+                  "direction, no fight).")
 
 
 # ==================== board 3 · problem / solution =========================

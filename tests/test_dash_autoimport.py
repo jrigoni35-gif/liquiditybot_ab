@@ -126,3 +126,16 @@ def test_supervisor_wires_the_autoimport_step():
     assert "LB_NO_DASH_IMPORT" in src, "kill switch must exist"
     assert '"--stamp", str(_DASH_IMPORT_STAMP)' in src
     assert '_spawn_gated(' in src and '"dash_import"' in src
+
+def test_import_due_no_token_warns_once(monkeypatch, tmp_path, capsys):
+    """Silent-degrade fix: dashboards changed + no token = a WARN once per
+    process (then quiet), never an exception, and never 'due'."""
+    _home(monkeypatch, tmp_path)
+    monkeypatch.delenv("GRAFANA_SA_TOKEN", raising=False)
+    monkeypatch.setattr(sup, "_dash_no_token_warned", False)
+    monkeypatch.setattr(sup, "OUT", tmp_path / "out")
+    d = _dash_dir(tmp_path)
+    stamp = tmp_path / "stamp"
+    assert sup._dash_import_due(d, stamp) == ""
+    assert sup._dash_import_due(d, stamp) == ""
+    assert capsys.readouterr().out.count("no Grafana token") == 1

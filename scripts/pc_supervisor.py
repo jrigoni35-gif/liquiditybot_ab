@@ -312,15 +312,18 @@ def _grafana_token_present() -> bool:
         return False
 
 
+_dash_no_token_warned = False
+
+
 def _dash_import_due(dash_dir: Path = _DASH_DIR,
                      stamp: Path = _DASH_IMPORT_STAMP) -> str:
     """The dashboards' fingerprint when an import should run THIS tick
     (content changed since the last SUCCESSFUL import and a token is
     available), else "". The stamp is written by the import child on
     success, never here — a failed import stays due and retries under
-    _spawn_gated's rate limit."""
-    if not _grafana_token_present():
-        return ""
+    _spawn_gated's rate limit. A due import with NO token warns once per
+    process instead of degrading silently (the boards would drift stale
+    on Grafana with nothing in the log saying why)."""
     fp = _dash_fingerprint(dash_dir)
     if not fp:
         return ""
@@ -329,6 +332,15 @@ def _dash_import_due(dash_dir: Path = _DASH_DIR,
             return ""
     except OSError:
         pass                   # no stamp yet -> first import is due
+    if not _grafana_token_present():
+        global _dash_no_token_warned
+        if not _dash_no_token_warned:
+            _dash_no_token_warned = True
+            log("WARN: dashboards changed but no Grafana token found "
+                "(GRAFANA_SA_TOKEN or ~/.liquiditybot/grafana-sa-token) - "
+                "auto-import skipped; boards will drift until a token is "
+                "provided")
+        return ""
     return fp
 
 

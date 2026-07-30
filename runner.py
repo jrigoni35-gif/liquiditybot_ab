@@ -27,7 +27,7 @@ import logging
 import math
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from core import code_stats
 from core.audit import get_audit
@@ -415,6 +415,23 @@ class BotRunner:
             return {}
 
     @staticmethod
+    def _probe_budget_status(bot, now: float) -> dict:
+        """SPB-R §8 telemetry (docs/superpowers/specs/2026-07-30-probe-
+        budget-spbr-design.md): the engine's own probe_budget_status()
+        verbatim - bucket level, governor, trailing-24h counters,
+        per-asset eff_weight, per-regime live labels. getattr-guarded
+        ({} for a pre-SPB-R bot or a minimal test stub) and never raises
+        - on any fault the section is simply {} (a blank panel, never a
+        wedged status write; the _rp_status convention)."""
+        try:
+            fn: "Optional[Callable[[float], dict]]" = getattr(
+                bot, "probe_budget_status", None)
+            return fn(now) if callable(fn) else {}
+        except Exception:
+            log.exception("probe-budget status failed - section omitted")
+            return {}
+
+    @staticmethod
     def _long_book_status(bot, now: float) -> dict:
         """Compounder Phase C long-book posture (task C4). hasattr-guarded
         (bot.long_ladder absent -> {}, same convention as _rp_status
@@ -652,6 +669,10 @@ class BotRunner:
                    "bracket_divergence": bot.history.bracket_divergence_summary()
                    if hasattr(bot.history, "bracket_divergence_summary")
                    else {},
+                   # SPB-R probe budget (§8): mode/tokens/governor +
+                   # trailing-24h counters + per-asset eff_weight -
+                   # schema EXTENDED, never broken ({} pre-SPB-R)
+                   "probe_budget": self._probe_budget_status(bot, now),
                    "gate_stats": bot.gate_stats.summary()},
             "audit_dropped_writes": get_audit().dropped,
             # torn final lines recovered on adoption (unclean stops). Rising ->

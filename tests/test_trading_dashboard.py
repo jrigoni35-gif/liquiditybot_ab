@@ -120,6 +120,25 @@ _SYNTH_STATUS = {
            # liquiditybot_bracket_divergence_rate/_n gauges.
            "bracket_divergence": {"n": 42, "agree_rate": 0.881,
                                   "mean_abs_ret_delta_pct": 0.09},
+           # SPB-R probe budget (spec §8, main.probe_budget_status() via
+           # runner._probe_budget_status) — populated so check 3 proves
+           # every PROBE BUDGET row query against an emitted metric.
+           # avg_cost_24h numeric here (None = honest absence = not
+           # emitted, which would fail the panel-coverage check).
+           "probe_budget": {
+               "mode": "share_cap", "tokens": 2.71, "capacity": 5.0,
+               "refill_per_day": 15.0, "governor_factor": 1.0,
+               "tuition_24h_usd": 0.35, "tuition_cap_usd": 4.97,
+               "admits_24h": 11, "refunds_24h": 2,
+               "denied_exhausted_24h": 40, "rolls_failed_24h": 120,
+               "avg_cost_24h": 1.27, "labels_24h": 11,
+               "live_labels_per_day_7d": 10.4, "tb_era_labels": 23,
+               "unlock_eta_days": 3.4, "avg_concurrent_probes": 3.7,
+               "open_probes": 3,
+               "per_asset": {"ETH": {"n_live": 73, "w_asset": 0.5584,
+                                     "cost": 1.7908,
+                                     "eff_weight": 0.0412}},
+               "per_regime_live": {"range": 227, "bear": 4}},
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
                           "weights": {"if_1_flow_persistence": 0.9}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,
@@ -554,10 +573,13 @@ def test_every_query_hits_an_emitted_metric(tmp_path):
                  encoding="utf-8")
     emitted = {m["name"] for m in gp.collect(str(p))}
     referenced = set()
+    # digits included ([a-z0-9_]): SPB-R metric names carry trailing-window
+    # suffixes (liquiditybot_probe_budget_admits_24h) — the old [a-z_]
+    # class truncated them mid-name and compared a nonexistent prefix
     for d in gen.DASHBOARDS.values():
         for panel in _all_panels(d):
             for t in panel.get("targets", []):
-                referenced |= set(re.findall(r"liquiditybot_[a-z_]+",
+                referenced |= set(re.findall(r"liquiditybot_[a-z0-9_]+",
                                              t["expr"]))
     missing = referenced - emitted
     assert not missing, f"panels query metrics gc_pusher never emits: {missing}"

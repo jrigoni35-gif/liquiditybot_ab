@@ -135,7 +135,50 @@ class Code(str, Enum):
                                      # kind flowed for >= drought_hours, so one
                                      # rate-bounded probe is admitted instead of
                                      # starving the label stream (grill C2)
+    SZ_PROBE_BUDGET_EXHAUSTED = "SZ-049"
+                                     # SPB-R (2026-07-30 design): TRANSITION
+                                     # pair, mode="budget" only - the token
+                                     # bucket crosses into ("engaged") / out of
+                                     # ("released") the tokens <= 0 state. The
+                                     # "released" payload carries
+                                     # {arrivals_denied, span_s, tokens} so the
+                                     # audit trail BRACKETS and COUNTS every
+                                     # denied arrival without per-event spam
+                                     # (the SZ-047 practice produced a measured
+                                     # 1,517-events/12h storm; a failed budget
+                                     # roll is a NON-disposition, like a failed
+                                     # epsilon/taper roll - conscious,
+                                     # documented semantic change, spec §4)
     SZ_DD_THROTTLE = "SZ-050"        # informational: drawdown scaling applied
+    SZ_PROBE_PRICED = "SZ-051"       # SPB-R informational: attached beside the
+                                     # ML_EXPLORATION/ML_EXPLORE_AGGRESSIVE
+                                     # admission record on every budget-mode
+                                     # ADMIT - {asset, regime, cost, w_asset,
+                                     # w_regime, surcharge, p, u, tokens_before,
+                                     # tokens_after}; cost = clip(1/S, 1, C),
+                                     # S = max(scarcity weights), deducted at
+                                     # PLACEMENT (a downstream veto costs zero)
+    SZ_PROBE_REFUND = "SZ-052"       # SPB-R informational: an UNFILLED probe
+                                     # entry reached its order terminal
+                                     # (fill_ratio == 0) and its placement-time
+                                     # cost was refunded to the bucket -
+                                     # {asset, cost_refunded, tokens_after}.
+                                     # Partial/full fills never refund (the
+                                     # position exists; ML-073 realizes the
+                                     # label). Order-terminal-keyed: OM bounds
+                                     # every entry's lifetime, nothing waits on
+                                     # an event that may never come
+    SZ_PROBE_TUITION_GOVERNOR = "SZ-053"
+                                     # SPB-R TRANSITION only: the tuition
+                                     # governor factor engaged / released
+                                     # (crossing 1.0 either way) -
+                                     # {tuition_24h_usd, cap_usd, factor}.
+                                     # Clipped realized probe losses over a
+                                     # trailing 86400 engine-s window scale the
+                                     # refill rate by clip(cap/X, floor, 1) -
+                                     # a BOUND, not an estimator; floored,
+                                     # unlatched, self-redeeming as the window
+                                     # rolls (probation, never a life sentence)
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_INV_SKEW = "SZ-061"           # A-S reservation skew: signed-inventory-increasing entry scaled
     SZ_APPROVED = "SZ-000"

@@ -158,6 +158,48 @@ def _thales_reliability_metrics(th_state: dict, ts: float) -> list:
     return out
 
 
+def _probe_budget_metrics(pb: dict, ts: float) -> list:
+    """SPB-R probe-budget telemetry (status.ml.probe_budget, spec §8):
+    bucket level vs capacity, refill/governor, trailing-24h admission
+    counters, the headline labels/day + unlock ETA, per-asset scarcity
+    weights/costs/eff_weight (the ONE combined-drag number), and
+    per-regime live-label counts. Missing/empty section (a pre-SPB-R
+    status.json) emits NOTHING - never a crash, never a fabricated 0.
+    Extracted from collect() (pyright complexity ceiling), same emission
+    idioms as _thales_reliability_metrics above. avg_cost_24h is None
+    until the first admit - honest absence, not emitted."""
+    out: list = []
+    if not pb:
+        return out
+    for k in ("tokens", "capacity", "refill_per_day", "governor_factor",
+              "tuition_24h_usd", "tuition_cap_usd", "admits_24h",
+              "refunds_24h", "denied_exhausted_24h", "rolls_failed_24h",
+              "avg_cost_24h", "labels_24h", "live_labels_per_day_7d",
+              "tb_era_labels", "unlock_eta_days", "avg_concurrent_probes",
+              "open_probes"):
+        v = pb.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out.append(gauge(f"liquiditybot_probe_budget_{k}", v, ts=ts))
+    mode = pb.get("mode")
+    if mode:            # info-style label gauge (the *_info pattern)
+        out.append(gauge("liquiditybot_probe_budget_mode_info", 1.0,
+                         {"mode": str(mode)}, ts))
+    for asset, rec in (pb.get("per_asset") or {}).items():
+        if not isinstance(rec, dict):
+            continue                # malformed asset entry: skip, never crash
+        for k in ("n_live", "w_asset", "cost", "eff_weight"):
+            v = rec.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out.append(gauge(f"liquiditybot_probe_asset_{k}", v,
+                                 {"asset": str(asset)}, ts))
+    for regime, n in (pb.get("per_regime_live") or {}).items():
+        # cardinality bounded at the source (engine REGIME_LABELS)
+        if isinstance(n, (int, float)) and not isinstance(n, bool):
+            out.append(gauge("liquiditybot_probe_regime_live", n,
+                             {"regime": str(regime)}, ts))
+    return out
+
+
 def collect(status_path: str) -> list:
     # W2-14 re-decision (2026-07-23, operator-delegated): a missing or
     # unreadable status file used to raise out of here and abort the push
@@ -705,6 +747,9 @@ def collect(status_path: str) -> list:
             if isinstance(rate, (int, float)) and not isinstance(rate, bool):
                 m.append(gauge("liquiditybot_bracket_divergence_rate", rate,
                                ts=ts))
+        # SPB-R probe budget (status.ml.probe_budget, spec §8) - see the
+        # extracted helper for the emission contract
+        m.extend(_probe_budget_metrics(ml.get("probe_budget") or {}, ts))
         m.append(gauge("liquiditybot_audit_dropped_writes",
                        float(s.get("audit_dropped_writes") or 0), ts=ts))
         m.append(gauge("liquiditybot_audit_tail_truncations",

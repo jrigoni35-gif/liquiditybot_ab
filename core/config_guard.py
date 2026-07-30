@@ -1210,6 +1210,122 @@ def validate(config: dict) -> list:
              f"regime is EQUALLY represented at graduation; confirm this "
              f"is intended")
 
+    # SPB-R probe-admission budget (docs/superpowers/specs/2026-07-30-
+    # probe-budget-spbr-design.md §2). LANDED DARK: mode ships "share_cap"
+    # (the byte-identical SZ-047 path); "budget" is the scarcity-priced
+    # token bucket. Note (spec, C2's "FATAL zero-quota"): a zero-quota
+    # check is structurally moot here - refill is CONTINUOUS (tokens/
+    # engine-second), there is no integer quota to round to 0.
+    adm_mode = str(_f(config, "ml.exploration.admission.mode", "share_cap"))
+    if adm_mode not in ("share_cap", "budget"):
+        fatal(f"ml.exploration.admission.mode ({adm_mode!r}) must be "
+              f"'share_cap' (the shipped SZ-047 deque path, byte-identical) "
+              f"or 'budget' (SPB-R scarcity-priced token bucket)")
+    tpd = float(_f(config,
+                   "ml.exploration.admission.budget.tokens_per_day", 15))
+    if not (0.0 < tpd <= 100.0):
+        fatal(f"ml.exploration.admission.budget.tokens_per_day ({tpd}) must "
+              f"be in (0, 100] - 0 starves the learner outright; above 100 "
+              f"the 'budget' stops being one")
+    abh = float(_f(config,
+                   "ml.exploration.admission.budget.burst_hours", 8.0))
+    if not (1.0 <= abh <= 24.0):
+        fatal(f"ml.exploration.admission.budget.burst_hours ({abh}) must be "
+              f"in [1, 24] - the capacity window is a fraction of the day, "
+              f"anchored on the labeler's own horizon")
+    mcp = int(_f(config, "capital_management.max_concurrent_positions", 5))
+    book_ceiling = mcp * 24.0 / abh if abh > 0 else float("inf")
+    if tpd > book_ceiling:
+        warn(f"ml.exploration.admission.budget.tokens_per_day ({tpd}) "
+             f"exceeds the book conversion ceiling "
+             f"(max_concurrent_positions {mcp} x 24/burst_hours {abh} = "
+             f"{book_ceiling:.1f}/day) - budget above this buys tokens the "
+             f"book cannot convert to labels")
+    if dfh > 0 and tpd < 24.0 / dfh:
+        warn(f"ml.exploration.admission.budget.tokens_per_day ({tpd}) is "
+             f"below the SZ-048 drought-floor pace (24/drought_hours "
+             f"{dfh} = {24.0 / dfh:.1f}/day) - the backstop would out-rate "
+             f"the budget; the floor must be the exception, never the "
+             f"governor")
+    # capacity should mirror the labeler's horizon (label_max_bars x 5m
+    # bars; BAR_SECONDS=300 is the harness convention, see cvar.bar_sec)
+    lmb = int(_f(config, "ml.label_max_bars", 96))
+    horizon_h = lmb * 300.0 / 3600.0
+    if abs(abh - horizon_h) > 1e-9:
+        warn(f"ml.exploration.admission.budget.burst_hours ({abh}) != the "
+             f"labeler's own horizon (label_max_bars {lmb} x 5m = "
+             f"{horizon_h:.1f}h) - capacity should mirror the label "
+             f"horizon; confirm this divergence is intended")
+    asf = _f(config,
+             "ml.exploration.admission.budget.scarcity_floor", None)
+    if asf is not None and not (0.0 < float(asf) <= 1.0):
+        fatal(f"ml.exploration.admission.budget.scarcity_floor ({asf}) must "
+              f"be null (reuse corpus_decay.floor_frac) or in (0, 1]")
+    tfm = float(_f(config, "ml.exploration.admission.budget.governor."
+                           "tuition_daily_frac_max", 0.001))
+    if not (0.0 < tfm <= 0.005):
+        fatal(f"ml.exploration.admission.budget.governor."
+              f"tuition_daily_frac_max ({tfm}) must be in (0, 0.005] - the "
+              f"tuition governor is a bound on realized probe losses, not "
+              f"a wish")
+    elif tfm > 0.002:
+        warn(f"ml.exploration.admission.budget.governor."
+             f"tuition_daily_frac_max ({tfm}) > 0.002 (20 bps equity/day "
+             f"of probe tuition) - twice the designed 10 bps bound; "
+             f"confirm this is intended")
+    ocd = float(_f(config, "ml.exploration.admission.budget.governor."
+                           "outlier_clip_div", 3))
+    if not (1.0 <= ocd <= 10.0):
+        fatal(f"ml.exploration.admission.budget.governor.outlier_clip_div "
+              f"({ocd}) must be in [1, 10] - the per-close clip exists so "
+              f"one probe is never evidence")
+    elif dfh > 0 and ocd != round(24.0 / dfh):
+        warn(f"ml.exploration.admission.budget.governor.outlier_clip_div "
+             f"({ocd}) != round(24/drought_hours) = {round(24.0 / dfh)} - "
+             f"the clip divisor is the floor pace (the governor may never "
+             f"engage on fewer probes than the guaranteed daily floor "
+             f"admits); confirm the divergence is intended")
+    awz = float(_f(config, "ml.exploration.admission.budget.surcharge."
+                           "wilson_z", 1.96))
+    if not (1.0 <= awz <= 3.0):
+        fatal(f"ml.exploration.admission.budget.surcharge.wilson_z ({awz}) "
+              f"must be in [1, 3] - 1.96 is the standard 95% bound, "
+              f"mandated by the small-n stats law, not tuned")
+    amsur = float(_f(config, "ml.exploration.admission.budget.surcharge."
+                             "max_surcharge", 2.0))
+    asc_on = bool(_f(config,
+                     "ml.exploration.admission.budget.surcharge.enabled",
+                     False))
+    if amsur < 1.0:
+        fatal(f"ml.exploration.admission.budget.surcharge.max_surcharge "
+              f"({amsur}) must be >= 1 - a surcharge below 1 would DISCOUNT "
+              f"proven-worse arms")
+    # coupled upper bound (spec §2): a surcharge must never exceed what
+    # the scarcity floor could redeem (1/floor). FATAL only when the
+    # surcharge is ENABLED: while it ships dark it computes nothing and
+    # the price is clamped at C in code regardless - a legacy config
+    # legitimately running floor_frac=1.0 (decay disabled) must not turn
+    # FATAL through an unrelated dark knob's merge default.
+    _adm_floor = float(asf) if asf is not None else cff
+    _sur_cap = 1.0 / _adm_floor if _adm_floor > 0 else float("inf")
+    if asc_on and amsur > _sur_cap:
+        fatal(f"ml.exploration.admission.budget.surcharge.max_surcharge "
+              f"({amsur}) must be in [1, 1/scarcity floor = {_sur_cap:.1f}]"
+              f" while the surcharge is enabled - it may at most double a "
+              f"price and never exceed what the scarcity floor could "
+              f"redeem")
+    if asc_on and _f(config, "ml.exploration.admission.budget."
+                             "surcharge.era_min_ts", None) is None:
+        fatal("ml.exploration.admission.budget.surcharge.enabled is true "
+              "while era_min_ts is null - the Wilson-UPPER surcharge is "
+              "era-filtered (post-PT-060 outcomes only) and REQUIRES the "
+              "deploy epoch; set era_min_ts or keep the surcharge dark")
+    if adm_mode == "budget" and \
+            not bool(_f(config, "ml.exploration.enabled", False)):
+        warn("ml.exploration.admission.mode is 'budget' while "
+             "ml.exploration.enabled is false - dead config: the budget "
+             "path is only ever reached when exploration itself is on")
+
     # give-back vol-scaled arm: 0 = static arm_gain_pct; else the arm is
     # mult * sigma_bar. Below 0.5 sigma the ratchet arms inside ordinary
     # bar noise (churn); above 6 sigma it can never arm on a real move.
