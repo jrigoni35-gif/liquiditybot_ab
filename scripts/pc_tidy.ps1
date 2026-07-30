@@ -29,16 +29,19 @@ $DataMarkers = @(
 )
 
 function Test-DirHasData([string]$dir) {
-    foreach ($m in $DataMarkers) {
-        $p = Join-Path $dir $m
-        if ((Test-Path $p) -and ((Get-Item $p).Length -gt 0)) { return $m }
-    }
-    $snap = Join-Path $dir "outputs\snapshots"
-    if (Test-Path $snap) {
-        $f = Get-ChildItem $snap -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Length -gt 0 } | Select-Object -First 1
-        if ($f) { return "outputs\snapshots\$($f.Name)" }
-    }
+    # Recursive: a stale checkout may nest its outputs/ one level down
+    # (e.g. Backup\liquiditybot_ab\outputs\...) - a shallow check misses it.
+    $names = @("signal_history.csv", "audit.jsonl", "events.jsonl",
+               "status.json")
+    $found = Get-ChildItem $dir -Recurse -Depth 4 -File -Force `
+            -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Length -gt 0 -and
+            $_.Directory.FullName -imatch "\\outputs(\\|$)" -and
+            ($names -contains $_.Name -or
+             $_.Directory.FullName -imatch "\\outputs\\snapshots(\\|$)")
+        } | Select-Object -First 1
+    if ($found) { return $found.FullName.Substring($dir.Length).TrimStart("\") }
     return $null
 }
 
@@ -114,11 +117,32 @@ foreach ($h in $hits) {
     if (-not $covered) { $tops += $h }
 }
 
+# An ANCESTOR of the canonical home (e.g. Documents\liquiditybot, the
+# parent of the checkout) must never be recycled - recycling it takes the
+# live bot with it. Descend into ancestors and keep only their stray
+# children as candidates.
+$ancestorNotes = @()
+$queue = New-Object System.Collections.Queue
+foreach ($t in $tops) { $queue.Enqueue($t) }
+$tops = @()
+while ($queue.Count -gt 0) {
+    $t = $queue.Dequeue()
+    if ($t.FullName -ieq $Canonical) { continue }
+    if ($t.PSIsContainer -and ($Canonical -like ($t.FullName + "\*"))) {
+        $ancestorNotes += "kept (parent of the live bot): $($t.FullName) - only strays inside it are candidates"
+        Get-ChildItem $t.FullName -Force -ErrorAction SilentlyContinue |
+            ForEach-Object { $queue.Enqueue($_) }
+        continue
+    }
+    $tops += $t
+}
+
 # ---- report / apply -------------------------------------------------------
 Write-Host "canonical home : $Canonical"
 Write-Host "token store    : $TokenDir  (kept - bot credentials)"
 Write-Host ("mode           : " + $(if ($Apply) { "APPLY (recycle)" }
                                     else { "REPORT ONLY" }))
+foreach ($n in $ancestorNotes) { Write-Host $n }
 Write-Host ""
 
 if (-not $tops) { Write-Host "nothing found outside the canonical home - already clean." }
@@ -128,6 +152,9 @@ foreach ($t in $tops) {
     $data = $null
     if ($t.PSIsContainer) { $data = Test-DirHasData $t.FullName }
     elseif ($t.Extension -ieq ".zip") { $data = Test-ZipHasData $t.FullName }
+    elseif ($t.Name -imatch "signal_history|\.jsonl$|^status\.json$|snapshot") {
+        $data = "data-like filename"
+    }
     if ($data) {
         $blocked++
         Write-Host "KEEP (HAS DATA!) $($t.FullName)"
@@ -154,6 +181,7 @@ Get-ScheduledTask -ErrorAction SilentlyContinue | ForEach-Object {
     }
 }
 Write-Host "-- live bot processes --"
+Write-Host "   (each logical process shows TWICE: venv shim + base interpreter pair - normal)"
 Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
     Where-Object { $_.CommandLine -imatch "liquidit" } |
     ForEach-Object { Write-Host ("  pid {0}: {1}" -f $_.ProcessId,
