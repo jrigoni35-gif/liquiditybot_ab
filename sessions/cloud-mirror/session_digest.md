@@ -4,7 +4,7 @@
 
 - Window: 2026-07-13 10:33 UTC -> 2026-07-29 23:23 UTC (396.85h, ~1726 cycles)
 - Equity: $800.00 -> $4,996.58 (range $4,201.35) | realized PnL $-3.42 | fees $2.07
-- Activity: 0 open | 255 live labeled trades | 6662 candidates | 17 postmortems
+- Activity: 0 open | 255 live labeled trades | 6684 candidates | 17 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 255 | cold=True
 - Audit: 1564 records (929 non-routine) | dominant OM-040 (22% of non-routine) | chain_ok=False (tamper=False, seams=4) | retrain_requests 120
 - Liquidity: spoofy 44% of classified cycles | feed errors 70
