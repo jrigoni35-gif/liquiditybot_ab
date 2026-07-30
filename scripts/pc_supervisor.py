@@ -116,6 +116,16 @@ try:
 except ValueError:
     OPEND_RELAUNCH_SEC = 300.0
 _OPEND_STAMP = OUT / ".opend_launch_stamp"
+# Dashboard auto-import (2026-07-30, operator away from the PC): when a
+# deploy changes docs/grafana/*.json and a Grafana service-account token
+# is available (GRAFANA_SA_TOKEN env, or persisted at
+# ~/.liquiditybot/grafana-sa-token — the gc-token pattern), the boards
+# import themselves. The stamp stores the imported content FINGERPRINT
+# and is written by the import child ONLY on full success
+# (grafana_import.py --stamp contract), so failures retry next tick.
+# Disable with LB_NO_DASH_IMPORT.
+_DASH_IMPORT_STAMP = OUT / ".dash_import_stamp"
+_DASH_DIR = Path(__file__).resolve().parents[1] / "docs" / "grafana"
 IS_WIN = os.name == "nt"
 PY = sys.executable        # the venv's python (pythonw.exe when run hidden)
 _SELF = Path(__file__).resolve()
@@ -269,6 +279,57 @@ def _stamp_due(stamp: Path, period_sec: float) -> bool:
     except OSError:
         pass
     return True
+
+
+def _dash_fingerprint(dash_dir: Path = _DASH_DIR) -> str:
+    """Stable content hash of the repo's dashboard JSONs — the
+    auto-import change-detection key. Empty string when the directory is
+    absent/empty (nothing to import)."""
+    import hashlib
+    h = hashlib.sha256()
+    try:
+        files = sorted(dash_dir.glob("*.json"))
+    except OSError:
+        return ""
+    if not files:
+        return ""
+    for p in files:
+        try:
+            h.update(p.name.encode("utf-8"))
+            h.update(p.read_bytes())
+        except OSError:
+            return ""          # unreadable mid-deploy: skip this tick
+    return h.hexdigest()
+
+
+def _grafana_token_present() -> bool:
+    if os.environ.get("GRAFANA_SA_TOKEN", "").strip():
+        return True
+    try:
+        f = Path.home() / ".liquiditybot" / "grafana-sa-token"
+        return f.is_file() and f.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _dash_import_due(dash_dir: Path = _DASH_DIR,
+                     stamp: Path = _DASH_IMPORT_STAMP) -> str:
+    """The dashboards' fingerprint when an import should run THIS tick
+    (content changed since the last SUCCESSFUL import and a token is
+    available), else "". The stamp is written by the import child on
+    success, never here — a failed import stays due and retries under
+    _spawn_gated's rate limit."""
+    if not _grafana_token_present():
+        return ""
+    fp = _dash_fingerprint(dash_dir)
+    if not fp:
+        return ""
+    try:
+        if stamp.read_text(encoding="utf-8").strip() == fp:
+            return ""
+    except OSError:
+        pass                   # no stamp yet -> first import is due
+    return fp
 
 
 def _corpus_sync_due() -> bool:
@@ -584,6 +645,25 @@ def tick() -> None:
             _LOCK.release()
         _spawn([PY, str(_SELF)])
         raise SystemExit(0)
+
+    # 7) dashboard auto-import: deploy-changed docs/grafana/*.json reach
+    # Grafana Cloud without operator hands whenever a token is available
+    # (see _DASH_IMPORT_STAMP block comment). Cheap per tick (one sha256
+    # over four small files); the actual HTTP import is a short-lived
+    # detached child rate-limited by _spawn_gated. Deliberately AFTER the
+    # step-6 handoff (tests/test_pc_supervisor_lock.py pins the handoff's
+    # release-then-spawn as the ONLY actions on a restart tick): a
+    # mid-deploy tick restarts onto the new code first and the fresh
+    # supervisor imports on its first tick - never boards that are about
+    # to change again.
+    if not os.environ.get("LB_NO_DASH_IMPORT"):
+        _dash_fp = _dash_import_due()
+        if _dash_fp and _spawn_gated(
+                "dash_import",
+                [PY, "scripts/grafana_import.py",
+                 "--stamp", str(_DASH_IMPORT_STAMP),
+                 "--fingerprint", _dash_fp], own_log=True):
+            log("dashboards changed + Grafana token present -> importing")
 
 
 def _source_changed() -> bool:

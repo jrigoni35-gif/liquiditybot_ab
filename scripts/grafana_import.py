@@ -2,8 +2,12 @@
 via the HTTP API (no manual JSON pasting).
 
 Auth: a Grafana SERVICE ACCOUNT token (glsa_...) with Editor role, supplied
-via the GRAFANA_SA_TOKEN environment variable — never argv, never committed.
-The OTLP access-policy token cannot do this (metrics-write realm only).
+via the GRAFANA_SA_TOKEN environment variable OR persisted at
+~/.liquiditybot/grafana-sa-token (2026-07-30, operator away from the PC:
+the same durable-token pattern as ~/.liquiditybot/gc-token, so
+pc_supervisor's dashboard auto-import can run unattended). Never argv,
+never committed. The OTLP access-policy token cannot do this
+(metrics-write realm only).
 
 Imports every docs/grafana/*.json dashboard (they are stored UNWRAPPED; the
 API wants {"dashboard": {...}}, so this wraps at POST time), into the target
@@ -12,6 +16,11 @@ in place, never duplicate.
 
     GRAFANA_SA_TOKEN=glsa_... python scripts/grafana_import.py \
         [--url https://goldsavanna1216.grafana.net] [--folder liquiditybot-ops]
+
+`--stamp PATH --fingerprint STR` (pc_supervisor auto-import contract):
+on a fully successful run the fingerprint is written to PATH — the
+supervisor's change-detection stamp. Written ONLY when every dashboard
+imported (failures retry on the next supervisor tick).
 """
 import argparse
 import json
@@ -70,15 +79,38 @@ def ensure_folder(base: str, token: str, folder_uid: str) -> str:
     return made["uid"]
 
 
+def _resolve_token() -> str:
+    """GRAFANA_SA_TOKEN env first; else the persisted token file
+    ~/.liquiditybot/grafana-sa-token (durable-token pattern, see module
+    docstring). Empty string when neither exists."""
+    tok = os.environ.get("GRAFANA_SA_TOKEN", "").strip()
+    if tok:
+        return tok
+    try:
+        f = Path.home() / ".liquiditybot" / "grafana-sa-token"
+        if f.is_file():
+            return f.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="https://goldsavanna1216.grafana.net")
     ap.add_argument("--folder", default="liquiditybot-ops")
+    ap.add_argument("--stamp", default=None,
+                    help="on FULL success, write --fingerprint here "
+                         "(pc_supervisor auto-import contract)")
+    ap.add_argument("--fingerprint", default="",
+                    help="content fingerprint recorded by --stamp")
     args = ap.parse_args()
-    token = os.environ.get("GRAFANA_SA_TOKEN", "").strip()
+    token = _resolve_token()
     if not token.startswith("glsa_"):
-        print("set GRAFANA_SA_TOKEN to a Grafana service-account token "
-              "(glsa_...) with Editor role — see module docstring")
+        print("set GRAFANA_SA_TOKEN (or persist the token at "
+              "~/.liquiditybot/grafana-sa-token) — a Grafana "
+              "service-account token (glsa_...) with Editor role; see "
+              "module docstring")
         return 2
     base = args.url.rstrip("/")
     if not base.startswith("https://"):
@@ -114,6 +146,16 @@ def main() -> int:
             else:
                 failures += 1
                 print(f"  FAIL retire {uid}: HTTP {e.code}")
+    if not failures and args.stamp:
+        # pc_supervisor auto-import contract: record WHAT was imported
+        # (content fingerprint), only on full success — a partial or
+        # failed run leaves the stamp untouched so the supervisor
+        # retries on its next tick.
+        try:
+            Path(args.stamp).write_text(str(args.fingerprint),
+                                        encoding="utf-8")
+        except OSError as e:
+            print(f"  stamp write failed (import itself succeeded): {e}")
     return 1 if failures else 0
 
 
