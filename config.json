@@ -278,6 +278,8 @@
     "spoof_size_mult": 8,
     "spoof_max_lifetime_sec": 90,
     "spoof_score_threshold": 0.45,
+    "spoof_healthy_book_threshold": 0.85,
+    "_spoof_healthy_book_threshold_doc": "SD-003 (2026-07-31): the bar a spoof score must clear to veto a book that is ALREADY structurally healthy - depth >= min_depth_usd AND spread <= max_spread_bps, i.e. it passes the same test that would otherwise label it 'liquid'. A 'spoofy' label is a TOTAL veto (size_mult 0, reduce_only) applied feed-wide, and the bot's own SD-003 diagnostic measured it firing on 55% of classified cycles - the direct cause of the entry collapse (27-87 entries/day through 07-22 -> 0-11/day from 07-24) and therefore of the label starvation downstream. Live evidence at the fix: DOT scored spoof 0.61 on a 1.3bps spread (vetoed - wrong) while MINA 21.5bps/0.89 and FLOW 36.7bps/0.78 scored high on genuinely wide books (vetoed - right). 0.85 is chosen as the score a healthy book must reach to still be disbelieved: it sits above every observed tight-book false positive and below saturation (score = 1 - exp(-3*ewma), so 0.85 needs a sustained ~0.63 events/cycle EWMA vs 0.20 for the plain 0.45 bar) - a real layering attack that keeps pulling large near-touch levels still clears it. Whiplash is untouched and still vetoes independently. Set equal to spoof_score_threshold to restore the pre-fix behavior exactly.",
     "imbalance_whiplash_threshold": 1.45,
     "whiplash_healthy_p95": 1.27,
     "spoof_touch_buffer_bps": 5.0,

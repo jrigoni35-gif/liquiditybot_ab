@@ -132,6 +132,14 @@ class LiquidityRegimeEngine:
         self.spoof_size_mult = float(cfg.get("spoof_size_mult", 8.0))
         self.spoof_max_lifetime_s = float(cfg.get("spoof_max_lifetime_sec", 90.0))
         self.spoof_score_threshold = float(cfg.get("spoof_score_threshold", 0.45))
+        # SD-003: the bar a spoof score must clear to veto a book that is
+        # ALREADY structurally healthy (tight spread + deep). Defaults to
+        # the plain threshold when unset, so an untouched config keeps the
+        # shipped behavior exactly. See the classify block for the
+        # derivation and the live evidence.
+        self.spoof_healthy_book_threshold = float(
+            cfg.get("spoof_healthy_book_threshold",
+                    self.spoof_score_threshold))
         # whiplash = std of the [0,3]-clamped imbalance ratio over the last
         # 20 snapshots, so its structural ceiling is 1.5 (all-samples
         # alternating 0<->3). Calibrated against 45h / ~2,600 samples of
@@ -316,7 +324,30 @@ class LiquidityRegimeEngine:
         st.spoof_events_total = trk.events
 
         # --- classify ---
-        if st.spoof_score >= self.spoof_score_threshold or \
+        # SD-003 (2026-07-31, the bot's own diagnostic): liquidity read
+        # "spoofy" on 55% of classified cycles, and a spoofy label is a
+        # TOTAL veto (size_mult 0, reduce_only) on every asset - the
+        # measured cause of the entry collapse (27-87 entries/day through
+        # 07-22 -> 0-11/day from 07-24) and therefore of the label
+        # starvation downstream. Live evidence at the fix: DOT scored
+        # spoof 0.61 on a 1.3bps spread while MINA (21.5bps) and FLOW
+        # (36.7bps) scored 0.89/0.78 - the detector is right on the wide
+        # books and wrong on the tight ones, exactly the failure this
+        # file already recorded once for whiplash ("the old 0.55 default
+        # ... labeling every cycle spoofy and silently vetoing 100% of
+        # entries").
+        # The fix is evidentiary, not a mute: a book that is
+        # STRUCTURALLY healthy - tight spread AND deep, i.e. it passes
+        # the same test that would otherwise label it "liquid" - raises
+        # the bar a spoof score must clear to veto, because the spread
+        # is the market's own verdict on book quality. A real layering
+        # attack that still scores above the raised bar is vetoed as
+        # before; whiplash is untouched.
+        book_healthy = (st.depth_top10_usd >= tier_min_depth
+                        and st.spread_bps <= tier_max_spread)
+        spoof_bar = (self.spoof_healthy_book_threshold if book_healthy
+                     else self.spoof_score_threshold)
+        if st.spoof_score >= spoof_bar or \
         st.imbalance_whiplash >= self.whiplash_threshold:
             st.label, st.size_mult, st.reduce_only = "spoofy", 0.0, True
         elif st.depth_top10_usd < tier_min_depth or st.spread_bps > tier_max_spread:
