@@ -72,6 +72,19 @@ class Code(str, Enum):
                                      # (next open decade after PT-050) per the
                                      # P2 task spec, even though it fires from
                                      # the exit path, not execution.pretrade
+    PT_CLOSE_REASON = "PT-061"       # I0 (2026-07-31 era-deadlock debate):
+                                     # names the VERBATIM close_reason on every
+                                     # full close. The corpus `barrier` column
+                                     # collapses everything that is not a
+                                     # bracket leg to "realized", so the
+                                     # training data cannot say WHAT closed a
+                                     # position - and 3 of the 8 bracket probes
+                                     # ever closed died at 20-36 min, too early
+                                     # for PT-060 (180 min) AND too early for
+                                     # the post-381e870 give-back arm. An
+                                     # unnamed mechanism is ending probes; this
+                                     # record is the instrument that names it.
+                                     # Report-only: changes no exit decision.
 
     # ---- venue adapters (VN) -----------------------------------------
     VN_REGISTERED = "VN-000"         # adapter registered (may be disabled)

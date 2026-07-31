@@ -107,6 +107,7 @@ CODE_LABELS = {
     "PT-041": "PT-041 · edge/cost below minimum",
     "PT-050": "PT-050 · exploration bypassed EV bar",
     "PT-060": "PT-060 · time-stop scratch",
+    "PT-061": "PT-061 · close reason (verbatim)",
 }
 
 

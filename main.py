@@ -1430,6 +1430,37 @@ class LiquidityBot:
         self._note_probe_tuition(pos, total_net, now)
         barrier = close_reason if close_reason in (
             "tb_pt", "tb_sl", "tb_time") else "realized"
+        # I0 (2026-07-31): the `barrier` above is LOSSY by design - every
+        # non-bracket close collapses to "realized", so neither the corpus
+        # nor the audit trail can say what actually ended the position.
+        # Emit the verbatim reason with the context needed to adjudicate
+        # the era deadlock (docs/quant/2026-07-31_live_label_era_deadlock).
+        # Guarded: close-path bookkeeping must never block an exit
+        # (CLAUDE.md invariant 5).
+        try:
+            _op = getattr(pos, "opened_at", None)
+            _bars = None
+            if _op is not None:
+                _ts = _op.timestamp() if hasattr(_op, "timestamp") else float(_op)
+                _bars = round(max(0.0, now - _ts) / 300.0, 2)
+            _det = tag(Code.PT_CLOSE_REASON,
+                       f"close {self._asset_of(pos.symbol)}: "
+                       f"reason={close_reason or 'unspecified'} "
+                       f"barrier={barrier} bars={_bars} "
+                       f"probe={bool(getattr(pos, 'is_probe', False))} "
+                       f"net={total_net:+.4f}")
+            get_audit().log(
+                "exit", Code.PT_CLOSE_REASON, _det,
+                {"asset": self._asset_of(pos.symbol),
+                 "position_id": pos.position_id,
+                 "close_reason": close_reason or "",
+                 "barrier": barrier, "bars_held": _bars,
+                 "is_probe": bool(getattr(pos, "is_probe", False)),
+                 "is_bracket": bool(getattr(pos, "bracket_pt_frac", 0.0)),
+                 "pt_frac": float(getattr(pos, "bracket_pt_frac", 0.0) or 0.0),
+                 "net_usd": round(float(total_net), 6)})
+        except Exception:
+            log.exception("close-reason audit failed - close unaffected")
         self.history.log_close(
             pos.position_id, total_net, barrier=barrier,
             pt_frac=pos.bracket_pt_frac, sl_frac=pos.bracket_sl_frac,

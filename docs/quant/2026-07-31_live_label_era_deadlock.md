@@ -132,3 +132,59 @@ worth fixing, but it is the *second* problem. The first is that the bot
 has no demonstrated post-cost edge (C3) and has effectively stopped
 trading (C4). Fixing the plumbing without C3/C4 would buy a faster path
 to a better-measured loss.
+
+---
+
+## ADJUDICATION (advocate + skeptic + controller vote, 2026-07-31)
+
+Both briefs are on file (scratchpad `era_debate_{advocate,skeptic}.md`).
+They CONVERGE on the two things that matter, which is what decides this:
+
+**Convergent finding 1 — the mechanism closing probes is UNKNOWN.**
+Advocate measured 3 of the 8 bracket probes ever closed dying at
+19.8 / 24.8 / 35.8 minutes — too early for PT-060 (180 min) and too
+early for the post-381e870 give-back arm (needs a 1.083% peak). Neither
+brief can name what ended them, because `barrier` collapses every
+non-bracket close to `"realized"` (main.py:1431). **No fix may be chosen
+until the mechanism is named** (systematic-debugging Iron Law).
+
+**Convergent finding 2 — every model rung loses to the base rate.**
+Advocate, OOF: deployed logistic Brier **0.2736 vs 0.1936** for a
+constant-prior predictor; the gbt that option A would unlock scores
+**0.2355 vs 0.1959**. Skeptic, independently: the tb-model on live rows
+scores **0.2124 vs 0.1393** base-rate-only, live-only model OOS AUC
+**0.4375**. Nothing in the battery currently reports this. Unlocking
+more rungs buys worse-than-constant predictors a bigger stage.
+
+### Ruling
+
+| Opt | Ruling | Why |
+|-----|--------|-----|
+| **I0** close-reason audit (PT-061) | **SHIP FIRST** | Both briefs' prerequisite; report-only, no exit-path behavior change |
+| **G** null-model floor in the battery | **SHIP** | The gate cannot keep hiding that every rung loses to a constant |
+| **E** horizon re-alignment (`label_max_bars` 96 -> ~24-30) | **ADOPT, pending I0** | Advocate's 5th option; the clock inversion is real (PT-060 fires at bar 36, vertical at 96), converts ~100% of probes to era-valid rows at 1/4 of B's capital-time, suppresses NO protective exit, leaves the cost floor intact. Dominates B. Needs the 200x1200 re-baseline. |
+| **D** probe entry selectivity | **ADOPT (profit item)** | Probes bypass the EV gate entirely (`bypass_pretrade_ev: true`); 0/60 closes reached +-1.30% against a 0.65% round trip |
+| **A** live rows era-exempt | **REJECT** | Fails on measurement, not principle (finding 2 + the rows are 94% pre-policy-change, 10 of 251 land in OOF test blocks while carrying ~35% of sample weight) |
+| **B** probes ride to the vertical | **REJECT as default** | E dominates it; as written it re-runs the 07-29 LINK wedge (-1.69% vs a -0.2% scratch) |
+| **C** re-align barriers | **REJECT** | Its defensible half IS E |
+
+### Sequence
+
+1. **I0** (shipped with this document) — name the mechanism. Requires
+   ~24-48h of live closes before it can answer.
+2. **G** — null-model floor, so the battery states the truth in finding 2.
+3. **Root-cause the 07-24 entry collapse** (skeptic's DO-FIRST; C4
+   above). Verify the SZ-030/SZ-023 attribution first — it is currently
+   unverified.
+4. **E**, then **D**, each with the full battery + a conscious
+   200x1200 re-baseline.
+
+### Carried defects found during the debate
+
+- `last_load_stats`: `ess_kish` / `mean_uniqueness` are computed
+  PRE-exclusion while `rows` / `live_clean` are POST-exclusion (both
+  views report ESS 2494.5). Introduced with the Kish ESS instrument
+  (b68c0d4). Fix with G.
+- Root `outputs/postmortem_summary.csv` is stale (17 rows, ends 07-16);
+  the live 216-row series lives in `outputs/imported_sessions/pc-live/`.
+  Two analyses in this debate initially disagreed because of it.
