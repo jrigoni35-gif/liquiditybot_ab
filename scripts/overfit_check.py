@@ -651,6 +651,36 @@ def main() -> int:
               f"train_auc={g['train_auc']:.3f} oof_auc={g['oof_auc']:.3f} "
               f"gap={g['gap_auc']:+.3f}")
 
+    # ---- OF-1b: NULL-MODEL FLOOR (2026-07-31 era-deadlock debate, item
+    # G). A model that scores WORSE than a constant predicting the corpus
+    # base rate has negative skill - it is not merely weak, it is
+    # anti-informative, and sizing on its p(win) is worse than sizing on
+    # the base rate. Both debate arms measured exactly this and NOTHING in
+    # the battery said so: deployed logistic Brier 0.2736 vs 0.1936 for
+    # the constant; the gbt an unlock would buy, 0.2355 vs 0.1959. The
+    # base rate is the honest floor every rung must clear before "which
+    # family wins" is even a meaningful question.
+    # REPORT-ONLY by design: it must not gate the battery on the very
+    # condition the operator is trying to fix (a gate here would block
+    # every deploy while the model is cold), but it must be impossible to
+    # miss in the report.
+    for name, g in gaps.items():
+        oof_idx, oof_pred = g.get("oof_idx"), g.get("oof_pred")
+        if oof_idx is None or oof_pred is None or not len(oof_idx):
+            continue
+        y_oof = np.asarray(y)[np.asarray(oof_idx)]
+        p_hat = np.asarray(oof_pred, float)
+        base = float(y_oof.mean())
+        brier_model = float(np.mean((p_hat - y_oof) ** 2))
+        brier_null = float(np.mean((base - y_oof) ** 2))
+        beats = brier_model < brier_null
+        info(f"null-floor[{name}]",
+             f"OOF Brier {brier_model:.4f} vs base-rate constant "
+             f"{brier_null:.4f} (base={base:.3f}, n={len(y_oof)}) — "
+             + ("BEATS the null" if beats else
+                "LOSES TO THE NULL: negative skill, sizing on this "
+                "model's p(win) is worse than sizing on the base rate"))
+
     print("[OF-2] shuffled-label leakage null")
     sh = shuffled_label_check(X, y, repeats=2 if args.quick else 3, sig=sig)
     check("shuffle: destroyed labels learn nothing OOF", sh.get("ok", False),
