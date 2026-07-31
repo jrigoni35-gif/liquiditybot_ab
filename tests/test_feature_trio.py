@@ -79,12 +79,14 @@ def _candles(rets):
 
 
 # ------------------------------------------------------------ schema pins
-def test_schema_is_62_wide_v8_trio_before_signal_tail():
-    # deliberate re-pin: v8 adds flow_tox after the trio (61->62, 7->8)
-    assert len(FEATURE_NAMES) == 62
-    assert FEATURE_SCHEMA_VERSION == 8
-    assert FEATURE_NAMES[-6:] == ["vol_term", "mkt_ret_6_dir",
+def test_schema_is_64_wide_v9_trio_before_signal_tail():
+    # deliberate re-pin: v8 adds flow_tox after the trio (61->62, 7->8);
+    # v9 adds the ofi_dir/basis_mom_dir shadow pair (62->64, 8->9)
+    assert len(FEATURE_NAMES) == 64
+    assert FEATURE_SCHEMA_VERSION == 9
+    assert FEATURE_NAMES[-8:] == ["vol_term", "mkt_ret_6_dir",
                                   "book_touch_share", "flow_tox",
+                                  "ofi_dir", "basis_mom_dir",
                                   "direction", "gate_confidence"]
 
 

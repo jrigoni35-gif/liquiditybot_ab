@@ -71,6 +71,22 @@ TRIO_NEUTRAL = {"vol_term": 0.0, "mkt_ret_6_dir": 0.0,
 # exactly like the pattern neutrals.
 TOX_NEUTRAL = {"flow_tox": 0.0}
 
+# migration neutrals for the v9 SHADOW pair: 0.0 = "no signed event
+# flow / no basis drift observed" - a padded pre-v9 row is
+# indistinguishable from a genuinely quiet book, the exact TOX_NEUTRAL
+# convention. SHADOW status + pre-registered PROMOTION criteria
+# (plan docs/superpowers/plans/2026-07-31-tank-quant2.md, Global
+# Constraints, recorded verbatim): "a shadow column may be promoted to
+# any decision input only after (1) 3 consecutive feature-stability
+# snapshots keep it out of the OOS-dead set, (2) the OF battery stays
+# green with it in the trained space, (3) markout
+# (execution/markout.py) shows non-negative delta on entries taken
+# with vs without the signal's favorable side over >=200 live
+# entries." Until then the two columns feed ONLY this feature vector -
+# tests/test_ofi_feature.py's shadow-purity grep proves no gate/sizer/
+# exit/execution module reads them.
+V9_NEUTRAL = {"ofi_dir": 0.0, "basis_mom_dir": 0.0}
+
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
 # v3: +context/THALES block, 46->53; v4: +options positioning, 53->56;
 # v5: +manip_suspect adversarial-data score, 56->57; v6: +th_barclose
@@ -80,11 +96,15 @@ TOX_NEUTRAL = {"flow_tox": 0.0}
 # same bump batches two value-semantics changes with no width change:
 # candles/volume re-grounded to the execution venue (wash-trading
 # hygiene, Cong et al. 2023) and order-book imbalance distance-decayed
-# toward the touch (spoof economics, Stoikov 2018)).
+# toward the touch (spoof economics, Stoikov 2018); v9: +ofi_dir/
+# basis_mom_dir SHADOW pair, 62->64 - event-based best-level OFI
+# (Cont-Kukanov-Stoikov 2014) and perp-basis momentum, ONE batched bump
+# for both columns (TANK quant-2 K/N; see V9_NEUTRAL above for the
+# pre-registered promotion criteria)).
 # Restore paths must drop pending vectors from other versions - the
 # width guard alone cannot see a semantic change, and versioning also
 # documents additive bumps.
-FEATURE_SCHEMA_VERSION = 8
+FEATURE_SCHEMA_VERSION = 9
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -127,6 +147,10 @@ FEATURE_NAMES = [
     "mkt_ret_6_dir",              # equal-weight market drift, with trade
     "book_touch_share",           # touch notional / top-10 notional [0,1]
     "flow_tox",                   # VPIN-lite order-flow toxicity [0,1]
+    "ofi_dir",                    # v9 SHADOW: event OFI (CKS 2014),
+                                  # touch-depths/min, with/against trade
+    "basis_mom_dir",              # v9 SHADOW: basis drift bps/min /10,
+                                  # with/against trade
     "direction", "gate_confidence",
 ]
 
@@ -214,6 +238,17 @@ def _candle_patterns(candles: list) -> tuple:
     hammer = float(np.clip((lower - upper) / rng, -1.0, 1.0) * small_body)
     marubozu = float(np.sign(body) * min(abs(body) / rng, 1.0))
     return engulf, hammer, marubozu
+
+
+def _finite(v, default: float = 0.0) -> float:
+    """NaN/None/garbage-safe float coercion for producer-fed inputs the
+    schema documents as '0.0 when missing/stale' (the v9 shadow pair):
+    np.clip would PROPAGATE a NaN into the vector, so guard before it."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
 
 
 def _th(extras, key: str) -> float:
@@ -414,6 +449,19 @@ def build_features(asset: str, direction: str, gate_confidence: float,
         # NOT direction-signed: toxicity is symmetric information (toxic
         # flow hurts whichever side provides the liquidity)
         _flow_toxicity(closes, vols, sigma_bar),
+        # v9 SHADOW pair (see V9_NEUTRAL for the pre-registered
+        # promotion criteria). Both side-relative: signed flow/drift
+        # presented as with-my-trade, same frame as imbalance_dir/
+        # basis_dir. ofi_event = view-build event OFI in touch-depth
+        # turnovers per minute (already wall-time normalized at the
+        # producer); basis_mom_bps = FVState basis drift in bps/min,
+        # clip-then-/10 exactly like basis_dir/venue_disloc_dir.
+        # _finite: producers document 0.0-on-missing/stale - enforce it
+        # here too so a legacy stub/NaN can never poison the vector.
+        dir_sign * float(np.clip(_finite(view.get("ofi_event", 0.0)),
+                                 -3, 3)),
+        dir_sign * float(np.clip(_finite(getattr(fv_state, "basis_mom_bps",
+                                                 0.0)), -30, 30)) / 10.0,
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)

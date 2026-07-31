@@ -29,8 +29,9 @@ Public surface unchanged: FairValueEngine(config).state(asset) /
 """
 
 import logging
+import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from core.sanitize import is_finite_pos as _finite_pos
@@ -38,6 +39,11 @@ from core.sanitize import is_finite_pos as _finite_pos
 log = logging.getLogger("liquiditybot.execution.fair_value")
 
 EPS = 1e-12
+
+# v9 SHADOW basis-momentum bound, bps/min: 3x the feature clip window
+# (+/-80bps of basis_dir) traversed in one minute. A structural sanity
+# clamp, not a tunable - the ml/features.py clip is far tighter anyway.
+BASIS_MOM_CAP_BPS_MIN = 240.0
 
 
 @dataclass
@@ -58,6 +64,15 @@ class FVState:
     kraken_fresh: bool = True        # False once the touch is older than the
                                      # staleness bound - basis_bps/edge_bps
                                      # read neutral/zero while this is False
+    basis_mom_bps: float = 0.0       # v9 SHADOW: d(basis_bps)/dt over the
+                                     # configured window, bps/MINUTE. Feeds
+                                     # ONLY ml basis_mom_dir (shadow-purity
+                                     # grep test); 0.0 on stale/degenerate.
+    basis_hist: list = field(default_factory=list)
+                                     # (ts, basis_bps) samples inside the
+                                     # momentum window - state lives HERE,
+                                     # where basis_bps lives, rolled once
+                                     # per update (never hot-path recompute)
 
     def edge_bps(self, side: str) -> float:
         """Uncertainty-discounted edge of executing at the Kraken touch
@@ -132,7 +147,44 @@ class FairValueEngine:
         # "past this, treat as absent" bound the rest of the book-freshness
         # stack already uses; lifted here rather than duplicated.
         self.kraken_stale_sec = max(float(cfg.get("kraken_stale_sec", 120.0)), 0.0)
+        # v9 SHADOW basis momentum window (config fair_value.
+        # basis_mom_window_sec, default + bounds documented there and in
+        # core/config_guard.py). Clamped to sane structure here as well
+        # so a direct-construction harness cannot zero the denominator.
+        self.basis_mom_window_sec = min(max(float(
+            cfg.get("basis_mom_window_sec", 60.0)), 1.0), 3600.0)
         self._states: dict = {}
+
+    # ------------------------------------------------------------------
+    def _roll_basis_momentum(self, st: FVState, now: float) -> None:
+        """Roll the v9 SHADOW basis-momentum window with this update's
+        fresh basis_bps: per-SECOND slope over the samples inside
+        basis_mom_window_sec, scaled x60 to bps/min (wall-time
+        discipline, THALES A-3 - never per-update units that alias with
+        poll cadence). The span denominator floors at 1s (an EPS-class
+        guard: two same-instant polls must not amplify innovation noise
+        into a phantom slope), the result clamps at +/-BASIS_MOM_CAP,
+        and every degenerate path (single sample, clock backwards,
+        non-finite) lands on the 0.0 neutral."""
+        h = st.basis_hist
+        h.append((now, st.basis_bps))
+        cutoff = now - self.basis_mom_window_sec
+        while len(h) > 1 and h[0][0] < cutoff:
+            h.pop(0)
+        span = now - h[0][0]
+        if span < 0.0:                    # clock stepped backwards: reseed
+            del h[:-1]
+            st.basis_mom_bps = 0.0
+            return
+        if len(h) < 2 or span <= 0.0:
+            st.basis_mom_bps = 0.0
+            return
+        slope = (st.basis_bps - h[0][1]) / max(span, 1.0) * 60.0
+        if not math.isfinite(slope):
+            st.basis_mom_bps = 0.0
+            return
+        st.basis_mom_bps = max(-BASIS_MOM_CAP_BPS_MIN,
+                               min(slope, BASIS_MOM_CAP_BPS_MIN))
 
     def state(self, asset: str) -> FVState:
         return self._states.get(asset) or FVState(
@@ -179,6 +231,11 @@ class FairValueEngine:
         if st.kraken_mid > 0 and (now - st.kraken_touch_ts) > self.kraken_stale_sec:
             st.kraken_bid = st.kraken_ask = st.kraken_mid = 0.0
             st.kraken_fresh = False
+            # v9 SHADOW: a stale touch has no basis, so it has no basis
+            # SLOPE either - zero the momentum and drop the window so a
+            # later re-touch re-seeds instead of diffing against fossils
+            st.basis_mom_bps = 0.0
+            st.basis_hist.clear()
 
         if not mps:
             st.updated = False
@@ -214,8 +271,11 @@ class FairValueEngine:
         if st.kraken_mid > 0:
             st.basis_bps = (st.fair_value - st.kraken_mid) / \
                 st.kraken_mid * 1e4
+            self._roll_basis_momentum(st, now)
         else:
             st.basis_bps = 0.0   # W2-23: no fresh touch -> no basis, never stale
+            st.basis_mom_bps = 0.0
+            st.basis_hist.clear()
         st.updated = True
         self._states[asset] = st
         return st

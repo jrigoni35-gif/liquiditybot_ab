@@ -38,11 +38,14 @@ IDX = {n: i for i, n in enumerate(FEATURE_NAMES)}
 
 
 # ------------------------------------------------------------ schema pins
-def test_schema_is_62_wide_v8_flow_tox_before_signal_tail():
-    assert len(FEATURE_NAMES) == 62
-    assert FEATURE_SCHEMA_VERSION == 8
-    assert FEATURE_NAMES[-6:] == ["vol_term", "mkt_ret_6_dir",
+def test_schema_is_64_wide_v9_flow_tox_before_shadow_pair():
+    # deliberate re-pin: v9 adds the ofi_dir/basis_mom_dir shadow pair
+    # after flow_tox (62->64, version 8->9; tests/test_ofi_feature.py)
+    assert len(FEATURE_NAMES) == 64
+    assert FEATURE_SCHEMA_VERSION == 9
+    assert FEATURE_NAMES[-8:] == ["vol_term", "mkt_ret_6_dir",
                                   "book_touch_share", "flow_tox",
+                                  "ofi_dir", "basis_mom_dir",
                                   "direction", "gate_confidence"]
     assert TOX_NEUTRAL == {"flow_tox": 0.0}
 

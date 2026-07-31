@@ -3686,7 +3686,7 @@ class LiquidityBot:
 
     def slow_cycle(self, now: float) -> None:
         self.view = self.liquidity_model.build_view(
-            *self._fetch_market_payloads())
+            *self._fetch_market_payloads(), now=now)
         self._augment_view_with_kraken(now)
         self._refresh_market_state(now)
 

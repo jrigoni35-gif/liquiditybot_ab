@@ -291,7 +291,7 @@ def test_contract_declares_ranges_for_every_smc_feature():
     for name in ("mtf_align", "pd_zone", "liq_pocket_pull", "fvg_pull",
                 "fvg_liq_confluence", "poc_dist", "va_pos"):
         assert name in _RANGES
-    assert SCHEMA_VERSION == 8   # deliberate re-pin: v8 flow_tox bump
+    assert SCHEMA_VERSION == 9   # deliberate re-pin: v9 shadow-pair bump
     contract = get_contract()
     assert contract.n == len(contract.names)
 

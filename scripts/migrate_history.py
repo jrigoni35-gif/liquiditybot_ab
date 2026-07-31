@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ml.features import FEATURE_NAMES  # noqa: E402
 from ml.history import HistoryStore, SG_COMPONENT_KEYS, label_era_of  # noqa: E402
 from ml.features import (CONTEXT_NEUTRAL, PATTERN_NEUTRAL,  # noqa: E402
-                         TOX_NEUTRAL, TRIO_NEUTRAL)
+                         TOX_NEUTRAL, TRIO_NEUTRAL, V9_NEUTRAL)
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
 
 # side-relative features derivable from an older absolute-encoded file:
@@ -51,8 +51,11 @@ DIR_DERIVED = {
 # existed in an older schema, so old bundles pad 0.0 rather than derive.
 # TOX_NEUTRAL (v8): flow_tox pads 0.0 = "no toxicity signal read" - a
 # padded pre-v8 row is indistinguishable from genuinely balanced flow.
+# V9_NEUTRAL: the shadow pair pads 0.0 = "no signed event flow / no
+# basis drift observed" - no unsigned twin ever existed, so old bundles
+# pad rather than derive (the TRIO precedent).
 KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL, **CONTEXT_NEUTRAL,
-                 **TRIO_NEUTRAL, **TOX_NEUTRAL,
+                 **TRIO_NEUTRAL, **TOX_NEUTRAL, **V9_NEUTRAL,
                  **{k: 0.0 for k in DIR_DERIVED}}
 
 META_COLS = ("position_id", "asset", "side", "label", "net_pnl_usd",

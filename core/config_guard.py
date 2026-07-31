@@ -1943,6 +1943,51 @@ def validate(config: dict) -> list:
               f"for identical 5m bars; above 600s (2 bars) venue-grounded "
               f"features lag the market they price")
 
+    # --- v9 shadow-feature batch (TANK quant-2 K/N) ----------------------
+    # both knobs measure against the slow-cycle poll gap: the view build
+    # (and fair_value update) samples once per polling_interval_sec x
+    # slow_cycle_every_n, so any window/staleness bound at or below that
+    # gap makes the derived feature structurally dead - a knob lying
+    # about intent, the exact incoherence class this guard exists for.
+    poll_gap = (float(_f(config, "system.polling_interval_sec", 5.0))
+                * float(_f(config, "system.slow_cycle_every_n", 6)))
+    ofi_tau = float(_f(config, "liquidity_regime.ofi.ewma_tau_sec", 60.0))
+    if not (5.0 <= ofi_tau <= 600.0):
+        fatal(f"liquidity_regime.ofi.ewma_tau_sec={ofi_tau} outside "
+              f"[5, 600] - below 5s the EWMA is an unsmoothed per-poll "
+              f"tick (cadence aliasing, the THALES A-3 failure); above "
+              f"600s the 'event' signal is slower than the snapshot "
+              f"imbalance it complements")
+    ofi_dtau = float(_f(config, "liquidity_regime.ofi.depth_tau_sec", 300.0))
+    if not (30.0 <= ofi_dtau <= 3600.0):
+        fatal(f"liquidity_regime.ofi.depth_tau_sec={ofi_dtau} outside "
+              f"[30, 3600] - the depth scale must move slower than the "
+              f"flow it normalizes (below one poll it IS the flow) and "
+              f"faster than a regime (above 1h it normalizes today's "
+              f"events by yesterday's book)")
+    ofi_stale = float(_f(config, "liquidity_regime.ofi.stale_sec", 120.0))
+    if not (10.0 <= ofi_stale <= 900.0):
+        fatal(f"liquidity_regime.ofi.stale_sec={ofi_stale} outside "
+              f"[10, 900] - the same 'past this, treat as absent' bound "
+              f"class as fair_value.kraken_stale_sec; above 15min a "
+              f"dead feed's last flow reading survives a whole regime")
+    elif ofi_stale <= poll_gap:
+        fatal(f"liquidity_regime.ofi.stale_sec={ofi_stale} at/below the "
+              f"slow-cycle poll gap ({poll_gap:.0f}s) - every poll reads "
+              f"as stale, the EWMA resets each cycle and the feature is "
+              f"structurally dead")
+    bmw = float(_f(config, "fair_value.basis_mom_window_sec", 60.0))
+    if not (5.0 <= bmw <= 600.0):
+        fatal(f"fair_value.basis_mom_window_sec={bmw} outside [5, 600] - "
+              f"the perp lead-lag this measures lives at sub-minute-to-"
+              f"minutes horizons; a longer window is a slow trend "
+              f"restating basis_dir, not momentum")
+    elif bmw <= poll_gap:
+        fatal(f"fair_value.basis_mom_window_sec={bmw} at/below the "
+              f"slow-cycle poll gap ({poll_gap:.0f}s) - the window can "
+              f"never hold two samples, so the momentum is structurally "
+              f"zero forever")
+
     # --- urgency composition vs the execution ladder --------------------------
     ub = float(_f(config, "informed_flow.urgency.base", 0.30))
     uw = (float(_f(config, "informed_flow.urgency.w_burst", 0.40))

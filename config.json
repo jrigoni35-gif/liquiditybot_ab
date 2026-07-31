@@ -283,7 +283,13 @@
     "spoof_touch_buffer_bps": 5.0,
     "track_levels": 15,
     "imbalance_decay_bps": 15.0,
-    "_decay_doc": "v8 anti-layering (Stoikov 2018 near-touch information; spoof economics: far size is cheap to paint+cancel, touch size gets executed): order-book imbalance weights each level exp(-dist_bps/decay_bps) vs its side's own best, so painted far-from-touch walls decay out of the ratio. One source of truth - regime engine AND liquidity_model view imbalance read this key. 0 = legacy equal-weight."
+    "_decay_doc": "v8 anti-layering (Stoikov 2018 near-touch information; spoof economics: far size is cheap to paint+cancel, touch size gets executed): order-book imbalance weights each level exp(-dist_bps/decay_bps) vs its side's own best, so painted far-from-touch walls decay out of the ratio. One source of truth - regime engine AND liquidity_model view imbalance read this key. 0 = legacy equal-weight.",
+    "ofi": {
+      "ewma_tau_sec": 60.0,
+      "depth_tau_sec": 300.0,
+      "stale_sec": 120.0,
+      "_doc": "v9 SHADOW feature (TANK quant-2 K): event-based best-level order-flow imbalance per Cont-Kukanov-Stoikov 2014 (J. Financial Econometrics 12(1):47-88): e_n = 1{Pb_n>=Pb_n-1}qb_n - 1{Pb_n<=Pb_n-1}qb_n-1 - 1{Pa_n<=Pa_n-1}qa_n + 1{Pa_n>=Pa_n-1}qa_n-1 per external venue book, normalized by that venue's OWN EWMA best-level depth (unit consistency: OKX contract sizes never mix with spot coin sizes - the _combined_imbalance lesson) and by the REAL wall-clock poll gap dt (THALES A-3: per-event units alias with poll cadence), x60 = touch-depth turnover per MINUTE; per-venue rates averaged, then wall-time EWMA alpha=1-exp(-dt/ewma_tau_sec). Produces the view key ofi_event feeding ONLY the ml feature vector (ofi_dir; shadow-purity grep test in tests/test_ofi_feature.py, promotion criteria pre-registered in ml/features.py V9_NEUTRAL doc). Defaults derived, never fitted: ewma_tau_sec 60 = CKS's own sub-minute OFI impact horizon (~2 slow-cycle polls at the 30s cadence); depth_tau_sec 300 = one 5m bar, the stack's standard smoothing unit; stale_sec 120 mirrors watchdog stale_critical_sec / fair_value.kraken_stale_sec ('past this, treat as absent') - a gap beyond it RESETS the EWMA to the 0.0 neutral rather than decaying a fossil. config_guard: ewma_tau_sec FATAL outside [5, 600]; depth_tau_sec FATAL outside [30, 3600]; stale_sec FATAL outside [10, 900] and FATAL at/below the slow-cycle poll gap (the EWMA would reset every poll - a structurally dead feature)."
+    }
   },
   "correlation": {
     "lambda_fast": 0.94,
@@ -297,7 +303,9 @@
     "gated_alpha_frac": 0.25,
     "edge_haircut_z": 1.0,
     "sigma_lambda": 0.9,
-    "kraken_stale_sec": 120.0
+    "kraken_stale_sec": 120.0,
+    "basis_mom_window_sec": 60.0,
+    "_basis_mom_doc": "v9 SHADOW feature (TANK quant-2 N): d(basis_bps)/dt over this window - per-SECOND slope of the samples inside the window, scaled x60 to bps/MINUTE (wall-time discipline, THALES A-3: never per-update units that alias with poll cadence). State (FVState.basis_hist -> basis_mom_bps) lives here where basis_bps already lives, rolled once per update - never hot-path recomputation. Feeds ONLY the ml feature vector (basis_mom_dir; shadow-purity grep test in tests/test_ofi_feature.py, promotion criteria pre-registered in ml/features.py V9_NEUTRAL doc). A stale Kraken touch (kraken_stale_sec above, W2-23) zeroes the momentum AND clears the window so a re-touch re-seeds instead of diffing against a fossil sample. Default 60s derived, never fitted: the perp-lead-lag horizon is sub-minute-to-minutes and 60s = 2-3 slow-cycle polls at the 30s cadence - the shortest window that holds >=2 samples with headroom; matches the OFI twin's ewma_tau_sec so the two shadow signals measure the same horizon. config_guard: FATAL outside [5, 600] and FATAL at/below the slow-cycle poll gap (one sample max = structurally zero forever)."
   },
   "market_maker": {
     "description": "Avellaneda-Stoikov quoter: prices every limit order",

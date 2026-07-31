@@ -18,7 +18,7 @@ DIR_FEATURES = {
     "basis_dir", "funding_dir", "mom_dir", "sent_dir",
     "imbalance_delta_dir", "other_ret_6_dir", "venue_disloc_dir",
     "pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir",
-    "mkt_ret_6_dir", "direction",
+    "mkt_ret_6_dir", "ofi_dir", "basis_mom_dir", "direction",
 }
 
 
@@ -28,8 +28,9 @@ def _vector(direction: str) -> np.ndarray:
                 "close": 10.2 + i * 0.1, "volume": 5.0}
                for i in range(60)]
     view = {"candles": candles, "imbalance_ratio": 1.6,
-            "funding_rate": 0.0002}
-    fv = SimpleNamespace(edge_bps=lambda side: 7.0, basis_bps=12.0)
+            "funding_rate": 0.0002, "ofi_event": 0.8}
+    fv = SimpleNamespace(edge_bps=lambda side: 7.0, basis_bps=12.0,
+                         basis_mom_bps=6.0)
     vol = SimpleNamespace(sigma_bar_pct=0.4, percentile=55.0)
     liq = SimpleNamespace(spread_bps=4.0, depth_top10_usd=250_000.0)
     macro = SimpleNamespace(label="range", momentum_score=0.6,
@@ -53,10 +54,12 @@ def _vector(direction: str) -> np.ndarray:
 
 
 def test_schema_version_current():
-    # deliberate re-pin: v8 flow_tox bump (flow_tox is NOT in DIR_FEATURES -
-    # toxicity is symmetric information, so the flip test below asserts it
-    # in the must-NOT-flip branch)
-    assert FEATURE_SCHEMA_VERSION == 8
+    # deliberate re-pin: v9 shadow pair (ofi_dir/basis_mom_dir ARE in
+    # DIR_FEATURES - signed flow/drift, presented with-my-trade like
+    # imbalance_dir/basis_dir; the stub carries nonzero ofi_event/
+    # basis_mom_bps so the flip test proves it non-vacuously). flow_tox
+    # stays in the must-NOT-flip branch (symmetric information).
+    assert FEATURE_SCHEMA_VERSION == 9
 
 
 def test_flow_tox_is_live_in_the_flip_stub():
