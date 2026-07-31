@@ -188,3 +188,55 @@ more rungs buys worse-than-constant predictors a bigger stage.
 - Root `outputs/postmortem_summary.csv` is stale (17 rows, ends 07-16);
   the live 216-row series lives in `outputs/imported_sessions/pc-live/`.
   Two analyses in this debate initially disagreed because of it.
+
+---
+
+## RESOLVED — live verification, 2026-07-31 ~19:45Z
+
+**The deadlock is broken end-to-end.** First live `tb_*` rows in the
+bot's entire history:
+
+| metric | before | after |
+|---|---|---|
+| live rows carrying a `tb_*` barrier | 0 (of 256) | **3** |
+| `live_clean` (what the evidence gate reads) | 0 | **3** |
+| training corpus at the current geometry | n/a | 379 rows |
+
+The three closes (14:27Z, 16:07Z x2) all entered AFTER the 12:11Z
+restart that deployed fcb5523, and all carry
+`barrier=tb_time, label_era=triple_barrier_h24`. Positions that closed
+earlier the same day (12:21/12:24/13:27Z) entered at 09:21-09:47Z
+carrying the OLD 96-bar deadline stamped at entry, and PT-061 recorded
+all three dying to `time-stop scratch` at 36.02-36.03 bars - the
+expected pre-fix behaviour, not a failure of the fix.
+
+### Second-order defect found by verifying instead of assuming
+
+`_apply_era_exclusion` hardcoded the un-qualified
+`LABEL_ERA_TRIPLE_BARRIER` as the era to KEEP. The horizon qualifier
+introduced by this very fix (`triple_barrier_h24`) therefore made the
+NEW rows invisible to the filter: it kept the stale 96-bar rows and
+excluded the 24-bar ones, including the first three live labels. Left
+alone, `live_clean` would have stayed 0 forever and the horizon fix
+would have been (wrongly) written off as a failure. The kept era is now
+derived from the running config's horizon; regression test pins the
+exact scenario (`test_era_filter_keeps_the_CURRENT_horizon_era_...`).
+
+### Accepted cost
+
+The corpus drops ~2,141 -> 379 rows. Changing what a label MEANS
+invalidates labels made under the old meaning: the 2,146 rows labelled
+at a 96-bar horizon answer a question the bot no longer asks. This is
+era exclusion behaving correctly, not data loss - every row remains on
+disk, and the corpus rebuilds at the current horizon with live rows now
+flowing into it for the first time.
+
+### I0 (PT-061) verdict so far
+
+4 records, all CONVICTION entries (probe=False): `time-stop scratch` at
+36.02-36.03 bars x3 (bracket positions) and one `stale loser 37h,
+regime against` at 441 bars. PT-060 is confirmed as the 36-bar killer.
+The 20-36 MINUTE probe cohort from the debate has NOT recurred - no
+probes have closed since the instrument deployed, because probe
+admission is still suppressed. That cohort remains unexplained and the
+instrument stays armed for it.

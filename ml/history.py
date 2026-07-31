@@ -582,7 +582,8 @@ def _era_exclusion_decide(new_era_count: int,
 
 
 def _apply_era_exclusion(X: list, y: list, w: list, sig: list, meta: list,
-                         era_tags: list, era_cfg: "dict | None") -> tuple:
+                         era_tags: list, era_cfg: "dict | None",
+                         current_era: str = LABEL_ERA_TRIPLE_BARRIER) -> tuple:
     """LOAD-TIME VIEW ONLY: when the resolved decision (_era_exclusion_decide)
     is active, subsets the fully-built (pre-numpy) row lists down to
     LABEL_ERA_TRIPLE_BARRIER rows only - INCLUDING dropping old-era LIVE
@@ -606,8 +607,17 @@ def _apply_era_exclusion(X: list, y: list, w: list, sig: list, meta: list,
     under the C901 ceiling (pyproject.toml) - same established pattern as
     every other _era_*/_epoch_* helper above; no behavior difference from
     inlining it there."""
+    # `current_era` (2026-07-31): the era THIS config's labeler produces.
+    # It was hardcoded to the un-qualified LABEL_ERA_TRIPLE_BARRIER, which
+    # silently broke the moment the era name gained a horizon qualifier
+    # (triple_barrier_h24 after label_max_bars 96 -> 24): the NEW rows -
+    # including the first live tb_time rows the horizon fix finally
+    # produced - were excluded as "not the new era" while the STALE
+    # 96-bar rows were kept as if they were current. The kept era must be
+    # the one the running config actually labels under, or the filter
+    # preserves exactly the rows it exists to remove.
     n = len(era_tags)
-    new_era_count = sum(1 for e in era_tags if e == LABEL_ERA_TRIPLE_BARRIER)
+    new_era_count = sum(1 for e in era_tags if e == current_era)
     stats = _era_exclusion_decide(new_era_count, era_cfg)
     if not stats["active"] or n == 0:
         stats["excluded"] = {"total": 0, "by_era_source": {}}
@@ -615,7 +625,7 @@ def _apply_era_exclusion(X: list, y: list, w: list, sig: list, meta: list,
     keep = []
     excluded_by_era_source: dict = {}
     for i in range(n):
-        if era_tags[i] == LABEL_ERA_TRIPLE_BARRIER:
+        if era_tags[i] == current_era:
             keep.append(i)
             continue
         src = meta[i][2] or "unknown"
@@ -1658,7 +1668,9 @@ class HistoryStore:
         # round-trip guarantee. ML-081 fires once per inactive->active
         # transition (edge-triggered on the instance, never per load).
         X, y, w, sig, meta, era_excl_stats = _apply_era_exclusion(
-            X, y, w, sig, meta, _era_tags, era_cfg)
+            X, y, w, sig, meta, _era_tags, era_cfg,
+            current_era=triple_barrier_era(
+                getattr(self, "max_bars", _TB_LEGACY_MAX_BARS)))
         if era_excl_stats["active"] and not self._era_exclusion_active_seen:
             log.info(
                 "%s: era-gated training exclusion ACTIVATED - %d new-era "

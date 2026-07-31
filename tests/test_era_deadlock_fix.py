@@ -97,3 +97,37 @@ def test_coupling_check_is_scoped_to_configs_that_declare_a_horizon():
     # ...but declare a horizon that the scratch pre-empts and it FATALs
     declared = dict(bare, ml={"label_max_bars": 24})
     assert [m for m in _fatals(declared) if "label_max_bars" in m]
+
+
+def test_era_filter_keeps_the_CURRENT_horizon_era_not_a_hardcoded_name():
+    """2026-07-31 second-order defect, found in live verification.
+
+    `_apply_era_exclusion` hardcoded the un-qualified
+    LABEL_ERA_TRIPLE_BARRIER as the era to KEEP. The moment the era name
+    gained a horizon qualifier (triple_barrier_h24), that filter kept the
+    STALE 96-bar rows and excluded the NEW 24-bar ones - including the
+    first live tb_time rows the horizon fix had just produced. The kept
+    era must be the one the running config labels under, or the filter
+    preserves exactly the rows it exists to remove.
+    """
+    from ml.history import _apply_era_exclusion
+    eras = ["triple_barrier"] * 200 + ["triple_barrier_h24"] * 200
+    n = len(eras)
+    X = [[0.0]] * n
+    y = [0] * n
+    w = [1.0] * n
+    sig = [float(i) for i in range(n)]
+    meta = [(0.0, 0.0, "live") for _ in range(n)]
+    cfg = {"enabled": True, "min_new_era_rows": 150}
+
+    # current config labels at 24 bars -> keep ONLY the h24 rows
+    out = _apply_era_exclusion(X, y, w, sig, meta, eras, cfg,
+                               current_era="triple_barrier_h24")
+    assert out[5]["active"] is True
+    assert len(out[0]) == 200, "must keep the current-horizon rows"
+    assert out[5]["excluded"]["total"] == 200
+
+    # legacy default is unchanged (byte-identical for pre-fix callers)
+    out96 = _apply_era_exclusion(X, y, w, sig, meta, eras, cfg)
+    assert len(out96[0]) == 200
+    assert "triple_barrier_h24" in out96[5]["excluded"]["by_era_source"]
