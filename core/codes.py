@@ -338,6 +338,12 @@ class Code(str, Enum):
     XV_GATE_TRUTH_ALIGNED = "XV-040"     # gate weights rank-agree with realized component AUCs
     XV_GATE_TRUTH_MISALIGNED = "XV-041"  # weight order contradicts measured discrimination
     XV_GATE_TRUTH_THIN = "XV-042"        # < SG_MIN_ROWS instrumented era rows — no verdict
+    # fill_hazard_report (TANK quant-2 Debate-1 L1) - report-only verdict
+    # comparing the sim's CONSTANT per-poll maker-fill probability against
+    # the fitted discrete hazard from recorded book frames; never tag()'d.
+    XV_HAZARD_SHAPE_OK = "XV-050"        # constant-hazard shape within threshold at the timeout horizon (close L2)
+    XV_HAZARD_MISSTATED = "XV-051"       # constant hazard misstates cumulative fill beyond threshold (L2 justified)
+    XV_HAZARD_INSUFFICIENT = "XV-052"    # recordings underpowered for a hazard-shape verdict (L2 unadjudicated)
 
     # ---- liquidity-tier isolation (LT) — regime/liquidity_regime.py ------
     LT_TIER_ASSIGNED = "LT-010"      # asset (re)classified into a liquidity
