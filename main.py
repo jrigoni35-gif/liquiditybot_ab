@@ -711,8 +711,12 @@ class LiquidityBot:
         # suppression).
         self._long_book_deny_state: dict = {}
         self.meta = MetaModelService(config.get("ml", {}))
-        self.history = HistoryStore(config.get("ml", {})
-                                    .get("history_path", "outputs/signal_history.csv"))
+        self.history = HistoryStore(
+            config.get("ml", {})
+            .get("history_path", "outputs/signal_history.csv"),
+            # era-deadlock fix (2026-07-31): the store tags new
+            # triple_barrier rows with the horizon that produced them
+            max_bars=int(config.get("ml", {}).get("label_max_bars", 96)))
         # multi-horizon shadow evidence (separate fixed-schema file so it can
         # never rotate the training data); only wired when enabled in config
         mh_cfg = config.get("ml", {}).get("multi_horizon", {})

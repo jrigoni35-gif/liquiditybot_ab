@@ -781,7 +781,11 @@ def test_shipped_config_runs_budget_mode_with_surcharge_dark():
     assert adm["mode"] == "budget"               # operator-flipped
     bg = adm["budget"]
     assert bg["tokens_per_day"] == 15
-    assert bg["burst_hours"] == 8.0
+    # CONSCIOUS RE-PIN 2026-07-31 (era-deadlock fix): burst_hours mirrors
+    # the labeler's horizon by design, and label_max_bars moved 96 -> 24
+    # bars, so 8h -> 2h. Refill (tokens_per_day) is unchanged - only the
+    # bankable burst follows the horizon, which is the invariant.
+    assert bg["burst_hours"] == 2.0
     assert bg["scarcity_pricing"] is True
     assert bg["scarcity_floor"] is None
     assert bg["refund_unfilled_entry"] is True
@@ -837,9 +841,17 @@ def test_guard_fatal_tokens_per_day_bounds():
 
 
 def test_guard_warn_tokens_above_book_ceiling():
-    # 5 slots x 24/8h = 15/day conversion ceiling — 16 exceeds it
+    # CONSCIOUS RE-PIN 2026-07-31 (era-deadlock fix): the ceiling is
+    # max_concurrent_positions x 24/burst_hours, and burst_hours followed
+    # the label horizon 8h -> 2h, so the book can now convert 5 x 24/2 =
+    # 60/day (it was 5 x 24/8 = 15/day). A SHORTER holding horizon means
+    # faster slot turnover means MORE labels the book can absorb - the
+    # ceiling rising is the arithmetic working, not a weakened guard.
     assert any("tokens_per_day" in m for m in _warns(
-        _mutated(tokens_per_day=16)))
+        _mutated(tokens_per_day=61)))
+    # and the shipped 15/day now sits well inside that ceiling
+    assert not any("exceeds the book conversion ceiling" in m
+                   for m in _warns(_mutated(tokens_per_day=15)))
 
 
 def test_guard_warn_tokens_below_floor_pace():

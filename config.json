@@ -533,7 +533,8 @@
     "cold_start_prior_p": 0.56,
     "probability_shrinkage": 0.35,
     "min_train_rows": 150,
-    "label_max_bars": 96,
+    "label_max_bars": 24,
+    "_label_max_bars_doc": "THE LABEL HORIZON, in 5m bars, and (main.py deadline_ts) the live bracket deadline - one number, so the label's vertical and the traded position's deadline can never diverge. 96 -> 24 on 2026-07-31 (era-deadlock fix, docs/quant/2026-07-31_live_label_era_deadlock.md, option E of the advocate/skeptic/controller debate). DERIVATION, not a tuned value: the exit ladder's PT-060 no-progress scratch fires at profit_taking.time_stop.max_bars_no_progress = 36 bars, so a 96-bar vertical was UNREACHABLE - it sat 60 bars beyond the point the ladder scratches. Measured consequence: only 9.3% of live positions ever reached bar 96, so essentially no live row could carry a tb_* barrier, every live label fell into an old label era, era exclusion dropped all 251 of them, live_clean was 0, and the evidence gate was pinned to ['logistic'] permanently. At 24 bars the vertical sits INSIDE the scratch (24 < 36) and the measured live survival curve says 40.5% of positions reach it (vs 9.3% at 96) - a 4.4x increase in era-valid live labels - while leaving the cost-floored barriers (label_pt_cost_mult x label_round_trip_cost_pct) untouched, so a 'win' still has to clear the cost stack. config_guard FATALs a vertical at or beyond the no-progress scratch: that ordering IS the bug this fixes.",
     "label_mode": "triple_barrier",
     "_label_mode_doc": "triple_barrier = label candidates/bootstrap by the market/horizon-only symmetric pt/sl barrier (label_pt_vol_mult/label_sl_vol_mult below) so the label measures SIGNAL QUALITY - operator decision, 2026-07-26, task-signalquality-brief.md, consciously overriding c36aa90's exit_policy default: replaying the live exit engine made the label encode WHICH EXIT FIRED (a risk-control choice, e.g. the P2 time-stop) rather than whether the signal was good, measured as a 100x label-rate spread across exit reasons and barrier-alone AUC beating the trained model's own AUC. 'exit_policy' remains a valid value (the rollback path / A-B arm): it labels by replaying the live exit engine (hard stop max(stop_loss_pct, stop_vol_mult*sigma) + tiered scale-outs + give-back/trailing) so the model trains on the SAME bet it is traded on. Unsupported values FATAL in config_guard. See docs/quant/2026-07-26_label_signal_quality.md.",
     "label_pt_vol_mult": 8,
@@ -546,10 +547,11 @@
     "multi_horizon": {
       "_doc": "SHADOW-ONLY: score each candidate at several holding horizons and log the outcome to shadow_path (never the live label/model). Evidence for whether some asset pairs pay over a longer hold than others - promote a horizon feature only once scripts/horizon_report.py shows a per-asset edge. All horizons must be <= label_max_bars.",
       "enabled": true,
+      "_horizons_bars_doc": "Re-scaled 2026-07-31 with the label vertical (96 -> 24 bars, era-deadlock fix): the guard requires every shadow horizon <= label_max_bars, since a horizon beyond the vertical can never be labeled. Same shape as before - a short, a mid, and the vertical itself - now spanning 30min/1h/2h instead of 2h/4h/8h. Shadow-only: these never touch the live label or model.",
       "horizons_bars": [
-        24,
-        48,
-        96
+        6,
+        12,
+        24
       ],
       "shadow_path": "outputs/horizon_shadow.csv"
     },
@@ -603,8 +605,8 @@
         "budget": {
           "tokens_per_day": 15,
           "_tokens_per_day_doc": "THE primary knob. Derived from existing config structure, not measured performance: book label throughput ceiling = capital_management.max_concurrent_positions (5) x 24h / 8h label horizon (ml.label_max_bars 96 x 5m bars). Budget above this buys tokens the book cannot convert (config_guard WARNs above the ceiling, and below 24/drought_floor.drought_hours where the SZ-048 backstop would out-rate the budget). Honest name: tokens, not labels - realized labels/day ~= tokens_per_day / avg_cost.",
-          "burst_hours": 8.0,
-          "_burst_hours_doc": "capacity window = the labeler's own horizon (label_max_bars x 5m bars = 8h): C = tokens_per_day x burst_hours/24 = 5 tokens = exactly one book-fill max burst. config_guard WARNs when it diverges from the labeler's horizon.",
+          "burst_hours": 2.0,
+          "_burst_hours_doc": "capacity window = the labeler's own horizon. Followed label_max_bars 96 -> 24 on 2026-07-31 (era-deadlock fix), so 8h -> 2h: C = tokens_per_day x burst_hours/24 = 15 x 2/24 = 1.25 tokens. Throughput is UNCHANGED (refill is still 15/day); only the burst you may bank shrinks with the horizon, which is the invariant this knob encodes. Note the shorter horizon also RAISES the book conversion ceiling (max_concurrent_positions 5 x 24/2 = 60/day vs 15/day at the 8h horizon), so tokens_per_day 15 is now well inside it rather than exactly at it - raising throughput is a separate, evidence-gated decision and was deliberately NOT bundled with the deadlock fix. config_guard WARNs when it diverges from the labeler's horizon.",
           "scarcity_pricing": true,
           "_scarcity_pricing_doc": "false = flat cost 1.0 - the 1-knob rule, kept as a REAL config point so the simplicity ladder can be run against pricing honestly (OF-4 discipline). true: cost(a,r) = clip(1/S, 1, C) with S = max(w_asset, w_regime), w = clip(sqrt(target/(1+n_live)), floor, 1) - sqrt is the Bernoulli-SE/Wilson-width scale (n^-1/2); scarce (asset, regime) labels are cheap, redundant ones expensive; EITHER scarcity dimension redeems (max), and an unmapped regime label prices fail-safe scarce at 1.0. Admission is PROBABILISTIC: p = clip(tokens/cost, 0, 1) on a DEDICATED seeded rng - relative admission rates are 1/cost (price = inverse admission weight), every arm's p > 0 whenever tokens > 0: no starvation wall by construction.",
           "scarcity_floor": null,

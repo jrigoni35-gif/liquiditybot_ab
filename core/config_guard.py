@@ -1326,6 +1326,36 @@ def validate(config: dict) -> list:
              "ml.exploration.enabled is false - dead config: the budget "
              "path is only ever reached when exploration itself is on")
 
+    # Label horizon vs the exit ladder's no-progress scratch (2026-07-31
+    # era-deadlock fix). `label_max_bars` is BOTH the label's vertical and
+    # the live bracket deadline (main.py deadline_ts). If the ladder
+    # scratches a position before the vertical can be reached, no live row
+    # can ever carry a tb_* barrier -> every live label lands in an old
+    # label era -> era exclusion drops it -> live_clean 0 -> the evidence
+    # gate is pinned to logistic forever. That exact ordering was live
+    # from 2026-07-26 to 2026-07-31; it must never return.
+    # Scoped to configs that actually DECLARE a horizon: a fragment with
+    # no ml block is making no claim about labeling and must not turn
+    # FATAL through a default it never opted into (the same discipline as
+    # the SPB-R surcharge bound). The shipped config always carries the
+    # key, so the real pairing is always checked.
+    _lmb_raw = _f(config, "ml.label_max_bars", None)
+    if _lmb_raw is not None:
+        lmb_g = int(_lmb_raw)
+        if not (4 <= lmb_g <= 500):
+            fatal(f"ml.label_max_bars ({lmb_g}) must be in [4, 500] bars")
+        _ts_on = bool(_f(config, "profit_taking.time_stop.enabled", False))
+        _ts_bars = int(_f(config,
+                          "profit_taking.time_stop.max_bars_no_progress",
+                          36))
+        if _ts_on and lmb_g >= _ts_bars:
+            fatal(f"ml.label_max_bars ({lmb_g}) must be BELOW "
+                  f"profit_taking.time_stop.max_bars_no_progress "
+                  f"({_ts_bars}): a vertical at or beyond the no-progress "
+                  f"scratch is unreachable, so no live row can ever carry "
+                  f"a tb_* barrier and the evidence gate starves (the "
+                  f"2026-07-31 era deadlock)")
+
     # OF-5 DSR trials count (Debate-1 item A config-lift): the Harvey-Liu
     # deflation is only as honest as this number. Raising it deflates
     # harder (conservative); dropping below the shipped 7 weakens the

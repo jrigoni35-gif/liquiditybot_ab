@@ -252,6 +252,11 @@ LABEL_ERA_TIME_STOP = "exit_sim_time_stop"     # + P2 time-stop rung
 # "legacy"/"exit_sim"/"exit_sim_time_stop"/"unknown") - the July 13-19 legacy
 # rows are a genuinely different population and must stay distinguishable.
 LABEL_ERA_TRIPLE_BARRIER = "triple_barrier"
+# the horizon the SHIPPED triple_barrier rows were labeled under, before
+# the 2026-07-31 era-deadlock fix moved it to 24. Rows at this horizon
+# keep the un-suffixed era name so nothing already on disk changes
+# meaning; any other horizon self-identifies (triple_barrier_era).
+_TB_LEGACY_MAX_BARS = 96
 LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 
 # gate-truth instrumentation (2026-07-28): the informed-flow component
@@ -310,6 +315,30 @@ _EXIT_SIM_BARRIERS = frozenset({"trail", "realized", "tier", "floor",
 # (tier/stop/hard-stop/ratchet/flatten/...) still falls back to
 # log_close's "realized" default and never lands here.
 _TRIPLE_BARRIER_BARRIERS = frozenset({"tb_pt", "tb_sl", "tb_time"})
+
+
+def triple_barrier_era(max_bars: int) -> str:
+    """The `triple_barrier` era, QUALIFIED BY ITS HORIZON.
+
+    2026-07-31 (era-deadlock fix, option E): `label_max_bars` moved
+    96 -> 24 to end a clock inversion (the exit ladder's PT-060 scratch
+    fires at bar 36, so the 96-bar vertical was unreachable and NO live
+    row could ever carry a `tb_*` barrier -> every live label fell in an
+    old era -> era exclusion dropped all of them -> `live_clean` 0 ->
+    the model ladder was locked to `logistic` forever).
+
+    The base era name is a pure function of the barrier STRING
+    (label_era_of below), so a 96-bar row and a 24-bar row would both
+    tag plain "triple_barrier" and mix two different label definitions
+    inside one era - exactly what era separation exists to prevent.
+    Rows written from here on persist this horizon-qualified name
+    instead (`_row_label_era` prefers a row's own persisted tag), so the
+    two generations stay separable forever with no migration and no
+    rewritten history. The un-suffixed name is preserved for the
+    shipped 96-bar rows so nothing already on disk changes meaning."""
+    mb = int(max_bars)
+    return (LABEL_ERA_TRIPLE_BARRIER if mb == _TB_LEGACY_MAX_BARS
+            else f"{LABEL_ERA_TRIPLE_BARRIER}_h{mb}")
 
 
 def label_era_of(barrier: "str | None") -> str:
@@ -617,9 +646,15 @@ CORPUS_ROTATION_MARKER_NAME = ".corpus_rotated"
 
 
 class HistoryStore:
-    def __init__(self, path: str = "outputs/signal_history.csv"):
+    def __init__(self, path: str = "outputs/signal_history.csv",
+                 max_bars: int = _TB_LEGACY_MAX_BARS):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # ml.label_max_bars, threaded in so a NEW triple_barrier row can
+        # persist a horizon-qualified era tag (see _row_era). Extend-
+        # with-defaults: the default IS the shipped 96, so every existing
+        # caller writes the same un-suffixed era it always did.
+        self.max_bars = int(max_bars)
         self._pending: dict = {}      # position_id -> features
         # stats of the most recent load_training_data pass (clean live count
         # for the evidence gate, uniqueness mean, prior-skew flag)
@@ -789,6 +824,23 @@ class HistoryStore:
                                       candidate_id or "", book,
                                       dict(gate_components or {}))
 
+    def _row_era(self, barrier: str) -> str:
+        """The era tag persisted on a NEW row. Identical to
+        label_era_of() for every era except triple_barrier, which is
+        qualified by the horizon that produced it (see
+        triple_barrier_era): the 2026-07-31 move of `label_max_bars`
+        96 -> 24 changes what a `tb_*` label MEANS, and two label
+        definitions must never share one era name. `label_max_bars` is
+        read from the store's own config (self.max_bars, set at
+        construction); a store built without one keeps the legacy 96 and
+        therefore the un-suffixed name - byte-identical to the shipped
+        behavior for every existing caller."""
+        era = label_era_of(barrier)
+        if era != LABEL_ERA_TRIPLE_BARRIER:
+            return era
+        return triple_barrier_era(getattr(self, "max_bars",
+                                          _TB_LEGACY_MAX_BARS))
+
     def _append_row(self, position_id: str, asset: str, direction: str,
                     feats: np.ndarray, label: int, pnl_usd: float,
                     source: str, signal_ts: float | None = None,
@@ -847,7 +899,7 @@ class HistoryStore:
                                     f"{now:.0f}",
                                     f"{signal_ts if signal_ts else now:.0f}",
                                     barrier, probe, disp, candidate_id, book,
-                                    label_era_of(barrier),
+                                    self._row_era(barrier),
                                     f"{pt_frac:.6f}", f"{sl_frac:.6f}",
                                     *[f"{sg[k]:.4f}" for k in
                                       SG_COMPONENT_KEYS]])
