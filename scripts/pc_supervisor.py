@@ -135,12 +135,22 @@ except OSError:
     _SELF_MTIME = 0.0
 
 
+# Log destination as a REBINDABLE module attribute (2026-07-31). The
+# suite drives this script's functions in-process, and a hardcoded
+# `OUT / "pc_supervisor.log"` inside log() meant every such test appended to the
+# operator's REAL pc_supervisor.log - the same defect measured across six
+# outputs/ files that day. Tests monkeypatch LOG_PATH; production reads
+# the default and behaves byte-identically. tests/conftest.py's
+# _no_production_outputs_writes fails any test that regresses this.
+LOG_PATH = OUT / "pc_supervisor.log"
+
+
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} pc_supervisor: {msg}"
     print(line, flush=True)
     try:
-        OUT.mkdir(exist_ok=True)
-        with open(OUT / "pc_supervisor.log", "a", encoding="utf-8") as fh:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass
@@ -202,7 +212,13 @@ def _spawn(argv: list, own_log: bool = True) -> None:
     Breaking children out of the job makes the task track the SUPERVISOR
     alone. Fall back to in-job spawn when the job forbids breakaway."""
     kwargs: dict = {"cwd": str(ROOT)}
-    out = (open(OUT / (Path(argv[1]).stem + ".log"), "a", encoding="utf-8")
+    # Sibling of LOG_PATH, not of the module-level OUT: a spawned child's
+    # stdout log is the same operator artifact as this supervisor's own,
+    # and pinning it to OUT meant a test that drove _spawn appended real
+    # child output (outputs/telemetry_backup.log) to the production tree
+    # while LOG_PATH was already redirected. One knob now moves both.
+    out = (open(LOG_PATH.parent / (Path(argv[1]).stem + ".log"), "a",
+                encoding="utf-8")
            if own_log else subprocess.DEVNULL)
     if not IS_WIN:
         subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,  # nosec B603

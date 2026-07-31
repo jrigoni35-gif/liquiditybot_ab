@@ -331,3 +331,37 @@ def test_git_redacts_credentials_in_returned_stderr(monkeypatch, tmp_path):
     assert "sekrit-token-xyz" not in out
     assert "alice" not in out
     assert "https://***@github.com/org/repo.git" in out
+
+
+# ---- log containment (2026-07-31) ------------------------------------------
+# Every entry point here takes `root` so the suite can drive a throwaway
+# tree, but _log wrote to the module-level OUT unconditionally — so these
+# tests appended their fixtures to the operator's REAL control-plane log:
+# 356 copies of "runner down - retaining N queued command(s)" (reading as a
+# chronically dead runner) and command ids paired at the same second, which
+# a 120s poll can never produce. Same defect and same fix as
+# scripts/corpus_sync.py's _log.
+def test_log_honors_root_and_never_touches_the_repo_log(tmp_path):
+    real = rc.OUT / "remote_control.log"
+    before = real.read_text(encoding="utf-8") if real.exists() else None
+    rc._log("scoped probe", root=tmp_path)
+    assert "scoped probe" in (tmp_path / "outputs" / "remote_control.log"
+                              ).read_text(encoding="utf-8")
+    after = real.read_text(encoding="utf-8") if real.exists() else None
+    assert after == before, "test logging leaked into the production log"
+
+
+def test_runner_down_note_lands_in_the_caller_root(repos):
+    """The whole poll path must be root-scoped, not just _log: the
+    runner-down branch is the exact line that flooded the real log."""
+    root, _ = repos
+    rc.send_command("pause", root=root)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"written_at": time.time() - 900}), encoding="utf-8")
+    real = rc.OUT / "remote_control.log"
+    before = real.read_text(encoding="utf-8") if real.exists() else None
+    assert rc.poll_once(root=root).startswith("runner_down")
+    after = real.read_text(encoding="utf-8") if real.exists() else None
+    assert after == before, "poll_once leaked into the production log"
+    assert "runner down" in (root / "outputs" / "remote_control.log"
+                             ).read_text(encoding="utf-8")

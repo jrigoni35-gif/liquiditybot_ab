@@ -74,10 +74,22 @@ def test_retrain_record_shape_and_append(tmp_path):
 
 
 def test_both_retrain_paths_write_history():
+    # The destination literal used to be inlined at BOTH call sites. It now
+    # lives once in ml/retrain_log.py as RETRAIN_HISTORY_PATH_DEFAULT, read
+    # through the module so tests can rebind it (2026-07-31: the suite was
+    # appending fixtures to the operator's real retrain_history.jsonl -
+    # 305 of its 306 records). Pin the same contract against the new shape:
+    # exactly one literal, and both paths resolving their default from it.
+    owner = (ROOT / "ml" / "retrain_log.py").read_text(encoding="utf-8")
+    assert 'RETRAIN_HISTORY_PATH_DEFAULT = "outputs/retrain_history.jsonl"' \
+        in owner
     for path in ("main.py", "scripts/train_meta.py"):
         src = (ROOT / path).read_text(encoding="utf-8")
         assert "append_retrain(" in src, path
-        assert "retrain_history.jsonl" in src, path
+        assert "RETRAIN_HISTORY_PATH_DEFAULT" in src, path
+        assert "retrain_history.jsonl" not in src, \
+            f"{path} re-inlined the destination - rebinding the shared " \
+            f"default would no longer reach it"
     # the auto path records REJECTED challengers too (before the early return)
     eng = (ROOT / "main.py").read_text(encoding="utf-8")
     assert eng.index("append_retrain(") < eng.index("if not _deploy_ok:")

@@ -37,12 +37,24 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 
 
-def _log(msg: str) -> None:
+def _log(msg: str, root: Path = ROOT) -> None:
+    """Append one line to <root>/outputs/corpus_sync.log.
+
+    `root` is NOT decoration: every other entry point here already takes it
+    so a caller can operate on a throwaway tree, but this function used the
+    module-level OUT unconditionally - so the suite's deliberately corrupted
+    fixtures were appended to the REAL log ("INTEGRITY FAIL: ... bundle
+    tampered or corrupt", "recovered 3 stranded row(s)", once per battery
+    run since 2026-07-18). That log is operator forensics; a fabricated
+    incident in it is worse than no log at all, and one such line sent a
+    live investigation after a bundle that never existed. Production keeps
+    byte-identical behavior via the default."""
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} corpus_sync: {msg}"
     print(line, flush=True)
     try:
-        OUT.mkdir(exist_ok=True)
-        with open(OUT / "corpus_sync.log", "a", encoding="utf-8") as fh:
+        out = root / "outputs"
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "corpus_sync.log", "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass
@@ -118,10 +130,11 @@ def recover_local_baks(root: Path = ROOT) -> str:
             rows, _padded = migrate_rows(str(bak))
         except SystemExit as e:
             # newer/unmappable schema: leave the .bak for a manual look
-            _log(f"bak {bak.name} not auto-migratable ({e}) - left in place")
+            _log(f"bak {bak.name} not auto-migratable ({e}) - left in place",
+                 root=root)
             continue
         except (OSError, ValueError, KeyError) as e:
-            _log(f"bak {bak.name} unreadable ({e}) - left in place")
+            _log(f"bak {bak.name} unreadable ({e}) - left in place", root=root)
             continue
         HistoryStore(str(dest))._ensure_schema()
         existing = set()
@@ -142,7 +155,8 @@ def recover_local_baks(root: Path = ROOT) -> str:
             bak.rename(bak.with_name(bak.name + ".recovered"))
         except OSError:
             pass                       # next pass dedups to zero anyway
-        _log(f"bak {bak.name}: recovered {written} stranded row(s)")
+        _log(f"bak {bak.name}: recovered {written} stranded row(s)",
+             root=root)
     return f"bak_recovered={total}"
 
 
@@ -153,7 +167,7 @@ def sync_once(root: Path = ROOT) -> str:
     # and the export sidecar can then durably back them up this same hour
     bak_note = recover_local_baks(root)
     if bak_note not in ("no_baks", "bak_recovered=0"):
-        _log(f"local rotation recovery: {bak_note}")
+        _log(f"local rotation recovery: {bak_note}", root=root)
     cfg = _cfg()
     rc, err = _git("fetch", cfg["remote"], cfg["branch"], cwd=root)
     if rc != 0:
@@ -193,7 +207,7 @@ def sync_once(root: Path = ROOT) -> str:
                 refused += 1
                 tail = (p.stdout or p.stderr or "").strip().splitlines()[-1:]
                 _log(f"bundle {b.name} refused: "
-                     f"{tail[0] if tail else 'unknown'}")
+                     f"{tail[0] if tail else 'unknown'}", root=root)
         return f"bundles={len(bundles)} merged={merged} refused={refused}"
 
 

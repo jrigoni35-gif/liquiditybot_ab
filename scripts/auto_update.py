@@ -63,12 +63,22 @@ LOCK_STALE_SEC = 3900.0
 OK_OUTCOMES = ("updated", "current", "ahead", "dirty", "disabled", "busy")
 
 
+# Log destination as a REBINDABLE module attribute (2026-07-31). The
+# suite drives this script's functions in-process, and a hardcoded
+# `OUT / "auto_update.log"` inside log() meant every such test appended to the
+# operator's REAL auto_update.log - the same defect measured across six
+# outputs/ files that day. Tests monkeypatch LOG_PATH; production reads
+# the default and behaves byte-identically. tests/conftest.py's
+# _no_production_outputs_writes fails any test that regresses this.
+LOG_PATH = OUT / "auto_update.log"
+
+
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} auto_update: {msg}"
     print(line, flush=True)
     try:
-        OUT.mkdir(exist_ok=True)
-        with open(OUT / "auto_update.log", "a", encoding="utf-8") as fh:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass

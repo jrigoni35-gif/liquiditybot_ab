@@ -5895,11 +5895,12 @@ class LiquidityBot:
                         _shared_brier, n_oof=n_shared)
             # continuous learning curve: one history row per retrain,
             # deployed or rejected (ml/retrain_log)
+            from ml import retrain_log as _rl
             from ml.retrain_log import append_retrain, retrain_record
             append_retrain(
                 self.config.get("ml", {}).get(
                     "retrain_history_path",
-                    "outputs/retrain_history.jsonl"),
+                    _rl.RETRAIN_HISTORY_PATH_DEFAULT),
                 retrain_record(time.time(), "auto", results, len(X),
                                int(_n_live), challenger_brier,
                                self.monitor.champion_brier, _deploy_ok))
