@@ -1,4 +1,4 @@
-# Overfit audit — 2026-07-31 14:14 UTC
+# Overfit audit — 2026-07-31 20:47 UTC
 
 Dataset: live history (2141 rows)
 
@@ -19,15 +19,15 @@ Dataset: live history (2141 rows)
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
-- **INFO** dsr — DEFERRED — 11 conviction-marked live trades < 30 (mixed n=259); mixed-sample dsr=0.000 sr=-0.58; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** dsr — DEFERRED — 15 conviction-marked live trades < 30 (mixed n=264); mixed-sample dsr=0.000 sr=-0.55; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 - **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
 - **INFO** regime diagnostic caveat — n= below is a raw signal_history.csv count (candidate+live); oof_n= is the deduped/purged X actually OOF-scored — two different counting passes over related but non-identical data
 - **INFO** regime[bull_quiet] — n=0 — absent from corpus
 - **INFO** regime[bull_vol] — n=0 — absent from corpus
-- **INFO** regime[range] — n=5565 (candidate=5316 live=249) base_rate=0.197
+- **INFO** regime[range] — n=5694 (candidate=5442 live=252) base_rate=0.199
 - **INFO** regime[range] oof — oof_n=937 auc=0.453 (pooled 0.527, delta_auc=-0.075) brier=0.2346 (pooled 0.2382, delta_brier=-0.0036)
-- **INFO** regime[bear] — n=1703 (candidate=1693 live=10) base_rate=0.198
-- **INFO** regime[bear] FLAG — insufficient live coverage (10 live < 30) — operator rationale for #103 T4's regime-coverage probe term
+- **INFO** regime[bear] — n=1784 (candidate=1772 live=12) base_rate=0.207
+- **INFO** regime[bear] FLAG — insufficient live coverage (12 live < 30) — operator rationale for #103 T4's regime-coverage probe term
 - **INFO** regime[bear] oof — oof_n=843 auc=0.532 (pooled 0.527, delta_auc=+0.004) brier=0.2422 (pooled 0.2382, delta_brier=+0.0040)
 - **INFO** regime[crisis] — n=0 — absent from corpus
 - **INFO** regime[unknown] — n=0 — absent from corpus
@@ -46,4 +46,4 @@ Dataset: live history (2141 rows)
 - **INFO** extras[sent_fear] — at-neutral share 100.0% (n=2141) — feed effectively dark corpus-wide (dead column)
 - **INFO** extras[fear_greed] — at-neutral share 0.0% (n=2141) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
 
-3 passed, 4 failed (51s)
+3 passed, 4 failed (37s)
