@@ -10,11 +10,13 @@ extra probe volume currently converts to **zero** usable live evidence.
    geometry is cost-floored: PT >= `label_pt_cost_mult` (4.0) x
    `label_round_trip_cost_pct` (0.5%) = **2.00% floor**; shipped rows
    carry `pt_frac ~= 0.0278` (**2.78%**), `max_bars=96` (8h).
-2. **The barriers are unreachable by this strategy.** Over the last 60
-   live closes (`postmortem_summary.csv`): median MFE **+0.156%**, p90
-   **+0.423%**, **max +0.723%**. Trades reaching the 2.00% PT: **0/60**.
-   Trades reaching the -2.10% SL: **0/60**. Realized outcome clusters at
-   **-0.697% median** ~= the round-trip cost stack.
+2. ~~**The barriers are unreachable by this strategy.**~~ **RETRACTED —
+   see the CORRECTION section below.** The barriers ARE reachable; live
+   positions are simply closed ~3x earlier than the label's horizon.
+   (Original, wrong reasoning: over the last 60 live closes median MFE
+   was +0.156%, max +0.723%, 0/60 reaching either leg — measured over the
+   ACTUAL short holding window, not the label's 96-bar horizon, which is
+   the comparison that matters.)
 3. `_finalize_position` stamps `barrier = close_reason if close_reason in
    ("tb_pt","tb_sl","tb_time") else "realized"`. Since no barrier is ever
    touched, and the overlays (PT-060 36-bar no-progress scratch at 3h,
@@ -78,3 +80,55 @@ evidence.
 
 A and B are learning-plumbing fixes; D is the profit fix. They are not
 mutually exclusive and should be adjudicated on that basis.
+
+---
+
+## CORRECTION (same day, adversarial review of this document)
+
+The skeptic arm of the debate refuted step 2 above, and re-measurement on
+the corpus confirms the refutation. Corrected facts:
+
+**C1 — the barriers are REACHABLE.** Of 2,137 candidate rows carrying a
+`tb_*` barrier: **PT 17.9%** (383), **SL 34.5%** (738), **TIME 47.5%**
+(1,016). Over half of simulated positions touch a horizontal barrier.
+The original MFE argument compared excursions over the ACTUAL (short)
+holding window against a barrier defined over a 96-bar horizon — an
+apples-to-oranges comparison. Retracted.
+
+**C2 — the real mechanism is a HORIZON mismatch, not barrier distance.**
+Median hold: **live 13.6 bars vs candidate 43.2 bars**; share reaching
+the 96-bar vertical: **live 9.3% vs candidate 33.8%**. Live positions are
+closed by exit overlays roughly 3x sooner than the label's own horizon,
+so they neither touch a barrier nor reach the vertical -> `realized` ->
+old era -> excluded. Steps 3-6 of the chain above stand unchanged; only
+the *reason* live rows never carry a `tb_*` barrier is corrected.
+
+**C3 — the strategy's simulated edge at this geometry is NEGATIVE.**
+SL 34.5% vs PT 17.9% = the stop is hit **1.9x more often** than the
+target. This is the most consequential number in the document and it is
+not a plumbing defect: at the labeled geometry the strategy loses.
+
+**C4 — live entries collapsed a week ago.** Entries/day from the audit:
+07-20 27, 07-21 26, 07-22 87, 07-23 48, then **07-24 0**, 07-25 3,
+07-26 8, 07-27 4, 07-28 5, 07-29 2, 07-30 4, 07-31 11. A ~90% collapse
+beginning 07-24, coincident with the probe-throttle rollout (SZ-047
+2,630 that day). The skeptic attributes the conviction-side share to
+SZ-030 (net-Kelly f* <= 0) / SZ-023 (p below the derived bar) — the
+entry bar pinned at net-Kelly breakeven 0.5635, which after 0.35
+shrinkage needs raw p >= 0.598 from a model whose AUC is 0.586 on a
+0.27 base rate. **Not independently verified here** (those codes do not
+appear in the audit trail; they are gate-path counters) — verify before
+acting on the attribution.
+
+**C5 — unlocking the live rows would HURT, on measurement.** The
+skeptic's in-process diagnostic: the tb-trained model scores the 251 live
+rows at Brier **0.2124 vs 0.1393 for a base-rate-only constant** (worse
+than predicting the mean), AUC 0.586, over-forecasting 1.94x; a
+live-only model scores OOS AUC **0.4375** (worse than random). Option A
+therefore fails on evidence, not on principle.
+
+**Standing conclusion.** The label/era plumbing is a real deadlock and
+worth fixing, but it is the *second* problem. The first is that the bot
+has no demonstrated post-cost edge (C3) and has effectively stopped
+trading (C4). Fixing the plumbing without C3/C4 would buy a faster path
+to a better-measured loss.
