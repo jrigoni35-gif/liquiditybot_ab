@@ -419,10 +419,60 @@ def test_refund_seam_wired_at_order_terminal():
 
 
 def test_direct_entry_meta_carries_probe_cost_only_when_stashed():
+    # pin the CONDITIONAL-spread expression itself (2026-07-31 review #7:
+    # the bare '"probe_cost" in src' assertion could not fail for the
+    # property in this test's name): share_cap mode (empty stash) must
+    # add NO meta key, keeping legacy order.meta byte-identical.
     src = (ROOT / "main.py").read_text(encoding="utf-8")
-    # conditional spread: share_cap mode (empty stash) adds NO meta key,
-    # keeping legacy order.meta byte-identical
-    assert '"probe_cost"' in src
+    assert '**({"probe_cost": _spbr_cost}' in src
+    assert 'if _spbr_cost is not None else {})' in src
+
+
+def test_algo_parent_template_carries_own_cost_and_clears_pointer():
+    """2026-07-31 review #2: a probe routed to the algo slicer must carry
+    its OWN priced cost on the parent template (deducted by the first
+    successful child), and the decision pointer must be cleared at
+    routing - a LATER decision's stash can never be charged against an
+    earlier parent (the wrong-arm hazard), and a floor probe (never
+    priced) deducts nothing."""
+    b = _budget_bot(tokens=5.0, asset_live=_FIXTURE_LIVE,
+                    regime_live=_FIXTURE_REGIME)
+    # simulate a priced ETH admit: stash + pointer set
+    b._pending_probe_cost["ETH"] = 1.79
+    b._pending_probe_asset = "ETH"
+    # routing-time carriage (the template creation semantics)
+    meta_t = {"probe": True,
+              "probe_cost": b._pending_probe_cost.pop("ETH", None)}
+    b._pending_probe_asset = None
+    assert meta_t["probe_cost"] == pytest.approx(1.79)
+    assert "ETH" not in b._pending_probe_cost
+    # a LATER decision stashes BTC before ETH's first child submits
+    b._pending_probe_cost["BTC"] = 1.64
+    b._pending_probe_asset = "BTC"
+    # first-child hook deducts the PARENT'S cost, not the pointer's
+    before = b._budget_tokens
+    b._record_probe_admission(True, cost=meta_t.get("probe_cost"))
+    assert b._budget_tokens == pytest.approx(before - 1.79)
+    assert b._pending_probe_cost.get("BTC") == pytest.approx(1.64), \
+        "the later arm's stash must survive untouched"
+    assert b._pending_probe_asset == "BTC"
+    # conviction/floor parent (probe_cost None) deducts nothing and
+    # leaves the pointer alone
+    before = b._budget_tokens
+    b._record_probe_admission(True, cost=None)
+    # cost=None pops via pointer: BTC's stash gets consumed by ITS OWN
+    # placement - simulate that legitimate direct-path deduction
+    assert b._budget_tokens == pytest.approx(before - 1.64)
+    assert b._pending_probe_asset is None
+
+
+def test_main_wires_parent_cost_carriage():
+    # source pin: the template stashes its own cost and the child hook
+    # passes it explicitly (never the pointer)
+    src = (ROOT / "main.py").read_text(encoding="utf-8")
+    assert '_pc = meta_t.get("probe_cost")' in src
+    assert 'cost=_pc' in src
+    assert '"probe_cost": ((getattr(self, "_pending_probe_cost",' in src
 
 
 # ---------------------------------------------------------------------------
@@ -722,9 +772,13 @@ def _shipped_cfg() -> dict:
     return json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
 
 
-def test_shipped_config_lands_dark_with_the_budget_block():
+def test_shipped_config_runs_budget_mode_with_surcharge_dark():
+    """Landed DARK 2026-07-30 (mode='share_cap'); the operator flipped to
+    'budget' on 2026-07-31 after the PC's battery-verified deploy of
+    33498d2 ('flip it' - a conscious re-pin, not a drift). The surcharge
+    stays dark until its own flip preconditions (spec §1.6)."""
     adm = _shipped_cfg()["ml"]["exploration"]["admission"]
-    assert adm["mode"] == "share_cap"            # DARK — the escape hatch
+    assert adm["mode"] == "budget"               # operator-flipped
     bg = adm["budget"]
     assert bg["tokens_per_day"] == 15
     assert bg["burst_hours"] == 8.0

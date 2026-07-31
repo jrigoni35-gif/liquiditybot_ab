@@ -43,8 +43,8 @@ import numpy as np
 from ml.calibration import brier_score
 from ml.models import (AdaptiveGBT, GradientBoostedStumps, LogisticModel,
                        NumpyMLP, auc_score)
-from ml.walkforward import (BRIER_MARGIN, admissible_families, pbo_family,
-                            purged_walk_forward)
+from ml.walkforward import (BAR_SECONDS, BRIER_MARGIN, admissible_families,
+                            pbo_family, purged_walk_forward)
 
 log = logging.getLogger("liquiditybot.ml.overfit")
 
@@ -221,6 +221,7 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
         select = lambda p: int(np.argmax(p))          # noqa: E731
     lambdas = []
     purged_frac_sum = 0.0
+    combos_dropped = 0
     for train_blocks in combos:
         test_blocks = [b for b in range(n_blocks) if b not in train_blocks]
         if purge:
@@ -240,9 +241,13 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
                 if keep.any():
                     per_block.append(M[rows[keep]].mean(axis=0))
             if not per_block:
-                return {"pbo": None,
-                        "reason": "edge purge left no train rows "
-                                  "(label_span spans whole blocks)"}
+                # degenerate combo (label_span spans its whole train side):
+                # DROP this combo, never the whole measurement - review
+                # policy 2026-07-31: OF-3 must not silently downgrade from
+                # a measured gate to a skipped one because one split is
+                # unusable. combos_dropped_purged reports the loss.
+                combos_dropped += 1
+                continue
             is_perf = np.mean(per_block, axis=0)
             purged_frac_sum += dropped / max(kept + dropped, 1)
         else:
@@ -253,12 +258,19 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
         omega = (np.sum(oos_perf <= oos_perf[star])) / (N + 1.0)
         omega = min(max(omega, 1.0 / (N + 1.0)), N / (N + 1.0))
         lambdas.append(math.log(omega / (1.0 - omega)))
+    if not lambdas:
+        return {"pbo": None,
+                "reason": "edge purge left no usable combos "
+                          "(label_span spans whole blocks everywhere)",
+                "combos_dropped_purged": combos_dropped}
     lambdas = np.array(lambdas)
+    n_used = len(lambdas)
     out = {"pbo": float(np.mean(lambdas <= 0.0)),
-           "n_combos": len(combos), "n_configs": N, "n_blocks": n_blocks,
+           "n_combos": n_used, "n_configs": N, "n_blocks": n_blocks,
            "median_lambda": float(np.median(lambdas))}
     if purge:
-        out["edge_purged_frac"] = round(purged_frac_sum / len(combos), 4)
+        out["edge_purged_frac"] = round(purged_frac_sum / n_used, 4)
+        out["combos_dropped_purged"] = combos_dropped
     return out
 
 
@@ -708,11 +720,17 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # Debate-1 item E: OOF rows keep their signal timestamps so pbo_cscv
     # can purge label-window overlap at its block edges (sig=None keeps
     # the legacy unpurged behavior for callers without timestamps).
+    # UNIT SEAM (2026-07-31 review Critical #1): label_span HERE is in
+    # BARS (purged_walk_forward multiplies by BAR_SECONDS itself);
+    # pbo_cscv's purge compares against epoch-second sig - convert ONCE
+    # at this seam. Passing bars raw shipped a 96-second window (~300x
+    # too narrow, purge silently inert).
     sig_oof = np.asarray(sig, float)[oof_idx] if sig is not None else None
+    span_sec = float(label_span) * BAR_SECONDS
     res = pbo_cscv(M, n_blocks=n_blocks, seed=seed, select=ladder,
-                   sig=sig_oof, label_span=label_span)
+                   sig=sig_oof, label_span=span_sec)
     raw = pbo_cscv(M, n_blocks=n_blocks, seed=seed,          # argmax stress
-                   sig=sig_oof, label_span=label_span)
+                   sig=sig_oof, label_span=span_sec)
     res["configs"] = names
     res["pbo_argmax"] = raw.get("pbo")
     res["selection_rule"] = "simplicity_ladder"
@@ -740,7 +758,7 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
             pair_M = M[:, [bi, ai]]
             pair_pbo = pbo_cscv(pair_M, n_blocks=n_blocks, seed=seed,
                                select=_pair_ladder,
-                               sig=sig_oof, label_span=label_span)
+                               sig=sig_oof, label_span=span_sec)
             ladder_winner = (arm_name if full_perf[ai] >
                             full_perf[bi] + BRIER_MARGIN else base_name)
             mean_winner = arm_name if full_perf[ai] > full_perf[bi] \

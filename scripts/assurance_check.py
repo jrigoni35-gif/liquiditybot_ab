@@ -355,7 +355,14 @@ def main():
         check(f"every ts finite and positive ({total} rows)",
               bad_finite == 0)
         check("no signal_ts after its own close ts", bad_order == 0)
-        check("no far-future timestamps", future == 0)
+        # Far-future stamps are CLOCK SKEW (an ops condition that self-
+        # heals), not data corruption - report-only by conscious decision
+        # (2026-07-31 review #5): a hard gate here wedges every battery-
+        # gated auto-deploy behind a hand-edit of the corpus. The two
+        # checks above stay hard: they detect writer bugs that silently
+        # poison training and SHOULD stop deploys.
+        print(f"        far-future ts rows: {future}/{total} "
+              f"(clock-skew trend, report-only)")
         print(f"        legacy sig-fallback rows: {fallback}/{total} "
               f"(informational trend - loader substitutes ts)")
 

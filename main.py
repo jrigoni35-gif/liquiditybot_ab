@@ -1280,7 +1280,17 @@ class LiquidityBot:
                 record_admission = getattr(self, "_record_probe_admission",
                                           None)
                 if callable(record_admission):
-                    record_admission(bool(meta_t.get("probe", False)))
+                    # review fix #2: the parent template carries its OWN
+                    # priced cost (None for conviction/share_cap) - never
+                    # the pointer's, which may belong to a later decision.
+                    # cost= only when priced: legacy single-arg stubs (and
+                    # the pinned signature) stay callable unchanged.
+                    _pc = meta_t.get("probe_cost")
+                    if _pc is None:
+                        record_admission(bool(meta_t.get("probe", False)))
+                    else:
+                        record_admission(bool(meta_t.get("probe", False)),
+                                         cost=_pc)
             self._last_entry_admit_ts = now            # ML-073 drought clock
             log.info(f"ALGO-CHILD {child.seq}/{child.n_total} "
                      f"{parent.side} {child.units:.6f} {parent.symbol} "
@@ -2910,7 +2920,12 @@ class LiquidityBot:
         cap_usd = float(getattr(self, "_budget_tuition_frac_max", 0.001)) \
             * self._equity()
         x = sum(loss for _, loss in tu)
-        if x <= cap_usd or cap_usd <= 0.0:
+        if cap_usd <= 0.0:
+            # zero/negative equity: a BRAKE fails toward the floor, never
+            # toward full refill (2026-07-31 review #9; unreachable in
+            # practice - equity would have halted the bot far earlier).
+            f = self._budget_floor_frac()
+        elif x <= cap_usd:
             f = 1.0
         else:
             f = min(max(cap_usd / x, self._budget_floor_frac()), 1.0)
@@ -4152,12 +4167,26 @@ class LiquidityBot:
                         lev_decision.allowed_leverage,
                     "post_only": plan.post_only,
                     "probe": explored,
+                    # SPB-R review fix #2 (2026-07-31): carry the priced
+                    # admit's cost ON THE PARENT TEMPLATE and clear the
+                    # decision stash NOW - the first successful child
+                    # deducts it explicitly (cost= at the record hook), so
+                    # a LATER decision's pointer can never be charged
+                    # against this parent (the wrong-arm hazard), and a
+                    # parent whose first child submits cycles later still
+                    # deducts the right price (closes R2's under-charge).
+                    # Algo probes still never refund (R3, conservative).
+                    "probe_cost": ((getattr(self, "_pending_probe_cost",
+                                            None) or {}).pop(asset, None)
+                                   if explored else None),
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or [],
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
                     "bracket_deadline_ts": bracket_deadline_ts}
+                if explored:
+                    self._pending_probe_asset = None
                 self._mark_cand(asset, signal.direction, "entered")
                 # admission-record asymmetry fix (post-program review): the
                 # probe-share window records "an order actually went out" -

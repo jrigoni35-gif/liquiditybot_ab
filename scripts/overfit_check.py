@@ -733,6 +733,14 @@ def main() -> int:
              f"raw argmax selection pbo={pb.get('pbo_argmax', float('nan')):.2f}"
              " — the worst-case rule the ladder exists to avoid; gate is on"
              " the rule the bot actually runs")
+        if pb.get("edge_purged_frac") is not None:
+            # visibility for the Debate-1 item E purge: an inert purge
+            # (frac ~ 0 on an overlapping corpus) or a degenerate one
+            # (combos dropped) must be readable in the report
+            info("pbo edge purge",
+                 f"label-window purge active: edge_purged_frac="
+                 f"{pb['edge_purged_frac']:.3f}, combos_dropped="
+                 f"{pb.get('combos_dropped_purged', 0)}")
         if pb["pbo"] > 0.2:
             info("pbo note", "0.2 < pbo <= 0.5: selection has luck in it — "
                              "expected at this sample size; keep the "

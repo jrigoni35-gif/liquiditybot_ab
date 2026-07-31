@@ -542,3 +542,19 @@ def test_cscv_edge_purge_never_empties_reasonable_spans():
     sig = np.arange(240.0) * 300.0
     r = pbo_cscv(M, n_blocks=8, sig=sig, label_span=300.0)
     assert r["pbo"] is not None and r["edge_purged_frac"] < 0.1
+
+
+def test_model_space_pbo_edge_purge_bites_at_the_bar_seam():
+    """2026-07-31 review Critical #1 regression pin: model_space_pbo's
+    label_span is in BARS; the CSCV purge compares epoch SECONDS. The
+    seam must convert (x BAR_SECONDS) - passing bars raw shipped a purge
+    window ~300x too narrow that never purged anything. With realistic
+    5-minute-spaced epoch timestamps and an overlapping label horizon,
+    the purge must actually drop rows."""
+    X, y = _interaction_world(800, seed=6)
+    sig = 1.7e9 + np.arange(len(X)) * 300.0        # epoch seconds, 5m bars
+    r = model_space_pbo(X, y, label_span=30, n_splits=4, n_blocks=6,
+                        sig=sig)
+    assert r["pbo"] is not None
+    assert r.get("edge_purged_frac", 0.0) > 0.0, \
+        "purge inert at the seam - bars/seconds mismatch is back"

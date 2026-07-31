@@ -30,7 +30,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -244,7 +244,17 @@ def _restore_probe_budget_section(bot, data: dict) -> None:
         if not isinstance(pb, dict):
             return
         if hasattr(bot, "_budget_tokens") and "tokens" in pb:
-            bot._budget_tokens = float(pb["tokens"])
+            # clamp to [-C, C] on restore (2026-07-31 review #8): a
+            # corrupt-but-parsable snapshot must not hand the first
+            # decision an unbounded balance (the in-engine clamp only
+            # bites at the SECOND refill).
+            tok = float(pb["tokens"])
+            cap_fn: "Callable[[], float] | None" = getattr(
+                bot, "_budget_capacity", None)
+            if callable(cap_fn):
+                cap = float(cap_fn())
+                tok = min(max(tok, -cap), cap)
+            bot._budget_tokens = tok
         tu = pb.get("tuition")
         if isinstance(tu, list) and hasattr(bot, "_budget_tuition"):
             restored = [(float(t), float(x)) for t, x in tu]

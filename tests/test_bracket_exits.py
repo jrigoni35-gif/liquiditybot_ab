@@ -984,6 +984,12 @@ def _entry_cfg(*, bracket_enabled=True, force_probe=False):
     # reliably produces a real order/fill (tests/test_context_
     # integration.py's own _cfg(force_fill=True) precedent)
     cfg["ml"]["cold_start_prior_p"] = 0.66
+    # These tests exercise BRACKET STAMPING, not probe admission - pin the
+    # admission regime they were written under (share_cap admits from a
+    # warm window at boot; budget mode boots with tokens=0 and denies the
+    # probe path these fixtures' entries ride, by design - SPB-R §5).
+    cfg["ml"]["exploration"]["admission"] = dict(
+        cfg["ml"]["exploration"].get("admission", {}), mode="share_cap")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False
     cfg.setdefault("order_manager", {}).setdefault(

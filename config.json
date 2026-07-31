@@ -589,7 +589,8 @@
         "regime_floor_live": 60
       },
       "admission": {
-        "mode": "share_cap",
+        "mode": "budget",
+        "_flip_doc": "FLIPPED to 'budget' 2026-07-31 by explicit operator order ('flip it') after the dark landing deployed battery-verified on the PC (33498d2). Rollback = set 'share_cap' + restart (warm legacy window, one key).",
         "_mode_doc": "SPB-R probe-admission redesign (docs/superpowers/specs/2026-07-30-probe-budget-spbr-design.md), ESCAPE HATCH + merge default. 'share_cap' = the shipped SZ-047 rolling-share-cap deque path, byte-identical INCLUDING _explore_rng draw counts (test-pinned in tests/test_probe_budget.py); 'budget' = the scarcity-priced token budget below. The flip is a conscious operator config change via the git remote-control plane + restart, never a runtime toggle. Rollback = one key + restart, resuming a WARM deque (the legacy window is fed in BOTH modes).",
         "budget": {
           "tokens_per_day": 15,

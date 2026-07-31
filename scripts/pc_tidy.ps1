@@ -33,11 +33,14 @@ function Test-DirHasData([string]$dir) {
     # (e.g. Backup\liquiditybot_ab\outputs\...) - a shallow check misses it.
     $names = @("signal_history.csv", "audit.jsonl", "events.jsonl",
                "status.json")
-    $found = Get-ChildItem $dir -Recurse -Depth 4 -File -Force `
+    # Marker FILENAMES block wherever they appear (a loose
+    # signal_history.csv outside any outputs\ dir is still learning
+    # data); the snapshots-directory clause is an ADDITION, not a
+    # conjunct (2026-07-31 review #4).
+    $found = Get-ChildItem $dir -Recurse -Depth 6 -File -Force `
             -ErrorAction SilentlyContinue |
         Where-Object {
             $_.Length -gt 0 -and
-            $_.Directory.FullName -imatch "\\outputs(\\|$)" -and
             ($names -contains $_.Name -or
              $_.Directory.FullName -imatch "\\outputs\\snapshots(\\|$)")
         } | Select-Object -First 1
@@ -129,9 +132,17 @@ while ($queue.Count -gt 0) {
     $t = $queue.Dequeue()
     if ($t.FullName -ieq $Canonical) { continue }
     if ($t.PSIsContainer -and ($Canonical -like ($t.FullName + "\*"))) {
-        $ancestorNotes += "kept (parent of the live bot): $($t.FullName) - only strays inside it are candidates"
+        $ancestorNotes += "kept (parent of the live bot): $($t.FullName) - only bot-named strays inside it are candidates"
+        # Only children that THEMSELVES match the bot name become
+        # candidates; anything else living beside the checkout (a stray
+        # taxes.pdf) is reported and kept - never recycled by adjacency.
         Get-ChildItem $t.FullName -Force -ErrorAction SilentlyContinue |
-            ForEach-Object { $queue.Enqueue($_) }
+            ForEach-Object {
+                if ($_.Name -imatch "liquidit") { $queue.Enqueue($_) }
+                elseif ($_.FullName -ine $Canonical) {
+                    $ancestorNotes += "kept (non-bot neighbor, decide by hand): $($_.FullName)"
+                }
+            }
         continue
     }
     $tops += $t
