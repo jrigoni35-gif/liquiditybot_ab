@@ -18,7 +18,12 @@ placed at each strided book frame at ``dist`` bps from mid, and its
 time-to-first-fill-opportunity is the first later poll whose opposite
 best quote reaches at-or-through the resting price (the same
 trade-through proxy scripts/calibrate_fills.py uses for level
-calibration). Episodes are censored at tape end / order life. Per poll
+calibration). Episodes are censored at tape end / order life. Frame
+index is treated as poll age, which is only valid when consecutive
+frames ARE consecutive engine polls: each tape's median intra-frame gap
+is checked against system.polling_interval_sec and tapes deviating by
+more than ``GAP_POLL_FACTOR`` (burst re-reads) are disclosed and
+EXCLUDED from hazard-age fitting. Per poll
 age t the discrete hazard h(t) = d_t / n_t is fitted with per-bin Wilson
 CIs and a Greenwood-style survival CI, and compared against the
 best-fit CONSTANT hazard via a likelihood-ratio test and the KS distance
@@ -39,6 +44,7 @@ writes an INSUFFICIENT_EVIDENCE report and still exits 0.
 import argparse
 import logging
 import math
+import statistics
 import sys
 import time
 from dataclasses import dataclass
@@ -66,7 +72,30 @@ MIN_EPISODES = 80           # power floor (mirrors fill_calibration N_MIN)
 E_MIN = 10                  # minimum observed hits (stable-proportion floor)
 MIN_AT_RISK = 20            # a poll bin with fewer at-risk is unresolved
 MIN_RESOLVED_BINS = 2       # a SHAPE needs >= 2 resolved bins
-DEFAULT_OUT = Path("docs/quant/2026-07-31_fill_hazard_l1.md")
+
+# Frame-gap sanity factor: a tape enters hazard-AGE fitting only when its
+# median intra-frame gap is within this factor of the engine's
+# polling_interval_sec (gap in [poll/GAP_POLL_FACTOR, poll*GAP_POLL_FACTOR]).
+# The whole method equates frame index with poll age; on burst re-read
+# tapes (observed intra-tape gaps ~12-188 ms vs the configured 5 s poll)
+# consecutive frames are NOT consecutive engine polls and a hazard fitted
+# on them would misstate poll age. This is a DISCLOSURE threshold on data
+# usability, deliberately a config-free analysis constant (not a fitted
+# model knob) so a future denser-but-bursty recording can never silently
+# fit garbage poll ages.
+GAP_POLL_FACTOR = 3.0
+
+# estimate_sigma_bps's documented fallback return (too few clean frames /
+# no usable timestamps). Detected by equality: a genuinely measured sigma
+# landing exactly on this float is measure-zero, and a false positive only
+# adds a disclosure footnote — it never changes a fitted number.
+SIGMA_FALLBACK_BPS = 30.0
+
+
+def default_out() -> Path:
+    """Runtime-dated default report path (overridable via --out)."""
+    return Path("docs/quant") / (
+        time.strftime("%Y-%m-%d", time.gmtime()) + "_fill_hazard_l1.md")
 
 
 @dataclass(frozen=True)
@@ -191,11 +220,14 @@ def fit_discrete_hazard(episodes: list[Episode], t_max: int) -> HazardFit:
                      events=sum(d), exposure=sum(n))
 
 
-def constant_hazard_mle(episodes: list[Episode]) -> float:
-    """MLE of a constant per-poll hazard: total hits / total exposure."""
-    events = sum(1 for ep in episodes if ep.event)
-    exposure = sum(max(int(ep.duration), 1) for ep in episodes)
-    return (events / exposure) if exposure > 0 else 0.0
+def constant_hazard_mle(fit: HazardFit) -> float:
+    """MLE of a constant per-poll hazard: total hits / total exposure.
+
+    Derived from the life-table fit itself (fit.events / fit.exposure),
+    i.e. the SAME t_max-clamped exposure the shape fit uses — so the
+    constant comparator can never disagree with the clamped life table.
+    """
+    return (fit.events / fit.exposure) if fit.exposure > 0 else 0.0
 
 
 def _bin_ll(d: int, n: int, h: float) -> float:
@@ -332,8 +364,26 @@ def hazard_verdict(fit: HazardFit, h_const: float, horizon: int, *,
 
 
 # ---------------------------------------------------------- orchestration
+def median_frame_gap(frames: list) -> float | None:
+    """Median intra-frame timestamp gap (sec) of one tape, else None.
+
+    Same ts access pattern as scripts/calibrate_fills.estimate_sigma_bps:
+    frame['ts'] in stream order, keeping only positive finite gaps.
+    """
+    tss = []
+    for fr in frames:
+        try:
+            tss.append(float(fr.get("ts", 0.0)))
+        except (TypeError, ValueError):
+            continue
+    gaps = [b - a for a, b in zip(tss, tss[1:], strict=False)
+            if (b - a) > 0.0 and math.isfinite(b - a)]
+    return statistics.median(gaps) if gaps else None
+
+
 def collect_bucket_episodes(rec_dir, life_polls: int, dist_grid: list,
-                            venue: str = "kraken") -> tuple:
+                            venue: str = "kraken",
+                            poll_sec: float = 5.0) -> tuple:
     """Aggregate episodes per distance bucket across every recording.
 
     Returns (buckets, stats): buckets = {dist_bps: {"episodes": [...],
@@ -341,11 +391,22 @@ def collect_bucket_episodes(rec_dir, life_polls: int, dist_grid: list,
     for the evidence-limits block. Each (session, symbol) tape gets its
     own sigma (scripts/calibrate_fills.estimate_sigma_bps) so d_bar
     reflects that tape's own vol; the bucket d_bar is the per-part mean.
+
+    Frame-gap guard (poll-age validity): the synthesis equates frame
+    index with poll age, which holds only when consecutive frames ARE
+    consecutive engine polls. A tape whose median intra-frame gap
+    deviates from ``poll_sec`` by more than GAP_POLL_FACTOR (or whose
+    gaps are unmeasurable) is counted in stats["tapes_gap_excluded"] and
+    contributes NO episodes to hazard-age fitting. Every tape's median
+    gap lands in stats["gap_medians"] for the report's disclosure.
     """
     buckets: dict = {d: {"episodes": [], "d_bar_sum": 0.0, "parts": 0}
                      for d in dist_grid}
     stats = {"sessions": 0, "tapes": 0, "frames": 0,
-             "t_min": None, "t_max": None, "max_duration": 0}
+             "t_min": None, "t_max": None, "max_duration": 0,
+             "gap_medians": [], "tapes_gap_excluded": 0,
+             "tapes_fit": 0, "sigma_fallback_tapes": 0}
+    poll = max(float(poll_sec), 1e-6)
     for rec in discover_recordings(rec_dir):
         by_symbol = extract_frames(str(rec), venue)
         if not by_symbol:
@@ -362,7 +423,18 @@ def collect_bucket_episodes(rec_dir, life_polls: int, dist_grid: list,
                 else min(stats["t_min"], lo)
             stats["t_max"] = hi if stats["t_max"] is None \
                 else max(stats["t_max"], hi)
+            med_gap = median_frame_gap(frames)
+            if med_gap is not None:
+                stats["gap_medians"].append(med_gap)
+            if med_gap is None or not (
+                    poll / GAP_POLL_FACTOR <= med_gap
+                    <= poll * GAP_POLL_FACTOR):
+                stats["tapes_gap_excluded"] += 1
+                continue
+            stats["tapes_fit"] += 1
             sigma = estimate_sigma_bps(frames)
+            if sigma == SIGMA_FALLBACK_BPS:
+                stats["sigma_fallback_tapes"] += 1
             for dist in dist_grid:
                 eps = episodes_from_frames(frames, life_polls, dist)
                 if not eps:
@@ -430,14 +502,26 @@ def render_report(cfg_view: dict, rows: list, stats: dict,
         " comparator is the BEST-FIT constant hazard (shape test — the"
         " LEVEL belongs to scripts/calibrate_fills.py).", ""]
     if not rows:
+        if stats["tapes"] > 0 and stats.get("tapes_gap_excluded", 0) > 0:
+            why = (f"All usable episodes were lost to the frame-gap guard:"
+                   f" {stats['tapes_gap_excluded']} of {stats['tapes']}"
+                   " tape(s) have a median intra-frame gap deviating from"
+                   f" `polling_interval_sec` by more than {GAP_POLL_FACTOR:g}x"
+                   " (burst re-reads, not engine polls — frame index would"
+                   " misstate poll age; see evidence limits), so the"
+                   " constant-vs-decreasing hazard question cannot be"
+                   " adjudicated.")
+        else:
+            why = ("No recorded sessions with usable book frames were found"
+                   " — the constant-vs-decreasing hazard question cannot be"
+                   " adjudicated.")
         lines += ["## Verdict", "",
                   f"**L1 verdict: {overall}** (`{code}`)", "",
-                  "No recorded sessions with usable book frames were found"
-                  " — the constant-vs-decreasing hazard question cannot be"
-                  " adjudicated. Accrue recordings (system.record_feeds)"
-                  " with enough polls per session to cover the order"
-                  f" timeout horizon (T={T} polls) and re-run.", ""]
-        lines += _limits_block(stats, T)
+                  why + " Accrue recordings (system.record_feeds)"
+                  " polled at the engine cadence with enough polls per"
+                  " session to cover the order timeout horizon"
+                  f" (T={T} polls) and re-run.", ""]
+        lines += _limits_block(stats, T, cfg_view["polling_interval_sec"])
         return "\n".join(lines) + "\n"
 
     lines += ["## Constant vs fitted, per distance bucket", "",
@@ -461,6 +545,16 @@ def render_report(cfg_view: dict, rows: list, stats: dict,
               "`p_sim (config)` = passive_base_prob * exp(-d_bar): the"
               " configured LEVEL, shown for context only — the verdict"
               " compares shapes, not levels."]
+    if stats.get("sigma_fallback_tapes", 0) > 0:
+        lines += ["",
+                  f"[^sigma]: `d_bar` divides by each tape's"
+                  " `scripts/calibrate_fills.estimate_sigma_bps`; on"
+                  f" {stats['sigma_fallback_tapes']} of"
+                  f" {stats.get('tapes_fit', 0)} fitted tape(s) that"
+                  f" estimator fell back to its default"
+                  f" {SIGMA_FALLBACK_BPS:g} bps (too few clean frames or"
+                  " timestamps) — `d_bar` (and the near-touch flag) on"
+                  " those parts is nominal, not measured."]
 
     primary = max((r for r in rows if r["near_touch"]),
                   key=lambda r: r["verdict"]["events"], default=None)
@@ -470,14 +564,17 @@ def render_report(cfg_view: dict, rows: list, stats: dict,
                   f" ({primary['dist_bps']:g} bps, most events among"
                   " near-touch)", "",
                   "| poll t | at-risk n_t | hits d_t | h(t) |"
-                  " Wilson 95% | S(t) | Greenwood se |",
-                  "|---|---|---|---|---|---|---|"]
+                  " Wilson 95% | S(t) | Greenwood se | S(t) 95% CI |",
+                  "|---|---|---|---|---|---|---|---|"]
         for t in range(fit.t_max):
+            ci_lo = max(fit.surv[t] - 1.96 * fit.surv_se[t], 0.0)
+            ci_hi = min(fit.surv[t] + 1.96 * fit.surv_se[t], 1.0)
             lines.append(
                 f"| {t + 1} | {fit.n[t]} | {fit.d[t]} |"
                 f" {_fmt(fit.h[t])} | [{_fmt(fit.h_lo[t])},"
                 f" {_fmt(fit.h_hi[t])}] | {_fmt(fit.surv[t])} |"
-                f" {_fmt(fit.surv_se[t], '.4f')} |")
+                f" {_fmt(fit.surv_se[t], '.4f')} |"
+                f" [{_fmt(ci_lo)}, {_fmt(ci_hi)}] |")
 
     lines += ["", "## Verdict", "",
               f"**L1 verdict: {overall}** (`{code}`)", ""]
@@ -501,11 +598,21 @@ def render_report(cfg_view: dict, rows: list, stats: dict,
                   " 200x1200 re-baseline on this evidence; accrue longer"
                   " recordings first."]
     lines += [""]
-    lines += _limits_block(stats, T)
+    lines += _limits_block(stats, T, cfg_view["polling_interval_sec"])
     return "\n".join(lines) + "\n"
 
 
-def _limits_block(stats: dict, T: int) -> list:
+def _gap_quantiles(gaps: list) -> str:
+    """min/p25/p50/p75/max summary of the per-tape median gaps (sec)."""
+    g = sorted(gaps)
+    if len(g) >= 2:
+        q1, q2, q3 = statistics.quantiles(g, n=4)
+    else:
+        q1 = q2 = q3 = g[0]
+    return (f"{g[0]:.3f} / {q1:.3f} / {q2:.3f} / {q3:.3f} / {g[-1]:.3f}")
+
+
+def _limits_block(stats: dict, T: int, poll_sec: float) -> list:
     span_h = 0.0
     if stats["t_min"] is not None and stats["t_max"] is not None:
         span_h = (stats["t_max"] - stats["t_min"]) / 3600.0
@@ -516,6 +623,20 @@ def _limits_block(stats: dict, T: int) -> list:
         " — but hazard resolution is bounded by CONSECUTIVE polls per"
         " tape, not wall-clock span.",
     ]
+    gaps = stats.get("gap_medians") or []
+    if gaps:
+        excl = stats.get("tapes_gap_excluded", 0)
+        lines.append(
+            "- Frame-gap vs poll-interval: per-tape median intra-frame gap"
+            f" (min/p25/p50/p75/max) = {_gap_quantiles(gaps)} s against"
+            f" `polling_interval_sec={poll_sec:g}` s. Poll AGE is only"
+            " identified when frames are engine polls, so the"
+            f" {excl} tape(s) whose median gap deviates by more than"
+            f" {GAP_POLL_FACTOR:g}x (disclosure threshold, not a fitted"
+            " knob) were EXCLUDED from hazard-age fitting"
+            f" ({stats.get('tapes_fit', 0)} tape(s) fitted). Burst"
+            " re-read tapes measure intra-second book flicker, not the"
+            " per-poll hazard the sim applies.")
     if stats["tapes"] > 0:
         lines.append(
             f"- ~{stats['frames'] / stats['tapes']:.1f} book polls per"
@@ -562,7 +683,8 @@ def run(cfg: dict, rec_dir, out_path, dist_grid: list | None = None) -> int:
         "life_polls": life_polls,
     }
 
-    buckets, stats = collect_bucket_episodes(rec_dir, life_polls, dist_grid)
+    buckets, stats = collect_bucket_episodes(rec_dir, life_polls, dist_grid,
+                                             poll_sec=poll_sec)
     rows = []
     for dist in dist_grid:
         b = buckets[dist]
@@ -570,7 +692,7 @@ def run(cfg: dict, rec_dir, out_path, dist_grid: list | None = None) -> int:
             continue
         d_bar = b["d_bar_sum"] / b["parts"] if b["parts"] > 0 else None
         fit = fit_discrete_hazard(b["episodes"], life_polls)
-        h_c = constant_hazard_mle(b["episodes"])
+        h_c = constant_hazard_mle(fit)
         p_sim = None
         if d_bar is not None:
             p_sim = cfg_view["passive_base_prob"] * math.exp(
@@ -600,7 +722,9 @@ def main() -> int:
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--recording-dir", default=None,
                     help="default: system.recording_dir from config")
-    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--out", default=None,
+                    help="default: docs/quant/<today>_fill_hazard_l1.md "
+                         "(dated at runtime)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING,
                         format="%(asctime)s %(levelname)s %(name)s: "
@@ -609,7 +733,8 @@ def main() -> int:
     cfg = load_config(args.config)
     rec_dir = args.recording_dir or cfg.get("system", {}).get(
         "recording_dir", "outputs/recordings")
-    return run(cfg, rec_dir, Path(args.out))
+    out = Path(args.out) if args.out else default_out()
+    return run(cfg, rec_dir, out)
 
 
 if __name__ == "__main__":

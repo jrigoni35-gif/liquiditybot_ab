@@ -6,9 +6,13 @@ the sim's assumption, bucket verdict NO — and (ii) a decreasing hazard
 (Cont-Stoikov-Talreja 2010 / Huang-Lehalle-Rosenbaum 2015 queue-age
 shape, bucket verdict YES), and that the report writer emits the L1
 verdict line. No network, no dependence on real recordings; the
-no-recordings path must skip gracefully with a clear message.
+no-recordings path must skip gracefully with a clear message. Burst-gap
+fixtures (frames far denser than polling_interval_sec) prove the
+frame-gap guard excludes such tapes from hazard-age fitting and that
+the report discloses the gap distribution + exclusion count.
 """
 import json
+import math
 
 import numpy as np
 
@@ -22,6 +26,7 @@ from scripts.fill_hazard_report import (
     hazard_verdict,
     ks_distance,
     lr_test,
+    median_frame_gap,
     run,
 )
 
@@ -33,21 +38,23 @@ def _frame(ts, bid, ask):
     return {"ts": ts, "bid": bid, "ask": ask}
 
 
-def _hazard_frames(h_of_t, life, n_windows, seed=7):
+def _hazard_frames(h_of_t, life, n_windows, seed=7, gap_sec=5.0):
     """One placement frame + ``life`` observation frames per window (the
     extractor strides by life+1, so windows are fully disjoint). The ask
     dips through the 50bps buy level at poll age t with prob h_of_t(t) —
-    exactly the discrete-hazard data-generating process."""
+    exactly the discrete-hazard data-generating process. ``gap_sec``
+    spaces the frame timestamps (5.0 matches the poll interval; a small
+    value fakes a burst re-read tape for the frame-gap guard)."""
     rng = np.random.default_rng(seed)
     frames, ts = [], 0.0
     for _ in range(n_windows):
         frames.append(_frame(ts, BASE_BID, BASE_ASK))
-        ts += 5.0
+        ts += gap_sec
         for t in range(1, life + 1):
             hit = rng.random() < h_of_t(t)
             frames.append(_frame(ts, DIP_BID if hit else BASE_BID,
                                  DIP_ASK if hit else BASE_ASK))
-            ts += 5.0
+            ts += gap_sec
     return frames
 
 
@@ -93,7 +100,7 @@ def test_recovers_constant_hazard_and_says_no():
                                sides=("buy",))
     assert len(eps) == n_win
     fit = fit_discrete_hazard(eps, life)
-    h_c = constant_hazard_mle(eps)
+    h_c = constant_hazard_mle(fit)
     assert abs(h_c - p) < 0.02
     # per-bin 95% Wilson CIs cover the true hazard, and point estimates
     # land close. Estimator verified UNBIASED over a 50-seed sweep (mean
@@ -121,7 +128,7 @@ def test_recovers_decreasing_hazard_and_says_yes():
     eps = episodes_from_frames(frames, life_polls=life, dist_bps=50.0,
                                sides=("buy",))
     fit = fit_discrete_hazard(eps, life)
-    h_c = constant_hazard_mle(eps)
+    h_c = constant_hazard_mle(fit)
     # early hazard above late hazard with clear CI separation
     assert fit.h_lo[0] > fit.h_hi[2]
     lr, dof, pval = lr_test(fit, h_c)
@@ -136,8 +143,40 @@ def test_recovers_decreasing_hazard_and_says_yes():
 def test_underpowered_sample_defers():
     eps = [Episode(1, True)] * 5 + [Episode(1, False)] * 5
     fit = fit_discrete_hazard(eps, 6)
-    v = hazard_verdict(fit, constant_hazard_mle(eps), 6)
+    v = hazard_verdict(fit, constant_hazard_mle(fit), 6)
     assert v["verdict"] == "DEFERRED"
+
+
+def test_greenwood_se_and_ks_exact_small_table():
+    """Exact-value pin on a tiny hand-computed life table.
+
+    Episodes (1,hit), (2,hit), (2,cens), (2,cens):
+      n1=4 d1=1 h1=1/4; n2=3 d2=1 h2=1/3; S1=3/4, S2=1/2.
+      Greenwood: se1 = S1*sqrt(1/(4*3)); se2 = S2*sqrt(1/12 + 1/(3*2)) = 1/4.
+      h_const = events/exposure = 2/7.
+      KS = max(|1/4 - 2/7|, |1/2 - (1-(5/7)^2)|) = max(1/28, 1/98) = 1/28.
+    """
+    eps = [Episode(1, True), Episode(2, True),
+           Episode(2, False), Episode(2, False)]
+    fit = fit_discrete_hazard(eps, 2)
+    assert fit.n == (4, 3) and fit.d == (1, 1)
+    assert abs(fit.h[0] - 0.25) < 1e-12
+    assert abs(fit.h[1] - 1.0 / 3.0) < 1e-12
+    assert abs(fit.surv[0] - 0.75) < 1e-12
+    assert abs(fit.surv[1] - 0.5) < 1e-12
+    assert abs(fit.surv_se[0] - 0.75 * math.sqrt(1.0 / 12.0)) < 1e-12
+    assert abs(fit.surv_se[1] - 0.25) < 1e-12
+    h_c = constant_hazard_mle(fit)
+    assert abs(h_c - 2.0 / 7.0) < 1e-12
+    assert abs(ks_distance(fit, h_c) - 1.0 / 28.0) < 1e-12
+
+
+def test_constant_hazard_mle_agrees_with_clamped_exposure():
+    """h_const is fit.events/fit.exposure, so a duration beyond t_max can
+    never make the comparator disagree with the clamped life table."""
+    eps = [Episode(10, True), Episode(2, True), Episode(3, False)]
+    fit = fit_discrete_hazard(eps, 3)          # duration 10 clamps to 3
+    assert constant_hazard_mle(fit) == fit.events / fit.exposure
 
 
 def test_greenwood_se_positive_and_survival_monotone():
@@ -187,6 +226,11 @@ def test_report_written_with_verdict_line(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "L1 verdict:" in text
     assert "book-frame synthesis" in text.lower()
+    # survival CI band column (+-1.96*se beside the Greenwood se)
+    assert "S(t) 95% CI" in text
+    # gap disclosure present even when every tape is included
+    assert "Frame-gap vs poll-interval" in text
+    assert "0 tape(s) whose median gap deviates" in text
 
 
 def test_no_recordings_skips_gracefully(tmp_path):
@@ -196,3 +240,70 @@ def test_no_recordings_skips_gracefully(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "L1 verdict: INSUFFICIENT_EVIDENCE" in text
     assert "no recorded sessions" in text.lower()
+
+
+# ------------------------------------------- frame-gap guard (poll-age validity)
+def test_median_frame_gap():
+    frames = [_frame(t, BASE_BID, BASE_ASK)
+              for t in (0.0, 5.0, 10.0, 10.012)]
+    assert median_frame_gap(frames) == 5.0     # gaps 5, 5, 0.012
+    assert median_frame_gap([_frame(0.0, BASE_BID, BASE_ASK)]) is None
+    # missing/constant ts -> no positive gaps -> unmeasurable
+    assert median_frame_gap([{"bid": BASE_BID, "ask": BASE_ASK}] * 3) is None
+
+
+def test_burst_gap_tape_excluded_and_disclosed(tmp_path):
+    """A burst re-read tape (median gap ~0.05 s vs 5 s polls) contributes
+    ZERO episodes to hazard-age fitting, and the report discloses the gap
+    distribution and the exclusion count."""
+    good = _hazard_frames(lambda t: 0.5 * (0.55 ** (t - 1)), 6, 400, seed=3)
+    burst = _hazard_frames(lambda t: 0.4, 6, 400, seed=11, gap_sec=0.05)
+    rec_a = tmp_path / "rec_a"
+    _write_session(rec_a, "session_100.jsonl", good)
+    rec_b = tmp_path / "rec_b"
+    _write_session(rec_b, "session_100.jsonl", good)
+    _write_session(rec_b, "session_200.jsonl", burst)
+    out_a, out_b = tmp_path / "a.md", tmp_path / "b.md"
+    assert run(_cfg(), rec_a, out_a) == 0
+    assert run(_cfg(), rec_b, out_b) == 0
+    text_a = out_a.read_text(encoding="utf-8")
+    text_b = out_b.read_text(encoding="utf-8")
+
+    def tables(txt):
+        return [ln for ln in txt.splitlines() if ln.startswith("|")]
+
+    # identical fitted tables: the burst tape was excluded, not fitted
+    assert tables(text_a) == tables(text_b)
+    assert "1 tape(s) whose median gap deviates" in text_b
+    assert "EXCLUDED from hazard-age fitting (1 tape(s) fitted)" in text_b
+
+
+def test_all_burst_tapes_yield_insufficient_evidence(tmp_path):
+    """When EVERY tape trips the frame-gap guard nothing may be fitted:
+    the verdict stays INSUFFICIENT_EVIDENCE with the guard called out."""
+    rec = tmp_path / "recordings"
+    burst = _hazard_frames(lambda t: 0.4, 6, 400, seed=11, gap_sec=0.05)
+    _write_session(rec, "session_100.jsonl", burst)
+    out = tmp_path / "report.md"
+    assert run(_cfg(), rec, out) == 0
+    text = out.read_text(encoding="utf-8")
+    assert "L1 verdict: INSUFFICIENT_EVIDENCE" in text
+    assert "frame-gap guard" in text
+    assert "1 of 1 tape(s)" in text
+    assert "Frame-gap vs poll-interval" in text
+
+
+def test_sigma_fallback_footnoted(tmp_path):
+    """A fitted tape too thin for estimate_sigma_bps (2 frames) rides the
+    30 bps fallback; the report footnotes how many tapes did."""
+    rec = tmp_path / "recordings"
+    frames = _hazard_frames(lambda t: 0.5 * (0.55 ** (t - 1)), 6, 400,
+                            seed=3)
+    _write_session(rec, "session_100.jsonl", frames)
+    tiny = [_frame(0.0, BASE_BID, BASE_ASK), _frame(5.0, BASE_BID, BASE_ASK)]
+    _write_session(rec, "session_200.jsonl", tiny, symbol="XBTUSD")
+    out = tmp_path / "report.md"
+    assert run(_cfg(), rec, out) == 0
+    text = out.read_text(encoding="utf-8")
+    assert "estimate_sigma_bps" in text
+    assert "1 of 2 fitted tape(s)" in text
