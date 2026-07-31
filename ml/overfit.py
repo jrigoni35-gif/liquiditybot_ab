@@ -161,7 +161,8 @@ def shuffled_label_check(X, y, label_span: int = 96, n_splits: int = 5,
 # 3) PBO via CSCV
 # ---------------------------------------------------------------------------
 def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
-             seed: int = 7, select=None) -> dict:
+             seed: int = 7, select=None, sig=None,
+             label_span: float = 0.0) -> dict:
     """Probability of Backtest Overfitting, combinatorially symmetric CV
     (Bailey, Borwein, López de Prado, Zhu 2017). M: (T, N) per-period
     performance, HIGHER = BETTER, one column per candidate config. T is
@@ -175,7 +176,20 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
     argmax — the classical worst-case reading. Pass the DEPLOYED rule
     (e.g. the simplicity ladder) to measure the selection step the system
     actually runs; a margin-stabilized rule cannot chase per-split luck,
-    which is exactly the mitigation PBO is meant to police."""
+    which is exactly the mitigation PBO is meant to police.
+
+    `sig`/`label_span` (Debate-1 item E, 2026-07-30): contiguous CSCV
+    blocks share label windows at their edges — at mean uniqueness ~0.16
+    a row straddling an IS/OOS boundary carries the SAME return path on
+    both sides, so the IS winner's OOS rank reads correlated-lucky and
+    PBO reads optimistic (anti-conservative on our own gate; AFML ch.12
+    purges between CPCV groups for exactly this reason). With `sig` (row
+    timestamps, same order as M) and `label_span` (seconds a label may
+    remain open), each combo PURGES from its TRAIN blocks every row
+    whose label window [s, s+span] intersects a TEST block's effective
+    span [start, end+span] — two-sided, per combo. OOS block means are
+    untouched (the BBLZ convention purges train). Omitting sig or a zero
+    span is byte-identical legacy behavior."""
     M = np.asarray(M, float)
     T, N = M.shape
     if N < 2 or T < n_blocks:
@@ -183,8 +197,21 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
                                        f"(got N={N}, T={T})"}
     n_blocks -= n_blocks % 2                     # even split required
     edges = np.linspace(0, T, n_blocks + 1).astype(int)
-    block_means = np.stack([M[edges[i]:edges[i + 1]].mean(axis=0)
-                            for i in range(n_blocks)])   # (S, N)
+    block_rows = [np.arange(edges[i], edges[i + 1])
+                  for i in range(n_blocks)]
+    block_means = np.stack([M[r].mean(axis=0) for r in block_rows])  # (S, N)
+    purge = sig is not None and float(label_span) > 0.0
+    sig_arr = np.empty(0)
+    span = 0.0
+    blo = bhi = np.empty(0)
+    if purge:
+        sig_arr = np.asarray(sig, float)
+        if len(sig_arr) != T:
+            return {"pbo": None, "reason": f"sig length {len(sig_arr)} != "
+                                           f"T {T}"}
+        span = float(label_span)
+        blo = np.array([float(sig_arr[r[0]]) for r in block_rows])
+        bhi = np.array([float(sig_arr[r[-1]]) for r in block_rows])
     combos = list(itertools.combinations(range(n_blocks), n_blocks // 2))
     if len(combos) > max_combos:
         rng = np.random.default_rng(seed)
@@ -193,9 +220,33 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
     if select is None:
         select = lambda p: int(np.argmax(p))          # noqa: E731
     lambdas = []
+    purged_frac_sum = 0.0
     for train_blocks in combos:
         test_blocks = [b for b in range(n_blocks) if b not in train_blocks]
-        is_perf = block_means[list(train_blocks)].mean(axis=0)
+        if purge:
+            # equal-block-weight IS mean over PURGED per-block means (the
+            # same weighting structure as the unpurged path); a fully
+            # purged train block drops out of the average.
+            per_block, kept, dropped = [], 0, 0
+            for b in train_blocks:
+                rows = block_rows[b]
+                s = sig_arr[rows]
+                keep = np.ones(len(rows), bool)
+                for tb in test_blocks:
+                    keep &= ~((s <= bhi[tb] + span)
+                              & (s + span >= blo[tb]))
+                dropped += int((~keep).sum())
+                kept += int(keep.sum())
+                if keep.any():
+                    per_block.append(M[rows[keep]].mean(axis=0))
+            if not per_block:
+                return {"pbo": None,
+                        "reason": "edge purge left no train rows "
+                                  "(label_span spans whole blocks)"}
+            is_perf = np.mean(per_block, axis=0)
+            purged_frac_sum += dropped / max(kept + dropped, 1)
+        else:
+            is_perf = block_means[list(train_blocks)].mean(axis=0)
         oos_perf = block_means[test_blocks].mean(axis=0)
         star = int(select(is_perf))
         # OOS relative rank of the in-sample winner in (0,1)
@@ -203,9 +254,12 @@ def pbo_cscv(M: np.ndarray, n_blocks: int = 8, max_combos: int = 126,
         omega = min(max(omega, 1.0 / (N + 1.0)), N / (N + 1.0))
         lambdas.append(math.log(omega / (1.0 - omega)))
     lambdas = np.array(lambdas)
-    return {"pbo": float(np.mean(lambdas <= 0.0)),
-            "n_combos": len(combos), "n_configs": N, "n_blocks": n_blocks,
-            "median_lambda": float(np.median(lambdas))}
+    out = {"pbo": float(np.mean(lambdas <= 0.0)),
+           "n_combos": len(combos), "n_configs": N, "n_blocks": n_blocks,
+           "median_lambda": float(np.median(lambdas))}
+    if purge:
+        out["edge_purged_frac"] = round(purged_frac_sum / len(combos), 4)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -651,8 +705,14 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                 inc = cand
         return inc
 
-    res = pbo_cscv(M, n_blocks=n_blocks, seed=seed, select=ladder)
-    raw = pbo_cscv(M, n_blocks=n_blocks, seed=seed)          # argmax stress
+    # Debate-1 item E: OOF rows keep their signal timestamps so pbo_cscv
+    # can purge label-window overlap at its block edges (sig=None keeps
+    # the legacy unpurged behavior for callers without timestamps).
+    sig_oof = np.asarray(sig, float)[oof_idx] if sig is not None else None
+    res = pbo_cscv(M, n_blocks=n_blocks, seed=seed, select=ladder,
+                   sig=sig_oof, label_span=label_span)
+    raw = pbo_cscv(M, n_blocks=n_blocks, seed=seed,          # argmax stress
+                   sig=sig_oof, label_span=label_span)
     res["configs"] = names
     res["pbo_argmax"] = raw.get("pbo")
     res["selection_rule"] = "simplicity_ladder"
@@ -679,7 +739,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
 
             pair_M = M[:, [bi, ai]]
             pair_pbo = pbo_cscv(pair_M, n_blocks=n_blocks, seed=seed,
-                               select=_pair_ladder)
+                               select=_pair_ladder,
+                               sig=sig_oof, label_span=label_span)
             ladder_winner = (arm_name if full_perf[ai] >
                             full_perf[bi] + BRIER_MARGIN else base_name)
             mean_winner = arm_name if full_perf[ai] > full_perf[bi] \

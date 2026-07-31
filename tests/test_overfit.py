@@ -504,3 +504,41 @@ def test_dsr_trials_config_lifted_with_identical_default():
            "ml": {"overfit": {"dsr_n_trials": 3}}}
     assert _msgs(low, "WARN") and not _msgs(low, "FATAL"), \
         "below-baseline trials warns (weaker gate), never fatal"
+
+
+def test_cscv_edge_purge_identity_when_disabled():
+    """Debate-1 item E: sig with label_span=0 (or sig=None) is byte-
+    identical legacy CSCV - no purge key, same pbo."""
+    rng = np.random.default_rng(1)
+    M = rng.normal(0, 1, (240, 6))
+    sig = np.arange(240.0) * 300.0
+    base = pbo_cscv(M, n_blocks=8)
+    off = pbo_cscv(M, n_blocks=8, sig=sig, label_span=0.0)
+    assert off["pbo"] == base["pbo"]
+    assert off["median_lambda"] == base["median_lambda"]
+    assert "edge_purged_frac" not in off and "edge_purged_frac" not in base
+
+
+def test_cscv_edge_purge_corrects_overlap_false_confidence():
+    """Overlapping label windows straddling block edges make a lucky noise
+    config read consistent OOS (PBO falsely LOW). The two-sided edge purge
+    must move the worst false-confidence case toward honesty, and account
+    for what it dropped."""
+    k = 6
+    rng = np.random.default_rng(4)          # the measured worst case
+    raw = rng.normal(0, 1, (246, 8))
+    M = np.stack([raw[i:i + k].mean(axis=0) for i in range(240)])
+    sig = np.arange(240.0) * 300.0
+    unpurged = pbo_cscv(M, n_blocks=8)["pbo"]
+    r = pbo_cscv(M, n_blocks=8, sig=sig, label_span=k * 300.0)
+    assert unpurged < 0.1, "construction: overlap fakes a real selection"
+    assert r["pbo"] > unpurged, "purge must strip the shared-path flattery"
+    assert 0.0 < r["edge_purged_frac"] < 0.5
+
+
+def test_cscv_edge_purge_never_empties_reasonable_spans():
+    rng = np.random.default_rng(2)
+    M = rng.normal(0, 1, (240, 4))
+    sig = np.arange(240.0) * 300.0
+    r = pbo_cscv(M, n_blocks=8, sig=sig, label_span=300.0)
+    assert r["pbo"] is not None and r["edge_purged_frac"] < 0.1
