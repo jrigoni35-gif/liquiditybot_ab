@@ -1,35 +1,35 @@
 {
-  "generated_at": 1785617852.7632985,
+  "generated_at": 1785621470.5488768,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1785617841.0,
-    "duration_h": 541.06
+    "end": 1785621458.0,
+    "duration_h": 542.07
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4933.28,
+    "equity_end": 4934.58,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -33.77,
     "fees_paid_total": 56.3557,
     "open_positions": 3,
-    "samples": 116675
+    "samples": 116908
   },
   "activity": {
-    "signal_rows_total": 8339,
+    "signal_rows_total": 8366,
     "live_labeled_trades": 277,
-    "candidate_rows": 8062
+    "candidate_rows": 8089
   },
   "audit": {
-    "records": 27946,
-    "signal_records": 25290,
+    "records": 27948,
+    "signal_records": 25292,
     "by_src": {
       "exploration": 25343,
       "order_manager": 877,
-      "ml_governor": 862,
+      "ml_governor": 864,
       "startup": 262,
       "fault": 241,
       "long_book": 190,
@@ -54,7 +54,7 @@
       ],
       [
         "ML-031",
-        267
+        268
       ],
       [
         "CG-000",
@@ -91,7 +91,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.881,
-    "retrain_requests": 64,
+    "retrain_requests": 65,
     "kill_switch_events": 2,
     "chain_ok": false,
     "chain_first_break": null,
@@ -99,11 +99,11 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 14838,
+    "records": 15833,
     "by_level": {
-      "INFO": 14790,
-      "WARNING": 46,
-      "CRITICAL": 2
+      "INFO": 15783,
+      "WARNING": 47,
+      "CRITICAL": 3
     },
     "top_warnings": [
       [
@@ -112,6 +112,10 @@
       ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        2
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 38% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
         2
       ],
       [
@@ -141,18 +145,14 @@
       [
         "ML-080: exit-reason mix drift tvd=0.656 over trailing 24h (819/7794 rows) exceeds 0.30 - recent-window reason mix diverges from the trailing",
         1
-      ],
-      [
-        "auto-retrain: 789 rows (45 new)",
-        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 2710,
-      "spoofy": 2011
+      "thin": 2912,
+      "spoofy": 2131
     },
-    "spoofy_frac": 0.426,
-    "cycles_estimate": 1877,
+    "spoofy_frac": 0.423,
+    "cycles_estimate": 1993,
     "feed_error_events": 0
   },
   "model": {
@@ -189,13 +189,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=277, brier=n/a) yet retrain was requested 64x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 88% of the audit trail"
+      "detail": "model is cold (live training rows=277, brier=n/a) yet retrain was requested 65x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 88% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 88% of 25290 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 88% of 25292 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
