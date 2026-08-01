@@ -87,7 +87,18 @@ def test_both_retrain_paths_write_history():
         src = (ROOT / path).read_text(encoding="utf-8")
         assert "append_retrain(" in src, path
         assert "RETRAIN_HISTORY_PATH_DEFAULT" in src, path
-        assert "retrain_history.jsonl" not in src, \
+        # CODE lines only. The first version of this pin tested the whole
+        # file, so a COMMENT that merely named the path failed it - and
+        # because scripts/auto_update.py gates every deploy on
+        # `pytest -q -x`, that failure would refuse all updates including
+        # its own repair. That is the identical self-bricking shape
+        # 3f777aa fixed one commit earlier; caught here on 2026-08-01 when
+        # the audit branch added exactly such a comment to train_meta.py.
+        # The contract being pinned is that no CALL SITE re-inlines the
+        # destination; prose about it is harmless.
+        code = "\n".join(ln for ln in src.splitlines()
+                         if not ln.lstrip().startswith("#"))
+        assert "retrain_history.jsonl" not in code, \
             f"{path} re-inlined the destination - rebinding the shared " \
             f"default would no longer reach it"
     # the auto path records REJECTED challengers too (before the early return)
