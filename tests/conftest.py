@@ -35,7 +35,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
-_OUTPUTS = str(_ROOT / "outputs") + os.sep
+# normcase: Windows is the target runtime and its paths reach us in mixed
+# case (C:\Users\... vs c:\users\...). A case-SENSITIVE prefix test would
+# silently miss a real violation there - a guard that under-reports on the
+# platform the bot actually runs on is worse than no guard, because it
+# reads as proof of cleanliness. No-op on POSIX.
+_OUTPUTS = os.path.normcase(str(_ROOT / "outputs") + os.sep)
 
 # Paths under outputs/ the suite is ALLOWED to touch. Empty on purpose:
 # every current write is a defect, and an allowlist entry must be argued
@@ -49,7 +54,8 @@ _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 
 def _flag(path: object) -> None:
     try:
-        p = os.path.abspath(os.fspath(path))  # type: ignore[arg-type]
+        p = os.path.normcase(os.path.abspath(
+            os.fspath(path)))                 # type: ignore[arg-type]
     except (TypeError, ValueError):
         return
     if p.startswith(_OUTPUTS) and not p.startswith(_ALLOWED or ("\0",)):
@@ -124,7 +130,7 @@ def _sidecar_logs_to_tmp(tmp_path, monkeypatch):
                 continue
             resolved = Path(os.path.abspath(
                 os.path.join(_ROOT, os.fspath(current))))
-            if str(resolved).startswith(_OUTPUTS):
+            if os.path.normcase(str(resolved)).startswith(_OUTPUTS):
                 repl = tmp_path / resolved.name
                 monkeypatch.setattr(
                     mod, attr,
