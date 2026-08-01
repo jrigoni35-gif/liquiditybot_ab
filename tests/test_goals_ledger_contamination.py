@@ -120,6 +120,14 @@ def test_replay_style_run_with_historical_now_never_touches_real_ledgers(
     cfg["system"]["state_path"] = str(tmp_path / "state.json")
     cfg["ml"]["model_path"] = str(tmp_path / "none.json")
     cfg["ml"]["history_path"] = str(tmp_path / "hist.csv")
+    # postmortem summary: the LAST unredirected outputs/ writer on this
+    # path (found 2026-08-01 by conftest's outputs-write guard, which the
+    # byte-comparison snapshot below could not see because the rewritten
+    # content happened to be identical). A test named "never touches real
+    # ledgers" must not itself append to outputs/postmortem_summary.csv -
+    # scripts/smoke_test.py's qa_redirect_paths already redirects this key.
+    cfg.setdefault("ml", {}).setdefault("postmortem", {})["summary_path"] = \
+        str(tmp_path / "postmortem_summary.csv")
     # existing config seam, used here only as a test-side safety net
     redirected_weekly = tmp_path / "weekly_ledger.csv"
     redirected_monthly = tmp_path / "monthly_ledger.csv"

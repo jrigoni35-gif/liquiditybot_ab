@@ -380,3 +380,33 @@ def test_battery_still_blocks_on_pytest_failure(monkeypatch):
                         lambda *a, **k: _FakeProc(1, "FAILED tests/test_x.py::t"))
     # the REAL gate (pytest) still refuses a red battery
     assert au.battery_passes(Path("/tmp/wt")) is False
+
+
+# ---- deploy gate must not self-brick (2026-08-01) ---------------------------
+# conftest's outputs-write guard is test hygiene, not code safety. Left hard
+# in battery_passes it froze the PC for ~19 hours: a leaking test made the
+# battery red, auto_update refused every update, and the commit repairing
+# the leak could not deploy either. Same self-bricking shape that demoted
+# the replay gate to advisory on 2026-07-21/22.
+def test_battery_downgrades_the_outputs_guard_so_it_cannot_veto_a_deploy(
+        monkeypatch, tmp_path):
+    seen = {}
+
+    class _P:
+        returncode = 0
+        stdout = "1 passed"
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        seen["env"] = kw.get("env") or {}
+        seen["argv"] = argv
+        return _P()
+
+    monkeypatch.setattr(au.subprocess, "run", fake_run)
+    monkeypatch.setattr(au, "_replay_gate_passes", lambda *a, **k: True)
+    assert au.battery_passes(tmp_path) is True
+    assert seen["env"].get("LB_ALLOW_OUTPUT_WRITES") == "1", (
+        "the deploy battery must run with the outputs-write guard in "
+        "warn mode - a test-hygiene failure must never block a deploy")
+    # and it must still be the real pytest battery, not a stubbed-out gate
+    assert "pytest" in " ".join(str(a) for a in seen["argv"])

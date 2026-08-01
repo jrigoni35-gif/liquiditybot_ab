@@ -150,11 +150,27 @@ def battery_passes(worktree: Path) -> bool:
     """Run the test battery against the INCOMING code in an isolated worktree.
     Green is required before the update is allowed to touch the live checkout."""
     py = _venv_python()
+    # tests/conftest.py's outputs-write guard is a TEST-HYGIENE check, and it
+    # must not hold a veto over deploying a trading fix. Downgraded to a
+    # warning here for two reasons (both lived 2026-08-01, commit 64b6fd5):
+    #   1. It protects nothing in this context. The battery runs inside a
+    #      THROWAWAY worktree, so conftest resolves the tree it guards to
+    #      <worktree>/outputs — writes land there and die with the worktree.
+    #      The operator's real outputs/ is not reachable from this run.
+    #   2. It self-bricks. A leaking test makes battery_passes return False,
+    #      auto_update refuses EVERY update, and the commit that repairs the
+    #      leak can never deploy either. That froze the PC for ~19 hours on
+    #      a test writing outputs/postmortem_summary.csv - the exact failure
+    #      mode that demoted the replay gate to advisory on 2026-07-21/22
+    #      (see _replay_gate_passes below; same lesson, relearned).
+    # The developer battery and the PC's own manual runs keep it HARD, which
+    # is where a hygiene regression should be caught.
+    env = {**os.environ, "LB_ALLOW_OUTPUT_WRITES": "1"}
     try:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
                             "-x", "--no-header"],
                            cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200, **_NOWIN)
+                           timeout=1200, env=env, **_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False
