@@ -17,8 +17,17 @@ from typing import Optional, Sequence, Tuple
 
 MIN_BARS = 8
 
+# The shared bar shape, named once. `Sequence[tuple]` was a BARE generic:
+# correct at runtime and silent under the repo's basic pyright profile, but
+# it erased the element type, so every `h`/`lo` unpacked from a window came
+# back Unknown and any caller checking under a stricter profile inherited
+# that. Producers append exactly this 5-tuple (strategies/thales.py's
+# `st.candle_hist.append((ts, o, hi, lo, c))`), so the annotation is a
+# statement of existing fact, not a new constraint.
+Candle = Tuple[float, float, float, float, float]   # (ts, open, high, low, close)
 
-def swing_high_low(candle_hist: Sequence[tuple], lookback: int
+
+def swing_high_low(candle_hist: Sequence[Candle], lookback: int
                    ) -> Tuple[Optional[float], Optional[float]]:
     """candle_hist: sequence of (ts, open, high, low, close) tuples,
     oldest first. Returns (swing_high, swing_low) over the trailing
