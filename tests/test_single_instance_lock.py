@@ -273,3 +273,62 @@ def test_stale_takeover_still_works(tmp_path):
     b.pid = 222
     assert b.acquire() is None, "stale holder must be replaceable"
     assert json.load(open(lockfile))["pid"] == 222
+
+
+# ---- C1b: PROGRESS-aware heartbeat (2026-08-01) ----------------------------
+# C1 moved the heartbeat onto a daemon thread so a slow cycle could not age the
+# lock. That fixed the false takeover but introduced its mirror image: the
+# thread refreshed UNCONDITIONALLY, so it proved the PROCESS was alive, not the
+# LOOP. A runner whose cycle_once HANGS (rather than raises) would then hold the
+# lock forever and no healthy runner could ever replace it. The wedge guard does
+# not cover that case - runner.py scopes it to a cycle that RAISES every
+# iteration - so the stale lock WAS the only recovery path for a hang, and C1
+# deleted it.
+#
+# The contract: refresh while the loop is MOVING (however slowly), stop
+# refreshing once it has demonstrably stopped moving.
+def _hb_double(max_stall=300.0, last=None):
+    """A BotRunner shell carrying only the heartbeat-decision attributes -
+    the same __new__ double pattern the handle_command suites use."""
+    r = BotRunner.__new__(BotRunner)
+    r._hb_max_stall = max_stall
+    r._last_progress_ts = last
+    r._hb_stall_logged = False
+    return r
+
+
+def test_heartbeat_refreshes_during_startup_before_the_loop_has_run():
+    """THE case a naive progress gate breaks. The thread is started in
+    __init__ BEFORE LiquidityBot construction precisely because construction
+    is unbounded; at that moment no loop iteration has ever happened, so
+    there is no progress stamp. Gating on progress alone would stop the
+    heartbeat during startup and re-open the very window C1 closed."""
+    r = _hb_double(last=None)
+    assert r._hb_should_refresh(time.time()) is True
+
+
+def test_heartbeat_keeps_refreshing_through_a_slow_cycle():
+    """88.1s was the worst stall measured in outputs/runner.log - far past
+    the lock's 30s stale window, but a healthy runner. It must refresh."""
+    now = time.time()
+    r = _hb_double(max_stall=300.0, last=now - 88.1)
+    assert r._hb_should_refresh(now) is True
+
+
+def test_heartbeat_stops_refreshing_once_the_loop_is_hung():
+    """Past the stall bound the loop is not slow, it is stopped. Withholding
+    the refresh lets the lock go stale so a healthy runner can take over -
+    restoring the self-healing property C1 removed."""
+    now = time.time()
+    r = _hb_double(max_stall=300.0, last=now - 301.0)
+    assert r._hb_should_refresh(now) is False
+
+
+def test_stall_bound_is_configurable_and_not_a_buried_literal():
+    """system.lock_progress_max_stall_sec drives it; a tighter bound must
+    make the same stall count as hung."""
+    now = time.time()
+    assert _hb_double(max_stall=60.0, last=now - 88.1)._hb_should_refresh(now) \
+        is False
+    assert _hb_double(max_stall=600.0, last=now - 88.1)._hb_should_refresh(now) \
+        is True

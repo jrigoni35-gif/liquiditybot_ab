@@ -146,6 +146,33 @@ class BotRunner:
         # loop at poll_sec=0 and a 0-second wait would pin a core rewriting
         # the lockfile.
         self._hb_sec = max(_poll, 0.05)
+        # C1b: C1's thread refreshes on a cadence the cycle body cannot stall,
+        # which proves this PROCESS is alive. That is not the same claim as
+        # "the loop is alive", and the gap between them matters: a cycle_once
+        # that HANGS (rather than raises) leaves a live process driving
+        # nothing, and an unconditional heartbeat would hold the lock forever
+        # so no healthy runner could ever replace it. The wedge guard does not
+        # cover that - it is scoped to a cycle that RAISES every iteration -
+        # so before C1 the stale lock WAS the only recovery path for a hang,
+        # and C1 removed it while fixing the false-takeover direction.
+        # The bound restores it: refresh while the loop is MOVING (however
+        # slowly), stop once it has demonstrably stopped. 300s is ~3.4x the
+        # worst stall ever measured here (88.1s, outputs/runner.log) and 10x
+        # the lock's 30s stale window - comfortably above any legitimate
+        # cycle, far below "an operator would not notice". Derived from
+        # measurement, not tuned.
+        try:
+            self._hb_max_stall = float(
+                _sys_cfg.get("lock_progress_max_stall_sec", 300.0))
+        except (TypeError, ValueError):
+            self._hb_max_stall = 300.0
+        # None = the loop has not run yet. The heartbeat thread starts BEFORE
+        # the unbounded LiquidityBot construction below, so during startup
+        # there is no progress to measure and refresh must be unconditional -
+        # gating on progress alone here would re-open the exact window C1
+        # closed.
+        self._last_progress_ts: Optional[float] = None
+        self._hb_stall_logged = False
         self._hb_stop = threading.Event()
         self._hb_thread: Optional[threading.Thread] = None
         self._lock_lost_latched = False
@@ -375,10 +402,41 @@ class BotRunner:
         assert self._lock is not None      # only started when a lock exists
         while not self._hb_stop.wait(self._hb_sec):
             try:
+                if not self._hb_should_refresh(time.time()):
+                    if not self._hb_stall_logged:
+                        self._hb_stall_logged = True
+                        log.critical(
+                            "loop has not advanced in >%.0fs - WITHHOLDING the "
+                            "lock heartbeat so a healthy runner can take this "
+                            "outputs/ dir over. This process is alive but not "
+                            "trading; investigate the hang.",
+                            self._hb_max_stall)
+                    continue
+                if self._hb_stall_logged:
+                    self._hb_stall_logged = False
+                    log.warning("loop advanced again - resuming the lock "
+                                "heartbeat")
                 self._lock.refresh()
             except Exception:
                 log.exception("lock heartbeat refresh raised - retrying at "
                               "the next interval")
+
+    def _hb_should_refresh(self, now: float) -> bool:
+        """Is the LOOP alive, not merely this process?
+
+        `_last_progress_ts is None` means the loop has not started yet
+        (__init__ starts this thread before the unbounded engine build), and
+        startup must refresh unconditionally - that window is what C1 exists
+        to cover. Once the loop has stamped once, a gap beyond
+        system.lock_progress_max_stall_sec is a hang rather than a slow
+        cycle, and the honest signal is to stop claiming the lock.
+
+        Pure and side-effect free so the decision is testable without
+        threads or timing."""
+        last = self._last_progress_ts
+        if last is None:
+            return True
+        return (now - last) <= self._hb_max_stall
 
     def _stop_heartbeat(self) -> None:
         """Halt the heartbeat thread and wait for it to leave refresh().
@@ -1349,6 +1407,16 @@ class BotRunner:
         try:
             while not self._stop:
                 now = time.time()
+                # C1b: the ONE thing the loop still owes the heartbeat - proof
+                # it is moving. Stamped at the TOP, so it records "the previous
+                # iteration finished"; a cycle_once that hangs leaves this
+                # frozen and the heartbeat thread stops claiming the lock once
+                # the gap passes lock_progress_max_stall_sec. A plain
+                # assignment is deliberate: float store/load is atomic under
+                # the GIL, so the reader needs no lock, and taking one here
+                # would put cycle-body contention back on the heartbeat path -
+                # the exact coupling C1 removed.
+                self._last_progress_ts = now
                 # C1: the heartbeat is written by the daemon thread started in
                 # __init__, at a fixed cadence the cycle body cannot stall.
                 # The loop only READS the verdict. Writing it here made the

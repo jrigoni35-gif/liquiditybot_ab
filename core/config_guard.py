@@ -1580,6 +1580,32 @@ def validate(config: dict) -> list:
         warn(f"polling_interval_sec={poll:.0f}s: stops are only enforced "
              f"once per cycle - this is a long time to be blind")
 
+    # C1b: the loop-progress bound the lock heartbeat withholds on. Guarded
+    # because BOTH directions are silent failures with real consequences: too
+    # LOW and a merely-slow cycle stops the heartbeat, re-creating the false
+    # takeover that produced two audit-chain forks; too HIGH and a hung runner
+    # squats the lock long enough that no healthy replacement can ever start.
+    # Only checked when declared - an absent key keeps runner.py's own 300.0
+    # default, so every existing config and test fixture is unaffected.
+    _lpms_raw = _f(config, "system.lock_progress_max_stall_sec", None)
+    if _lpms_raw is not None:
+        _lpms = float(_lpms_raw)
+        if not (60.0 <= _lpms <= 3600.0):
+            fatal(f"system.lock_progress_max_stall_sec ({_lpms:g}) must be in "
+                  f"[60, 3600] - below 60s a normal slow cycle reads as a hang "
+                  f"(88.1s measured live), above 3600s a hung runner holds "
+                  f"outputs/runner.lock for an hour")
+        # Mirror runner.main()'s OWN derivation exactly - there is no
+        # lock_stale_after_sec key, and inventing one here would guard a
+        # number the runner never uses:
+        #     SingleInstanceLock(stale_after_sec=max(poll * 5, 30.0))
+        _stale = max(poll * 5.0, 30.0)
+        if _lpms <= 2.0 * _stale:
+            fatal(f"system.lock_progress_max_stall_sec ({_lpms:g}) must exceed "
+                  f"2x the lock stale window ({_stale:g}s) - at or below it the "
+                  f"heartbeat stops before a peer could even consider the lock "
+                  f"stale, so the bound only ever costs availability")
+
     cfh = int(_f(config, "system.cycle_fail_halt", 10))
     if cfh < 1:
         fatal("system.cycle_fail_halt must be >= 1 - the runner halts new "

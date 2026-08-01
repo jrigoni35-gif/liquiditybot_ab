@@ -838,6 +838,8 @@
   "system": {
     "log_level": "INFO",
     "polling_interval_sec": 5,
+    "lock_progress_max_stall_sec": 300,
+    "_lock_progress_doc": "C1b (2026-08-01): how long the main loop may go without advancing before the lock-heartbeat thread STOPS claiming outputs/runner.lock. C1 moved the heartbeat off the cycle thread so a slow cycle could not age the lock past its 30s stale window - correct, and it fixed the false takeovers behind both audit-chain forks (RT-010 x2, both lost_count=3). But an unconditional heartbeat proves only that the PROCESS is alive: a cycle_once that HANGS rather than raises would then hold the lock forever, and no healthy runner could ever replace it. The wedge guard does not cover a hang (runner.py scopes it to a cycle that RAISES every iteration), so before C1 the stale lock WAS the sole recovery path and C1 removed it. This bound restores it: refresh while the loop MOVES however slowly, withhold once it has demonstrably stopped. DERIVED, not tuned: 300s is ~3.4x the worst stall ever measured on this machine (88.1s; the others were 55.5/50.2/48.4/47.8s, outputs/runner.log) and 10x SingleInstanceLock.stale_after_sec (30s) - far above any legitimate cycle, far below an interval an operator would fail to notice. Startup is exempt by construction: the heartbeat thread starts BEFORE the unbounded LiquidityBot build, so _last_progress_ts is None until the first iteration and refresh is unconditional until then. config_guard FATALs outside [60, 3600] and FATALs at/below 2x the lock stale window.",
     "slow_cycle_every_n": 6,
     "macro_refit_minutes": 60,
     "dry_run": true,
