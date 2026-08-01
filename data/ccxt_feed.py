@@ -19,9 +19,14 @@ Boundaries, enforced in code not prose:
     pattern): absence degrades to an empty feed with one warning.
   * every payload crosses core/sanitize before anything downstream
     sees it — same hostile-input posture as the native feeds.
+  * DL-11 UNAVAILABLE-IS-NOT-ZERO. `funding_rate` is None whenever the
+    venue has no funding endpoint, the symbol is spot, or the fetch/parse
+    fails — never a fabricated 0.0 that the merge would average into a
+    real print (see `_one`).
 """
 
 import logging
+import math
 import time
 
 from core.sanitize import clean_book, clean_candles
@@ -106,14 +111,25 @@ class CCXTFeed:
             {"time": _f(r[0]) / 1000.0, "open": _f(r[1]), "high": _f(r[2]),
              "low": _f(r[3]), "close": _f(r[4]), "volume": _f(r[5])}
             for r in raw if isinstance(r, (list, tuple)) and len(r) >= 6])
-        funding = 0.0
+        # DL-11: funding is UNAVAILABLE (None), never a fabricated 0.0 —
+        # matching okx_feed.get_funding_rate and binanceus_feed's spot-only
+        # None. A fake "funding is exactly zero" print is indistinguishable
+        # from a real 0% print downstream, and liquidity_model.build_view
+        # AVERAGES every source that returns non-None (:322-324), so one
+        # fabricated 0.0 halves a genuine OKX print — pulling a real 0.012
+        # under the 0.01 veto threshold. Skipping on failure lets the merge's
+        # `is not None` filter (:220) drop this source for the cycle and keeps
+        # `funding_available` honest.
+        funding = None
         try:
             if getattr(c, "has", {}).get("fetchFundingRate") and \
                     (symbol.endswith(("SWAP", "PERP")) or ":" in symbol):
                 fr = c.fetch_funding_rate(symbol)
-                funding = _f((fr or {}).get("fundingRate"))
+                raw_fr = _f((fr or {}).get("fundingRate"),
+                            default=float("nan"), lo=-1.0, hi=1.0)
+                funding = None if math.isnan(raw_fr) else raw_fr
         except Exception:
-            funding = 0.0                  # spot venues: fine, neutral
+            funding = None                 # unavailable, NOT a neutral zero
         vol24 = 0.0
         try:
             t = c.fetch_ticker(symbol) or {}

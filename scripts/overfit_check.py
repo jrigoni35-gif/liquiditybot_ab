@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np                                            # noqa: E402
 
-from ml.history import HistoryStore                            # noqa: E402
+from ml.history import load_for_config, store_for_config       # noqa: E402
 from ml.models import GradientBoostedStumps                    # noqa: E402
 from ml.overfit import (LC_MIN_OOF, LC_TREND_MARGIN_AUC,       # noqa: E402
                         REGIME_DEGRADE_MARGIN_AUC, REGIME_MIN_N,
@@ -135,7 +135,8 @@ def synthetic_benchmark(n: int | None = None, seed: int = 11):
 
 
 def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
-                 history_path: "str | None" = None):
+                 history_path: "str | None" = None,
+                 ml_cfg: "dict | None" = None):
     """min_rows gates when the ML-layer checks (OF-1/2/3/6/7) switch from
     the deterministic synthetic benchmark to real production history. It
     defaults to 10 rows/feature (matching feature_dof_report's own
@@ -159,6 +160,14 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
     scanning the wrong file, every lookup missing, the arm fail-opening
     into a silent no-op instead of erroring).
 
+    `ml_cfg` (2026-08-01 audit H12) is the SAME resolved ml block main()
+    already reads once for hist_path/adaptive/select_cfg, extended to the
+    loader itself — the corpus era (ml.label_max_bars) and the sample
+    weights (ml.sample_weights) must come from the same config read as the
+    corpus path or the battery audits a different corpus than it reports.
+    Left None it falls back to the historical cwd-relative config.json
+    read, so a direct/standalone caller is unchanged.
+
     Returns (X, y, w, sig, res, source, n_live). `res` (per-row label
     RESOLUTION time) is additive — return_label_times=True changes nothing
     about how X/y/w/sig are computed (ml/history.py's load_training_data
@@ -171,25 +180,30 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
     from ml.features import FEATURE_NAMES
     if min_rows is None:
         min_rows = len(FEATURE_NAMES) * 10
-    store = HistoryStore(history_path or "outputs/signal_history.csv")
     # same weighting the deployed trainer uses (uniqueness / barrier / skew),
-    # so every OF instrument measures the process that actually ships
-    try:
-        with open("config.json", encoding="utf-8") as fh:
-            _ml_cfg = json.load(fh).get("ml", {}) or {}
-        _sw = _ml_cfg.get("sample_weights", {})
-        # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
-        # OF-3's PBO must measure the SAME corpus the production retrain path
-        # (main.py) trains on - the cross-consumer prerequisite that sank the
-        # epoch filter (docs/quant/pbo_admission_policy.md) applies here with
-        # a sharper edge, since this filter auto-activates on the data alone.
-        _era = _ml_cfg.get("era_exclusion", {})
-    except (OSError, ValueError):
-        _sw = {}
-        _era = {}
-    X, y, w, sig, res = store.load_training_data(return_label_times=True,
-                                                  weights_cfg=_sw,
-                                                  era_cfg=_era)
+    # so every OF instrument measures the process that actually ships.
+    # `ml_cfg` is main()'s ONE resolved config block (see its comment on why
+    # hist_path is resolved once); the cwd-relative read below is the
+    # standalone/legacy fallback for a direct caller that supplies neither.
+    if ml_cfg is None:
+        try:
+            with open("config.json", encoding="utf-8") as fh:
+                ml_cfg = json.load(fh).get("ml", {}) or {}
+        except (OSError, ValueError):
+            ml_cfg = {}
+    # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+    # OF-3's PBO must measure the SAME corpus the production retrain path
+    # (main.py) trains on - the cross-consumer prerequisite that sank the
+    # epoch filter (docs/quant/pbo_admission_policy.md) applies here with
+    # a sharper edge, since this filter auto-activates on the data alone.
+    # store_for_config also threads ml.label_max_bars as max_bars: the bare
+    # HistoryStore() default (96) resolved current_era to the legacy
+    # "triple_barrier" while main.py:714 resolves "triple_barrier_h24", so
+    # the era filter kept production's exact COMPLEMENT and every OF verdict
+    # was measured on a corpus the bot never trains on (2026-08-01 audit H12).
+    store = store_for_config(ml_cfg, history_path)
+    X, y, w, sig, res = load_for_config(store, ml_cfg,
+                                        return_label_times=True)
     if not force_synthetic and len(X) >= min_rows and 5 <= y.sum() <= len(y) - 5:
         # live rows: hand the signal-time array down so the OF folds purge
         # by TIME, exactly like the deployed selector (evaluate_and_select).
@@ -632,16 +646,24 @@ def main() -> int:
     hist_path = _ml_cfg.get("history_path", "outputs/signal_history.csv")
 
     X, y, w, sig, res, source, n_live = load_dataset(
-        force_synthetic=args.force_synthetic, history_path=hist_path)
+        force_synthetic=args.force_synthetic, history_path=hist_path,
+        ml_cfg=_ml_cfg)
     print(f"[OF-1] train/OOF gap  ({source})")
     # return_oof=True: purely additive (see train_test_gap docstring) - it
     # only adds 'oof_idx'/'oof_pred' keys the gap[...] checks below never
     # read, so OF-1's verdicts are unaffected. Consumed by the regime-
     # stratified diagnostic at the end of main() so it reuses gbt's OOF
     # predictions instead of retraining separately.
+    # res=res: the DEPLOYED selector purges on measured label RESOLUTION
+    # time (main.py:5734 -> evaluate_and_select(res=res)), a branch that
+    # ignores label_span entirely — which is why OF-1's label_span literal
+    # drifting from ml.label_max_bars is NOT fixed by wiring the config
+    # knob in (span-24 UNDER-purges every fold vs the deployed sizes; see
+    # train_test_gap's docstring for the measured fold widths). Threading
+    # res is what makes OF-1 measure the process that actually ships.
     gaps = train_test_gap(X, y, sample_weight=w,
                           n_splits=3 if args.quick else 5, sig=sig,
-                          return_oof=True)
+                          return_oof=True, res=res)
     for name, g in gaps.items():
         if not g.get("folds"):
             info(f"gap[{name}]", "no viable folds")
@@ -744,13 +766,22 @@ def main() -> int:
                      f"row(s) excluded from TRAINING only — scoring still "
                      f"uses the full shared OOF rows)")
 
+    # sample_weight=w / res=res: OF-3 certifies the DEPLOYED selection rule,
+    # so its per-arm fits must use the deployed trainer's de Prado weights
+    # (ml/walkforward.py:302-303) and its folds the deployed purge basis.
+    # Fitting uniformly perturbed per-family Brier by 0.0012-0.0121 against
+    # a BRIER_MARGIN of 0.002 on the live corpus — a conscious CSCV
+    # re-baseline per docs/quant/pbo_admission_policy.md rule 2, NOT a
+    # widened gate. Weight the FIT, not the metric: M stays unweighted
+    # because deployed selection ranks on unweighted Brier.
     pb = model_space_pbo(X, y, n_splits=3 if args.quick else 5,
                          n_blocks=6 if args.quick else 8, sig=sig,
                          include_adaptive=inc_adaptive,
                          adaptive_cfg=adaptive_cfg,
                          n_live=n_live, select_cfg=select_cfg,
                          schema_ab_cols=schema_ab_cols,
-                         epoch_ab_mask=epoch_ab_mask)
+                         epoch_ab_mask=epoch_ab_mask,
+                         sample_weight=w, res=res)
     if pb.get("pbo") is None:
         info("pbo", pb.get("reason", "n/a") +
              (f" (space={pb.get('configs')})" if pb.get("configs") else ""))
@@ -799,8 +830,12 @@ def main() -> int:
 
     print("[OF-7] feature degrees-of-freedom")
     from ml.features import FEATURE_NAMES
+    # sample_weight=w: the dead-feature read must be taken off the model the
+    # deployed trainer fits (weighted), not an unweighted stand-in - same
+    # "measure the process that ships" contract as OF-3 above.
     dof = feature_dof_report(X, y, FEATURE_NAMES,
-                             label_span=32 if args.quick else 96, sig=sig)
+                             label_span=32 if args.quick else 96, sig=sig,
+                             sample_weight=w)
     check("dof: not starved (>=10 rows per feature)", not dof["starved"],
           f"rows/feature={dof['rows_per_feature']:.1f} "
           f"({dof['n_rows']} rows / {dof['n_features']} features)")
@@ -838,7 +873,16 @@ def main() -> int:
 
     # ---- live-results layer ---------------------------------------------
     print("[OF-5] deflated Sharpe (live trades)")
-    store = HistoryStore()
+    # SAME hist_path the ML layer above loaded from (resolved once at the
+    # top of main()). This live-results layer was left on the bare
+    # HistoryStore() default — the exact desync the ML layer already fixed
+    # for load_dataset. Dormant while config matches the default, but after
+    # a corpus rotation/repoint OF-5 emits a confident PASS/FAIL DSR verdict
+    # on the WRONG sample and the report header never prints the path it
+    # read. hist_path stays relative when config says so, preserving the
+    # cwd-relative resolution tests/test_overfit_check_ci.py:39-44 depends
+    # on (it pins OF-5's DEFERRED branch by running from an empty cwd).
+    store = store_for_config(_ml_cfg, hist_path)
     live_rows = []
     try:
         import csv

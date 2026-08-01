@@ -40,6 +40,17 @@ log = logging.getLogger("liquiditybot.core.config_guard")
 KRAKEN_SPOT_FLOOR_MAKER_BPS = 25.0
 KRAKEN_SPOT_FLOOR_TAKER_BPS = 40.0
 
+# Entry-signal engines main.py:540 can dispatch. NOT a tunable: this is a
+# statement of what the code can construct, so it belongs beside the module
+# it mirrors, not in config.json. Adding an engine means editing main.py's
+# dispatch AND this tuple in the same change.
+KNOWN_SIGNAL_ENGINES = ("informed_flow", "five_gate")
+# main.py:540's own fallback when strategies.engine is absent. Mirrored (not
+# chosen) so the guard reports on the engine that will actually run; it
+# disagrees with config.json's shipped "informed_flow" on purpose - that
+# disagreement is the finding, and the guard's job is to say so out loud.
+_MAIN_ENGINE_FALLBACK = "five_gate"
+
 
 class ConfigError(RuntimeError):
     pass
@@ -1392,15 +1403,67 @@ def validate(config: dict) -> list:
     # Same failure mode as the pretrade/order_manager fee split above: two
     # independent copies of one number silently drift apart. Enforce parity
     # rather than pick a canonical source, so either being edited catches it.
-    sizer_max_pos = float(_f(config,
-                             "position_sizer.max_position_size_pct_of_capital",
-                             max_pos))
-    if abs(max_pos - sizer_max_pos) > 1e-9:
-        fatal(f"max_position_size_pct_of_capital mismatch: "
-              f"capital_management ({max_pos}) != position_sizer "
-              f"({sizer_max_pos}) - only the position_sizer copy actually "
-              f"caps live entries; the capital_management copy is checked "
-              f"here but not enforced at runtime")
+    # Resolved with a None SENTINEL, never with the other copy as its
+    # default: `_f(..., max_pos)` made an ABSENT sizer key compare equal to
+    # the capital_management copy forever, so this parity FATAL could not
+    # detect the one failure it exists for. That is not hypothetical - the
+    # operator's deliberate 10 -> 25 raise (6e57ebd7) was deleted from the
+    # position_sizer block by an unrelated commit (ae4b5314), the live entry
+    # cap silently reverted to PositionSizer's 10.0 code default, and this
+    # check reported clean the whole time. A default can never detect a
+    # missing key.
+    sizer_raw = _f(config, "position_sizer.max_position_size_pct_of_capital")
+    cap_raw = _f(config, "capital_management.max_position_size_pct_of_capital")
+    if sizer_raw is None:
+        # Only FATAL when the operator HAS expressed a cap in
+        # capital_management: with both keys absent the two code defaults
+        # (PositionSizer 10.0 / CapitalManager 10) genuinely agree and
+        # nothing has silently drifted - that is a bare/partial config, not
+        # a half-reverted decision.
+        if cap_raw is not None:
+            fatal(f"position_sizer.max_position_size_pct_of_capital is "
+                  f"MISSING while capital_management sets it ({max_pos}) - "
+                  f"the position_sizer copy is the ONLY one that caps a live "
+                  f"entry (risk/position_sizer.py), so the bot would silently "
+                  f"run at PositionSizer's 10.0 code default and every "
+                  f"report of the capital_management number would be a lie. "
+                  f"Restore the key to the position_sizer block.")
+    else:
+        sizer_max_pos = float(sizer_raw)
+        if not (0 < sizer_max_pos <= 100):
+            fatal(f"position_sizer.max_position_size_pct_of_capital "
+                  f"({sizer_max_pos}) out of (0, 100] - this is the cap that "
+                  f"actually bounds a live entry")
+        if abs(max_pos - sizer_max_pos) > 1e-9:
+            fatal(f"max_position_size_pct_of_capital mismatch: "
+                  f"capital_management ({max_pos}) != position_sizer "
+                  f"({sizer_max_pos}) - only the position_sizer copy actually "
+                  f"caps live entries; the capital_management copy is checked "
+                  f"here but not enforced at runtime")
+
+    # THIRD copy: main.py builds a SECOND PositionSizer for the long book
+    # from long_book.position_sizer, and the parity check above has never
+    # covered it - the block shipped absent, so that sizer has ALWAYS capped
+    # at PositionSizer's 10.0 code default regardless of what either key
+    # above says. Bounds it when present. Absent is only an ADVISORY, not a
+    # FATAL: unlike the 5m sizer copy there is no second key to drift from,
+    # the effective value is the documented code default, and the long book
+    # is EvidenceLadder-bounded rather than Kelly-bounded - so an absent key
+    # is under-specified config, not a half-reverted operator decision.
+    lb_cap_raw = _f(config,
+                    "long_book.position_sizer.max_position_size_pct_of_capital")
+    if lb_cap_raw is None:
+        if _f(config, "long_book"):
+            advisory("long_book.position_sizer.max_position_size_pct_of_"
+                     "capital is unset - main.py's long-book PositionSizer "
+                     "silently runs at the 10.0 code default and no parity "
+                     "check covers it. State it explicitly (10 preserves "
+                     "today's behaviour exactly).")
+    else:
+        lb_cap = float(lb_cap_raw)
+        if not (0 < lb_cap <= 100):
+            fatal(f"long_book.position_sizer.max_position_size_pct_of_capital "
+                  f"({lb_cap}) out of (0, 100]")
 
     # untradeable-by-construction check: if the largest permitted position
     # is below every minimum ticket, the bot will veto 100% of entries and
@@ -1588,12 +1651,56 @@ def validate(config: dict) -> list:
                   f"boundary (inverted)")
 
     # --- live credentials -------------------------------------------------
-    if not dry_run:
-        if not _f(config, "exchanges.kraken.api_key", "") \
-                or not _f(config, "exchanges.kraken.api_secret", ""):
-            fatal("live mode requires Kraken api_key and api_secret in "
-                  "exchanges.kraken - every private call would silently "
-                  "fail otherwise")
+    # Resolved through the SAME precedence data/kraken_feed.py actually uses
+    # (env var NAMED in config -> conventional KRAKEN_API_KEY/SECRET ->
+    # literal config value). Reading the dict alone made this gate both
+    # unnecessary AND insufficient for its own stated purpose: it FATAL'd a
+    # correctly-configured env-only live start (the documented, secure path
+    # that tests/test_credential_resolution.py pins), while a config literal
+    # shadowed by a stale env var passed the gate and then failed every
+    # private call. KrakenFeed._resolve_cred is a @staticmethod over the
+    # exchange sub-dict; imported lazily here per this module's guard-purity
+    # rule (zero in-repo imports at MODULE scope), with the same optional-
+    # third-party fallback as the pair-meta check below - `requests` may be
+    # absent in a bare env, and a missing HTTP lib must not blind the guard.
+    kraken_cfg = _f(config, "exchanges.kraken", {}) or {}
+    lit_key = str(kraken_cfg.get("api_key", "") or "")
+    lit_secret = str(kraken_cfg.get("api_secret", "") or "")
+    try:
+        from data.kraken_feed import KrakenFeed
+        res_key = KrakenFeed._resolve_cred(kraken_cfg, "api_key",
+                                           "api_key_env", "KRAKEN_API_KEY")
+        res_secret = KrakenFeed._resolve_cred(kraken_cfg, "api_secret",
+                                              "api_secret_env",
+                                              "KRAKEN_API_SECRET")
+    except ImportError:      # no requests -> fall back to the literals only
+        res_key, res_secret = lit_key, lit_secret
+    if not dry_run and (not res_key or not res_secret):
+        fatal("live mode requires Kraken api_key and api_secret to RESOLVE "
+              "at startup - neither the env var named in exchanges.kraken."
+              "api_key_env/api_secret_env, nor KRAKEN_API_KEY/"
+              "KRAKEN_API_SECRET, nor a literal in exchanges.kraken supplied "
+              "one; every private call would silently fail")
+    # REVERSE direction, and the one that actually costs something if it is
+    # ever wrong: config.json is git-tracked (`git ls-files` lists it, it is
+    # not in .gitignore) and ships inside the deliverable zip, so a literal
+    # here is a secret in version control - exactly what
+    # docs/SECURITY_AUDIT.md forbids. Unconditional (not dry-run gated): a
+    # key committed while paper-trading is just as leaked. enforce() still
+    # only REFUSES TO START on live, so a dry-run operator gets a loud
+    # CRITICAL log and a chance to rotate rather than a dead bot.
+    leaked = [n for n, v in (("api_key", lit_key),
+                             ("api_secret", lit_secret)) if v]
+    if leaked:
+        fatal(f"exchanges.kraken {leaked} hold literal value(s) - config.json "
+              f"is version-controlled and ships in the deliverable, so a real "
+              f"credential here is a committed secret. Clear the literal(s) "
+              f"and supply the credential via KRAKEN_API_KEY/"
+              f"KRAKEN_API_SECRET (or the env var names in "
+              f"exchanges.kraken.api_key_env/api_secret_env); "
+              f"data/kraken_feed.py resolves env FIRST. If a real key was "
+              f"ever committed, rotate it on Kraken - removing it from the "
+              f"file does not remove it from git history.")
 
     # --- new hardening sections (defaults are fine; nonsense is not) ------
     dm = float(_f(config, "order_manager.deadman_timeout_sec", 60))
@@ -2357,6 +2464,38 @@ def validate(config: dict) -> list:
         if not (0.0 <= st <= 5.0):
             fatal(f"signal_gates.learned_weights.strength={st} out of "
                   f"[0, 5]")
+
+    # --- strategies.engine: which entry-signal engine actually runs -------
+    # main.py:540 dispatches InformedFlowEngine on an EXACT "informed_flow"
+    # match and falls through to the rev-1 SignalGateEngine for literally
+    # anything else. Both expose the same evaluate_asset signature and the
+    # call site uses defensive getattr, so a typo ("informed-flow",
+    # "informedflow", "5gate") does not crash - it silently swaps the entire
+    # entry-signal engine and every real-money entry with it. This key had
+    # ZERO validation while the structurally identical ml.label_mode typo
+    # already FATALs. Aggravated by ml/history.py:782: under five_gate the
+    # sg_* feature columns are written as 0.0, so the learning corpus
+    # accumulates zero-filled rows indistinguishable from pre-instrumentation
+    # ones - a silent engine swap poisons the ML corpus too, not just entries.
+    eng_raw = _f(config, "strategies.engine")
+    if eng_raw is None:
+        # NOT a default here: mirror main.py's ACTUAL fallback so the guard
+        # never reports on an engine other than the one that will run. The
+        # code default ("five_gate") is the opposite of config.json's shipped
+        # value ("informed_flow") and of main.py's own module docstring -
+        # deleting the key silently rolls the bot back to rev-1.
+        advisory(f"strategies.engine unset - main.py falls back to "
+                 f"'{_MAIN_ENGINE_FALLBACK}' (the rev-1 rollback stack) "
+                 f"while config.json ships 'informed_flow'. Set it "
+                 f"explicitly; an absent key is a silent engine swap.")
+    elif str(eng_raw) not in KNOWN_SIGNAL_ENGINES:
+        fatal(f"strategies.engine '{eng_raw}' is not a known engine "
+              f"{sorted(KNOWN_SIGNAL_ENGINES)} - main.py dispatches "
+              f"InformedFlowEngine on an EXACT 'informed_flow' match and "
+              f"silently falls through to the rev-1 SignalGateEngine for "
+              f"every other value, so a typo swaps the entire entry-signal "
+              f"engine (and zero-fills the sg_* learning features) with no "
+              f"error anywhere")
 
     # --- informed_flow (rev-3 fusion engine) coherence --------------------
     # strategies.engine defaults to "informed_flow" (config.json's shipped

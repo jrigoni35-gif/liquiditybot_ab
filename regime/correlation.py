@@ -20,6 +20,8 @@ from itertools import combinations
 
 import numpy as np
 
+from core.sanitize import safe_float
+
 log = logging.getLogger("liquiditybot.regime.correlation")
 
 EPS = 1e-12
@@ -81,7 +83,22 @@ class CorrelationEngine:
         self.slow = _EwmaCov(float(cfg.get("lambda_slow", 0.997)))
         self.shift_threshold = float(cfg.get("shift_threshold", 0.25))
         self.turb_lookback = int(cfg.get("turbulence_lookback_days", 250))
+        # H9: fold one ALIGNED cross-asset step, never one caller invocation.
+        # The engine is fed the last committed 5m bar close from a per-asset
+        # cache whose refresh is budgeted (3 pairs/cycle), so a call carries a
+        # mix of freshly-advanced and unchanged series - and folding an
+        # unchanged price as a real 0.0 return partitioned the universe into
+        # refresh groups whose covariance entries were never updated together.
+        # Cross-group corr/beta then read ~0.00 forever, which is below
+        # hedging.min_hedge_correlation, i.e. the hedge gate was structurally
+        # dead for the assets that most needed it. Rollback: false.
+        self.align_updates = bool(cfg.get("align_intraday_by_bar", True))
+        # bounded wait so one dead series can never stall the estimator
+        self.align_max_wait = max(int(cfg.get("align_max_wait_evals", 8)), 1)
         self._last_close: dict = {}
+        self._last_ts: dict = {}        # asset -> bar_ts of its last fold
+        self._pending: dict = {}        # asset -> (close, bar_ts|None)
+        self._wait = 0                  # consecutive calls that did not fold
         self.state = CorrState()
         # 2026-07-29 log hygiene: "correlation shift detected" used to
         # dump the FULL pair->shift dict at INFO every intraday update
@@ -92,13 +109,94 @@ class CorrelationEngine:
         self._was_shifted = False
 
     # --- per-cycle intraday returns (5m cadence) -----------------------
-    def update_intraday(self, closes: dict) -> CorrState:
-        rets = {}
+    def _stage_intraday(self, closes: dict, bar_ts) -> dict:
+        """Buffer this call's observations; return the ALIGNED return vector
+        to fold, or {} while the step is still incomplete.
+
+        bar_ts (asset -> bar open timestamp) is the authoritative "did this
+        series advance?" evidence and should always be supplied. Without it
+        the only available evidence is the close changing: a non-refreshed
+        cache hands back the byte-identical float, and treating that as a
+        genuine 0.0 return is precisely the H9 defect.
+        """
+        ts_map = bar_ts or {}
+        for gone in [a for a in self._pending if a not in closes]:
+            # an asset that left the universe must not hold the step open;
+            # its return is re-observed from the unchanged basis if it returns
+            self._pending.pop(gone, None)
         for asset, px in closes.items():
+            px = float(px)
+            if px <= 0:
+                continue
+            ts = ts_map.get(asset)
+            ts = float(ts) if ts is not None else None
+            if asset not in self._last_close:
+                self._last_close[asset] = px      # anchor only, no return yet
+                if ts is not None:
+                    self._last_ts[asset] = ts
+                continue
+            prev_ts = self._last_ts.get(asset)
+            if ts is not None:
+                if prev_ts is not None and ts <= prev_ts:
+                    continue                      # same (or stale) bar
+            elif px == self._last_close[asset]:
+                continue                          # unrefreshed cache
+            # newest observation wins: the pending return always spans from
+            # the last FOLDED close, so two advances before a fold compose
+            self._pending[asset] = (px, ts)
+
+        tracked = [a for a in closes if a in self._last_close]
+        pending = {a: v for a, v in self._pending.items() if a in closes}
+        forced = self._wait >= self.align_max_wait
+        if len(pending) < 2 or (len(pending) < len(tracked) and not forced):
+            # only a HELD partial step burns the budget; quiet calls between
+            # bars must not age it out and force a half-universe fold
+            self._wait = self._wait + 1 if pending else 0
+            return {}
+        fold = pending
+        stamped = {a: v[1] for a, v in pending.items() if v[1] is not None}
+        if stamped and not forced:
+            groups: dict = {}
+            for a, ts in stamped.items():
+                groups.setdefault(ts, []).append(a)
+            if len(groups) > 1:
+                # the universe straddles two bars: fold the LARGEST group and,
+                # on ties, the OLDER one, so the leaders stay pending and the
+                # whole universe realigns on the next call
+                pick = max(groups, key=lambda t: (len(groups[t]), -t))
+                fold = {a: pending[a] for a in groups[pick]}
+                if len(fold) < 2:
+                    self._wait += 1
+                    return {}
+                log.debug("correlation: folding %d/%d assets at bar %s",
+                        len(fold), len(pending), pick)
+        rets = {}
+        for asset, (px, _ts) in fold.items():
             last = self._last_close.get(asset)
-            self._last_close[asset] = px
-            if last and last > 0 and px > 0:
+            if last and last > 0:
                 rets[asset] = float(np.log(px / last))
+        for asset, (px, ts) in fold.items():      # commit the new basis
+            self._last_close[asset] = px
+            if ts is not None:
+                self._last_ts[asset] = ts
+            self._pending.pop(asset, None)
+        self._wait = 0
+        return rets
+
+    def update_intraday(self, closes: dict, bar_ts: dict | None = None
+                        ) -> CorrState:
+        """Fold one cross-asset return step. `bar_ts` maps asset -> the bar
+        open timestamp the close belongs to; supplying it makes the step
+        alignment exact instead of inferred (see _stage_intraday)."""
+        if self.align_updates:
+            rets = self._stage_intraday(closes, bar_ts)
+        else:
+            rets = {}
+            for asset, px in closes.items():
+                last = self._last_close.get(asset)
+                self._last_close[asset] = px
+                if last and last > 0 and px > 0:
+                    rets[asset] = float(np.log(px / last))
         if len(rets) >= 2:
             self.fast.update(rets)
             self.slow.update(rets)
@@ -137,19 +235,70 @@ class CorrelationEngine:
 
     # --- daily turbulence (Kritzman-Li) --------------------------------
     def update_turbulence(self, daily_candles_by_asset: dict) -> CorrState:
-        """daily_candles_by_asset: asset -> list of daily candle dicts."""
-        assets = sorted(a for a, c in daily_candles_by_asset.items()
-                        if c and len(c) >= 60)
-        if len(assets) < 2:
+        """daily_candles_by_asset: asset -> list of daily candle dicts
+        (oldest-first, each carrying its bar-open `time`).
+
+        M7: rows are joined on the BAR TIMESTAMP, never on list position.
+        Positional stacking silently pairs asset A's day d with asset B's
+        day d-k whenever one venue's history is shorter, deeper, or one
+        poll staler than another's - and the Mahalanobis distance it feeds
+        is a single-row read, so a one-day shear corrupts both Sigma and
+        the reference distribution the percentile is scored against.
+        """
+        # 1. drop each series' newest row. All three venue feeds request
+        #    include_forming=True (justified for the macro engine, which
+        #    averages over 21-126 day lookbacks) - but turbulence scores
+        #    exactly ONE row, so a partial day's return vector measured
+        #    against a full-day distribution reads as artificial calm.
+        prepped = {}
+        for asset, candles in (daily_candles_by_asset or {}).items():
+            if not isinstance(candles, list) or len(candles) < 61:
+                continue
+            by_ts = {}
+            for c in candles[:-1]:
+                t = safe_float(c.get("time"))
+                px = safe_float(c.get("close"))
+                if t > 0 and px > 0:
+                    by_ts[t] = px                 # last write wins on dupes
+            if len(by_ts) >= 60:
+                prepped[asset] = by_ts
+        if len(prepped) < 2:
             return self.state
-        n = min(len(daily_candles_by_asset[a]) for a in assets)
-        n = min(n, self.turb_lookback + 1)
+        # 2. one shared day lattice. Venues label the same trading day at
+        #    different hours (OKX "1D" rolls 00:00 Hong Kong = 16:00 UTC,
+        #    Kraken interval=1440 rolls 00:00 UTC), so an exact-timestamp
+        #    join would return the empty set and silently kill the index.
+        #    Bucketing by the series' own median step pairs each venue's
+        #    day-d bar with every other's, which is the closest join the
+        #    data supports until okx_feed requests "1Dutc".
+        steps = []
+        for by_ts in prepped.values():
+            ts = sorted(by_ts)
+            d = sorted(b - a for a, b in zip(ts, ts[1:], strict=False)
+                       if b > a)
+            if d:
+                steps.append(d[len(d) // 2])
+        if not steps:
+            return self.state
+        steps.sort()
+        step = steps[len(steps) // 2]
+        if step <= 0:
+            return self.state
+        keyed = {a: {round(t / step): px for t, px in by_ts.items()}
+                 for a, by_ts in prepped.items()}
+        assets = sorted(keyed)
+        shared = sorted(set.intersection(*(set(k) for k in keyed.values())))
+        if len(shared) < 41:                      # 40 returns is the floor
+            log.debug("turbulence: only %d shared daily bars across %d "
+                    "assets - holding the previous reading",
+                    len(shared), len(assets))
+            return self.state
+        days = shared[-(self.turb_lookback + 1):]
         R = np.column_stack([
             np.diff(np.log(np.maximum(
-                np.array([c["close"] for c in daily_candles_by_asset[a][-n:]],
-                        dtype=float), EPS)))
+                np.array([keyed[a][d] for d in days], dtype=float), EPS)))
             for a in assets
-        ])                                            # (n-1, A)
+        ])                                            # (len(days)-1, A)
         if R.shape[0] < 40:
             return self.state
         mu = R.mean(axis=0)

@@ -103,6 +103,17 @@ class PositionSizer:
         self.kelly_fraction = float(cfg.get("kelly_fraction", 0.25))
         self.kelly_cap = float(cfg.get("kelly_cap", 0.12))
         self.min_p_win = float(cfg.get("min_p_win", 0.55))
+        # THE cap that actually bounds a live entry (applied at :540).
+        # capital_management's identically-named key feeds only
+        # CapitalManager.calculate_position_size, which has no callers - so
+        # this fallback IS the live cap whenever the position_sizer copy is
+        # missing. It went missing once (deleted by an unrelated commit,
+        # ae4b5314) and ran at 10.0 for weeks against the operator's
+        # configured 25, because config_guard's parity check resolved this
+        # key with the OTHER copy as its default. The default stays 10.0 for
+        # interface stability (CLAUDE.md invariant 7) and the guard now uses
+        # a None sentinel, so a missing key FATALs instead of reading as
+        # parity - never rely on this fallback being noticed.
         self.max_position_pct = float(
             cfg.get("max_position_size_pct_of_capital", 10.0))
         self.min_ticket_usd = float(cfg.get("min_ticket_usd", 25.0))

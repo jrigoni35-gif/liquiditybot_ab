@@ -154,21 +154,35 @@ class ResilientWebSocket:
 
     Owns nothing venue-specific: it connects to `url`, optionally sends
     `subscribe`, and hands every text frame to `on_message`. Reconnects
-    with capped exponential backoff forever until `stop()`. The
-    `websockets` dependency is imported lazily so the whole module is
+    with capped exponential backoff forever until `stop()` — including
+    after a venue-side NORMAL close, which the `websockets` iterator
+    reports as a clean end-of-stream rather than an exception (W2-H8a).
+    The `websockets` dependency is imported lazily so the whole module is
     importable (and testable) without it installed."""
 
     def __init__(self, url: str, on_message: Callable[[str], None],
                  subscribe: Optional[str] = None,
                  backoff_base: float = 1.0, backoff_cap: float = 30.0,
                  ping_interval: float = 20.0,
-                 rng: Optional[Callable[[], float]] = None):
+                 rng: Optional[Callable[[], float]] = None,
+                 stable_after_s: Optional[float] = None,
+                 now: Callable[[], float] = time.monotonic):
         self.url = url
         self.on_message = on_message
         self.subscribe = subscribe
         self.backoff_base = backoff_base
         self.backoff_cap = backoff_cap
         self.ping_interval = ping_interval
+        # W2-H8(b): how long a connection must SURVIVE before it counts as a
+        # recovery that resets the backoff ladder. Defaults to one
+        # `ping_interval` - the shortest interval over which the transport
+        # itself proves liveness by exchanging a keepalive - so it is derived
+        # from an existing knob rather than a fresh fitted literal. Injectable
+        # clock (monotonic) follows KrakenV2BookStream's convention below:
+        # sidecar/data code, no engine replay/injected-`now` discipline.
+        self.stable_after_s = (float(ping_interval) if stable_after_s is None
+                               else max(float(stable_after_s), 0.0))
+        self._now = now
         import random
         # jitter only decorrelates reconnect storms across clients; it
         # guards no secret, so the non-crypto PRNG is the right tool
@@ -235,17 +249,30 @@ class ResilientWebSocket:
         import websockets
         attempt = 0
         while not self._stop.is_set():
+            # W2-H8(a): did WE end this connection (stop / resync), or did the
+            # peer? Only the latter is a disconnect that owes backoff.
+            intentional = False
+            up_since: Optional[float] = None
             try:
                 async with websockets.connect(
                         self.url, ping_interval=self.ping_interval,
                         ping_timeout=self.ping_interval,
                         open_timeout=10, close_timeout=5) as ws:
                     self.connected = True
-                    attempt = 0                 # clean connect resets backoff
+                    # W2-H8(b): stamp WHEN we connected instead of resetting
+                    # `attempt` here. Resetting on CONNECT meant a venue that
+                    # accepts the handshake and drops it a moment later pinned
+                    # every retry at attempt 0 (1-2s): the exponential ladder
+                    # and its cap were unreachable and the attempt>=3 WARNING
+                    # escalation could never fire, so a sustained flap read as
+                    # a string of unrelated blips. The reset now lives in the
+                    # except branch, gated on the connection having STAYED up.
+                    up_since = self._now()
                     if self.subscribe:
                         await ws.send(self.subscribe)
                     async for raw in ws:
                         if self._stop.is_set():
+                            intentional = True
                             break
                         try:
                             self.on_message(
@@ -256,22 +283,43 @@ class ResilientWebSocket:
                                       exc_info=True)
                         if self._resync.is_set():
                             self._resync.clear()
+                            intentional = True
                             log.info("ws resubscribe requested - "
                                      "reconnecting now")
                             break
+                self.connected = False
+                # W2-H8(a): `Connection.__aiter__` (websockets >= 14) swallows
+                # ConnectionClosedOK and simply returns, so a venue-side NORMAL
+                # close (1000/1001/1005 - maintenance, graceful drain, a proxy
+                # that closes without a status) leaves this `async with` with NO
+                # exception. That bypassed the whole except branch: no sleep at
+                # all (measured 310 reconnects/s against the execution venue's
+                # ws), `reconnects` frozen at 0 and `connected` stuck True, so
+                # health() -> status.json -> Grafana reported the outage as
+                # healthy. Re-raise it as the disconnect it is, so ONE branch
+                # owns backoff + telemetry for every non-deliberate close.
+                if not intentional and not self._stop.is_set():
+                    raise ConnectionError("closed normally by peer")
             except Exception as e:
                 self.connected = False
                 if self._stop.is_set():
                     break
+                # W2-H8(b): only a connection that actually SURVIVED counts as
+                # the "clean connect" that clears the ladder; anything shorter
+                # is part of the same ongoing outage and must keep escalating.
+                if up_since is not None and \
+                        self._now() - up_since >= self.stable_after_s:
+                    attempt = 0
                 self.reconnects += 1
                 delay = _backoff_delay(attempt, self.backoff_base,
                                        self.backoff_cap, self._rng())
                 attempt += 1
                 # a single reconnect is transient and self-healing (attempt
-                # resets to 0 on a clean connect); only a SUSTAINED outage that
-                # is not recovering (>=3 consecutive failures) is an incident
-                # worth WARNING - below that it stays INFO, off the incidents
-                # stream, so a momentary blip does not read as a fault.
+                # resets to 0 once a connection STAYS up past stable_after_s);
+                # only a SUSTAINED outage that is not recovering (>=3
+                # consecutive failures) is an incident worth WARNING - below
+                # that it stays INFO, off the incidents stream, so a momentary
+                # blip does not read as a fault.
                 lvl = logging.WARNING if attempt >= 3 else logging.INFO
                 log.log(lvl, "ws disconnect (%s); reconnecting in %.1fs "
                         "(attempt %d)", e, delay, attempt)
@@ -625,6 +673,12 @@ class WebSocketFeedManager:
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled", False))
         self.max_age_s = float(cfg.get("max_book_age_sec", 2.0))
+        # W2-H8(b): lifted knob, absent-key default is IDENTICAL to the
+        # derived one (ResilientWebSocket falls back to its ping_interval),
+        # so shipping without the key is behavior-preserving.
+        raw_stable = cfg.get("stable_connect_sec")
+        self.stable_connect_s: Optional[float] = (
+            None if raw_stable is None else float(raw_stable))
         self.cache = cache or LiveMarketCache()
         if adapter is not None:
             self.adapter = adapter
@@ -652,7 +706,8 @@ class WebSocketFeedManager:
                                       self.adapter.handle,
                                       subscribe=self.adapter.subscribe_msg(),
                                       backoff_cap=float(
-                                          self.max_age_s * 15))
+                                          self.max_age_s * 15),
+                                      stable_after_s=self.stable_connect_s)
         # wire adapter-initiated resync (e.g. Kraken checksum mismatch) to
         # this socket's own reconnect->subscribe flow; adapters without a
         # request_resubscribe hook (Binance.US) are left untouched. setattr

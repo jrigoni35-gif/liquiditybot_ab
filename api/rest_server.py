@@ -9,26 +9,46 @@ that shouldn't have to tail status.json. Standard library only
 Security posture, in order of importance:
   * binds 127.0.0.1 HARD-CODED — the bind address is not configurable,
     and any request whose peer isn't loopback is rejected anyway
-    (belt and braces against socket-level surprises);
+    (belt and braces against socket-level surprises). NOTE: loopback is
+    NOT a defence against a browser — every page the operator opens
+    runs on this host and can reach 127.0.0.1. Cross-site request
+    forgery is defended separately, below;
   * ARM_LIVE IS NOT EXPOSED. The allowed control verbs are exactly
     {pause, start, step, snapshot, entries_on, entries_off,
-    disarm_live, flatten_all} — every one of them is risk-neutral or
-    risk-REDUCING. Arming live trading remains a dashboard act with
-    the exact phrase, as designed. sim_* and stop are not exposed.
-  * optional shared-secret: if api_server.auth_token is set, every
-    request must carry it in the X-Auth-Token header;
+    disarm_live, flatten_all}. Most are risk-neutral or risk-REDUCING,
+    but `flatten_all` market-exits the live book and `start` /
+    `entries_on` CLEAR the durable risk-off sentinels
+    (outputs/paused.on, outputs/entries_off.on) — so the verb list is a
+    blast-radius cap, not an authorisation. Arming live trading remains
+    a console act with the exact phrase, as designed. sim_* and stop
+    are not exposed;
+  * CSRF: /control requires Content-Type: application/json (which is
+    not a CORS-safelisted value, so a cross-site sender must first pass
+    a preflight this server deliberately does not answer — there is no
+    do_OPTIONS, and adding one would reopen the hole), and any request
+    carrying a cross-site Origin / Referer / Sec-Fetch-Site is refused.
+    Together these reject the no-JS attack too: an HTML form with
+    enctype="text/plain" can emit a valid JSON body but cannot set a
+    non-safelisted Content-Type;
+  * optional shared-secret: if api_server.rest.auth_token is set, every
+    request must carry it in the X-Auth-Token header (parity with
+    gRPC's x-auth-token metadata). It ships EMPTY, so the CSRF checks
+    above — not the token — are what close the browser vector by
+    default;
   * GET endpoints serve the same snapshot dict the runner already
     publishes to status.json — no new information surface.
 
 Endpoints:
   GET  /health /status /positions /orders /signals /regimes /algos
   POST /control        {"cmd": "...", "payload": {...}}
+                       Content-Type: application/json (required)
 """
 
 import json
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 log = logging.getLogger("liquiditybot.api.rest")
 
@@ -37,6 +57,27 @@ ALLOWED_CONTROL = {"pause", "start", "step", "snapshot", "entries_on",
 _GET_KEYS = {"/positions": "positions", "/orders": "open_orders",
              "/signals": "signals", "/regimes": "regimes",
              "/algos": "exec_algos"}
+# Hostnames a same-origin caller on this box can legitimately present. The
+# bind is 127.0.0.1, but a browser page served from http://localhost:<port>
+# sends Origin: http://localhost:<port>, so both spellings must pass.
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Sec-Fetch-Site values that are NOT operator-initiated: modern browsers stamp
+# every request with this, and "none" (address bar / script with no initiator)
+# plus "same-origin" are the only ones a legitimate caller produces. Absent =
+# a non-browser client (curl, requests, the checkin scripts) — allowed, because
+# a non-browser client already has whatever host access it needs.
+_SAFE_FETCH_SITE = {"same-origin", "none"}
+
+
+def _origin_is_loopback(value: str) -> bool:
+    """True when an Origin/Referer header names this host. 'null' (sandboxed
+    iframe, data: URL, some file:// contexts) is NOT loopback — it is exactly
+    what a hostile embedder produces, so it must fail closed."""
+    try:
+        parts = urlsplit(value.strip())
+    except ValueError:                              # malformed -> fail closed
+        return False
+    return bool(parts.hostname) and parts.hostname.lower() in _LOOPBACK_HOSTS
 
 
 class RestStatusServer:
@@ -70,8 +111,14 @@ class RestStatusServer:
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
+                # a refused POST leaves its request body unread; on a
+                # keep-alive HTTP/1.1 connection the next parse would then
+                # read that body as a request line. Close instead of
+                # draining attacker-chosen bytes.
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.close_connection = True
 
             def _ok(self, obj):
                 body = json.dumps(obj, default=str).encode()
@@ -85,12 +132,33 @@ class RestStatusServer:
                 if self.client_address[0] not in ("127.0.0.1", "::1"):
                     self._deny(403, "loopback only")
                     return False
+                if not self._same_site():
+                    return False
                 if outer.auth_token and \
                         self.headers.get("X-Auth-Token", "") != \
                         outer.auth_token:
                     self._deny(401, "bad or missing X-Auth-Token")
                     return False
                 return True
+
+            def _same_site(self) -> bool:
+                """Refuse anything a foreign web page initiated. Applied to
+                GET as well as POST: an opaque cross-site GET cannot read the
+                body, but there is no reason to serve the live book to one."""
+                site = (self.headers.get("Sec-Fetch-Site", "") or "").lower()
+                if site and site not in _SAFE_FETCH_SITE:
+                    return self._csrf_deny("Sec-Fetch-Site", site)
+                for h in ("Origin", "Referer"):
+                    v = self.headers.get(h, "") or ""
+                    if v and not _origin_is_loopback(v):
+                        return self._csrf_deny(h, v)
+                return True
+
+            def _csrf_deny(self, header: str, value: str) -> bool:
+                log.warning("REST-002: cross-site %s refused on %s (%s: %r)",
+                            self.command, self.path, header, value[:120])
+                self._deny(403, f"cross-site request refused ({header})")
+                return False
 
             # ---- verbs ---------------------------------------------
             def do_GET(self):
@@ -115,6 +183,20 @@ class RestStatusServer:
                     return
                 if self.path != "/control":
                     return self._deny(404, "unknown endpoint")
+                # application/json is NOT a CORS-safelisted Content-Type, so
+                # requiring it forces any cross-origin sender through a
+                # preflight this server never answers (no do_OPTIONS -> 501).
+                # It is also unforgeable by an HTML form: enctype only offers
+                # urlencoded / multipart / text/plain, and the text/plain
+                # trick that emits a valid JSON body dies here. Parameters
+                # (";charset=utf-8") are allowed; the media type is not.
+                ctype = (self.headers.get("Content-Type", "") or "")
+                if ctype.split(";", 1)[0].strip().lower() != \
+                        "application/json":
+                    log.warning("REST-003: /control refused, Content-Type "
+                                "%r is not application/json", ctype[:80])
+                    return self._deny(415, "Content-Type must be "
+                                           "application/json")
                 try:
                     n = int(self.headers.get("Content-Length", 0))
                     req = json.loads(self.rfile.read(n) or b"{}")

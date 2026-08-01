@@ -287,6 +287,61 @@ def probe_corpus_decay_factor(live_labels: int, corpus_target_live: int,
     return min(max(raw, floor_frac), 1.0)
 
 
+def cross_fitted_calibrated_oof(oof_p, oof_y, folds: int = 5):
+    """H13 (2026-08-01 audit): calibration-HONEST out-of-fold probabilities
+    for the deploy gate.
+
+    The shipped artifact keeps its full-pool PAV calibrator (unchanged,
+    byte-identical) - but scoring the challenger with a calibrator fit on
+    the very rows it is then scored on is in-sample. PAV is unregularized
+    and maximally adapted to its own fit set, so that Brier is biased DOWN
+    by a systematic, one-directional optimism (measured against fresh
+    independent draws of the same fitted calibrator: +0.0066 at n=300,
+    +0.0050 at n=600, +0.0032 at n=1200) while the champion is scored
+    strictly out-of-sample by ModelMonitor.rescore_frozen's FROZEN
+    calibrator. `challenger_brier_margin` is 0.005, so the tilt is
+    25-150% of the entire deploy margin and always in the challenger's
+    favour; it never averages out across repeated retrains.
+
+    Fix: fit on each fold's COMPLEMENT and transform only that fold, so
+    every returned probability is out-of-sample w.r.t. the calibrator that
+    produced it. Folds are STRIDED (i % k), not contiguous blocks: each
+    complement is then a representative sample of the same pool, which
+    isolates the in-sample optimism this exists to remove instead of
+    confounding it with a distribution shift the shipped full-pool
+    calibrator will never suffer. Deterministic (no RNG) - replay
+    determinism is a standing engine invariant.
+
+    K defaults to 5, not the minimum 2: every complement is then 80% of
+    the pool, so each fold's calibrator stays close to the full-pool one
+    the artifact actually ships (K-fold pessimism shrinks with K), and the
+    complement still clears IsotonicCalibrator's 20-point fit floor at the
+    deploy_min_oof=30 evidence floor - K=2 would fit on 15 rows there and
+    silently degrade to raw exactly where the gate is most marginal.
+
+    Degenerate pools fall through to IsotonicCalibrator's own documented
+    identity behaviour (fit() needs >= 20 points, `fitted` needs >= 2
+    knots): a fold whose complement cannot be fit is scored on RAW
+    probabilities, exactly as the whole pool already is below 20 points.
+    Raw is never optimistic, so the gate stays fail-closed on promotion."""
+    from ml.calibration import IsotonicCalibrator
+    p = np.asarray(oof_p, float)
+    y = np.asarray(oof_y, float)
+    n = len(p)
+    k = max(int(folds), 2)
+    if n == 0:
+        return p
+    out = np.array(p, float)
+    idx = np.arange(n)
+    for i in range(k):
+        part = idx % k == i
+        if not part.any() or part.all():
+            continue
+        cal = IsotonicCalibrator().fit(p[~part], y[~part])
+        out[part] = cal.transform(p[part])
+    return out
+
+
 def _regime_under_coverage_floor(regime_live: int,
                                  regime_floor_live: int) -> bool:
     """Task 4 (#103) regime-coverage hold, pure math: True when the
@@ -450,6 +505,17 @@ class LiquidityBot:
         self.config = config
         sys_cfg = config.get("system", {})
         self.dry_run = bool(sys_cfg.get("dry_run", True))
+        # C2 (2026-08-01 audit): the SESSION's configured mode, captured
+        # once and never written again. `self.dry_run` above is MUTABLE -
+        # runner.force_dry flips it LIVE->DRY mid-session (invariant #2) -
+        # so it cannot answer "were this book's positions born against a
+        # real venue?". Everything that must key on provenance rather than
+        # on the current simulation flag reads THIS field: the simulated-
+        # fill guard below, and (cross-file) the sim_* injection gate.
+        self._config_dry_run = bool(sys_cfg.get("dry_run", True))
+        # one-shot latch so the CRITICAL fault/alert fires once, not per
+        # fabricated fill (see _simulated_fill_on_live_book)
+        self._sim_fill_on_live_latched = False
         # operator alerting + config invariants FIRST: a live bot on a
         # broken config must never get as far as touching the exchange
         self.alerts = AlertSink(config.get("alerts", {}))
@@ -1551,9 +1617,81 @@ class LiquidityBot:
         except Exception:
             log.exception("fill ledger failed - row lost, fill unaffected")
 
+    def _simulated_fill_on_live_book(self, order) -> bool:
+        """C2 provenance guard: True when `order` is a SIMULATED fill being
+        applied to a book that was born LIVE, in which case the caller must
+        refuse it outright.
+
+        `DRY-` txids are minted at exactly one place - OrderManager.submit's
+        `if self.dry_run:` branch - and `_poll_dry`/`_sim_cross` then
+        fabricate their fills off the local book. In a session CONFIGURED
+        live that can only happen after `force_dry` (invariant #2 flips
+        both `bot.dry_run` and `bot.orders.dry_run` mid-session): the
+        runner stays RUNNING, so every subsequent exit for a real Kraken
+        position is simulated, and `_handle_fill` - which carries no
+        dry/paper provenance of its own - would decrement `pos.size`, book
+        paper PnL and `_finalize_position` a position the venue still holds.
+        The book of record must never be closed by a fill that never
+        happened; refusing leaves the real positions visible and open.
+
+        Keyed on `_config_dry_run` (immutable, __init__-captured), NEVER on
+        `self.dry_run` (force_dry's own target). getattr-defaulted to paper
+        so restored objects and the `LiquidityBot.__new__()` stub harnesses
+        are exactly inert - a paper session can never trip this."""
+        if getattr(self, "_config_dry_run", True):
+            return False
+        if not str(getattr(order, "txid", "") or "").startswith("DRY-"):
+            return False
+        detail = (f"simulated fill REFUSED on a live-born book: "
+                  f"{getattr(order, 'side', '?')} {getattr(order, 'purpose', '?')} "
+                  f"{getattr(order, 'symbol', '?')} txid="
+                  f"{getattr(order, 'txid', '?')} position="
+                  f"{str(getattr(order, 'position_id', '') or '?')[:8]} - the "
+                  f"session is configured LIVE, so this fill was fabricated "
+                  f"against a real Kraken book (force_dry with open "
+                  f"positions). Position left OPEN and untouched.")
+        log.error(detail)
+        if not getattr(self, "_sim_fill_on_live_latched", False):
+            self._sim_fill_on_live_latched = True
+            fm = getattr(self, "fault", None)
+            if fm is not None:
+                # CRITICAL -> HALTED: refuses NEW risk while leaving exits
+                # allowed (core/fault.py). Latched once so the operator gets
+                # one alert, not one per fabricated fill.
+                fm.latch("simulated_fill_on_live_book", Severity.CRITICAL,
+                         detail)
+        return True
+
+    def _drop_ladder_probe_tag(self, order) -> None:
+        """SPB-R §1.4 sibling seam (H16). The refundable `probe_cost` tag
+        rides exactly ONE rung of a grid ladder, but the refund's real
+        precondition is "this DECISION bought no label". A fill on ANY rung
+        of the group means a label WAS bought, so the tag must die even
+        when the tagged rung itself later expires unfilled - otherwise one
+        deduction could be refunded against a ladder that did open a
+        position. Exception-free by construction (explicit guards, no
+        blanket except): fill accounting may never depend on it."""
+        meta = getattr(order, "meta", None)
+        grp = meta.get("ladder_group") if isinstance(meta, dict) else None
+        om = getattr(self, "orders", None)
+        if not grp or om is None:
+            return
+        for sibling in om.open_orders():
+            m = getattr(sibling, "meta", None)
+            if isinstance(m, dict) and m.get("ladder_group") == grp:
+                m.pop("probe_cost", None)
+
     def _handle_fill(self, event, now: Optional[float] = None) -> None:
         now = now if now is not None else time.time()
         order = event.order
+        # C2: provenance gate BEFORE any bookkeeping - a fabricated fill
+        # must not refund a probe, ledger a row, or touch the position.
+        # getattr-guarded: several suites drive _handle_fill off a
+        # SimpleNamespace stub `self` (the _record_probe_admission idiom),
+        # and a paper stub can never be the live book this guard protects.
+        _prov = getattr(self, "_simulated_fill_on_live_book", None)
+        if callable(_prov) and _prov(order):
+            return
         # SPB-R §1.4 order-terminal seam: an unfilled probe ENTRY terminal
         # (fill_ratio == 0 on the final event) refunds its placement-time
         # cost (SZ-052). The helper is self-guarded (meta tag presence,
@@ -1562,6 +1700,13 @@ class LiquidityBot:
         if getattr(event, "final", False):
             self._maybe_refund_probe_order(order, now)
         if event.fill_size > EPS and order.purpose in ("entry", "hedge"):
+            # H16: any rung filling retires the ladder's single refundable
+            # probe tag (see _drop_ladder_probe_tag) - a decision that
+            # bought a label is never refunded. Same getattr guard as
+            # above: stub-`self` harnesses carry no ladder orders at all.
+            _drop = getattr(self, "_drop_ladder_probe_tag", None)
+            if callable(_drop):
+                _drop(order)
             pos = self.state.get_position(order.position_id) if order.position_id else None
             if pos is None:
                 position_id = order.position_id or str(uuid.uuid4())
@@ -1642,11 +1787,39 @@ class LiquidityBot:
                         f"(p={pos.confidence:.2f}, "
                         f"hedge={pos.is_hedge})")
             else:
+                # H1 (2026-08-01 audit): the give-back ratchet arms off
+                # ProfitTierEngine._mfe_pct = (high_water - entry)/entry, so
+                # re-basing entry WITHOUT re-basing high_water re-prices a
+                # peak that never happened. Averaging DOWN - the long book's
+                # entire purpose - leaves the peak pinned to the OLD, higher
+                # basis, so a position never once in profit reports a
+                # phantom MFE, arms the ratchet, and gets 100%-closed at a
+                # loss with the thesis stop still far away. Capture the
+                # peak-gain FRACTION against the old basis first and
+                # re-anchor it onto the new one: the fraction is the
+                # invariant, so a never-profitable position carries 0.0 and
+                # stays disarmed while a genuine winner keeps its exact
+                # MFE%. Ratchet-only semantics are untouched -
+                # _update_high_water's max()/min() still owns every later
+                # move, and a LOWER re-anchored chandelier anchor can only
+                # produce a stop candidate _ratchet_stop already refuses
+                # (it never loosens held ground). high_water None (never
+                # evaluated) stays None: _mfe_pct would read it as the
+                # entry itself, and materialising it here would be a silent
+                # behaviour change on a position the tier engine has not
+                # yet seen.
+                _hw = getattr(pos, "high_water", None)
+                peak_frac = (ProfitTierEngine._mfe_pct(pos) / 100.0
+                             if _hw is not None else None)
                 total = pos.size + event.fill_size
                 pos.entry_price = (pos.entry_price * pos.size +
                                    event.fill_price * event.fill_size) / total
                 pos.size = total
                 pos.original_size = max(pos.original_size, total)
+                if peak_frac is not None:
+                    pos.high_water = pos.entry_price * (
+                        (1.0 + peak_frac) if pos.direction == "long"
+                        else (1.0 - peak_frac))
                 if pos.book == "long":
                     # re-anchor the thesis stop off the NEW average entry
                     # (main.py:~1255's averaging path; Global Constraint:
@@ -5091,6 +5264,18 @@ class LiquidityBot:
                                                reserved_entries))
         if not lplan.armed or len(lplan.rungs) < 2:
             return reserved_entries, can_enter, False
+        # SPB-R §1.4 (H16): this path deducts a probe token below
+        # (_record_probe_admission) exactly like the direct path, but
+        # stamped `probe_cost` on nothing - so the SZ-052 unfilled-entry
+        # refund was unreachable for every ladder-routed probe (~half of
+        # all placed probes, measured), burning tokens the spec guarantees
+        # back. Every rung is post_only with a ~25s timeout, i.e. exactly
+        # the attrition population the refund exists for. READ (not pop),
+        # mirroring the direct path's idiom above: the single deduction
+        # still happens once, in _record_probe_admission, and a ladder that
+        # places nothing falls through with the stash intact.
+        _spbr_cost = (getattr(self, "_pending_probe_cost", None)
+                      or {}).get(asset) if explored else None
         placed = self._place_ladder(
             lplan, position_id=position_id, asset=asset, symbol=symbol,
             side=side, signal=signal, decision=decision, lev=lev,
@@ -5101,7 +5286,8 @@ class LiquidityBot:
             target_pct=target_pct, now=now, cand_id=cand_id,
             bracket_pt_frac=bracket_pt_frac,
             bracket_sl_frac=bracket_sl_frac,
-            bracket_deadline_ts=bracket_deadline_ts)
+            bracket_deadline_ts=bracket_deadline_ts,
+            probe_cost=_spbr_cost)
         if not placed:
             # every rung rejected (firewall/collar/venue-min) — the
             # approved entry must fall back to the legacy single-entry
@@ -5135,11 +5321,21 @@ class LiquidityBot:
                       macro_state, liq_state, verdict, feats, explored,
                       p_win, model_p, shadow_p, ev_pct, stop_pct_eff,
                       target_pct, now, cand_id=None, bracket_pt_frac=0.0,
-                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0) -> int:
+                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0,
+                      probe_cost=None) -> int:
         """Submit an armed ladder's rungs as maker-only limit entries through
         the FULL existing rail (firewall, collar, venue minimums). Every rung
         is its own position with its own postmortem thesis, so labels stay
-        honest per fill. Returns rungs actually placed (each holds a slot)."""
+        honest per fill. Returns rungs actually placed (each holds a slot).
+
+        `probe_cost` (H16, default None = every pre-existing caller and the
+        stub-bot harnesses unchanged, invariant #7): the SPB-R scarcity
+        price this ONE decision will be charged. Stamped on the FIRST rung
+        that actually rests, so one decision = one deduction = one
+        refundable tag. Never on every rung - that would refund N times a
+        single deduction; and `_drop_ladder_probe_tag` retires the tag the
+        moment any sibling rung fills, because a decision that bought a
+        label is not refundable."""
         book = self.kraken_books.get(asset) or {}
         # W2-10: rung 0 already cleared PreTradeGate.evaluate() (this whole
         # pathway only runs off an APPROVED decision) -- no double-charge,
@@ -5190,6 +5386,10 @@ class LiquidityBot:
                       "est_cost_bps": decision.est_cost_bps,
                       "features": feats, "probe": explored,
                       "ladder_rung": rung.idx,
+                      # H16 group key: every rung of ONE decision shares it,
+                      # so a fill on any rung can retire the single
+                      # refundable probe tag (_drop_ladder_probe_tag).
+                      "ladder_group": position_id,
                       "candidate_id": cand_id or "",
                       "thales_fired": self._thales_fired.get(asset) or [],
                       "gate_components": dict(getattr(signal, "components", None) or {}),
@@ -5200,6 +5400,12 @@ class LiquidityBot:
             if not rung_order:
                 continue
             placed += 1
+            if probe_cost is not None and placed == 1:
+                # SPB-R §1.4: the ONE refundable tag for this decision,
+                # on the first rung that actually rested (a rejected rung
+                # never carries it, so an all-rejected ladder - which
+                # falls back to the direct path - leaves nothing tagged).
+                rung_order.meta["probe_cost"] = probe_cost
             # honest-labels doctrine: a thesis is registered only for a
             # rung that actually rested — a rejected rung (firewall/
             # collar/venue-min) must never leave an orphan postmortem
@@ -5754,7 +5960,17 @@ class LiquidityBot:
                                 f"points (<20) - auto-retrain challenger "
                                 f"ships uncalibrated",
                                 {"oof_points": int(len(sel["oof_p"]))})
-            oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
+            # H13: the SHIPPED calibrator above stays the full-pool fit
+            # (the artifact is unchanged), but the GATE score must not be
+            # calibration-in-sample while the champion is rescored strictly
+            # out-of-sample - see cross_fitted_calibrated_oof. This one
+            # vector feeds challenger_brier, the n_oof evidence count and
+            # shared_challenger_brier, so all three move together.
+            _cv_folds = int((self.config.get("ml", {}).get("monitor", {})
+                             or {}).get("gate_calibration_folds", 5))
+            oof_cal = cross_fitted_calibrated_oof(
+                sel["oof_p"], sel["oof_y"], folds=_cv_folds) \
+                if len(sel["oof_p"]) else sel["oof_p"]
             if not len(oof_cal):
                 # purged walk-forward can produce ZERO out-of-fold points at
                 # small row counts (the purge span swallows every test fold)

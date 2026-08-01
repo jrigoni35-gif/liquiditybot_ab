@@ -83,8 +83,13 @@ The bot ships `dry_run: true` in `config.json`. To arm live:
    refuses to start live below Kraken's 25/40bps public floor unless
    `pretrade.allow_sub_floor_fees` is explicitly set).
 2. Put credentials in `exchanges.kraken.api_key` /
-   `exchanges.kraken.api_secret` (config guard refuses to start live
-   without them).
+   `exchanges.kraken.api_secret`. Note the current asymmetry: at
+   *runtime* the feed resolves env-first (`exchanges.kraken.api_key_env`
+   naming a variable, else the conventional `KRAKEN_API_KEY` /
+   `KRAKEN_API_SECRET`, else the config literal), but the *live-start
+   config guard* reads the config dict only — so today an env-only setup
+   passes at runtime and still refuses to start live. `config.json` is
+   git-tracked; keep that in mind before pasting real keys into it.
 3. Set `system.dry_run: false`.
 4. At the PC console, type `ARM LIVE` (the hard gate the runner requires
    before it will actually route live orders).

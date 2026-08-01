@@ -141,6 +141,22 @@ class SentimentScanner:
         self.w_figures = float(srcs.get("figures", 0.5))
         self.w_news = float(srcs.get("news", 0.3))
         self.w_crowd = float(srcs.get("crowd", srcs.get("reddit", 0.2)))
+        # Fear/euphoria requires a volume SPIKE, and a POPULATION z-score over
+        # a short history cannot express one: it is algebraically bounded by
+        # |z| <= sqrt(n-1), so at n=2 it is pinned to exactly +-1.0 and ANY
+        # increase - one extra headline - cleared the >= 1.0 gate. _volume_hist
+        # is never persisted, so that fired on the SECOND poll after every
+        # restart (~50% of restarts, whenever item count happened to rise).
+        # Special-casing n==2 is not enough: n=3 still caps at 1.41. Require
+        # enough samples for the bound to exceed the gate with headroom, and
+        # below that report 0.0 - "not measurable yet", the neutral value -
+        # rather than a manufactured spike. Both knobs lifted with identical
+        # defaults (the 1.0 gate was a bare literal in the decision path).
+        self.volume_spike_z = float(cfg.get("volume_spike_z", 1.0))
+        # floor: sqrt(n-1) > volume_spike_z, i.e. n > z^2 + 1, so the gate is
+        # reachable-but-not-forced. No config value can re-open the n=2 hole.
+        self.min_volume_samples = max(int(cfg.get("min_volume_samples", 8)),
+                                      int(self.volume_spike_z ** 2) + 2)
         self._last_poll = 0.0
         self._snapshot = SentimentSnapshot()
         self._volume_hist: list = []
@@ -256,15 +272,24 @@ class SentimentScanner:
         score = blended_num / blended_den if blended_den > 0 else 0.0
         self._volume_hist.append(volume)
         self._volume_hist = self._volume_hist[-48:]
-        mu = sum(self._volume_hist) / len(self._volume_hist)
-        sd = (sum((v - mu) ** 2 for v in self._volume_hist)
-              / max(len(self._volume_hist), 1)) ** 0.5 or 1.0
-        vol_z = (volume - mu) / sd
+        n_hist = len(self._volume_hist)
+        if n_hist < self.min_volume_samples:
+            # cold history: the z-score is bounded by sqrt(n-1) and carries no
+            # information about a SPIKE yet. 0.0 = "unknown", which fails both
+            # spike gates - the fail-safe direction for a filter-only input.
+            vol_z = 0.0
+        else:
+            mu = sum(self._volume_hist) / n_hist
+            sd = (sum((v - mu) ** 2 for v in self._volume_hist)
+                  / n_hist) ** 0.5 or 1.0
+            vol_z = (volume - mu) / sd
 
         snap = SentimentSnapshot(
             score=score, volume=volume, volume_z=vol_z,
-            fear_spike=(score <= self.fear_threshold and vol_z >= 1.0),
-            euphoria_spike=(score >= self.euphoria_threshold and vol_z >= 1.0),
+            fear_spike=(score <= self.fear_threshold
+                        and vol_z >= self.volume_spike_z),
+            euphoria_spike=(score >= self.euphoria_threshold
+                            and vol_z >= self.volume_spike_z),
             available=blended_den > 0, ts=now,
             per_source={k: round(v, 3) for k, v in per_source.items()},
             per_figure=per_figure,

@@ -54,7 +54,7 @@ log = logging.getLogger("liquiditybot.ml.overfit")
 # ---------------------------------------------------------------------------
 def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
                    seed: int = 7, sample_weight=None, sig=None,
-                   return_oof: bool = False) -> dict:
+                   return_oof: bool = False, res=None) -> dict:
     """Per candidate: mean train AUC/Brier vs mean OOF AUC/Brier over the
     purged folds, plus the gaps. Interpretation guide (empirical, this
     data scale): gap_auc < 0.05 healthy, 0.05-0.12 watch, > 0.12 the
@@ -66,7 +66,19 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
     trains for the gap check, no additional fit. Consumed by
     scripts/overfit_check.py's regime-stratified diagnostic (report-only)
     so it never retrains separately from OF-1. Default False keeps every
-    existing caller's return dict byte-identical (no new keys added)."""
+    existing caller's return dict byte-identical (no new keys added).
+
+    `res` (per-row label RESOLUTION time, default None = unchanged): the
+    DEPLOYED selector passes it (main.py:5734 -> evaluate_and_select(res=
+    res)), and purged_walk_forward then purges on "did this label actually
+    resolve before the test block opens" instead of the fixed
+    signal+label_span horizon - which it IGNORES entirely in that branch.
+    That is why OF-1's `label_span` literal drifting from ml.label_max_bars
+    is NOT the defect it looks like and wiring the config knob in here
+    would be WRONG: measured deployed fold train sizes [303,579,925,1259,
+    1608] vs span-96 [207,532,914,1248,1613] vs span-24 [308,652,1009,1376,
+    1743] - the config value UNDER-purges every fold. Threading `res` is
+    what actually makes this instrument measure the deployed process."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     w = None if sample_weight is None else np.asarray(sample_weight, float)
@@ -80,7 +92,7 @@ def train_test_gap(X, y, label_span: int = 96, n_splits: int = 5,
         tr_a, te_a, tr_b, te_b, folds = [], [], [], [], 0
         oof_idx_parts, oof_pred_parts = [], []
         for tr, te in purged_walk_forward(len(X), n_splits, label_span,
-                                          sig=sig):
+                                          sig=sig, res=res):
             if y[tr].sum() < 5 or (len(y[tr]) - y[tr].sum()) < 5:
                 continue
             m = factory().fit(X[tr], y[tr],
@@ -463,7 +475,8 @@ def build_epoch_ab_mask(history_path: "str | Path", sig, res,
 
 def _fit_predict_arm(name: str, factory, X_arm: np.ndarray, y: np.ndarray,
                      folds: list, oof_idx: np.ndarray,
-                     row_mask: "np.ndarray | None" = None) -> tuple:
+                     row_mask: "np.ndarray | None" = None,
+                     sample_weight: "np.ndarray | None" = None) -> tuple:
     """model_space_pbo's per-arm fit/predict step, factored out so every
     arm — baseline (row_mask=None) and the opt-in schema-ab/epoch-ab
     variants alike — shares ONE code path. With row_mask=None this is
@@ -482,8 +495,13 @@ def _fit_predict_arm(name: str, factory, X_arm: np.ndarray, y: np.ndarray,
     unmasked `tr` for that fold only, rather than crashing the whole OF-3
     run, and a human-readable reason is appended to the returned notes.
 
+    sample_weight (default None = the historical UNIFORM fit): the de
+    Prado weights the deployed selector fits every rung with
+    (ml/walkforward.py:302-303). None keeps the byte-identity pin.
+
     Returns (preds, degraded_notes): preds is (len(oof_idx),) float in the
     same fold-concatenation order oof_idx was built in."""
+    w = None if sample_weight is None else np.asarray(sample_weight, float)
     preds = np.empty(len(oof_idx))
     notes: list = []
     pos = 0
@@ -502,7 +520,8 @@ def _fit_predict_arm(name: str, factory, X_arm: np.ndarray, y: np.ndarray,
                     f"(n={len(tr_masked)}, pos={n_pos:.0f}, neg={n_neg:.0f}) "
                     f"- degraded to the full unmasked training window for "
                     f"this fold only")
-        m = factory().fit(X_arm[tr_use], y[tr_use])
+        m = factory().fit(X_arm[tr_use], y[tr_use],
+                          sample_weight=None if w is None else w[tr_use])
         preds[pos:pos + len(te)] = m.predict_proba(X_arm[te])
         pos += len(te)
     return preds, notes
@@ -517,7 +536,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                     schema_ab_cols: "np.ndarray | None" = None,
                     epoch_ab_mask: "np.ndarray | None" = None,
                     include_gbt_mono: bool = False,
-                    gbt_mono_cfg: dict | None = None) -> dict:
+                    gbt_mono_cfg: dict | None = None,
+                    sample_weight=None, res=None) -> dict:
     """PBO over the model/hyperparameter space this pipeline actually
     selects from. All configs share ONE OOF index (same purged folds),
     per-period metric is per-block negative Brier — exactly the quantity
@@ -585,7 +605,30 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     argmax-stress read this function returns is only interpretable ONE ARM
     AT A TIME: measure schema_ab_cols and epoch_ab_mask in separate calls
     (as this phase's adjudication did) if you need to attribute the
-    widened-space aggregate to a single experiment."""
+    widened-space aggregate to a single experiment.
+
+    sample_weight (2026-08-01 audit, default None = the historical uniform
+    fit): the de Prado weights the DEPLOYED selector fits every rung with
+    (ml/walkforward.py:302-303, main.py:5728). Fitting the measured space
+    uniformly while the shipped space is weighted breaks the one invariant
+    this instrument exists to hold - "PBO measures the DEPLOYED rule".
+    Measured on the live corpus (weights span 43x, Kish ESS 1013/2141):
+    per-family Brier shifts of 0.0012-0.0121 against a BRIER_MARGIN of
+    0.002, i.e. the climb decision rides on a threshold 6x smaller than
+    the perturbation the missing weights introduce; with the evidence gate
+    lifted the ladder winner itself moved (gbt_d3_lr10 -> gbt_d4_lr05) and
+    PBO 0.743 -> 0.557 against a gate that fires at 0.5. WEIGHT THE FIT,
+    NOT THE METRIC: deployed selection ranks on UNWEIGHTED Brier, so M
+    below stays unweighted - weighting the score would introduce a second,
+    opposite divergence. Per docs/quant/pbo_admission_policy.md rule 2
+    this is a CONSCIOUS CSCV re-baseline on real corpora; the synthetic
+    byte-identity pin (tests/test_pbo_variants.py::_PINNED) passes no
+    weights and is therefore unmoved.
+
+    res (per-row label RESOLUTION time, default None = unchanged): same
+    deployed-parity argument as train_test_gap's - see that docstring for
+    why threading `res` (and NOT ml.label_max_bars) is the correct fix for
+    the label_span literal drift."""
     X = np.asarray(X, float)
     y = np.asarray(y, float)
     ac = adaptive_cfg or {}
@@ -664,7 +707,7 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                 f"live-row count")
 
     folds = [f for f in purged_walk_forward(len(X), n_splits, label_span,
-                                            sig=sig)
+                                            sig=sig, res=res)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
     if not folds:
         return {"pbo": None, "reason": "no viable folds"}
@@ -685,7 +728,8 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
         # on calibrated Brier (evaluate_and_select); the luck-chasing this
         # instrument polices lives in the family/margin structure, unchanged.
         preds, notes = _fit_predict_arm(name, factory, X_arm, y, folds,
-                                        oof_idx, row_mask=row_mask)
+                                        oof_idx, row_mask=row_mask,
+                                        sample_weight=sample_weight)
         degraded_notes.extend(notes)
         cols.append(-(preds - y_oof) ** 2)
         names.append(name)
@@ -727,16 +771,19 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # too narrow, purge silently inert).
     sig_oof = np.asarray(sig, float)[oof_idx] if sig is not None else None
     span_sec = float(label_span) * BAR_SECONDS
-    res = pbo_cscv(M, n_blocks=n_blocks, seed=seed, select=ladder,
+    # NAMED `out` (was `res`): `res` is now this function's per-row
+    # label-resolution-time PARAMETER, threaded to purged_walk_forward
+    # above. Shadowing it here would work by accident of ordering only.
+    out = pbo_cscv(M, n_blocks=n_blocks, seed=seed, select=ladder,
                    sig=sig_oof, label_span=span_sec)
     raw = pbo_cscv(M, n_blocks=n_blocks, seed=seed,          # argmax stress
                    sig=sig_oof, label_span=span_sec)
-    res["configs"] = names
-    res["pbo_argmax"] = raw.get("pbo")
-    res["selection_rule"] = "simplicity_ladder"
-    if res.get("pbo") is not None:
+    out["configs"] = names
+    out["pbo_argmax"] = raw.get("pbo")
+    out["selection_rule"] = "simplicity_ladder"
+    if out.get("pbo") is not None:
         best = int(np.argmax(M.mean(axis=0)))
-        res["is_winner"] = names[best]
+        out["is_winner"] = names[best]
 
     # ---- T3.2/T3.6a: per-arm pairwise report (INFO-only material for the
     # caller; never gates) — added ONLY when at least one arm was actually
@@ -770,12 +817,12 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
                 "mean_winner": mean_winner,
             }
         if experiments:
-            res["experiments"] = experiments
+            out["experiments"] = experiments
     if experiment_notes:
-        res["experiment_notes"] = experiment_notes
+        out["experiment_notes"] = experiment_notes
     if degraded_notes:
-        res["degraded_folds"] = degraded_notes
-    return res
+        out["degraded_folds"] = degraded_notes
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -904,17 +951,27 @@ def purge_leakage_probe(n: int = 900, label_span: int = 48, n_splits: int = 5,
 def feature_dof_report(X, y, feature_names, label_span: int = 96,
                        n_splits: int = 5, seed: int = 7, sig=None,
                        rows_per_feature_floor: float = 10.0,
-                       dead_importance_eps: float = 0.002) -> dict:
+                       dead_importance_eps: float = 0.002,
+                       sample_weight=None) -> dict:
     """Effective degrees of freedom of the fit: rows per feature, and the
     fraction of features whose OOS permutation importance is
     indistinguishable from zero (they only add estimation variance). Uses
     the highest-capacity candidate (gbt) on the last purged OOS fold for
     the importance read. Starved (rows/feature below floor) or a large
     dead fraction both flag overfitting surface that pruning would
-    reduce."""
+    reduce.
+
+    sample_weight (2026-08-01 audit, default None = the historical uniform
+    fit): OF-7 answers "which features does the DEPLOYED model actually
+    use", so the gbt whose importances are permuted must be the gbt the
+    deployed trainer fits - weighted (ml/walkforward.py:302-303). An
+    unweighted fit reads the dead list off a model nobody ships. Note
+    permutation_importance itself stays unweighted: the deployed path
+    scores it unweighted too, so only the MODEL BEING PERMUTED diverged."""
     from ml.walkforward import permutation_importance
     X = np.asarray(X, float)
     y = np.asarray(y, float)
+    w = None if sample_weight is None else np.asarray(sample_weight, float)
     n, d = X.shape
     folds = [f for f in purged_walk_forward(n, n_splits, label_span, sig=sig)
              if y[f[0]].sum() >= 5 and (len(y[f[0]]) - y[f[0]].sum()) >= 5]
@@ -922,7 +979,8 @@ def feature_dof_report(X, y, feature_names, label_span: int = 96,
     if folds:
         tr, te = folds[-1]
         if len(te) >= 20:
-            m = GradientBoostedStumps(seed=seed).fit(X[tr], y[tr])
+            m = GradientBoostedStumps(seed=seed).fit(
+                X[tr], y[tr], sample_weight=None if w is None else w[tr])
             imp = permutation_importance(m, X[te], y[te], list(feature_names),
                                          n_top=len(feature_names))
             dead = [name for name, drop in imp

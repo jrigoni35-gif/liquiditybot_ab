@@ -113,13 +113,52 @@ class CapitalManager:
             f"trading cash ({state.reserve_balance:.2f} remains)")
         return refill
 
+    @staticmethod
+    def _realized_drawdown_pct(state) -> float:
+        """Realized-basis drawdown that counts the drawdown RESERVE as the
+        capital it is.
+
+        core/state.py's drawdown_pct() measures (starting - cash - savings) /
+        starting, but record_realized_profit funds reserve_balance by DEBITING
+        cash - so the identity is
+            drawdown_pct() == true realized drawdown + reserve/starting*100
+        and every dollar ever routed to the reserve reads as a dollar of
+        drawdown that never happened. total_equity() (cash + savings +
+        reserve) is the same three-pool basis main.py:2209's MTM path and
+        state.total_equity() already use; only this fallback disagreed.
+
+        Consequence of the phantom: a WINNING account whose net profit is
+        below reserve_pct of gross winning profit (gross_loss/gross_win > 0.9
+        - the normal profile for a thin-edge liquidity bot) walks the phantom
+        number into hard_stop_drawdown_pct and can never come back.
+        weekly_rollover only drains the reserve on a LOSING week, and a
+        hard-stopped book goes flat, so every later week has
+        weekly_realized == 0: the reserve never drains and the entry gate
+        never reopens. Terminal lockout of a profitable account, logged as
+        "Hard stop drawdown triggered".
+
+        `state` is duck-typed at this boundary (main passes PortfolioState;
+        callers and suites pass lightweight stand-ins), so reserve_balance is
+        read with the same 0.0 that is PortfolioState's own field default -
+        reserve-off states and pre-existing stand-ins behave bit-identically.
+        """
+        start = float(getattr(state, "starting_capital", 0.0) or 0.0)
+        reserve = float(getattr(state, "reserve_balance", 0.0) or 0.0)
+        drawdown = float(state.drawdown_pct())
+        if start <= 0 or reserve == 0.0:
+            return drawdown
+        return drawdown - reserve / start * 100.0
+
     def hard_stop_triggered(self, state, mtm_equity=None) -> bool:
         # MARK-TO-MARKET drawdown when the caller supplies live equity: the
         # catastrophe backstop must see a book underwater on MARKS (stops unable
         # to fill in a gap), not only realized losses. Falls back to realized-
-        # only for any caller without marks.
+        # only (reserve-inclusive - see _realized_drawdown_pct) for any caller
+        # without marks; can_open_new_position is exactly that caller, which is
+        # why the phantom drawdown landed on the ENTRY gate.
         drawdown = (state.drawdown_mtm_pct(mtm_equity)
-                    if mtm_equity is not None else state.drawdown_pct())
+                    if mtm_equity is not None
+                    else self._realized_drawdown_pct(state))
         if drawdown >= self.hard_stop_drawdown_pct:
             log.warning(f"Hard stop drawdown triggered: {drawdown:.2f}% >= {self.hard_stop_drawdown_pct}%")
             return True

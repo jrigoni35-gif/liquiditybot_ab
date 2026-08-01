@@ -143,12 +143,18 @@ def test_release_by_non_owner_is_a_noop(tmp_path):
 # ---------------------------------------------------------------------------
 class _RecordingLock:
     """Duck-typed lock stub: counts refreshes so the test can prove liveness
-    was signalled per loop iteration, independent of wall-clock timing."""
+    kept being signalled while the cycle was failing.
+
+    C1 (audit 2026-08-01): `lost_count` joined the interface when the runner
+    stopped calling refresh() on the cycle thread and started reading the
+    lock's verdict instead - the loop now inspects lost_count/forfeited only.
+    """
 
     def __init__(self):
         self.refreshes = 0
         self.released = False
-        self.forfeited = False      # interface parity with SingleInstanceLock
+        self.lost_count = 0         # interface parity with SingleInstanceLock
+        self.forfeited = False
 
     def refresh(self):
         self.refreshes += 1
@@ -179,15 +185,28 @@ def _fake_bot():
 
 def test_heartbeat_refreshes_even_when_every_cycle_raises(tmp_path, monkeypatch):
     """A runner stuck in a cycle-error loop is still ALIVE: the heartbeat must
-    refresh every iteration regardless of cycle outcome, or the lock goes
-    stale and a second launch takes over - recreating the exact duplicate the
-    lock exists to prevent."""
+    keep advancing regardless of cycle outcome, or the lock goes stale and a
+    second launch takes over - recreating the exact duplicate the lock exists
+    to prevent.
+
+    UPDATED for C1 (audit 2026-08-01). This test used to pass `{}` as config
+    and assert `refreshes >= 3` because the runner wrote the heartbeat ONCE
+    PER LOOP ITERATION - which was the defect, not the contract: the effective
+    heartbeat interval was a whole iteration and cycle_once has no time bound,
+    so a 48-88s stall (measured live, repeatedly) aged the lock past its 30s
+    stale window while the runner was perfectly healthy. Two audit-chain forks
+    in outputs/ came from exactly that. The heartbeat now runs on a daemon
+    thread at `system.polling_interval_sec`, so the config below is what sets
+    the cadence and the property asserted is time-based, not iteration-based.
+    The bar is unchanged (>= 3 refreshes across the failing cycles); the
+    dedicated C1 regressions live in tests/test_audit_runner_state.py."""
     monkeypatch.chdir(tmp_path)                     # outputs/ lands in tmp
     bot = _fake_bot()
     lock = _RecordingLock()
     # test doubles standing in for LiquidityBot/SingleInstanceLock: the
     # runner only touches the attributes both fakes provide
-    runner = BotRunner({}, bot=bot, lock=lock)  # type: ignore[arg-type]
+    runner = BotRunner({"system": {"polling_interval_sec": 0.01}},
+                       bot=bot, lock=lock)  # type: ignore[arg-type]
     n = {"calls": 0}
 
     def exploding_cycle(now):

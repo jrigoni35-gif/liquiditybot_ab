@@ -256,8 +256,15 @@ def test_render_markdown_contains_sections(synth_snapshot):
 
 
 class _FakeStore:
-    def __init__(self, path):
+    # max_bars (2026-08-01 audit H12): load_corpus now builds its store
+    # through ml.history.store_for_config, which threads ml.label_max_bars
+    # the way main.py:714 does instead of letting HistoryStore default to
+    # the legacy 96. This double pinned the OLD (max_bars-less) call shape,
+    # so it is updated to the new one and now RECORDS what it received -
+    # tests/test_audit_ml_offline.py asserts the config value arrives here.
+    def __init__(self, path, max_bars=96):
         self.path = path
+        self.max_bars = int(max_bars)
         self.last_load_stats = {"live_clean": 42}
 
     def load_training_data(self, return_sig=True, weights_cfg=None,

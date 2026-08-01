@@ -99,7 +99,14 @@ def test_get_market_data_returns_sanitized_payload():
     assert p["order_book"]["bids"][0][0] == 100.0        # best bid, sorted
     assert p["order_book"]["asks"][0][0] == 100.5        # best ask, sorted
     assert p["volume_24h"] == 1_234_567.0
-    assert p["funding_rate"] == 0.0                      # spot: neutral
+    # UPDATED (audit LOW, DL-11): this line previously asserted 0.0 and was
+    # encoding the OLD buggy behavior — a spot venue with no funding endpoint
+    # is UNAVAILABLE, not "funding is exactly zero". The fabricated 0.0 was
+    # indistinguishable from a real 0% print and, because
+    # liquidity_model.build_view AVERAGES every non-None source, it diluted a
+    # genuine OKX print (a real 0.012 halves to 0.006, under the 0.01 veto).
+    # okx_feed/binanceus_feed already return None here; ccxt now matches.
+    assert p["funding_rate"] is None                     # spot: UNAVAILABLE
 
 
 def test_no_symbols_yields_empty_feed():

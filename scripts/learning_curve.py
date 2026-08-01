@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT))
 
 from ml.contracts import get_contract                       # noqa: E402
 from ml.features import FEATURE_NAMES                       # noqa: E402
-from ml.history import HistoryStore                          # noqa: E402
+from ml.history import load_for_config, store_for_config     # noqa: E402
 from ml.overfit import REGIME_STRATA, regime_stratified_oof   # noqa: E402
 from ml.walkforward import evaluate_and_select                # noqa: E402
 
@@ -331,7 +331,14 @@ def main(argv=None) -> int:
             full_cfg = {}
     ml_cfg = full_cfg.get("ml", {}) or {}
 
-    store = HistoryStore(args.history)
+    # ONE loader seam (ml.history.store_for_config/load_for_config): corpus
+    # path (--history override), label ERA (ml.label_max_bars) and the de
+    # Prado sample-weight kwargs all resolve exactly as main.py:714/5672
+    # resolves them. The bare HistoryStore(args.history) defaulted max_bars
+    # to 96, so this curve was fitted on the legacy-era corpus - the exact
+    # COMPLEMENT of the rows the deployed selector trains on (2026-08-01
+    # audit H12), which makes "refits the DEPLOYED selector" false.
+    store = store_for_config(ml_cfg, args.history)
     if Path(args.history).exists():
         # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
         # this report's whole premise is "refits the DEPLOYED walkforward
@@ -341,10 +348,8 @@ def main(argv=None) -> int:
         # site during that task (not one of the 6 docs/quant/
         # pbo_admission_policy.md already enumerates); wired for the same
         # reason as scripts/interpret_report.py and feature_stability.py.
-        X, y, w, sig, res = store.load_training_data(
-            return_label_times=True,
-            weights_cfg=ml_cfg.get("sample_weights", {}),
-            era_cfg=ml_cfg.get("era_exclusion", {}))
+        X, y, w, sig, res = load_for_config(store, ml_cfg,
+                                            return_label_times=True)
     else:
         # ml.history.HistoryStore.load_training_data's missing-file early
         # return only special-cases return_sig (a 4-tuple); passing

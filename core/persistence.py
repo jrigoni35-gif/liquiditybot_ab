@@ -34,6 +34,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from core.runtime import replace_with_retry
+
 log = logging.getLogger("liquiditybot.core.persistence")
 
 SNAPSHOT_VERSION = 2
@@ -586,13 +588,21 @@ class StateStore:
                 f.flush()
                 os.fsync(f.fileno())    # survive power loss, not just crash
             # rotate the previous good snapshot to .bak BEFORE replacing,
-            # so there is always one known-good generation to fall back to
+            # so there is always one known-good generation to fall back to.
+            # M1: both replaces go through core.runtime.replace_with_retry -
+            # the SAME Windows transient-PermissionError retry atomic_write_json
+            # has always had. state.json is the book of record and was the one
+            # publisher without it, so a reader holding it (session_digest under
+            # the hourly check-in, train_meta) dropped the post-fill "never lose
+            # an executed fill" snapshot: snapshot() swallows the exception and
+            # main.py discards the False. Reused, never reinvented.
             if self.path.exists():
                 try:
-                    os.replace(self.path, self.path.with_suffix(".json.bak"))
+                    replace_with_retry(self.path,
+                                       self.path.with_suffix(".json.bak"))
                 except OSError:
                     log.debug("bak rotation failed - continuing")
-            os.replace(tmp, self.path)
+            replace_with_retry(tmp, self.path)
             # fsync the DIRECTORY so the rename itself is durable: a power loss
             # right after os.replace can otherwise lose the directory entry and
             # leave no primary (the .bak + checksum fallback covers it, but the

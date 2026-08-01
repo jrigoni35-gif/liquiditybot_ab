@@ -849,17 +849,32 @@ def test_persistence_roundtrip():
     snap.snapshot(bot2)
     cfg_live = json.loads(json.dumps(cfg))
     cfg_live["system"]["dry_run"] = False
-    # config_guard requires creds in live mode; this test isn't about that
-    cfg_live["exchanges"]["kraken"]["api_key"] = "x"
-    cfg_live["exchanges"]["kraken"]["api_secret"] = "eA=="  # nosec B105 - dummy test secret
+    # config_guard requires creds to RESOLVE in live mode; this test isn't
+    # about that. Supplied via ENV, not literals: the H15 guard now FATALs on
+    # a literal in git-tracked config.json (a committed secret) in both modes,
+    # so the harness must model the documented credential path - env FIRST -
+    # rather than the one the guard exists to forbid.
+    import os
+    _cred_env = {"KRAKEN_API_KEY": "x",
+                 "KRAKEN_API_SECRET": "eA=="}  # nosec B105 - dummy test secret
+    _saved = {k: os.environ.get(k) for k in _cred_env}
+    os.environ.update(_cred_env)
     # cfg weakened min_edge_cost_ratio to 0.1 above to force the synthetic
     # entry through the EV gate (persistence is the subject, not cost
     # policy) - now FATAL in live mode (W2-7 guard). This test is about the
     # dry/live resume mismatch, not the EV gate, so restore a valid ratio.
     cfg_live["pretrade"]["min_edge_cost_ratio"] = 1.3
-    bot3 = LiquidityBot(cfg_live, okx=MockOKX(prices),
-                        binanceus=MockBinanceUS(prices),
-                        kraken=MockKraken(prices), resume=True)
+    try:
+        bot3 = LiquidityBot(cfg_live, okx=MockOKX(prices),
+                            binanceus=MockBinanceUS(prices),
+                            kraken=MockKraken(prices), resume=True)
+    finally:
+        # never leak the dummy creds into the checks that follow
+        for _k, _v in _saved.items():
+            if _v is None:
+                os.environ.pop(_k, None)
+            else:
+                os.environ[_k] = _v
     check("persistence: refuses to mix paper snapshot into live mode",
           not bot3._resumed and bot3.state.open_position_count() == 0)
 

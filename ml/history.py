@@ -1719,6 +1719,75 @@ class HistoryStore:
         return X, y, w
 
 
+# ---------------------------------------------------------------------------
+# ONE loader seam for every OFFLINE consumer (2026-08-01 audit H12 + the
+# sample-weight-kwargs drift). The five offline consumers (train_meta,
+# overfit_check, learning_curve, feature_stability, interpret_report) each
+# hand-rolled their own HistoryStore construction and load kwargs. Two
+# knobs drifted as a result:
+#
+#   * max_bars was never passed, so `current_era` resolved to the legacy
+#     triple_barrier_era(96) while main.py:714 passes ml.label_max_bars.
+#     config_guard FATALs label_max_bars >= max_bars_no_progress (36), so a
+#     valid LIVE config can never BE 96 - the offline default was
+#     structurally guaranteed to disagree, and with era exclusion armed on
+#     both sides the offline corpus was the exact COMPLEMENT of
+#     production's (measured: 2141 rows/0 live vs 1090 rows/14 live).
+#     train_meta then DEPLOYED the model fitted on that complement.
+#   * half_life_days/candidate_weight/manip_discount were passed as
+#     literals (or omitted), so retuning ml.sample_weights was honored by
+#     the in-process retrain and silently ignored by the CLI.
+#
+# Routing every consumer through these two functions is what makes the
+# next knob impossible to thread to one consumer and not the rest.
+# Deliberately NOT resolved here: telemetry_cfg (ML-077/078 logging
+# thresholds - runner-only telemetry) and epoch_cfg (an opt-in production
+# corpus filter, shipped off; overfit_check measures that cutoff through
+# its own report-only --epoch-ab arm and must not double-apply it).
+# Callers that want them pass them explicitly through **overrides.
+def store_for_config(ml_cfg: dict, path: "str | None" = None,
+                     factory=HistoryStore):
+    """HistoryStore built the way the ENGINE builds it (main.py:714-719):
+    corpus path and label horizon both from config. `path` overrides
+    ml.history_path for a caller with its own --history flag; `factory`
+    exists for test doubles. Paths stay RELATIVE when config says so -
+    scripts resolve the corpus cwd-relative and tests depend on it."""
+    cfg = ml_cfg or {}
+    # max_bars decides current_era (triple_barrier_h<N>), so reading it from
+    # config is the WHOLE point of this seam: the bare constructor's legacy
+    # 96 made every offline consumer keep the exact COMPLEMENT of the rows
+    # the engine trains on. The legacy value stays the DEFAULT so a config
+    # without the key is byte-identical to the old behavior.
+    return factory(path or cfg.get("history_path",
+                                   "outputs/signal_history.csv"),
+                   max_bars=int(cfg.get("label_max_bars",
+                                        _TB_LEGACY_MAX_BARS)))
+
+
+def load_for_config(store, ml_cfg: dict, **overrides) -> tuple:
+    """load_training_data with the SAME sample-weight and era kwargs
+    main.py:5672-5677 uses. Every value defaults to the literal the
+    consumers previously hardcoded, so with the shipped config this is
+    behavior-preserving; it is the CONFIG that becomes authoritative.
+    `overrides` passes through to load_training_data untouched (return
+    arity, telemetry_cfg/epoch_cfg for the callers that own them)."""
+    cfg = ml_cfg or {}
+    sw = cfg.get("sample_weights", {}) or {}
+    # sourced from config exactly as main.py:5871-5875 does; the literals are
+    # only the DEFAULTS the consumers used to hardcode, so a config that omits
+    # them is behavior-preserving while a retuned one is finally honored by
+    # the CLI that ships the artifact, not just by the in-process retrain.
+    kwargs = {
+        "half_life_days": float(sw.get("half_life_days", 30.0)),
+        "candidate_weight": float(sw.get("candidate_weight", 0.4)),
+        "manip_discount": float(sw.get("manip_discount", 0.5)),
+        "weights_cfg": sw,
+        "era_cfg": cfg.get("era_exclusion", {}) or {},
+    }
+    kwargs.update(overrides)
+    return store.load_training_data(**kwargs)
+
+
 class HorizonShadowStore:
     """Append-only, FIXED-schema shadow log of multi-horizon barrier
     outcomes. Deliberately NOT signal_history.csv: writing per-horizon
@@ -2210,8 +2279,23 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
                     pt_mult: float = 8.0, sl_mult: float = 6.0,
                     max_bars: int = 96, cost_pct: float = 0.5,
                     pt_cost_mult: float = 0.0,
-                    label_mode: str = "triple_barrier", exit_policy=None):
+                    label_mode: str = "triple_barrier", exit_policy=None,
+                    return_sig: bool = False):
     """EMA-cross pseudo-signals -> labels over history.
+
+    `return_sig` (default False = the historical 2-tuple, every existing
+    caller unchanged) additionally returns the per-row ENTRY BAR timestamp
+    (epoch seconds, `candles_5m[i]["time"]`), the same clock
+    load_training_data's `sig` carries. scripts/train_meta.py's cold-start
+    path vstacks one block PER SYMBOL over the same ~10-day window, so the
+    concatenated matrix's clock RESTARTS at each block boundary and
+    purged_walk_forward's row-count purge (documented "correct ONLY if rows
+    are evenly spaced in time") trains on ETH labels contemporaneous with -
+    in fact strictly LATER than - the BTC rows being tested. Measured OOF
+    Brier optimism scaled monotonically with cross-asset return
+    correlation (rho=0.85 -> -0.0138, 2.7x the deploy margin). With the
+    timestamps in hand the caller can sort the blocks into ONE global clock
+    and keep the leak-free TIME purge.
 
     label_mode "exit_policy" (with an exit_policy) replays the live exit engine
     so bootstrap labels match how a signal is actually traded, consistent with
@@ -2245,11 +2329,12 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
     lows = np.array([c["low"] for c in candles_5m], float)
     vols = np.array([c["volume"] for c in candles_5m], float)
     if len(closes) < 300:
-        return np.empty((0, len(FEATURE_NAMES))), np.empty(0)
+        empty = (np.empty((0, len(FEATURE_NAMES))), np.empty(0))
+        return (*empty, np.empty(0)) if return_sig else empty
 
     fast, slow = _ema(closes, 9), _ema(closes, 21)
     rets = np.diff(np.log(np.maximum(closes, 1e-9)))
-    X, y = [], []
+    X, y, sig = [], [], []
     name_idx = {n: k for k, n in enumerate(FEATURE_NAMES)}
     for i in range(60, len(closes) - max_bars - 1):
         crossed_up = fast[i] > slow[i] and fast[i - 1] <= slow[i - 1]
@@ -2312,14 +2397,24 @@ def bootstrap_dataset(candles_5m: list, direction_from_cross: bool = True,
         # this instant / extreme fear / 0th vol percentile / zero depth"
         # — a systematic train/serve offset on the cold-start prior. Each
         # value is that feature's OWN documented neutral (ml/features.py).
+        # depth_ratio (2026-08-01 audit): live default is 1.0 - "depth is at
+        # its trailing median" (ml/features.py:404, regime/liquidity_regime
+        # .py:47/266), NOT 0.0, which ml/contracts.py's (0, 3) band admits
+        # silently as "zero depth / the book has evaporated". The 07-29
+        # neutrals block above enumerated six features and missed this one.
         for name, neutral in (("book_touch_share", 0.2),
                               ("funding_dist", 0.5),
                               ("pd_zone", 0.5),
                               ("regime_age", 0.5),
                               ("fear_greed", 0.5),
-                              ("vol_percentile", 0.5)):
+                              ("vol_percentile", 0.5),
+                              ("depth_ratio", 1.0)):
             if name in name_idx:
                 setf(name, neutral)
         X.append(feats)
         y.append(float(out.label))
-    return np.array(X, float), np.array(y, float)
+        # ENTRY bar time, matching load_training_data's `sig` (signal time),
+        # not the resolution time - the purge compares signal clocks.
+        sig.append(float(candles_5m[i].get("time", i)))
+    Xa, ya = np.array(X, float), np.array(y, float)
+    return (Xa, ya, np.array(sig, float)) if return_sig else (Xa, ya)

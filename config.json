@@ -408,6 +408,8 @@
     "kelly_fraction": 0.25,
     "kelly_cap": 0.25,
     "min_p_win": 0.55,
+    "max_position_size_pct_of_capital": 25,
+    "_max_position_doc": "THE cap that actually bounds a live entry (risk/position_sizer.py reads this copy; capital_management's identically-named key feeds only CapitalManager.calculate_position_size, which has no callers). Raised 10 -> 25 in 6e57ebd7 so fractional Kelly's own edge-scaling can express instead of being strangled, then silently DELETED by an unrelated p_bar_mode commit (ae4b5314) - the entry cap reverted to PositionSizer's 10.0 code default for weeks while config_guard's parity FATAL read clean, because it resolved this key with the capital_management copy as its default (an absent key can never differ from itself). Restored to the operator's 25 and the guard now uses a None sentinel, so a missing key FATALs instead of reading as parity.",
     "p_bar_mode": "derived",
     "p_bar_edge_margin": 0.0,
     "_p_bar_doc": "2026-07-27 drought diagnosis (operator-directed fix): the entry p(win) bar was an absolute literal sitting BELOW the net-Kelly breakeven (0.632 at current tiers/stop/fees) - a phantom the config guard had flagged (entries in [0.55, breakeven) passed the bar only to die SZ-030 one step later), and any tier/fee change silently re-breaks an absolute number. mode 'derived' pins the bar to the geometry: max(1/(1+b_net) + p_bar_edge_margin, min_p_win); min_p_win's remaining role is the FLOOR. edge_margin ships 0.0 = pure de-phantomization, no new fitted number - raising it is a gate-tightening decision that must clear the overfit discipline (quant trials, never tuned to a backtest peak). INTERLOCK: ml.exploration.p_win (0.64, the synthetic probe p) must clear the derived bar or the F0b probe trickle dies at SZ-023 - config_guard WARNs when clearance drops below 0.005. mode 'absolute' reverts to the historical literal bar.",
@@ -506,6 +508,10 @@
       "adverse_min_hours": 24.0
     },
     "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct, measured as the drop from the book's own equity-curve peak normalized by TOTAL PORTFOLIO EQUITY (not the book's own peak) -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
+    "position_sizer": {
+      "max_position_size_pct_of_capital": 10,
+      "_doc": "main.py builds a SECOND PositionSizer for this book from long_book.position_sizer. The block was absent, so every knob ran at risk/position_sizer.py's code defaults and the long book's entry cap has ALWAYS been the 10.0 fallback - invisible to the capital_management/position_sizer parity FATAL, which never covered this copy. Lifted at the IDENTICAL default (behavior-preserving, CLAUDE.md overfit discipline) so the number is now stated, guarded (config_guard._long_book_checks) and tunable. Deliberately NOT the 5m book's 25: this is the value that has actually been running, not an invented one. Every other sizer knob still resolves to the code default by design - the EvidenceLadder ceiling, not Kelly, is what bounds this book."
+    },
     "profit_taking": {
       "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
       "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},

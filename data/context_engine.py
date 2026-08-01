@@ -29,11 +29,14 @@ signed from calendar or cycle inputs.
 """
 
 import csv
+import functools
 import io
 import json
 import logging
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -398,15 +401,36 @@ _NET_SOURCES: tuple[str, ...] = ("dff", "t10y2y", "vix", "cot", "stablecoins")
 
 _DEFAULT_HISTORY_PATH = "outputs/context_history.jsonl"
 
+# M4 network bounds. All three are LIFTED knobs (`context.
+# fetch_connect_timeout_sec` / `fetch_read_timeout_sec` /
+# `poll_budget_sec`), read with these defaults so an absent config key is
+# behavior-identical. Rationale, not fitting: requests' single scalar
+# timeout is a per-PHASE bound with no aggregate, so five sequential dark
+# hosts floored the poll at ~5x it; splitting it into requests' documented
+# (connect, read) pair keeps a slow-but-alive host working while capping a
+# blackholed one, and `poll_budget_sec` caps the whole cluster's wall clock
+# at roughly one round of the slowest source plus slack.
+_DEFAULT_CONNECT_TIMEOUT_S = 3.0
+_DEFAULT_READ_TIMEOUT_S = 5.0
+_DEFAULT_POLL_BUDGET_S = 15.0
 
-def _default_fetch(url: str, timeout: float = 10.0) -> Optional[str]:
-    """Mirrors `data/webdata_feed.py`'s `_default_fetch` exactly: same
-    guard, same UA, same timeout, same "let it raise, the caller's
-    per-source try/except turns it into a dark reading" contract (NOT a
-    swallow-to-None here — the per-source try/except in `ContextFeed.
-    _poll_source` is what stops one source's failure from ever reaching
-    a caller, exactly like `WebDataFeed.maybe_poll`'s per-block
-    try/except around each sub-fetch)."""
+
+def _default_fetch(url: str,
+                   timeout: float | tuple[float, float] = (
+                       _DEFAULT_CONNECT_TIMEOUT_S, _DEFAULT_READ_TIMEOUT_S),
+                   ) -> Optional[str]:
+    """Same guard, same UA, and the same "let it raise, the caller's
+    per-source try/except turns it into a dark reading" contract as
+    `data/webdata_feed.py`'s `_default_fetch` (NOT a swallow-to-None here
+    — the per-source try/except in `ContextFeed._fetch_parse` is what
+    stops one source's failure from ever reaching a caller, exactly like
+    `WebDataFeed.maybe_poll`'s per-block try/except around each sub-fetch).
+
+    Diverges from webdata's copy on ONE point, deliberately (M4): the
+    timeout is requests' (connect, read) PAIR rather than a single 10s
+    scalar, so a blackholed host cannot burn a full read timeout on the
+    connect phase alone. `ContextFeed.__init__` binds the configured pair;
+    the default above keeps a bare `_default_fetch(url)` call working."""
     if requests is None:
         return None
     resp = requests.get(url, headers=_UA, timeout=timeout)
@@ -476,7 +500,18 @@ class ContextFeed:
         if poll_hours < 1.0:            # defense in depth; config_guard
             poll_hours = 1.0            # FATALs a configured value below 1
         self.poll_sec = poll_hours * 3600.0
-        self.fetch = fetch or _default_fetch
+        # M4: wall-clock ceiling for the WHOLE network cluster, plus the
+        # per-request (connect, read) split bound to the default fetcher. An
+        # injected `fetch` keeps its own timeouts (tests/replay) and is only
+        # bounded by the cluster budget.
+        self._poll_budget_s = max(
+            float(cfg.get("poll_budget_sec", _DEFAULT_POLL_BUDGET_S)), 1.0)
+        _connect_s = max(float(cfg.get("fetch_connect_timeout_sec",
+                                       _DEFAULT_CONNECT_TIMEOUT_S)), 0.1)
+        _read_s = max(float(cfg.get("fetch_read_timeout_sec",
+                                    _DEFAULT_READ_TIMEOUT_S)), 0.1)
+        self.fetch = fetch or functools.partial(
+            _default_fetch, timeout=(_connect_s, _read_s))
 
         self._next_halving_iso = str(cfg.get("next_halving_date",
                                              "2028-04-17"))
@@ -560,6 +595,36 @@ class ContextFeed:
 
     # ---- per-source fetch + parse + 3x-grace availability ----------------
 
+    def _fetch_parse(self, name: str, url: Optional[str],
+                     parser) -> Optional[float]:
+        """Network half of one source poll: fetch + parse, returning the
+        parsed value or None. Touches NO shared feed state, because M4 runs
+        it on a worker thread (see `_poll_sources`); an injected `fetch`
+        must therefore be safe to call concurrently. Never raises — a dark
+        or hostile source is a None, exactly as before."""
+        if not url:
+            return None
+        try:
+            return parser(self.fetch(url))
+        except Exception as e:
+            log.warning(f"context source '{name}' fetch failed: {e}")
+            return None
+
+    def _note_source(self, name: str, value: Optional[float],
+                     now: float) -> Optional[float]:
+        """Bookkeeping half: records freshness and re-classifies the
+        source's ok/dark state. Runs on the CALLING thread in a fixed
+        source order, so `_known`/`_last_success` stay single-writer and
+        the CX-010/CX-020 transition stream stays deterministic even
+        though the fetches themselves raced."""
+        if value is not None:
+            self._last_success[name] = now
+            self._known[name] = True
+        else:
+            self._known[name] = (
+                now - self._last_success[name] < 3 * self.poll_sec)
+        return value
+
     def _poll_source(self, name: str, url: Optional[str], parser,
                      now: float) -> Optional[float]:
         """Returns THIS poll's genuinely-fresh parsed value, or None — a
@@ -571,20 +636,65 @@ class ContextFeed:
         `webdata_feed.py:132-133` uses: `now - last_success < 3 *
         poll_sec`, generalized to run once per source instead of once for
         the whole feed."""
-        value = None
-        if url:
-            try:
-                value = parser(self.fetch(url))
-            except Exception as e:
-                log.warning(f"context source '{name}' fetch failed: {e}")
-                value = None
-        if value is not None:
-            self._last_success[name] = now
-            self._known[name] = True
-        else:
-            self._known[name] = (
-                now - self._last_success[name] < 3 * self.poll_sec)
-        return value
+        return self._note_source(name, self._fetch_parse(name, url, parser),
+                                 now)
+
+    def _poll_sources(self, specs: tuple, now: float) -> dict:
+        """Fetch every network source CONCURRENTLY under ONE wall-clock
+        budget, then apply the grace bookkeeping serially in `specs` order.
+
+        M4: these five fetches used to run back-to-back on the ENGINE
+        thread (`slow_cycle` <- `cycle_once` <- the single runner loop), so
+        five blackholed hosts floored one poll at ~5x the request timeout —
+        seconds in which `fast_cycle`'s per-position stop loop does not run
+        and, because there are no venue-resident stop orders
+        (`execution/order_manager.py` permits only `limit`/`market`), stop
+        coverage is simply absent. Nothing detected it either:
+        `_cycle_fail_streak` counts cycles that RAISE, not cycles that
+        hang, and `core/watchdog.py` owns no thread of its own. This is the
+        same remedy `main._fetch_market_payloads` already applies to the
+        market feeds, plus the aggregate deadline that one lacks.
+
+        A source that misses the deadline is treated EXACTLY like a failed
+        fetch (value None) and therefore degrades through the existing
+        3x-grace path — never a fabricated value, never an exception into
+        the engine.
+
+        `shutdown(wait=False)` is the point, not sloppiness: joining would
+        hand the budget straight back to the wedged socket it exists to
+        escape (DNS resolution is not covered by requests' timeout). A
+        leaked worker is bounded by the per-request timeouts plus the OS
+        resolver, holds no lock, and writes no feed state — `_note_source`
+        runs only here, on the caller. Accepted trade-off: ThreadPoolExecutor
+        workers are non-daemon, so a still-resolving worker can delay
+        interpreter exit by that same bound; the poll runs at most hourly,
+        which makes the collision improbable and the runner's own force-kill
+        escalation covers it."""
+        results: dict = {name: None for name, _, _ in specs}
+        deadline = time.monotonic() + self._poll_budget_s
+        ex = ThreadPoolExecutor(max_workers=max(len(specs), 1),
+                                thread_name_prefix="ctx-poll")
+        try:
+            futures = {name: ex.submit(self._fetch_parse, name, url, parser)
+                       for name, url, parser in specs}
+            for name, _, _ in specs:
+                try:
+                    results[name] = futures[name].result(
+                        timeout=max(deadline - time.monotonic(), 0.0))
+                except FutureTimeout:
+                    # same disposition as a failed fetch (hence the same
+                    # log shape): _note_source below re-classifies it, and
+                    # CX-010 still fires only once the grace window lapses
+                    log.warning(f"context source '{name}' fetch failed: "
+                                f"poll budget {self._poll_budget_s:.1f}s "
+                                f"exhausted - treated as unavailable")
+                except Exception as e:      # defensive: _fetch_parse swallows
+                    log.warning(f"context source '{name}' fetch failed: {e}")
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
+        for name, _, _ in specs:
+            self._note_source(name, results[name], now)
+        return results
 
     # ---- event window / next event ---------------------------------------
 
@@ -720,18 +830,22 @@ class ContextFeed:
         calendar_known = calendar_data is not None
         self._known["calendar"] = calendar_known
 
-        # network: five keyless sources, each with its own 3x-grace known
-        dff = self._poll_source("dff", self._urls.get("fred_dff"),
-                                parse_fred_csv, now)
-        t10y2y = self._poll_source("t10y2y", self._urls.get("fred_t10y2y"),
-                                    parse_fred_csv, now)
-        vix = self._poll_source("vix", self._urls.get("fred_vix"),
-                                parse_fred_csv, now)
-        cot_net = self._poll_source("cot", self._urls.get("cot_finfut"),
-                                    parse_cot_btc_lev_net, now)
-        stable_total = self._poll_source(
-            "stablecoins", self._urls.get("stablecoins"),
-            parse_stablecoin_total, now)
+        # network: five keyless sources, each with its own 3x-grace known,
+        # fetched concurrently under one wall-clock budget (M4 — the engine
+        # thread's stop loop is what a serial stall costs)
+        vals = self._poll_sources((
+            ("dff", self._urls.get("fred_dff"), parse_fred_csv),
+            ("t10y2y", self._urls.get("fred_t10y2y"), parse_fred_csv),
+            ("vix", self._urls.get("fred_vix"), parse_fred_csv),
+            ("cot", self._urls.get("cot_finfut"), parse_cot_btc_lev_net),
+            ("stablecoins", self._urls.get("stablecoins"),
+             parse_stablecoin_total),
+        ), now)
+        dff = vals["dff"]
+        t10y2y = vals["t10y2y"]
+        vix = vals["vix"]
+        cot_net = vals["cot"]
+        stable_total = vals["stablecoins"]
 
         stress = stress_dial(dff, t10y2y, vix, self._stress_cfg)
         cot_z, stable_wk_pct = flow_dials(

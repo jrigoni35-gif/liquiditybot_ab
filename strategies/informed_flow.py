@@ -49,7 +49,7 @@ import math
 from collections import deque
 
 from strategies.signal_gates import SignalResult
-from core.sanitize import safe_float as _f
+from core.sanitize import is_finite, safe_float as _f
 
 log = logging.getLogger("liquiditybot.strategies.informed_flow")
 
@@ -376,11 +376,19 @@ class InformedFlowEngine:
         # ---- vetoes ----------------------------------------------------
         # unavailable funding (OKX perp feed down): explicit policy, not the
         # silent _f(None)->0 coincidence. Default passes (see __init__).
-        if not view.get("funding_available", True) \
-                and self.funding_pass_when_unavailable:
-            funding_ok = True
+        # M8: branch on AVAILABILITY FIRST. The old if/else routed
+        # "unavailable + strict" into the same numeric branch as "available",
+        # where the merge's DISAMBIGUATING 0.0 placeholder (liquidity_model
+        # sets funding_rate=0.0 *and* funding_available=False) always satisfied
+        # abs(0.0) <= cap - so funding_pass_when_unavailable=False was a no-op
+        # and the two engines' identical policy knob behaved differently.
+        # strategies/signal_gates.py has always had this shape; the divergence
+        # was purely that _f here defaults to 0.0 instead of None.
+        _rate = view.get("funding_rate")
+        if not view.get("funding_available", True) or not is_finite(_rate):
+            funding_ok = self.funding_pass_when_unavailable
         else:
-            funding_ok = abs(_f(view.get("funding_rate"))) <= self.max_abs_funding
+            funding_ok = abs(_f(_rate)) <= self.max_abs_funding
         absorption = (move_sig >= self.absorption_move_sigmas and
                       abs(s_accum) >= self.absorption_ad_min and
                       (1 if s_accum > 0 else -1) != move_dir)

@@ -9,9 +9,19 @@ capital_management.max_position_size_pct_of_capital, but that value is read
 by risk/capital_manager.py's calculate_position_size, which is dead code -
 never called from main.py. The value that actually caps a live entry is
 position_sizer.max_position_size_pct_of_capital, read by
-risk/position_sizer.py's PositionSizer (the real Kelly sizer). The two keys
-share one default (10) in config.json but nothing enforced them staying in
-sync.
+risk/position_sizer.py's PositionSizer (the real Kelly sizer). Nothing
+enforced the two keys staying in sync.
+
+AUDIT H10 UPDATE: the parity check was still defeatable, because it resolved
+the sizer copy with the capital_management copy as its DEFAULT - so an ABSENT
+sizer key could never differ from the value it was compared against. That is
+not theoretical: the operator's 10 -> 25 raise (6e57ebd7) was deleted from
+the position_sizer block by an unrelated commit (ae4b5314), the live entry cap
+silently reverted to PositionSizer's 10.0 code default, and this check
+reported clean throughout. The guard now resolves with a None sentinel;
+test_max_position_pct_missing_sizer_copy_defaults_to_cap_mgmt below encoded
+the OLD blindness as intended behaviour and has been rewritten accordingly
+(see its own comment). Both keys ship at 25 in config.json.
 """
 from core.config_guard import validate
 
@@ -96,10 +106,29 @@ def test_max_position_pct_match_is_not_flagged():
                   for m in fatals)
 
 
-def test_max_position_pct_missing_sizer_copy_defaults_to_cap_mgmt():
-    # position_sizer copy absent -> _f defaults to the cap_mgmt value itself,
-    # so this must NOT false-positive on repos/tests that only set one key
+def test_max_position_pct_missing_sizer_copy_is_fatal():
+    # REWRITTEN for audit finding H10. This test previously asserted the
+    # opposite ("_f defaults to the cap_mgmt value itself, so this must NOT
+    # false-positive") and was named ..._defaults_to_cap_mgmt: it encoded the
+    # OLD BUGGY behaviour - the blindness that let the sizer copy be deleted
+    # from config.json for weeks while the parity FATAL reported clean and
+    # live entries ran at PositionSizer's 10.0 code default instead of the
+    # configured 25. A missing key is the exact failure this check exists to
+    # catch, so "absent reads as parity" was never a property worth pinning.
+    # The no-false-positive concern it was really guarding (a bare config
+    # that sets neither key) is now covered by
+    # test_max_position_pct_both_copies_absent_is_clean below.
     cfg = {"system": {"dry_run": True},
            "capital_management": {"max_position_size_pct_of_capital": 10}}
-    assert not any("max_position_size_pct_of_capital mismatch" in m
-                  for m in _fatals(cfg))
+    assert any("position_sizer.max_position_size_pct_of_capital is MISSING"
+               in m for m in _fatals(cfg))
+
+
+def test_max_position_pct_both_copies_absent_is_clean():
+    # neither key set = no operator decision to half-revert, and the two code
+    # defaults (PositionSizer 10.0 / CapitalManager 10) agree - the sentinel
+    # must not fire on partial/bare configs
+    cfg = {"system": {"dry_run": True},
+           "capital_management": {"max_concurrent_positions": 5}}
+    assert not any("max_position_size_pct_of_capital" in m
+                   for m in _fatals(cfg))

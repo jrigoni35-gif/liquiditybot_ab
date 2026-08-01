@@ -48,7 +48,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ml.features import FEATURE_NAMES, REGIME_ONE_HOT_FEATURES  # noqa: E402
-from ml.history import HistoryStore                              # noqa: E402
+from ml.history import HistoryStore, store_for_config            # noqa: E402
 from ml.overfit import feature_dof_report                         # noqa: E402
 
 
@@ -278,8 +278,15 @@ def load_corpus(config_path: str, min_rows: int, *,
     # prerequisite) - a feature pruned/kept on a different row set than
     # what actually ships is not measuring the deployed process.
     era_cfg = ml_cfg.get("era_exclusion", {}) or {}
-    store = store_factory(ml_cfg.get("history_path",
-                                     "outputs/signal_history.csv"))
+    # ml.label_max_bars threaded through the shared seam (2026-08-01 audit
+    # H12): the bare store_factory(path) defaulted max_bars to 96, so
+    # current_era resolved to the legacy "triple_barrier" while main.py:714
+    # resolves "triple_barrier_h24" - with era exclusion armed on both
+    # sides the screen pruned/kept features on production's exact COMPLEMENT
+    # of rows. Deliberately NOT routed through load_for_config: this screen
+    # discards its weight vector (_w), so the sample-weight kwargs are inert
+    # here and passing them would only widen the test double's surface.
+    store = store_for_config(ml_cfg, factory=store_factory)
     X, y, _w, sig = store.load_training_data(return_sig=True,
                                               weights_cfg=weights_cfg,
                                               era_cfg=era_cfg)

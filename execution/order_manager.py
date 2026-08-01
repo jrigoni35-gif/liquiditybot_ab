@@ -447,6 +447,76 @@ class OrderManager:
         self._transition(order, "partial", "venue fill")
         return FillEvent(order, new_fill, seg_px, final=False)
 
+    def _final_reconcile(self, order: ManagedOrder) -> list:
+        """FINAL RECONCILIATION after a venue CancelOrder — the shared last
+        look for BOTH cancel paths (explicit `cancel_order` preemption and
+        `_poll_live`'s timeout expiry).
+
+        A fill can land between the last QueryOrders snapshot and the venue
+        cancel taking effect; transitioning terminal without a last look
+        DROPS it permanently — the order leaves open_orders() and is never
+        polled again, while `FillEvent(order, 0.0, final=True)` books nothing
+        (main._handle_fill gates both accounting branches on
+        `fill_size > EPS`). An entry lost that way is untracked live
+        inventory with no stop/tiers; an exit lost that way is a phantom
+        local position whose every escape the venue rejects.
+
+        The window is NOT a rare race on the timeout path: poll() takes ONE
+        batched QueryOrders snapshot at the top, then each timing-out order
+        issues its own throttled CancelOrder round-trip afterwards, so the
+        state being finalized off is already stale by construction.
+
+        Returns the FillEvents recovered (possibly empty). When the order
+        turns out to be fully filled it is transitioned to `filled` HERE, so
+        callers must re-check `order.status` before forcing their own
+        terminal transition. Best-effort: a failed/garbage query returns []
+        and leaves last-known fill state, keeping the forced-terminal
+        behavior (a blocked escape is the worse failure)."""
+        if self.dry_run or not getattr(order, "txid", None):
+            return []
+        events: list = []
+        try:
+            res = self._timed_private("QueryOrders",
+                                      {"txid": order.txid}) or {}
+            info = res.get(order.txid) or {}
+            vol_exec = safe_float(info.get("vol_exec"),
+                                  default=order.filled, lo=0.0)
+            avg = safe_float(info.get("price"),
+                             default=order.avg_price, lo=0.0)
+            ev = self._book_venue_segment(order, vol_exec, avg,
+                                          fee=info.get("fee"))
+            if ev is not None:
+                events.append(ev)
+            if order.remaining <= EPS:
+                # it fully filled before the cancel took effect - that
+                # is a FILL, not a cancel; finalize it as one
+                self._transition(order, "filled",
+                                 "venue filled before cancel")
+                events.append(FillEvent(order, 0.0, order.avg_price,
+                                        final=True))
+        except Exception:                       # noqa: BLE001
+            log.exception("final QueryOrders failed for %s — cancelling "
+                          "with last-known fill state", order.txid)
+        return events
+
+    def take_deferred(self) -> list:
+        """Drain and return the deferred-fill queue (fills booked OUTSIDE
+        poll() by `_final_reconcile`). poll() drains the same queue at the
+        top of every cycle; a caller that must OBSERVE a late fill before
+        the next poll drains it here and feeds each event through the very
+        same engine `_handle_fill` path, so the single-application invariant
+        holds either way.
+
+        The caller with that need is main._submit_exit: it preempts a
+        resting maker profit-take via cancel_order() and then sizes the
+        replacement escape off `pos.size` a few lines later — a fill
+        recovered by the preemption's last look is booked into
+        `order.filled` but not yet into the position, so the escape is sized
+        off a stale (too large) `pos.size`. Draining here before sizing
+        closes that intra-cycle window."""
+        events, self._deferred_events = self._deferred_events, []
+        return events
+
     def cancel_order(self, order: ManagedOrder, reason: str = "cancelled") -> bool:
         """Cancel ONE resting order (venue + local state), emitting no fill.
         Used to PREEMPT a non-urgent resting maker exit so a risk-off exit can
@@ -464,38 +534,13 @@ class OrderManager:
             except Exception:                       # noqa: BLE001
                 log.exception("CancelOrder failed for %s — forcing local "
                               "cancel (%s)", order.txid, reason)
-            # FINAL RECONCILIATION: a fill can land between the last poll
-            # and the venue cancel; transitioning terminal without a last
-            # look would DROP that fill — the preempting risk-off exit then
-            # sizes off a stale pos.size and oversells (with margin that
-            # opens an unintended short). Query once more and book any
-            # unbooked remainder; the event is delivered by the next poll()
-            # so fills keep flowing through the single _handle_fill path.
-            # Best-effort: a failed query keeps the forced-terminal behavior
-            # (a blocked escape is the worse failure).
-            try:
-                res = self._timed_private("QueryOrders",
-                                          {"txid": order.txid}) or {}
-                info = res.get(order.txid) or {}
-                vol_exec = safe_float(info.get("vol_exec"),
-                                      default=order.filled, lo=0.0)
-                avg = safe_float(info.get("price"),
-                                 default=order.avg_price, lo=0.0)
-                ev = self._book_venue_segment(order, vol_exec, avg,
-                                              fee=info.get("fee"))
-                if ev is not None:
-                    self._deferred_events.append(ev)
-                if order.remaining <= EPS:
-                    # it fully filled before the cancel took effect - that
-                    # is a FILL, not a cancel; finalize it as one
-                    self._transition(order, "filled",
-                                     "venue filled before cancel")
-                    self._deferred_events.append(
-                        FillEvent(order, 0.0, order.avg_price, final=True))
-                    return True
-            except Exception:                       # noqa: BLE001
-                log.exception("final QueryOrders failed for %s — cancelling "
-                              "with last-known fill state", order.txid)
+            # last look (see _final_reconcile). Recovered fills queue on
+            # _deferred_events and are delivered by the next poll(), so they
+            # keep flowing through the engine's single _handle_fill path;
+            # take_deferred() lets a same-cycle caller observe them sooner.
+            self._deferred_events.extend(self._final_reconcile(order))
+            if order.status == "filled":
+                return True
         return self._transition(order, "cancelled", reason)
 
     def _note_exec(self, maker: bool, notional_usd: float,
@@ -812,6 +857,23 @@ class OrderManager:
                              "size": size, "price": price, "ordermin": omin})
             return None
 
+        # ---- adopt the QUANTITY THE VENUE ACTUALLY GETS (H2) -------------
+        # `fmt_vol` is ROUND_FLOOR at the pair's lot_decimals, and it — not
+        # `size` — is what goes on the wire below. Live `order.filled` mirrors
+        # Kraken's `vol_exec`, i.e. that floored string, so keeping the raw
+        # request in `order.size` pins `remaining` in [0, 10^-lot_decimals)
+        # forever on a fully-filled order. Nothing downstream can recover:
+        # main._handle_fill pops the exit-escalation counter only on
+        # `order.remaining <= EPS` (1e-9) and its own final-event branch is
+        # gated on `fill_size > EPS`. The counter then ratchets, silently
+        # killing maker-first profit exits (which require attempts == 0 —
+        # the leg whose spread bled 8/8 live trades) and arming the MARKET
+        # rung with no failed fill having occurred. Flooring here is exactly
+        # the truncation _fmt_volume already documents as safe, and it keeps
+        # dry-run sizes identical to live so paper metrics stop overstating
+        # maker capture.
+        size = safe_float(fmt_vol, default=size)
+
         order = ManagedOrder(
             order_id=str(uuid.uuid4())[:8], txid=None, asset=asset,
             pair=pair, symbol=symbol, side=side, price=float(price),
@@ -846,7 +908,10 @@ class OrderManager:
 
         data = {
             "pair": pair, "type": side, "ordertype": ordertype,
-            "volume": self._fmt_volume(pair, size),
+            # the exact string the OM-013 guard validated and that
+            # order.size was adopted from — never re-derive it here, or the
+            # two can silently drift apart again
+            "volume": fmt_vol,
             # deterministic idempotency key: a retry of the same internal
             # order id maps to the same userref at the venue. sha256, not
             # hash() - str hashing is salted per process, so a post-restart
@@ -942,6 +1007,17 @@ class OrderManager:
                 return events
         if now - order.created_ts > self._timeout_for(order, self.timeout_sec):
             self._timed_private("CancelOrder", {"txid": order.txid})
+            # SAME last look cancel_order() performs (see _final_reconcile).
+            # This branch — not cancel_order — is the DOMINANT lifecycle
+            # terminator at order_timeout_sec=25, and it was forcing the
+            # terminal transition off `batch`, a snapshot taken at the top of
+            # poll() and already stale by the throttled CancelOrder round-trip
+            # above. Events go straight into THIS poll's return list (rather
+            # than _deferred_events) so a fill recovered here reaches
+            # _handle_fill in the same cycle it was found.
+            events.extend(self._final_reconcile(order))
+            if order.status == "filled":
+                return events           # it filled before the cancel landed
             new = "expired" if order.filled <= EPS else "cancelled"
             self._transition(order, new,
                              f"timeout at fill_ratio={order.fill_ratio:.2f}")

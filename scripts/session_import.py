@@ -5,9 +5,12 @@ work done in phone/cloud sessions: nothing is adopted until the
 operator runs this, reads the plan, and re-runs with --apply.
 
 Verification before anything else:
-  1. every bundled file's sha256 matches its manifest entry
-  2. the bundled audit chain replays end-to-end (hash-chain intact)
-  3. the bundle's history header matches THIS checkout's schema (and
+  1. every manifest string that becomes a PATH (label, every files key)
+     is a bare allow-listed basename - the manifest is attacker-authored
+     and scripts/corpus_sync.py applies bundles unattended
+  2. every bundled file's sha256 matches its manifest entry
+  3. the bundled audit chain replays end-to-end (hash-chain intact)
+  4. the bundle's history header matches THIS checkout's schema (and
      the destination file's, when one exists) - schema drift routes
      through scripts/migrate_history.py, never silent padding here
 
@@ -28,6 +31,7 @@ Usage:
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 import time
@@ -37,6 +41,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.audit import verify_chain  # noqa: E402
 from ml.history import HistoryStore  # noqa: E402
+
+# Manifests are ATTACKER-AUTHORED. bundle_format and the per-file sha256 are
+# self-consistency checks on the bundle's own bytes, not a trust boundary — and
+# scripts/corpus_sync.py imports every bundle at the tip of the telemetry branch
+# UNATTENDED (hourly, from pc_supervisor), so `label` and every `files` key are
+# untrusted strings that become path components in the live checkout. Windows
+# widens that far past "..": a drive letter or UNC prefix makes pathlib DISCARD
+# the left side of the join outright, ":" opens an alternate data stream, and
+# the reserved device names resolve to hardware from any directory. So: a strict
+# bare-basename allow-list, mirroring scripts/local_llm_mcp.resolve_report_path
+# (the in-repo pattern), plus a resolve-and-contain re-anchor at the join site.
+# Real labels ("20260713-dayshift", "pc-live") and real file keys
+# ("signal_history.csv") are all bare alphanumeric-led names, so this is
+# behavior-preserving for every bundle session_export.py can produce.
+_COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                 *(f"COM{i}" for i in range(1, 10)),
+                 *(f"LPT{i}" for i in range(1, 10))}
+
+
+def safe_component(value, kind: str) -> str | None:
+    """Bare, allow-listed path component, or None after printing the reason.
+
+    Rejects: non-strings, separators (both slashes), absolute paths, drive
+    letters, UNC prefixes, alternate-data-stream colons, "." / ".." / any
+    ".." substring, trailing dots (Windows silently strips them, aliasing
+    two names onto one file), Windows reserved device names with or without
+    an extension, and anything over 64 chars.
+    """
+    name = value if isinstance(value, str) else None
+    if not name:
+        print(f"REFUSED: manifest {kind} must be a non-empty string "
+              f"(got {value!r})")
+        return None
+    if (name != Path(name).name or ".." in name or name.endswith(".")
+            or not _COMPONENT_RE.match(name)
+            or name.split(".")[0].upper() in _WIN_RESERVED):
+        print(f"REFUSED: unsafe manifest {kind} {name!r} - path components "
+              f"must be bare names matching [A-Za-z0-9][A-Za-z0-9._-]{{0,63}} "
+              f"(no separators, drive letters, UNC prefixes, '..' or Windows "
+              f"reserved device names)")
+        return None
+    return name
 
 
 def _sha256(path: Path) -> str:
@@ -76,8 +123,30 @@ def verify_bundle(src: Path, strict_audit: bool = False) -> dict:
         print(f"REFUSED: unknown bundle_format "
               f"{manifest.get('bundle_format')!r}")
         return {"rc": 4}
-    for name, meta in manifest.get("files", {}).items():
+    # Path sanitisation is a VERIFY-time gate, not an apply-time one: the
+    # plan-only run reads and prints these same strings, and refusing here is
+    # what makes `--apply` (and corpus_sync's unattended `--apply`) unreachable
+    # for a hostile bundle. An absent/empty label is legal — run() falls back
+    # to the timestamp stamp — so only a PRESENT label is checked.
+    if manifest.get("label") and safe_component(manifest["label"],
+                                                "label") is None:
+        return {"rc": 4}
+    files = manifest.get("files", {})
+    if not isinstance(files, dict):
+        print(f"REFUSED: manifest 'files' must be an object "
+              f"(got {type(files).__name__})")
+        return {"rc": 4}
+    for name, meta in files.items():
+        if safe_component(name, "files key") is None:
+            return {"rc": 4}
         f = src / name
+        # a symlinked bundle entry makes copy2 read through to an arbitrary
+        # host file and file its CONTENT into the record dir; the bundle may
+        # only ever contain regular files it actually shipped.
+        if f.is_symlink() or (f.exists() and not f.is_file()):
+            print(f"REFUSED: bundle entry {name!r} is a symlink or not a "
+                  f"regular file")
+            return {"rc": 4}
         if not f.exists():
             print(f"INTEGRITY FAIL: {name} listed in manifest but missing")
             return {"rc": 2}
@@ -226,6 +295,20 @@ def run(src: str, outputs: str, apply: bool,
         return 0
 
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    # Resolve the record dir BEFORE any write: verify_bundle already
+    # allow-listed the label, but the write side re-anchors and asserts
+    # containment itself (so no future caller can reach the mkdir/copy without
+    # passing through the check), and doing it first keeps --apply all-or-
+    # nothing — a refusal here must not leave merged rows behind.
+    label = safe_component(manifest.get("label") or stamp, "label")
+    if label is None:
+        return 4
+    sessions_root = (out / "imported_sessions").resolve()
+    raw_record = sessions_root / label
+    record = raw_record.resolve()
+    if record.parent != sessions_root or raw_record.is_symlink():
+        print(f"REFUSED: record dir {raw_record} escapes {sessions_root}")
+        return 4
     # the trained model travels copy-if-absent: a machine that already has
     # outputs/meta_model.json keeps its own (retrain locally from the merged
     # rows); a fresh container consumes the bundled brain immediately.
@@ -273,7 +356,6 @@ def run(src: str, outputs: str, apply: bool,
         with open(dest_hist, "a", encoding="utf-8") as f:
             for ln in new_lines:
                 f.write(ln + "\n")
-    record = out / "imported_sessions" / str(manifest.get("label") or stamp)
     record.mkdir(parents=True, exist_ok=True)
     for name in manifest.get("files", {}):
         if name == "signal_history.csv" or not (srcp / name).exists():

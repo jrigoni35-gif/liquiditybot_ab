@@ -34,12 +34,47 @@ from typing import Optional
 
 log = logging.getLogger("liquiditybot.runtime")
 
+# The command vocabulary BOTH delivery paths enforce: send() raises on
+# anything else, and consume() drops (unlinks) anything else. It must
+# therefore stay a superset of what runner.BotRunner.handle_command actually
+# implements — runner.HANDLED_COMMANDS is the other half of that contract and
+# tests/test_audit_runner_state.py asserts the equality in BOTH directions.
+# H7: "clear_fault" was implemented in the runner but missing here, so the
+# ONLY in-band path out of a latched fault was dead AND silent (send() raised;
+# a hand-dropped file was unlinked by consume() with no log, no ack).
 VALID_COMMANDS = {
     "start", "pause", "stop", "step", "snapshot", "entries_on",
-    "entries_off", "arm_live", "disarm_live", "force_dry", "flatten_all",
+    "entries_off", "arm_live", "disarm_live", "clear_fault", "force_dry",
+    "flatten_all",
     "sim_price_shock", "sim_force_fear", "sim_force_regime", "sim_clear",
 }
 ARM_PHRASE = "ARM LIVE"
+
+
+def replace_with_retry(src, dst, retries: int = 6) -> None:
+    """os.replace with the transient-Windows-PermissionError retry.
+
+    Windows raises PermissionError (WinError 5) when a READER holds the
+    destination open; readers hold it for microseconds, so a short backoff
+    almost always wins where letting it propagate loses the whole write.
+    POSIX rename never hits this. The last attempt re-raises so a genuinely
+    stuck destination is never silently swallowed here — the callers decide.
+
+    M1: extracted so `StateStore._seal_and_write` (core/persistence.py) shares
+    the EXACT retry that atomic_write_json has had all along. state.json is
+    the book of record and was the one publisher without it, so a concurrent
+    reader (core/session_digest via scripts/checkin.py hourly, or
+    scripts/train_meta.py) could drop the post-fill "never lose an executed
+    fill" snapshot — silently, since snapshot() swallows and its caller
+    discards the return value."""
+    for attempt in range(retries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(0.02 * (attempt + 1))
 
 
 def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
@@ -73,14 +108,7 @@ def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
         # transient (readers hold it for microseconds), so retry with a short
         # backoff instead of letting the whole cycle error out and status.json go
         # stale. POSIX rename never hits this. Last attempt re-raises.
-        for attempt in range(_retries):
-            try:
-                os.replace(tmp, path)
-                return
-            except PermissionError:
-                if attempt == _retries - 1:
-                    raise
-                time.sleep(0.02 * (attempt + 1))
+        replace_with_retry(tmp, path, _retries)
     finally:
         Path(tmp).unlink(missing_ok=True)
 
@@ -325,8 +353,12 @@ class ControlChannel:
 
     def consume(self) -> list:
         """Drain the queue in timestamp order: returns valid command dicts,
-        deleting every file it touches (unparseable/unknown files are
-        dropped silently - the queue can never wedge)."""
+        deleting every file it touches. Unparseable/unknown files are still
+        DROPPED (the queue can never wedge - that property is deliberate), but
+        H7: they are no longer dropped SILENTLY. `clear_fault` was implemented
+        in the runner and missing from VALID_COMMANDS for its whole life, and
+        the only symptom was a command file that vanished with no log, no ack
+        and no error - the drift was undetectable in production."""
         cmds = []
         for f in sorted(self.dir.glob("cmd_*.json")):
             payload = read_json(f)
@@ -336,6 +368,12 @@ class ControlChannel:
                 pass
             if payload and payload.get("cmd") in VALID_COMMANDS:
                 cmds.append(payload)
+            else:
+                log.warning("control: dropped unknown/unparseable command "
+                            "file %s (cmd=%r not in VALID_COMMANDS) - it was "
+                            "NOT executed", f.name,
+                            (payload or {}).get("cmd")
+                            if isinstance(payload, dict) else None)
         return cmds
 
 

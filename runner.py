@@ -12,8 +12,8 @@ This runner owns the ONLY loop in the system, and around each cycle it:
   4. snapshots on cadence (the engine also snapshots after every fill)
 
 Commands: start, pause, stop, step, snapshot, entries_on, entries_off,
-arm_live (requires confirm phrase), disarm_live, force_dry (one-way
-LIVE->DRY), flatten_all,
+arm_live (requires confirm phrase), disarm_live, clear_fault, force_dry
+(one-way LIVE->DRY), flatten_all,
 sim_price_shock / sim_force_fear / sim_force_regime / sim_clear
 (sim_* are refused outright when config is live).
 
@@ -25,6 +25,7 @@ import sys
 import os
 import logging
 import math
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -34,12 +35,60 @@ from core.audit import get_audit
 from core.goals import goal_progress
 from core.persistence import StateStore
 from core.precision import round_price
-from core.runtime import (ARM_PHRASE, ControlChannel, JsonlLogHandler,
-                          SingleInstanceLock, StatusWriter)
+from core.runtime import (ARM_PHRASE, VALID_COMMANDS, ControlChannel,
+                          JsonlLogHandler, SingleInstanceLock, StatusWriter)
 from core.session_digest import write_digest
 from main import LiquidityBot, load_config
 
 log = logging.getLogger("liquiditybot.runner")
+
+# Wall clock at process start. Import happens before anything else this
+# process does, so it is the earliest honest "this runner exists" stamp -
+# H6 uses it to keep a control command that was SENT while this process was
+# booting instead of purging it with the previous life's leftovers.
+_PROC_START = time.time()
+
+# H4: durable one-way LIVE->DRY seal. force_dry flips the RUNTIME flags, and
+# the snapshot records the runtime flag - so without a durable marker the
+# prescribed live restart hits restore()'s paper/live mismatch guard and
+# starts FLAT while the venue still holds the book (or, worse, adopts
+# force_dry-era PAPER positions into a live engine). The sentinel makes boot
+# reproduce the operator's decision instead of silently reverting it, exactly
+# like outputs/paused.on and outputs/entries_off.on (audit F2 2026-07-17).
+# Cleared ONLY by --fresh or by deleting the file.
+FORCE_DRY_SENTINEL = Path("outputs") / "force_dry.on"
+
+# H7: the vocabulary BotRunner.handle_command actually implements, declared
+# beside it rather than derived from it, so tests/test_audit_runner_state.py
+# can compare BOTH directions against core.runtime.VALID_COMMANDS:
+#   * handled but not valid -> ControlChannel.send() raises and consume()
+#     unlinks the file; the command is dead and silently so (clear_fault
+#     lived in that state for its whole life);
+#   * valid but not handled -> the runner acks "ok" and does nothing.
+# A source-parse test pins this set against the dispatcher's own branches so
+# the constant itself cannot drift.
+HANDLED_COMMANDS = frozenset({
+    "start", "pause", "stop", "step", "snapshot", "entries_on",
+    "entries_off", "arm_live", "disarm_live", "clear_fault", "force_dry",
+    "flatten_all",
+    "sim_price_shock", "sim_force_fear", "sim_force_regime", "sim_clear",
+})
+
+# Fault key latched when a live peer wins the instance lock (C1). Not a
+# reason code: FaultManager.latch() already writes FT-010 to the audit chain
+# and fires the operator alert; this is the table key clear_fault names.
+LOCK_LOST_FAULT = "lock_lost"
+
+
+def command_vocabulary_drift() -> tuple:
+    """H7 parity guard, BOTH directions: (handled-but-not-valid,
+    valid-but-not-handled). The pre-existing guard only checked
+    REMOTE_SAFE_COMMANDS ⊆ VALID_COMMANDS and never looked at the dispatcher's
+    own vocabulary, which is exactly how clear_fault stayed dead. Called from
+    BotRunner.__init__ (so a live process says so out loud) and asserted empty
+    in tests/test_audit_runner_state.py (so CI stops it landing at all)."""
+    return (HANDLED_COMMANDS - VALID_COMMANDS,
+            frozenset(VALID_COMMANDS) - HANDLED_COMMANDS)
 
 
 def merge_skimmer_universe(config: dict,
@@ -83,7 +132,38 @@ class BotRunner:
                  lock: SingleInstanceLock | None = None):
         self.config = config
         self._lock = lock
+        # C1: the lock heartbeat runs on its OWN daemon thread, started before
+        # the (unbounded) engine construction below and refreshing every
+        # polling interval. See _heartbeat_loop for why this must not live on
+        # the cycle thread. No new tunable: the cadence IS the existing
+        # system.polling_interval_sec the loop already runs at.
+        _sys_cfg = (config or {}).get("system", {}) or {}
+        try:
+            _poll = float(_sys_cfg.get("polling_interval_sec", 5.0))
+        except (TypeError, ValueError):
+            _poll = 5.0
+        # floor is a busy-spin guard, not a decision knob: harnesses run the
+        # loop at poll_sec=0 and a 0-second wait would pin a core rewriting
+        # the lockfile.
+        self._hb_sec = max(_poll, 0.05)
+        self._hb_stop = threading.Event()
+        self._hb_thread: Optional[threading.Thread] = None
+        self._lock_lost_latched = False
+        if self._lock is not None:
+            self._hb_thread = threading.Thread(
+                target=self._heartbeat_loop, name="lock-heartbeat",
+                daemon=True)
+            self._hb_thread.start()
         self.bot = bot or LiquidityBot(config, resume=resume)
+        # C1: we PROVABLY own the lock (main() exits 3 otherwise), so a
+        # lock_lost fault re-latched from a previous life's snapshot names a
+        # peer that no longer exists. Leaving it would boot HALTED - new risk
+        # refused forever - on evidence this very acquire() disproves.
+        if self._lock is not None:
+            _fm = getattr(self.bot, "fault", None)
+            if _fm is not None and LOCK_LOST_FAULT in \
+                    (_fm.status().get("faults") or {}):
+                _fm.clear_fault(LOCK_LOST_FAULT, operator="boot-lock-acquired")
         self._rec_sink = None
         if config.get("system", {}).get("record_feeds"):
             from data.replay import FeedRecorder
@@ -169,11 +249,35 @@ class BotRunner:
         # fresh runner within its first cycle (observed live: two stale stops
         # consumed at +1.2s -> instant shutdown). Commands are for the runner
         # that is alive when they are sent, not whichever starts next.
-        stale = self.control.consume()
+        #
+        # H6: the purge was UNCONDITIONAL, and engine construction above takes
+        # tens of seconds (feeds, corpus, model load). The remote plane is
+        # at-most-once - it appends the id to remote_consumed.json and
+        # publishes result:"applied" BEFORE forwarding, and never retries - so
+        # anything it forwarded during THIS process's boot window was
+        # acknowledged to the operator and then deleted here unread. A
+        # swallowed flatten_all/stop tells the operator the book is flat when
+        # it is not. ControlChannel.send stamps sent_at (until now a dead
+        # field: one writer, zero readers), so keep what was sent after this
+        # process started and drop only what predates it. Unstamped files
+        # (hand-dropped JSON) keep the old conservative treatment.
+        self._boot_commands: list = []
+        stale = []
+        for _c in self.control.consume():
+            try:
+                _sent = float(_c.get("sent_at", 0) or 0)
+            except (TypeError, ValueError):
+                _sent = 0.0
+            (self._boot_commands if _sent >= _PROC_START else stale).append(_c)
         if stale:
             log.warning("discarded %d stale control command(s) queued before "
                         "startup: %s", len(stale),
                         [c.get("cmd") for c in stale])
+        if self._boot_commands:
+            log.warning("retained %d control command(s) sent during startup "
+                        "(after this process began): %s - they run on the "
+                        "first loop iteration", len(self._boot_commands),
+                        [c.get("cmd") for c in self._boot_commands])
         self.status = StatusWriter()
         self._last_status: dict = {}
         api_cfg = (config or {}).get("api_server", {})
@@ -196,6 +300,9 @@ class BotRunner:
         # start/entries_on delete the sentinels; nothing else does.
         self._paused_sentinel = Path("outputs") / "paused.on"
         self._entries_off_sentinel = Path("outputs") / "entries_off.on"
+        # H4: written by force_dry, read by main() BEFORE the engine is
+        # constructed (see FORCE_DRY_SENTINEL).
+        self._force_dry_sentinel = FORCE_DRY_SENTINEL
         self.state = ("PAUSED" if (start_paused
                                    or self._paused_sentinel.exists())
                       else "RUNNING")
@@ -224,6 +331,103 @@ class BotRunner:
         self._wedge_alerted = False
         self._wedge_latched = False     # cycle_wedged fault currently latched
         self._recover_streak = 0        # consecutive healthy cycles since a wedge
+        # H5: an emergency flatten is a LATCH re-driven every tick, not the
+        # single unretried attempt it used to be. See _drive_flatten.
+        self._flatten_latched = False
+        self._flatten_since = 0.0
+        self._flatten_alerted = False
+        # H7: say it out loud in the live process too, not only in CI - a
+        # dropped command is otherwise invisible at every layer.
+        _dead, _deaf = command_vocabulary_drift()
+        if _dead:
+            log.critical("control vocabulary drift: %s are handled but not in "
+                         "VALID_COMMANDS - send() raises and consume() DELETES "
+                         "them unread", sorted(_dead))
+        if _deaf:
+            log.critical("control vocabulary drift: %s are accepted but have "
+                         "no handler - they ack 'ok' and do nothing",
+                         sorted(_deaf))
+
+    # ------------------------------------------------------------------
+    def _heartbeat_loop(self) -> None:
+        """C1: refresh the single-instance lock from a DEDICATED daemon
+        thread, never from the cycle thread.
+
+        The heartbeat used to be written once per loop iteration, so the
+        effective interval was the whole iteration - and cycle_once has no
+        time bound. Measured stalls in outputs/runner.log: 88.1s, 55.5s,
+        50.2s, 48.4s, 47.8s, every one of them past the lock's 30s stale
+        window. A LIVE runner therefore read as crashed, a second runner
+        reclaimed the lock and restored the same state.json, and the loser
+        kept placing orders for LOST_LIMIT more cycles - the dual-writer seam
+        behind both audit-chain forks in outputs/ (RT-010,
+        audit.jsonl.forked_20260713_054924).
+
+        scripts/pc_supervisor._acquire_or_wait documents the principle this
+        rests on: a dead pid cannot advance its heartbeat, so MOVEMENT - not
+        age - is the only honest liveness signal. Movement is only honest if
+        the trading work cannot block it, which is precisely what this thread
+        buys. The loop keeps the VERDICT (self._lock.forfeited /
+        lost_count); this thread only supplies the evidence.
+
+        Never raises: the lock is advisory, and a refresh that raises must not
+        kill the heartbeat for the rest of the session."""
+        assert self._lock is not None      # only started when a lock exists
+        while not self._hb_stop.wait(self._hb_sec):
+            try:
+                self._lock.refresh()
+            except Exception:
+                log.exception("lock heartbeat refresh raised - retrying at "
+                              "the next interval")
+
+    def _stop_heartbeat(self) -> None:
+        """Halt the heartbeat thread and wait for it to leave refresh().
+        MUST run before _lock.release(), or a refresh landing after the
+        unlink recreates the lockfile this process no longer owns."""
+        self._hb_stop.set()
+        t = self._hb_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=max(self._hb_sec * 2.0, 1.0))
+
+    def _note_lock_lost(self) -> None:
+        """C1: the FIRST lost heartbeat already proves a live peer owns this
+        outputs/ dir. Refuse NEW risk immediately instead of trading through
+        the LOST_LIMIT-heartbeat convergence window - during overlap both
+        processes submit full-size exits off their own per-process
+        open_orders() view (double close, reversal into a leveraged short)
+        and both interleave the hash-chained audit trail.
+
+        Exits are NEVER gated by this (invariant #5): a CRITICAL fault sets
+        op-state HALTED, which refuses new risk and leaves allow_exits() True.
+        Latched once per contention episode; a recovered lock (lost_count back
+        to 0) re-arms so a later episode alerts again. Recovery is the
+        operator's `clear_fault lock_lost` - which H7 made reachable - or a
+        restart, where __init__ drops it because acquire() succeeded."""
+        fm = getattr(self.bot, "fault", None)
+        if fm is None:
+            log.critical("instance lock lost to a live peer and there is no "
+                         "fault authority to refuse new risk - stop one of "
+                         "the runners NOW")
+            return
+        try:
+            from core.fault import Severity
+            fm.latch(LOCK_LOST_FAULT, Severity.CRITICAL,
+                     f"a live peer holds outputs/runner.lock "
+                     f"(lost_count={getattr(self._lock, 'lost_count', '?')}) "
+                     f"- refusing NEW risk while two runners contend for one "
+                     f"book; exits still run")
+        except Exception:
+            log.exception("lock_lost fault-latch failed - new risk is NOT "
+                          "sealed; stop one of the runners manually")
+
+    # ------------------------------------------------------------------
+    def _cfg_dry_run(self) -> bool:
+        """The CONFIGURED mode for this session. force_dry never touches it -
+        that is the whole point (M3). getattr-guarded because several suites
+        drive handle_command off a BotRunner.__new__ double that has no
+        config; an absent config resolves to the SAFE default (dry)."""
+        cfg = getattr(self, "config", None) or {}
+        return bool((cfg.get("system") or {}).get("dry_run", True))
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -293,45 +497,14 @@ class BotRunner:
                 if key == "cycle_wedged":
                     self._wedge_latched = False
                     self._recover_streak = 0
+                if key == LOCK_LOST_FAULT:
+                    # C1: re-arm so a LATER contention episode latches (and
+                    # alerts) again instead of being swallowed by this one.
+                    self._lock_lost_latched = False
                 note = (f"fault {key} cleared -> op-state {fm.status()['state']}"
                         if cleared else f"no such fault {key!r}")
         elif cmd == "force_dry":
-            # one-way, safe-direction only: LIVE -> DRY. There is no
-            # command that sets dry_run False; returning to live requires
-            # config dry_run=false + restart + typed ARM phrase.
-            if bot.dry_run:
-                note = "already dry-run"
-            else:
-                # W2-5: cancel every still-resting LIVE venue order BEFORE
-                # flipping the flags. Flipping first left any resting order
-                # routed through _poll_dry from the NEXT poll onward, which
-                # SIMULATES a fill on an order genuinely resting on Kraken -
-                # in the 0..deadman_sec window before the venue dead-man
-                # cancels it, a real fill could land with no local record
-                # (and with deadman_timeout_sec=0 it rests unmanaged
-                # forever). cancel_order() is called while
-                # bot.orders.dry_run is STILL False so it takes the live
-                # path (venue CancelOrder + final-fill reconciliation query)
-                # rather than the dry-run no-op.
-                cancelled = 0
-                for o in list(bot.orders.open_orders()):
-                    try:
-                        if bot.orders.cancel_order(o, reason="force_dry"):
-                            cancelled += 1
-                            log.warning("force_dry: cancelled resting live "
-                                        "order %s %s %s (txid=%s)",
-                                        o.side, o.pair, o.purpose, o.txid)
-                    except Exception:
-                        log.exception("force_dry: cancel failed for order "
-                                      "%s (txid=%s) - flags still seal new "
-                                      "risk; venue dead-man is the backstop",
-                                      o.order_id, o.txid)
-                bot.live_armed = False
-                bot.dry_run = True
-                bot.orders.dry_run = True     # OrderManager caches the flag
-                note = (f"FORCED DRY-RUN by operator - {cancelled} resting "
-                        f"live order(s) cancelled, live order paths sealed; "
-                        f"live again = config + restart + ARM")
+            note = self._cmd_force_dry(bot)
         elif cmd == "flatten_all":
             # per-position isolation: an emergency flatten must not half-
             # complete silently because one position errors on exit submission
@@ -351,18 +524,33 @@ class BotRunner:
                     failed += 1
                     log.exception("[%s] flatten_all exit submission raised - "
                                   "flattening the rest", pos.symbol)
-            note = f"flatten submitted for {submitted} position(s)"
+            # H5: LATCH the flatten. A single unretried attempt was the whole
+            # defect - on the 25s order timeout _poll_live cancels and emits a
+            # zero-fill final event _handle_fill has no branch for, so nothing
+            # ever re-submitted and the ack still claimed success.
+            self._latch_flatten(now)
+            note = f"flatten submitted for {submitted} position(s); LATCHED"
             if self.state == "PAUSED":
                 # W2-6: orders.poll/refresh_deadman still run every tick while
                 # paused (see _run_paused_order_maintenance) so these exits
                 # are not left resting unmanaged until the venue's dead-man
                 # cancels them with no local reconciliation.
                 note += "; exits will be managed while paused"
+                note += self._paused_mark_staleness_note(now)
             if failed:
                 note += f"; {failed} FAILED to submit - see log, retry"
         elif cmd.startswith("sim_"):
-            if not bot.dry_run:
-                note = "REFUSED: simulations are dry-run only"
+            # M3: BOTH the configured mode and the runtime flag must be dry.
+            # The old gate read only the mutable bot.dry_run, so force_dry
+            # (LIVE->DRY) silently unlocked simulated price shocks on a
+            # live-CONFIG bot - and status.json then reported "DRY_RUN", the
+            # exact signal an operator reads as safe. _apply_sim multiplies
+            # REAL marks in place, driving stops/tiers straight into
+            # _submit_exit. runner.py's module docstring and
+            # core/runtime.SimOverrides both already promised the config gate.
+            if not (self._cfg_dry_run() and bot.dry_run):
+                note = ("REFUSED: simulations are dry-run only "
+                        "(configured mode AND runtime flag must both be dry)")
             elif cmd == "sim_price_shock":
                 bot.sim.price_shock[args.get("asset", "ETH")] = {
                     "pct": float(args.get("pct", -5.0)),
@@ -379,6 +567,287 @@ class BotRunner:
                 bot.sim.force_fear = 0
         log.warning(f"control: {cmd} {args or ''} -> "
                     f"{note or 'ok'} (runner={self.state})")
+
+    # ------------------------------------------------------------------
+    def _cmd_force_dry(self, bot) -> str:
+        """One-way, safe-direction only: LIVE -> DRY. There is no command that
+        sets dry_run False; returning to live requires config dry_run=false +
+        restart + the typed ARM phrase (hard invariant #1).
+
+        C2 (runner side): force_dry used to cancel resting orders, flip the
+        flags, and leave the runner RUNNING. Every subsequent exit for a
+        LIVE-born position then routed through OrderManager's dry branch, got
+        a DRY- txid, and _sim_cross fabricated a fill against the still-live
+        Kraken book - with `venue calls: []`. main._handle_fill has no dry/live
+        provenance (Position carries no such field), so it decremented size,
+        booked paper PnL and finalized a position the venue still holds. A real
+        book was paper-closed and status reported a falling position count.
+        The flag flip itself is correct and invariant-mandated, so it is
+        UNCHANGED; what stops the fabrication is PAUSING - cycle_once is the
+        only caller of the stop/tier evaluation that reaches _submit_exit.
+        The engine-side provenance work is tracked separately.
+
+        H4: write the durable outputs/force_dry.on sentinel. snapshot()
+        persists the RUNTIME dry_run flag and force_dry is its only runtime
+        writer, so without the sentinel the very next 30s cadence snapshot
+        wrote dry_run:true alongside a still-real book; the prescribed live
+        restart then hit restore()'s paper/live mismatch guard, logged
+        "refusing to mix paper and live state", and booted flat with the full
+        starting capital while Kraken held the coins. One poisoned generation
+        is fatal (a readable-but-mismatched primary short-circuits before
+        _pick_snapshot consults .bak). main() reads the sentinel BEFORE the
+        engine exists and forces dry_run=True, so the snapshot's flag matches
+        and the book survives."""
+        if bot.dry_run:
+            return "already dry-run"
+        # W2-5: cancel every still-resting LIVE venue order BEFORE flipping
+        # the flags. Flipping first left any resting order routed through
+        # _poll_dry from the NEXT poll onward, which SIMULATES a fill on an
+        # order genuinely resting on Kraken - in the 0..deadman_sec window
+        # before the venue dead-man cancels it, a real fill could land with no
+        # local record (and with deadman_timeout_sec=0 it rests unmanaged
+        # forever). cancel_order() is called while bot.orders.dry_run is STILL
+        # False so it takes the live path (venue CancelOrder + final-fill
+        # reconciliation query) rather than the dry-run no-op.
+        cancelled = 0
+        for o in list(bot.orders.open_orders()):
+            try:
+                if bot.orders.cancel_order(o, reason="force_dry"):
+                    cancelled += 1
+                    log.warning("force_dry: cancelled resting live "
+                                "order %s %s %s (txid=%s)",
+                                o.side, o.pair, o.purpose, o.txid)
+            except Exception:
+                log.exception("force_dry: cancel failed for order "
+                              "%s (txid=%s) - flags still seal new "
+                              "risk; venue dead-man is the backstop",
+                              o.order_id, o.txid)
+        bot.live_armed = False
+        bot.dry_run = True
+        bot.orders.dry_run = True     # OrderManager caches the flag
+        # getattr-guarded like every other stub-tolerant path here: a
+        # BotRunner.__new__ double (test harnesses) has no sentinel path, and
+        # writing a repo-relative outputs/force_dry.on from a unit test would
+        # leak a durable risk-off into the operator's real checkout.
+        _fd = getattr(self, "_force_dry_sentinel", None)
+        if _fd is not None:
+            self._set_sentinel(_fd)
+        else:
+            log.warning("force_dry: no sentinel path on this runner - the "
+                        "one-way seal will NOT survive a restart")
+        note = (f"FORCED DRY-RUN by operator - {cancelled} resting "
+                f"live order(s) cancelled, live order paths sealed; "
+                f"outputs/force_dry.on written so a restart under the "
+                f"unchanged live config restores this book instead of "
+                f"discarding it; live again = delete that sentinel + "
+                f"config + restart + ARM")
+        # C2: read the book AFTER the seal is committed - the flip is an
+        # invariant and must never depend on this succeeding. `state` is
+        # getattr-guarded for the minimal SimpleNamespace doubles several
+        # suites drive handle_command with (a real LiquidityBot always builds
+        # PortfolioState in __init__, so the None branch is unreachable in
+        # production); a state that RAISES is treated as a non-empty book,
+        # because "cannot prove the book is empty" must fail toward pausing.
+        stranded, unknown = [], False
+        _state = getattr(bot, "state", None)
+        if _state is not None:
+            try:
+                stranded = list(_state.open_positions())
+            except Exception:
+                unknown = True
+                log.exception("force_dry: open_positions() raised - treating "
+                              "the book as NON-empty and pausing")
+        if not stranded and not unknown:
+            return note
+        # A REAL book is now behind a paper engine. Pause (that is what stops
+        # cycle_once - the only caller that reaches _submit_exit - from
+        # fabricating fills against the still-live Kraken book), make the
+        # pause durable so a supervisor/updater relaunch cannot silently
+        # revert it, and name the stranded positions.
+        self.state = "PAUSED"
+        _ps = getattr(self, "_paused_sentinel", None)   # see the note above:
+        if _ps is not None:                             # never leak into the
+            self._set_sentinel(_ps)                     # operator's checkout
+        detail = ", ".join(f"{p.symbol} {p.position_id[:8]} "
+                           f"{p.direction} {p.size:.8g}" for p in stranded) \
+            or "position count UNKNOWN (open_positions() raised)"
+        msg = (f"force_dry with {len(stranded) or 'an unknown number of'} "
+               f"OPEN LIVE POSITION(S): {detail}. The runner is now PAUSED so "
+               f"the paper engine cannot fabricate exits against the real "
+               f"Kraken book. These positions are REAL and are NOT being "
+               f"stop-managed while paused - flatten them from the venue, or "
+               f"delete outputs/force_dry.on + outputs/paused.on and restart "
+               f"live.")
+        try:
+            bot.alerts.fire("force_dry_with_open_positions", msg,
+                            level="CRITICAL")
+        except Exception:
+            log.exception("force_dry alert failed - the pause still stands")
+        log.critical("force_dry: %s", msg)
+        return (f"{note}; PAUSED with {len(stranded)} OPEN LIVE position(s) "
+                f"({detail}) - they are REAL, not paper")
+
+    # ------------------------------------------------------------------
+    def _latch_flatten(self, now: Optional[float]) -> None:
+        """H5: arm the emergency-flatten latch (idempotent re-arm resets the
+        escalation clock so a second operator flatten is not judged against
+        the first one's deadline)."""
+        self._flatten_latched = True
+        self._flatten_since = now if now is not None else time.time()
+        self._flatten_alerted = False
+
+    def _flatten_deadline_sec(self) -> float:
+        """How long the exit-escalation ladder needs to run itself out, from
+        the engine's OWN configured values - no new tunable. Each attempt
+        rests for order_timeout_sec; the ladder reaches its MARKET rung after
+        esc_market_after attempts, so a flatten still open one timeout past
+        that is not going to resolve itself."""
+        bot = self.bot
+        timeout = float(getattr(getattr(bot, "orders", None),
+                                "timeout_sec", 25.0) or 25.0)
+        rungs = int(getattr(bot, "esc_market_after", 3) or 3)
+        return timeout * (rungs + 2)
+
+    def _drive_flatten(self, now: float) -> None:
+        """H5: re-drive the latched flatten every tick until the book is flat.
+
+        flatten_all used to be ONE _submit_exit per position with no latch -
+        contrast the catastrophe hard stop, which sets bot._halted and
+        re-flattens every cycle. On the 25s order timeout _poll_live cancels
+        and emits a zero-fill final FillEvent that _handle_fill has no branch
+        for, so nothing re-submitted: the ack said "flatten submitted", the
+        positions stayed open, and no alert ever fired.
+
+        Re-driving is nearly free: _submit_exit's own one-live-exit-per-
+        position dedup returns early while an exit rests, so this only bites
+        when an attempt has expired - and then the existing escalation ladder
+        (widening slip cap, MARKET on the final rung) advances exactly as
+        designed. Runs in BOTH runner states, because invariant #5 is that a
+        pause blocks new risk and never an escape.
+
+        Isolated per position, like flatten_all itself."""
+        if not self._flatten_latched:
+            return
+        bot = self.bot
+        try:
+            positions = list(bot.state.open_positions())
+        except Exception:
+            log.exception("flatten latch: open_positions() raised - "
+                          "retrying next tick")
+            return
+        if not positions:
+            self._flatten_latched = False
+            self._flatten_alerted = False
+            log.warning("flatten latch cleared: book is flat")
+            return
+        if self.state == "PAUSED":
+            # H5: fast_cycle is the ONLY writer of bot.marks / bot.kraken_books
+            # and it does not run while paused, so every replacement exit would
+            # be priced off the touch frozen at pause time - and it would pass
+            # the firewall collar, because the collar centers on that same
+            # frozen mid (verified: a 35-minute-stale book produced a sell limit
+            # at 1990 into a 1720 market). Refresh first so the ladder advances
+            # against real prices.
+            self._refresh_marks_for_flatten(now, positions)
+        for pos in positions:
+            try:
+                bot._submit_exit(pos, 100.0, "operator flatten_all (latched)",
+                                 now=now)
+            except Exception:
+                log.exception("[%s] latched flatten re-submit raised - "
+                              "continuing with the rest", pos.symbol)
+        elapsed = now - self._flatten_since
+        if not self._flatten_alerted and elapsed > self._flatten_deadline_sec():
+            self._flatten_alerted = True
+            msg = (f"emergency flatten still open after {elapsed:.0f}s: "
+                   f"{len(positions)} position(s) "
+                   f"({', '.join(p.symbol for p in positions)}) survived the "
+                   f"full exit-escalation ladder including its MARKET rung. "
+                   f"The latch keeps retrying every tick - intervene at the "
+                   f"venue.")
+            try:
+                bot.alerts.fire("flatten_all_unresolved", msg, level="CRITICAL")
+            except Exception:
+                log.exception("flatten escalation alert failed - latch stands")
+            log.critical("flatten latch: %s", msg)
+
+    def _refresh_marks_for_flatten(self, now: float, positions: list) -> None:
+        """H5: read-only mark/book refresh for the assets a latched flatten
+        still holds, used ONLY while PAUSED (fast_cycle already does this when
+        RUNNING). Ticker + Depth + the engine's own tick quarantine and
+        nothing else: no signal, no sizing, no entry path runs here, so it
+        cannot create new risk - it only lets the existing exit ladder price
+        against the live market instead of a frozen one.
+
+        Deliberately duplicates the READ slice of main.fast_cycle: the engine
+        exposes no narrower refresh entry point, and runner.py must not grow
+        engine decision logic to get one. Fully isolated - on any feed fault
+        the marks stay exactly as stale as they already were, which is the
+        pre-existing behaviour."""
+        bot = self.bot
+        pair_of = getattr(bot, "_pair_of", None) or {}
+        kraken = getattr(bot, "kraken", None)
+        asset_of = getattr(bot, "_asset_of", None)
+        if not pair_of or kraken is None or not callable(asset_of):
+            return
+        assets = set()
+        for p in positions:
+            try:
+                assets.add(asset_of(p.symbol))
+            except Exception:
+                log.debug("paused flatten: no asset mapping for %r - its "
+                          "exit still re-submits off the existing marks",
+                          getattr(p, "symbol", "?"), exc_info=True)
+        pairs = [pair_of[a] for a in sorted(assets) if a in pair_of]
+        if not pairs:
+            return
+        try:
+            ticks = kraken.get_tickers(pairs) or {}
+        except Exception:
+            log.exception("paused flatten: ticker refresh failed - exits "
+                          "will price off the last known marks")
+            ticks = {}
+        for asset in sorted(assets):
+            pair = pair_of.get(asset)
+            if pair is None:
+                continue
+            try:
+                symbol = bot.symbol_map.get(asset)
+                px = ticks.get(pair)
+                if px and symbol:
+                    mark, stop_ok = bot.watchdog.filter_mark(asset, px)
+                    bot.marks[symbol] = mark
+                    bot._mark_ts[symbol] = now
+                    bot._stop_ok[asset] = stop_ok
+                book = kraken.get_order_book(pair)
+                if book:
+                    bot.kraken_books[asset] = book
+                    bot.book_ts[asset] = now
+            except Exception:
+                log.exception("paused flatten: refresh failed for %s - "
+                              "continuing with the rest", asset)
+
+    def _paused_mark_staleness_note(self, now: Optional[float]) -> str:
+        """H5: the PAUSED flatten ack used to claim "exits will be managed"
+        unconditionally. When the marks/books behind those exits are older
+        than the engine's own mark_stale_sec, say so in the ack instead of
+        letting the operator read success into a limit priced off a frozen
+        touch."""
+        bot = self.bot
+        ts = getattr(bot, "_mark_ts", None)
+        if not ts:
+            return ""
+        ref = now if now is not None else time.time()
+        try:
+            age = max(ref - float(v) for v in ts.values())
+            limit = float(getattr(bot, "_mark_stale_sec", 20.0))
+        except (TypeError, ValueError):
+            return ""
+        if age <= limit:
+            return ""
+        return (f"; WARNING marks are {age:.0f}s old (> {limit:.0f}s) - the "
+                f"latch refreshes them before each retry, but the FIRST "
+                f"attempt above was priced off frozen data")
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -880,12 +1349,22 @@ class BotRunner:
         try:
             while not self._stop:
                 now = time.time()
-                # heartbeat BEFORE the cycle body: a repeatedly-raising cycle
-                # (feed outage, etc.) must not let the lock go stale while
-                # this process is alive - a stale lock invites a second
-                # runner to take over and duplicate the loop.
+                # C1: the heartbeat is written by the daemon thread started in
+                # __init__, at a fixed cadence the cycle body cannot stall.
+                # The loop only READS the verdict. Writing it here made the
+                # effective heartbeat interval equal to a whole iteration -
+                # and cycle_once has no time bound, so a live runner regularly
+                # read as crashed inside the 30s stale window.
                 if self._lock is not None:
-                    if not self._lock.refresh() and self._lock.forfeited:
+                    if self._lock.lost_count == 0:
+                        self._lock_lost_latched = False
+                    elif not self._lock_lost_latched:
+                        # do not wait for LOST_LIMIT: one lost heartbeat is
+                        # already proof of a live peer. Seal NEW risk now;
+                        # exits keep running (invariant #5).
+                        self._lock_lost_latched = True
+                        self._note_lock_lost()
+                    if self._lock.forfeited:
                         # a LIVE peer owns this outputs/ dir - we are the
                         # duplicate. Exiting stops new risk only (the peer
                         # keeps managing positions/exits); staying would
@@ -911,7 +1390,12 @@ class BotRunner:
                     # every cmd file, so a raise in one command would drop the
                     # REST of the batch — including a queued `stop` behind a
                     # failing `flatten_all`. Each command stands alone.
-                    for c in self.control.consume():
+                    # H6: _boot_commands are the ones that arrived DURING this
+                    # process's startup (remote plane already ledgered them
+                    # "applied"); they run once, ahead of this tick's queue.
+                    pending = self._boot_commands + self.control.consume()
+                    self._boot_commands = []
+                    for c in pending:
                         try:
                             self.handle_command(c, now)
                         except Exception:
@@ -921,6 +1405,14 @@ class BotRunner:
                                           if isinstance(c, dict) else c)
                     if self._stop:
                         break
+                    # H5: a latched emergency flatten is re-driven every tick,
+                    # in BOTH states, until the book is flat. Isolated - it
+                    # must never feed the wedge counter or skip the cycle.
+                    try:
+                        self._drive_flatten(now)
+                    except Exception:
+                        log.exception("flatten latch drive raised - latch "
+                                      "stands, retrying next tick")
                     # ONLY cycle_once feeds the wedge counter (review A1-F2): a
                     # telemetry/snapshot/status-write failure must NEVER escalate
                     # to a trading halt or be misattributed to "cycle_once
@@ -977,6 +1469,11 @@ class BotRunner:
                 elapsed = time.time() - now
                 time.sleep(max(self.poll_sec - elapsed, 0.25))
         finally:
+            # C1: stop the heartbeat FIRST. A refresh landing after
+            # _lock.release() below would recreate a lockfile this process no
+            # longer owns, and a refresh racing the forfeit exit would keep
+            # contending with the peer we just conceded to.
+            self._stop_heartbeat()
             bot.moomoo.close()
             ws = getattr(bot, "ws_manager", None)
             if ws is not None:
@@ -1054,6 +1551,54 @@ class BotRunner:
                 self._lock.release()   # ownership-aware: no-op when forfeited
 
 
+def apply_force_dry_sentinel(config: dict, fresh: bool = False,
+                             sentinel: Path | None = None) -> bool:
+    """H4: reproduce a previous session's force_dry at boot, BEFORE the engine
+    reads system.dry_run.
+
+    force_dry is the only runtime writer of bot.dry_run, and snapshot()
+    persists that runtime flag. So the moment an operator force_dry'd a live
+    session, the next 30s cadence snapshot wrote dry_run:true onto a state
+    file that still described a REAL book - and the very next routine restart
+    (auto-updater, keepalive, supervisor) hit restore()'s paper/live mismatch
+    guard under the unchanged live config, logged "refusing to mix paper and
+    live state; starting fresh", and booted with 0 positions and the full
+    starting capital while Kraken still held the coins. Flipping the config to
+    dry_run:true instead PASSED the guard and restored a genuinely live book
+    into a paper engine - there was no config choice that recovered correctly.
+
+    Forcing dry_run True here is the SAFE direction and the only direction
+    this function moves (hard invariant #1): it can never set dry_run False.
+    Returns True when the sentinel applied. --fresh clears it, because --fresh
+    discards the very state the sentinel exists to keep loadable."""
+    path = sentinel if sentinel is not None else FORCE_DRY_SENTINEL
+    if fresh:
+        if path.exists():
+            try:
+                path.unlink()
+                log.warning("--fresh: cleared %s - this boot honours the "
+                            "configured mode again", path)
+            except OSError:
+                log.warning("--fresh: could not clear %s - boot stays DRY", path)
+        return False
+    if not path.exists():
+        return False
+    sys_cfg = config.setdefault("system", {})
+    was_live = not bool(sys_cfg.get("dry_run", True))
+    sys_cfg["dry_run"] = True
+    if was_live:
+        log.critical(
+            "%s present: a previous session was FORCED to dry-run while the "
+            "config still says dry_run:false. Booting DRY so the saved "
+            "snapshot loads instead of being discarded as paper/live "
+            "mismatch. Delete the sentinel (or run --fresh) to go live.",
+            path)
+    else:
+        log.warning("%s present: config is already dry_run - sentinel is a "
+                    "no-op this boot", path)
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(description="liquiditybot v2 runner")
     ap.add_argument("--config", default="config.json")
@@ -1088,6 +1633,7 @@ def main():
     Path("outputs").mkdir(exist_ok=True)
 
     merge_skimmer_universe(config)
+    apply_force_dry_sentinel(config, fresh=args.fresh)
 
     # single-instance guard: a second runner on the same outputs/ dir clobbers
     # status/state, races the control queue, and corrupts the audit chain -

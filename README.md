@@ -140,8 +140,14 @@ Everything the learning stack consumes, and the knobs that matter:
   Needs ≥60 rows minimum; ≥`ml.min_train_rows` (150) before live rows
   replace bootstrap. `--bootstrap` forces EMA-cross pseudo-labels from
   OKX candles (weak prior; requires network).
-* **Labels** — `ml.label_max_bars` (96 = 8h horizon),
-  `label_pt_vol_mult`/`label_sl_vol_mult` (barriers in vol units).
+* **Labels** — `ml.label_max_bars` is the triple-barrier vertical, counted
+  in 5m bars, so the horizon is always `label_max_bars × 5m`. Read the
+  number out of `config.json`, never out of docs: `config_guard` FATALs
+  any value at or above `profit_taking.time_stop.max_bars_no_progress`
+  (a vertical past the no-progress scratch is unreachable — the
+  2026-07-31 era deadlock), so a stale figure copied from a README
+  refuses to start. `label_pt_vol_mult`/`label_sl_vol_mult` are the
+  up/down barriers, in vol units.
 * **Auto-retrain** — fires when the monitor hits level 2 (or the flag
   exists) AND ≥`ml.monitor.retrain_min_new_rows` (40) new rows accrued,
   cooldown `retrain_cooldown_hours` (12). Challenger deploys only if
@@ -195,13 +201,29 @@ aren't in the frames).
 
 Audited with bandit + pip-audit + manual threat-model review:
 **0 static-analysis issues, 0 known dependency CVEs; suites: 345 pytest + 205 smoke + 47 assurance checks.**
-The attack surface is untrusted inbound *data* (no listening sockets).
-All external feed data — exchange books/candles and web/RSS/JSON — is
-sanitized at the boundary: non-finite numbers (NaN/Inf) rejected,
-poisoned/crossed order books dropped, RSS parsed with defusedxml
-(entity-bomb-proof), responses size-capped. Withdrawals are blocked at
-the code level (endpoint deny list, pre-network). Full report:
-`docs/SECURITY_AUDIT.md`. Re-run: `bandit -c pyproject.toml -r . -x ./.venv,./tests`.
+The primary attack surface is untrusted inbound *data*. All external feed
+data — exchange books/candles and web/RSS/JSON — is sanitized at the
+boundary: non-finite numbers (NaN/Inf) rejected, poisoned/crossed order
+books dropped, RSS parsed with defusedxml (entity-bomb-proof), responses
+size-capped. Withdrawals are blocked at the code level (endpoint deny
+list, pre-network). Full report: `docs/SECURITY_AUDIT.md`. Re-run:
+`bandit -c pyproject.toml -r . -x ./.venv,./tests`.
+
+Two surfaces are **not** pure-data and are worth knowing before you widen
+anything:
+
+* **`api_server.rest` / `api_server.grpc` both ship `enabled: false`.**
+  When enabled they bind 127.0.0.1 only, never expose `arm_live`, and
+  `/control` requires `Content-Type: application/json` plus a same-origin
+  Origin/Referer/Sec-Fetch-Site — loopback binding alone is *not* a
+  defence against a browser, since every page the operator opens can
+  reach 127.0.0.1. Set `auth_token` (mirrored by gRPC's `x-auth-token`
+  metadata) before enabling either.
+* **Imported session bundles are untrusted input.** `scripts/corpus_sync.py`
+  runs `session_import --apply` unattended against the telemetry branch,
+  so the manifest's `label` and `files` keys are allow-listed to bare
+  basenames before they are ever used as paths; a bundle that fails that
+  check is refused with exit 4 (never partially applied).
 
 ## Setup
 
@@ -257,7 +279,11 @@ If Python aborts at startup with `Fatal Python error: preconfig_init_utf8_mode: 
 Edit `config.json`:
 
 * `exchanges.kraken.api_key/api_secret` — trade + query permissions only
-  (no withdrawal). OKX/Binance.US stay keyless.
+  (no withdrawal). OKX/Binance.US stay keyless. `config.json` is
+  git-tracked; the feed resolves credentials env-first
+  (`api_key_env`, else `KRAKEN_API_KEY`/`KRAKEN_API_SECRET`, else the
+  literal), but the live-start config guard reads the config dict only —
+  see README_WINDOWS.md "Live trading" for that asymmetry.
 * `pretrade.maker_fee_bps / taker_fee_bps` — set to your actual Kraken tier.
 * `capital_management.starting_capital_usd`.
 

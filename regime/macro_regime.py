@@ -237,6 +237,39 @@ def parkinson_vol(highs: np.ndarray, lows: np.ndarray) -> np.ndarray:
     return np.sqrt(hl * hl / (4.0 * np.log(2.0)))
 
 
+# --- TSMOM score lattice ------------------------------------------------
+# The TSMOM score is mean(sign(r_lb)) over n lookbacks, so it is NOT a
+# continuum: it can only take the n+1 values (n-2j)/n. A threshold is a
+# CUT on that lattice, and its meaning is entirely "how many lookbacks
+# must agree" - a value that lands beside a lattice point rather than
+# between two of them silently encodes a different vote count than the
+# one it documents. That is exactly how momentum_bear_max=-0.34 came to
+# demand UNANIMITY (-1/3 = -0.3333... > -0.34, so the 2-of-3 level fails
+# the `score <= thr` test) while its own comment claimed "at least 2 of
+# 3 agree" - and, because momentum_bull_min=0.67 already meant 3-of-3,
+# it INVERTED the intended asymmetry: bear needed 3/3 *and* a >=20%
+# drawdown where bull needed only 3/3.
+def tsmom_lattice(n_lookbacks: int) -> list:
+    """Every value mean(sign) can take over n votes: +1 .. -1, step 2/n."""
+    n = max(int(n_lookbacks), 1)
+    return [(n - 2 * j) / n for j in range(n + 1)]
+
+
+def tsmom_threshold_conflict(threshold: float, n_lookbacks: int):
+    """The lattice point `threshold` is too close to, or None if it is safe.
+
+    "Too close" is within 1/(2n) - half of the half-step. Inside that band
+    the cut is decided by which side of a representable value the constant
+    happens to fall, i.e. by rounding, not by design. Guard shape mirrors
+    core/config_guard.py's FATAL checks; kept here because the engine is
+    also constructed directly (tests, replay) with no config pass.
+    """
+    n = max(int(n_lookbacks), 1)
+    lat = tsmom_lattice(n)
+    near = min(lat, key=lambda v: abs(v - threshold))
+    return near if abs(near - threshold) <= 1.0 / (2 * n) else None
+
+
 class MacroRegimeEngine:
     def __init__(self, config: dict):
         cfg = config or {}
@@ -248,13 +281,22 @@ class MacroRegimeEngine:
         self.vol_hi_pct = float(cfg.get("bull_volatile_vol_pct", 70.0))
         self.crisis_vol_pct = float(cfg.get("crisis_vol_pct", 95.0))
         self.bear_dd_pct = float(cfg.get("bear_drawdown_pct", 20.0))
-        # TSMOM score tertile boundaries for the ensemble label (score is
-        # the mean sign over momentum_lookbacks_days, so with 3 lookbacks
-        # it lives on {-1, -1/3, +1/3, +1}; +-0.34 / 0.67 select "at
-        # least 2 of 3 lookbacks agree" / "all 3 agree, or 2 strongly").
-        # Lifted to config (identical defaults) per overfit discipline.
-        self.mom_bear_max = float(cfg.get("momentum_bear_max", -0.34))
-        self.mom_bull_min = float(cfg.get("momentum_bull_min", 0.67))
+        # TSMOM cuts on the score lattice (see tsmom_lattice above). With
+        # the shipped 3 lookbacks the score lives on {-1, -1/3, +1/3, +1}:
+        #   bear  score <= -0.10  -> -1/3 and -1 pass = "at least 2 of 3 agree"
+        #   bull  score >= +0.67  -> only +1 passes   = "all 3 agree"
+        # i.e. the documented asymmetry - a bear thesis is cheaper to reach
+        # than a bull one (it still needs a >=20% drawdown alongside), which
+        # the old -0.34 default inverted by sitting 0.0067 BELOW the -1/3
+        # level it was meant to admit. Both are config knobs per overfit
+        # discipline; the lattice guard below rejects a re-introduction.
+        k_lb = max(len(self.mom_lookbacks), 1)
+        self.mom_bear_max = self._lattice_safe(
+            float(cfg.get("momentum_bear_max", -0.10)), k_lb,
+            "momentum_bear_max", inclusive_below=True)
+        self.mom_bull_min = self._lattice_safe(
+            float(cfg.get("momentum_bull_min", 0.67)), k_lb,
+            "momentum_bull_min", inclusive_below=False)
         playbooks = dict(DEFAULT_PLAYBOOKS)
         for name, pb in (cfg.get("playbooks") or {}).items():
             if name in playbooks:
@@ -266,6 +308,40 @@ class MacroRegimeEngine:
         self._hmm: dict = {}                 # asset -> GaussianHMM
         self._states: dict = {}              # asset -> MacroRegimeState
         self._pending: dict = {}             # asset -> (candidate_label, count)
+
+    @staticmethod
+    def _lattice_safe(threshold: float, n_lookbacks: int, name: str,
+                    inclusive_below: bool) -> float:
+        """Repair a TSMOM threshold that the score lattice cannot express,
+        and say so loudly.
+
+        A threshold placed BESIDE a lattice point was placed there to include
+        that point - it is the only reason to write -0.34 instead of -0.5. So
+        the repair keeps that point selected and moves the cut into the
+        interior of its gap (a third of a step, comfortably outside the
+        1/(2n) band on both sides). Repair rather than raise: startup FATALs
+        belong to core/config_guard.py and a shipped config must not take the
+        runner down mid-session - but it must not silently keep running an
+        inverted rule either, so this is an ERROR-level line every boot.
+        """
+        near = tsmom_threshold_conflict(threshold, n_lookbacks)
+        if near is None:
+            return threshold
+        n = max(int(n_lookbacks), 1)
+        step = 2.0 / n
+        # clamp keeps the sign contract config_guard enforces (bear cuts are
+        # negative, bull cuts positive) without re-entering the tolerance band
+        if inclusive_below:                       # applied as `score <= thr`
+            fixed = min(near + step / 3.0, -1.0 / (4 * n))
+        else:                                     # applied as `score >= thr`
+            fixed = max(near - step / 3.0, 1.0 / (4 * n))
+        log.error(
+            "regime.%s=%.4f sits within %.4f of the achievable TSMOM level "
+            "%+.4f (%d lookbacks): the cut is decided by rounding, not by "
+            "design, and encodes a different vote count than it documents. "
+            "Using %+.4f (same lookbacks selected, lattice-safe) - fix the "
+            "config value.", name, threshold, 1.0 / (2 * n), near, n, fixed)
+        return fixed
 
     def state(self, asset: str) -> MacroRegimeState:
         return self._states.get(asset) or MacroRegimeState(asset=asset)

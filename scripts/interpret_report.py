@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ml.features import FEATURE_NAMES                       # noqa: E402
-from ml.history import HistoryStore                         # noqa: E402
+from ml.history import load_for_config, store_for_config    # noqa: E402
 from ml.interpret import (attribution_profile,              # noqa: E402
                           cluster_features, explain, gbt_margin,
                           grouped_permutation_importance, profile_rotation)
@@ -146,15 +146,17 @@ def main() -> int:
     if svc.model is None:
         print("no trained champion - nothing to interpret")
         return 0
-    store = HistoryStore(ml_cfg.get("history_path",
-                                    "outputs/signal_history.csv"))
     # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
     # interpretability must attribute over the SAME rows the deployed model
     # trained on, or a feature's SHAP/permutation story reflects data the
     # champion never saw (docs/quant/pbo_admission_policy.md cross-consumer
-    # prerequisite).
-    era_cfg = ml_cfg.get("era_exclusion", {})
-    X, y, _w = store.load_training_data(era_cfg=era_cfg)
+    # prerequisite). The bare HistoryStore() defaulted max_bars to 96, so
+    # the era filter kept the legacy-era rows - the exact COMPLEMENT of the
+    # champion's own training set, i.e. an attribution story about data the
+    # champion never saw, which is the failure this wiring exists to
+    # prevent (2026-08-01 audit H12). One shared loader seam now.
+    store = store_for_config(ml_cfg)
+    X, y, _w = load_for_config(store, ml_cfg)
     if len(X) < 60:
         print(f"only {len(X)} rows - too few for an honest held-out tail")
         return 0

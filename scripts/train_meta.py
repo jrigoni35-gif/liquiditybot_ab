@@ -41,7 +41,8 @@ from core.codes import Code  # noqa: E402
 # own in-process records remain the chain of record for deploys.
 configure_audit(Path(__file__).resolve().parents[1]
                 / "outputs" / "audit_train_meta.jsonl")
-from ml.history import HistoryStore, bootstrap_dataset  # noqa: E402
+from ml.history import (bootstrap_dataset, load_for_config,  # noqa: E402
+                        store_for_config)
 from ml.labeling import ExitPolicy  # noqa: E402
 from ml.walkforward import evaluate_and_select  # noqa: E402
 from ml.models import save_model  # noqa: E402
@@ -165,22 +166,32 @@ def main():
     min_rows = int(ml_cfg.get("min_train_rows", 150))
     model_path = ml_cfg.get("model_path", "outputs/meta_model.json")
 
-    store = HistoryStore(ml_cfg.get("history_path", "outputs/signal_history.csv"))
+    # ml.history.store_for_config / load_for_config: the ONE loader seam
+    # every offline consumer shares (2026-08-01 audit H12). The bare
+    # HistoryStore() here defaulted max_bars to the legacy 96, so
+    # current_era resolved to "triple_barrier" while main.py:714 passes
+    # ml.label_max_bars (24) -> "triple_barrier_h24". With era exclusion
+    # armed on both sides (both counts clear min_new_era_rows) the two
+    # filters kept DISJOINT sets: measured on the real corpus, max_bars=96
+    # -> 2141 rows / 0 live, max_bars=24 -> 1090 rows / 14 live. This
+    # script then DEPLOYED the model fitted on production's complement,
+    # and main.py's reload_if_changed adopts it in-cycle (schema-width
+    # check only, no era check). config_guard FATALs label_max_bars >=
+    # max_bars_no_progress (36), so a valid live config can never be 96 -
+    # the drift was structurally guaranteed, not incidental.
+    # load_for_config additionally sources half_life_days/candidate_weight/
+    # manip_discount from ml.sample_weights instead of literals here
+    # (manip_discount was not passed at all, so a retuned value was honored
+    # by the in-process retrain and silently ignored by this CLI).
     sw_cfg = ml_cfg.get("sample_weights", {})
-    # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
-    # this is the standalone retrain CLI - a real corpus consumer that must
-    # not drift from the production loader (docs/quant/pbo_admission_policy.md
-    # cross-consumer prerequisite).
-    era_cfg = ml_cfg.get("era_exclusion", {})
+    store = store_for_config(ml_cfg)
     # signal-time array too: the deployed selector must purge folds by TIME, not
     # row count. Signals arrive in bursts, so a fixed row count spans a variable
     # amount of time and a dense pre-boundary burst leaks future labels the
     # row-count purge silently keeps (OF-6). overfit_check already measures the
     # TIME-purged process; without this the DEPLOYED selection didn't use it.
-    X, y, w, sig, res = store.load_training_data(
-        half_life_days=float(sw_cfg.get("half_life_days", 30)),
-        candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-        return_label_times=True, weights_cfg=sw_cfg, era_cfg=era_cfg)
+    X, y, w, sig, res = load_for_config(store, ml_cfg,
+                                        return_label_times=True)
     # LP-4: same training screen as the engine path - see check_matrix
     from ml.contracts import get_contract
     _keep = get_contract().check_matrix(X)["keep"]
@@ -194,7 +205,7 @@ def main():
                  f"from OKX 5m candles")
         from data.okx_feed import OKXFeed
         okx = OKXFeed(config["exchanges"]["okx"])
-        Xb, yb = [], []
+        Xb, yb, sigb = [], [], []
         for sym in config["exchanges"]["okx"].get("symbols", []):
             # deep paginated history (~10 days of 5m bars): the plain candles
             # endpoint caps at 300 bars, which yields too few EMA-cross
@@ -202,7 +213,7 @@ def main():
             candles = okx.get_history_candles(sym, bar="5m", total=2880)
             if len(candles) < 300:
                 candles = okx.get_candles(sym, bar="5m", limit=300)
-            xs, ys = bootstrap_dataset(
+            xs, ys, ss = bootstrap_dataset(
                 candles,
                 pt_mult=float(ml_cfg.get("label_pt_vol_mult", 8)),
                 sl_mult=float(ml_cfg.get("label_sl_vol_mult", 6)),
@@ -210,17 +221,41 @@ def main():
                 cost_pct=float(ml_cfg.get("label_round_trip_cost_pct", 0.5)),
                 pt_cost_mult=float(ml_cfg.get("label_pt_cost_mult", 0.0)),
                 label_mode=str(ml_cfg.get("label_mode", "exit_policy")),
-                exit_policy=ExitPolicy.from_config(config))
+                exit_policy=ExitPolicy.from_config(config),
+                return_sig=True)
             if len(xs):
                 Xb.append(xs)
                 yb.append(ys)
+                sigb.append(ss)
         if Xb:
+            n_live_rows = len(X)
             Xb, yb = np.vstack(Xb), np.concatenate(yb)
             X = np.vstack([X, Xb]) if len(X) else Xb
             y = np.concatenate([y, yb]) if len(y) else yb
             wb = np.full(len(yb), float(sw_cfg.get("candidate_weight", 0.4)))
             w = np.concatenate([w, wb]) if len(w) else wb
-            source = f"live({len(X) - len(Xb)}) + bootstrap({len(Xb)})"
+            # M10 (2026-08-01 audit): every symbol's block was vstacked
+            # WHOLE, so the matrix's clock RESTARTED at each block boundary
+            # and purged_walk_forward's row-count purge (correct only for
+            # evenly-spaced rows) trained on ETH labels contemporaneous
+            # with - in fact strictly LATER than - the entire BTC test
+            # block. Measured OOF-Brier optimism scaled monotonically with
+            # cross-asset return correlation (rho=0.85 -> -0.0138, 2.7x
+            # challenger_brier_margin; 3 of 8 trials crossed the 0.25
+            # no-champion crown threshold that honest scoring did not).
+            # Sorting the whole matrix onto ONE global signal clock is what
+            # makes the TIME purge meaningful across blocks.
+            sig = np.concatenate([np.asarray(sig, float),
+                                  np.concatenate(sigb)])
+            # bootstrap rows have no measured RESOLUTION time (the barrier
+            # sim's exit bar is not the same fact as a live row's append
+            # ts), so the mixed matrix drops to the fixed-horizon time
+            # purge - sig + label_span. Explicit, not a silent
+            # length-mismatch fallback inside purged_walk_forward.
+            res = None
+            order = np.argsort(sig, kind="mergesort")
+            X, y, w, sig = X[order], y[order], w[order], sig[order]
+            source = f"live({n_live_rows}) + bootstrap({len(Xb)})"
 
     if len(X) < 60:
         log.error(f"only {len(X)} samples - not enough to train anything honest. "
@@ -229,14 +264,18 @@ def main():
 
     log.info(f"training on {len(X)} samples ({source}), "
              f"base rate={y.mean():.2%} wins")
-    # bootstrap rows carry no live signal-time, so a mixed cold-start set has no
-    # coherent per-row clock: fall back to the row-count purge (exact enough for
-    # the rough cold-start prior). Pure-live history keeps the leak-free TIME
-    # purge — the case that trains the deployed steady-state model.
+    # A cold-start mix now carries a coherent global clock (bootstrap rows
+    # return their entry-bar time and the whole matrix is sorted on it), so
+    # the leak-free TIME purge stays engaged for EVERY corpus - including
+    # `--bootstrap` against a populated corpus, which previously stripped
+    # the time purge from all the live/candidate rows too. What remains is
+    # the residual alignment invariant: a length disagreement means the
+    # arrays are no longer row-aligned, and a MISALIGNED time purge is
+    # worse than an honest row-count one.
     if sig is not None and len(sig) != len(X):
-        log.info("cold-start mix (%d rows) lacks aligned signal-times — "
-                 "row-count purge this run; TIME purge resumes on pure-live "
-                 "history", len(X))
+        log.warning("signal-time array (%d) is not aligned to X (%d) — "
+                    "falling back to the row-count purge this run",
+                    len(sig), len(X))
         sig = None
     # opt-in top rung: only enters the deployed selection when the operator
     # turns it on (ml.adaptive_gbt.enabled). Disabled -> extra_models=() ->
@@ -247,7 +286,21 @@ def main():
     # never on bootstrap/candidate proxies - a bootstrap-padded X can be large
     # yet carry almost no ground truth, so count the store's live split, not
     # len(X). Below the floor the complex families are not trained at all.
-    n_live = int(store.source_counts().get("live", 0))
+    # Count from the load's own CLEAN pass, exactly as main.py:5719-5725
+    # does (and overfit_check.py:198 / feature_stability.py:289): a raw
+    # header-indexed source_counts() scan applies NONE of the loader's
+    # admissibility rules - book=="long" exclusion, dirty drops, era
+    # exclusion - so it counts rows that never enter the fit. Measured on
+    # the live corpus: source_counts()["live"]=275 vs live_clean=0, and
+    # admissible_families(275, ...) admits {adaptive_gbt, blend, gbt,
+    # logistic, mlp} where production admits {logistic}. This CLI is the
+    # only real-corpus consumer that writes a DEPLOYABLE artifact, so the
+    # inflated count fitted mlp/adaptive_gbt (min_live_rows 250, the
+    # strictest bar in the system) on a matrix with zero ground-truth live
+    # labels and shipped it. Same value feeds retrain_record below, which
+    # was writing the inflated count into outputs/retrain_history.jsonl.
+    n_live = int((store.last_load_stats or {}).get(
+        "live_clean", store.source_counts().get("live", 0)))
     select_cfg = ml_cfg.get("model_selection") or None
     results = evaluate_and_select(
         X, y, label_span=int(ml_cfg.get("label_max_bars", 96)),
