@@ -90,8 +90,18 @@ def _isolated_audit_trail(tmp_path_factory):
 # exposes one of these gets it redirected to tmp for every test, so a code
 # path whose destination is a module default cannot write to the operator's
 # tree just because a test's minimal config omitted the key.
-_REDIRECTED_PATH_ATTRS = ("LOG_PATH", "RETRAIN_FLAG_PATH_DEFAULT",
-                          "RETRAIN_HISTORY_PATH_DEFAULT")
+_REDIRECTED_PATH_ATTRS = (
+    "LOG_PATH", "RETRAIN_FLAG_PATH_DEFAULT", "RETRAIN_HISTORY_PATH_DEFAULT",
+    # pc_supervisor cadence stamps. Found 2026-08-01 by running the battery
+    # in a FRESH worktree: these are written only when absent, so a working
+    # tree with a populated outputs/ never fires them and both the hard
+    # battery and the sha256 snapshot sweep were blind to the leak. The
+    # throwaway worktree is the honest environment for this class.
+    "_UPDATE_STAMP", "_REMOTE_CMD_STAMP", "_STATUS_PUSH_STAMP",
+    "_TELEM_BACKUP_STAMP", "_CORPUS_SYNC_STAMP", "_CORPUS_ROTATION_MARKER",
+    "_PROMPT_SWEEP_STAMP", "_TASK_MIGRATE_STAMP", "_OPEND_STAMP",
+    "_DASH_IMPORT_STAMP",
+)
 
 # Modules that must be PRESENT in sys.modules for the scan below to find
 # their constant. A module imported lazily inside the function under test
