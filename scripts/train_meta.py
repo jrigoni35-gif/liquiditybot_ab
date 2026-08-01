@@ -361,10 +361,11 @@ def main():
                                   n_oof=int(len(oof_cal)),
                                   X=X, y=y,
                                   oof_idx=results.get("oof_idx"))
+    from ml import retrain_log as _rl
     from ml.retrain_log import append_retrain, retrain_record
     append_retrain(
         ml_cfg.get("retrain_history_path",
-                   "outputs/retrain_history.jsonl"),
+                   _rl.RETRAIN_HISTORY_PATH_DEFAULT),
         retrain_record(time.time(), "cli", results, len(X),
                        int(n_live), oof_brier, None, deployed))
     return 0 if deployed else 1

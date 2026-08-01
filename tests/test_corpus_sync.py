@@ -144,3 +144,41 @@ def test_tampered_bundle_refused(synced_world):
     out = cs.sync_once(root=root)
     assert "refused=1" in out
     assert _ids(root) == {"r1", "l1"}          # nothing merged from it
+
+
+# ---- log containment (2026-07-31) ------------------------------------------
+# Every corpus_sync entry point takes `root` so a test can point it at a
+# throwaway tree - but _log ignored it and always appended to the MODULE's
+# own outputs/corpus_sync.log. Result: the suite wrote its deliberately
+# corrupted fixtures into the operator's real diagnostic log, including
+# "INTEGRITY FAIL: signal_history.csv sha256 mismatch (bundle tampered or
+# corrupt)" and repeated "recovered 3 stranded row(s)". Thirteen days of
+# that log's scariest lines were test output, and reading it as forensics
+# sent a live investigation chasing a bundle that never existed.
+def test_log_honors_root_and_never_touches_the_repo_log(tmp_path):
+    real = cs.OUT / "corpus_sync.log"
+    before = real.read_text(encoding="utf-8") if real.exists() else None
+    cs._log("scoped probe", root=tmp_path)
+    written = (tmp_path / "outputs" / "corpus_sync.log").read_text(
+        encoding="utf-8")
+    assert "scoped probe" in written
+    after = real.read_text(encoding="utf-8") if real.exists() else None
+    assert after == before, "test logging leaked into the production log"
+
+
+def test_bak_recovery_note_lands_in_the_caller_root(tmp_path):
+    """The whole call chain must be root-scoped, not just _log itself.
+    recover_local_baks is the OTHER observed leak ("recovered N stranded
+    row(s)" appearing in the production log on every battery run), so pin
+    it against a throwaway root that owns its own log file."""
+    out = tmp_path / "outputs"
+    out.mkdir(parents=True)
+    (out / "signal_history.bak_1").write_text(
+        "not,a,valid,history\n1,2,3,4\n", encoding="utf-8")
+    real = cs.OUT / "corpus_sync.log"
+    before = real.read_text(encoding="utf-8") if real.exists() else None
+    cs.recover_local_baks(tmp_path)
+    after = real.read_text(encoding="utf-8") if real.exists() else None
+    assert after == before, "recover_local_baks leaked into the production log"
+    assert (out / "corpus_sync.log").exists(), \
+        "fixture no longer reaches a logging branch - reword it, don't drop it"

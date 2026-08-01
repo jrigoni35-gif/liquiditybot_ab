@@ -63,12 +63,22 @@ LOCK_STALE_SEC = 3900.0
 OK_OUTCOMES = ("updated", "current", "ahead", "dirty", "disabled", "busy")
 
 
+# Log destination as a REBINDABLE module attribute (2026-07-31). The
+# suite drives this script's functions in-process, and a hardcoded
+# `OUT / "auto_update.log"` inside log() meant every such test appended to the
+# operator's REAL auto_update.log - the same defect measured across six
+# outputs/ files that day. Tests monkeypatch LOG_PATH; production reads
+# the default and behaves byte-identically. tests/conftest.py's
+# _no_production_outputs_writes fails any test that regresses this.
+LOG_PATH = OUT / "auto_update.log"
+
+
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} auto_update: {msg}"
     print(line, flush=True)
     try:
-        OUT.mkdir(exist_ok=True)
-        with open(OUT / "auto_update.log", "a", encoding="utf-8") as fh:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass
@@ -140,11 +150,27 @@ def battery_passes(worktree: Path) -> bool:
     """Run the test battery against the INCOMING code in an isolated worktree.
     Green is required before the update is allowed to touch the live checkout."""
     py = _venv_python()
+    # tests/conftest.py's outputs-write guard is a TEST-HYGIENE check, and it
+    # must not hold a veto over deploying a trading fix. Downgraded to a
+    # warning here for two reasons (both lived 2026-08-01, commit 64b6fd5):
+    #   1. It protects nothing in this context. The battery runs inside a
+    #      THROWAWAY worktree, so conftest resolves the tree it guards to
+    #      <worktree>/outputs — writes land there and die with the worktree.
+    #      The operator's real outputs/ is not reachable from this run.
+    #   2. It self-bricks. A leaking test makes battery_passes return False,
+    #      auto_update refuses EVERY update, and the commit that repairs the
+    #      leak can never deploy either. That froze the PC for ~19 hours on
+    #      a test writing outputs/postmortem_summary.csv - the exact failure
+    #      mode that demoted the replay gate to advisory on 2026-07-21/22
+    #      (see _replay_gate_passes below; same lesson, relearned).
+    # The developer battery and the PC's own manual runs keep it HARD, which
+    # is where a hygiene regression should be caught.
+    env = {**os.environ, "LB_ALLOW_OUTPUT_WRITES": "1"}
     try:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
                             "-x", "--no-header"],
                            cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200, **_NOWIN)
+                           timeout=1200, env=env, **_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False

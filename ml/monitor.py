@@ -50,6 +50,14 @@ from ml.features import DRIFT_EXCLUDED_FEATURES
 
 log = logging.getLogger("liquiditybot.ml.monitor")
 
+# Retrain-request flag fallback, as a REBINDABLE module attribute
+# (2026-07-31). config.json sets ml.monitor.retrain_flag_path, so this only
+# fires for a config that omits it — which in practice means the suite's
+# minimal governor configs, and every such test was dropping a real
+# outputs/retrain_requested.flag into the operator's tree. Named here so
+# tests/conftest.py can point it at tmp; production behavior is unchanged.
+RETRAIN_FLAG_PATH_DEFAULT = "outputs/retrain_requested.flag"
+
 # Brier of predicting the coin (0.5) forever — the champion_brier value that
 # means "no real champion". should_deploy's no-champion clause lets any
 # challenger better than this through, and the monitor initialises here.
@@ -91,7 +99,7 @@ class ModelMonitor:
         self.deploy_margin = float(cfg.get("challenger_brier_margin", 0.005))
         self.deploy_min_oof = int(cfg.get("deploy_min_oof", 30))
         self.flag_path = Path(cfg.get("retrain_flag_path",
-                                      "outputs/retrain_requested.flag"))
+                                      RETRAIN_FLAG_PATH_DEFAULT))
         self.shrink_base = float(cfg.get("shrinkage_base", 0.35))
         self.cause_stale_sec = float(
             cfg.get("cause_stale_hours", 4.0)) * 3600.0

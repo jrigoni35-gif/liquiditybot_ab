@@ -12,6 +12,16 @@ from pathlib import Path
 
 log = logging.getLogger("liquiditybot.ml.retrain_log")
 
+# Where the history lands when ml.retrain_history_path is absent - which is
+# the shipped state (config.json does not set the key), so this IS the
+# production path. Kept as a REBINDABLE module attribute so tests can point
+# it at tmp: measured 2026-07-31, 305 of the 306 records in the operator's
+# real outputs/retrain_history.jsonl were suite fixtures, and a prior
+# session mistook the resulting degeneracy for a corpus-size problem.
+# Referenced through the MODULE by both callers (main.py's auto path and
+# scripts/train_meta.py's CLI path) so one rebind covers both.
+RETRAIN_HISTORY_PATH_DEFAULT = "outputs/retrain_history.jsonl"
+
 _FAMILIES = ("logistic", "gbt", "blend", "mlp", "adaptive_gbt")
 
 

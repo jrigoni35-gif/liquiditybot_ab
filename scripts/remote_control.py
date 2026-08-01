@@ -117,12 +117,22 @@ def _git(*args, cwd, timeout=120):
         return 1, _redact(f"error: {e}")
 
 
-def _log(msg: str) -> None:
+def _log(msg: str, root: Path = ROOT) -> None:
+    """Append one line to <root>/outputs/remote_control.log.
+
+    Same containment contract as corpus_sync._log (2026-07-31): poll_once /
+    send_command already take `root` so a caller can drive a throwaway tree,
+    but this wrote to the module-level OUT regardless - so the suite's
+    fixtures landed in the operator's real control-plane log (356 copies of
+    "runner down - retaining N queued command(s)", plus paired same-second
+    command ids that no 120s poll could ever emit). Production behavior is
+    unchanged via the default."""
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} remote_control: {msg}"
     print(line, flush=True)
     try:
-        OUT.mkdir(exist_ok=True)
-        with open(OUT / "remote_control.log", "a", encoding="utf-8") as fh:
+        out = root / "outputs"
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "remote_control.log", "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass
@@ -305,7 +315,8 @@ def _poll_locked(root: Path, now: float) -> str:
              if f.endswith(".json") and f[:-5] not in seen]
     if fresh and not _runner_alive(root, now):
         _log(f"runner down - retaining {len(fresh)} queued command(s) for "
-             f"the next poll (forwarding now would be purged at boot)")
+             f"the next poll (forwarding now would be purged at boot)",
+             root=root)
         return f"runner_down retained={len(fresh)}"
     applied = rejected = 0
     for fname in fresh:
@@ -320,7 +331,7 @@ def _poll_locked(root: Path, now: float) -> str:
         reason = validate_command(payload, fid, now)
         if reason:
             rejected += 1
-            _log(f"{reason} (id {fid})")
+            _log(f"{reason} (id {fid})", root=root)
             consumed.append({"id": fid, "result": "rejected",
                              "reason": reason, "at": now})
             _save_consumed(root, consumed)
@@ -337,7 +348,7 @@ def _poll_locked(root: Path, now: float) -> str:
         ControlChannel(str(root / "outputs" / "control")).send(cmd, args)
         applied += 1
         _log(f"{Code.RC_APPLIED.value}: forwarded '{cmd}' to the "
-             f"runner (id {fid})")
+             f"runner (id {fid})", root=root)
         consumed[-1]["result"] = "applied"
         _save_consumed(root, consumed)
     return f"applied={applied} rejected={rejected}"
@@ -405,7 +416,7 @@ def send_command(cmd: str, args: dict | None = None,
                           json.dumps(payload, indent=1)}, [])
     if out != "pushed":
         raise RuntimeError(f"command not queued: {out}")
-    _log(f"queued '{cmd}' as {cid}")
+    _log(f"queued '{cmd}' as {cid}", root=root)
     return cid
 
 
