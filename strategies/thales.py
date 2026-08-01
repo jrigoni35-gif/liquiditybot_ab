@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from core.codes import Code, tag
-from strategies.swing_points import swing_high_low
+from strategies.swing_points import Candle, swing_high_low
 
 log = logging.getLogger("liquiditybot.strategies.thales")
 
@@ -128,7 +128,11 @@ class _AssetState:
         self.bc_buckets = [0.0] * self.bc_nb
         self.bc_prev_top: tuple | None = None
         self.bc_last_bar = -1
-        self.candle_hist: deque = deque(maxlen=max(
+        # typed with the shared Candle shape (strategies/swing_points):
+        # a bare `deque` erased the element type at the one place that
+        # FEEDS swing_high_low, so annotating only the callee would have
+        # left the producer end unknown.
+        self.candle_hist: "deque[Candle]" = deque(maxlen=max(
             int(cfg.get("stops", {}).get("swing_lookback", 48)) + 4, 64))
         self.last_sweep: dict = {}               # {"dir": +1/-1, "ts": t}
         self.zone_degenerate = False             # tick grid >= tol band
