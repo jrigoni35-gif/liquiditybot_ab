@@ -23,3 +23,26 @@ Thumbs.db
 
 # superpowers: isolated worktrees for parallel/pinned analysis
 .worktrees/
+# Claude Code isolation worktrees live INSIDE the repo (.claude/worktrees/
+# <name>). They are full checkouts, so a secret scan reports every finding
+# twice and a stale one can be mistaken for live code - observed 2026-08-01,
+# 3 of 6 scan hits were duplicates from .claude/worktrees/.
+.claude/worktrees/
+
+# secrets: this project resolves every credential from an environment
+# variable NAME or a file OUTSIDE the repo (~/.liquiditybot/*), so no dotenv
+# is used today. Ignored anyway - the cost of the line is zero and the cost
+# of the first .env someone drops here is a rotated Kraken key.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# protoc output for the optional gRPC surface (api/liquiditybot.proto).
+# Generated at build time and deliberately untracked; without this line a
+# local `protoc` run makes build artifacts committable by accident.
+api/liquiditybot_pb2.py
+api/liquiditybot_pb2_grpc.py
+api/liquiditybot_pb2.pyi

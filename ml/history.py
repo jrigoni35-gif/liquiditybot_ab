@@ -18,6 +18,7 @@ bootstrap     - cold-start dataset built by replaying EMA-cross
 """
 
 import csv
+import math
 import os
 import logging
 import time
@@ -1799,28 +1800,119 @@ class HorizonShadowStore:
     which asset" so a horizon feature can later be promoted on data, not
     on a guess."""
 
+    # sigma_bar_pct / pt_frac / sl_frac added 2026-08-01. Without them this
+    # file was ANALYTICALLY INERT: 23,826 recorded outcomes that could not be
+    # related to the market state that produced them. The obvious join back
+    # to signal_history.csv does not exist either - only 70 of 8,429 history
+    # rows (0.83%) carry a candidate_id - so the horizon question this
+    # recorder was built to answer ("does some asset pay over a longer hold")
+    # was unanswerable from its own dataset. These three columns are exactly
+    # what makes barrier/horizon-sigma computable per row, which is the
+    # quantity that decides whether a horizon produces information at all.
+    # UNITS. All three quantitative columns are FRACTIONS of entry price
+    # (0.02 = 2%), deliberately the same unit, so
+    #     ratio = pt_frac / (sigma_bar_frac * sqrt(horizon_bars))
+    # is computable with NO conversion. The first draft of this schema named
+    # the column sigma_bar_pct and wrote cand["sigma_bar"] into it - a 100x
+    # error, because the FEATURE column of that name in signal_history.csv is
+    # a PERCENT (median 0.1033 = 0.1033%) while cand["sigma_bar"] is a
+    # FRACTION. Proven by reproducing barrier_geometry with the live config:
+    # sigma=0.001033 yields pt_frac 0.020000 / sl_frac 0.015000, matching the
+    # observed live minimums exactly; sigma=0.103292 yields 0.103292, which
+    # matches nothing. Same failure class as the CSCV label_span bars-vs-
+    # seconds bug (2026-07-31): a silent scale error in a research dataset
+    # that parses cleanly and means something else. The column name now
+    # states the unit and the unit is uniform across the row.
     HEADER = ["candidate_id", "asset", "direction", "horizon_bars",
-              "label", "net_ret_pct", "exit_reason", "ts"]
+              "label", "net_ret_pct", "exit_reason", "ts",
+              "sigma_bar_frac", "pt_frac", "sl_frac"]
 
     def __init__(self, path: str = "outputs/horizon_shadow.csv"):
         self.path = Path(path)
 
     def _ensure(self):
+        """Create the file, or ROTATE it when its header predates the
+        current schema.
+
+        Appending 11-column rows onto an 8-column file would silently
+        mis-align every future read - the failure mode is a dataset that
+        parses cleanly and means something else. Rotation follows
+        HistoryStore's own .bak_<ts> convention: the old rows are RENAMED,
+        never deleted (CLAUDE.md - learning data is never destroyed), and
+        remain readable under their original header."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            try:
+                with open(self.path, newline="", encoding="utf-8") as f:
+                    have = next(csv.reader(f), [])
+            except (OSError, StopIteration):
+                have = []
+            if have and have != self.HEADER:
+                bak = self.path.with_name(
+                    f"{self.path.stem}.bak_{int(time.time())}{self.path.suffix}")
+                try:
+                    self.path.rename(bak)
+                    log.warning(
+                        "horizon shadow schema changed (%d -> %d cols) - "
+                        "rotated the old rows to %s; nothing deleted",
+                        len(have), len(self.HEADER), bak.name)
+                except OSError:
+                    return          # keep appending in the old shape
         if not self.path.exists():
             with open(self.path, "w", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerow(self.HEADER)
 
+    @staticmethod
+    def _frac(v) -> str:
+        """Sanitize one FRACTION-valued field to CSV text, in four rounds.
+
+        A research dataset's worst failure is a value that parses as a
+        number and is wrong, so each round rejects to "" (absent, and
+        visibly so) rather than substituting a plausible default:
+
+          1. TYPE     - None, str, Decimal, numpy scalar -> float, or reject.
+          2. FINITE   - NaN and +/-inf reject. numpy propagates both silently
+                        through sigma estimators, and NaN compares false to
+                        every bound, so it would survive a naive range check.
+          3. DOMAIN   - a negative sigma or barrier distance is not a small
+                        number, it is a sign error upstream; 0 likewise means
+                        "no distance" and cannot be divided by. Both reject.
+          4. PRECISION- fixed 8-significant-figure text, so a float repr can
+                        never widen a row or emit '1e-05' into a CSV column
+                        that downstream code parses positionally.
+        """
+        if v is None:
+            return ""
+        try:                                    # round 1: type
+            x = float(v)
+        except (TypeError, ValueError):
+            return ""
+        if not math.isfinite(x):                # round 2: finite
+            return ""
+        if x <= 0.0:                            # round 3: domain
+            return ""
+        return f"{x:.8g}"                       # round 4: precision
+
     def append(self, candidate_id: str, asset: str, direction: str,
                horizon_bars: int, label: int, net_ret_pct: float,
-               exit_reason: str):
+               exit_reason: str, sigma_bar_frac=None, pt_frac=None,
+               sl_frac=None):
+        """The three trailing args default to None so every pre-existing
+        caller keeps working unchanged (CLAUDE.md extend-with-defaults); a
+        row written without them is still valid, just not analysable.
+
+        sigma_bar_frac/pt_frac/sl_frac are all FRACTIONS of entry price -
+        see HEADER for why the unit is uniform and how the 100x error that
+        motivated it was proven."""
+        _n = self._frac
         try:
             self._ensure()
             with open(self.path, "a", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerow([
                     candidate_id, asset, direction, int(horizon_bars),
                     int(label), f"{net_ret_pct:.6f}", exit_reason,
-                    f"{time.time():.0f}"])
+                    f"{time.time():.0f}",
+                    _n(sigma_bar_frac), _n(pt_frac), _n(sl_frac)])
         except OSError:
             self.dropped = getattr(self, "dropped", 0) + 1
             if self.dropped == 1 or self.dropped % 20 == 0:
@@ -2194,9 +2286,17 @@ class CandidateLabeler:
                 o = triple_barrier(closes, highs, lows, i, side,
                                    sigma_eff, self.pt, self.sl,
                                    h, cost_pct=cost)
+                # sigma and BOTH barrier fractions travel with the outcome:
+                # barrier/(sigma*sqrt(h)) is the quantity that decides
+                # whether a horizon can produce information, and it is not
+                # reconstructable later - sigma_bar is a per-signal market
+                # state, and the cost floor means pt_frac is NOT simply
+                # pt * sigma_bar.
                 self.shadow_store.append(
                     cand["id"], cand["asset"], cand["direction"], h,
-                    o.label, o.ret_pct, o.barrier)
+                    o.label, o.ret_pct, o.barrier,
+                    sigma_bar_frac=cand.get("sigma_bar"),
+                    pt_frac=pt_frac, sl_frac=_sl_frac)
         except Exception:
             if self.shadow_store is not None:
                 self.shadow_store.dropped = getattr(
