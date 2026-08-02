@@ -382,6 +382,23 @@ def collect(status_path: str) -> list:
             v = gs.get(k)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 m.append(gauge(f"liquiditybot_gate_{k}", v, ts=ts))
+        # Realized-outcome loop (2026-08-02). gate_realized_base_rate beside
+        # gate_base_rate is the reward-misspecification readout in two
+        # numbers: barrier labels said 0.3991 while the money said 0.038,
+        # and a gate ledger learning from the first can grow MORE confident
+        # as it loses. Per-gate divergence (label weight minus realized
+        # weight) names WHICH gate is coasting on barrier touches.
+        for k in ("realized_closed", "realized_base_rate", "realized_active",
+                  "realized_min_samples"):
+            v = gs.get(k)
+            if isinstance(v, bool):
+                v = 1.0 if v else 0.0
+            if isinstance(v, (int, float)):
+                m.append(gauge(f"liquiditybot_gate_{k}", float(v), ts=ts))
+        for gname, dv in (gs.get("divergence") or {}).items():
+            if isinstance(dv, (int, float)) and not isinstance(dv, bool):
+                m.append(gauge("liquiditybot_gate_divergence", float(dv),
+                               {"gate": str(gname)}, ts))
         # per-asset regime context: numerics as plain gauges; the label strings ride
         # an info-style gauge (value 1, labels macro/vol/liq — the standard *_info
         # pattern; a superseded label-set goes stale and drops out of instant views)

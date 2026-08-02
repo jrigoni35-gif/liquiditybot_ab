@@ -1029,6 +1029,18 @@ class LiquidityBot:
         self._stop_hit: dict = {}           # position_id -> bool
         self._thales_fired: dict = {}       # asset -> fired detectors (V2)
         self._pos_thales: dict = {}         # position_id -> fired at entry
+        # Gate attribution for the REALIZED-outcome loop (2026-08-02).
+        # gates_passed already travels to candidates.register(), which feeds
+        # GateStats.note_label — a triple-barrier PRICE label that knows
+        # nothing about the round trip. On this feed the barrier label rate
+        # is 0.3991 against a realized win rate of 0.038, so a gate could be
+        # credited for a "win" on a trade that lost money and the ledger
+        # would keep confirming it. These two maps carry the same dict down
+        # the TRADE path so a close can attribute actual P&L back to the
+        # gates that authorised it. Exactly the _thales_fired/_pos_thales
+        # shape, which already solves this problem for detectors.
+        self._sig_gates: dict = {}          # asset -> gates_passed at signal
+        self._pos_gates: dict = {}          # position_id -> gates at entry
         self._last_imb: dict = {}           # asset -> last log-imbalance
         self._regime_since: dict = {}       # asset -> (label, changed_at_ts)
         self._manip_scores: dict = {}       # asset -> latest suspicion [0,1]
@@ -1559,6 +1571,27 @@ class LiquidityBot:
             fired = self._pos_thales.pop(pos.position_id, None)
             if fired is not None:
                 self.thales.note_outcome(fired, total_net > 0)
+            # --- REALIZED-OUTCOME LOOP (2026-08-02) ---------------------
+            # The only place gates and money meet. total_net is net of fees
+            # and slippage, so this is the outcome the barrier label could
+            # never see: on this feed the label says 0.3991 and the money
+            # says 0.038, and the whole gap is the round trip.
+            #
+            # Normalised to PERCENT of entry notional so it is comparable
+            # across position sizes and matches postmortem realized_pct.
+            # A zero/absent notional yields no lesson rather than a
+            # divide-by-zero or a fabricated 0% — an unattributable close
+            # must not quietly count as a loss.
+            gp = getattr(self, "_pos_gates", {}).pop(pos.position_id, None)
+            if gp:
+                notional = abs(pos.entry_price * pos.original_size)
+                if notional > 0:
+                    try:
+                        self.gate_stats.note_realized(
+                            gp, (total_net / notional) * 100.0)
+                    except Exception:      # never break a close on stats
+                        log.exception("gate_stats.note_realized raised - "
+                                      "isolated; close continues")
             # Compounder Phase C (task C4): feed this book-tagged close
             # into the shared evidence ladder (risk/long_book.py) - the
             # ONLY place closed_paper/closed_live/pf_live/rung ever move.
@@ -1770,6 +1803,13 @@ class LiquidityBot:
                 # orders that never carried the key (hedges/legacy) skip.
                 if fired is not None and not pos.is_hedge:
                     self._pos_thales[position_id] = list(fired)
+                # Same lifecycle for the gate verdicts. Hedges are excluded
+                # for the same reason as above: a hedge's P&L is not a
+                # verdict on the gates that opened the position it protects,
+                # and crediting it either way teaches the wrong lesson.
+                gp = order.meta.get("gates_passed")
+                if gp and not pos.is_hedge:
+                    getattr(self, "_pos_gates", {})[position_id] = dict(gp)
                 self.postmortem.note_fill(position_id, event.fill_price)
                 if not pos.is_hedge and "features" in order.meta:
                     self.history.log_entry(position_id, self._asset_of(pos.symbol),
@@ -4038,6 +4078,11 @@ class LiquidityBot:
             # gating still lives where it belongs: shade_confidence
             # applies mult only in advise mode.
             self._thales_fired[asset] = list(th.fired)
+            # Snapshot the gate verdicts alongside the detector list so an
+            # entry can carry them to the position (realized-outcome loop).
+            # Copied, not referenced: signal objects are rebuilt each cycle.
+            if hasattr(self, "_sig_gates"):
+                self._sig_gates[asset] = dict(signal.gates_passed or {})
             if th.notes and abs(th.would_mult - 1.0) > 1e-6:
                 log.info(f"thales {asset}: {'; '.join(th.notes)}")
             self.last_signals[asset] = {
@@ -4389,6 +4434,7 @@ class LiquidityBot:
                                    if explored else None),
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or [],
+                    "gates_passed": getattr(self, "_sig_gates", {}).get(asset) or {},
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
@@ -4474,6 +4520,7 @@ class LiquidityBot:
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
                     "thales_fired": self._thales_fired.get(asset) or [],
+                    "gates_passed": getattr(self, "_sig_gates", {}).get(asset) or {},
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
@@ -5392,6 +5439,7 @@ class LiquidityBot:
                       "ladder_group": position_id,
                       "candidate_id": cand_id or "",
                       "thales_fired": self._thales_fired.get(asset) or [],
+                      "gates_passed": getattr(self, "_sig_gates", {}).get(asset) or {},
                       "gate_components": dict(getattr(signal, "components", None) or {}),
                       "bracket_pt_frac": bracket_pt_frac,
                       "bracket_sl_frac": bracket_sl_frac,

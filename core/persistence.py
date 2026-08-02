@@ -351,6 +351,26 @@ def order_from_dict(d: dict):
 # --------------------------------------------------------------------------
 # store
 # --------------------------------------------------------------------------
+def _restore_pos_gates(bot, data) -> None:
+    """Reattach gate verdicts to still-open positions after a restart.
+
+    Extracted rather than inlined into restore(): that method was already
+    at the C901 complexity ceiling (40), and one more branch tipped it. The
+    honest fix is a named function, not a raised limit — restore() handling
+    forty distinct snapshot sections is exactly the shape the ceiling exists
+    to flag.
+
+    Values arrive from a snapshot file, which is external input to this
+    process, so gate names and verdicts are coerced rather than trusted.
+    """
+    if not hasattr(bot, "_pos_gates"):
+        return
+    bot._pos_gates.update(
+        {str(k): {str(g): bool(p) for g, p in (v or {}).items()}
+         for k, v in (data.get("pos_gates") or {}).items()
+         if isinstance(v, dict)})
+
+
 class StateStore:
     def __init__(self, path: str = "outputs/state.json"):
         self.path = Path(path)
@@ -455,6 +475,14 @@ class StateStore:
                 # persisting it carries no stale-advice hazard.
                 "pos_thales": {k: list(v) for k, v in
                                getattr(bot, "_pos_thales", {}).items()},
+                # Gate attribution for open positions (realized-outcome
+                # loop). Must persist for the same reason pos_thales does:
+                # a position opened before a restart and closed after it
+                # would otherwise teach the gate ledger nothing, and long
+                # holds — 36h at the 432-bar horizon — make that the
+                # COMMON case rather than an edge one.
+                "pos_gates": {k: dict(v) for k, v in
+                              getattr(bot, "_pos_gates", {}).items()},
                 "thales_reliability": bot.thales.reliability_to_dict()
                 if getattr(bot, "thales", None) is not None else {},
                 "halted": bot._halted,
@@ -818,6 +846,7 @@ class StateStore:
                 bot._pos_thales.update(
                     {str(k): [tuple(x) for x in v] for k, v in
                      (data.get("pos_thales") or {}).items()})
+            _restore_pos_gates(bot, data)
             if getattr(bot, "thales", None) is not None:
                 bot.thales.reliability_restore(
                     data.get("thales_reliability") or {})

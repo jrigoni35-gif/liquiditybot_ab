@@ -279,6 +279,80 @@ class GateStats:
         self.strength = min(max(float(c.get("strength", 2.0)), 0.0), 5.0)
         self._stats: dict = {}       # gate -> [n_labeled_passes, wins]
         self._total = [0, 0]         # all labeled candidates [n, wins]
+        # --- realized-outcome ledger (2026-08-02) -----------------------
+        # The same shape as _stats, but keyed on whether the trade actually
+        # MADE MONEY rather than whether the price touched a barrier. See
+        # note_realized() for why the two are not the same thing.
+        self._real: dict = {}        # gate -> [n_closed_passes, net_wins]
+        self._real_total = [0, 0]    # all closed trades [n, net_wins]
+        # Realized outcomes arrive far more slowly than labels (one per
+        # closed trade vs one per candidate), so this defaults to a lower
+        # bar than min_samples — but never lower than 20, because a gate
+        # weight swung by a dozen trades is noise wearing a decimal point.
+        self.real_min_samples = max(int(c.get("realized_min_samples", 25)),
+                                    20)
+
+    def note_realized(self, gates_passed, net_pct) -> None:
+        """Close the loop: record whether a gate's pass actually PAID.
+
+        THE BUG THIS FIXES (2026-08-02). note_label() below learns from the
+        triple-barrier label, which is a PRICE outcome: 1 means the price
+        reached the profit target before the stop. It says nothing about
+        whether the trade made money, because it does not know about the
+        round trip — fees, spread, slippage.
+
+        On this feed that gap is not academic. The triple-barrier label rate
+        is 0.3991 while the realized win rate is 0.038 — a 10x divergence,
+        and the entire gap is cost. Measured over 239 closed trades, 87%
+        reached a favourable excursion and the median loss still exceeded
+        the worst adverse excursion by 0.437%, which is roughly the round
+        trip. So a gate could be credited for a "win" on a trade that lost
+        money, and the ledger would keep telling it that it was right.
+
+        That is reward misspecification in its textbook form: the proxy
+        (barrier touched) and the goal (money made) came apart, and the
+        optimizer faithfully pursued the proxy. Weights learned this way get
+        MORE confident as they lose, because every barrier touch confirms
+        them.
+
+        net_pct is the realized net return in PERCENT, after all costs —
+        the same quantity as postmortem_summary.realized_pct. A win is
+        strictly > 0: breaking even is not winning, and counting it as one
+        is how a cost-dominated strategy talks itself into viability.
+
+        Never raises: a stats hiccup must not break trade closing.
+        """
+        if not isinstance(gates_passed, dict) or not gates_passed:
+            return
+        try:
+            v = float(net_pct)
+        except (TypeError, ValueError):
+            return
+        if v != v or v in (float("inf"), float("-inf")):   # NaN / inf
+            return
+        win = 1 if v > 0.0 else 0
+        self._real_total[0] += 1
+        self._real_total[1] += win
+        for g, passed in gates_passed.items():
+            if passed:
+                s = self._real.setdefault(str(g), [0, 0])
+                s[0] += 1
+                s[1] += win
+
+    def realized_divergence(self, gate: str):
+        """label-implied weight minus realized weight, or None if unknown.
+
+        The tunnel-vision detector. A large POSITIVE value means the gate
+        looks predictive on barriers and is not paying — precisely the
+        state the bot was in, and the one no single number could previously
+        show. Reported rather than acted on: it is a diagnosis, and the
+        weight() switch below is the treatment.
+        """
+        n, _ = self._real.get(gate, (0, 0))
+        if n < self.real_min_samples or self._real_total[0] < \
+                self.real_min_samples:
+            return None
+        return round(self._label_weight(gate) - self.weight(gate), 4)
 
     def note_label(self, gates_passed, label) -> None:
         """Called by the candidate labeler when a triple-barrier label
@@ -297,14 +371,46 @@ class GateStats:
                 s[0] += 1
                 s[1] += win
 
-    def weight(self, gate: str) -> float:
-        n, wins = self._stats.get(gate, (0, 0))
-        if n < self.min_samples or self._total[0] < self.min_samples:
+    def _shade(self, n, wins, tot_n, tot_wins, floor) -> float:
+        """Wilson-LCB win rate vs the base rate, bounded. Shared by both
+        ledgers so realized and label weights are computed identically and
+        their difference means something."""
+        if n < floor or tot_n < floor:
             return 1.0
-        base = self._total[1] / max(self._total[0], 1)
+        base = tot_wins / max(tot_n, 1)
         lcb = _wilson_lcb(wins, n)
         return min(max(1.0 + (lcb - base) * self.strength,
                        self.W_LO), self.W_HI)
+
+    def _label_weight(self, gate: str) -> float:
+        """The old barrier-label weight. Kept for the divergence readout."""
+        n, wins = self._stats.get(gate, (0, 0))
+        return self._shade(n, wins, self._total[0], self._total[1],
+                           self.min_samples)
+
+    def weight(self, gate: str) -> float:
+        """Realized-outcome weight once there is enough of it, else labels.
+
+        THE LOOP (2026-08-02). Realized P&L is the ground truth and barrier
+        labels are a proxy for it, so realized wins whenever it has standing
+        — but it accrues one sample per CLOSED TRADE against one per
+        candidate, so it is thin for weeks and cannot simply replace the
+        other. Hence the handover: below real_min_samples the behaviour is
+        byte-identical to before, and past it the ledger that knows about
+        costs takes over. Nothing to switch on, no fitted blend constant,
+        and no window in which the gate is unweighted.
+
+        The base rate moves with the ledger, which is the important part: a
+        gate is scored against how often trades ACTUALLY pay, not how often
+        barriers get touched. On a feed where those differ 10x, that is the
+        whole difference between learning and confirming.
+        """
+        rn, rwins = self._real.get(gate, (0, 0))
+        if rn >= self.real_min_samples \
+                and self._real_total[0] >= self.real_min_samples:
+            return self._shade(rn, rwins, self._real_total[0],
+                               self._real_total[1], self.real_min_samples)
+        return self._label_weight(gate)
 
     def weighted_confidence(self, gates_passed, fallback: float) -> float:
         """Weighted fraction of passing gates in [0, 1]. Equal weights
@@ -321,17 +427,33 @@ class GateStats:
 
     def summary(self) -> dict:
         """Compact snapshot for status.json / dashboard."""
+        gates = sorted(set(self._stats) | set(self._real))
+        div = {g: d for g in gates
+               if (d := self.realized_divergence(g)) is not None}
         return {"enabled": self.enabled,
                 "labeled": self._total[0],
                 "base_rate": round(self._total[1] / self._total[0], 3)
                 if self._total[0] else None,
-                "weights": {g: round(self.weight(g), 3)
-                            for g in sorted(self._stats)}}
+                "weights": {g: round(self.weight(g), 3) for g in gates},
+                # The realized loop, reported beside the labels so the two
+                # can be compared at a glance. realized_base_rate next to
+                # base_rate IS the reward-misspecification readout: on this
+                # feed they were 0.038 and 0.3991.
+                "realized_closed": self._real_total[0],
+                "realized_base_rate":
+                    round(self._real_total[1] / self._real_total[0], 4)
+                    if self._real_total[0] else None,
+                "realized_active": bool(
+                    self._real_total[0] >= self.real_min_samples),
+                "realized_min_samples": self.real_min_samples,
+                "divergence": div}
 
     # --- persistence hooks (snapshot round-trip) ---
     def to_dict(self) -> dict:
         return {"stats": {g: list(s) for g, s in self._stats.items()},
-                "total": list(self._total)}
+                "total": list(self._total),
+                "real": {g: list(s) for g, s in self._real.items()},
+                "real_total": list(self._real_total)}
 
     def restore(self, d) -> None:
         if not isinstance(d, dict):
@@ -343,4 +465,14 @@ class GateStats:
             self._total = [int(t[0]), int(t[1])]
         except (TypeError, ValueError, IndexError):
             self._stats, self._total = {}, [0, 0]
+        # Restored separately so a snapshot written BEFORE the realized
+        # ledger existed loads cleanly with an empty one rather than
+        # discarding the label stats it does carry.
+        try:
+            self._real = {str(g): [int(s[0]), int(s[1])]
+                          for g, s in (d.get("real") or {}).items()}
+            rt = d.get("real_total") or [0, 0]
+            self._real_total = [int(rt[0]), int(rt[1])]
+        except (TypeError, ValueError, IndexError):
+            self._real, self._real_total = {}, [0, 0]
 
