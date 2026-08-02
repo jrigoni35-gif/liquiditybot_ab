@@ -37,6 +37,17 @@ _SYNTH_STATUS = {
                    "mark": 60600.0, "size": 0.001, "stop": 58800.0,
                    "upnl_usd": 0.6, "upnl_pct": 1.0, "tiers_fired": 1,
                    "age_h": 2.0, "p_win": 0.7}],
+    # goals ledger (added to the fixture 2026-08-02). The block existed in
+    # real status.json but never here, so gc_pusher emitted no goal_* metric
+    # under test and test_every_query_hits_an_emitted_metric would reject any
+    # panel that showed goal progress — a fixture gap reading as a dashboard
+    # error. Shape mirrors the live file: attainment_pct is what makes
+    # liquiditybot_goal_attainment_pct emit at all.
+    "goals": {
+        "week": {"period": "week", "goal": 80.0, "running": -14.4,
+                 "attainment_pct": 0.0, "on_track": False},
+        "month": {"period": "month", "goal": 350.0, "running": -1.83,
+                  "attainment_pct": 0.0, "on_track": False}},
     "performance": {
         "overall": {"trades": 20, "win_rate": 0.55, "win_rate_lcb": 0.34,
                     "profit_factor": 1.8, "expectancy_usd": 2.3,

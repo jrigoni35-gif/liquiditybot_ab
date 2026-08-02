@@ -146,6 +146,72 @@ def test_percentunit_shares_are_not_over_precise():
     assert not bad, "percentunit over-precise: " + ", ".join(bad)
 
 
+def test_outcome_statistics_are_on_the_command_board():
+    """The bottom line must be a number, not an inference from a curve.
+
+    Added 2026-08-02 after an audit of what the bot EMITS versus what any
+    board SHOWS: 29 metrics were pushed to Grafana on every tick and
+    displayed nowhere. Among them were cumulative net P&L, monthly goal
+    attainment, the worst-ever loss streak, and payoff ratio - so "is it
+    losing money" could only be answered by reading the shape of the equity
+    curve, and "am I on track" not at all.
+
+    These four are pinned by name because they are the ones the operator
+    opens the board to read. A refactor that quietly drops one puts the
+    board back in the state where the answer had to be inferred.
+    """
+    want = {
+        "liquiditybot_perf_net_usd": "cumulative bottom line",
+        "liquiditybot_goal_attainment_pct": "progress toward the goal",
+        "liquiditybot_perf_payoff_ratio": "the other half of win rate",
+        "liquiditybot_perf_max_loss_streak": "what to judge the current "
+                                             "streak against",
+    }
+    d = _load("liquiditybot_command.json")
+    exprs = " ".join(
+        t.get("expr") or ""
+        for _r, p in _walk(d.get("panels"))
+        for t in p.get("targets") or [])
+    missing = {m: why for m, why in want.items() if m not in exprs}
+    assert not missing, f"command board lost an outcome statistic: {missing}"
+
+
+def test_learning_brain_reads_as_a_funnel():
+    """The section's value is its ORDER, so the order is pinned.
+
+    Redesigned 2026-08-02 from fourteen identically-sized tiles in arbitrary
+    sequence. The worst symptom: "Live labels" sat eight tiles from "Clean
+    live labels" — the same funnel stage, one the filtered version of the
+    other — so the attrition between them, the most diagnostic number in the
+    section, had to be computed by eye across half a screen.
+
+    Reading order now encodes the diagnosis: supply, corpus, quality,
+    governor. A reader stops at the first red stage, because a model-quality
+    problem is not fixable while the supply above it is starved. Scrambling
+    the order silently removes that, and nothing else in the suite notices.
+    """
+    members = _row_members("liquiditybot_command.json", "LEARNING BRAIN")
+    titles = [p.get("title") or "" for p in members]
+    pos = {t: i for i, t in enumerate(titles)}
+    for a, b in (("Live labels", "Clean live labels"),
+                 ("Clean live labels", "Label uniqueness"),
+                 ("Label uniqueness", "Calibration gap"),
+                 ("Calibration gap", "Model in use")):
+        assert a in pos and b in pos, f"missing {a!r} or {b!r}"
+        assert pos[a] < pos[b], f"funnel order broken: {a!r} after {b!r}"
+    # Live/Clean must be adjacent — the attrition is the reading.
+    assert pos["Clean live labels"] - pos["Live labels"] == 1, \
+        "Live labels and Clean live labels must sit side by side"
+    # Every band exactly 24 wide: a short band is the ragged edge the
+    # redesign removed (14 tiles at w=4 wrapped 6/6/2).
+    bands = {}
+    for p in members:
+        gp = p.get("gridPos") or {}
+        bands.setdefault(gp.get("y"), []).append(gp.get("w") or 0)
+    bad = {y: sum(w) for y, w in bands.items() if sum(w) != 24}
+    assert not bad, f"LEARNING BRAIN bands not 24 wide: {bad}"
+
+
 def test_percent_scale_matches_the_query():
     """`percent` vs `percentunit` is a 100x display error, silently.
 

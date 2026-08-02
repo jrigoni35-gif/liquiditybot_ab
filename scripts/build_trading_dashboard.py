@@ -238,15 +238,33 @@ def row(title, collapsed=False):
     _cur["row_h"] = 0
 
 
+# Type scale (2026-08-02). Every stat tile shipped with titleSize/valueSize
+# unset, so Grafana auto-fit each number to its box: a 4-wide tile and a
+# 12-wide tile rendered at whatever size happened to fit, and NOTHING on the
+# board read as more important than anything else. Auto-fit is a layout
+# result, not a hierarchy — the same defect as setting every heading in a
+# document to the same weight and hoping the reader infers structure.
+#
+# Three tiers, and only three, so the hierarchy stays legible:
+#   hero    the answer to a question you opened the board to ask
+#   normal  supporting numbers you read after the hero
+#   compact dense state/count tiles read as a group, not individually
+# Values are points; Grafana still shrinks to fit, so these are ceilings
+# rather than fixed sizes and a long value degrades gracefully.
+_SIZES = {"hero": (16, 56), "normal": (14, 34), "compact": (12, 24)}
+
+
 def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
          mode="value", mappings=None, text_mode="auto", graph="area",
-         no_value=None, display_name=None):
+         no_value=None, display_name=None, size="normal"):
     """KPI tile. graph='area' draws a sparkline behind the number (the default,
     for the professional look); graph='none' for pure state/count tiles.
     no_value: honest empty-state text for event-sparse series (fills,
     positions) whose ABSENCE is truthful - 'No data' reads as broken
-    telemetry, the text says what absence means."""
+    telemetry, the text says what absence means.
+    size: 'hero' | 'normal' | 'compact' — the type tier (see _SIZES)."""
     x, y = _place(w, h)
+    _ts, _vs = _SIZES.get(size, _SIZES["normal"])
     fld = {"unit": unit, "decimals": decimals,
            "thresholds": {"mode": "absolute",
                           "steps": steps or [{"color": "text", "value": None}]},
@@ -264,6 +282,7 @@ def stat(title, expr, w, h, unit="", decimals=2, desc="", steps=None,
         "options": {"colorMode": mode, "graphMode": graph,
                     "justifyMode": "auto", "textMode": text_mode,
                     "wideLayout": True,
+                    "text": {"titleSize": _ts, "valueSize": _vs},
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "",
                                       "values": False}},
         "targets": [_t(expr, instant=(graph == "none"), legend="")]})
@@ -524,6 +543,11 @@ UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
 WS = {"1": ("LIVE", "green"), "0": ("REST", "yellow")}
 HALT = {"1": ("HALTED", "red"), "0": ("clear", "green")}
 GOV = {"0": ("OK", "green"), "1": ("DEGRADED", "yellow"), "2": ("KILLED", "red")}
+# era_mix_alarm is `1.0 if mix.get("fired")`, so 1 is the BAD state — the
+# training corpus has drifted away from the live label era. It was pushed on
+# every tick and rendered on no board, so the alarm could fire indefinitely
+# with nothing on screen saying so. (It is firing as of 2026-08-02.)
+ERA_MIX = {"1": ("DRIFTED", "red"), "0": ("aligned", "green")}
 OPSTATE = {"0": ("ARMED", "green"), "1": ("DEGRADED", "yellow"),
            "2": ("HALTED", "red"), "-1": ("UNKNOWN", "red")}
 RETRAIN = {"1": ("QUEUED", "yellow"), "0": ("idle", "green")}
@@ -584,6 +608,54 @@ def _pa(metric, suffix=""):
     return f"{metric}{A}{suffix}"
 
 
+# The LEARNING BRAIN header. Written as a DECISION LADDER rather than a
+# legend (2026-08-02): a legend tells you what a tile means, which you can
+# already get from its tooltip. What was missing was what to DO — which of
+# fourteen numbers is the binding constraint right now, and what the next
+# action is. The rule is deliberately mechanical: read top-down, stop at the
+# first red stage, fix only that. A model-quality problem is unfixable while
+# the supply stage above it is starved, and every hour spent tuning the model
+# while live_clean sits at 0 is an hour spent on a downstream symptom.
+_BRAIN_GUIDE = (
+    "**Read top-down. Stop at the first stage that is red — that is your "
+    "binding constraint. Everything below it is a symptom, not a cause.**\n\n"
+    "| # | Stage | Red when | What it means | Do this |\n"
+    "|---|---|---|---|---|\n"
+    "| 1 | **SUPPLY** | `Clean live labels` flat or < 30 | The loop is "
+    "starved. No amount of model work matters — there is nothing to learn "
+    "from. | Check `Live labels` beside it: if live is climbing and clean "
+    "is not, hygiene is eating the rows, so read `Label uniqueness`. If "
+    "both are flat, the bot is not closing trades. |\n"
+    "| 2 | **CORPUS** | `Era exclusion` ACTIVE with `New-era rows` < 150, "
+    "or uniqueness < 0.05 | You have rows but they do not count. Overlapping "
+    "horizons mean N labels carry far less than N labels of evidence "
+    "(AFML ch. 4 — sample weights redistribute so overlap cannot "
+    "double-count). | Wait for new-era rows to reach 150, or shorten the "
+    "label horizon. A corpus of 274 rows at uniqueness 0.05 is an effective "
+    "sample near 14. |\n"
+    "| 3 | **QUALITY** | `Brier` at or above baseline, or "
+    "`Calibration gap` widening | The model is not beating the base rate, "
+    "or its probabilities are not the thing they claim to be. Kelly reads "
+    "probabilities literally, so a calibration error is a *sizing* error. | "
+    "Compare against `champion` on the Brier chart. If live is worse than "
+    "baseline, the honest move is to stand the model down, not retune it. |\n"
+    "| 4 | **GOVERNOR** | `Model in use` NO while 1–3 are green | The model "
+    "earned its place and is still muted. | This is usually correct — a "
+    "stand-down, not a fault. Check the governor level on VITALS before "
+    "overriding anything. |\n\n"
+    "**When all four are green and it still loses money**, the constraint "
+    "is not learning — it is geometry. A selector cannot harvest an edge "
+    "smaller than costs: check cost per round trip against horizon sigma "
+    "(`scripts/horizon_bootstrap.py`) and the gate's realized separation "
+    "(`scripts/gate_efficacy_report.py`). At a 2-hour horizon this bot paid "
+    "0.82 sigma per round trip and no selector could win; the fix was the "
+    "horizon, not the model.\n\n"
+    "*Sample-size discipline throughout: prefer `Win rate LCB` (Wilson "
+    "lower bound) to the point estimate, and treat any conclusion drawn "
+    "from fewer than ~30 clean live labels as a hypothesis rather than a "
+    "finding.*")
+
+
 # ========================= board 1 · command ===============================
 def _author_command():
     _pulse_hero()          # the board opens on the one-glance pulse screen
@@ -603,10 +675,21 @@ def _author_command():
          desc="Seconds since last status write.")
     state("Governor", M("liquiditybot_monitor_level"), 4, 4, GOV,
           desc="0 OK / 1 degraded / 2 killed.")
-    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 12, 3, unit="ms",
-         decimals=0, steps=LAT, desc="Kraken public-GET RTT EWMA.")
-    stat("Cycle", M("liquiditybot_cycle"), 12, 3, decimals=0, steps=BLUE,
-         desc="Fast-cycle counter (advancing = alive).")
+    # 3x8 at h=4, not 2x12 at h=3 (2026-08-02): the h=3 band was the only
+    # 3-high row on the board and sat directly under a 4-high one, which is
+    # the raggedness you notice without being able to name. Matching the
+    # height above also makes room for the era-mix alarm, which belongs with
+    # the other alarms rather than buried in the learning section.
+    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 8, 4, unit="ms",
+         decimals=0, steps=LAT, size="compact",
+         desc="Kraken public-GET RTT EWMA.")
+    stat("Cycle", M("liquiditybot_cycle"), 8, 4, decimals=0, steps=BLUE,
+         size="compact", desc="Fast-cycle counter (advancing = alive).")
+    state("Era mix", M("liquiditybot_era_mix_alarm"), 8, 4, ERA_MIX,
+          desc="Training corpus vs live label era. DRIFTED means the rows "
+               "the model learns from no longer match the geometry it "
+               "trades under — see Era mix drift (TVD) on the execution "
+               "board for the magnitude.")
 
     row("💹 MONEY — equity & P&L")
     timeseries("Equity curve", M("liquiditybot_equity"), 12, 8,
@@ -616,19 +699,52 @@ def _author_command():
                     "K-rounding); the legend table shows last/min/max to "
                     "the cent.")
     stat("P&L today", M("liquiditybot_daily_pnl"), 6, 8, unit=USD,
-         steps=PNL, desc="Realized P&L since UTC midnight.")
+         steps=PNL, size="hero", desc="Realized P&L since UTC midnight.")
     stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 6, 8, unit=USD,
-         steps=PNL, desc="Unrealized across open positions.")
-    stat("Equity", M("liquiditybot_equity"), 5, 5, unit=USD,
+         steps=PNL, size="hero", desc="Unrealized across open positions.")
+
+    # Band 2 — OUTCOME (2026-08-02). This row carried equity, drawdown and
+    # win rate but never the cumulative bottom line: perf_net_usd was pushed
+    # to Grafana on every tick and shown on NO board, so "is it losing
+    # money" could only be answered by reading a curve's shape. Net $ and
+    # goal attainment are the two numbers the operator opens this board for,
+    # so they lead, at hero size, before any mechanism.
+    stat("Net P&L (all time)", M("liquiditybot_perf_net_usd"), 6, 5,
+         unit=USD, steps=PNL, size="hero",
+         desc="Cumulative realized P&L across every closed trade — the "
+              "bottom line. P&L today answers 'what happened since "
+              "midnight'; this answers 'is the strategy making money at "
+              "all'. Paper while system.dry_run is true.")
+    stat("Goal attainment", 'max(liquiditybot_goal_attainment_pct'
+         '{period="month",job="liquiditybot"})', 6, 5, unit="percent",
+         decimals=1, steps=WR100, size="hero",
+         desc="Progress toward the monthly goal (liquiditybot_goal_target). "
+              "Emitted since the goals ledger shipped and never displayed, "
+              "so the target existed with no way to see distance from it.")
+    stat("Equity", M("liquiditybot_equity"), 6, 5, unit=USD,
          decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
-    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 5, 5, mx=15.0, steps=DD,
+    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 6, 5, mx=15.0, steps=DD,
           desc="Peak-to-now; 15% is the hard stop.")
+
+    # Band 3 — TRADE QUALITY. Win rate alone is not a quality measure: a 30%
+    # win rate with a 3.0 payoff ratio is profitable and a 60% win rate with
+    # a 0.4 payoff ratio is not, so the two belong side by side and were not.
     gauge("Win rate", M("liquiditybot_perf_win_rate", "*100"), 5, 5, mx=100.0,
           steps=WR100, desc="Rolling closed-trade win rate.")
+    stat("Payoff ratio", M("liquiditybot_perf_payoff_ratio"), 5, 5,
+         decimals=2, steps=PF,
+         desc="Average win / average loss. The other half of win rate — "
+              "below 1.0 every winner is smaller than every loser, so the "
+              "win rate has to clear 1/(1+payoff) just to break even.")
     stat("Profit factor", M("liquiditybot_perf_profit_factor"), 5, 5,
          decimals=2, steps=PF, desc="Gross profit / gross loss.")
-    stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 4, 5, decimals=2,
-         steps=PNL, desc="Avg trade in R-multiples.")
+    stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 5, 5,
+         decimals=2, steps=PNL, desc="Avg trade in R-multiples.")
+    stat("Worst streak", M("liquiditybot_perf_max_loss_streak"), 4, 5,
+         decimals=0, steps=STREAK, graph="none", size="compact",
+         desc="Longest run of consecutive losers ever recorded. The board "
+              "showed the CURRENT streak but not the worst, so there was "
+              "nothing to judge the current one against.")
 
     row("🏦 PROFIT POOLS — weekly rollover", collapsed=True)
     stat("P&L this week", M("liquiditybot_weekly_pnl"), 6, 5, unit=USD,
@@ -661,10 +777,134 @@ def _author_command():
                desc="Savings + reserve accrual and the week's running "
                     "realized P&L - the rollover ritual made visible.")
 
+    _learning_brain()
+
+
+def _learning_brain():
+    """The learning section, ordered as the FUNNEL it actually is.
+
+    REDESIGNED 2026-08-02. It was fourteen identical 4-wide tiles in no
+    particular order followed by two charts. Three things made it unreadable:
+
+      1. No order. "Live labels" sat eight tiles away from "Clean live
+         labels" — the same funnel stage, one the filtered version of the
+         other — so the attrition between them, which is the single most
+         diagnostic number in the section, had to be computed by eye across
+         half a screen.
+      2. No hierarchy. Fourteen tiles at identical size say every number
+         matters equally. They do not: clean live labels gates retraining,
+         batch prior skew is a footnote.
+      3. Ragged bands. Fourteen tiles at w=4 wrap 6/6/2, so the section
+         ended on a third-empty row.
+
+    Now it reads top to bottom as the four questions the loop answers in
+    sequence — does data arrive, is the corpus clean, is the model any good,
+    is it allowed to trade — with every band exactly 24 wide. The order IS
+    the explanation, which is why the header panel can stay short.
+    """
     row("🧠 LEARNING BRAIN", collapsed=True)
+    text("How to read this — and what to do about it", _BRAIN_GUIDE, 24, 9)
+
+    # --- 1. SUPPLY: does training data arrive at all? -----------------
+    # Read left to right as a funnel: candidate proxies, of which some are
+    # real closed trades, of which some survive hygiene. Clean live is the
+    # count the evidence gate admits complexity on, so it is the hero.
+    stat("Candidate labels",
+         'max(liquiditybot_ml_labels{source="candidate",job="liquiditybot"})',
+         6, 5, decimals=0, steps=BLUE, size="compact",
+         desc="1/4 SUPPLY · Triple-barrier proxy labels — the widest part "
+              "of the funnel.")
+    stat("Live labels",
+         'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
+         6, 5, decimals=0, steps=[{"color": "red", "value": None},
+         {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
+         desc="2/4 SUPPLY · Ground-truth closed-trade labels — earns model "
+              "complexity.")
+    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 6, 5,
+         decimals=0, size="hero",
+         steps=[{"color": "red", "value": None},
+                {"color": "yellow", "value": 30},
+                {"color": "green", "value": 60}],
+         desc="3/4 SUPPLY · Live rows surviving the hygiene pass — the "
+              "count the evidence gate actually admits model complexity "
+              "on. Sits beside Live labels so the attrition between them "
+              "is one glance, not arithmetic across the section.")
+    stat("New-era rows", M("liquiditybot_era_excl_new_rows"), 6, 5,
+         decimals=0, steps=[{"color": "text", "value": None},
+         {"color": "green", "value": 150}],
+         desc="4/4 SUPPLY · Corpus rows tagged the NEW label era "
+              "(triple_barrier). Arms the era exclusion at 150 "
+              "(min_new_era_rows) — the floor past which old-era rows stop "
+              "training the model.")
+
+    # --- 2. CORPUS HEALTH: is the data it trains on trustworthy? ------
+    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 6, 5,
+         decimals=3, steps=[{"color": "red", "value": None},
+         {"color": "yellow", "value": 0.05}, {"color": "green", "value": 0.15}],
+         desc="CORPUS · Mean average-uniqueness (AFML ch.4): 1 = every "
+              "label an independent fact; near 0 = heavily overlapping "
+              "horizons (weights redistribute so overlap can't "
+              "double-count). A big label count with low uniqueness is a "
+              "small sample wearing a big number.")
+    state("Era exclusion", M("liquiditybot_era_excl_active"), 6, 5,
+          {"0": ("INERT", "blue"), "1": ("ACTIVE", "green")},
+          desc="CORPUS · ACTIVE = old-era rows (legacy/exit_sim/"
+               "exit_sim_time_stop), INCLUDING live, are excluded from "
+               "training — see liquiditybot_era_excl_dropped for the row "
+               "count.")
+    state("Batch prior skew", M("liquiditybot_ml_prior_skew"), 6, 5,
+          {"0": ("OK", "green"), "1": ("SKEWED", "yellow")},
+          no_value="no batch yet",
+          desc="CORPUS · ML-074: trailing-window label prior vs corpus "
+               "prior — SKEWED = a one-sided batch (e.g. all-zero quiet "
+               "weekend) is moving calibration; detection only, weights "
+               "untouched.")
+    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 6, 5,
+          mx=100.0, steps=[{"color": "green", "value": None},
+          {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
+          desc="CORPUS · Fraction of features past the PSI threshold — the "
+               "world moving out from under the training set.")
+
+    # --- 3. MODEL QUALITY: is what it learned any good? ---------------
+    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)",
+         8, 5, desc="QUALITY · Deployed rung on the simplicity ladder — "
+                    "complexity is earned by clean live labels, not chosen.",
+         text_mode="name", display_name="${__field.labels.kind}",
+         steps=BLUE, graph="none")
+    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 8, 5,
+         # 2026-07-29 anomaly-audit #4: the old no_value text claimed the
+         # ML-075 shadow state, but the metric is simply absent until the
+         # ECE window holds >= min_trades_to_judge (15) model-scored
+         # closes of the last 30 (ml/monitor.py) - a filling window is
+         # not a stand-down, and "Model in use: YES" beside it was read
+         # as a contradiction.
+         unit="percentunit", decimals=1, steps=CALIB,
+         no_value="window filling (<15 model-scored closes)",
+         desc="QUALITY · ECE — how far stated probabilities sit from "
+              "realized rates. Kelly reads probs literally, so this is a "
+              "sizing error, not a scoring nicety.")
+    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 8, 5,
+         unit="percent", decimals=1, steps=GRN,
+         desc="QUALITY · Wilson lower bound on the win rate — what the "
+              "evidence supports rather than what the point estimate "
+              "flatters. A high win rate on few trades lands here honestly.")
+
+    # --- 4. GOVERNOR: is the model allowed to size trades? ------------
+    state("Model in use", M("liquiditybot_ml_use_model"), 8, 5, ON_OFF,
+          desc="GOVERNOR · Governor lets the model size trades; NO is a "
+               "stand-down, not a fault.")
+    stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 8, 5, decimals=2,
+         steps=GRN, desc="GOVERNOR · Size throttle applied to the Kelly "
+                         "fraction — 1.0 is full trust, 0 is muted.")
+    state("Retrain", M("liquiditybot_ml_retrain_flag"), 8, 5, RETRAIN,
+          desc="GOVERNOR · Auto-retrain queued.")
+
+    # --- trends, last: the tiles say where it stands, these say where
+    # --- it is heading. Same order as the funnel above.
     timeseries("Learning rows by label (live vs candidate)",
                'max by (source) (liquiditybot_ml_labels' + JOB + ')', 12, 7,
                unit="short", legend="{{source}}",
+               calcs=["lastNotNull", "min", "max"],
                colors={"live": GREEN, "candidate": GRAY_HEX},
                desc="Ground-truth LIVE (real closed-trade) labels vs "
                     "CANDIDATE (triple-barrier proxy) labels accruing over "
@@ -673,79 +913,19 @@ def _author_command():
                     "= the loop is starved.")
     timeseries("Brier — live vs champion vs baseline (lower = better)",
                M("liquiditybot_ml_brier"), 12, 7, legend="live",
-               decimals=4, calcs=["lastNotNull"],
+               decimals=4, calcs=["lastNotNull", "min", "max"],
                extra=[(M("liquiditybot_ml_champion_brier"), "champion"),
                       (M("liquiditybot_ml_baseline_brier"), "baseline")],
                colors={"live": INDIGO, "champion": CAT_TEAL,
                        "baseline": CAT_PURPLE},
                desc="Rolling outcome Brier: live vs deployed champion vs "
-                    "the base-rate baseline the model must undercut.")
-    stat("Live labels",
-         'max(liquiditybot_ml_labels{source="live",job="liquiditybot"})',
-         4, 4, decimals=0, steps=[{"color": "red", "value": None},
-         {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
-         desc="Ground-truth closed-trade labels — earns model complexity.")
-    stat("Candidate labels",
-         'max(liquiditybot_ml_labels{source="candidate",job="liquiditybot"})',
-         4, 4, decimals=0, steps=BLUE, desc="Triple-barrier proxy labels.")
-    stat("Model", "count(liquiditybot_ml_model_info" + JOB + ") by (kind)",
-         4, 4, desc="Deployed rung on the simplicity ladder.",
-         text_mode="name", display_name="${__field.labels.kind}",
-         steps=BLUE, graph="none")
-    state("Model in use", M("liquiditybot_ml_use_model"), 4, 4, ON_OFF,
-          desc="Governor lets the model size trades; NO is a stand-down, "
-               "not a fault.")
-    state("Retrain", M("liquiditybot_ml_retrain_flag"), 4, 4, RETRAIN,
-          desc="Auto-retrain queued.")
-    stat("Kelly mult", M("liquiditybot_ml_kelly_mult"), 4, 4, decimals=2,
-         steps=GRN, desc="Governor size throttle.")
-    stat("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 4,
-         # 2026-07-29 anomaly-audit #4: the old no_value text claimed the
-         # ML-075 shadow state, but the metric is simply absent until the
-         # ECE window holds >= min_trades_to_judge (15) model-scored
-         # closes of the last 30 (ml/monitor.py) - a filling window is
-         # not a stand-down, and "Model in use: YES" beside it was read
-         # as a contradiction.
-         decimals=3, steps=CALIB,
-         no_value="window filling (<15 model-scored closes)",
-         desc="ECE; Kelly reads probs literally.")
-    gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 4,
-          mx=100.0, steps=[{"color": "green", "value": None},
-          {"color": "yellow", "value": 30}, {"color": "red", "value": 50}],
-          desc="Fraction of features past the PSI threshold.")
-    stat("Win rate LCB", M("liquiditybot_perf_win_rate_lcb", "*100"), 4, 4,
-         unit="percent", decimals=1, steps=GRN, desc="Wilson lower bound.")
-    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 4,
-         decimals=0, steps=[{"color": "red", "value": None},
-         {"color": "yellow", "value": 30}, {"color": "green", "value": 60}],
-         desc="Live rows surviving the hygiene pass — the count the "
-              "evidence gate actually admits model complexity on.")
-    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 4,
-         decimals=3, steps=[{"color": "red", "value": None},
-         {"color": "yellow", "value": 0.05}, {"color": "green", "value": 0.15}],
-         desc="Mean average-uniqueness (AFML ch.4): 1 = every label an "
-              "independent fact; near 0 = heavily overlapping horizons "
-              "(weights redistribute so overlap can't double-count).")
-    state("Batch prior skew", M("liquiditybot_ml_prior_skew"), 4, 4,
-          {"0": ("OK", "green"), "1": ("SKEWED", "yellow")},
-          no_value="no batch yet",
-          desc="ML-074: trailing-window label prior vs corpus prior — "
-               "SKEWED = a one-sided batch (e.g. all-zero quiet weekend) "
-               "is moving calibration; detection only, weights untouched.")
-    stat("New-era rows", M("liquiditybot_era_excl_new_rows"), 4, 4,
-         decimals=0, steps=[{"color": "text", "value": None},
-         {"color": "green", "value": 150}],
-         desc="Corpus rows tagged the NEW label era (triple_barrier). "
-              "Arms the era exclusion at 150 (min_new_era_rows) — the "
-              "floor past which old-era rows stop training the model.")
-    state("Era exclusion", M("liquiditybot_era_excl_active"), 4, 4,
-          {"0": ("INERT", "blue"), "1": ("ACTIVE", "green")},
-          desc="ACTIVE = old-era rows (legacy/exit_sim/exit_sim_time_stop), "
-               "INCLUDING live, are excluded from training — see "
-               "liquiditybot_era_excl_dropped for the row count.")
+                    "the base-rate baseline the model must undercut. Above "
+                    "the baseline means the model is worse than guessing "
+                    "the base rate.")
     timeseries("Label rate by era",
                'max by (era) (liquiditybot_era_label_rate' + JOB + ')',
-               16, 6, unit="percentunit", legend="{{era}}", decimals=2,
+               24, 6, unit="percentunit", legend="{{era}}", decimals=2,
+               calcs=["lastNotNull", "min", "max"],
                desc="Per-era label rate on the surviving corpus — the "
                     "instrument that shows the 0.0066 (exit_sim_time_stop) "
                     "-> 0.3991 (triple_barrier) repair as the new era "
@@ -2008,8 +2188,17 @@ def _hig_pass(panel):
             fc["decimals"] = 1
 
     if ptype == "timeseries":
-        if _ZERO_ANCHOR.search(title) and not fc.get("unit") \
-                and fc.get("min") is None:
+        # Match the QUERY as well as the title. "Era exclusion — progress
+        # toward re-arming" plots era_excl_new_rows against min_rows, both
+        # plain counts, but carries no count word in its title and so slipped
+        # through a title-only rule. That panel is the one where it matters
+        # most: at 140 rows against a 150 threshold an autoscaled axis
+        # renders [140, 150] and makes 93%-of-the-way-there look like a
+        # chasm. The metric name is the honest signal, not the label.
+        exprs = " ".join(t.get("expr") or ""
+                         for t in panel.get("targets") or [])
+        if (_ZERO_ANCHOR.search(title) or _ZERO_ANCHOR.search(exprs)) \
+                and not fc.get("unit") and fc.get("min") is None:
             fc["min"] = 0
             fc.setdefault("custom", {})["axisSoftMin"] = 0
         # One legend shape board-wide. The table legend carries exact
