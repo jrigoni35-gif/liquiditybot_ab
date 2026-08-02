@@ -38,10 +38,18 @@ def build_bot():
     knobs from the lifecycle smoke (clear net-Kelly so forced entries fill)."""
     from core.audit import configure_audit
     from main import LiquidityBot, load_config
+    from ml.registry import configure_registry
     # hermetic audit trail: without this the driver's mock realizes append
     # to the REAL outputs/audit.jsonl (observed live: 2 mock entries landed
     # in the cloud trail before this line existed)
     configure_audit(TMP / "debug_cycle_audit.jsonl")
+    # same hazard, different singleton: ml/models.py:404 calls
+    # get_registry().register() whenever a model is saved, so without this a
+    # step-through session appends fixture model cards to the production
+    # outputs/models/registry.jsonl. Every other QA entrypoint already did
+    # this; this driver was the only one that did not, and it is the same
+    # script whose ETH=2000.0 mock reached outputs/fills.csv.
+    configure_registry(TMP / "debug_cycle_models")
     cfg = load_config(str(Path(__file__).resolve().parents[1] / "config.json"))
     cfg["system"]["dry_run"] = True
     cfg["capital_management"]["starting_capital_usd"] = 10_000

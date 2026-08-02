@@ -72,19 +72,55 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     to the real `outputs/context_history.jsonl` PIT file every slow
     cycle - a smoke/replay battery once wrote 100+ contaminating rows
     there. Disabling here is the only knob; there is no redirectable
-    history_path in config."""
+    history_path in config.
+
+    THE HARDEST ONES TO SEE are the paths config.json does NOT set: the
+    engine falls back to a hardcoded default that IS the production file, so
+    grepping config.json for the key finds nothing and the leak is invisible
+    until the damage shows up in analysis. Two were found that way, both
+    after they had corrupted a result:
+
+      outputs/fills.csv           main.py:1659 default; config sets no
+                                  system.fills_ledger_path. 64 fixture rows
+                                  from debug_cycle's ETH=2000.0 mock landed
+                                  in the live ledger under 16 position_ids
+                                  and produced a mean-gross figure wrong by
+                                  27x, plus a loss tail that did not exist.
+      outputs/retrain_history     ml/retrain_log.py:23 module default; no
+                                  config key at all, so it must be REBOUND
+                                  rather than configured. 305 of 306 real
+                                  records were suite fixtures (measured
+                                  2026-07-31) and a prior session read the
+                                  resulting degeneracy as a corpus problem.
+
+    Not redirected here, deliberately: assurance.audit_path (config.json
+    1074) is not consumed by main.py/runner.py/core - configure_audit()
+    owns the process-wide trail and every QA entrypoint calls it, so setting
+    it here would be dead config. tests/test_qa_isolation.py pins that
+    exemption along with everything above."""
     d = TMP / f"smoke_out_{tag}"
     cfg["system"]["state_path"] = str(d / "state.json")
     cfg["system"]["weekly_ledger_path"] = str(d / "weekly_ledger.csv")
     cfg["system"]["monthly_ledger_path"] = str(d / "monthly_ledger.csv")
+    cfg["system"]["fills_ledger_path"] = str(d / "fills.csv")
     ml = cfg.setdefault("ml", {})
     ml["history_path"] = str(d / "history.csv")
+    ml["model_path"] = str(d / "meta_model.json")
+    ml.setdefault("multi_horizon", {})
+    ml["multi_horizon"]["shadow_path"] = str(d / "horizon_shadow.csv")
     ml.setdefault("postmortem", {})
     ml["postmortem"]["report_dir"] = str(d / "postmortems")
     ml["postmortem"]["summary_path"] = str(d / "postmortem_summary.csv")
     ml.setdefault("monitor", {})
     ml["monitor"]["retrain_flag_path"] = str(d / "retrain.flag")
     cfg.setdefault("context", {})["enabled"] = False
+    # No config key exists for this one - retrain_log resolves it through the
+    # MODULE attribute precisely so it can be rebound, and both callers
+    # (main.py's auto path and scripts/train_meta.py) read it that way, so one
+    # rebind covers both. Import-and-set is the sanctioned mechanism, not a
+    # monkeypatch hack: see the comment at ml/retrain_log.py:15-22.
+    import ml.retrain_log as _rl
+    _rl.RETRAIN_HISTORY_PATH_DEFAULT = str(d / "retrain_history.jsonl")
     return cfg
 
 
