@@ -780,12 +780,25 @@ def test_shipped_config_runs_budget_mode_with_surcharge_dark():
     adm = _shipped_cfg()["ml"]["exploration"]["admission"]
     assert adm["mode"] == "budget"               # operator-flipped
     bg = adm["budget"]
-    assert bg["tokens_per_day"] == 15
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): the label
+    # horizon moved 24 -> 432 bars (36h swing). Every value below
+    # followed it by the interlocks config_guard enforces, not by
+    # taste - see config.json's _*_migration_doc entries.
+    # tokens_per_day 15 -> 5: at a 36h hold the book converts at most
+    # max_concurrent_positions x 24/burst_hours = 5/day, so 15 banked
+    # tokens that could never be spent - the same shape as the SZ-047
+    # share cap. The BATTERY caught this; it was not in the first draft
+    # of the migration.
+    assert bg["tokens_per_day"] == 5
     # CONSCIOUS RE-PIN 2026-07-31 (era-deadlock fix): burst_hours mirrors
     # the labeler's horizon by design, and label_max_bars moved 96 -> 24
     # bars, so 8h -> 2h. Refill (tokens_per_day) is unchanged - only the
     # bankable burst follows the horizon, which is the invariant.
-    assert bg["burst_hours"] == 2.0
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): 2.0 -> 24.0.
+    # burst_hours mirrors the labeler horizon, now 36h, but config_guard
+    # FATALs it outside [1, 24] so 36 is not expressible; 24.0 is the
+    # maximum admissible value and the divergence is documented.
+    assert bg["burst_hours"] == 24.0
     assert bg["scarcity_pricing"] is True
     assert bg["scarcity_floor"] is None
     assert bg["refund_unfilled_entry"] is True
@@ -824,7 +837,15 @@ def _mutated(**budget_overrides):
 
 def test_guard_shipped_config_no_admission_findings():
     assert not any("admission" in m for m in _fatals(_shipped_cfg()))
-    assert not any("admission" in m for m in _warns(_shipped_cfg()))
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): exactly ONE
+    # admission WARN is now expected and is documented in config.json -
+    # burst_hours mirrors the labeler horizon by design, that horizon is
+    # now 36h, and config_guard FATALs burst_hours outside [1, 24], so 36
+    # is not expressible. 24.0 is the maximum admissible value. Anything
+    # BEYOND that single known divergence must still be absent.
+    _adm = [m for m in _warns(_shipped_cfg()) if "admission" in m]
+    assert len(_adm) == 1, _adm
+    assert "burst_hours" in _adm[0] and "labeler" in _adm[0]
 
 
 def test_guard_fatal_on_unknown_mode():
@@ -847,11 +868,21 @@ def test_guard_warn_tokens_above_book_ceiling():
     # 60/day (it was 5 x 24/8 = 15/day). A SHORTER holding horizon means
     # faster slot turnover means MORE labels the book can absorb - the
     # ceiling rising is the arithmetic working, not a weakened guard.
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): the ceiling is
+    # max_concurrent_positions x 24/burst_hours, and burst_hours followed
+    # the horizon 2h -> 24h (capped), so the book now converts 5 x 24/24
+    # = 5/day where it converted 60/day at the 2h hold. A LONGER hold
+    # means slower slot turnover means FEWER labels the book can absorb -
+    # the ceiling FALLING is the same arithmetic running the other way.
+    # This is why shipped tokens_per_day had to fall 15 -> 5 with it.
     assert any("tokens_per_day" in m for m in _warns(
         _mutated(tokens_per_day=61)))
-    # and the shipped 15/day now sits well inside that ceiling
+    # 15/day now EXCEEDS the ceiling it used to sit inside
+    assert any("exceeds the book conversion ceiling" in m
+               for m in _warns(_mutated(tokens_per_day=15)))
+    # and the shipped 5/day sits at it
     assert not any("exceeds the book conversion ceiling" in m
-                   for m in _warns(_mutated(tokens_per_day=15)))
+                   for m in _warns(_mutated(tokens_per_day=5)))
 
 
 def test_guard_warn_tokens_below_floor_pace():

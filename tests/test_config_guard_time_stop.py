@@ -105,12 +105,20 @@ def test_shipped_config_time_stop_matches_documented_defaults():
     shipped = json.loads((_ROOT / "config.json").read_text(encoding="utf-8"))
     ts = shipped["profit_taking"]["time_stop"]
     assert ts["enabled"] is True
-    assert ts["max_bars_no_progress"] == 36
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): 36 -> 480. It must
+    # exceed ml.label_max_bars (432) or config_guard FATALs the clock
+    # inversion; 480 leaves 48 bars of margin past the vertical.
+    assert ts["max_bars_no_progress"] == 480
     assert ts["min_mfe_frac_of_tier1"] == 0.5
     assert not any("time_stop" in m for m in
                   [m for sev, m in validate(shipped) if sev == "FATAL"])
     # shipped defaults sit inside the coherence WARN band (36 < 96)
     # deliberately — pinned so a change to either default is a conscious
     # decision, not silent drift
-    assert any("shadows tighten_after_bars" in m
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): the shadowing WARN
+    # fired because the 36-bar scratch sat BELOW tighten_after_bars (96).
+    # At 480 it sits well above, so the shadowing no longer happens and
+    # the WARN correctly goes silent. Pin its ABSENCE - the condition it
+    # warns about is genuinely gone, not suppressed.
+    assert not any("shadows tighten_after_bars" in m
               for m in [m for sev, m in validate(shipped) if sev == "WARN"])

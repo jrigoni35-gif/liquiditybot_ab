@@ -38,13 +38,26 @@ def test_shipped_vertical_sits_inside_the_no_progress_scratch():
     assert vertical < scratch, (
         "the vertical must be reachable before the ladder scratches - "
         "that ordering IS the deadlock")
-    assert vertical == 24 and scratch == 36
+    # CONSCIOUS RE-PIN 2026-08-01 (432-bar migration): 24/36 -> 432/480.
+    # The ORDERING assertion above is the real contract and is unchanged;
+    # only the pair of numbers moved, together, as the guard requires.
+    assert vertical == 432 and scratch == 480
 
 
 def test_guard_fatals_the_clock_inversion():
     """The exact shipped-for-5-days configuration must now be FATAL."""
     cfg = _cfg()
     cfg["ml"]["label_max_bars"] = 96          # the bug, verbatim
+    # 2026-08-01: the shadow horizons are now [108, 216, 432], all of
+    # which exceed 96, so multi_horizon FATALs FIRST and masks the
+    # clock-inversion message this test exists to pin. Shrink them so the
+    # probe isolates the inversion, which is the actual subject.
+    cfg["ml"]["multi_horizon"]["horizons_bars"] = [24, 48, 96]
+    # ...and restore the 36-bar scratch the bug actually shipped with.
+    # The scratch is now 480, so a 96-bar vertical sits INSIDE it and is
+    # perfectly legal - the inversion only exists relative to a scratch
+    # BELOW the vertical, which is the pair this test pins.
+    cfg["profit_taking"]["time_stop"]["max_bars_no_progress"] = 36
     msgs = [m for m in _fatals(cfg) if "label_max_bars" in m]
     assert msgs, "a vertical beyond the scratch must be FATAL"
     assert "unreachable" in msgs[0]
