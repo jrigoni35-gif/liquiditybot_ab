@@ -400,7 +400,10 @@
         "x": 0,
         "y": 22
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 5,
@@ -1023,7 +1026,10 @@
         "x": 0,
         "y": 30
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 14,
@@ -1345,6 +1351,9 @@
                 "value": 12
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1411,6 +1420,9 @@
                 "value": 55
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1909,7 +1921,7 @@
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#2596AB"
+                      "fixedColor": "#40CBE0"
                     }
                   }
                 ]
@@ -1983,7 +1995,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 28,
@@ -2069,9 +2084,13 @@
           "options": {
             "legend": {
               "showLegend": true,
-              "displayMode": "list",
+              "displayMode": "table",
               "placement": "bottom",
-              "calcs": []
+              "calcs": [
+                "lastNotNull",
+                "min",
+                "max"
+              ]
             },
             "tooltip": {
               "mode": "multi",
@@ -2156,7 +2175,7 @@
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#2596AB"
+                      "fixedColor": "#40CBE0"
                     }
                   }
                 ]
@@ -2667,8 +2686,8 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "",
-              "decimals": 3,
+              "unit": "percentunit",
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -2759,6 +2778,9 @@
                     "value": 50
                   }
                 ]
+              },
+              "color": {
+                "mode": "thresholds"
               }
             },
             "overrides": []
@@ -2939,8 +2961,8 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "",
-              "decimals": 3,
+              "unit": "percentunit",
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -3263,9 +3285,13 @@
           "options": {
             "legend": {
               "showLegend": true,
-              "displayMode": "list",
+              "displayMode": "table",
               "placement": "bottom",
-              "calcs": []
+              "calcs": [
+                "lastNotNull",
+                "min",
+                "max"
+              ]
             },
             "tooltip": {
               "mode": "multi",
@@ -3287,7 +3313,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 46,
@@ -4107,7 +4136,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 51,
@@ -4352,8 +4384,8 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "",
-              "decimals": 2,
+              "unit": "percentunit",
+              "decimals": 1,
               "color": {
                 "mode": "thresholds"
               },
@@ -4560,7 +4592,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 57,
@@ -4805,7 +4840,10 @@
                   }
                 ]
               },
-              "noValue": "unknown this cycle — check Sources ok / next poll"
+              "noValue": "unknown this cycle — check Sources ok / next poll",
+              "color": {
+                "mode": "thresholds"
+              }
             },
             "overrides": []
           },
@@ -5117,7 +5155,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 66,
@@ -5260,7 +5301,10 @@
                   }
                 ]
               },
-              "noValue": "long book disabled/not built"
+              "noValue": "long book disabled/not built",
+              "color": {
+                "mode": "thresholds"
+              }
             },
             "overrides": []
           },
@@ -5635,7 +5679,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 74,
@@ -5668,6 +5715,9 @@
               "showLineNumbers": false,
               "showMiniMap": false
             }
+          },
+          "fieldConfig": {
+            "defaults": {}
           }
         },
         {
@@ -6952,7 +7002,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 83,
@@ -6965,7 +7018,10 @@
         "x": 0,
         "y": 158
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 84,
@@ -8062,6 +8118,9 @@
                 "value": 31.5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -8155,6 +8214,500 @@
       "transparent": true
     },
     {
+      "id": 92,
+      "type": "row",
+      "title": "📈 LEARNING TRAJECTORY — direction, not position",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 169
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 93,
+      "type": "timeseries",
+      "title": "Label supply — is training data arriving?",
+      "description": "The three label pools over time. live_clean gates retraining; it was pinned at 0 for thirteen days and no tile could show that. FLAT is the alarm here, not the all-clear.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 170
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "live_clean"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#30D158"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "live"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0A84FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "candidate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FFD60A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_live_clean{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "live_clean"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_labels{source=\"live\",job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "live"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_labels{source=\"candidate\",job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "candidate"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 94,
+      "type": "timeseries",
+      "title": "Era exclusion — progress toward re-arming",
+      "description": "New-era rows against the min_rows threshold that arms era-gated training. Both are plotted so the GAP is the visible quantity — distance to the threshold is what you actually want to read, and two separate tiles make you subtract by hand.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 170
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "new-era rows"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#30D158"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "threshold"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF453A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_era_excl_new_rows{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "new-era rows"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_era_excl_min_rows{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "threshold"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 95,
+      "type": "timeseries",
+      "title": "Calibration quality — is the model honest?",
+      "description": "A gap that WIDENS while labels accumulate means the model is learning the wrong thing — the one failure mode that looks identical to healthy progress on a state tile.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 178
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "calibration gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF453A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "label uniqueness"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0A84FF"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_calibration_gap{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "calibration gap"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_mean_uniqueness{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "label uniqueness"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 96,
+      "type": "timeseries",
+      "title": "Admission funnel — is the gate passing anything?",
+      "description": "A gate whose admitted line rides at zero while evaluated climbs is selecting against itself — which is what scripts/gate_efficacy_report.py measured at -12.2% separation. The divergence is the signal; neither line alone shows it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 178
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "evaluated"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#0A84FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "admitted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#30D158"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_conviction_evaluated{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "evaluated"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_conviction_admitted{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "admitted"
+        }
+      ],
+      "transparent": true
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -8163,7 +8716,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 170
+        "y": 187
       },
       "transparent": true,
       "options": {
@@ -8180,7 +8733,10 @@
         "externalStyles": [],
         "contentPartials": []
       },
-      "pluginVersion": "6.3.0"
+      "pluginVersion": "6.3.0",
+      "fieldConfig": {
+        "defaults": {}
+      }
     }
   ]
 }

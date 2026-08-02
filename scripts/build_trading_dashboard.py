@@ -40,6 +40,7 @@ Boards:
   liquiditybot_pulse.json            — one full-width Business Text hero
 """
 import json
+import re
 from pathlib import Path
 
 DS = {"type": "prometheus", "uid": "grafanacloud-prom"}
@@ -131,7 +132,13 @@ RED_HEX = "#FF453A"
 ORANGE_HEX = "#FF9F0A"
 INDIGO = "#5E5CE6"
 GRAY_HEX = "#8E8E93"
-CAT_TEAL = "#2596AB"
+# 2026-08-01: was #2596AB, a hand-picked teal that predated the Apple pass
+# and was the ONLY color on any board outside the system palette. On the
+# Grafana dark canvas (#111217) it measures 5.37:1; the palette's own teal
+# measures 9.65:1 — same hue family, nearly double the contrast, and one
+# fewer vocabulary item. (Apple system colors: gray #8E8E93 and purple
+# #BF5AF2 below were already correct and are unchanged.)
+CAT_TEAL = "#40CBE0"
 CAT_PURPLE = "#BF5AF2"
 
 INJ_ID = 990          # fixed id on every board so the CSS can self-hide
@@ -974,6 +981,74 @@ def _author_command():
           mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
     stat("Positions open", M("liquiditybot_positions_open"), 6, 5, decimals=0,
          steps=BLUE, graph="none", desc="Open count (max 5).")
+    _learning_trajectory()
+
+
+def _learning_trajectory():
+    """Trend row: the questions a stat tile structurally cannot answer.
+
+    WHY THIS ROW EXISTS (2026-08-01). Before it, 8 of 175 panels were
+    timeseries — roughly 21 state tiles per trend panel. State tiles answer
+    "is it healthy" very well, and that is most of what these boards are for.
+    But "is it learning" and "is it losing money" are TRAJECTORY questions,
+    and a tile shows a number, never a direction.
+
+    That gap had a real cost: live_clean sat pinned at 0 for thirteen days
+    and the board could not distinguish it from a value that had merely
+    touched 0 on the current scrape, because a tile has no memory. Each
+    panel here plots the pair of series whose DIVERGENCE is the signal, so
+    the reading needs no mental arithmetic across two tiles.
+
+    Every metric below is verified present in the exporter. A panel querying
+    a metric the bot never emits is worse than no panel: it renders an empty
+    chart that reads as "zero" rather than "absent".
+    """
+    row("📈 LEARNING TRAJECTORY — direction, not position")
+    timeseries(
+        "Label supply — is training data arriving?",
+        M("liquiditybot_ml_live_clean"), 12, 8, legend="live_clean",
+        decimals=0, calcs=["lastNotNull", "min", "max"],
+        extra=[('max(liquiditybot_ml_labels'
+                '{source="live",job="liquiditybot"})', "live"),
+               ('max(liquiditybot_ml_labels'
+                '{source="candidate",job="liquiditybot"})', "candidate")],
+        colors={"live_clean": "#30D158", "live": "#0A84FF",
+                "candidate": "#FFD60A"},
+        desc="The three label pools over time. live_clean gates retraining; "
+             "it was pinned at 0 for thirteen days and no tile could show "
+             "that. FLAT is the alarm here, not the all-clear.")
+    timeseries(
+        "Era exclusion — progress toward re-arming",
+        M("liquiditybot_era_excl_new_rows"), 12, 8, legend="new-era rows",
+        decimals=0, calcs=["lastNotNull", "min", "max"],
+        extra=[(M("liquiditybot_era_excl_min_rows"), "threshold")],
+        colors={"new-era rows": "#30D158", "threshold": "#FF453A"},
+        desc="New-era rows against the min_rows threshold that arms "
+             "era-gated training. Both are plotted so the GAP is the visible "
+             "quantity — distance to the threshold is what you actually want "
+             "to read, and two separate tiles make you subtract by hand.")
+    timeseries(
+        "Calibration quality — is the model honest?",
+        M("liquiditybot_ml_calibration_gap"), 12, 8, unit="percentunit",
+        legend="calibration gap", decimals=1,
+        calcs=["lastNotNull", "min", "max"],
+        extra=[(M("liquiditybot_ml_mean_uniqueness"), "label uniqueness")],
+        colors={"calibration gap": "#FF453A",
+                "label uniqueness": "#0A84FF"},
+        desc="A gap that WIDENS while labels accumulate means the model is "
+             "learning the wrong thing — the one failure mode that looks "
+             "identical to healthy progress on a state tile.")
+    timeseries(
+        "Admission funnel — is the gate passing anything?",
+        M("liquiditybot_conviction_evaluated"), 12, 8, legend="evaluated",
+        decimals=0, calcs=["lastNotNull", "min", "max"],
+        extra=[(M("liquiditybot_conviction_admitted"), "admitted")],
+        colors={"evaluated": "#0A84FF", "admitted": "#30D158"},
+        desc="A gate whose admitted line rides at zero while evaluated "
+             "climbs is selecting against itself — which is what "
+             "scripts/gate_efficacy_report.py measured at -12.2% "
+             "separation. The divergence is the signal; neither line alone "
+             "shows it.")
 
 
 def _positions_table():
@@ -1016,8 +1091,16 @@ def _author_execution():
           "stand-down, not a fault.")
     state("Governor", M("liquiditybot_monitor_level"), 4, 5, GOV,
           desc="0 OK / 1 degraded / 2 killed.")
+    # unit=percentunit, NOT the gauge() default of percent (2026-08-01).
+    # calibration_gap is Expected Calibration Error, |predicted p - realized
+    # rate|, so it is a FRACTION in [0,1] — which is why mx is 0.2 and not
+    # 20. Grafana's "percent" treats the value as ALREADY a percentage, so a
+    # real gap of 0.05 printed as "0.050%" instead of "5.0%": the needle sat
+    # in the right place while the number beside it read 100x too small, and
+    # the same metric rendered "5.0%" on the command board. percentunit does
+    # the x100 for display and leaves the 0.2 scale correct.
     gauge("Calibration gap", M("liquiditybot_ml_calibration_gap"), 4, 5,
-          mx=0.2, decimals=3, steps=CALIB,
+          mx=0.2, unit="percentunit", decimals=1, steps=CALIB,
           no_value="window filling (<15 model-scored closes)",
           desc="ECE; keep small — Kelly reads probs literally.")
     gauge("Drift share", M("liquiditybot_ml_drift_share", "*100"), 4, 5,
@@ -1861,6 +1944,95 @@ def _apple_palette(obj):
     return obj
 
 
+# --- HIG conformance pass (2026-08-01) ------------------------------------
+# A second recursive post-pass, in the same spirit as _apple_palette: state
+# the rule once, apply it everywhere, instead of remembering it at 179 call
+# sites. Every rule was MEASURED before it was written, and the measuring
+# mattered — a first audit claimed "65 panels missing units", which was wrong
+# by roughly 10x. Most unitless panels here are integer counts, where a unit
+# makes them WORSE (Grafana's "short" renders 1000 as "1 K"), or ratios like
+# the Kelly multiplier, which have no unit by definition. The full count, and
+# what was deliberately NOT changed, is in docs/grafana/HIG.md. Results are
+# pinned by tests/test_dashboard_hig.py.
+
+# Titles whose value is genuinely a PROPORTION and so belongs in percentunit.
+# Scores are deliberately excluded: a manipulation-suspicion of 0.42 is not
+# "42%" of anything, and percentunit would assert a part-of-whole that does
+# not exist. Only true shares appear here.
+_PERCENTUNIT = {
+    "Label uniqueness", "Calibration gap", "Admit share by regime",
+    "Era mix drift (TVD)", "Per-asset eff weight (taper × scarcity)",
+}
+# Units that were smuggled into the TITLE, where they cannot travel with the
+# value into a tooltip, a legend, or an alert notification.
+_TITLE_UNIT = {
+    "Unlock ETA (days)": ("Unlock ETA", "suffix:d"),
+    "Spread by asset (bps, lower = tighter book)":
+        ("Spread by asset", "suffix: bps"),
+    # unit was "short", which renders nothing — the real unit lived in the
+    # title, so the number reached tooltips and alerts dimensionless.
+    "Slippage vs arrival (bps)": ("Slippage vs arrival", "suffix: bps"),
+}
+# Counts whose y-axis must anchor at zero. An axis that autoscales to
+# [270, 274] turns four units of noise into a mountain range.
+_ZERO_ANCHOR = re.compile(
+    r"label|row|count|position|trade|token|admission|candidate", re.I)
+
+
+def _hig_pass(panel):
+    """Apply the measured HIG fixes to one leaf panel, in place."""
+    fc = panel.setdefault("fieldConfig", {}).setdefault("defaults", {})
+    title = panel.get("title") or ""
+    ptype = panel.get("type")
+
+    # Thresholds declared but no explicit color mode: Grafana's default
+    # varies by panel type, so those steps may silently never paint.
+    steps = (fc.get("thresholds") or {}).get("steps") or []
+    if len(steps) > 1 and (fc.get("color") or {}).get("mode") is None \
+            and ptype in ("stat", "gauge", "bargauge"):
+        fc["color"] = {"mode": "thresholds"}
+
+    if title in _TITLE_UNIT:
+        new, unit = _TITLE_UNIT[title]
+        was = title[len(new):].strip(" (),")
+        panel["title"] = new
+        fc["unit"] = unit
+        d = panel.get("description") or ""
+        if was and was not in d:
+            panel["description"] = (d + " " if d else "") + f"({was})"
+    elif title in _PERCENTUNIT and not fc.get("unit"):
+        fc["unit"] = "percentunit"
+        # percentunit multiplies by 100, so precision carried over from the
+        # fraction is one decimal place too far: 0.250 would read "25.000%".
+        if (fc.get("decimals") or 0) > 1:
+            fc["decimals"] = 1
+
+    if ptype == "timeseries":
+        if _ZERO_ANCHOR.search(title) and not fc.get("unit") \
+                and fc.get("min") is None:
+            fc["min"] = 0
+            fc.setdefault("custom", {})["axisSoftMin"] = 0
+        # One legend shape board-wide. The table legend carries exact
+        # last/min/max beside the trend, which is the whole point of
+        # plotting a trend you intend to act on.
+        lg = panel.setdefault("options", {}).setdefault("legend", {})
+        if lg.get("displayMode") != "table":
+            lg["displayMode"] = "table"
+            lg["placement"] = "bottom"
+            lg["showLegend"] = True
+            if not lg.get("calcs"):
+                lg["calcs"] = ["lastNotNull", "min", "max"]
+    return panel
+
+
+def _hig_all(d):
+    for p in d.get("panels") or []:
+        _hig_pass(p)
+        for sub in p.get("panels") or []:
+            _hig_pass(sub)
+    return d
+
+
 DASHBOARDS = {
     "liquiditybot_command.json": _board(
         "liquiditybot-trading", "liquiditybot — command",
@@ -1884,6 +2056,7 @@ DASHBOARDS = {
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)
+    _hig_all(_d)
     _tags = set(_d.get("tags") or [])
     _tags.add("liquid-glass")
     _d["tags"] = sorted(_tags)

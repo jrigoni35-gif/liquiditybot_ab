@@ -86,7 +86,10 @@
         "x": 0,
         "y": 0
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 2,
@@ -405,10 +408,10 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
+          "unit": "percentunit",
           "min": 0,
           "max": 0.2,
-          "decimals": 3,
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -426,7 +429,10 @@
               }
             ]
           },
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 model-scored closes)",
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -492,6 +498,9 @@
                 "value": 50
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -647,7 +656,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#2596AB"
+                  "fixedColor": "#40CBE0"
                 }
               }
             ]
@@ -1494,8 +1503,8 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
-          "decimals": 3,
+          "unit": "percentunit",
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1631,7 +1640,10 @@
         "x": 0,
         "y": 30
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 20,
@@ -1670,6 +1682,9 @@
                 "value": 31.5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -1736,6 +1751,9 @@
                 "value": 31.5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -2503,7 +2521,10 @@
         "x": 0,
         "y": 41
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 29,
@@ -2541,7 +2562,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#2596AB"
+                  "fixedColor": "#40CBE0"
                 }
               }
             ]
@@ -2614,8 +2635,8 @@
     {
       "id": 30,
       "type": "bargauge",
-      "title": "Slippage vs arrival (bps)",
-      "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement). 'weighted' is notional-weighted (Cochran ratio estimator, 2026-07-29): the cost of the average DOLLAR, immune to dust-fill skew — trust it over the simple avg when they disagree.",
+      "title": "Slippage vs arrival",
+      "description": "Implementation shortfall vs the ARRIVAL mark (positive = paid worse than arrival; negative = improvement). 'weighted' is notional-weighted (Cochran ratio estimator, 2026-07-29): the cost of the average DOLLAR, immune to dust-fill skew — trust it over the simple avg when they disagree. (bps)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2628,7 +2649,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "suffix: bps",
           "decimals": 1,
           "color": {
             "mode": "thresholds"
@@ -3105,7 +3126,10 @@
               }
             ]
           },
-          "noValue": "no fills yet"
+          "noValue": "no fills yet",
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
@@ -4058,7 +4082,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 45,
@@ -4276,7 +4303,7 @@
         {
           "id": 49,
           "type": "stat",
-          "title": "Unlock ETA (days)",
+          "title": "Unlock ETA",
           "description": "max(0, 60 − tb-era labels) / labels-per-day: days to the 60-label tb-era evidence milestone at the current rate.",
           "datasource": {
             "type": "prometheus",
@@ -4290,7 +4317,7 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "",
+              "unit": "suffix:d",
               "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
@@ -4455,7 +4482,10 @@
                   }
                 ]
               },
-              "noValue": "no probe-budget telemetry yet"
+              "noValue": "no probe-budget telemetry yet",
+              "color": {
+                "mode": "thresholds"
+              }
             },
             "overrides": []
           },
@@ -4514,12 +4544,14 @@
                 "axisPlacement": "auto",
                 "scaleDistribution": {
                   "type": "linear"
-                }
+                },
+                "axisSoftMin": 0
               },
               "color": {
                 "mode": "palette-classic"
               },
-              "decimals": 2
+              "decimals": 2,
+              "min": 0
             },
             "overrides": [
               {
@@ -4624,12 +4656,14 @@
                 "axisPlacement": "auto",
                 "scaleDistribution": {
                   "type": "linear"
-                }
+                },
+                "axisSoftMin": 0
               },
               "color": {
                 "mode": "palette-classic"
               },
-              "decimals": 2
+              "decimals": 2,
+              "min": 0
             },
             "overrides": [
               {
@@ -4642,7 +4676,7 @@
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#2596AB"
+                      "fixedColor": "#40CBE0"
                     }
                   }
                 ]
@@ -4793,8 +4827,8 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "",
-              "decimals": 3,
+              "unit": "percentunit",
+              "decimals": 1,
               "color": {
                 "mode": "thresholds"
               },
@@ -4924,7 +4958,10 @@
           ],
           "transparent": true
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 990,
@@ -4952,7 +4989,10 @@
         "externalStyles": [],
         "contentPartials": []
       },
-      "pluginVersion": "6.3.0"
+      "pluginVersion": "6.3.0",
+      "fieldConfig": {
+        "defaults": {}
+      }
     }
   ]
 }

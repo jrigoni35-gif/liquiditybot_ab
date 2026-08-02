@@ -86,7 +86,10 @@
         "x": 0,
         "y": 0
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 2,
@@ -385,6 +388,9 @@
                 "value": 31.5
               }
             ]
+          },
+          "color": {
+            "mode": "thresholds"
           }
         },
         "overrides": []
@@ -708,7 +714,10 @@
         "x": 0,
         "y": 22
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 11,
@@ -1309,13 +1318,16 @@
         "x": 0,
         "y": 32
       },
-      "panels": []
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
     },
     {
       "id": 13,
       "type": "bargauge",
-      "title": "Spread by asset (bps, lower = tighter book)",
-      "description": "Cost of crossing; the screen's first filter.",
+      "title": "Spread by asset",
+      "description": "Cost of crossing; the screen's first filter. (bps, lower = tighter book)",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1328,7 +1340,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
+          "unit": "suffix: bps",
           "decimals": 1,
           "color": {
             "mode": "thresholds"
@@ -1719,7 +1731,10 @@
         "externalStyles": [],
         "contentPartials": []
       },
-      "pluginVersion": "6.3.0"
+      "pluginVersion": "6.3.0",
+      "fieldConfig": {
+        "defaults": {}
+      }
     }
   ]
 }
