@@ -283,8 +283,20 @@ class GateStats:
         # The same shape as _stats, but keyed on whether the trade actually
         # MADE MONEY rather than whether the price touched a barrier. See
         # note_realized() for why the two are not the same thing.
-        self._real: dict = {}        # gate -> [n_closed_passes, net_wins]
-        self._real_total = [0, 0]    # all closed trades [n, net_wins]
+        # Keyed BY GEOMETRY ERA, not by gate alone (2026-08-02). A realized
+        # outcome is only evidence about the geometry that produced it: a
+        # trade closed under the 2-hour barrier says nothing about a 36-hour
+        # one, and pooling them is the same blending hazard that
+        # scripts/cohort_eval.py refuses for win rates. Caught before a
+        # single sample existed, which is the only cheap moment to fix it —
+        # later it would mean discarding real evidence.
+        self._real: dict = {}        # era -> {gate: [n_passes, net_wins]}
+        self._real_tot: dict = {}    # era -> [n_closed, net_wins]
+        # Set by the owner from ml.history.triple_barrier_era(). Empty means
+        # "era unknown", and weight() then declines to use ANY realized
+        # evidence rather than guessing which era it belongs to — an
+        # unlabelled sample is worse than no sample.
+        self.era = str(c.get("era") or "")
         # Realized outcomes arrive far more slowly than labels (one per
         # closed trade vs one per candidate), so this defaults to a lower
         # bar than min_samples — but never lower than 20, because a gate
@@ -292,7 +304,7 @@ class GateStats:
         self.real_min_samples = max(int(c.get("realized_min_samples", 25)),
                                     20)
 
-    def note_realized(self, gates_passed, net_pct) -> None:
+    def note_realized(self, gates_passed, net_pct, era=None) -> None:
         """Close the loop: record whether a gate's pass actually PAID.
 
         THE BUG THIS FIXES (2026-08-02). note_label() below learns from the
@@ -330,14 +342,25 @@ class GateStats:
             return
         if v != v or v in (float("inf"), float("-inf")):   # NaN / inf
             return
+        # An outcome is evidence about the GEOMETRY that produced it. A
+        # trade closed under a 2-hour barrier says nothing about a 36-hour
+        # one, so it is filed under its own era and never pooled. An
+        # unlabelled sample is dropped rather than guessed at: guessing puts
+        # contaminated evidence into a ledger whose whole purpose is to be
+        # trustworthy, and the caller always knows its own era.
+        e = str(era or self.era or "")
+        if not e:
+            return
         win = 1 if v > 0.0 else 0
-        self._real_total[0] += 1
-        self._real_total[1] += win
+        tot = self._real_tot.setdefault(e, [0, 0])
+        tot[0] += 1
+        tot[1] += win
+        book = self._real.setdefault(e, {})
         for g, passed in gates_passed.items():
             if passed:
-                s = self._real.setdefault(str(g), [0, 0])
-                s[0] += 1
-                s[1] += win
+                st = book.setdefault(str(g), [0, 0])
+                st[0] += 1
+                st[1] += win
 
     def realized_divergence(self, gate: str):
         """label-implied weight minus realized weight, or None if unknown.
@@ -348,9 +371,10 @@ class GateStats:
         show. Reported rather than acted on: it is a diagnosis, and the
         weight() switch below is the treatment.
         """
-        n, _ = self._real.get(gate, (0, 0))
-        if n < self.real_min_samples or self._real_total[0] < \
-                self.real_min_samples:
+        n, _ = (self._real.get(self.era) or {}).get(gate, (0, 0))
+        tn, _t = self._real_tot.get(self.era, (0, 0))
+        if not self.era or n < self.real_min_samples \
+                or tn < self.real_min_samples:
             return None
         return round(self._label_weight(gate) - self.weight(gate), 4)
 
@@ -405,11 +429,11 @@ class GateStats:
         barriers get touched. On a feed where those differ 10x, that is the
         whole difference between learning and confirming.
         """
-        rn, rwins = self._real.get(gate, (0, 0))
-        if rn >= self.real_min_samples \
-                and self._real_total[0] >= self.real_min_samples:
-            return self._shade(rn, rwins, self._real_total[0],
-                               self._real_total[1], self.real_min_samples)
+        rn, rwins = (self._real.get(self.era) or {}).get(gate, (0, 0))
+        tn, twins = self._real_tot.get(self.era, (0, 0))
+        if self.era and rn >= self.real_min_samples \
+                and tn >= self.real_min_samples:
+            return self._shade(rn, rwins, tn, twins, self.real_min_samples)
         return self._label_weight(gate)
 
     def weighted_confidence(self, gates_passed, fallback: float) -> float:
@@ -439,12 +463,20 @@ class GateStats:
                 # can be compared at a glance. realized_base_rate next to
                 # base_rate IS the reward-misspecification readout: on this
                 # feed they were 0.038 and 0.3991.
-                "realized_closed": self._real_total[0],
-                "realized_base_rate":
-                    round(self._real_total[1] / self._real_total[0], 4)
-                    if self._real_total[0] else None,
+                "era": self.era,
+                "realized_closed": self._real_tot.get(self.era, [0, 0])[0],
+                "realized_base_rate": (
+                    round(self._real_tot[self.era][1]
+                          / self._real_tot[self.era][0], 4)
+                    if self._real_tot.get(self.era, [0])[0] else None),
                 "realized_active": bool(
-                    self._real_total[0] >= self.real_min_samples),
+                    self._real_tot.get(self.era, [0, 0])[0]
+                    >= self.real_min_samples),
+                # Prior eras stay READABLE — segregated, never deleted.
+                # Their sample counts are the audit trail showing what was
+                # set aside and why the clock restarted.
+                "realized_by_era": {e: t[0]
+                                    for e, t in sorted(self._real_tot.items())},
                 "realized_min_samples": self.real_min_samples,
                 "divergence": div}
 
@@ -452,8 +484,9 @@ class GateStats:
     def to_dict(self) -> dict:
         return {"stats": {g: list(s) for g, s in self._stats.items()},
                 "total": list(self._total),
-                "real": {g: list(s) for g, s in self._real.items()},
-                "real_total": list(self._real_total)}
+                "real": {e: {g: list(v) for g, v in b.items()}
+                         for e, b in self._real.items()},
+                "real_tot": {e: list(t) for e, t in self._real_tot.items()}}
 
     def restore(self, d) -> None:
         if not isinstance(d, dict):
@@ -469,10 +502,12 @@ class GateStats:
         # ledger existed loads cleanly with an empty one rather than
         # discarding the label stats it does carry.
         try:
-            self._real = {str(g): [int(s[0]), int(s[1])]
-                          for g, s in (d.get("real") or {}).items()}
-            rt = d.get("real_total") or [0, 0]
-            self._real_total = [int(rt[0]), int(rt[1])]
-        except (TypeError, ValueError, IndexError):
-            self._real, self._real_total = {}, [0, 0]
+            self._real = {
+                str(e): {str(g): [int(v[0]), int(v[1])]
+                         for g, v in (b or {}).items()}
+                for e, b in (d.get("real") or {}).items()}
+            self._real_tot = {str(e): [int(t[0]), int(t[1])]
+                              for e, t in (d.get("real_tot") or {}).items()}
+        except (TypeError, ValueError, IndexError, KeyError):
+            self._real, self._real_tot = {}, {}
 

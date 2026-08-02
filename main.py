@@ -807,8 +807,19 @@ class LiquidityBot:
         # per-gate predictive power learned from labeled candidates; the
         # labeler feeds it as triple-barrier outcomes land (engine-agnostic
         # over gates_passed dicts, so informed-flow gates learn too)
-        self.gate_stats = GateStats(config.get("signal_gates", {})
-                                    .get("learned_weights", {}))
+        # The realized ledger is keyed by GEOMETRY ERA, so GateStats is told
+        # which era it is trading under at construction. Same vocabulary the
+        # label corpus uses (ml.history.triple_barrier_era), so a gate's
+        # realized evidence and the rows it trained on agree on what "era"
+        # means. A geometry change starts a fresh realized ledger and resets
+        # the sample clock — correct, not a regression: after the barriers
+        # move you genuinely have no realized evidence about the new system,
+        # and the old samples stay readable but stop voting.
+        from ml.history import triple_barrier_era as _tbe
+        self.gate_stats = GateStats({
+            **(config.get("signal_gates", {}).get("learned_weights", {})),
+            "era": _tbe(int(config.get("ml", {}).get("label_max_bars", 96))),
+        })
         # exit-policy labeler reads the live stop + tier + give-back geometry
         # from the SAME config the engine trades, so candidate labels answer
         # "would this signal net positive under OUR exit policy" (default mode)
