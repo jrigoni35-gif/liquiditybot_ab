@@ -1,7 +1,7 @@
 """QA harnesses must never write to a production output file.
 
-This has now gone wrong SIX times, each found only after it had corrupted a
-result, and every previous fix was "add the one missing line to
+This has now gone wrong SEVEN times, each found only after it had corrupted
+a result, and every previous fix was "add the one missing line to
 qa_redirect_paths" plus a comment saying it now covers everything:
 
   outputs/state.json            a smoke bot saved fixture state over the
@@ -15,10 +15,15 @@ qa_redirect_paths" plus a comment saying it now covers everything:
                                 (scripts/debug_cycle.py:42-43)
   outputs/retrain_history.jsonl 305 of 306 records were suite fixtures
                                 (ml/retrain_log.py:18-20)
-  outputs/fills.csv             64 fixture rows under 16 position_ids, from
-                                debug_cycle's ETH=2000.0 mock; made mean
+  outputs/fills.csv             136 fixture rows under 34 position_ids from
+                                the shared ETH=2000.0 mock feeds - written
+                                by BATTERY smoke runs and debug_cycle alike,
+                                every QA entry that builds a bot; made mean
                                 gross P&L wrong by 27x and manufactured a
-                                loss tail that did not exist
+                                loss tail that did not exist. Confirmed by
+                                audit crossref: 0 of the 136 order_ids
+                                appear in the hash-chained audit trail,
+                                which QA always redirected
 
 A comment cannot fail. This test can. It asserts the INVARIANT rather than
 the seven known cases, so a path added to config.json next month is covered
