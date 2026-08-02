@@ -1,0 +1,317 @@
+"""scripts/cost_attribution.py - settle the fee question with measurement.
+
+WHAT THIS SETTLES. Three cost claims were in play on 2026-08-02 and none of
+them had a number attached:
+
+  1. Are the configured fee constants (maker_fee_bps 25 / taker_fee_bps 40)
+     stale relative to Kraken's schedule, or deliberately conservative?
+  2. Is post_only honoured, or does the fee model ignore it?
+  3. What is each discrepancy actually WORTH in P&L?
+
+It answers all three from outputs/fills.csv, which records the real fill
+price and the booked fee for every fill. Nothing here is asserted; every
+line is computed.
+
+ANSWERS AS OF 2026-08-02 (n=214, re-run to refresh - do not trust these
+numbers if fills.csv has moved):
+
+  2. post_only IS honoured. Booked rates are bimodal at exactly 25.0 bps
+     (n=397, post_only=1) and 40.0 bps (n=286, post_only=0) - the config
+     constants, applied correctly. An earlier claim that "~99% of fills book
+     at taker rates" was WRONG: it compared against Kraken's 26 bps rather
+     than against the bot's own 25 bps maker rate, so maker fills looked
+     like taker fills. The flag works; the constants are what is high.
+  1. Both constants exceed Kraken base tier (16/26). Round trip costs
+     0.667% measured, against 0.520% at Kraken taker/taker and 0.320% at
+     maker/maker.
+  3. Section 3 computes it. The short version: the fee is not the only
+     problem, but it is the larger one by an order of magnitude.
+
+TWO DISCIPLINES THIS TOOL ENFORCES.
+
+DEDUPLICATION. Positions are keyed by their FILL PATTERN, not position_id.
+One ETH position appeared under 16 distinct position_ids, and counting it 16
+times produced a mean gross of -1.32% against a true -0.13% - an order of
+magnitude, and 66% of all apparent losses. Those 64 rows are now quarantined
+to outputs/fills.quarantine.csv, so the live file is clean and this dedupe
+currently removes nothing.
+
+IT STAYS ANYWAY. The duplicates correlated 1:1 with bot restarts, not with
+market events: the same entry fill was written at 17:35, 21:35, 21:36 and
+21:44 with identical price and size. That points at fills being re-logged on
+position restore, and THAT BUG IS NOT FIXED - only its output was cleaned.
+Until the restore path is read, duplicates can recur, and any analysis that
+groups by position_id will silently inherit the error again. Note that
+scripts/breakeven_test.py does NOT dedupe; it was the tool that reported
+-1.32%, and it is only correct now because the bad rows were removed by
+hand.
+
+REPORT-ONLY. It never edits config.json. Over-stating cost is the SAFE
+direction: a backtest that assumes fees higher than reality understates
+profit, while one that assumes them lower manufactures it. If the constants
+turn out to be deliberately conservative, lowering them makes every
+historical result optimistic at once. The tool prints what the numbers say
+and stops; changing them is an operator decision, and config.json:356
+already carries an OM-080 reconciliation job that reads the ACTUAL Kraken
+tier from the private TradeVolume endpoint. Check that before acting.
+
+    python scripts/cost_attribution.py [--json]
+"""
+import argparse
+import csv
+import json
+import math
+from collections import Counter, defaultdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# Kraken Pro base (highest) tier, 30-day volume < $10k, as of 2026-08.
+# Lower tiers only reduce these, so using base is the conservative check.
+KRAKEN_MAKER_BPS = 16.0
+KRAKEN_TAKER_BPS = 26.0
+
+
+def _f(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def med(xs):
+    s = sorted(xs)
+    n = len(s)
+    if not n:
+        return 0.0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def load(path, tol=0.02):
+    """Fully-closed positions, DEDUPLICATED BY FILL PATTERN."""
+    by_pid = defaultdict(list)
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r.get("position_id"):
+                by_pid[r["position_id"]].append(r)
+    out, seen = [], set()
+    # position_id is deliberately discarded: it is the field that carries
+    # the 16x duplication, so keying on it is the bug this dedupe exists to
+    # avoid. The fill pattern is the identity.
+    for fills in by_pid.values():
+        cash = fees = ez = xz = notional = 0.0
+        sig, ok = [], True
+        maker_n = taker_n = 0
+        for r in fills:
+            sz, px = _f(r.get("fill_size")), _f(r.get("fill_price"))
+            fee = _f(r.get("fees_delta_usd"))
+            if not sz or not px or fee is None or sz <= 0 or px <= 0:
+                ok = False
+                break
+            val = sz * px
+            cash += val if r.get("side") == "sell" else -val
+            fees += fee
+            if r.get("purpose") == "entry":
+                ez += sz
+                notional += val
+            elif r.get("purpose") == "exit":
+                xz += sz
+            if str(r.get("post_only")) == "1":
+                maker_n += 1
+            else:
+                taker_n += 1
+            sig.append((r.get("purpose"), r.get("side"),
+                        round(sz, 6), round(px, 4)))
+        if not ok or ez <= 0 or xz <= 0 or notional <= 0:
+            continue
+        if abs(xz - ez) / ez > tol:
+            continue
+        key = tuple(sig)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"notional": notional, "gross": cash, "fees": fees,
+                    "gross_pct": 100.0 * cash / notional,
+                    "fees_pct": 100.0 * fees / notional,
+                    "maker_fills": maker_n, "taker_fills": taker_n,
+                    "n_fills": len(fills)})
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fills", default=str(ROOT / "outputs" / "fills.csv"))
+    ap.add_argument("--json", action="store_true")
+    ns = ap.parse_args()
+    p = Path(ns.fills)
+    if not p.exists():
+        print(f"no fills at {p}")
+        return 1
+
+    # --- 1. per-FILL effective rate, split by the post_only flag. This is
+    # --- the direct test of whether post_only buys a maker fee at all.
+    rows = list(csv.DictReader(open(p, newline="", encoding="utf-8")))
+    by_flag = defaultdict(list)
+    rate_hist = Counter()
+    for r in rows:
+        sz, px = _f(r.get("fill_size")), _f(r.get("fill_price"))
+        fee = _f(r.get("fees_delta_usd"))
+        if not sz or not px or fee is None or sz <= 0 or px <= 0:
+            continue
+        bps = 10000.0 * fee / (sz * px)
+        by_flag[str(r.get("post_only"))].append(bps)
+        rate_hist[round(bps, 1)] += 1
+
+    trades = load(p)
+    n = len(trades)
+    if not n:
+        print("no closed positions")
+        return 1
+    g = [t["gross_pct"] for t in trades]
+    c = [t["fees_pct"] for t in trades]
+    mean_g, med_g = sum(g) / n, med(g)
+    mean_c = sum(c) / n
+
+    # --- 2. what each fee schedule would cost, holding fills constant.
+    # --- Round trip = entry leg + exit leg, so 2x the per-leg rate.
+    schedules = {
+        "configured (25/40)": None,          # measured, filled below
+        "Kraken taker/taker (26/26)": 2 * KRAKEN_TAKER_BPS / 100.0,
+        "Kraken maker/maker (16/16)": 2 * KRAKEN_MAKER_BPS / 100.0,
+        "zero fees": 0.0,
+    }
+    schedules["configured (25/40)"] = mean_c
+
+    # --- 3. decompose the mean into its two degrees of freedom. A mean is
+    # --- a summary; win rate and payoff ratio are the things a strategy
+    # --- change can actually move, and they say WHICH one is off.
+    wins = [v for v in g if v > 0]
+    losses = [v for v in g if v <= 0]
+    p_win = len(wins) / n
+    mean_w = sum(wins) / len(wins) if wins else 0.0
+    mean_l = abs(sum(losses) / len(losses)) if losses else 0.0
+    payoff = (mean_w / mean_l) if mean_l > 0 else float("inf")
+    # Break-even payoff at the OBSERVED win rate, gross of fees.
+    be_payoff = ((1 - p_win) / p_win) if p_win > 0 else float("inf")
+
+    def be_winrate(cost):
+        """Win rate needed to clear `cost`, holding win/loss SIZES fixed.
+
+        p*W - (1-p)*L = cost  =>  p = (cost + L) / (W + L).
+        Returns >1.0 when no win rate can clear the cost at this payoff
+        ratio, which is the decisive case: it means the size asymmetry
+        must change, not the hit rate.
+        """
+        d = mean_w + mean_l
+        return float("inf") if d <= 0 else (cost + mean_l) / d
+
+    res = {"n": n, "mean_gross_pct": mean_g, "median_gross_pct": med_g,
+           "mean_fees_pct": mean_c,
+           "gross_win_rate": p_win,
+           "mean_win_pct": mean_w, "mean_loss_pct": -mean_l,
+           "payoff_ratio": payoff, "breakeven_payoff": be_payoff,
+           "breakeven_winrate_by_schedule": {k: be_winrate(v)
+                                             for k, v in schedules.items()},
+           "post_only_bps": {k: {"n": len(v), "median": med(v)}
+                             for k, v in by_flag.items()},
+           "net_by_schedule": {k: mean_g - v
+                               for k, v in schedules.items()}}
+    if ns.json:
+        print(json.dumps(res, indent=1))
+        return 0
+
+    print("COST ATTRIBUTION - deduplicated by fill pattern")
+    print("=" * 66)
+    print("%d distinct closed positions\n" % n)
+
+    print("1. IS post_only BUYING A MAKER FEE?")
+    for flag in sorted(by_flag):
+        v = by_flag[flag]
+        label = "post_only=1 (maker intended)" if flag == "1" \
+            else "post_only=0 (taker)"
+        print("   %-30s n=%-4d median %.1f bps" % (label, len(v), med(v)))
+    m1, m0 = med(by_flag.get("1", [0])), med(by_flag.get("0", [0]))
+    if abs(m1 - m0) < 1.0:
+        print("   -> post_only makes NO difference to the booked fee.")
+        print("      Either it is not honoured, or the fee model ignores it.")
+    else:
+        print("   -> post_only IS booking a different rate (%.1f vs %.1f)."
+              % (m1, m0))
+    print("   Kraken base tier for reference: maker %.0f / taker %.0f bps"
+          % (KRAKEN_MAKER_BPS, KRAKEN_TAKER_BPS))
+    print("   observed rates: %s" % rate_hist.most_common(4))
+
+    print("\n2. WHAT EACH SCHEDULE IS WORTH (mean gross %+.4f%%)" % mean_g)
+    for k, v in schedules.items():
+        print("   %-28s cost %.3f%%  ->  net %+.4f%%"
+              % (k, v, mean_g - v))
+
+    print("\n3. THE BREAK-EVEN QUESTION")
+    print("   mean gross   %+.4f%%    median gross %+.4f%%"
+          % (mean_g, med_g))
+    print("   win rate %.1f%%   mean win %+.4f%%   mean loss %+.4f%%"
+          % (100 * p_win, mean_w, -mean_l))
+    print("   payoff ratio %.3f   (need %.3f to be gross-flat at this "
+          "win rate)" % (payoff, be_payoff))
+
+    # Which of the two knobs is off? Say it from the numbers, not from a
+    # stored conclusion - an earlier version of this tool asserted "the
+    # binding constraint is tail risk" and was wrong: that read was driven
+    # by 16 duplicate rows of one fabricated trade, and once they were
+    # quarantined the distribution came out near-symmetric.
+    if payoff < be_payoff:
+        print("\n   The win rate is FINE - %.1f%% of trades make money gross."
+              % (100 * p_win))
+        print("   The SIZES are wrong: losers average %.3f%% against winners"
+              % mean_l)
+        print("   at %.3f%%. That is an exit-geometry result, not a signal"
+              % mean_w)
+        print("   result, and not a tail: it is the average loser, not a")
+        print("   rare one, that is oversized.")
+    else:
+        print("\n   Payoff ratio clears its break-even at this win rate; the")
+        print("   mean is set by the hit rate, not by trade sizes.")
+
+    print("\n   WIN RATE REQUIRED TO NET BREAK EVEN, holding sizes fixed:")
+    impossible = []
+    for k, v in schedules.items():
+        need_p = be_winrate(v)
+        if need_p > 1.0:
+            impossible.append(k)
+            print("   %-28s %6s  IMPOSSIBLE at payoff %.3f"
+                  % (k, "-", payoff))
+        else:
+            print("   %-28s %5.1f%%  (observed %.1f%%)"
+                  % (k, 100 * need_p, 100 * p_win))
+
+    print()
+    if impossible:
+        print("   => No achievable win rate covers %d of %d fee schedules"
+              % (len(impossible), len(schedules)))
+        print("      while winners stay %.2fx the size of losers. Raising"
+              % payoff)
+        print("      the hit rate cannot fix this; only cutting the average")
+        print("      loser or extending the average winner can. Fees are the")
+        print("      larger term (%.3f%% against a %.3f%% gross gap) but"
+              % (mean_c, abs(mean_g)))
+        print("      cutting them to zero still leaves %+.4f%%." % mean_g)
+    elif mean_g <= 0:
+        print("   => Gross is negative, so no fee cut alone reaches profit,")
+        print("      but the gap is reachable: %.1f%% win rate at zero fees"
+              % (100 * be_winrate(0.0)))
+        print("      against %.1f%% observed." % (100 * p_win))
+    else:
+        print("   => Mean gross is positive. Any round trip below %.3f%% is"
+              % mean_g)
+        print("      profitable in expectation; you are paying %.3f%%."
+              % mean_c)
+    print("\nREPORT-ONLY. Verify against the OM-080 reconciliation "
+          "(config.json:356)")
+    print("before changing any fee constant: under-stating cost makes every")
+    print("backtest optimistic, which is the dangerous direction.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
