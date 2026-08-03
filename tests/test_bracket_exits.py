@@ -992,8 +992,15 @@ def _entry_cfg(*, bracket_enabled=True, force_probe=False):
         cfg["ml"]["exploration"].get("admission", {}), mode="share_cap")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False
-    cfg.setdefault("order_manager", {}).setdefault(
-        "sim_fill", {})["queue_aware"] = False
+    # subject = bracket stamping, not fill realism: pin the fill model
+    # DETERMINISTIC (base prob 1.0), don't merely disable the queue gate.
+    # Relying on the shipped passive_base_prob made these tests hostage to
+    # its calibration - the 2026-08-02 XV-021 change (0.45 -> 0.048, the
+    # measured market rate) turned "reliably produces a fill" into a ~5%
+    # draw and three tests flaky. Realism is tested in test_sim_fill_queue.
+    _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
+    _sf["queue_aware"] = False
+    _sf["passive_base_prob"] = 1.0
     if force_probe:
         # p_win stays sub-breakeven (conviction alone would never enter);
         # exploration.p_win bumps it just past net-Kelly so a FORCED probe

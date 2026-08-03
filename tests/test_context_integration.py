@@ -107,8 +107,13 @@ def _cfg(context_enabled: bool = True, force_fill: bool = False) -> dict:
         cfg["ml"]["cold_start_prior_p"] = 0.66
         cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
         cfg["pretrade"]["price_exit_leg"] = False
-        cfg.setdefault("order_manager", {}).setdefault(
-            "sim_fill", {})["queue_aware"] = False
+        # deterministic fill, not just queue-gate off: the shipped
+        # passive_base_prob is now the MEASURED market rate (0.048,
+        # XV-021) and force_fill's whole point is that the fill is not a
+        # coin flip. Realism is tested in test_sim_fill_queue.
+        _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
+        _sf["queue_aware"] = False
+        _sf["passive_base_prob"] = 1.0
     return cfg
 
 

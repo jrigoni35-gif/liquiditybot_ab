@@ -364,7 +364,8 @@
       "queue_tol_frac": 1.0,
       "queue_drain_frac": 0.20,
       "sigma_ref_bps": 30.0,
-      "passive_base_prob": 0.45,
+      "passive_base_prob": 0.048,
+      "_passive_base_prob_doc": "0.45 -> 0.048 on 2026-08-02 (operator directive: the sim must trade as if real rent-money is on the line - no flattering fills). MEASURED, not chosen: scripts/calibrate_fills.py XV-021 inverted the market's own trade-through rate from 22,854 hypothetical resting-limit trials across 2.4 GB of recorded book frames - near-touch band sf_base 0.048, Wilson [0.046, 0.050]. The prior 0.45 credited passive fills ~9x more often than the recorded market crossed them, which is the fill-side twin of the fee-side finding (25.1% of winning touches already die to costs). CAVEATS, both live: XV-022 - the exp(-d_bar) form is misspecified (identifiable buckets invert to 0.048/0.060/0.082, rising with distance), so 0.048 is the conservative end of a [0.048, 0.082] band, and the FORM deserves replacement eventually, not just the constant; and this changes the dry-run label distribution mid-432-cohort - the first 11 post-migration closes were earned under flattered fills, so the cohort's eventual verdict must be read knowing ts 1785717000-ish is an execution-regime boundary. EXPECTED CONSEQUENCE, stated so nobody reads it as a regression: paper entry rate will drop sharply - that is the honest fill rate, and starving is the truthful outcome the 2026-07-21 queue_aware _doc warned to check for. Re-run calibrate_fills.py as recordings accumulate.",
       "fill_frac_min": 0.3,
       "fill_frac_max": 1.0
     }

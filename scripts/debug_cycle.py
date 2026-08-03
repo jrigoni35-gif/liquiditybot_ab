@@ -61,6 +61,13 @@ def build_bot():
     cfg["ml"]["cold_start_prior_p"] = 0.66
     cfg["pretrade"] = dict(cfg.get("pretrade", {}),
                            min_edge_cost_ratio=0.1, price_exit_leg=False)
+    # deterministic fills: this driver's subject is the realize path, and
+    # phase 1 must fill the book; the shipped passive_base_prob is the
+    # measured market rate (0.048 since XV-021) and would starve it.
+    cfg["order_manager"] = dict(cfg.get("order_manager", {}))
+    cfg["order_manager"]["sim_fill"] = dict(
+        cfg["order_manager"].get("sim_fill", {}),
+        queue_aware=False, passive_base_prob=1.0)
     qa_redirect_paths(cfg, "debug_cycle")       # owns model/history paths
     # fresh corpus EVERY session — must come AFTER the redirect (unlinking
     # a pre-redirect path left the real file accumulating live rows across

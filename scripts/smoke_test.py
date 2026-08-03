@@ -556,7 +556,11 @@ def test_entry_fill_exit_path():
     # not fill realism: use the deterministic passive fill model so the forced
     # entry reliably fills. queue-aware gating (the live default) starves a tiny
     # order behind realistic mock depth; that realism lives in test_sim_fill_queue.
-    cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})["queue_aware"] = False
+    # base prob pinned too - the shipped value is the MEASURED market rate
+    # (0.048 since XV-021, 2026-08-02) and "deterministic" must not depend on it.
+    _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
+    _sf["queue_aware"] = False
+    _sf["passive_base_prob"] = 1.0
     # this scenario tests tier PLUMBING (reduce + book PnL) against the
     # legacy fixed-% path; rev-3 vol-scaled calculus is covered by
     # tests/test_rev3.py
@@ -797,7 +801,11 @@ def test_persistence_roundtrip():
     # fill model so the synthetic entry reliably fills. queue-aware gating (now
     # the live default) starves a tiny order behind realistic mock depth — that
     # realism is exercised in tests/test_sim_fill_queue, not here.
-    cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})["queue_aware"] = False
+    # base prob pinned too - the shipped value is the MEASURED market rate
+    # (0.048 since XV-021, 2026-08-02) and "deterministic" must not depend on it.
+    _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
+    _sf["queue_aware"] = False
+    _sf["passive_base_prob"] = 1.0
     # geometry-alignment T5: this scenario's subject is snapshot/restore
     # plumbing, not exit geometry - disabled so the "tiers must fire"
     # assertion below exercises the legacy tier ladder it was written
