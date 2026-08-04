@@ -86,11 +86,15 @@ def test_rollout_rotation_end_to_end_recovers_rows_with_correct_era(tmp_path):
     out.mkdir()
     dest = out / "signal_history.csv"
     hs = HistoryStore(str(dest))
-    # production schema pre-label_era: drop label_era, the two
-    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac),
-    # and the 7 gate-truth instrumentation T2 columns after those (sg_flow..
-    # sg_conc) - 10 trailing columns total.
-    old_header = hs._header[:-10]
+    # production schema pre-label_era: everything BEFORE the label_era
+    # column. Sliced BY NAME - this was `hs._header[:-10]`, a positional
+    # count of the trailing columns added since, which silently broke the
+    # moment entry_price/exit_price (2026-08-04) made it 12: the fixture
+    # then built a 79-wide header over 77-wide rows, a schema that never
+    # existed, and the recovery under test "failed" on malformed input
+    # rather than on anything it does. Name-anchored, the fixture stays
+    # the real pre-label_era schema no matter what joins the tail later.
+    old_header = hs._header[:hs._header.index("label_era")]
 
     # known rows spanning all three label-era buckets, so a recovery that
     # silently defaulted everything to "legacy" (or dropped barrier) would

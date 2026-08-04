@@ -45,23 +45,29 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
         row = f.readline().strip().split(",")
     # gate-truth instrumentation T2 (2026-07-28) appended 7 sg_* columns
     # after sl_frac - every index below shifts left by 7.
-    assert header[-15] == "barrier" and row[-15] == "time"
-    assert header[-14] == "probe" and row[-14] == ""   # candidates: unmarked
-    assert header[-13] == "disp" and row[-13] == ""    # no pipeline verdict
-    assert header[-12] == "candidate_id" and row[-12] == ""  # no lineage set
-    assert header[-11] == "book" and row[-11] == "5m"  # default book
+    assert "barrier" in header and row[header.index("barrier")] == "time"
+    assert "probe" in header and row[header.index("probe")] == ""   # candidates: unmarked
+    assert "disp" in header and row[header.index("disp")] == ""    # no pipeline verdict
+    assert "candidate_id" in header and row[header.index("candidate_id")] == ""  # no lineage set
+    assert "book" in header and row[header.index("book")] == "5m"  # default book
     # label_era joined 2026-07-26 (label-era instrumentation): derived
     # from THIS row's own barrier="time" -> exit_sim (see label_era_of)
-    assert header[-10] == "label_era" and row[-10] == "exit_sim"
+    assert "label_era" in header and row[header.index("label_era")] == "exit_sim"
     # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): this
     # call never supplies a bracket -> the documented 0.0 default
-    assert header[-9] == "pt_frac" and row[-9] == "0.000000"
-    assert header[-8] == "sl_frac" and row[-8] == "0.000000"
+    assert "pt_frac" in header and row[header.index("pt_frac")] == "0.000000"
+    assert "sl_frac" in header and row[header.index("sl_frac")] == "0.000000"
     # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation T2):
     # this call never supplies gate_components -> the documented 0.0 default
-    assert header[-7:] == ["sg_flow", "sg_delta", "sg_accum", "sg_burst",
-                           "sg_trend", "sg_evidence", "sg_conc"]
-    assert row[-7:] == ["0.0000"] * 7
+    _sg = ["sg_flow", "sg_delta", "sg_accum", "sg_burst",
+           "sg_trend", "sg_evidence", "sg_conc"]
+    _i = header.index("sg_flow")
+    assert header[_i:_i + 7] == _sg
+    assert row[_i:_i + 7] == ["0.0000"] * 7
+    # entry_price/exit_price (2026-08-04) now trail the sg_* block, so
+    # slicing from the END would capture them instead - anchor on sg_flow.
+    assert header[-2:] == ["entry_price", "exit_price"]
+    assert row[-2:] == ["0", "0"]        # candidate path: no price supplied
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -70,25 +76,30 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
     hs.log_entry("p1", "ETH", "long", _feats(2))
     hs.log_close("p1", 12.0)
     with open(hs.path, encoding="utf-8") as f:
-        f.readline()
+        hdr = f.readline().strip().split(",")
         tail = f.readline().strip().split(",")
-        # gate-truth instrumentation T2 (2026-07-28) appended 7 sg_*
-        # columns after sl_frac - every index below shifts left by 7.
-        assert tail[-15] == "realized"
-        assert tail[-14] == "0"        # un-flagged live close = conviction
-        assert tail[-13] == "entered"  # a live row IS an entered trade
-        assert tail[-12] == ""         # no matching candidate -> no lineage
-        assert tail[-11] == "5m"       # default book
+        # Indexed BY NAME, not by position. These were negative indices
+        # off the end of the row, so every trailing-column addition broke
+        # them and had to renumber the block (the 2026-07-28 sg_* batch
+        # shifted all of them by 7; entry_price/exit_price on 2026-08-04
+        # would have shifted them again). Name lookup is immune.
+        assert tail[hdr.index('barrier')] == "realized"
+        assert tail[hdr.index('probe')] == "0"        # un-flagged live close = conviction
+        assert tail[hdr.index('disp')] == "entered"  # a live row IS an entered trade
+        assert tail[hdr.index('candidate_id')] == ""         # no matching candidate -> no lineage
+        assert tail[hdr.index('book')] == "5m"       # default book
         # label_era joined 2026-07-26: barrier="realized" -> exit_sim
-        assert tail[-10] == "exit_sim"
+        assert tail[hdr.index('label_era')] == "exit_sim"
         # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment T3): a
         # live close never supplies a bracket -> the documented 0.0 default
-        assert tail[-9] == "0.000000"
-        assert tail[-8] == "0.000000"
+        assert tail[hdr.index('pt_frac')] == "0.000000"
+        assert tail[hdr.index('sl_frac')] == "0.000000"
         # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation
         # T2): a live close never supplies gate_components -> the
         # documented 0.0 default
-        assert tail[-7:] == ["0.0000"] * 7
+        _i2 = hdr.index("sg_flow")
+        assert tail[_i2:_i2 + 7] == ["0.0000"] * 7
+        assert tail[-2:] == ["0", "0"]   # live close: no price supplied yet
 
 
 # ---- average uniqueness ----------------------------------------------------
@@ -299,3 +310,31 @@ def test_kish_ess_reported_beside_uniqueness(tmp_path, monkeypatch):
     manual = float(np.sum(w)) ** 2 / float(np.sum(np.asarray(w) ** 2))
     assert ess == pytest.approx(manual, abs=0.05)
     assert 0.0 < ess <= len(w) + 1e-9
+
+
+def test_price_anchor_reaches_the_candidate_row(tmp_path):
+    """entry_price/exit_price must carry REAL prices on a labeled
+    candidate - the columns existing with permanent zeros would be the
+    original defect (no price anywhere) wearing a new header."""
+    import numpy as np
+    from ml.features import FEATURE_NAMES
+    from ml.history import CandidateLabeler, HistoryStore
+    hs = HistoryStore(str(tmp_path / "h.csv"))
+    cl = CandidateLabeler(hs, {"label_mode": "triple_barrier",
+                               "label_max_bars": 4})
+    f = np.zeros(len(FEATURE_NAMES))
+    cl.register("ETH", "long", f, 0.01, 1000)
+    # bar series via the real feed seam: entry bar close=100, then a
+    # straight run through the profit barrier so the label resolves
+    # inside the window
+    cl.update_candles("ETH", [
+        {"time": t, "close": c, "high": c * 1.001, "low": c * 0.999}
+        for t, c in [(1000, 100.0), (1300, 101.0), (1600, 108.0),
+                     (1900, 109.0), (2200, 109.5), (2500, 109.5)]])
+    assert cl.poll() >= 1
+    import csv
+    with open(hs.path, encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    r = rows[-1]
+    assert float(r["entry_price"]) == 100.0, r["entry_price"]
+    assert float(r["exit_price"]) > 0.0, "exit price must be real, not 0"

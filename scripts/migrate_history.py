@@ -143,7 +143,16 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # uninstrumented, the same meaning HistoryStore gives an
                     # unpopulated column on a live-written row.
                     *[r.get(f"sg_{k}") or "0.0000" for k in
-                      SG_COMPONENT_KEYS]])
+                      SG_COMPONENT_KEYS],
+                    # entry_price, exit_price joined 2026-08-04: the price
+                    # anchor. Same idempotence precedent - pass an already-
+                    # migrated row's real value through UNCHANGED, pad "0"
+                    # for a row that predates the column. NOTHING can
+                    # derive a price for a legacy row (the corpus never
+                    # stored one anywhere), so 0 is permanent for them and
+                    # readers must treat it as "absent", never as a price.
+                    r.get("entry_price") or "0",
+                    r.get("exit_price") or "0"])
     return out, padded
 
 

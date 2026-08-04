@@ -104,11 +104,17 @@ def test_history_header_contract_is_stable(tmp_path):
     # sg_flow..sg_conc joined 2026-07-28 (gate-truth instrumentation T2):
     # the informed-flow engine's component scores at signal time —
     # appended last so meta order (and every past bump) stays stable
+    # entry_price, exit_price joined 2026-08-04 (price anchor): the
+    # absolute price a row's bet was anchored at / resolved at, so rows
+    # can be re-examined in price space (relabelling at a new horizon,
+    # external-tape alignment, realized-return audits) - appended last
+    # so meta order (and every past bump) stays stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
                 "barrier", "probe", "disp", "candidate_id", "book",
                 "label_era", "pt_frac", "sl_frac",
-                *[f"sg_{k}" for k in SG_COMPONENT_KEYS]]
+                *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
+                "entry_price", "exit_price"]
     assert hs._header == expected
 
 

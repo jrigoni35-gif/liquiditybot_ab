@@ -135,11 +135,15 @@ def test_era_boundary_from_deep_dive_is_barrier_driven_not_time_driven(
 
 def test_old_corpus_without_label_era_column_loads_as_legacy(tmp_path):
     hs = _store(tmp_path)
-    # schema as it existed pre-task: drop label_era, the two
-    # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac),
-    # and the 7 gate-truth instrumentation T2 columns after those (sg_flow..
-    # sg_conc) - 10 trailing columns total.
-    old_header = hs._header[:-10]
+    # production schema pre-label_era: everything BEFORE the label_era
+    # column. Sliced BY NAME - this was `hs._header[:-10]`, a positional
+    # count of the trailing columns added since, which silently broke the
+    # moment entry_price/exit_price (2026-08-04) made it 12: the fixture
+    # then built a 79-wide header over 77-wide rows, a schema that never
+    # existed, and the recovery under test "failed" on malformed input
+    # rather than on anything it does. Name-anchored, the fixture stays
+    # the real pre-label_era schema no matter what joins the tail later.
+    old_header = hs._header[:hs._header.index("label_era")]
     feats = _feats(42)
     row = ["p1", "BTC", "long", *[f"{v:.6f}" for v in feats],
            1, "5.00", "candidate", "1700000000", "1700000000",

@@ -1560,7 +1560,12 @@ class LiquidityBot:
             entry_usd=pos.entry_price * pos.original_size,
             cost_pct=pos.est_cost_bps / 100.0,
             telemetry_cfg=getattr(self, "config", {})
-            .get("ml", {}).get("telemetry", {}))
+            .get("ml", {}).get("telemetry", {}),
+            # price anchor (2026-08-04): entry only. A multi-tier close
+            # has no single exit price - the per-fill truth already lives
+            # in outputs/fills.csv keyed by position_id, so exit_price
+            # stays 0 ("absent") here rather than a fabricated blend.
+            entry_price=float(pos.entry_price or 0.0))
         # rolling performance ledger — every full close, real positions only
         # (hedges carry no thesis/stop of their own). total_net is the popped
         # cumulative (all tier closes + final), so this is the whole trade.

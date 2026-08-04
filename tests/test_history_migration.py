@@ -76,15 +76,21 @@ def test_legacy_csv_migrates_pt_sl_frac_with_zero_default(tmp_path):
     store = HistoryStore(str(tmp_path / "unused.csv"))
     # gate-truth instrumentation T2 appended 7 sg_* columns AFTER pt_frac/
     # sl_frac - they are no longer the last two, but order is preserved.
-    assert store._header[-9:-7] == ["pt_frac", "sl_frac"]
-    assert store._header[-7:] == ["sg_flow", "sg_delta", "sg_accum",
-                                  "sg_burst", "sg_trend", "sg_evidence",
-                                  "sg_conc"]
+    # name-anchored (price anchor 2026-08-04 trails the sg block, so
+    # every negative index below shifted; names never do)
+    h = store._header
+    ipt, isg = h.index("pt_frac"), h.index("sg_flow")
+    assert h[ipt:ipt + 2] == ["pt_frac", "sl_frac"]
+    assert h[isg:isg + 7] == ["sg_flow", "sg_delta", "sg_accum",
+                              "sg_burst", "sg_trend", "sg_evidence",
+                              "sg_conc"]
+    assert h[-2:] == ["entry_price", "exit_price"]
     for row in rows:
-        assert len(row) == len(store._header)      # full current width
-        assert float(row[-9]) == 0.0                # pt_frac default
-        assert float(row[-8]) == 0.0                # sl_frac default
-        assert all(float(v) == 0.0 for v in row[-7:])  # sg_* default
+        assert len(row) == len(h)                  # full current width
+        assert float(row[ipt]) == 0.0               # pt_frac default
+        assert float(row[ipt + 1]) == 0.0           # sl_frac default
+        assert all(float(v) == 0.0 for v in row[isg:isg + 7])  # sg_*
+        assert row[-2:] == ["0", "0"]               # price pair: absent
 
 
 def test_labeler_path_writes_real_pt_sl_frac(tmp_path):
@@ -140,8 +146,9 @@ def test_migrating_an_already_migrated_file_is_idempotent(tmp_path):
     assert padded == []                              # nothing left to pad
     # gate-truth instrumentation T2 appended 7 sg_* columns AFTER pt_frac/
     # sl_frac - they are no longer the last two.
-    assert float(rows[0][-9]) == 0.02
-    assert float(rows[0][-8]) == 0.015
+    _h = store._header
+    assert float(rows[0][_h.index("pt_frac")]) == 0.02
+    assert float(rows[0][_h.index("sl_frac")]) == 0.015
 
     # file-level idempotence: dest already holds the migrated row, a second
     # pass with the same src must skip it (dedupe by position_id) and write

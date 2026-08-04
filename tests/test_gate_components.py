@@ -88,10 +88,14 @@ SG = {"flow": 0.5, "delta": -0.25, "accum": 0.1, "burst": 0.0,
 
 def test_header_gains_seven_sg_columns_last(tmp_path):
     hs = _mk_store(tmp_path)
-    assert hs._header[-7:] == ["sg_flow", "sg_delta", "sg_accum",
-                               "sg_burst", "sg_trend", "sg_evidence",
-                               "sg_conc"]
-    assert hs._header[-9:-7] == ["pt_frac", "sl_frac"]   # order preserved
+    # anchored on sg_flow, not the tail: entry_price/exit_price
+    # (2026-08-04) now trail the sg block, so [-7:] would capture them.
+    h = hs._header
+    i = h.index("sg_flow")
+    assert h[i:i + 7] == ["sg_flow", "sg_delta", "sg_accum",
+                          "sg_burst", "sg_trend", "sg_evidence",
+                          "sg_conc"]
+    assert h[i - 2:i] == ["pt_frac", "sl_frac"]   # order preserved
 
 
 def test_append_row_writes_components_and_defaults_zero(tmp_path):

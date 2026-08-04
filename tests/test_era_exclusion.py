@@ -231,7 +231,10 @@ def test_pre_task_row_without_label_era_column_still_excludable(
     # geometry-alignment T3 columns that joined after it (pt_frac, sl_frac),
     # and the 7 gate-truth instrumentation T2 columns after those (sg_flow..
     # sg_conc) - 10 trailing columns total.
-    old_header = hs._header[:-10]
+    # by NAME, not position: [:-10] silently broke when entry_price/
+    # exit_price (2026-08-04) made the trailing count 12 - same fixture
+    # defect fixed in test_bak_recovery/test_label_era.
+    old_header = hs._header[:hs._header.index("label_era")]
     feats = _feats(42.0)
     old_row = ["p-old", "BTC", "long", *[f"{v:.6f}" for v in feats],
               1, "5.00", "candidate", "1700000000", "1700000000",

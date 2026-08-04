@@ -717,7 +717,8 @@ class HistoryStore:
                         "label", "net_pnl_usd", "source", "ts", "signal_ts",
                         "barrier", "probe", "disp", "candidate_id", "book",
                         "label_era", "pt_frac", "sl_frac",
-                        *[f"sg_{k}" for k in SG_COMPONENT_KEYS]]
+                        *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
+                        "entry_price", "exit_price"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -776,6 +777,23 @@ class HistoryStore:
         # out for an exit_policy replay. LAST two columns so every existing
         # row/consumer is untouched but for these two trailing fields.
         # BOOKKEEPING ONLY - never a feature.
+        # entry_price, exit_price (2026-08-04): the absolute price the
+        # row's bet was anchored at, and the price it resolved at. The
+        # corpus carried pt_frac/sl_frac (FRACTIONS of entry) but no
+        # price level anywhere, so a row could not be re-examined in
+        # price space at all: re-deriving a label at a different horizon,
+        # aligning a row against an external OHLC tape, or auditing a
+        # realized return all need the anchor, and none of them were
+        # possible. Found 2026-08-04 when a horizon change to 432 bars
+        # made relabelling the 9,175 pre-existing rows the obvious move
+        # and it turned out the data to do it had never been recorded.
+        # 0.0 = unknown/legacy row - no migration can invent a price, so
+        # old rows stay 0.0 forever and consumers must treat 0.0 as
+        # "absent" rather than as a price. LAST two columns so every
+        # existing row/consumer is untouched but for these two trailing
+        # fields. BOOKKEEPING ONLY - never a feature: absolute price is
+        # non-stationary and would leak level information into a model
+        # that must generalize across regimes.
         # sg_flow..sg_conc (gate-truth instrumentation, 2026-07-28): the
         # informed-flow engine's RAW signed component scores at signal
         # time (positive = long evidence), the fused evidence Σw·s and
@@ -858,7 +876,8 @@ class HistoryStore:
                     barrier: str = "", probe: str = "", disp: str = "",
                     candidate_id: str = "", book: str = "5m",
                     pt_frac: float = 0.0, sl_frac: float = 0.0,
-                    gate_components: "dict | None" = None):
+                    gate_components: "dict | None" = None,
+                    entry_price: float = 0.0, exit_price: float = 0.0):
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -866,9 +885,10 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        # 20 trailing meta columns (label..label_era, pt_frac, sl_frac,
-        # sg_flow..sg_conc - gate-truth instrumentation added the last 7).
-        if 3 + len(feats) + 20 != len(self._header):
+        # 22 trailing meta columns (label..label_era, pt_frac, sl_frac,
+        # sg_flow..sg_conc - gate-truth instrumentation added 7 - and
+        # entry_price/exit_price, the 2026-08-04 price anchor, last 2).
+        if 3 + len(feats) + 22 != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
@@ -913,7 +933,9 @@ class HistoryStore:
                                     self._row_era(barrier),
                                     f"{pt_frac:.6f}", f"{sl_frac:.6f}",
                                     *[f"{sg[k]:.4f}" for k in
-                                      SG_COMPONENT_KEYS]])
+                                      SG_COMPONENT_KEYS],
+                                    f"{entry_price:.10g}",
+                                    f"{exit_price:.10g}"])
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -946,7 +968,8 @@ class HistoryStore:
     def log_close(self, position_id: str, net_pnl_usd: float,
                  barrier: str = "realized", pt_frac: float = 0.0,
                  sl_frac: float = 0.0, entry_usd: float = 0.0,
-                 cost_pct: float = 0.0, telemetry_cfg: "dict | None" = None):
+                 cost_pct: float = 0.0, telemetry_cfg: "dict | None" = None,
+                 entry_price: float = 0.0, exit_price: float = 0.0):
         """`barrier` (geometry-alignment T5, spec D1): defaults to
         "realized" - the exact legacy hardcoded tag, so every caller that
         predates T5's bracket-exit engine is byte-identical. A closed
@@ -999,7 +1022,8 @@ class HistoryStore:
                         probe="1" if probe else "0", disp="entered",
                         candidate_id=cand_id or "", book=book or "5m",
                         pt_frac=pt_frac, sl_frac=sl_frac,
-                        gate_components=gate_comp)
+                        gate_components=gate_comp, entry_price=entry_price,
+                        exit_price=exit_price)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
         if barrier in ("tb_pt", "tb_sl", "tb_time"):
@@ -2163,7 +2187,11 @@ class CandidateLabeler:
                     out = self._label(closes, highs, lows, i, side,
                                       cand["sigma_bar"], cost,
                                       conviction=cand.get("confidence"))
-                    written += self._emit_label(cand, out)
+                    written += self._emit_label(
+                        cand, out, entry_price=float(closes[i]),
+                        exit_price=float(closes[min(
+                            i + max(int(out.bars_held), 1),
+                            len(closes) - 1)]))
                 self._record_shadow_horizons(cand, closes, highs, lows, i,
                                              side, cost)
                 self._cands.remove(cand)
@@ -2174,7 +2202,11 @@ class CandidateLabeler:
                               cand["sigma_bar"], cost,
                               conviction=cand.get("confidence"))
             if out.final:                   # resolved inside the window -> final
-                written += self._emit_label(cand, out)
+                written += self._emit_label(
+                    cand, out, entry_price=float(closes[i]),
+                    exit_price=float(closes[min(
+                        i + max(int(out.bars_held), 1),
+                        len(closes) - 1)]))
                 cand["labeled"] = True
                 if not self.horizons:
                     # no multi-horizon shadows to complete: a DECIDED
@@ -2248,7 +2280,8 @@ class CandidateLabeler:
         return replace(out, barrier=f"tb_{out.barrier}",
                        pt_frac=pt_frac, sl_frac=sl_frac)
 
-    def _emit_label(self, cand: dict, out) -> int:
+    def _emit_label(self, cand: dict, out, entry_price: float = 0.0,
+                    exit_price: float = 0.0) -> int:
         self.store._append_row(cand["id"], cand["asset"],
                             cand["direction"], cand["features"],
                             out.label, 0.0, "candidate",
@@ -2257,7 +2290,8 @@ class CandidateLabeler:
                             disp=str(cand.get("disp") or ""),
                             pt_frac=float(getattr(out, "pt_frac", 0.0) or 0.0),
                             sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0),
-                            gate_components=cand.get("gate_components"))
+                            gate_components=cand.get("gate_components"),
+                            entry_price=entry_price, exit_price=exit_price)
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

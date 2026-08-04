@@ -77,13 +77,17 @@ def test_history_header_ends_with_label_era(tmp_path):
     # (2026-07-28) added 7 more sg_* columns after THOSE - pt_frac/sl_frac
     # are no longer last, but their relative order is preserved.
     hs = HistoryStore(str(tmp_path / "h.csv"))
-    assert hs._header[-1] == "sg_conc"
-    assert hs._header[-7] == "sg_flow"
-    assert hs._header[-8] == "sl_frac"
-    assert hs._header[-9] == "pt_frac"
-    assert hs._header[-10] == "label_era"
-    assert hs._header[-11] == "book"
-    assert hs._header[-12] == "candidate_id"
+    # tail membership BY NAME: the literal tail changes with every
+    # trailing addition (price anchor 2026-08-04 made sg_conc no longer
+    # last); what this test protects is the RELATIVE order, which names
+    # can assert without renumbering on each bump.
+    h = hs._header
+    assert h.index("sg_flow") + 6 == h.index("sg_conc")
+    assert h.index("label_era") < h.index("pt_frac") < h.index("sg_flow")
+    assert h[-2:] == ["entry_price", "exit_price"]
+    assert h.index("book") + 1 == h.index("label_era")
+    assert h.index("pt_frac") + 1 == h.index("sl_frac")
+    assert h.index("candidate_id") + 1 == h.index("book")
 
 
 def test_width_guard_accepts_current_shape(tmp_path, caplog):
@@ -148,14 +152,17 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     # derived from barrier="realized"), "0.000000"/"0.000000" (pt_frac/
     # sl_frac defaults) and "0.0000" x7 (sg_flow..sg_conc defaults)
     # appended as the newest trailing columns
+    # extended again (price anchor, 2026-08-04): entry_price/exit_price
+    # trail everything; a caller that never heard of them (this one)
+    # defaults both to "0" = absent.
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
                 "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
-                *(["0.0000"] * 7)]
+                *(["0.0000"] * 7), "0", "0"]
     assert row == expected
-    assert header[-1] == "sg_conc"
+    assert header[-1] == "exit_price"
     assert len(row) == len(header)
 
 

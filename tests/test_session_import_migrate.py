@@ -66,7 +66,9 @@ def test_old_schema_bundle_is_migrated_and_merged(tmp_path):
     # trailing (label, net_pnl_usd, source, ts, signal_ts, barrier, probe,
     # disp, candidate_id, book, label_era, pt_frac, sl_frac, sg_flow..
     # sg_conc - gate-truth instrumentation T2 added the last 7)
-    assert all(len(r) == 3 + len(FEATURE_NAMES) + 20 for r in rows)
+    # 22 trailing meta since the price anchor (2026-08-04) - keep this
+    # count in lockstep with _append_row's own width invariant
+    assert all(len(r) == 3 + len(FEATURE_NAMES) + 22 for r in rows)
     # the labels survived the migration
     assert sorted(r["label"] for r in rows) == ["0", "0", "1"]
 
