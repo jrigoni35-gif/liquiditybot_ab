@@ -166,14 +166,32 @@ def _source_changed() -> bool:
         return False       # staying alive is the fail-safe
 
 
+# pc_supervisor judges this process alive by the mtime of its stdout log
+# (STALE_SEC=120 there). Printing only when events ship made a QUIET pusher
+# indistinguishable from a dead one: on 2026-08-02 22:05 the runner was down
+# for a deploy bounce, no events flowed, the log went stale, and the
+# supervisor spawned a second pusher next to a healthy first - both then
+# shipped every log line twice for ~22h. The two sibling pushers never had
+# the bug because they print every tick. Heartbeat cadence: comfortably
+# inside the supervisor's 120s staleness window without matching the
+# siblings' full every-tick volume.
+_HEARTBEAT_SEC = 55.0
+
+
 def main() -> None:
     cfg = _cfg()
+    last_out = time.time()
     while True:
         try:
             n = tick(cfg)
             if n:
                 print(f"{time.strftime('%H:%M:%S')} shipped {n} events",
                       flush=True)
+                last_out = time.time()
+            elif time.time() - last_out >= _HEARTBEAT_SEC:
+                print(f"{time.strftime('%H:%M:%S')} alive, nothing to ship",
+                      flush=True)
+                last_out = time.time()
         except Exception as e:
             print(f"{time.strftime('%H:%M:%S')} ship failed: {e}",
                   flush=True)
