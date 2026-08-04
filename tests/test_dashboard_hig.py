@@ -322,10 +322,19 @@ def test_trajectory_metrics_exist_in_exporter():
         for t in p.get("targets") or []:
             metrics.update(re.findall(r"liquiditybot_[a-z0-9_]+",
                                       t.get("expr") or ""))
+    # Exclusion is by PATH COMPONENT relative to ROOT, never by substring
+    # on the absolute path. The substring version ('"outputs" not in
+    # str(f)') deterministically rejected every deploy on 2026-08-04: the
+    # PC's update gate tests incoming code in a worktree it creates at
+    # outputs/_update_wt_<pid> (auto_update.py), so every file's absolute
+    # path contained "outputs", the scan matched nothing, src was empty,
+    # every metric read as missing - red in the gate, green in every
+    # normally-located checkout, and invisible until the first push that
+    # arrived from OUTSIDE this box.
     src = "\n".join(
         f.read_text(encoding="utf-8", errors="ignore")
         for f in ROOT.rglob("*.py")
-        if ".venv" not in str(f) and "outputs" not in str(f))
+        if not {".venv", "outputs"} & set(f.relative_to(ROOT).parts))
     missing = sorted(m for m in metrics if m not in src)
     assert not missing, f"trajectory row queries unexported metrics: {missing}"
 
