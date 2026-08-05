@@ -2,12 +2,12 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-05 16:00 UTC (632.12h, ~2518 cycles)
-- Equity: $25,000.00 -> $4,932.40 (range $99,208.70) | realized PnL $-44.40 | fees $61.64
-- Activity: 4 open | 297 live labeled trades | 9148 candidates | 257 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-05 17:00 UTC (633.12h, ~2636 cycles)
+- Equity: $25,000.00 -> $4,935.34 (range $99,208.70) | realized PnL $-44.40 | fees $61.64
+- Activity: 4 open | 297 live labeled trades | 9149 candidates | 257 postmortems
 - Model: level 2 | use_model=False | brier n/a | history_rows 297 | cold=True
 - Audit: 28655 records (25889 non-routine) | dominant SZ-047 (86% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 79
-- Liquidity: spoofy 44% of classified cycles | feed errors 2
+- Liquidity: spoofy 43% of classified cycles | feed errors 2
 
 ## Diagnostics
 - [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=297, brier=n/a) yet retrain was requested 79x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 86% of the audit trail
