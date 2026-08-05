@@ -1585,8 +1585,8 @@ def _author_problem():
          desc="Telemetry values refused for NaN/inf — a poisoned "
               "upstream feed shows here before it shows anywhere else.")
     timeseries("Gate divergence — reward-misspecification watch",
-               M("liquiditybot_gate_divergence"), 12, 5,
-               legend="divergence",
+               'max by (gate) (liquiditybot_gate_divergence' + JOB + ')',
+               12, 5, legend="{{gate}}",
                desc="Learned gate-weight recommendations diverging from "
                     "realized outcome grades. Flat near zero is healthy; "
                     "a sustained trend means the gate is learning the "

@@ -32,6 +32,19 @@ def test_torn_tail_is_healed_not_fused(tmp_path):
     assert by_id["B"]["fill_price"] == "200"   # columns still aligned
 
 
+def test_empty_file_from_killed_create_still_gets_a_header(tmp_path):
+    """A kill in the create-to-first-flush window leaves a 0-byte file; the
+    next append must treat it as NEW and write the header — otherwise
+    DictReader silently adopts the first FILL as the header and every
+    consumer misparses the entire ledger with no error raised."""
+    path = tmp_path / "fills.csv"
+    path.write_bytes(b"")                      # the killed first append
+    append_fill(path, {"ts": 1, "order_id": "A", "fill_price": "100"})
+    rows = _read_rows(path)
+    assert [r["order_id"] for r in rows] == ["A"]
+    assert rows[0]["fill_price"] == "100"      # columns keyed by real header
+
+
 def test_normal_appends_are_untouched(tmp_path):
     path = tmp_path / "fills.csv"
     append_fill(path, {"ts": 1, "order_id": "A", "fill_price": "100"})

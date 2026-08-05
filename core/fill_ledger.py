@@ -63,7 +63,11 @@ def append_fill(path: Path, row: dict) -> None:
     try:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        new_file = not path.exists()
+        # size-0 counts as NEW: a kill in the create-to-first-flush window
+        # leaves an empty file, and appending a data row without a header
+        # makes DictReader silently adopt the first FILL as the header -
+        # every consumer then misparses the whole ledger with no error.
+        new_file = not path.exists() or path.stat().st_size == 0
         torn = False
         if not new_file:
             with open(path, "rb") as rf:

@@ -729,10 +729,10 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_gate_divergence{job=\"liquiditybot\"})",
+          "expr": "max by (gate) (liquiditybot_gate_divergence{job=\"liquiditybot\"})",
           "instant": false,
           "range": true,
-          "legendFormat": "divergence"
+          "legendFormat": "{{gate}}"
         }
       ],
       "transparent": true

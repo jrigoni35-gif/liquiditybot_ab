@@ -180,6 +180,13 @@ def tick(cfg: dict) -> int:
     if stat.st_size == offset:
         return sent
     with open(cfg["events"], "r", encoding="utf-8", errors="replace") as fh:
+        # provenance from the OPENED handle, not the earlier stat: the
+        # drain above can take seconds of network time, and a rotation
+        # inside that window would persist this read's offsets under the
+        # PREVIOUS generation's inode - the next tick's drain would then
+        # seek the .1 file at a foreign offset and silently skip its head.
+        _fst = os.fstat(fh.fileno())
+        inode = getattr(_fst, "st_ino", None)
         fh.seek(offset)
         while True:
             batch, consumed = [], 0

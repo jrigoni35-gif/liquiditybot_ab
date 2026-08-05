@@ -459,6 +459,20 @@ def test_reason_codes_decoded_on_panels():
     assert names["CV-020"] == gen.CODE_LABELS["CV-020"]
 
 
+def test_gate_divergence_watch_keeps_per_gate_series():
+    # The watch's entire point is spotting ONE gate trending away from its
+    # realized outcomes; a bare max() collapse plots only the least-diverged
+    # gate and masks the diverging one (round-2 review, 2026-08-05). The
+    # query must group by the gate label and the legend must name it.
+    d = _shipped("liquiditybot_problem_solution.json")
+    panels = [p for p in _all_panels(d)
+              if "gate_divergence" in " ".join(
+                  t["expr"] for t in p.get("targets", []))]
+    assert panels, "gate-divergence watch panel missing"
+    expr = " ".join(t["expr"] for p in panels for t in p["targets"])
+    assert "by (gate)" in expr, "per-gate series collapsed by bare max()"
+
+
 def test_screening_open_slots_relabeled():
     # the tile displays liquiditybot_positions_open — "Open slots" read as
     # slots AVAILABLE (backwards when 0 positions are open); it is titled
