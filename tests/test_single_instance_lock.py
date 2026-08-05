@@ -66,6 +66,40 @@ def test_cold_start_race_does_not_let_every_racer_win(tmp_path):
         f"exactly one racer may win the cold-start claim (won: {len(winners)}/8)"
 
 
+def test_stale_reclaim_rechecks_before_unlink(tmp_path, monkeypatch):
+    """29e TOCTOU on the stale-reclaim path: between reading a stale record
+    and unlinking it, the OTHER racer in the same reclaim race may have
+    already unlinked, re-created and WRITTEN the lock. Unlinking blind then
+    destroys the winner's FRESH lock and both racers acquire — the
+    double-drive this class exists to prevent. The reclaim must re-read
+    immediately before the unlink and back off if the record changed."""
+    import core.runtime as rt
+    p = tmp_path / "runner.lock"
+    stale = {"pid": 999, "heartbeat": time.time() - 3600}
+    p.write_text(json.dumps(stale), encoding="utf-8")
+
+    real_read = rt.read_json
+    calls = {"n": 0}
+    fresh = {"pid": 555, "heartbeat": time.time()}
+
+    def racing_read(path):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            # the winner reclaimed and wrote its record strictly between
+            # this loser's first read and whatever it does next
+            p.write_text(json.dumps(fresh), encoding="utf-8")
+        return real_read(path)
+    monkeypatch.setattr(rt, "read_json", racing_read)
+
+    b = rt.SingleInstanceLock(str(p), stale_after_sec=30.0)
+    b.pid = 222
+    held = b.acquire()
+    assert held is not None and held["pid"] == 555, \
+        "the loser must refuse once the lock changed under it"
+    assert json.loads(p.read_text(encoding="utf-8"))["pid"] == 555, \
+        "the winner's fresh lock must survive untouched"
+
+
 def test_fresh_empty_lock_is_not_destroyed(tmp_path):
     # a racer that reads the winner's just-created, still-EMPTY lock must NOT
     # unlink it (the double-acquire bug); it backs off and refuses.

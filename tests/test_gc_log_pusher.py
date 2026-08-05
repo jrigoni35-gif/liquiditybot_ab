@@ -64,6 +64,54 @@ def test_push_failure_does_not_advance_past_real_records(tmp_path,
     assert st["offset"] == 0                # never advanced on push failure
 
 
+def test_rotation_ships_the_renamed_files_tail(tmp_path, monkeypatch):
+    """29g rotation gap: JsonlLogHandler renames events.jsonl ->
+    events.jsonl.1 at the size cap. Lines appended after the pusher's last
+    tick sit in the RENAMED file; resetting offset=0 on the new file drops
+    them from Loki forever (a silent hole at every rotation — 'all CRITICAL
+    overnight' can miss records that exist on disk). The pusher must drain
+    the .1 tail before starting over on the new file."""
+    events = tmp_path / "events.jsonl"
+    events.write_text(_event_line("a"), encoding="utf-8")
+    cfg = {"url": "https://x", "auth": "z", "events": str(events),
+          "state": str(tmp_path / "state.json"), "period": 10}
+    got = []
+    monkeypatch.setattr(lp, "_push", lambda c, recs: got.extend(recs))
+    assert lp.tick(cfg) == 1                        # ships "a"
+    with open(events, "a", encoding="utf-8") as fh:
+        fh.write(_event_line("b"))                  # appended after the tick
+    events.rename(tmp_path / "events.jsonl.1")      # the handler's rotation
+    events.write_text(_event_line("c"), encoding="utf-8")
+    assert lp.tick(cfg) == 2                        # drains "b", then "c"
+    assert [r["body"]["stringValue"] for r in got] == ["a", "b", "c"]
+
+
+def test_drain_failure_does_not_lose_the_rotated_tail(tmp_path, monkeypatch):
+    """A push outage during the drain must behave like every other push
+    failure: no state advance, full re-ship on recovery — never a drop."""
+    import pytest as _pytest
+    events = tmp_path / "events.jsonl"
+    events.write_text(_event_line("a"), encoding="utf-8")
+    cfg = {"url": "https://x", "auth": "z", "events": str(events),
+          "state": str(tmp_path / "state.json"), "period": 10}
+    got = []
+    monkeypatch.setattr(lp, "_push", lambda c, recs: got.extend(recs))
+    assert lp.tick(cfg) == 1
+    with open(events, "a", encoding="utf-8") as fh:
+        fh.write(_event_line("b"))
+    events.rename(tmp_path / "events.jsonl.1")
+    events.write_text(_event_line("c"), encoding="utf-8")
+
+    def boom(c, recs):
+        raise RuntimeError("gateway down")
+    monkeypatch.setattr(lp, "_push", boom)
+    with _pytest.raises(RuntimeError):
+        lp.tick(cfg)                                # outage mid-drain
+    monkeypatch.setattr(lp, "_push", lambda c, recs: got.extend(recs))
+    assert lp.tick(cfg) == 2                        # recovery re-ships all
+    assert [r["body"]["stringValue"] for r in got] == ["a", "b", "c"]
+
+
 def test_partial_trailing_line_waits(tmp_path, monkeypatch):
     events = tmp_path / "events.jsonl"
     full = _event_line("a")

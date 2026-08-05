@@ -15,6 +15,7 @@ price improvement. arrival_ref 0.0 (no arrival mark) -> slip left blank.
 """
 import csv
 import logging
+import os
 from pathlib import Path
 
 log = logging.getLogger("liquiditybot.core.fill_ledger")
@@ -50,15 +51,34 @@ def fill_row(order, event, fees_delta: float, now: float) -> dict:
 
 def append_fill(path: Path, row: dict) -> None:
     """Append one row (header on create). Never raises into the fill path —
-    losing a ledger row must not break the trade that produced it."""
+    losing a ledger row must not break the trade that produced it.
+
+    Durability (29h): a kill mid-append (auto_update's taskkill escalation,
+    power loss) leaves a torn final line with no newline; appending straight
+    onto it FUSED two fills into one malformed row in the P&L book of
+    record. Heal the tail by terminating the fragment first — it isolates as
+    one junk row that csv consumers skip, and the new fill lands intact in
+    its own row. The fsync bounds the torn window itself to the single row
+    being written, instead of everything since the last OS flush."""
     try:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         new_file = not path.exists()
+        torn = False
+        if not new_file:
+            with open(path, "rb") as rf:
+                rf.seek(0, os.SEEK_END)
+                if rf.tell() > 0:
+                    rf.seek(-1, os.SEEK_END)
+                    torn = rf.read(1) != b"\n"
         with open(path, "a", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
+            if torn:
+                f.write("\r\n")           # isolate the torn fragment
             if new_file:
                 w.writerow(COLS)
             w.writerow([row.get(c, "") for c in COLS])
+            f.flush()
+            os.fsync(f.fileno())
     except OSError:
         log.exception("fill ledger append failed - row lost, trade unaffected")

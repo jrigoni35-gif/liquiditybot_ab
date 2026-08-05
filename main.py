@@ -2017,6 +2017,71 @@ class LiquidityBot:
             fill_price=fill_price,
         ))
 
+    def _close_periods(self, now: float) -> None:
+        """Daily P&L reset + weekly/monthly close-outs, factored from
+        fast_cycle so the crash-atomicity guarantee at the bottom is pinned
+        by tests/test_period_close_durability.py (29c)."""
+        self.state.maybe_reset_daily_pnl(now)
+        # WEEKLY CLOSE-OUT (RP-070): exactly once at each ISO-week boundary,
+        # restart-safe. The rollover ritual: reserve refills a losing week's
+        # realized loss into trading cash (capital_manager.weekly_rollover),
+        # then the week's signed record lands in the hash-chained audit and
+        # the append-only ledger. Reporting + pool bookkeeping only - no
+        # orders, no risk-state changes.
+        _wk = self.state.maybe_close_week(now)
+        if _wk is not None:
+            try:
+                _refill = self.capital.weekly_rollover(self.state, _wk)
+                _wk["reserve_refill"] = round(_refill, 2)
+                _wk.update(self._grade_period_goal(
+                    "week", _wk["weekly_realized"],
+                    "weekly_profit_goal_usd", reserve_refill=_refill))
+                get_audit().log(
+                    "engine", Code.RP_WEEK_CLOSED,
+                    f"week {_wk['week']} closed: net "
+                    f"{_wk['weekly_realized']:+.2f}, refill {_refill:.2f}, "
+                    f"goal {_wk['category']}",
+                    dict(_wk))
+                _append_period_ledger(
+                    Path(self.config.get("system", {}).get(
+                        "weekly_ledger_path", "outputs/weekly_ledger.csv")),
+                    _wk, ["week", "weekly_realized", "reserve_refill", "cash",
+                          "savings", "reserve", "realized_total"] + _GOAL_COLS)
+            except Exception:
+                log.exception("weekly close-out failed - trading unaffected, "
+                              "ledger row lost for %s", _wk.get("week"))
+        # calendar-month close (RP-071): goal-grading only, NO reserve
+        # rollover (the shock absorber is weekly by design)
+        _mo = self.state.maybe_close_month(now)
+        if _mo is not None:
+            try:
+                _mo.update(self._grade_period_goal(
+                    "month", _mo["monthly_realized"],
+                    "monthly_profit_goal_usd"))
+                get_audit().log(
+                    "engine", Code.RP_MONTH_CLOSED,
+                    f"month {_mo['month']} closed: net "
+                    f"{_mo['monthly_realized']:+.2f}, goal {_mo['category']}",
+                    dict(_mo))
+                _append_period_ledger(
+                    Path(self.config.get("system", {}).get(
+                        "monthly_ledger_path", "outputs/monthly_ledger.csv")),
+                    _mo, ["month", "monthly_realized", "cash", "savings",
+                          "reserve", "realized_total"] + _GOAL_COLS)
+            except Exception:
+                log.exception("monthly close-out failed - trading unaffected, "
+                              "ledger row lost for %s", _mo.get("month"))
+        if _wk is not None or _mo is not None:
+            # CRASH-ATOMICITY (29c): maybe_close_week/month advanced the
+            # persisted period key and zeroed the period P&L in MEMORY only;
+            # waiting for the next 30s cadence snapshot leaves a window
+            # where a kill restores the OLD key and REPLAYS the close on
+            # restart - duplicate RP_WEEK_CLOSED audit/ledger rows and,
+            # after a losing week, a SECOND reserve->cash refill for the
+            # same loss. Snapshot NOW so the boundary crossing and its
+            # rollover land on disk together.
+            self.store.snapshot(self)
+
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
                  tier_fired: int = 0, now: Optional[float] = None,
                  profit_take: bool = False, reason_code: str = "") -> None:
@@ -2125,6 +2190,22 @@ class LiquidityBot:
             else:
                 touch = asks[0][0] if asks else mark
                 price = touch * (1 + slip_pct / 100.0)
+        if not (isinstance(price, (int, float)) and math.isfinite(price)
+                and price > 0):
+            # TOTAL feed poisoning (29f): a NaN touch/mark walks into a NaN
+            # limit price, and with no valid reference the firewall rejects
+            # the exit outright (FW_INVALID_PRICE) - even at the MARKET
+            # rung, whose price is advisory. An exit must never be
+            # rejectable for its price: fall back mark -> ref -> entry. A
+            # stale anchor on a limit is survivable (timeout -> ladder ->
+            # market); a rejected exit is a standing block on the escape.
+            _fallback = next((float(x) for x in (mark, ref, pos.entry_price)
+                              if isinstance(x, (int, float))
+                              and math.isfinite(x) and x > 0),
+                             float(pos.entry_price))
+            log.warning(f"exit price non-finite for {pos.symbol} - "
+                        f"substituting {_fallback:.10g} (feed poisoned)")
+            price = _fallback
         size = pos.size * close_pct / 100.0
         if size <= EPS:
             return
@@ -2161,7 +2242,15 @@ class LiquidityBot:
             now=now,
         )
         if order is None:
-            return                      # rejected orders never escalate
+            # Rejected orders STILL climb the ladder (29f): an attempt was
+            # made, and skipping the counter froze the ladder at rung 0 for
+            # as long as the rejection cause persisted - the MARKET rung
+            # stayed unreachable exactly when the feed was at its worst
+            # (invariant #5: exits are ALWAYS allowed). Counting reaches
+            # go_market, whose finite-price fallback above cannot be
+            # rejected for price.
+            self._exit_attempts[pos.position_id] = attempts + 1
+            return
         self._exit_attempts[pos.position_id] = attempts + 1
         if attempts > 0 or go_market:
             log.warning(f"exit ESCALATION {pos.symbol} attempt "
@@ -2338,56 +2427,7 @@ class LiquidityBot:
         if fills:
             self.store.snapshot(self)      # never lose an executed fill
 
-        self.state.maybe_reset_daily_pnl(now)
-        # WEEKLY CLOSE-OUT (RP-070): exactly once at each ISO-week boundary,
-        # restart-safe. The rollover ritual: reserve refills a losing week's
-        # realized loss into trading cash (capital_manager.weekly_rollover),
-        # then the week's signed record lands in the hash-chained audit and
-        # the append-only ledger. Reporting + pool bookkeeping only - no
-        # orders, no risk-state changes.
-        _wk = self.state.maybe_close_week(now)
-        if _wk is not None:
-            try:
-                _refill = self.capital.weekly_rollover(self.state, _wk)
-                _wk["reserve_refill"] = round(_refill, 2)
-                _wk.update(self._grade_period_goal(
-                    "week", _wk["weekly_realized"],
-                    "weekly_profit_goal_usd", reserve_refill=_refill))
-                get_audit().log(
-                    "engine", Code.RP_WEEK_CLOSED,
-                    f"week {_wk['week']} closed: net "
-                    f"{_wk['weekly_realized']:+.2f}, refill {_refill:.2f}, "
-                    f"goal {_wk['category']}",
-                    dict(_wk))
-                _append_period_ledger(
-                    Path(self.config.get("system", {}).get(
-                        "weekly_ledger_path", "outputs/weekly_ledger.csv")),
-                    _wk, ["week", "weekly_realized", "reserve_refill", "cash",
-                          "savings", "reserve", "realized_total"] + _GOAL_COLS)
-            except Exception:
-                log.exception("weekly close-out failed - trading unaffected, "
-                              "ledger row lost for %s", _wk.get("week"))
-        # calendar-month close (RP-071): goal-grading only, NO reserve
-        # rollover (the shock absorber is weekly by design)
-        _mo = self.state.maybe_close_month(now)
-        if _mo is not None:
-            try:
-                _mo.update(self._grade_period_goal(
-                    "month", _mo["monthly_realized"],
-                    "monthly_profit_goal_usd"))
-                get_audit().log(
-                    "engine", Code.RP_MONTH_CLOSED,
-                    f"month {_mo['month']} closed: net "
-                    f"{_mo['monthly_realized']:+.2f}, goal {_mo['category']}",
-                    dict(_mo))
-                _append_period_ledger(
-                    Path(self.config.get("system", {}).get(
-                        "monthly_ledger_path", "outputs/monthly_ledger.csv")),
-                    _mo, ["month", "monthly_realized", "cash", "savings",
-                          "reserve", "realized_total"] + _GOAL_COLS)
-            except Exception:
-                log.exception("monthly close-out failed - trading unaffected, "
-                              "ledger row lost for %s", _mo.get("month"))
+        self._close_periods(now)
         equity = self._equity()
         # A held mark is TRUSTED for equity/liquidation math only when it is
         # both (a) jump-CONFIRMED — not a quarantined >tick_jump_pct fat-finger

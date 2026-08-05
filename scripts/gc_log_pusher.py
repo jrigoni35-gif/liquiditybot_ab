@@ -110,6 +110,58 @@ def _push(cfg: dict, records: list) -> None:
         r.read()
 
 
+def _drain_rotated(cfg: dict, st: dict) -> int:
+    """Ship the unshipped tail of the ROTATED predecessor (<events>.1).
+
+    JsonlLogHandler renames events.jsonl -> events.jsonl.1 at the size cap;
+    every line appended between this pusher's previous tick and the rotation
+    sits in that renamed file, and resetting offset=0 on the new file alone
+    dropped those lines from Loki forever - a silent hole at every rotation
+    ('all CRITICAL overnight' could miss records that exist on disk). Same
+    at-least-once contract as tick(): state advances (still under the OLD
+    inode) only after a successful push, so an outage mid-drain re-ships on
+    recovery rather than drops. Conservative by provenance: drains only
+    when the saved inode is known and does not contradict the .1 file's."""
+    prev = cfg["events"] + ".1"
+    if st["inode"] is None:
+        return 0                  # no provenance for the offset: never guess
+    try:
+        pstat = os.stat(prev)
+    except OSError:
+        return 0
+    pino = getattr(pstat, "st_ino", None)
+    if pino is not None and pino != st["inode"]:
+        return 0                  # .1 is not the file the offset belongs to
+    if pstat.st_size <= st["offset"]:
+        return 0
+    sent = 0
+    with open(prev, "r", encoding="utf-8", errors="replace") as fh:
+        fh.seek(st["offset"])
+        while True:
+            batch, consumed = [], 0
+            while len(batch) < _BATCH:
+                pos = fh.tell()
+                line = fh.readline()
+                if not line or not line.endswith("\n"):
+                    fh.seek(pos)
+                    break
+                rec = _record(line)
+                if rec is not None:
+                    batch.append(rec)
+                consumed = fh.tell()
+            if consumed > st["offset"] and not batch:
+                st["offset"] = consumed
+                _save_state(cfg["state"], st["inode"], consumed)
+                continue
+            if not batch:
+                break
+            _push(cfg, batch)             # raises on failure -> no advance
+            st["offset"] = consumed
+            _save_state(cfg["state"], st["inode"], consumed)
+            sent += len(batch)
+    return sent
+
+
 def tick(cfg: dict) -> int:
     """Ship everything new since the saved offset. Returns records sent."""
     st = _load_state(cfg["state"])
@@ -119,11 +171,14 @@ def tick(cfg: dict) -> int:
         return 0
     inode = getattr(stat, "st_ino", None)
     offset = st["offset"]
-    if st["inode"] != inode or stat.st_size < offset:
-        offset = 0                        # rotation/truncation: start over
-    if stat.st_size == offset:
-        return 0
     sent = 0
+    if st["inode"] != inode or stat.st_size < offset:
+        # rotation/truncation: ship the renamed predecessor's tail FIRST
+        # (29g), then start over at 0 on the new file
+        sent += _drain_rotated(cfg, st)
+        offset = 0
+    if stat.st_size == offset:
+        return sent
     with open(cfg["events"], "r", encoding="utf-8", errors="replace") as fh:
         fh.seek(offset)
         while True:

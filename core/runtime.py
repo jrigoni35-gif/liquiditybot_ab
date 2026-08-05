@@ -263,7 +263,17 @@ class SingleInstanceLock:
                         empty_age = self.stale_after + 1.0   # vanished: retry
                     if empty_age < min(self.stale_after, 5.0):
                         return {"pid": "initializing"}       # a peer is mid-claim
-                # stale-readable or crashed-empty foreign lock: drop it and retry
+                # stale-readable or crashed-empty foreign lock: drop it and
+                # retry - but re-read IMMEDIATELY first (29e): between the
+                # read above and this unlink, the OTHER racer in the same
+                # reclaim race may have already unlinked, re-created and
+                # WRITTEN the lock. Unlinking blind then destroys that
+                # winner's LIVE lock and both racers acquire - the
+                # double-drive this class exists to prevent. Any change ->
+                # back off and re-evaluate; refresh()'s ownership forfeit
+                # remains the backstop for the microsecond residue.
+                if read_json(self.path) != cur:
+                    continue
                 try:
                     self.path.unlink()
                 except OSError:
