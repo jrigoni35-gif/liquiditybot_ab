@@ -25,6 +25,7 @@ import itertools
 import json
 import logging
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -61,6 +62,16 @@ def main():
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    # keep swept dispositions/models out of the production trail: sweep
+    # builds real engines via run_replay, which redirects config paths but
+    # not the process-wide audit/registry singletons
+    from core.audit import configure_audit
+    from ml.registry import configure_registry
+    tmp = Path(tempfile.gettempdir())
+    configure_audit(tmp / "liqbot_sweep_audit.jsonl")
+    configure_registry(tmp / "liqbot_sweep_models")
+
     base = load_config(args.config)
     grid = parse_grid(args.grid)
     paths = [g[0] for g in grid]

@@ -137,9 +137,20 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
                   f"this challenger should still compete.")
         return False
     monitor.note_deployed(challenger_brier)
-    if state_data is not None:
-        state_data["monitor"] = monitor.to_dict()
-        if not store.write_raw(state_data):
+    # Persist the new baseline onto the FRESHEST snapshot, never the
+    # gate-time copy: this script runs beside a LIVE runner (side-car audit
+    # note above) whose 30s snapshot cadence can land a newer book between
+    # this function's load_raw() and here. Writing the gate-time dict back
+    # published that stale book as the primary generation - positions
+    # closed during the gate resurrected and executed fills vanished from
+    # balances whenever the runner died before its next snapshot (e.g.
+    # auto_update's taskkill escalation). Re-reading shrinks the exposure
+    # from the whole rescore+gate+save window to one read-write pair, and
+    # the runner's next 30s snapshot supersedes even that.
+    fresh = store.load_raw()
+    if fresh is not None:
+        fresh["monitor"] = monitor.to_dict()
+        if not store.write_raw(fresh):
             log.warning("model deployed, but failed to persist the "
                        "updated champion baseline to state.json - a "
                        "running bot will still show the old baseline "

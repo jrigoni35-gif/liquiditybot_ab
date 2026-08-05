@@ -168,6 +168,56 @@ def test_stale_badge_cannot_squat_against_cli_challenger(tmp_path):
     assert state["monitor"]["champion_brier"] == 0.20  # note_deployed won
 
 
+# ------------------------------------------- 29b stale-state write-back guard
+def test_deploy_persists_baseline_onto_fresh_snapshot_not_stale(
+        tmp_path, monkeypatch):
+    """_deploy_challenger loads state.json at gate time and persists the new
+    champion baseline after the deploy. This script is DOCUMENTED to run
+    beside a LIVE runner (side-car audit note in train_meta.py), whose 30s
+    snapshot cadence can land a newer book strictly inside that window.
+    The persistence step must re-read the FRESH snapshot and mutate only
+    its 'monitor' section - writing the gate-time copy back publishes a
+    stale book as the primary generation: positions closed during the gate
+    resurrect and executed fills vanish from balances if the runner dies
+    before its next snapshot (exactly what auto_update's taskkill
+    escalation does to a wedged runner)."""
+    model_path = tmp_path / "meta_model.json"
+    state_path = tmp_path / "state.json"
+    m = ModelMonitor({})
+    m.champion_brier = 0.30
+    StateStore(str(state_path)).write_raw(
+        {"monitor": m.to_dict(),
+         "positions": {"OLD-POS": {"size": 1.0}},
+         "cash_balance": 1000.0})
+    config = {"ml": {"monitor": {}}, "system": {"state_path": str(state_path)}}
+
+    real_should_deploy = ModelMonitor.should_deploy
+
+    def runner_snapshots_meanwhile(self, challenger_brier, n_oof=None):
+        # the live runner writes a NEWER book strictly after this gate's
+        # initial load_raw() and before its persistence step
+        m2 = ModelMonitor({})
+        m2.champion_brier = 0.30
+        StateStore(str(state_path)).write_raw(
+            {"monitor": m2.to_dict(),
+             "positions": {"NEW-POS": {"size": 2.0}},
+             "cash_balance": 900.0})
+        return real_should_deploy(self, challenger_brier, n_oof=n_oof)
+    monkeypatch.setattr(ModelMonitor, "should_deploy",
+                        runner_snapshots_meanwhile)
+
+    deployed = _deploy_challenger(config, _fitted_gbt(seed=5),
+                                  challenger_brier=0.10, extra={},
+                                  model_path=str(model_path), n_oof=50)
+
+    assert deployed is True
+    after = json.loads(state_path.read_text(encoding="utf-8"))
+    assert after["positions"] == {"NEW-POS": {"size": 2.0}}, \
+        "the runner's fresh book was clobbered by the gate-time snapshot"
+    assert after["cash_balance"] == 900.0
+    assert after["monitor"]["champion_brier"] == 0.10   # baseline still lands
+
+
 def test_gate_without_oof_context_keeps_restored_badge_behavior(tmp_path):
     # the realign only runs when the caller supplies the OOF context —
     # legacy callers (and failure paths) keep the exact prior behavior

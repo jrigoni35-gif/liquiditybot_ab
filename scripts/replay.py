@@ -27,6 +27,7 @@ import argparse
 import copy
 import json
 import logging
+import os
 import sys
 import tempfile
 import time
@@ -36,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data.replay import ReplayExhausted, load_session  # noqa: E402
 from main import LiquidityBot, load_config  # noqa: E402
+from scripts.smoke_test import qa_redirect_paths  # noqa: E402
 
 log = logging.getLogger("replay")
 
@@ -52,34 +54,46 @@ def set_dotted(cfg: dict, dotted: str, raw: str):
     node[keys[-1]] = val
 
 
-def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
-    """Drive the engine through one recorded session; return the summary."""
+def prepare_replay_config(config: dict) -> dict:
+    """Deep-copy and fully QA-isolate a config for a replay run.
+
+    Live-only feeds are disabled (their values weren't part of the recorded
+    frames; features fall back to neutral - documented limitation), then
+    EVERY engine write path is redirected through qa_redirect_paths - the
+    ONE canonical list. This function used to keep a private six-path list,
+    which silently lacked fills_ledger_path, the horizon shadow path,
+    model_path and the retrain history: every replay/sweep/gate run
+    appended synthetic fills to the production ledger, and a
+    monitor-flagged retrain during a long replay could deploy a
+    replay-trained model. Eighth instance of the QA-writes-production
+    class; pinned by the replay-family tests in
+    tests/test_qa_isolation.py. Never re-grow a private list here - add
+    missing paths to qa_redirect_paths so smoke, replay, sweep and the
+    gate stay covered together.
+    """
     cfg = copy.deepcopy(config)
     cfg["system"]["dry_run"] = True
     cfg["system"]["record_feeds"] = False
     cfg["sentiment"]["enabled"] = False
     cfg["webdata"]["enabled"] = False
     cfg["moomoo"]["enabled"] = False
-    cfg.setdefault("context", {})["enabled"] = False
-    # QA intermediates go to the system temp dir, NEVER outputs/: replay
-    # state/history/postmortems/flags landing in the production telemetry
-    # directory polluted live monitoring - a replayed bot even overwrote
-    # the live state.json. These paths OVERRIDE whatever the caller set.
-    tmp = Path(tempfile.gettempdir())
-    cfg["system"]["state_path"] = str(tmp / "liqbot_replay_state.json")
-    cfg["system"]["weekly_ledger_path"] = str(tmp / "liqbot_replay_weekly_ledger.csv")
-    cfg["system"]["monthly_ledger_path"] = str(tmp / "liqbot_replay_monthly_ledger.csv")
-    ml_cfg = cfg.setdefault("ml", {})
-    ml_cfg["history_path"] = str(tmp / "liqbot_replay_history.csv")
-    ml_cfg.setdefault("postmortem", {})
-    ml_cfg["postmortem"]["report_dir"] = str(tmp / "liqbot_replay_pm")
-    ml_cfg["postmortem"]["summary_path"] = str(tmp / "liqbot_replay_pm.csv")
-    ml_cfg.setdefault("monitor", {})
-    ml_cfg["monitor"]["retrain_flag_path"] = str(tmp / "liqbot_replay.flag")
-    Path(cfg["system"]["state_path"]).unlink(missing_ok=True)
-    Path(ml_cfg["history_path"]).unlink(missing_ok=True)
-    Path(cfg["system"]["weekly_ledger_path"]).unlink(missing_ok=True)
-    Path(cfg["system"]["monthly_ledger_path"]).unlink(missing_ok=True)
+    # context.enabled is force-disabled inside qa_redirect_paths
+    cfg = qa_redirect_paths(cfg, f"replay_{os.getpid()}")
+    # one replay = one clean slate: successive runs in a sweep share the
+    # per-pid QA dir, so drop the previous combo's state/ledgers/history
+    for stale in (cfg["system"]["state_path"],
+                  cfg["system"]["weekly_ledger_path"],
+                  cfg["system"]["monthly_ledger_path"],
+                  cfg["system"]["fills_ledger_path"],
+                  cfg["ml"]["history_path"],
+                  cfg["ml"]["multi_horizon"]["shadow_path"]):
+        Path(stale).unlink(missing_ok=True)
+    return cfg
+
+
+def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
+    """Drive the engine through one recorded session; return the summary."""
+    cfg = prepare_replay_config(config)
 
     players = load_session(recording)
     meta = players.pop("_meta")

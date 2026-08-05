@@ -1,8 +1,9 @@
 """QA harnesses must never write to a production output file.
 
-This has now gone wrong SEVEN times, each found only after it had corrupted
-a result, and every previous fix was "add the one missing line to
-qa_redirect_paths" plus a comment saying it now covers everything:
+This has now gone wrong EIGHT times - the first seven found only after they
+had corrupted a result, the eighth caught in review before it did - and
+every early fix was "add the one missing line to qa_redirect_paths" plus a
+comment saying it now covers everything:
 
   outputs/state.json            a smoke bot saved fixture state over the
                                 runner's snapshot, deleting three real open
@@ -24,6 +25,20 @@ qa_redirect_paths" plus a comment saying it now covers everything:
                                 audit crossref: 0 of the 136 order_ids
                                 appear in the hash-chained audit trail,
                                 which QA always redirected
+  replay's second list          scripts/replay.py maintained its OWN
+                                hand-rolled redirect list, which predated
+                                four of the paths above (fills ledger,
+                                horizon shadow, model_path, retrain
+                                history) - so every replay/sweep/
+                                replay_gate run appended synthetic fills
+                                to outputs/fills.csv and a monitor-flagged
+                                retrain during a replay could deploy a
+                                replay-trained model. Found 2026-08-05 in
+                                review, the only instance caught BEFORE it
+                                corrupted a result. Fix: the family now
+                                routes through qa_redirect_paths (the one
+                                list) via prepare_replay_config, pinned by
+                                the replay-family tests at the bottom.
 
 A comment cannot fail. This test can. It asserts the INVARIANT rather than
 the seven known cases, so a path added to config.json next month is covered
@@ -139,13 +154,19 @@ def test_retrain_history_default_is_rebound(redirected):
         "qa_redirect_paths must rebind it." % rl.RETRAIN_HISTORY_PATH_DEFAULT)
 
 
-@pytest.mark.parametrize("key", [
+# The keys that have actually leaked (or been one hardcoded default away
+# from leaking). Shared by the smoke-redirect and replay-family tests below
+# so the two entry paths can never drift apart on coverage again.
+_KNOWN_LEAK_KEYS = [
     "system.fills_ledger_path",
     "system.state_path",
     "ml.history_path",
     "ml.model_path",
     "ml.multi_horizon.shadow_path",
-])
+]
+
+
+@pytest.mark.parametrize("key", _KNOWN_LEAK_KEYS)
 def test_known_leak_keys_are_actually_set(redirected, key):
     """The generic test passes vacuously if a key is simply absent from the
     config - and fills_ledger_path WAS absent, which is exactly why the leak
@@ -205,9 +226,67 @@ def test_every_qa_entrypoint_isolates_the_singletons(fn):
     configure_registry, and was the only entrypoint of the seven that did."""
     builds_engine = ["smoke_test.py", "debug_cycle.py", "overfit_check.py",
                      "quant_trials.py", "replay.py", "replay_gate.py",
-                     "assurance_check.py"]
+                     "assurance_check.py", "sweep.py"]
     missing = [n for n in builds_engine
                if fn not in (ROOT / "scripts" / n).read_text(encoding="utf-8")]
     assert not missing, (
         "QA entrypoint(s) build engine components without calling %s(): %s"
         % (fn, ", ".join(missing)))
+
+
+# ---------------------------------------------------------------------------
+# The replay family (replay.py, and sweep.py / replay_gate.py through it).
+# scripts/replay.py maintained a SECOND hand-rolled redirect list that
+# predated fills_ledger_path / shadow_path / model_path / retrain history -
+# the eighth instance of this bug class, and invisible to every test above
+# because those only exercise qa_redirect_paths. run_replay now prepares its
+# config via prepare_replay_config -> qa_redirect_paths; these tests walk the
+# REAL production config through the REAL replay preparation so the family
+# and the canonical list can never drift apart again.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def replay_prepared():
+    """Real production config through the real replay config preparation,
+    module attribute restored afterwards (same hygiene as `redirected`)."""
+    import ml.retrain_log as rl
+    from main import load_config
+    from scripts.replay import prepare_replay_config
+    saved = rl.RETRAIN_HISTORY_PATH_DEFAULT
+    try:
+        cfg = prepare_replay_config(load_config(str(ROOT / "config.json")))
+        yield cfg, rl
+    finally:
+        rl.RETRAIN_HISTORY_PATH_DEFAULT = saved
+
+
+def test_replay_config_leaves_no_path_under_outputs(replay_prepared):
+    """THE invariant, applied to the replay entry path."""
+    cfg, _ = replay_prepared
+    leaks = [(k, v) for k, v in _walk(cfg)
+             if k not in _EXEMPT and _under_outputs(v)]
+    assert not leaks, (
+        "prepare_replay_config left %d config path(s) pointing at the "
+        "production outputs/ directory:\n  %s\nreplay must route through "
+        "qa_redirect_paths, not a private list." % (
+            len(leaks), "\n  ".join(f"{k} = {v}" for k, v in leaks)))
+
+
+@pytest.mark.parametrize("key", _KNOWN_LEAK_KEYS)
+def test_replay_sets_every_known_leak_key(replay_prepared, key):
+    """Non-vacuous coverage: each known-leak key is PRESENT and redirected
+    in a replay config - fills_ledger_path and shadow_path were exactly the
+    keys the private list silently lacked."""
+    cfg, _ = replay_prepared
+    found = dict(_walk(cfg))
+    assert key in found, f"{key} missing from the replay config"
+    assert not _under_outputs(found[key])
+
+
+def test_replay_rebinds_retrain_history_default(replay_prepared):
+    """A monitor-flagged retrain during a long replay must append to a QA
+    retrain history, not the production one."""
+    _, rl = replay_prepared
+    assert not _under_outputs(rl.RETRAIN_HISTORY_PATH_DEFAULT), (
+        "replay leaves ml.retrain_log.RETRAIN_HISTORY_PATH_DEFAULT at %s"
+        % rl.RETRAIN_HISTORY_PATH_DEFAULT)
