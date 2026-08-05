@@ -190,7 +190,7 @@ def test_learning_brain_reads_as_a_funnel():
     problem is not fixable while the supply above it is starved. Scrambling
     the order silently removes that, and nothing else in the suite notices.
     """
-    members = _row_members("liquiditybot_command.json", "LEARNING BRAIN")
+    members = _row_members("liquiditybot_execution.json", "LEARNING BRAIN")
     titles = [p.get("title") or "" for p in members]
     pos = {t: i for i, t in enumerate(titles)}
     for a, b in (("Live labels", "Clean live labels"),
@@ -294,7 +294,7 @@ def test_learning_trajectory_row_exists():
     for thirteen days and the board could not distinguish that from a value
     that had merely touched 0 on the current scrape.
     """
-    members = _row_members("liquiditybot_command.json",
+    members = _row_members("liquiditybot_execution.json",
                            "LEARNING TRAJECTORY")
     trends = [p for p in members if p.get("type") == "timeseries"]
     assert len(trends) >= 4, \
@@ -315,7 +315,7 @@ def test_trajectory_metrics_exist_in_exporter():
     An absent metric renders an empty chart, which reads as "zero" rather
     than "absent" - precisely the confusion this row was added to remove.
     """
-    members = _row_members("liquiditybot_command.json",
+    members = _row_members("liquiditybot_execution.json",
                            "LEARNING TRAJECTORY")
     metrics = set()
     for p in members:

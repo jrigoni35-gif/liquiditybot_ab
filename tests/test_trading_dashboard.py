@@ -151,7 +151,8 @@ _SYNTH_STATUS = {
                                      "eff_weight": 0.0412}},
                "per_regime_live": {"range": 227, "bear": 4}},
            "gate_stats": {"enabled": True, "labeled": 100, "base_rate": 0.2,
-                          "weights": {"if_1_flow_persistence": 0.9}}},
+                          "weights": {"if_1_flow_persistence": 0.9},
+                          "divergence": {"if_1_flow_persistence": 0.12}}},
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,
                         "concentration": 0.6,
                         "gates": {"if_1_flow_persistence": True}}},
@@ -445,7 +446,9 @@ def test_reason_codes_decoded_on_panels():
     opts = code_mappings(detail_tbl[0])
     assert opts.get("CV-010", {}).get("text") == gen.CODE_LABELS["CV-010"]
     # the CV denials bargauge decodes its series names via displayName
-    bar = [p for p in _all_panels(cmd)
+    # (on the models board since the 2026-08-05 redesign, with the rest of
+    # the admission mechanics)
+    bar = [p for p in _all_panels(ex)
            if p.get("title") == "Denials by code" and p["type"] == "bargauge"]
     assert bar, "denials bargauge missing"
     names = {o["matcher"]["options"]: pr["value"]
@@ -476,18 +479,20 @@ def test_has_per_asset_comparison_table():
     assert asset_tbl, "per-asset comparison table is the decision centrepiece"
 
 
-def test_command_board_has_conviction_row():
-    # #120: the Command board surfaces a Conviction row — admit-share,
-    # window-n, alarm-state, per-regime share, denials-by-code — every
-    # target of which must query an actually-emitted liquiditybot_conviction_*
-    # metric (test_every_query_hits_an_emitted_metric enforces that globally;
-    # this pins the row's existence and its specific metric coverage).
-    d = _shipped("liquiditybot_command.json")
+def test_execution_board_has_conviction_row():
+    # #120, relocated by the 2026-08-05 trading-desk redesign: admission
+    # mechanics live on the models board beside the decision model. The row
+    # pins admit-share, window-n, alarm-state, per-regime share,
+    # denials-by-code — every target of which must query an actually-emitted
+    # liquiditybot_conviction_* metric
+    # (test_every_query_hits_an_emitted_metric enforces that globally).
+    d = _shipped("liquiditybot_execution.json")
     section = _row_section(d, "CONVICTION")
-    assert section, "no Conviction row (or an empty one) on the Command board"
+    assert section, "no Conviction row (or an empty one) on the models board"
     exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
     for expect in ("liquiditybot_conviction_share",
-                   "liquiditybot_conviction_n",
+                   "liquiditybot_conviction_evaluated",
+                   "liquiditybot_conviction_admitted",
                    "liquiditybot_conviction_alarm",
                    "liquiditybot_conviction_regime_share",
                    "liquiditybot_conviction_denials"):
@@ -495,15 +500,17 @@ def test_command_board_has_conviction_row():
 
 
 def test_command_board_has_context_row():
-    # Task B6: the Command board surfaces a Context row — halving phase +
-    # days-since/to-next, the macro-stress dial, flow stats, event-window
-    # state, per-source ok/dark — every target of which must query an
-    # actually-emitted liquiditybot_context_* metric
-    # (test_every_query_hits_an_emitted_metric enforces that globally; this
-    # pins the row's existence and its specific metric coverage).
-    d = _shipped("liquiditybot_command.json")
-    section = _row_section(d, "CONTEXT")
-    assert section, "no Context row (or an empty one) on the Command board"
+    # Task B6, relocated by the 2026-08-05 trading-desk redesign: macro
+    # cycle context is a market-screening concern, so the row lives on the
+    # screening board — halving phase + days-since/to-next, the macro-stress
+    # dial, flow stats, event-window state, per-source ok/dark — every
+    # target of which must query an actually-emitted liquiditybot_context_*
+    # metric (test_every_query_hits_an_emitted_metric enforces that
+    # globally; this pins the row's existence and its metric coverage).
+    d = _shipped("liquiditybot_screening.json")
+    # needle avoids the board's own "REGIME CONTEXT & ADVERSE SELECTION" row
+    section = _row_section(d, "CYCLE & MACRO")
+    assert section, "no Context row (or an empty one) on the screening board"
     exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
     for expect in ("liquiditybot_context_phase",
                    "liquiditybot_context_days_since_halving",

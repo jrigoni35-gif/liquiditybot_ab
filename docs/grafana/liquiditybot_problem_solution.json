@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-problem-solution",
   "title": "liquiditybot — problem / solution",
-  "description": "Every failure mode as a PROBLEM whose panel shows the live detector and names the SOLUTION mechanism handling it.",
+  "description": "Every failure mode as a PROBLEM whose panel shows the live detector and names the SOLUTION mechanism handling it — including the audit chain's and telemetry's own health.",
   "tags": [
     "diagnostics",
     "liquid-glass",
@@ -442,7 +442,7 @@
     {
       "id": 7,
       "type": "row",
-      "title": "🧠 MODEL HEALTH",
+      "title": "🔗 AUDIT & TELEMETRY INTEGRITY",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -458,6 +458,304 @@
     {
       "id": 8,
       "type": "stat",
+      "title": "PROBLEM: audit writes dropped",
+      "description": "Hash-chain append failures since boot. SOLUTION: any bar here means the book of record missed a write — check disk and the audit path before trusting the trail's negatives.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_audit_dropped_writes{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "PROBLEM: audit tail truncations",
+      "description": "Torn final records adopted and truncated at boot — each one is a crash mid-append the chain healed itself around.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_audit_tail_truncations{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "PROBLEM: gauges dropped (non-finite)",
+      "description": "Telemetry values refused for NaN/inf — a poisoned upstream feed shows here before it shows anywhere else.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_gauges_dropped_nonfinite{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Gate divergence — reward-misspecification watch",
+      "description": "Learned gate-weight recommendations diverging from realized outcome grades. Flat near zero is healthy; a sustained trend means the gate is learning the wrong lesson. Report-only watch instrument.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_gate_divergence{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "divergence"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "🧠 MODEL HEALTH",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
       "title": "PROBLEM: model Brier",
       "description": "Detector. SOLUTION: the governor kills the model + queues a retrain when Brier crosses baseline.",
       "datasource": {
@@ -468,7 +766,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -532,7 +830,7 @@
       "transparent": true
     },
     {
-      "id": 9,
+      "id": 14,
       "type": "stat",
       "title": "vs baseline",
       "description": "The bar Brier must stay under.",
@@ -544,7 +842,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -600,7 +898,7 @@
       "transparent": true
     },
     {
-      "id": 10,
+      "id": 15,
       "type": "stat",
       "title": "SOLUTION: governor",
       "description": "0 OK / 1 shrink+throttle / 2 model killed to the prior.",
@@ -612,7 +910,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -689,7 +987,7 @@
       "transparent": true
     },
     {
-      "id": 11,
+      "id": 16,
       "type": "stat",
       "title": "SOLUTION: retrain",
       "description": "Auto-retrain queued to replace a degrading champion.",
@@ -701,7 +999,7 @@
         "h": 5,
         "w": 4,
         "x": 12,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -773,7 +1071,7 @@
       "transparent": true
     },
     {
-      "id": 12,
+      "id": 17,
       "type": "gauge",
       "title": "Drift share",
       "description": "PROBLEM: input drift. SOLUTION: retrain re-fits.",
@@ -785,7 +1083,7 @@
         "h": 5,
         "w": 4,
         "x": 16,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -842,7 +1140,7 @@
       "transparent": true
     },
     {
-      "id": 13,
+      "id": 18,
       "type": "stat",
       "title": "Calibration gap",
       "description": "Miscalibration; ECE.",
@@ -854,7 +1152,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 10
+        "y": 16
       },
       "fieldConfig": {
         "defaults": {
@@ -918,7 +1216,7 @@
       "transparent": true
     },
     {
-      "id": 14,
+      "id": 19,
       "type": "bargauge",
       "title": "Fail-safe counters (any bar = a guard firing)",
       "description": "PROBLEM: inference/training faults. SOLUTION: every fault path falls back to the prior (fail-safe), dirty rows are dropped before they NaN a fit (ML-015).",
@@ -930,7 +1228,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 15
+        "y": 21
       },
       "fieldConfig": {
         "defaults": {
@@ -1034,7 +1332,7 @@
       "transparent": true
     },
     {
-      "id": 15,
+      "id": 20,
       "type": "stat",
       "title": "Kelly throttle",
       "description": "SOLUTION: size shrinks as confidence falls.",
@@ -1046,7 +1344,7 @@
         "h": 6,
         "w": 6,
         "x": 12,
-        "y": 15
+        "y": 21
       },
       "fieldConfig": {
         "defaults": {
@@ -1101,7 +1399,7 @@
       "transparent": true
     },
     {
-      "id": 16,
+      "id": 21,
       "type": "stat",
       "title": "Twin rows excluded",
       "description": "Synthetic candidate twins of REAL trades excluded so a taken signal is never double-counted (realized label kept). Nonzero is healthy — it tracks taken teach-trades.",
@@ -1113,7 +1411,7 @@
         "h": 6,
         "w": 6,
         "x": 18,
-        "y": 15
+        "y": 21
       },
       "fieldConfig": {
         "defaults": {
@@ -1168,7 +1466,7 @@
       "transparent": true
     },
     {
-      "id": 17,
+      "id": 22,
       "type": "row",
       "title": "💰 CAPITAL & DRAWDOWN",
       "collapsed": false,
@@ -1176,7 +1474,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 27
       },
       "panels": [],
       "fieldConfig": {
@@ -1184,7 +1482,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 23,
       "type": "gauge",
       "title": "PROBLEM: drawdown",
       "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
@@ -1196,7 +1494,7 @@
         "h": 6,
         "w": 5,
         "x": 0,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1253,7 +1551,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 24,
       "type": "stat",
       "title": "Loss streak",
       "description": "PROBLEM: consecutive losers. SOLUTION: per-asset circuit breaker.",
@@ -1265,7 +1563,7 @@
         "h": 6,
         "w": 4,
         "x": 5,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1328,7 +1626,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 25,
       "type": "stat",
       "title": "Breakers tripped",
       "description": "Assets currently paused.",
@@ -1340,7 +1638,7 @@
         "h": 6,
         "w": 3,
         "x": 9,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1399,7 +1697,7 @@
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 26,
       "type": "gauge",
       "title": "Heat vs cap",
       "description": "SOLUTION: heat throttled under the CVaR cap.",
@@ -1411,7 +1709,7 @@
         "h": 6,
         "w": 4,
         "x": 12,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1468,7 +1766,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 27,
       "type": "stat",
       "title": "Taper mult",
       "description": "SOLUTION: loss-budget taper shrinks size.",
@@ -1480,7 +1778,7 @@
         "h": 6,
         "w": 4,
         "x": 16,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1535,7 +1833,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 28,
       "type": "gauge",
       "title": "Daily budget used",
       "description": "Daily loss budget consumed.",
@@ -1547,7 +1845,7 @@
         "h": 6,
         "w": 4,
         "x": 20,
-        "y": 22
+        "y": 28
       },
       "fieldConfig": {
         "defaults": {
@@ -1604,7 +1902,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 29,
       "type": "gauge",
       "title": "Weekly budget used",
       "description": "Weekly loss budget consumed.",
@@ -1616,7 +1914,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -1673,7 +1971,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 30,
       "type": "table",
       "title": "Circuit breaker — paused assets",
       "description": "Per-asset breaker state; hours-left counts the cool-off.",
@@ -1685,7 +1983,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -1864,7 +2162,7 @@
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 31,
       "type": "row",
       "title": "🕵️ MANIPULATION, VENUE & INTEGRITY",
       "collapsed": false,
@@ -1872,7 +2170,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 39
       },
       "panels": [],
       "fieldConfig": {
@@ -1880,7 +2178,7 @@
       }
     },
     {
-      "id": 27,
+      "id": 32,
       "type": "stat",
       "title": "op-state",
       "description": "Central fault authority: ARMED / DEGRADED / HALTED.",
@@ -1892,7 +2190,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -1974,7 +2272,7 @@
       "transparent": true
     },
     {
-      "id": 28,
+      "id": 33,
       "type": "stat",
       "title": "Firewall fault",
       "description": "Risk-firewall latched fault (blocks new risk).",
@@ -1986,7 +2284,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -2058,7 +2356,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 34,
       "type": "bargauge",
       "title": "Integrity counters (any bar = an incident)",
       "description": "PROBLEM: wedged cycles / unguarded exits / venue rejects. SOLUTION: runner wedge escalation, exit-path isolation, OM-021 reject handling.",
@@ -2070,7 +2368,7 @@
         "h": 5,
         "w": 16,
         "x": 8,
-        "y": 34
+        "y": 40
       },
       "fieldConfig": {
         "defaults": {
@@ -2159,7 +2457,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 35,
       "type": "bargauge",
       "title": "Manipulation suspicion by asset",
       "description": "PROBLEM: painted/spoofed books. SOLUTION: THALES shades size + down-weights those training rows.",
@@ -2171,7 +2469,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -2233,7 +2531,7 @@
       "transparent": true
     },
     {
-      "id": 31,
+      "id": 36,
       "type": "table",
       "title": "Firewall clamps/rejects by code",
       "description": "Which firewall rule (FW-*) is clamping most.",
@@ -2245,7 +2543,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -2572,7 +2870,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 46
+        "y": 52
       },
       "transparent": true,
       "options": {

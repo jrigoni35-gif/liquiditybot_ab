@@ -510,6 +510,11 @@ WRU = [{"color": "red", "value": None}, {"color": "yellow", "value": 0.45},
        {"color": "green", "value": 0.55}]
 PF = [{"color": "red", "value": None}, {"color": "yellow", "value": 1.0},
       {"color": "green", "value": 1.5}]
+# Bracket-geometry economics: measured payoff 0.56 vs ~0.75 needed to break
+# even at the observed win rate + fee stack (2026-08-02 payoff decomposition,
+# wiki: cost-is-the-binding-constraint). Green only at the break-even line.
+PAYOFF = [{"color": "red", "value": None}, {"color": "yellow", "value": 0.60},
+          {"color": "green", "value": 0.75}]
 SLIP = [{"color": "green", "value": None}, {"color": "yellow", "value": 3},
         {"color": "red", "value": 8}]
 HIGH_GOOD = [{"color": "red", "value": None}, {"color": "yellow", "value": 0.4},
@@ -732,7 +737,7 @@ def _author_command():
     gauge("Win rate", M("liquiditybot_perf_win_rate", "*100"), 5, 5, mx=100.0,
           steps=WR100, desc="Rolling closed-trade win rate.")
     stat("Payoff ratio", M("liquiditybot_perf_payoff_ratio"), 5, 5,
-         decimals=2, steps=PF,
+         decimals=2, steps=PAYOFF,
          desc="Average win / average loss. The other half of win rate — "
               "below 1.0 every winner is smaller than every loser, so the "
               "win rate has to clear 1/(1+payoff) just to break even.")
@@ -777,7 +782,9 @@ def _author_command():
                desc="Savings + reserve accrual and the week's running "
                     "realized P&L - the rollover ritual made visible.")
 
-    _learning_brain()
+    _risk_row()
+    _edge_row()
+    _longbook_row()
 
 
 def _learning_brain():
@@ -931,6 +938,8 @@ def _learning_brain():
                     "-> 0.3991 (triple_barrier) repair as the new era "
                     "takes over.")
 
+
+def _edge_row():
     row("⚖️ EDGE — per-asset performance", collapsed=True)
     bargauge("Net $ by asset", _pa("liquiditybot_perf_asset_net_usd"), 8, 8,
              unit=USD, decimals=2, steps=PNL, mn=-12, mx=12,
@@ -958,34 +967,8 @@ def _learning_brain():
                "instantly. Absent cells (·) mean the asset hasn't traded "
                "yet — not a fault.")
 
-    row("🎯 CONVICTION — entry admission formula", collapsed=True)
-    stat("Admit share", M("liquiditybot_conviction_share"), 8, 5,
-         unit="percentunit", decimals=1, steps=BLUE,
-         no_value="no conviction data yet",
-         desc="Rolling admit share over the cadence window — the "
-              "formula's own selectivity. Report mode: nothing is "
-              "blocked yet, this is measurement only.")
-    stat("Window n", M("liquiditybot_conviction_n"), 8, 5, decimals=0,
-         steps=BLUE, no_value="no conviction data yet",
-         desc="Evaluations in the rolling cadence window (global).")
-    state("Alarm", M("liquiditybot_conviction_alarm"), 8, 5, CV_ALARM,
-          no_value="no conviction data yet",
-          desc="Cadence governor: admit share sustained outside "
-               "[share_lo, share_hi] on a state TRANSITION — it never "
-               "auto-tunes a threshold.")
-    bargauge("Admit share by regime",
-             _pa("liquiditybot_conviction_regime_share"), 12, 6,
-             decimals=2, steps=HIGH_GOOD, mn=0, mx=1, legend="{{regime}}",
-             no_value="no regime data yet",
-             desc="Per-regime admit share — a regime pinned always-on "
-                  "or always-off is the T4 coverage / EV-multiple floor "
-                  "misfiring for that regime specifically.")
-    bargauge("Denials by code", _pa("liquiditybot_conviction_denials"),
-             12, 6, decimals=0, steps=BLUE, legend="{{code}}",
-             no_value="no denials yet", decode_family="CV",
-             desc="CV-* disposition tally — which term denies most "
-                  "(agreement / EV-multiple / regime-known / context).")
 
+def _context_row():
     row("🌐 CONTEXT — cycle & macro state", collapsed=True)
     stat("Halving phase", "count(liquiditybot_context_phase" + JOB +
          ") by (phase)", 6, 5, text_mode="name", steps=BLUE, graph="none",
@@ -1030,6 +1013,8 @@ def _learning_brain():
                   "webdata_feed.py): a dark source degrades its dial to "
                   "unknown — a STATE, never a stale value read as fresh.")
 
+
+def _longbook_row():
     row("🌱 LONG BOOK — evidence ladder", collapsed=True)
     state("Rung", M("liquiditybot_longbook_rung"), 6, 5, LB_RUNG,
           no_value="long book disabled/not built",
@@ -1071,6 +1056,8 @@ def _learning_brain():
                   "ladder's raw input (r1 gates on paper evidence; r2/r3 "
                   "gate on live evidence + live profit factor).")
 
+
+def _thales_row():
     row("🏛️ THALES — footprint & manipulation defense", collapsed=True)
     text("What THALES is", _THALES_MD, 8, 9)
     table("THALES detector scorecard (higher = more suspicious)", 16, 9,
@@ -1142,8 +1129,14 @@ def _learning_brain():
               "correction replaced the old 0.5 coin-flip null that muted "
               "honest detectors on a ~16%-win stream.")
 
+
+def _risk_row():
     row("🛡️ POSITIONS & RISK")
     _positions_table()
+    bargauge("uPnL by instrument", _pa("liquiditybot_position_upnl_usd"), 12, 5,
+             unit=USD, decimals=2, steps=PNL, legend="{{symbol}} {{side}}",
+             no_value="flat — no open positions",
+             desc="Unrealized P&L ranked across open instruments.")
     stat("Loss streak (now)", M("liquiditybot_perf_cur_loss_streak"), 4, 5,
          decimals=0, steps=STREAK, graph="none", mode="background",
          desc="Consecutive losers now — circuit-breaker input.")
@@ -1161,7 +1154,6 @@ def _learning_brain():
           mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
     stat("Positions open", M("liquiditybot_positions_open"), 6, 5, decimals=0,
          steps=BLUE, graph="none", desc="Open count (max 5).")
-    _learning_trajectory()
 
 
 def _learning_trajectory():
@@ -1350,24 +1342,8 @@ def _author_execution():
               "instrument — never gates an entry/exit/size decision; "
               "feeds the D4 cost model as evidence, not the reverse.")
 
-    row("📦 INVENTORY & POSITIONING")
-    gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 4, 5,
-          mx=35.0, desc="Gross notional %/equity vs the 35% heat cap.")
-    gauge("Portfolio heat", M("liquiditybot_rp_heat_frac", "*100"), 4, 5,
-          mx=35.0, desc="CVaR portfolio heat vs cap.")
-    stat("Open positions", M("liquiditybot_positions_open"), 4, 5, decimals=0,
-         steps=BLUE, desc="Open count (max 5).")
-    stat("Open risk", M("liquiditybot_open_risk_usd"), 4, 5, unit=USD,
-         steps=GRN, desc="$ at risk to stops.")
-    stat("Open uPnL", M("liquiditybot_open_upnl_usd"), 4, 5, unit=USD,
-         steps=PNL, desc="Unrealized across positions.")
-    stat("Gross exposure $", M("liquiditybot_gross_exposure_usd"), 4, 5,
-         unit=USD, decimals=0, steps=GRN, desc="Gross notional $.")
-    _positions_table()
-    bargauge("uPnL by instrument", _pa("liquiditybot_position_upnl_usd"), 12, 5,
-             unit=USD, decimals=2, steps=PNL, legend="{{symbol}} {{side}}",
-             no_value="flat — no open positions",
-             desc="Unrealized P&L ranked across open instruments.")
+    _learning_brain()
+    _learning_trajectory()
 
     row("⚡ EXECUTION QUALITY")
     donut("Maker / taker mix", [
@@ -1448,6 +1424,18 @@ def _author_execution():
              steps=BLUE, legend="{{regime}}", no_value="no regime data yet",
              desc="Rolling-window sample count per regime — alarms only "
                   "fire once a regime clears share_min_n.")
+    bargauge("Admit share by regime",
+             _pa("liquiditybot_conviction_regime_share"), 12, 6,
+             decimals=2, steps=HIGH_GOOD, mn=0, mx=1, legend="{{regime}}",
+             no_value="no regime data yet",
+             desc="Per-regime admit share — a regime pinned always-on "
+                  "or always-off is the T4 coverage / EV-multiple floor "
+                  "misfiring for that regime specifically.")
+    bargauge("Denials by code", _pa("liquiditybot_conviction_denials"),
+             12, 6, decimals=0, steps=BLUE, legend="{{code}}",
+             no_value="no denials yet", decode_family="CV",
+             desc="CV-* disposition tally — which term denies most "
+                  "(agreement / EV-multiple / regime-known / context).")
     table("Denials by code (detail)", 16, 5,
           cols=[("liquiditybot_conviction_denials", "Count", "short", 0, BLUE)],
           label_keys=["code"], sort="Count",
@@ -1578,6 +1566,31 @@ def _author_problem():
                   "stale assets and blocks new entries until the feed "
                   "heals; exits always run. Any bar above zero is a "
                   "solution actively firing.")
+
+    row("🔗 AUDIT & TELEMETRY INTEGRITY")
+    stat("PROBLEM: audit writes dropped",
+         M("liquiditybot_audit_dropped_writes"), 4, 5, decimals=0,
+         mode="background", graph="none", steps=ZERO_BAD,
+         desc="Hash-chain append failures since boot. SOLUTION: any bar "
+              "here means the book of record missed a write — check disk "
+              "and the audit path before trusting the trail's negatives.")
+    stat("PROBLEM: audit tail truncations",
+         M("liquiditybot_audit_tail_truncations"), 4, 5, decimals=0,
+         mode="background", graph="none", steps=ZERO_BAD,
+         desc="Torn final records adopted and truncated at boot — each "
+              "one is a crash mid-append the chain healed itself around.")
+    stat("PROBLEM: gauges dropped (non-finite)",
+         M("liquiditybot_gauges_dropped_nonfinite"), 4, 5, decimals=0,
+         mode="background", graph="none", steps=ZERO_BAD,
+         desc="Telemetry values refused for NaN/inf — a poisoned "
+              "upstream feed shows here before it shows anywhere else.")
+    timeseries("Gate divergence — reward-misspecification watch",
+               M("liquiditybot_gate_divergence"), 12, 5,
+               legend="divergence",
+               desc="Learned gate-weight recommendations diverging from "
+                    "realized outcome grades. Flat near zero is healthy; "
+                    "a sustained trend means the gate is learning the "
+                    "wrong lesson. Report-only watch instrument.")
 
     row("🧠 MODEL HEALTH")
     stat("PROBLEM: model Brier", M("liquiditybot_ml_brier"), 4, 5, decimals=4,
@@ -1745,6 +1758,8 @@ def _author_screening():
           label_keys=["asset"], sort="5s bps",
           desc="Post-fill drift; persistently negative = the book picks us "
                "off — screen it down.")
+    _context_row()
+    _thales_row()
 
 
 # ==================== board 5 · pulse ======================================
@@ -2224,24 +2239,26 @@ def _hig_all(d):
 
 DASHBOARDS = {
     "liquiditybot_command.json": _board(
-        "liquiditybot-trading", "liquiditybot — command",
-        "Daily driver: performance, health, learning brain, per-asset edge, "
-        "positions & risk.", _author_command, "command"),
+        "liquiditybot-trading", "liquiditybot — trading desk",
+        "Exchange-style daily driver: equity & P&L vs the rent goal, spot "
+        "positions & risk, performance & bracket-geometry economics, profit "
+        "pools, per-asset edge.", _author_command, "command"),
     "liquiditybot_execution.json": _board(
-        "liquiditybot-exec", "liquiditybot — models · inventory · execution",
-        "Decision-model health, inventory/positioning & heat, and execution "
-        "fill quality (maker/taker, slippage, mark-out).", _author_execution,
-        "execution"),
+        "liquiditybot-exec", "liquiditybot — models · learning · execution",
+        "Decision-model health, the learning brain & trajectory, admission "
+        "detail, probe budget, and execution fill quality (maker/taker, "
+        "slippage, mark-out).", _author_execution, "execution"),
     "liquiditybot_problem_solution.json": _board(
         "liquiditybot-problem-solution", "liquiditybot — problem / solution",
         "Every failure mode as a PROBLEM whose panel shows the live detector "
-        "and names the SOLUTION mechanism handling it.", _author_problem,
+        "and names the SOLUTION mechanism handling it — including the audit "
+        "chain's and telemetry's own health.", _author_problem,
         "diagnostics"),
     "liquiditybot_screening.json": _board(
-        "liquiditybot-screening", "liquiditybot — asset screening",
-        "Asset screening: skimmer ranks + a per-asset tradeability scorecard "
-        "(book, regime, signal quality, result).", _author_screening,
-        "screening"),
+        "liquiditybot-screening", "liquiditybot — screening & market",
+        "Asset screening & market context: skimmer ranks, per-asset "
+        "tradeability scorecard, regime, macro cycle context, THALES "
+        "manipulation defense.", _author_screening, "screening"),
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)
