@@ -2,14 +2,14 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-05 01:00 UTC (617.11h, ~757 cycles)
-- Equity: $25,000.00 -> $4,930.95 (range $99,208.70) | realized PnL $-44.07 | fees $61.13
+- Window: 2026-07-10 07:53 UTC -> 2026-08-05 02:00 UTC (618.11h, ~875 cycles)
+- Equity: $25,000.00 -> $4,932.07 (range $99,208.70) | realized PnL $-44.07 | fees $61.13
 - Activity: 6 open | 294 live labeled trades | 9093 candidates | 254 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 294 | cold=True
-- Audit: 28583 records (25830 non-routine) | dominant SZ-047 (86% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 77
-- Liquidity: spoofy 37% of classified cycles | feed errors 0
+- Audit: 28584 records (25831 non-routine) | dominant SZ-047 (86% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 77
+- Liquidity: spoofy 38% of classified cycles | feed errors 0
 
 ## Diagnostics
 - [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=294, brier=n/a) yet retrain was requested 77x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 86% of the audit trail
-- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 86% of 25830 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 86% of 25831 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  6 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
