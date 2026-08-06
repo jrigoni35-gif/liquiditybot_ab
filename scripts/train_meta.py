@@ -334,7 +334,19 @@ def main():
                         f"(<20) - manual retrain challenger ships "
                         f"uncalibrated",
                         {"oof_points": int(len(sel["oof_p"]))})
-    oof_cal = cal.transform(sel["oof_p"]) if len(sel["oof_p"]) else sel["oof_p"]
+    # CALIBRATION-HONEST GATE SCORE (round-2 finding, 2026-08-05). The
+    # shipped artifact keeps its full-pool PAV calibrator above (unchanged),
+    # but scoring the challenger with a calibrator fit on the very rows it
+    # is then scored on is IN-SAMPLE, while the champion is rescored
+    # strictly out-of-sample by rescore_frozen. main.py's auto-retrain lane
+    # fixed this in H13 - measured optimism +0.0032..+0.0066, i.e. 25-150%
+    # of the 0.005 deploy margin, always pro-challenger - and this CLI lane
+    # never got it, so a manual retrain could deploy a strictly worse model
+    # (and stamp the optimistic number into the artifact as the next
+    # champion badge). Same helper, same folds: one gate, one standard.
+    from main import cross_fitted_calibrated_oof
+    oof_cal = (cross_fitted_calibrated_oof(sel["oof_p"], sel["oof_y"])
+               if len(sel["oof_p"]) else sel["oof_p"])
     if not len(oof_cal):
         # LP-6: a challenger with ZERO out-of-fold predictions has no
         # measured skill - the old path fabricated oof_brier=0.25 and

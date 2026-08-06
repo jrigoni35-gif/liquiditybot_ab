@@ -81,9 +81,24 @@ class MetaModelService:
         # integrity gate BEFORE the artifact touches the interpreter state
         v = get_registry().verify(str(p))
         if v.get("ok") is False:
+            # DEPLOY/VERIFY SEAM (round-2 finding, 2026-08-05): save_model
+            # writes the artifact atomically and appends its "registered"
+            # ledger row immediately AFTER. A reload landing in that gap
+            # hashes NEW bytes against the PREVIOUS champion's row and
+            # rejects a perfectly good model as tampered - and because
+            # _loaded_mtime was already stamped above, reload_if_changed
+            # never retries, so a millisecond race became a persistent
+            # model outage (cold-start prior until the next deploy or a
+            # restart). Un-stamp the mtime on rejection so the NEXT cycle
+            # re-reads: a genuine tamper re-rejects (identical bytes, same
+            # verdict, one log line per cycle - loud, which is correct for
+            # ML-011), while the race self-heals as soon as the ledger row
+            # lands. Cheap: a stat + a hash of one small file.
+            self._loaded_mtime = 0.0
             log.critical("ML-011: meta-model artifact failed integrity — "
                          "running on cold-start prior until a verified "
-                         "model is deployed")
+                         "model is deployed (will re-verify next cycle: a "
+                         "deploy-seam race heals, a real tamper repeats)")
             return
         model = load_model(self.model_path)
         if model is None:

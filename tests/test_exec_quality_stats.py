@@ -304,6 +304,7 @@ def test_slip_ledger_notional_weighted_companion():
     om.maker_notional_usd = om.taker_notional_usd = 0.0
     om.latency_ms = 0.0
     om.venue_rejects = om.zero_format_rejects = 0
+    om.cancel_unconfirmed = 0            # OM-090 counter, same shape
     om._deadman_failures = 0
     om._fee_recon_result = None
     om._orders = {}

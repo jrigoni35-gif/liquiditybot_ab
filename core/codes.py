@@ -111,6 +111,20 @@ class Code(str, Enum):
     OM_FILL_APPLY_FAILED = "OM-070"  # _handle_fill raised on one poll event; the
                                      # rest of the batch is still applied and
                                      # snapshotted (no book/venue desync, no lost fill)
+    OM_CANCEL_UNCONFIRMED = "OM-090" # a venue CancelOrder returned no
+                                     # confirmation (rate limit / 5xx /
+                                     # venue error - _private_post returns
+                                     # None rather than raising) while local
+                                     # state was forced terminal: the order
+                                     # may STILL REST at the venue as a GTC
+                                     # orphan invisible to open_orders(),
+                                     # and a healthy bot's own deadman
+                                     # refresh keeps the venue from
+                                     # auto-cancelling it. Live-only signal
+                                     # (dry-run never posts); leaving the
+                                     # escape blocked would be worse, so the
+                                     # terminal transition still happens -
+                                     # this makes the residue AUDIBLE
     OM_FEE_RECON_MISMATCH = "OM-080" # W2-9 remainder: periodic TradeVolume check
                                      # found the account's ACTUAL Kraken fee tier
                                      # diverging from EITHER configured source -

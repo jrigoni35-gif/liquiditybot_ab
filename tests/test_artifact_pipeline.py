@@ -47,6 +47,48 @@ def test_wf_importance_key_does_not_clobber_model_importance(tmp_path):
     assert d["wf_importance"] == [["f0", 0.1]]      # walkforward's, separate
 
 
+def test_deploy_seam_rejection_is_retried_not_permanent(tmp_path,
+                                                        monkeypatch):
+    """save_model publishes the artifact and appends its ledger row a beat
+    LATER; a reload landing in that gap verifies new bytes against the
+    previous champion's row and rejects a good model as tampered (ML-011).
+    Because _loaded_mtime is stamped before the verify, reload_if_changed
+    then never retries — a millisecond race becomes a persistent model
+    outage. Rejection must un-stamp the mtime so the next cycle re-reads:
+    the race heals, a genuine tamper simply re-rejects."""
+    import ml.meta_model as mm
+    from ml.features import FEATURE_NAMES
+
+    # REAL feature width: reload()'s schema gate (ML-013) rejects a narrow
+    # artifact before the integrity result matters, so the retry must be
+    # exercised through an honestly-shaped model
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(160, len(FEATURE_NAMES)))
+    y = (X[:, 0] + 0.3 * rng.normal(size=160) > 0).astype(float)
+    wide = GradientBoostedStumps(seed=7).fit(X, y)
+
+    path = tmp_path / "meta_model.json"
+    save_model(wide, str(path), extra={})
+    svc = mm.MetaModelService({"model_path": str(path)})
+
+    calls = {"n": 0}
+    real_verify = mm.get_registry().verify
+
+    def flaky_verify(p):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"ok": False}          # the deploy-seam gap
+        return real_verify(p)
+    monkeypatch.setattr(mm.get_registry(), "verify", flaky_verify)
+
+    svc.reload()
+    assert svc.model is None              # rejected, cold-start prior
+    assert svc._loaded_mtime == 0.0, \
+        "a rejected artifact must not pin the mtime, or it is never retried"
+    svc.reload_if_changed()               # next cycle: ledger row has landed
+    assert svc.model is not None, "the deploy-seam race must self-heal"
+
+
 def test_registry_pedigree_survives_path_separator_mismatch(tmp_path):
     reg = ModelRegistry(str(tmp_path / "reg"))
     art = tmp_path / "outputs" / "meta_model.json"

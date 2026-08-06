@@ -215,6 +215,12 @@ class OrderManager:
         # Same shape as venue_rejects/deadman_failures — a rising count means
         # some pair's precision metadata is starving orders (see submit()).
         self.zero_format_rejects: int = 0
+        # OM-090 telemetry: venue CancelOrder calls that returned NO
+        # confirmation while local state was forced terminal. Each one may
+        # be a GTC orphan still resting at the venue and invisible to
+        # open_orders() — see _note_cancel_result. Live-only; a rising
+        # count is an operator signal to reconcile against the venue.
+        self.cancel_unconfirmed: int = 0
         # execution-quality ledger (§3 telemetry): every fill increments a
         # maker/taker counter + notional, and books signed slippage as the
         # implementation shortfall vs the ARRIVAL mark (positive bps = adverse:
@@ -499,6 +505,47 @@ class OrderManager:
                           "with last-known fill state", order.txid)
         return events
 
+    def _note_cancel_result(self, result, order: ManagedOrder,
+                            path: str) -> bool:
+        """Record whether a venue CancelOrder was actually CONFIRMED.
+
+        `feed._private_post` never raises: on a rate limit, a 5xx, or a
+        Kraken error payload it returns None. Both cancel paths discarded
+        that result and forced the local state terminal anyway, so the
+        order left open_orders() and was never queried again - while the
+        real order, submitted GTC (no expiretm), kept resting at the venue.
+        A healthy bot then keeps re-arming CancelAllOrdersAfter every ~30s,
+        so the deadman that is supposed to back this up never fires. A
+        later venue fill is invisible: an orphaned ENTRY is untracked
+        inventory with no stop; an orphaned EXIT means the venue is flat
+        while the book says open, and the ladder's next rung double-sells.
+
+        The terminal transition still happens (a blocked escape is the
+        worse failure, per the cancel_order contract). This makes the
+        residue AUDIBLE instead of silent: an OM-090 disposition on the
+        hash-chained trail plus a counter the boards can carry. Dry-run
+        posts nothing, so `result is None` there is normal and ignored.
+        """
+        if self.dry_run:
+            return True
+        if result is not None:
+            return True
+        self.cancel_unconfirmed += 1
+        detail = tag(Code.OM_CANCEL_UNCONFIRMED,
+                     f"{order.txid} ({path}): venue returned no cancel "
+                     f"confirmation - local state forced terminal, the "
+                     f"order MAY still rest at the venue as a GTC orphan")
+        log.error(detail)
+        try:
+            get_audit().log("execution", Code.OM_CANCEL_UNCONFIRMED, detail,
+                            {"txid": order.txid, "path": path,
+                             "symbol": order.symbol, "side": order.side,
+                             "purpose": order.purpose,
+                             "remaining": float(order.remaining)})
+        except Exception:                   # noqa: BLE001 - never block a cancel
+            log.exception("audit of an unconfirmed cancel failed")
+        return False
+
     def take_deferred(self) -> list:
         """Drain and return the deferred-fill queue (fills booked OUTSIDE
         poll() by `_final_reconcile`). poll() drains the same queue at the
@@ -530,10 +577,13 @@ class OrderManager:
             return False
         if not self.dry_run and getattr(order, "txid", None):
             try:
-                self._timed_private("CancelOrder", {"txid": order.txid})
+                self._note_cancel_result(
+                    self._timed_private("CancelOrder", {"txid": order.txid}),
+                    order, "preempt")
             except Exception:                       # noqa: BLE001
                 log.exception("CancelOrder failed for %s — forcing local "
                               "cancel (%s)", order.txid, reason)
+                self.cancel_unconfirmed += 1
             # last look (see _final_reconcile). Recovered fills queue on
             # _deferred_events and are delivered by the next poll(), so they
             # keep flowing through the engine's single _handle_fill path;
@@ -604,6 +654,7 @@ class OrderManager:
                 "latency_ms": round(self.latency_ms, 1),
                 "venue_rejects": self.venue_rejects,
                 "zero_format_rejects": self.zero_format_rejects,
+                "cancel_unconfirmed": self.cancel_unconfirmed,
                 "deadman_failures": self._deadman_failures,
                 # execution quality (§3): maker/taker split + rolling slippage
                 "maker_fills": self.maker_fills,
@@ -1006,7 +1057,9 @@ class OrderManager:
                                         final=True))
                 return events
         if now - order.created_ts > self._timeout_for(order, self.timeout_sec):
-            self._timed_private("CancelOrder", {"txid": order.txid})
+            self._note_cancel_result(
+                self._timed_private("CancelOrder", {"txid": order.txid}),
+                order, "timeout")
             # SAME last look cancel_order() performs (see _final_reconcile).
             # This branch — not cancel_order — is the DOMINANT lifecycle
             # terminator at order_timeout_sec=25, and it was forcing the

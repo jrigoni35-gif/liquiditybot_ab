@@ -84,6 +84,57 @@ def test_poisoned_feed_still_produces_a_finite_exit_price():
     assert price == 100.0                        # entry-price fallback
 
 
+def test_preempt_drains_the_late_fill_before_sizing_the_escape():
+    """The maker-preempt oversell window (round-2 finding, 2026-08-05).
+
+    cancel_order()'s last look recovers a fill that landed since the last
+    poll into order.filled and QUEUES its FillEvent on _deferred_events -
+    delivered only by the NEXT poll. take_deferred() exists precisely so
+    _submit_exit can observe that fill before it sizes the replacement
+    escape off pos.size... and it had ZERO production callers. Live, a
+    100% close after a fully-filled preempted take sells the position
+    twice (flips short); the deferred fill then drives pos.size to the
+    zero-clamp with the extra units unaccounted.
+
+    _submit_exit must drain and apply deferred events after preempting,
+    before it reads pos.size."""
+    stub, orders = _stub_bot()
+    pos = _pos()
+
+    class _PreemptOrders(_RejectingOrders):
+        def __init__(self):
+            super().__init__()
+            self.drained = False
+
+        def open_orders(self):
+            resting = SimpleNamespace(purpose="exit",
+                                      position_id="pos-1", post_only=True)
+            return [] if self.drained else [resting]
+
+        def cancel_order(self, order, reason=""):
+            return True
+
+        def take_deferred(self):
+            # the last look recovered the maker take's fill
+            self.drained = True
+            return [SimpleNamespace(fill_size=1.0, order=None)]
+
+        def submit(self, **kw):
+            self.submitted.append(kw)
+            return SimpleNamespace(order_id="ok")
+
+    orders = _PreemptOrders()
+    stub.orders = orders
+    applied = []
+    stub._handle_fill = lambda ev, now: applied.append(ev)
+
+    LiquidityBot._submit_exit(stub, pos, 100.0, "hard_stop", now=1000.0)
+
+    assert orders.drained, \
+        "_submit_exit must drain take_deferred() after preempting a maker take"
+    assert applied, "the recovered fill must be applied through _handle_fill"
+
+
 def test_accepted_exit_counts_exactly_one_attempt():
     stub, orders = _stub_bot()
     orders.submit = lambda **kw: SimpleNamespace(order_id="ok")  # accepted

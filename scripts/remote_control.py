@@ -269,6 +269,18 @@ def _runner_alive(root: Path, now: float) -> bool:
     try:
         s = json.loads((root / "outputs" / "status.json")
                        .read_text(encoding="utf-8"))
+        # FRESHNESS IS NOT LIVENESS (2026-08-05): the clean-shutdown path
+        # writes a FINAL status with runner_state STOPPED and a fresh
+        # written_at (runner.py, the stop epilogue), so freshness alone
+        # reads a just-stopped runner as alive for a full 120s. Every
+        # deploy bounce opens that window, and a command forwarded into it
+        # is ledgered 'applied' at-most-once and then purged by the next
+        # boot as predating _PROC_START - an acked flatten_all/stop that
+        # never runs. A terminal state means DOWN regardless of freshness;
+        # the queue is retained and retried, which is the whole point of
+        # the gate.
+        if str(s.get("runner_state", "")).upper() in ("STOPPED", "EXITED"):
+            return False
         if now - float(s.get("written_at", 0) or 0) < 120.0:
             return True
     except (OSError, ValueError, TypeError):

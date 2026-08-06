@@ -174,6 +174,30 @@ def test_runner_down_retains_queue_for_retry(repos):
     assert len(list((root / "outputs" / "control").glob("cmd_*.json"))) == 1
 
 
+def test_stopped_runner_is_not_alive_despite_a_fresh_status(repos):
+    """The runner's CLEAN SHUTDOWN writes a final status.json with
+    runner_state STOPPED and a FRESH written_at (runner.py:1598-1601), so a
+    freshness-only liveness gate reads a just-stopped runner as alive for a
+    full 120s. Every deploy bounce opens that window: a command forwarded
+    into it is ledgered 'applied' (at-most-once, never retried) and then
+    discarded by the next runner's boot purge as predating _PROC_START — an
+    acked flatten_all/stop that never executes, the C-F3 class this gate
+    exists to prevent."""
+    root, _ = repos
+    rc.send_command("pause", root=root)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"written_at": time.time(), "runner_state": "STOPPED"}),
+        encoding="utf-8")
+    out = rc.poll_once(root=root)
+    assert out.startswith("runner_down"), \
+        "a STOPPED runner with a fresh status must not read as alive"
+    assert not list((root / "outputs" / "control").glob("cmd_*.json"))
+    assert not (root / "outputs" / "remote_consumed.json").exists()
+    # and the command survives for the next runner, exactly like runner_down
+    _fresh_runner(root)
+    assert rc.poll_once(root=root) == "applied=1 rejected=0"
+
+
 def test_ledger_written_before_forwarding(repos, monkeypatch):
     # at-most-once: the id must be in the ledger BEFORE ControlChannel.send
     # runs, so a crash inside send can never lead to a double-forward

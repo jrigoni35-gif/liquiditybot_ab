@@ -2123,6 +2123,32 @@ class LiquidityBot:
             log.warning(tag(Code.OM_EXIT_PREEMPT,
                             f"{pos.symbol} risk-off '{reason}' cancelled a "
                             f"resting maker profit-take to clear the escape"))
+            # DRAIN THE LAST LOOK before sizing (round-2 finding 2026-08-05):
+            # cancel_order's final reconcile books a fill that landed since
+            # the previous poll into order.filled and QUEUES its FillEvent,
+            # which poll() would not deliver until the NEXT cycle - so the
+            # `size = pos.size * close_pct` a few lines below would size the
+            # escape off a position that has already shrunk. At a 100% close
+            # of a fully-filled preempted take that sells the position TWICE
+            # (live: flips short), then the deferred fill drives pos.size
+            # into the zero-clamp with the extra units unaccounted.
+            # take_deferred() was written for exactly this caller and had
+            # none; each event goes through the SAME _handle_fill path poll()
+            # would use, so the single-application invariant holds.
+            _late = getattr(self.orders, "take_deferred", None)
+            if callable(_late):
+                for _ev in _late():
+                    try:
+                        self._handle_fill(_ev, now)
+                    except Exception:       # noqa: BLE001 - never block an escape
+                        log.exception(
+                            "deferred fill application failed during exit "
+                            "preemption - continuing to the escape")
+                if pos.size <= EPS:
+                    log.warning(
+                        f"{pos.symbol} preempted take filled the position "
+                        f"flat - no escape needed")
+                    return
         pair = self.kraken.kraken_pair(pos.symbol)
         omin = self.orders._ordermin(pair)
 
