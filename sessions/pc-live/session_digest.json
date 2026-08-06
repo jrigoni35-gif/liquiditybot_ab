@@ -1,35 +1,35 @@
 {
-  "generated_at": 1785999728.1079605,
+  "generated_at": 1786003329.256959,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1785999716.026,
-    "duration_h": 647.14
+    "end": 1786003320.0,
+    "duration_h": 648.14
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4938.38,
+    "equity_end": 4937.94,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -44.3,
     "fees_paid_total": 62.0052,
     "open_positions": 4,
-    "samples": 141526
+    "samples": 141758
   },
   "activity": {
-    "signal_rows_total": 9553,
+    "signal_rows_total": 9557,
     "live_labeled_trades": 298,
-    "candidate_rows": 9255
+    "candidate_rows": 9259
   },
   "audit": {
-    "records": 28869,
-    "signal_records": 26034,
+    "records": 28908,
+    "signal_records": 26060,
     "by_src": {
-      "exploration": 25791,
-      "ml_governor": 1078,
-      "order_manager": 974,
+      "exploration": 25823,
+      "ml_governor": 1081,
+      "order_manager": 978,
       "long_book": 291,
       "startup": 265,
       "fault": 244,
@@ -46,7 +46,7 @@
       ],
       [
         "ML-070",
-        2835
+        2848
       ],
       [
         "OM-000",
@@ -54,15 +54,15 @@
       ],
       [
         "ML-031",
-        368
-      ],
-      [
-        "OM-040",
-        274
+        369
       ],
       [
         "SZ-051",
-        266
+        279
+      ],
+      [
+        "OM-040",
+        278
       ],
       [
         "CG-000",
@@ -70,7 +70,7 @@
       ],
       [
         "ML-072",
-        261
+        262
       ],
       [
         "FT-020",
@@ -82,7 +82,7 @@
       ],
       [
         "ML-016",
-        188
+        189
       ],
       [
         "ML-042",
@@ -99,16 +99,16 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 8380,
+    "records": 9241,
     "by_level": {
-      "INFO": 8337,
-      "WARNING": 40,
+      "INFO": 9192,
+      "WARNING": 46,
       "CRITICAL": 3
     },
     "top_warnings": [
       [
         "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
-        5
+        6
       ],
       [
         "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD']",
@@ -127,6 +127,14 @@
         2
       ],
       [
+        "ML-074: trailing 24h label prior 0.45 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+        2
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        2
+      ],
+      [
         "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
       ],
@@ -137,22 +145,14 @@
       [
         "ML-080: exit-reason mix drift tvd=0.692 over trailing 24h (124/9387 rows) exceeds 0.30 - recent-window reason mix diverges from the trailing",
         1
-      ],
-      [
-        "auto-retrain: 153 rows (38 new)",
-        1
-      ],
-      [
-        "auto-retrain unscoreable: 0 OOF points at 153 rows (purge span eats the folds) - keeping champion until more labels accrue",
-        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 1389,
-      "spoofy": 1176
+      "thin": 1593,
+      "spoofy": 1348
     },
     "spoofy_frac": 0.458,
-    "cycles_estimate": 985,
+    "cycles_estimate": 1101,
     "feed_error_events": 0
   },
   "model": {
@@ -195,7 +195,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 86% of 26034 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 86% of 26060 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
