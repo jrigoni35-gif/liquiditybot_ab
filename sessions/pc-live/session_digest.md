@@ -2,14 +2,14 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-06 04:01 UTC (644.13h, ~642 cycles)
-- Equity: $25,000.00 -> $4,935.24 (range $99,208.70) | realized PnL $-44.40 | fees $61.93
-- Activity: 5 open | 297 live labeled trades | 9232 candidates | 257 postmortems
-- Model: level 2 | use_model=False | brier n/a | history_rows 297 | cold=True
-- Audit: 28853 records (26019 non-routine) | dominant SZ-047 (86% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 81
-- Liquidity: spoofy 44% of classified cycles | feed errors 0
+- Window: 2026-07-10 07:53 UTC -> 2026-08-06 05:03 UTC (645.16h, ~748 cycles)
+- Equity: $25,000.00 -> $4,937.60 (range $99,208.70) | realized PnL $-44.30 | fees $62.01
+- Activity: 4 open | 298 live labeled trades | 9243 candidates | 257 postmortems
+- Model: level 2 | use_model=False | brier n/a | history_rows 298 | cold=True
+- Audit: 28859 records (26025 non-routine) | dominant SZ-047 (86% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 81
+- Liquidity: spoofy 45% of classified cycles | feed errors 0
 
 ## Diagnostics
-- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=297, brier=n/a) yet retrain was requested 81x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 86% of the audit trail
-- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 86% of 26019 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=298, brier=n/a) yet retrain was requested 81x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 86% of the audit trail
+- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 86% of 26025 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  6 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
