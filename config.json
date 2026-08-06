@@ -29,6 +29,7 @@
       "api_key": "",
       "api_secret": "",
       "trading_pairs": [
+        "PAXG/USD",
         "ETH/USD",
         "BTC/USD",
         "SUI/USD",
@@ -36,6 +37,7 @@
         "MINA/USD",
         "FLOW/USD"
       ],
+      "_paxg_doc": "PAXG (2026-08-05, operator): gold as a TANGIBLE investment, the top rung of the tangible-value ladder the haven gradient measures (regime/haven.py) - PAXG > BTC > ETH > alts. Redeemable for an allocated bar, so its value survives every counterparty in this list; near-zero crypto beta makes it the one universe member whose drawdowns are not the others' drawdowns. No special-casing anywhere: gold's low vol flows through the SAME vol-scaled brackets, sizer and labeler as everything else - sigma-scaled geometry tightens on its own, which is the point of scaling by sigma instead of hardcoded percentages. Kraken spot only; the bot holds no margin anywhere.",
       "rate_limit_per_sec": 3,
       "candle_refresh_sec": 150,
       "_candle_doc": "v8 venue-grounded candles: every mapped asset's 5m bars are re-grounded on Kraken (wash-trading hygiene, Cong et al. 2023 - external reported volume averages >70% fabricated); this is the per-asset REST refresh cadence (150s = half a 5m bar), throttled to 3 fetches/cycle, most-stale first"
@@ -1006,7 +1008,8 @@
     "enabled": true,
     "apply_in_live": false,
     "candidates": ["SOL/USD", "XRP/USD", "ADA/USD", "LINK/USD", "DOGE/USD", "DOT/USD", "AVAX/USD", "LTC/USD"],
-    "max_extra": 6,
+    "max_extra": 5,
+    "_max_extra_doc": "6 -> 5 on 2026-08-05 when PAXG joined the core pairs. The REST-fallback envelope is a real capacity limit, not a preference: with the WS feed down the book poll runs at 3 req/s, and base(7) + extra(6) = 13 pairs would starve it (the config guard fatals on exactly this). Gold therefore costs one DISCRETIONARY skimmer slot - a permanent tangible-value anchor in place of a rotating candidate, which is the trade the operator asked for. Raising this again requires raising the envelope first.",
     "eval_every_min": 60,
     "spread_bps_max": 25.0,
     "min_depth_usd": 5000,

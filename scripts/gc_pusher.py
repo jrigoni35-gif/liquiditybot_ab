@@ -414,6 +414,27 @@ def collect(status_path: str) -> list:
                            {"asset": asset, "macro": str(r.get("macro", "?")),
                             "vol": str(r.get("vol", "?")),
                             "liq": str(r.get("liq", "?"))}, ts))
+        # TANGIBLE-VALUE GRADIENT (regime/haven.py): where capital sits on
+        # the PAXG > BTC > ETH > alts ladder. The signed gradient is the
+        # number to trend (positive = capital moving toward what is
+        # tangible, i.e. fear); per-rung returns show WHICH rung is doing
+        # the moving; the state rides the standard *_info label pattern.
+        _hv = s.get("haven") or {}
+        if isinstance(_hv, dict):
+            _g = _hv.get("gradient")
+            if isinstance(_g, (int, float)) and not isinstance(_g, bool):
+                m.append(gauge("liquiditybot_haven_gradient", float(_g),
+                               ts=ts))
+            _rs = _hv.get("rungs_seen")
+            if isinstance(_rs, (int, float)) and not isinstance(_rs, bool):
+                m.append(gauge("liquiditybot_haven_rungs_seen", float(_rs),
+                               ts=ts))
+            for _rung, _ret in (_hv.get("returns") or {}).items():
+                if isinstance(_ret, (int, float)) and not isinstance(_ret, bool):
+                    m.append(gauge("liquiditybot_haven_rung_return",
+                                   float(_ret), {"rung": str(_rung)}, ts))
+            m.append(gauge("liquiditybot_haven_info", 1.0,
+                           {"state": str(_hv.get("state", "unknown"))}, ts))
         # entry-decision reason codes in FULL (PT/SZ families): EV-gate rejects,
         # exploration bypasses (PT-050), sizing vetoes — the per-code trend view
         for code, cnt in ((s.get("code_stats") or {}).get("entry_codes")

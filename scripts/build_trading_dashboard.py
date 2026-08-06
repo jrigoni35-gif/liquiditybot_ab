@@ -1740,6 +1740,41 @@ def _author_screening():
                "Absent cells (·) mean the asset hasn't traded yet — not a "
                "fault.")
 
+    row("🥇 TANGIBLE-VALUE LADDER — gold › BTC › ETH › alts")
+    state("Haven state", 'count(liquiditybot_haven_info' + JOB + ') by (state)',
+          6, 5, {}, desc="Where capital sits on the tangibility ladder. "
+                         "FLIGHT_TO_QUALITY = money moving DOWN the ladder "
+                         "toward what is real (fear); RISK_ON = reaching up "
+                         "for beta (froth); UNKNOWN = too few rungs to say. "
+                         "Report-only — it sizes nothing.")
+    stat("Gradient", M("liquiditybot_haven_gradient"), 6, 5, decimals=2,
+         steps=BLUE, no_value="fewer than two adjacent rungs",
+         desc="Mean spread between ADJACENT rungs, % over 24h. POSITIVE = "
+              "the more tangible rung is outperforming (fear travelling "
+              "down the ladder); negative = the reach for beta. Adjacent-"
+              "only so one blown-out microcap cannot write a headline "
+              "about gold.")
+    stat("Rungs read", M("liquiditybot_haven_rungs_seen"), 6, 5, decimals=0,
+         steps=BLUE, graph="none",
+         desc="How many of the four rungs had usable bars this scrape "
+              "(PAXG/BTC/ETH/ALT). Fewer than two adjacent = UNKNOWN, a "
+              "state rather than a guessed zero.")
+    bargauge("Return by rung (24h %)",
+             'liquiditybot_haven_rung_return' + JOB, 6, 5, unit="percent",
+             decimals=2, steps=PNL, legend="{{rung}}",
+             no_value="no rung data yet",
+             desc="The ladder itself: gold (a bar in a vault) › BTC (a "
+                  "network with a security budget) › ETH (a platform "
+                  "contingent on usage) › alts (venture bets). The ALT "
+                  "rung is AVERAGED so one coin ripping is not a regime.")
+    timeseries("Gradient over time — is fear travelling down the ladder?",
+               M("liquiditybot_haven_gradient"), 24, 6, legend="gradient",
+               desc="The trend is the read: a gradient climbing through "
+                    "zero is capital rotating toward tangibility ahead of "
+                    "a drawdown; falling through zero is risk appetite "
+                    "returning. Sustained direction matters, not the "
+                    "current print.")
+
     row("🌡️ REGIME CONTEXT & ADVERSE SELECTION")
     bargauge("Spread by asset (bps, lower = tighter book)",
              _pa("liquiditybot_regime_spread_bps"), 8, 7, decimals=1,

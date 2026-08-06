@@ -40,6 +40,11 @@ log = logging.getLogger("liquiditybot.data.kraken")
 # (config_guard advises on gaps; tests/test_pair_meta_coverage.py enforces).
 # Values verified against Kraken AssetPairs 2026-07-17. ordermin = BASE units.
 PAIR_META_FALLBACK = {
+    # PAXG (gold, AssetPairs-verified 2026-08-05): ordermin 0.001 oz is
+    # ~$4.25 at a $4,250 spot, and costmin is $0.50 — the smallest ticket
+    # in the universe by dollar value, so gold is reachable at this
+    # account size rather than being a listing the sizer can never fill.
+    "PAXGUSD": {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.001},
     "ETHUSD": {"price_decimals": 2, "lot_decimals": 8, "ordermin": 0.002},
     "XBTUSD": {"price_decimals": 1, "lot_decimals": 8, "ordermin": 0.00005},
     "BTCUSD": {"price_decimals": 1, "lot_decimals": 8, "ordermin": 0.00005},

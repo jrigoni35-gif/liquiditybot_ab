@@ -156,6 +156,14 @@ _SYNTH_STATUS = {
     "signals": {"BTC": {"confirmed": True, "confidence": 0.8, "urgency": 0.4,
                         "concentration": 0.6,
                         "gates": {"if_1_flow_persistence": True}}},
+    # tangible-value ladder (regime/haven.py): the fixture must carry it or
+    # the panels read as querying a never-emitted metric — the same fixture
+    # gap that hid the gate_divergence instrument
+    "haven": {"state": "flight_to_quality", "gradient": 1.8,
+              "returns": {"PAXG": 2.1, "BTC": 0.4, "ETH": -0.6,
+                          "ALT": -3.2},
+              "spreads": {"PAXG-BTC": 1.7, "BTC-ETH": 1.0, "ETH-ALT": 2.6},
+              "rungs_seen": 4, "detail": "fixture"},
     "manip_suspect": {"BTC": 0.1},
     "regimes": {"BTC": {"macro": "range", "momentum": 0.1, "vol": "low",
                         "vol_pct": 20.0, "liq": "liquid", "spread_bps": 0.5,

@@ -1084,6 +1084,21 @@ class BotRunner:
                           "liq": lq.label, "spread_bps": round(lq.spread_bps, 1),
                           "spoof": round(lq.spoof_score, 2),
                           "basis_bps": round(f.basis_bps, 1)}
+        # TANGIBLE-VALUE GRADIENT (regime/haven.py, 2026-08-05): where
+        # capital sits on the PAXG > BTC > ETH > alts ladder, read from the
+        # engine's OWN venue-grounded 5m bars - no new feed, no new
+        # dependency. Report-only by construction (the module cannot reach
+        # the trading path; tests/test_haven_gradient.py pins that), so a
+        # failure here must never cost a status write.
+        try:
+            from regime import haven
+            _closes = {a: [c["close"] for c in (cs or [])]
+                       for a, (_ts, cs) in getattr(bot, "_kr_candles",
+                                                   {}).items()}
+            haven_state = haven.evaluate(_closes).to_dict()
+        except Exception:                       # noqa: BLE001
+            haven_state = {"state": "unknown",
+                           "detail": "haven read failed"}
         sent = bot.xscan.snapshot()
         web = bot.webdata.snapshot()
         risk = bot.moomoo.snapshot()
@@ -1129,6 +1144,7 @@ class BotRunner:
             "signals": dict(getattr(bot, "last_signals", {})),
             "exec_algos": bot.algo.status() if hasattr(bot, "algo") else {},
             "regimes": regimes,
+            "haven": haven_state,
             "sentiment": {"score": round(sent.score, 3),
                           "fear": sent.fear_spike,
                           "euphoria": sent.euphoria_spike,
