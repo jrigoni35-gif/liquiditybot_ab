@@ -69,29 +69,64 @@ class CapitalManager:
         max_capital_for_trade = state.cash_balance * (self.max_position_size_pct / 100)
         return max_capital_for_trade / price
 
-    def record_realized_profit(self, realized_pnl: float, state):
-        """
-        Applies a closed trade's PnL to portfolio state. On profit, splits
-        the gain between savings (locked away) and reinvestment (stays in
-        cash_balance, available for future position sizing).
+    def record_realized_profit(self, realized_pnl: float, state,
+                               skim: bool = True):
+        """Settle one realization into portfolio state, optionally skimming.
+
+        `skim=False` books the P&L and its cash movement ONLY. The engine
+        uses it because the two concerns fused here have different natural
+        units: cash settles per exit LEG (entry fees already left cash at
+        fill time via record_entry_fee, so the leg's `net` is the correct
+        cash delta), while the pool split belongs to the TRADE - see
+        skim_trade below and tests/test_pool_skim_per_trade.py.
+
+        The default stays True so the one-shot form - a single realization
+        that IS the whole trade - keeps its original behavior.
         """
         state.record_realized_pnl(realized_pnl)
+        if not skim:
+            log.info(f"Realized {realized_pnl:+.2f} settled (pool split "
+                     f"deferred to trade close).")
+            return
+        self._split_into_pools(realized_pnl, state)
 
-        if realized_pnl > 0:
-            savings_amount = realized_pnl * (self.savings_pct / 100)
-            reserve_amount = realized_pnl * (self.reserve_pct / 100)
+    def skim_trade(self, trade_net: float, state) -> None:
+        """Three-way split on a CLOSED TRADE's fully-net result.
+
+        WHY THIS IS SEPARATE (round-2 finding, 2026-08-05). The split used
+        to run inside the per-fill settlement above, on `net` - the leg's
+        gross minus its exit fee, but NOT minus the slice's pro-rata share
+        of the entry fees. So it (a) skimmed a base that overstated profit
+        by the entry fees, and (b) fired on every winning LEG, including
+        the tier-1 take of a trade whose stop later lost far more. With
+        tiered exits the normal shape here, cash - the sizing base - bled
+        monotonically into LOCKED pools as a function of gross winning
+        legs rather than net profit, and savings is never clawed back.
+
+        `trade_net` is the engine's own `total_net`: the sum of every
+        leg's trade_net, i.e. fully net of both fee legs. A losing or flat
+        trade skims nothing. Pure movement between pools - no P&L is
+        re-booked here (the per-leg settlement already did that), so
+        equity is unchanged by construction.
+        """
+        self._split_into_pools(trade_net, state, scope="trade")
+
+    def _split_into_pools(self, pnl: float, state, scope: str = "fill"):
+        if pnl > 0:
+            savings_amount = pnl * (self.savings_pct / 100)
+            reserve_amount = pnl * (self.reserve_pct / 100)
             state.savings_balance += savings_amount
             state.reserve_balance += reserve_amount
             state.cash_balance -= savings_amount + reserve_amount
             log.info(
-                f"Realized profit {realized_pnl:.2f}: "
+                f"Realized profit {pnl:.2f} ({scope}): "
                 f"{savings_amount:.2f} -> savings, "
                 f"{reserve_amount:.2f} -> reserve, "
-                f"{realized_pnl - savings_amount - reserve_amount:.2f} "
+                f"{pnl - savings_amount - reserve_amount:.2f} "
                 f"retained for reinvestment."
             )
         else:
-            log.info(f"Realized loss {realized_pnl:.2f} recorded.")
+            log.info(f"Realized loss {pnl:.2f} ({scope}) recorded.")
 
     def weekly_rollover(self, state, week_summary: dict) -> float:
         """Week-close money action: after a LOSING week the reserve refills

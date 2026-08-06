@@ -154,8 +154,15 @@ class OKXFeed(ThrottledRestClient):
             for r in rows[:total]
         ]
         raw.reverse()                      # oldest-first for indicator calcs
-        # bootstrap training data must be committed bars only too
-        return drop_forming_candles(clean_candles(raw),
+        # bootstrap training data must be committed bars only too.
+        # max_n=len(raw): clean_candles defaults to keeping the last 2000
+        # bars, which SILENTLY truncated every deep request past that -
+        # train_meta asks for 2880 (~10 days of 5m bars) and received ~7
+        # days with no log line, while the docstring promised `total`
+        # (round-2 finding 2026-08-05). The cap exists to bound live
+        # per-cycle fetches; a deliberate paginated history request is
+        # exactly the case it should not silently shrink.
+        return drop_forming_candles(clean_candles(raw, max_n=max(len(raw), 1)),
                                     interval_str_to_sec(bar))
 
     def get_funding_rate(self, symbol: str) -> Optional[float]:

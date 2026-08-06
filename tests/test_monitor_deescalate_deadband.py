@@ -24,8 +24,27 @@ DEGRADED = (0.85, 1)   # promised .85, won: brier .0225 vs baseline .0025 -> deg
 HEALTHY = (0.94, 1)    # promised .94, won: brier .0036 vs baseline .0025 -> healthy
 
 
+def _seeded(cfg=None) -> ModelMonitor:
+    """A monitor with PRIOR history, so the baseline is established.
+
+    The baseline is a prior base rate drawn from rows that predate the
+    judged window (2026-08-05 fix: it used to be the window's own realized
+    mean, an oracle no live model could know). At cold start there is no
+    prior, so the monitor uses a NEUTRAL 0.5 - deliberately the weakest
+    possible baseline, which nothing can be convicted against. These
+    deadband tests are about de-escalation discipline, not about baselines,
+    so they seed two winning closes to establish the prior first (0.95
+    after the clip, reproducing the 0.0025 baseline the cases below are
+    calibrated against).
+    """
+    m = ModelMonitor(cfg or CFG)
+    for _ in range(2):
+        m.record_close(*HEALTHY, model_scored=True)
+    return m
+
+
 def test_deescalation_flaps_are_gated_by_a_consecutive_healthy_streak():
-    m = ModelMonitor(CFG)
+    m = _seeded()
     levels = []
 
     def close(p, y):
@@ -53,7 +72,7 @@ def test_deescalation_flaps_are_gated_by_a_consecutive_healthy_streak():
 
 
 def test_deescalation_still_happens_after_n_consecutive_healthy_windows():
-    m = ModelMonitor(CFG)
+    m = _seeded()
     m.record_close(*DEGRADED, model_scored=True)
     assert m.level == 1
     # exactly deescalate_healthy_windows (default 3) consecutive healthy closes
@@ -71,7 +90,7 @@ def test_deescalate_healthy_windows_config_lifted_default_is_three():
 
 
 def test_deescalate_healthy_windows_is_configurable():
-    m = ModelMonitor({**CFG, "deescalate_healthy_windows": 1})
+    m = _seeded({**CFG, "deescalate_healthy_windows": 1})
     m.record_close(*DEGRADED, model_scored=True)
     assert m.level == 1
     m.record_close(*HEALTHY, model_scored=True)

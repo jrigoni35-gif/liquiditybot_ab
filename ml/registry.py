@@ -26,6 +26,7 @@ it trained on, and what did you know about it when you deployed it?"
 import hashlib
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -57,7 +58,41 @@ def _canonical(path) -> str:
     return str(path).replace("\\", "/")
 
 
+GENESIS = "0" * 16
+
+
+def _record_hash(rec: dict) -> str:
+    """Hash over the record's CONTENT plus its prev link, matching
+    core/audit.py's construction: json with sorted keys so the digest is
+    reproducible, truncated to 16 hex chars for a readable ledger."""
+    body = {k: v for k, v in rec.items() if k != "h"}
+    payload = json.dumps(body, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 class ModelRegistry:
+    """Append-only, HASH-CHAINED model lineage ledger.
+
+    The chain (added 2026-08-05) is what lets this file's guarantee match
+    the language used about it. Before, "append-only ledger" described
+    intent only: rows carried no prev-hash and no sequence, so verify()
+    scanned for the last matching row and compared ONE unauthenticated
+    sha256 string. Deleting, truncating or reordering the ledger was
+    undetectable; editing the last registered row's hash (or appending a
+    newer one) legitimized any swapped artifact with full "verified"
+    provenance; and simply deleting registry.jsonl downgraded every load
+    to ok=None ("unknown provenance"), which the loader accepts - so the
+    ML-011 tamper gate degraded to a log line for anyone with the same
+    write access the artifact itself needs.
+
+    That mattered beyond this file: the corpus's decisive provenance
+    argument is membership in the hash-chained audit trail, and the shared
+    adjective was one step from carrying that guarantee here, where it did
+    not hold. Now it does: each row links to its predecessor, verify_chain
+    walks the links, and a tampered or truncated ledger is detectable
+    rather than authoritative.
+    """
+
     def __init__(self, directory: str = "outputs/models"):
         self.dir = Path(directory)
         self.ledger = self.dir / "registry.jsonl"
@@ -68,14 +103,107 @@ class ModelRegistry:
                       "will be dropped (models still function)")
 
     # ------------------------------------------------------------------
+    def _tail_link(self) -> tuple[int, str]:
+        """(seq, hash) of the last COMPLETE row, or (0, GENESIS).
+
+        Read fresh on every append rather than cached: the CLI retrain and
+        the runner's auto-retrain both write this ledger from separate
+        processes, and a cached tail would fork the chain exactly the way
+        the audit trail's own side-car note documents (a duplicate seq that
+        broke verification from that record on).
+        """
+        seq, prev = 0, GENESIS
+        try:
+            with open(self.ledger, encoding="utf-8") as f:
+                for line in f:
+                    if not line.endswith("\n"):
+                        break               # torn final row: ignore it
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    h = rec.get("h")
+                    if not h:
+                        continue            # pre-chain row: no link to adopt
+                    seq = int(rec.get("seq", seq) or seq)
+                    prev = str(h)
+        except OSError:
+            return (0, GENESIS)
+        return (seq, prev)
+
     def _append(self, rec: dict):
-        rec = {"ts": round(time.time(), 3),
-               "ts_h": time.strftime("%Y-%m-%d %H:%M:%S"), **rec}
+        seq, prev = self._tail_link()
+        rec = {"seq": seq + 1, "ts": round(time.time(), 3),
+               "ts_h": time.strftime("%Y-%m-%d %H:%M:%S"), **rec,
+               "prev": prev}
+        rec["h"] = _record_hash(rec)
+        # HEAL A TORN TAIL before appending (same class as the fills-ledger
+        # fix): a kill mid-write leaves a fragment with no newline, and
+        # appending straight onto it FUSES two records into one unparseable
+        # line - which would take the surviving row down with the fragment
+        # and break the chain walk at that point. Terminating the fragment
+        # isolates it as one bad line the walk reports honestly.
+        torn = False
+        try:
+            if self.ledger.exists() and self.ledger.stat().st_size > 0:
+                with open(self.ledger, "rb") as rf:
+                    rf.seek(-1, os.SEEK_END)
+                    torn = rf.read(1) != b"\n"
+        except OSError:
+            torn = False
         try:
             with open(self.ledger, "a", encoding="utf-8") as f:
+                if torn:
+                    f.write("\n")
                 f.write(json.dumps(rec, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
         except OSError:
             log.error("registry ledger write failed: %s", rec.get("event"))
+
+    def verify_chain(self) -> dict:
+        """Walk the links. Returns {ok, rows, chained, reason}.
+
+        Rows written before the chain existed carry no `h` and are counted
+        but not linked - they are reported as `unchained` rather than
+        silently treated as verified, because a pre-chain row cannot make
+        a claim it was never able to make. A chained row whose recomputed
+        hash differs (content edited) or whose prev does not match its
+        predecessor (a row deleted, reordered, or inserted) fails.
+        """
+        rows = chained = unchained = 0
+        prev = GENESIS
+        try:
+            with open(self.ledger, encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    rows += 1
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        return {"ok": False, "rows": rows, "chained": chained,
+                                "reason": f"row {rows}: unparseable"}
+                    h = rec.get("h")
+                    if not h:
+                        unchained += 1
+                        continue
+                    if _record_hash(rec) != h:
+                        return {"ok": False, "rows": rows, "chained": chained,
+                                "reason": f"row {rows}: content edited "
+                                          f"(hash mismatch)"}
+                    if str(rec.get("prev", "")) != prev and chained > 0:
+                        return {"ok": False, "rows": rows, "chained": chained,
+                                "reason": f"row {rows}: broken link - a row "
+                                          f"was deleted, reordered or "
+                                          f"inserted"}
+                    prev = str(h)
+                    chained += 1
+        except OSError:
+            return {"ok": None, "rows": 0, "chained": 0,
+                    "reason": "ledger unreadable"}
+        return {"ok": True, "rows": rows, "chained": chained,
+                "unchained": unchained, "reason": "chain intact"}
 
     def register(self, artifact_path: str, card: dict) -> str:
         """Hash the artifact, archive an immutable copy, append the card.
@@ -122,6 +250,18 @@ class ModelRegistry:
             return {"ok": False, "reason": "artifact unreadable"}
         expected = expected_sha256
         if expected is None:
+            # A pedigree is only as good as the ledger it comes from: if the
+            # chain is broken, the "expected" hash is an unauthenticated
+            # string an attacker (or a bad merge) could have written, so
+            # trusting it would launder the tamper it is meant to catch.
+            chain = self.verify_chain()
+            if chain.get("ok") is False:
+                log.critical("ML-011: registry ledger chain BROKEN (%s) - "
+                             "refusing to treat its pedigree as evidence",
+                             chain.get("reason"))
+                return {"ok": False, "reason": "ledger chain broken",
+                        "chain": chain, "model_id": actual[:12],
+                        "sha256": actual}
             expected = self._last_registered_hash(str(artifact_path))
         if expected is None:
             log.warning("ML-060: %s has no registry pedigree — loading "

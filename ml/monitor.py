@@ -76,6 +76,27 @@ def wilson_lcb(successes: int, n: int, z: float = 1.645) -> float:
     return max((center - rad) / denom, 0.0)
 
 
+def wilson_ucb(successes: int, n: int, z: float = 1.645) -> float:
+    """One-sided 95% Wilson UPPER bound on a binomial proportion.
+
+    The bound the hit-deficit test actually needs. Indicting a model for
+    promising more than it delivered is a claim about the realized rate
+    being too LOW, so the honest question is whether the promise clears
+    even the most OPTIMISTIC reading of the outcomes. Using the lower
+    bound for that (as this module did) is vacuous: lcb <= observed rate
+    always, so `promised - lcb >= promised - observed` and the test can
+    never bind - see tests/test_monitor_credibility.py.
+    """
+    if n <= 0:
+        return 1.0
+    p = successes / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = p + z2 / (2 * n)
+    rad = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+    return min((center + rad) / denom, 1.0)
+
+
 class ModelMonitor:
     def __init__(self, config: dict):
         cfg = config or {}
@@ -180,6 +201,25 @@ class ModelMonitor:
         self._apply_cause_adjustments()
         self._evaluate()
 
+    def _prior_base_rate(self) -> float:
+        """Base rate from history that PREDATES the judged window.
+
+        The baseline a model must beat has to be knowable in advance,
+        otherwise the comparison is against a clairvoyant (see _judge).
+        Rows older than the current window are legitimate prior evidence;
+        when there are none, fall back to a neutral 0.5 rather than to the
+        window's own mean - a neutral prior is the honest statement of "no
+        information", and it is the weakest baseline, so cold start never
+        convicts on baseline grounds alone.
+        """
+        scored = [r for r in self._records if r[2]]
+        older = scored[:-self.window] if len(scored) > self.window else []
+        if not older:
+            # no pre-window history: use everything scored EXCEPT the
+            # current window's own rows when possible, else neutral
+            return 0.5
+        return float(sum(r[1] for r in older) / len(older))
+
     def _windows(self):
         recs = [r for r in self._records if r[2]][-self.window:]
         if len(recs) < self.min_trades:
@@ -197,21 +237,35 @@ class ModelMonitor:
         bar. Returns (degraded, failing, detail, model_brier, baseline_brier,
         lcb, promised)."""
         n = len(y)
-        base_rate = float(np.clip(y.mean(), 0.05, 0.95))
+        # BASELINE FROM A PRIOR, NOT AN ORACLE (round-2 fix 2026-08-05).
+        # This used to score a constant equal to the window's OWN realized
+        # mean - information no live model could have at prediction time.
+        # An all-loss 15-close window (ordinary luck at this corpus's base
+        # rates) handed the baseline a clairvoyant 0.05 and convicted an
+        # honestly-calibrated model on its first evaluation. _prior_base_rate
+        # uses only history that predates the window. This makes the
+        # baseline WEAKER and therefore the governor slower to convict -
+        # the correct direction for an instrument whose false positive is
+        # killing a working model, with the Brier margin, calibration gap
+        # and hit-deficit tests all still binding.
+        base_rate = float(np.clip(self._prior_base_rate(), 0.05, 0.95))
         model_brier = brier_score(y, p)
         baseline_brier = brier_score(y, np.full_like(p, base_rate))
         gap = calibration_gap(y, p)
-        # Wilson LCB judgment: does the realized hit rate credibly fall
-        # short of what the model promised on these very trades?
         lcb = wilson_lcb(int(y.sum()), n)
         promised = float(p.mean())
-        # indict only when the shortfall is BOTH material (raw gap beyond
-        # the allowance) AND statistically credible (even the optimistic
-        # Wilson bound can't explain it). An honest model at small n has
-        # a wide LCB gap but ~zero raw gap: not a deficit.
-        raw_gap = promised - float(y.mean())
-        hit_deficit = raw_gap > self.hit_shortfall_max and \
-            (promised - lcb) > self.hit_shortfall_max
+        # HIT DEFICIT, on the UPPER bound (round-2 fix 2026-08-05). The old
+        # form ANDed the raw gap with `promised - lcb > allow`, which is
+        # implied by the raw-gap clause (lcb <= observed rate always), so
+        # the "statistically credible" half was dead code - and it loosened
+        # as n fell, inverting the small-n protection it was added for.
+        # Against the UPPER bound the test means what it says: the promise
+        # must clear even the most optimistic reading of the outcomes by
+        # the allowance, which is strictly harder at small n because the
+        # interval is wider. It also implies the raw-gap condition (ucb >=
+        # observed rate), so one clause is the whole test.
+        ucb = wilson_ucb(int(y.sum()), n)
+        hit_deficit = (promised - ucb) > self.hit_shortfall_max
 
         degraded = (model_brier > baseline_brier + self.brier_margin) or \
             (gap > self.calib_gap_max) or hit_deficit

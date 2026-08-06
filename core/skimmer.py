@@ -144,9 +144,41 @@ class AssetSkimmer:
 
     # ------------------------------------------------------------------
     def _restore(self) -> None:
-        """Adopt a previously persisted promotion set (validated)."""
+        """Adopt a previously persisted promotion set (validated).
+
+        Scores are restored too (round-2 finding 2026-08-05). _persist has
+        always WRITTEN them, but nothing read them back, so `self._scores`
+        started empty on every boot and the replace-hysteresis compared
+        every incumbent against a default of 0.0: with a full pool, the
+        first candidate to clear promote_score evicted the best incumbent
+        (0.55 >= 0.0 + 0.10 replaces a 0.90). Deploys restart the runner on
+        a 15-minute cadence and evaluation is round-robin, so incumbents
+        were routinely unscored when a candidate was judged - the exact
+        churn replace_margin exists to prevent. Only incumbents' scores are
+        adopted, and only well-formed ones; anything else falls back to the
+        old behavior for that pair alone.
+        """
         self._promoted = self.load_active(self.active_path, self.core,
                                           self.max_extra)
+        try:
+            import json
+            data = json.loads(Path(self.active_path).read_text(
+                encoding="utf-8"))
+            saved = data.get("scores") or {}
+        except Exception:
+            return
+        if not isinstance(saved, dict):
+            return
+        for pair in self._promoted:
+            rec = saved.get(pair)
+            if not isinstance(rec, dict):
+                continue
+            try:
+                score = float(rec.get("score"))
+            except (TypeError, ValueError):
+                continue
+            if score == score and 0.0 <= score <= 1.0:      # finite, in range
+                self._scores[pair] = dict(rec)
 
     @staticmethod
     def load_active(path, core_pairs: list, cap: int) -> list:

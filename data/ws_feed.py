@@ -582,8 +582,19 @@ class KrakenV2BookStream:
                     else:
                         book_side[px] = (price_raw, qty_raw)
             self._trim(st)                        # bound to top-N (no phantoms)
-            self._publish(sym)
-            self._verify_checksum(sym, st, d.get("checksum"))
+            # VERIFY BEFORE PUBLISH (round-2 finding 2026-08-05). This ran
+            # publish-then-verify, so a book that FAILS its checksum was
+            # already in the live cache with a fresh timestamp before being
+            # invalidated microseconds later. During the resubscribe backoff
+            # after a mismatch, every update frame rebuilt a book from empty
+            # state and republished it: as soon as both sides had one level,
+            # a phantom 1-5-level book was served to the stop/imbalance
+            # logic (main.fast_cycle reads this cache concurrently) stamped
+            # as fresh. Verifying first means a bad book never becomes
+            # readable at all - the cache keeps the last GOOD book and its
+            # honest age, which the staleness guards already handle.
+            if self._verify_checksum(sym, st, d.get("checksum")):
+                self._publish(sym)
 
     def _checksum(self, st: dict) -> int:
         """Kraken v2 book checksum: top-10 asks ascending then top-10 bids
@@ -602,9 +613,16 @@ class KrakenV2BookStream:
             parts.append(_kraken_ck_token(qty_raw))
         return zlib.crc32("".join(parts).encode("ascii"))
 
-    def _verify_checksum(self, sym: str, st: dict, expected) -> None:
+    def _verify_checksum(self, sym: str, st: dict, expected) -> bool:
         """Validate the frame's `checksum` (if present) against the local
-        book just applied. A mismatch means local state has desynced from
+        book just applied. Returns True when the book is SAFE TO PUBLISH -
+        verified, or unverifiable by contract (no checksum on the frame, or
+        depth < 10) - and False on a real mismatch. The caller publishes
+        only on True, so a desynced book never becomes readable (round-2
+        finding: publish-then-verify briefly served a phantom book stamped
+        fresh, and during the resubscribe backoff it did so on every frame).
+
+        A mismatch means local state has desynced from
         Kraken's real book (e.g. a skipped unparseable level) - the failure
         is silent otherwise, since the cache timestamp keeps refreshing and
         the staleness gate never fires on a drifted-but-plausible book.
@@ -624,17 +642,17 @@ class KrakenV2BookStream:
         see __init__'s derivation. A clean verified frame (this method's
         early return below) resets that backoff entirely."""
         if expected is None or self.depth < 10:
-            return
+            return True          # unverifiable by contract: publish as before
         try:
             expected_int = int(expected)
         except (TypeError, ValueError):
-            return
+            return True
         if self._checksum(st) == expected_int:
             # clean verified frame: only a SUSTAINED (consecutive) desync
             # escalates the resubscribe backoff, so recovery resets it
             self._ck_fail_streak = 0
             self._ck_next_resub_ok_ts = 0.0
-            return
+            return True
         self.checksum_failures += 1
         pair = self.sym_to_pair.get(sym)
         log.warning(
@@ -657,6 +675,7 @@ class KrakenV2BookStream:
                     "kraken checksum mismatch resubscribe suppressed for "
                     "%s - backoff active (%.1fs remaining)",
                     sym, self._ck_next_resub_ok_ts - now_ts)
+        return False             # desynced: the caller must NOT publish
 
 
 class WebSocketFeedManager:

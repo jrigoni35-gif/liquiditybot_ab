@@ -198,6 +198,39 @@ def test_stopped_runner_is_not_alive_despite_a_fresh_status(repos):
     assert rc.poll_once(root=root) == "applied=1 rejected=0"
 
 
+def test_transient_git_failure_retries_instead_of_rejecting(repos,
+                                                            monkeypatch):
+    """A failed `git show` is a READ failure, not a malformed command. It
+    used to yield payload=None -> "payload is not an object" -> a REJECTED
+    entry in the exactly-once ledger, which is permanent: one git hiccup
+    (spawn failure, AV scan, contention with the concurrent status-push
+    child) silently and irreversibly dropped a live operator command that
+    was still valid and fresh on the branch."""
+    root, _ = repos
+    cid = rc.send_command("pause", root=root)
+    _fresh_runner(root)
+    real_git = rc._git
+
+    def flaky_git(*args, **kw):
+        if args and args[0] == "show":
+            return (128, "fatal: unable to read object")
+        return real_git(*args, **kw)
+    monkeypatch.setattr(rc, "_git", flaky_git)
+
+    out = rc.poll_once(root=root)
+    assert "rejected=0" in out, f"transient failure must not reject: {out}"
+    ledger_p = root / "outputs" / "remote_consumed.json"
+    if ledger_p.exists():
+        ids = {e["id"] for e in json.loads(ledger_p.read_text("utf-8"))}
+        assert cid not in ids, \
+            "a transient read failure must not consume the command id"
+
+    # git recovers -> the SAME command forwards on the next poll
+    monkeypatch.setattr(rc, "_git", real_git)
+    assert rc.poll_once(root=root) == "applied=1 rejected=0"
+    assert len(list((root / "outputs" / "control").glob("cmd_*.json"))) == 1
+
+
 def test_ledger_written_before_forwarding(repos, monkeypatch):
     # at-most-once: the id must be in the ledger BEFORE ControlChannel.send
     # runs, so a crash inside send can never lead to a double-forward

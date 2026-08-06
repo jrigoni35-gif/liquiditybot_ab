@@ -172,6 +172,19 @@ class BotRunner:
         # gating on progress alone here would re-open the exact window C1
         # closed.
         self._last_progress_ts: Optional[float] = None
+        # ...but "unconditional" must still be BOUNDED (2026-08-05): a boot
+        # that never finishes would otherwise hold the lock forever and
+        # deadlock every replacement spawn. Startup gets its own grace,
+        # measured from process start, defaulting to twice the running
+        # stall bound - a normal engine build takes tens of seconds, so
+        # this only ever fires on a genuine hang.
+        self._proc_start_ts: float = time.time()
+        try:
+            self._hb_boot_grace = float(
+                _sys_cfg.get("lock_boot_max_stall_sec",
+                             self._hb_max_stall * 2.0))
+        except (TypeError, ValueError):
+            self._hb_boot_grace = self._hb_max_stall * 2.0
         self._hb_stall_logged = False
         self._hb_stop = threading.Event()
         self._hb_thread: Optional[threading.Thread] = None
@@ -435,7 +448,22 @@ class BotRunner:
         threads or timing."""
         last = self._last_progress_ts
         if last is None:
-            return True
+            # BOUNDED startup grace (round-2 fix 2026-08-05). This returned
+            # True unconditionally, so a boot that HANGS - engine
+            # construction does network I/O: feeds, corpus, model load -
+            # refreshed the lock forever while writing no status.json. The
+            # supervisor then saw stale status, spawned a replacement, and
+            # that replacement read a FRESH foreign heartbeat and exited 3,
+            # permanently: no trading and no self-heal until a human
+            # intervened. The stall bound that covers the running loop now
+            # covers the boot too, measured from process start, so a hung
+            # constructor eventually stops claiming the lock and the next
+            # spawn can take over. The bound is generous relative to a
+            # normal build, so an ordinary slow start is unaffected.
+            started = getattr(self, "_proc_start_ts", None)
+            if started is None:
+                return True
+            return (now - started) <= self._hb_boot_grace
         return (now - last) <= self._hb_max_stall
 
     def _stop_heartbeat(self) -> None:

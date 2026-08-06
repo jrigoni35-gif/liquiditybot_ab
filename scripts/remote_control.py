@@ -336,8 +336,23 @@ def _poll_locked(root: Path, now: float) -> str:
         rc, raw = _git("show",
                        f"{cfg['remote']}/{cfg['branch']}:{QUEUE_DIR}/{fname}",
                        cwd=root)
+        if rc != 0:
+            # TRANSIENT FETCH FAILURE IS NOT A BAD COMMAND (round-2 fix
+            # 2026-08-05). A failed `git show` - subprocess spawn failure
+            # (seen live 2026-07-21), an AV scan holding the object, git
+            # contention with the concurrent status-push/telemetry-backup
+            # children - used to produce payload=None, which validate_command
+            # rightly calls "payload is not an object" and the exactly-once
+            # ledger then makes PERMANENT. A one-off git hiccup silently and
+            # irreversibly dropped a live operator command that was still
+            # valid and fresh on the branch. Leave it UNLEDGERED so the next
+            # poll retries it; the command's own 30-minute expiry still
+            # bounds how long it can be retried.
+            _log(f"transient read failure for id {fid} (git rc={rc}) - "
+                 f"leaving it queued for the next poll", root=root)
+            continue
         try:
-            payload = json.loads(raw) if rc == 0 else None
+            payload = json.loads(raw)
         except json.JSONDecodeError:
             payload = None
         reason = validate_command(payload, fid, now)

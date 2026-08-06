@@ -259,9 +259,19 @@ def run(src: str, outputs: str, apply: bool,
                 return 3
             seen = {_row_key(d_header, ln) for ln in d_lines}
         for ln in b_lines:
-            if _row_key(b_header, ln) in seen:
+            key = _row_key(b_header, ln)
+            if key in seen:
                 dupes += 1
             else:
+                # add the accepted key to `seen` (round-2 fix 2026-08-05):
+                # the check only consulted rows already in the LOCAL file, so
+                # a bundle containing the same row twice - exactly what the
+                # duplicate-fills bug class produced - appended both copies.
+                # The corpus is append-only and later syncs see both rows as
+                # already present, so nothing heals it: the training row
+                # stays double-weighted forever, and corpus_sync --apply
+                # runs this unattended every hour.
+                seen.add(key)
                 new_lines.append(ln)
 
     h = manifest.get("history", {})

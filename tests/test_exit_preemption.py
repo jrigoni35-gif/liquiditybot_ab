@@ -140,7 +140,9 @@ def _ladder_fill(order, fill_size, attempts):
     fake = SimpleNamespace(
         state=SimpleNamespace(get_position=lambda pid: pos,
                               record_fees=lambda f: None),
-        capital=SimpleNamespace(record_realized_profit=lambda n, s: None),
+        capital=SimpleNamespace(
+            record_realized_profit=lambda n, s, **kw: None,
+            skim_trade=lambda n, s: None),
         _exit_attempts=dict(attempts), _pos_realized={},
         _ledger_fill=lambda *a, **k: None,   # record layer: no-op stub
         _px=lambda s, p: f"{p:.2f}",

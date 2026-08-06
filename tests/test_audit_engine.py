@@ -367,7 +367,8 @@ def _c2_bot(config_dry_run, tmp_path):
     b.fault.arm()
     b.state = PortfolioState(starting_capital=10_000.0)
     b.capital = types.SimpleNamespace(
-        record_realized_profit=lambda n, s: None)
+        record_realized_profit=lambda n, s, **kw: None,
+        skim_trade=lambda n, s: None)
     b._exit_attempts = {}
     b._pos_realized = {}
     b._ledger_fill = lambda *a, **k: None

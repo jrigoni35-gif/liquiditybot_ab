@@ -1517,6 +1517,19 @@ class LiquidityBot:
         stub-bot unit-test harnesses (this method predates a real bot
         always carrying self.config)."""
         asset = self._asset_of(pos.symbol)
+        # POOL SPLIT, once per TRADE, on the fully-net result (round-2
+        # finding 2026-08-05). Per-leg skimming funded locked savings and
+        # reserve from trades that ended up losing - and savings is never
+        # clawed back, so each of those was permanent. Guarded like every
+        # other close-path bookkeeping step: a pool-split failure must
+        # never block a close (CLAUDE.md invariant 5).
+        try:
+            _skim = getattr(self.capital, "skim_trade", None)
+            if callable(_skim):
+                _skim(total_net, self.state)
+        except Exception:                       # noqa: BLE001
+            log.exception("pool skim failed at close - position still "
+                          "finalized, pools unchanged")
         # SPB-R §1.5: probe-tagged closes feed the tuition governor's
         # trailing-24h clipped-loss window (both modes - warm-flip state;
         # self-guarded no-op on stub bots and non-probe closes).
@@ -1962,7 +1975,14 @@ class LiquidityBot:
                 pos.tier_closed = tf
             pos.fees_paid_usd += fee_delta
             self.state.record_fees(fee_delta)
-            self.capital.record_realized_profit(net, self.state)
+            # Settle CASH per leg (entry fees already left cash at fill
+            # time, so `net` is the right cash delta) but DEFER the pool
+            # split to trade close: skimming per winning LEG on this
+            # entry-fee-inclusive number funded locked savings/reserve out
+            # of trades that ended up losing, and with tiered exits that is
+            # the normal shape (round-2 finding 2026-08-05). The trade's
+            # fully-net result is skimmed once in _finalize_position.
+            self.capital.record_realized_profit(net, self.state, skim=False)
             self._pos_realized[pos.position_id] = \
                 self._pos_realized.get(pos.position_id, 0.0) + trade_net
             log.info(f"CLOSE {event.fill_size:.6f} {pos.symbol} @ "

@@ -246,7 +246,16 @@ def _replay_gate_passes(worktree: Path, py: str) -> bool:
 # after a grace window so the deploy actually lands. Disable with
 # LB_NO_FORCE_KILL_RESTART=1.
 _FORCE_KILL_STUCK = os.environ.get("LB_NO_FORCE_KILL_RESTART") != "1"
-_FORCE_KILL_AFTER_SEC = float(os.environ.get("LB_FORCE_KILL_AFTER_SEC", "45"))
+# 45 -> 150 (round-2 finding 2026-08-05). The runner consumes `stop` at the
+# TOP of its loop, so consumption latency is one full cycle - and runner.py
+# documents MEASURED cycle stalls of 88.1s, 55.5s, 50.2s, 48.4s and 47.8s
+# from real Kraken slowness. Every one of those exceeds a 45s grace, so a
+# deploy landing during a slow cycle taskkill'd a HEALTHY runner mid-cycle
+# (mid-fill, mid-audit-append: the audit_tail_truncations counter is the
+# fossil record). 150s clears the worst measured stall with margin while
+# staying well inside the runner's own 300s stall bound, so a genuinely
+# WEDGED runner - the case this escalation exists for - is still killed.
+_FORCE_KILL_AFTER_SEC = float(os.environ.get("LB_FORCE_KILL_AFTER_SEC", "150"))
 _FORCE_KILL_POLL_SEC = 5.0
 # W1-8: mirrors remote_control._runner_alive's freshness bound (scripts/
 # remote_control.py:253-256) — a lock is only trusted to name the LIVE
