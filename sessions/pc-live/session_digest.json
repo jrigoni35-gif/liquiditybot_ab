@@ -1,34 +1,34 @@
 {
-  "generated_at": 1786042944.476473,
+  "generated_at": 1786046545.7575455,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786042932.0,
-    "duration_h": 659.14
+    "end": 1786046537.0,
+    "duration_h": 660.14
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4936.41,
+    "equity_end": 4936.85,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -43.83,
     "fees_paid_total": 62.5724,
     "open_positions": 4,
-    "samples": 144372
+    "samples": 144609
   },
   "activity": {
-    "signal_rows_total": 9671,
+    "signal_rows_total": 9673,
     "live_labeled_trades": 301,
-    "candidate_rows": 9370
+    "candidate_rows": 9372
   },
   "audit": {
-    "records": 28968,
-    "signal_records": 26114,
+    "records": 28969,
+    "signal_records": 26115,
     "by_src": {
       "exploration": 25842,
-      "ml_governor": 1108,
+      "ml_governor": 1109,
       "order_manager": 987,
       "long_book": 292,
       "startup": 265,
@@ -54,7 +54,7 @@
       ],
       [
         "ML-031",
-        380
+        381
       ],
       [
         "SZ-051",
@@ -99,10 +99,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 19132,
+    "records": 20051,
     "by_level": {
-      "INFO": 19042,
-      "WARNING": 85,
+      "INFO": 19960,
+      "WARNING": 86,
       "CRITICAL": 5
     },
     "top_warnings": [
@@ -127,12 +127,12 @@
         3
       ],
       [
-        "ML-074: trailing 24h label prior 0.45 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
       ],
       [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
+        "ML-074: trailing 24h label prior 0.45 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+        3
       ],
       [
         "ML-074: trailing 24h label prior 0.47 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
@@ -148,11 +148,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 3346,
-      "spoofy": 2964
+      "thin": 3506,
+      "spoofy": 3129
     },
-    "spoofy_frac": 0.47,
-    "cycles_estimate": 2403,
+    "spoofy_frac": 0.472,
+    "cycles_estimate": 2522,
     "feed_error_events": 0
   },
   "model": {
@@ -195,7 +195,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 85% of 26114 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 85% of 26115 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
