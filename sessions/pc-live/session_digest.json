@@ -1,22 +1,22 @@
 {
-  "generated_at": 1786060953.7923808,
+  "generated_at": 1786064556.3238583,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786060948.0,
-    "duration_h": 664.15
+    "end": 1786064554.078,
+    "duration_h": 665.15
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4933.58,
+    "equity_end": 4934.94,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -43.84,
     "fees_paid_total": 64.1461,
     "open_positions": 5,
-    "samples": 145551
+    "samples": 145778
   },
   "activity": {
     "signal_rows_total": 9692,
@@ -24,15 +24,15 @@
     "candidate_rows": 9390
   },
   "audit": {
-    "records": 29013,
-    "signal_records": 26151,
+    "records": 29016,
+    "signal_records": 26154,
     "by_src": {
       "exploration": 25866,
-      "ml_governor": 1115,
+      "ml_governor": 1116,
       "order_manager": 997,
       "long_book": 292,
-      "startup": 266,
-      "fault": 245,
+      "startup": 267,
+      "fault": 246,
       "conviction": 77,
       "engine": 58,
       "circuit_breaker": 48,
@@ -54,7 +54,7 @@
       ],
       [
         "ML-031",
-        384
+        385
       ],
       [
         "SZ-051",
@@ -66,7 +66,7 @@
       ],
       [
         "CG-000",
-        266
+        267
       ],
       [
         "ML-072",
@@ -74,7 +74,7 @@
       ],
       [
         "FT-020",
-        245
+        246
       ],
       [
         "ML-041",
@@ -90,7 +90,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.852,
+    "dominant_frac": 0.851,
     "retrain_requests": 84,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -99,61 +99,60 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 24819,
+    "records": 309,
     "by_level": {
-      "INFO": 24710,
-      "WARNING": 103,
-      "CRITICAL": 5,
+      "INFO": 298,
+      "WARNING": 10,
       "ERROR": 1
     },
     "top_warnings": [
       [
-        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
-        10
+        "control: stop  -> ok (runner=RUNNING)",
+        1
+      ],
+      [
+        "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'AVAX/USD', 'LTC/USD']",
+        1
       ],
       [
         "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        5
+        1
       ],
       [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
+        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+        1
       ],
       [
-        "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD']",
-        4
+        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+        1
       ],
       [
-        "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        3
+        "config: give_back.arm_gain_pct=0.6% arms inside the break-even buffer (86bps) - the locked share of such small moves is fee noise",
+        1
       ],
       [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
+        "regime.momentum_bear_max=-0.3400 sits within 0.1667 of the achievable TSMOM level -0.3333 (3 lookbacks): the cut is decided by rounding, not",
+        1
       ],
       [
-        "ML-074: trailing 24h label prior 0.45 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
-        3
+        "op-state INIT -> ARMED (startup validation passed)",
+        1
       ],
       [
-        "ML-074: trailing 24h label prior 0.47 skews from corpus prior 0.20 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
-        2
+        "feed recording ON -> outputs\\recordings\\session_1786064016.jsonl (replay it with scripts/replay.py)",
+        1
       ],
       [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
+        "TH-016: ETH: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 4115,
-      "spoofy": 3772
+      "thin": 30,
+      "spoofy": 6
     },
-    "spoofy_frac": 0.478,
-    "cycles_estimate": 2989,
+    "spoofy_frac": 0.167,
+    "cycles_estimate": 16,
     "feed_error_events": 0
   },
   "model": {
@@ -196,7 +195,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 85% of 26151 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 85% of 26154 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
