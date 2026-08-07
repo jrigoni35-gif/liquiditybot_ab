@@ -141,13 +141,24 @@ def test_every_allowlist_entry_exists():
 @pytest.mark.parametrize("rel", [
     "ml/history.py",          # the 89-column training corpus
     "scripts/session_import.py",   # 3rd corpus writer, hourly + unattended
+    "scripts/corpus_sync.py",      # 2nd corpus writer (the recovery merge)
     "ml/postmortem.py",
     "ml/retrain_log.py",
     "data/context_engine.py",
+    "core/runtime.py",             # the equity series
+    "main.py",                     # the weekly/monthly period ledgers
 ])
 def test_the_data_writers_actually_use_the_primitive(rel):
     """Not just "no bare append" - these must positively call it, so
-    deleting the call is caught as well as replacing it."""
+    deleting the call is caught as well as replacing it.
+
+    scripts/corpus_sync.py is why this list is not merely the complement
+    of ALLOWED. ALLOWED is keyed per FILE, and corpus_sync is exempt for
+    its human-readable log at :57 while ALSO being the corpus's second
+    independent data appender at :160 - so the negative gate alone would
+    stay green if that data append regressed to a bare open(). The two
+    checks are complementary: ALLOWED says "this file may append without
+    the primitive", this list says "this file must ALSO still use it"."""
     src = (ROOT / rel).read_text(encoding="utf-8")
     assert "durable_append" in src, \
         f"{rel} must append through core.runtime.durable_append"

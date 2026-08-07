@@ -61,6 +61,22 @@ class HedgeEngine:
             total += sgn * pos.size * px
         return total
 
+    def _exposure_by_asset(self, state, marks: dict) -> dict:
+        """Signed SIGNAL-side USD exposure per asset (hedges excluded).
+        Extracted so the unwind test and the open condition read the same
+        book - they used to compute 'which asset matters' two different
+        ways and disagreed, which is what produced the open/unwind
+        thrash."""
+        by_asset: dict = {}
+        for pos in state.open_positions():
+            if getattr(pos, "is_hedge", False):
+                continue
+            a = self._asset_of(pos.symbol)
+            px = marks.get(pos.symbol) or pos.entry_price
+            sgn = 1.0 if pos.direction == "long" else -1.0
+            by_asset[a] = by_asset.get(a, 0.0) + sgn * pos.size * px
+        return by_asset
+
     def evaluate(self, state, marks: dict, equity: float, corr_state) -> list:
         if not self.enabled or equity <= EPS:
             return []
@@ -82,12 +98,33 @@ class HedgeEngine:
 
         hedges = [p for p in state.open_positions() if getattr(p, "is_hedge", False)]
 
+        # The SIGNAL-side concentration, computed once: the open path picks
+        # its hedge against the dominant exposed asset, and the unwind test
+        # below must ask about the SAME pair or the two paths disagree.
+        exposure = self._exposure_by_asset(state, marks)
+        dominant = (max(exposure, key=lambda a: abs(exposure[a]))
+                    if exposure else None)
+
         # --- unwind conditions ---
         for pos in hedges:
-            a, b = self._asset_of(pos.symbol), None
-            others = [x for x in assets if x != a]
-            b = others[0] if others else a
-            corr = abs(corr_state.corr(a, b)) if corr_state else 1.0
+            a = self._asset_of(pos.symbol)
+            # corr(DOMINANT EXPOSURE, this hedge's asset) - the exact
+            # quantity the open path gated on (see `corr` at the open
+            # condition below). It used to be corr(a, others[0]), i.e. the
+            # hedge asset against the first OTHER asset alphabetically,
+            # which is a different pair entirely and usually an unrelated
+            # one. Measured 2026-08-06: a hedge opened on corr(ETH,ADA) >=
+            # 0.55 was unwound one cycle later on corr(ADA,ARB) = 0.00,
+            # then re-opened because net delta was still over cap - 246
+            # fills and ~$143 of spread in 21 minutes, the same open/unwind
+            # thrash the signal_net comment above documents a PREVIOUS
+            # instance of. Two paths testing two different correlations is
+            # the general shape; asking the same question is the fix.
+            # No dominant exposure (signal book empty) means the hedge has
+            # nothing left to hedge - the "signal delta normalized" arm
+            # below owns that case, so correlation must not force it here.
+            corr = (abs(corr_state.corr(dominant, a))
+                    if corr_state and dominant and dominant != a else 1.0)
             if corr < self.min_corr:
                 actions.append(HedgeAction("unwind", a, pos.symbol, pos.direction,
                                            usd=pos.size * (marks.get(pos.symbol) or pos.entry_price),
@@ -104,15 +141,10 @@ class HedgeEngine:
         # --- open condition ---
         if abs(net) <= cap:
             return []
-        # exposure concentrated where? hedge with the other asset
-        by_asset = {}
-        for pos in state.open_positions():
-            if getattr(pos, "is_hedge", False):
-                continue
-            a = self._asset_of(pos.symbol)
-            px = marks.get(pos.symbol) or pos.entry_price
-            sgn = 1.0 if pos.direction == "long" else -1.0
-            by_asset[a] = by_asset.get(a, 0.0) + sgn * pos.size * px
+        # exposure concentrated where? hedge with the other asset. Same
+        # helper the unwind test above uses, so "which asset are we
+        # actually exposed to" has ONE definition in this file.
+        by_asset = self._exposure_by_asset(state, marks)
         if not by_asset:
             return []
         exposed = max(by_asset, key=lambda a: abs(by_asset[a]))
