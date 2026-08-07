@@ -1,36 +1,36 @@
 {
-  "generated_at": 1786132983.9576745,
+  "generated_at": 1786136586.271331,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786132976.0,
-    "duration_h": 684.16
+    "end": 1786136576.0,
+    "duration_h": 685.16
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4615.88,
+    "equity_end": 4615.44,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -208.22,
     "fees_paid_total": 382.2818,
     "open_positions": 3,
-    "samples": 150253
+    "samples": 150489
   },
   "activity": {
-    "signal_rows_total": 9764,
+    "signal_rows_total": 9767,
     "live_labeled_trades": 304,
-    "candidate_rows": 9460
+    "candidate_rows": 9463
   },
   "audit": {
-    "records": 31655,
-    "signal_records": 27830,
+    "records": 32054,
+    "signal_records": 28041,
     "by_src": {
-      "exploration": 27884,
+      "exploration": 28270,
       "order_manager": 1318,
-      "ml_governor": 1141,
-      "long_book": 340,
+      "ml_governor": 1142,
+      "long_book": 352,
       "startup": 270,
       "fault": 249,
       "exit": 208,
@@ -47,11 +47,11 @@
       ],
       [
         "ML-070",
-        3825
+        4013
       ],
       [
         "SZ-051",
-        1298
+        1491
       ],
       [
         "OM-000",
@@ -59,11 +59,11 @@
       ],
       [
         "ML-031",
-        401
+        402
       ],
       [
         "ML-072",
-        308
+        313
       ],
       [
         "OM-040",
@@ -91,7 +91,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.8,
+    "dominant_frac": 0.794,
     "retrain_requests": 87,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -100,10 +100,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 1978,
+    "records": 3756,
     "by_level": {
-      "INFO": 1965,
-      "WARNING": 12,
+      "INFO": 3742,
+      "WARNING": 13,
       "ERROR": 1
     },
     "top_warnings": [
@@ -149,11 +149,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 357,
-      "spoofy": 151
+      "thin": 693,
+      "spoofy": 312
     },
-    "spoofy_frac": 0.297,
-    "cycles_estimate": 156,
+    "spoofy_frac": 0.31,
+    "cycles_estimate": 274,
     "feed_error_events": 0
   },
   "model": {
@@ -190,13 +190,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=304, brier=n/a) yet retrain was requested 87x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 80% of the audit trail"
+      "detail": "model is cold (live training rows=304, brier=n/a) yet retrain was requested 87x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 79% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 80% of 27830 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 79% of 28041 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
