@@ -498,6 +498,11 @@ class StateStore:
                 # Persisting it without the lapse fields would silently
                 # re-create the 2026-07-14 stale-advice hole.
                 "monitor": bot.monitor.to_dict(),
+                # hedge churn-guard clocks/latches (2026-08-07): median PC
+                # uptime is 0.5h - an amnesiac cooldown resets every deploy.
+                # hasattr: QA harnesses snapshot stub bots without a hedger
+                "hedger": (bot.hedger.to_dict()
+                           if hasattr(bot, "hedger") else {}),
                 "postmortem": bot.postmortem.to_dict(),
                 "performance": bot.perf.to_dict()
                 if getattr(bot, "perf", None) is not None else {},
@@ -882,6 +887,11 @@ class StateStore:
             bot.monitor.restore(data.get("monitor"))
         except Exception:
             log.exception("monitor section malformed - skipped")
+        try:
+            if hasattr(bot, "hedger"):
+                bot.hedger.from_dict(data.get("hedger"))
+        except Exception:
+            log.exception("hedger churn-guard section malformed - skipped")
         try:
             bot.postmortem.restore(data.get("postmortem"))
         except Exception:

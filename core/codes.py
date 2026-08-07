@@ -47,6 +47,7 @@ class Code(str, Enum):
     FW_COLLAR_CLAMP = "FW-051"
     FW_EXIT_PRICE_SUB = "FW-052"
     FW_NO_REFERENCE = "FW-060"
+    FW_HEDGE_CHURN_LATCH = "FW-070"  # >=N hedge unwinds of one asset in the window: re-hedging frozen (opens only, auto-releases warm+window; 2026-08-07 ADA churn, -$318 in 147 laps)
     FW_FAULT_REJECT = "FW-090"
     FW_FAULT_DEGRADED = "FW-091"
 

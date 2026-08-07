@@ -2917,6 +2917,32 @@ def validate(config: dict) -> list:
     if not (0.0 < h_eq_frac <= 1.0):
         fatal(f"hedging.max_equity_frac={h_eq_frac} must be in (0, 1] - "
               f"a single hedge larger than equity is leverage in disguise")
+    # churn guards (2026-08-07 ADA churn, docs/quant/2026-08-07_ada_hedge_
+    # churn_HANDOFF.md deadlock discipline rule 4: size every window against
+    # the MEASURED restart cadence, median 0.5h / p90 4h)
+    h_min_samp = int(_f(config, "hedging.corr_min_samples", 12))
+    h_cool = float(_f(config, "hedging.rehedge_cooldown_sec", 900.0))
+    h_churn_n = int(_f(config, "hedging.churn_max_unwinds", 3))
+    h_churn_w = float(_f(config, "hedging.churn_window_sec", 900.0))
+    if not (2 <= h_min_samp <= 1000):
+        fatal(f"hedging.corr_min_samples={h_min_samp} must be in [2, 1000] - "
+              f"below 2 a cold EWMA's |rho|~1 artifact gates nothing; above "
+              f"1000 warmup exceeds any plausible uptime (p90 is 4h) and "
+              f"re-hedging deadlocks on a healthy book")
+    if not (0.0 <= h_cool <= 6 * 3600.0):
+        fatal(f"hedging.rehedge_cooldown_sec={h_cool} must be in [0, 21600] - "
+              f"a cooldown past 6h outlives the p90 uptime and degrades into "
+              f"'hedging off until the operator notices'")
+    if not (2 <= h_churn_n <= 100):
+        fatal(f"hedging.churn_max_unwinds={h_churn_n} must be in [2, 100] - "
+              f"1 would latch on every legitimate unwind")
+    if not (60.0 <= h_churn_w <= 24 * 3600.0):
+        fatal(f"hedging.churn_window_sec={h_churn_w} must be in [60, 86400]")
+    if h_cool >= h_churn_w:
+        fatal(f"hedging.rehedge_cooldown_sec ({h_cool}) must be BELOW "
+              f"churn_window_sec ({h_churn_w}) - with the cooldown at/past "
+              f"the latch window the rate-latch can never observe enough "
+              f"unwinds to fire and the backstop is structurally dead")
 
     # --- exploration coherence: a DRY-RUN learning entry bumps p_win to
     # exploration.p_win for SIZING; if that sits at/below the net-Kelly

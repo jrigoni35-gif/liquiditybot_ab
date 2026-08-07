@@ -2158,8 +2158,11 @@ class LiquidityBot:
             # take_deferred() was written for exactly this caller and had
             # none; each event goes through the SAME _handle_fill path poll()
             # would use, so the single-application invariant holds.
-            _late = getattr(self.orders, "take_deferred", None)
-            if callable(_late):
+            # callable() narrows to a callable returning bare `object`;
+            # declare the seam's shape so the iteration type-checks
+            _late: "Callable[[], list] | None" = getattr(
+                self.orders, "take_deferred", None)
+            if _late is not None:
                 for _ev in _late():
                     try:
                         self._handle_fill(_ev, now)
@@ -2619,7 +2622,7 @@ class LiquidityBot:
 
     def _hedge_actions(self, now: float, equity: float) -> None:
         for act in self.hedger.evaluate(self.state, self.marks, equity,
-                                        self.corr.state):
+                                        self.corr.state, now=now):
             if act.kind == "unwind":
                 pos = self.state.get_position(act.position_id)
                 if pos:

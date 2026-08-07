@@ -15,6 +15,9 @@ or correlation breaks.
 
 import logging
 from dataclasses import dataclass
+from typing import Callable
+
+from core.codes import Code
 
 log = logging.getLogger("liquiditybot.execution.hedging")
 
@@ -45,7 +48,79 @@ class HedgeEngine:
         # Lifted to config (identical defaults) per overfit discipline.
         self.beta_floor = float(cfg.get("beta_floor", 0.1))
         self.max_equity_frac = float(cfg.get("max_equity_frac", 0.5))
+        # 2026-08-07 churn fix (docs/quant/2026-08-07_ada_hedge_churn_
+        # HANDOFF.md): three guards on the OPEN side only - the unwind is
+        # never gated (invariant 5; the -$318 came from RE-OPENING 147
+        # times against a cold estimator, not from closing).
+        #   corr_min_samples     open needs this many EWMA observations
+        #                        behind the pair's rho (a 2-sample EWMA
+        #                        reads |rho|~1; a missing pair reads 0.0 -
+        #                        the churn flapped between exactly those)
+        #   rehedge_cooldown_sec after ANY unwind of asset A, no new
+        #                        hedge on A for this long
+        #   churn_max_unwinds /  >= N unwinds of one asset inside the
+        #   churn_window_sec     window latches it (FW-070, opens only)
+        #                        and AUTO-releases on warm + window
+        #                        elapsed - the release depends on time
+        #                        and evidence, never on the gated action
+        self.corr_min_samples = int(cfg.get("corr_min_samples", 12))
+        self.rehedge_cooldown_sec = float(
+            cfg.get("rehedge_cooldown_sec", 900.0))
+        self.churn_max_unwinds = int(cfg.get("churn_max_unwinds", 3))
+        self.churn_window_sec = float(cfg.get("churn_window_sec", 900.0))
+        # restart state - persisted via to_dict/from_dict (median PC
+        # uptime is 0.5h; an amnesiac cooldown would reset every deploy)
+        self._last_unwind: dict = {}     # asset -> ts of last unwind emit
+        self._unwind_ts: dict = {}       # asset -> recent unwind ts list
+        self._latched: dict = {}         # asset -> latch ts (FW-060)
         self.symbol_map = symbol_map   # asset -> Kraken symbol
+
+    # ---- churn-guard restart state (rides the snapshot) -----------------
+    def to_dict(self) -> dict:
+        return {"last_unwind": dict(self._last_unwind),
+                "unwind_ts": {a: list(v) for a, v in self._unwind_ts.items()},
+                "latched": dict(self._latched)}
+
+    def from_dict(self, d: "dict | None") -> None:
+        d = d or {}
+        self._last_unwind = {str(a): float(t)
+                             for a, t in (d.get("last_unwind") or {}).items()}
+        self._unwind_ts = {str(a): [float(t) for t in v]
+                           for a, v in (d.get("unwind_ts") or {}).items()}
+        self._latched = {str(a): float(t)
+                         for a, t in (d.get("latched") or {}).items()}
+
+    def _record_unwind(self, asset: str, now: float) -> None:
+        self._last_unwind[asset] = now
+        w = [t for t in self._unwind_ts.get(asset, [])
+             if now - t <= self.churn_window_sec]
+        w.append(now)
+        self._unwind_ts[asset] = w
+        if len(w) >= self.churn_max_unwinds and asset not in self._latched:
+            self._latched[asset] = now
+            log.warning(
+                "%s: hedge churn latch - %d unwinds of %s inside %.0fs; "
+                "re-hedging frozen until estimator warm + %.0fs elapsed "
+                "(unwinds stay allowed)", Code.FW_HEDGE_CHURN_LATCH.value,
+                len(w), asset, self.churn_window_sec, self.churn_window_sec)
+
+    def _open_blocked(self, asset: str, warm: bool, now: float) -> "str | None":
+        """None = open allowed; else the (logged-by-caller) block reason.
+        BLOCKS OPENS ONLY - never consulted on the unwind path. `warm` is
+        computed by the caller for the exact pair the open would gate on."""
+        latch_ts = self._latched.get(asset)
+        if latch_ts is not None:
+            if now - latch_ts >= self.churn_window_sec and warm:
+                del self._latched[asset]     # auto-release, logged below
+                log.warning("%s: hedge churn latch RELEASED for %s "
+                            "(window elapsed, estimator warm)",
+                            Code.FW_HEDGE_CHURN_LATCH.value, asset)
+            else:
+                return "churn-latched"
+        last = self._last_unwind.get(asset)
+        if last is not None and now - last < self.rehedge_cooldown_sec:
+            return "re-hedge cooldown"
+        return None
 
     @staticmethod
     def _asset_of(symbol: str) -> str:
@@ -77,7 +152,12 @@ class HedgeEngine:
             by_asset[a] = by_asset.get(a, 0.0) + sgn * pos.size * px
         return by_asset
 
-    def evaluate(self, state, marks: dict, equity: float, corr_state) -> list:
+    def evaluate(self, state, marks: dict, equity: float, corr_state,
+                 now: float = 0.0) -> list:
+        """`now` (2026-08-07): the churn guards' clock, threaded from the
+        cycle so replay stays deterministic. The 0.0 default preserves
+        every legacy caller: with no unwinds ever recorded, every guard
+        is a no-op at now=0."""
         if not self.enabled or equity <= EPS:
             return []
         actions = []
@@ -136,6 +216,9 @@ class HedgeEngine:
                                         position_id=pos.position_id,
                                         reason="signal delta normalized"))
         if actions:
+            for act in actions:
+                if act.kind == "unwind":
+                    self._record_unwind(act.asset, now)
             return actions
 
         # --- open condition ---
@@ -152,6 +235,25 @@ class HedgeEngine:
         if not others:
             return []
         hedge_asset = others[0]
+        # ---- churn guards (2026-08-07): OPENS only, exits untouched ----
+        warm = True
+        # typing note: callable() narrows to a callable returning bare
+        # `object`, so declare the duck-typed seam's real shape instead -
+        # a stub without pair_samples resolves to None (legacy: warm)
+        ps: "Callable[[str, str], int] | None" = getattr(
+            corr_state, "pair_samples", None)
+        if ps is not None:
+            warm = int(ps(exposed, hedge_asset)) >= self.corr_min_samples
+        if not warm:
+            log.info("hedge open skipped: corr(%s,%s) has insufficient "
+                     "evidence (< %d samples) - a cold EWMA reads |rho|~1 "
+                     "or 0.0 and both are artifacts", exposed, hedge_asset,
+                     self.corr_min_samples)
+            return []
+        blocked = self._open_blocked(hedge_asset, warm, now)
+        if blocked:
+            log.info("hedge open skipped for %s: %s", hedge_asset, blocked)
+            return []
         excess = abs(net) - band
 
         # ---- trim-over-hedge: if the book already holds the hedge asset on

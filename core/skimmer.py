@@ -174,7 +174,7 @@ class AssetSkimmer:
             if not isinstance(rec, dict):
                 continue
             try:
-                score = float(rec.get("score"))
+                score = float(rec.get("score") or 0.0)
             except (TypeError, ValueError):
                 continue
             if score == score and 0.0 <= score <= 1.0:      # finite, in range

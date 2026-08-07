@@ -386,7 +386,12 @@
     "min_hedge_correlation": 0.55,
     "min_hedge_usd": 15,
     "beta_floor": 0.1,
-    "max_equity_frac": 0.5
+    "max_equity_frac": 0.5,
+    "corr_min_samples": 12,
+    "rehedge_cooldown_sec": 600,
+    "churn_max_unwinds": 3,
+    "churn_window_sec": 900,
+    "_churn_doc": "2026-08-07 ADA churn (-$318/25min, 147 laps): a COLD EWMA reads |rho|~1 or 0.0, both artifacts, and the open/unwind pair flapped on them every 10s. corr_min_samples gates OPENS on evidence (12 update ticks - reachable well inside the 0.5h median uptime; unwinds are NEVER gated, invariant 5). rehedge_cooldown_sec blocks re-opening an unwound asset. churn_max_unwinds/{window} latches the asset (FW-070, opens only) and AUTO-releases warm+window - release never depends on the gated action (deadlock discipline, see the HANDOFF doc)."
   },
   "markout": {
     "enabled": true,

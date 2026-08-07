@@ -36,9 +36,28 @@ class CorrState:
     turbulence: float = 0.0
     turbulence_pct: float = 50.0
     shifted: bool = False                            # any |shift| beyond threshold
+    # per-asset EWMA observation counts (2026-08-07 hedge-churn fix): the
+    # evidence-quality signal hedging's open gate reads. EMPTY dict =
+    # "warmth untracked" - the legacy state every pre-existing caller,
+    # stub and restored snapshot constructs - and pair_samples then
+    # reports warm-assumed so their behavior stays byte-identical.
+    # Populated by CorrelationEngine.update_intraday with real counts.
+    samples: dict = field(default_factory=dict)
+
+    _WARM_ASSUMED = 10**9      # legacy sentinel: warmth was never tracked
 
     def corr(self, a: str, b: str) -> float:
         return self.corr_fast.get((a, b), self.corr_fast.get((b, a), 0.0))
+
+    def pair_samples(self, a: str, b: str) -> int:
+        """Observations backing corr(a, b) = min of the two assets'
+        counts. A 2-sample EWMA reads |rho|~1 and a missing pair reads
+        0.0 - BOTH are artifacts (the 2026-08-07 churn oscillated
+        between exactly those two states), so consumers gate on this
+        count, never on the rho value's plausibility."""
+        if not self.samples:
+            return self._WARM_ASSUMED
+        return min(int(self.samples.get(a, 0)), int(self.samples.get(b, 0)))
 
     def beta(self, a: str, b: str) -> float:
         return self.betas.get((a, b), 0.0)
@@ -201,6 +220,8 @@ class CorrelationEngine:
             self.fast.update(rets)
             self.slow.update(rets)
             st = self.state
+            for a in rets:
+                st.samples[a] = int(st.samples.get(a, 0)) + 1
             st.corr_fast.clear()
             st.corr_slow.clear()
             st.corr_shift.clear()
