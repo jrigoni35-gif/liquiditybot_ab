@@ -102,20 +102,58 @@ def test_a_genuinely_decorrelated_hedge_is_still_unwound():
                for a in actions), "a truly decorrelated hedge must unwind"
 
 
-def test_open_and_unwind_agree_across_repeated_evaluations():
-    """The actual money bug: run the same book many times and the hedger
-    must reach a STEADY STATE rather than alternating open/unwind."""
+def _run_loop(h, state, corr, cycles=25):
+    """Drive the hedger the way the runner does: evaluate, APPLY the
+    actions to the book, evaluate again. Returns the fills it generated.
+
+    The first version of this test evaluated a book it never mutated and
+    asserted the decision set was stable - which is true of ANY pure
+    function of an unchanging input, so it passed against the buggy engine
+    and proved nothing. Caught in review 2026-08-06. Applying the actions
+    is the whole point: the thrash only exists across cycles."""
+    fills = []
+    for _ in range(cycles):
+        for a in h.evaluate(state, MARKS, equity=5000.0, corr_state=corr):
+            fills.append(a.kind)
+            if a.kind == "open":
+                state._p.append(_pos(a.symbol, a.direction,
+                                     a.usd / MARKS[a.symbol],
+                                     MARKS[a.symbol], is_hedge=True,
+                                     pid=f"h{len(state._p)}"))
+            elif a.kind == "unwind":
+                state._p = [p for p in state._p
+                            if p.position_id != a.position_id]
+            elif a.kind == "trim":
+                state._p = [p for p in state._p
+                            if p.position_id != a.position_id]
+    return fills
+
+
+def test_the_hedger_converges_instead_of_churning():
+    """THE MONEY BUG, driven as a loop. Production opened and unwound 147
+    times on a book that never changed; a correct engine reaches a steady
+    state and stops trading."""
     h = _hedger()
-    state = _State([
-        _pos("ETH/USD", "long", 1.0, 2000.0, pid="signal"),
-        _pos("ADA/USD", "short", 2500.0, 0.20, is_hedge=True, pid="hedge"),
-    ])
-    seen = set()
-    for _ in range(25):
-        acts = h.evaluate(state, MARKS, equity=5000.0, corr_state=CORR)
-        seen.add(tuple(sorted((a.kind, a.reason[:24]) for a in acts)))
-    assert len(seen) == 1, \
-        f"hedger oscillates between decisions on a static book: {seen}"
+    # ETH long large enough that net delta exceeds the 20%-of-equity cap,
+    # so the open condition genuinely fires on cycle 1.
+    state = _State([_pos("ETH/USD", "long", 1.0, 2000.0, pid="signal")])
+    fills = _run_loop(h, state, CORR, cycles=25)
+    assert fills.count("open") <= 1, (
+        f"hedger re-opened {fills.count('open')} times over 25 cycles - "
+        f"this is the churn: {fills[:8]}")
+    assert fills.count("unwind") == 0, \
+        "a hedge it just opened, on a book that did not move, was unwound"
+
+
+def test_a_cold_correlation_matrix_does_not_churn_either():
+    """The live trigger: a fresh process reads 0.00 for every pair. The
+    old engine opened on one reading and unwound on another; either
+    behaviour is acceptable here as long as it does not OSCILLATE."""
+    h = _hedger()
+    state = _State([_pos("ETH/USD", "long", 1.0, 2000.0, pid="signal")])
+    fills = _run_loop(h, state, _Corr({}), cycles=25)
+    assert fills.count("open") <= 1 and fills.count("unwind") == 0, \
+        f"cold correlation matrix produces churn: {fills[:8]}"
 
 
 def test_exposure_helper_excludes_hedges_and_is_shared():
