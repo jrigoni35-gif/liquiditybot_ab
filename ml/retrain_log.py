@@ -8,7 +8,8 @@ size over time, audit every promotion and rejection. Capture-only.
 """
 import json
 import logging
-from pathlib import Path
+
+from core.runtime import durable_append
 
 log = logging.getLogger("liquiditybot.ml.retrain_log")
 
@@ -52,12 +53,12 @@ def retrain_record(now: float, source: str, results: dict, n_rows: int,
 
 
 def append_retrain(path, record: dict) -> None:
-    """Append one JSONL row; never raises into the retrain path."""
-    try:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, sort_keys=True) + "\n")
-    except OSError:
-        log.exception("retrain history append failed - row lost, "
-                      "retrain unaffected")
+    """Append one JSONL row; never raises into the retrain path.
+
+    durable_append heals a torn tail (a kill mid-write otherwise welds the
+    fragment to the NEXT record and json.loads then drops both) and fsyncs.
+    Reproduced on this file 2026-08-06: one kill destroyed 2 retrain
+    records."""
+    line = json.dumps(record, sort_keys=True) + "\n"
+    durable_append(path, lambda f: f.write(line), newline="\n",
+                   torn_sep="\n")

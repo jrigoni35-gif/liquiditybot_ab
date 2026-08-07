@@ -50,7 +50,7 @@ from core.sanitize import safe_float
 from core.precision import fmt_price, price_decimals as _price_decimals
 from core.state import PortfolioState, Position
 from core.persistence import StateStore
-from core.runtime import SimOverrides
+from core.runtime import SimOverrides, durable_append
 from core.alerts import AlertSink
 from core.fault import FaultManager, Severity
 from core.config_guard import enforce as enforce_config
@@ -157,17 +157,20 @@ _GOAL_COLS = ["goal", "hit", "category", "attainment_pct", "shortfall_usd",
 
 
 def _append_period_ledger(path: Path, row: dict, cols: list) -> None:
-    """Append one period-close row to a pool/goal ledger (header on create,
-    UTF-8, atomic-enough: single append write). Fixed column order so the
-    file stays machine-readable as the summary dict grows - callers pass
-    the column order for their period (weekly vs monthly)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    new_file = not path.exists()
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        if new_file:
-            w.writerow(cols)
-        w.writerow([row.get(c, "") for c in cols])
+    """Append one period-close row to a pool/goal ledger (header on create
+    OR on a zero-length file, UTF-8, torn-tail-healed, fsynced). Fixed
+    column order so the file stays machine-readable as the summary dict
+    grows - callers pass the column order for their period (weekly vs
+    monthly).
+
+    This was the only append-only writer in the repo with NO error
+    handling at all: an OSError propagated straight into the period-close
+    path, so an unwritable outputs/ could abort a weekly/monthly roll.
+    durable_append returns False instead (CLAUDE.md invariant 5:
+    bookkeeping never breaks the action it records)."""
+    durable_append(path, lambda f: csv.writer(f).writerow(
+        [row.get(c, "") for c in cols]),
+        header=",".join(cols) + "\r\n")
 
 
 def exit_in_flight(open_orders: list, position_id: str) -> bool:
@@ -4352,8 +4355,12 @@ class LiquidityBot:
                                              and manip_scale >= 1.0 - 1e-9))
             if not sized.approved:
                 self._log_sizer_veto(asset, sized.reasons, explored)
+                # No pre-truncation: mark_disposition owns the cap
+                # (DISPOSITION_MAX_CHARS). Slicing to 40 here cut through
+                # the '[bracket pt=..% sl=..%]' payload the sizer had just
+                # computed - see mark_disposition for the corpus measurement.
                 self._mark_cand(asset, signal.direction,
-                                str((sized.reasons or ["sizer"])[0])[:40])
+                                str((sized.reasons or ["sizer"])[0]))
                 continue
 
             # AS quote prices the entry; maker side of our own quote
@@ -4406,7 +4413,7 @@ class LiquidityBot:
             if not decision.approved:
                 log.info(f"[{asset}] pre-trade veto: {decision.reasons}")
                 self._mark_cand(asset, signal.direction,
-                                str((decision.reasons or ["pretrade"])[0])[:40])
+                                str((decision.reasons or ["pretrade"])[0]))
                 continue
 
             # geometry-alignment T5 (spec D1): "the traded bet is the
@@ -4431,8 +4438,7 @@ class LiquidityBot:
                 # treated exactly like an ordinary sizer veto.
                 self._log_sizer_veto(asset, bracket_veto_reasons, explored)
                 self._mark_cand(asset, signal.direction,
-                                str((bracket_veto_reasons or
-                                    ["sizer"])[0])[:40])
+                                str((bracket_veto_reasons or ["sizer"])[0]))
                 continue
             sized = bracket_sized
 

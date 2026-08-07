@@ -314,6 +314,16 @@ class Code(str, Enum):
     #   Report-only: never gates an entry/exit/size decision, never
     #   reweights a row - the divergence itself is what D4's cost model
     #   is judged against, not the other way around.
+    ML_UNLABELED_CLOSE = "ML-084"  # a position closed with NO pending
+    #   feature vector, so no training row was written. log_close's
+    #   `if entry is None: return` was the one exit in the whole write
+    #   path with no log line and no counter, which made ground-truth
+    #   attrition invisible: resolving a suspected 10.9% hole on
+    #   2026-08-06 required forensic reconstruction from fills.csv
+    #   because the corpus itself emitted no signal (it turned out to be
+    #   34 quarantined QA fills plus 3 legitimate FEATURE_SCHEMA_VERSION
+    #   drops - i.e. nothing was wrong, and that took hours to establish).
+    #   Report-only: the close itself is unaffected.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

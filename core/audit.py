@@ -164,6 +164,17 @@ class AuditTrail:
             except (OSError, TypeError, ValueError):
                 self.dropped += 1
                 self._seq -= 1
+                # Re-arm the tail adoption (2026-08-06). An OSError can fire
+                # PART-WAY THROUGH f.write, leaving orphan bytes with no
+                # newline; _synced was already True, so no later log() ever
+                # re-adopted and the next append WELDED onto that fragment.
+                # Once further records followed, verify_chain saw a break
+                # with tail_after_break > 0 -> torn=False -> tamper=True,
+                # PERMANENTLY: crash damage presenting as tampering on the
+                # regulated trail of record. _adopt_tail already truncates a
+                # torn/malformed final line, so re-arming it heals the
+                # fragment on the next write instead of fusing onto it.
+                self._synced = False
                 log.error("AUDIT WRITE FAILED (dropped=%d) - trail has a hole; "
                           "investigate disk or payload", self.dropped)
                 return 0

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from core.codes import Code, tag
+from core.runtime import durable_append
 from core.sanitize import loads_bounded
 
 log = logging.getLogger("liquiditybot.data.context_engine")
@@ -776,12 +777,20 @@ class ContextFeed:
             "raw": {"dff": dff, "t10y2y": t10y2y, "vix": vix,
                     "cot_net": cot_net, "stable_total": stable_total},
         }
-        try:
-            self._history_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._history_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(payload) + "\n")
-        except OSError as e:
-            log.warning(f"context PIT append failed (telemetry only): {e}")
+        # durable_append heals a torn tail and fsyncs. This file's own PIT
+        # contract ("never re-fetch", above) makes a fused snapshot
+        # PERMANENTLY unrecoverable by design - there is no second chance to
+        # re-read a point-in-time macro reading - so it is the append whose
+        # loss is least reversible even though its cadence is the lowest.
+        line = json.dumps(payload) + "\n"
+        if not durable_append(self._history_path, lambda f: f.write(line),
+                              newline="\n", torn_sep="\n"):
+            # durable_append logs the OSError generically under
+            # liquiditybot.runtime; keep the CONTEXT-scoped line too, so an
+            # operator grepping for this subsystem still finds it and knows
+            # the loss is telemetry-only rather than a decision failure.
+            log.warning("context PIT append failed (telemetry only) - "
+                        "snapshot lost, regime state unaffected")
 
     # ---- transition-only audit logging -----------------------------------
 

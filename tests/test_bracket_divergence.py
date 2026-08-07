@@ -86,7 +86,8 @@ def _close(hs, pid, seed, net_pnl_usd, barrier="tb_pt", pt_frac=0.0,
 def test_summary_empty_before_any_bracket_close(tmp_path):
     hs = _store(tmp_path)
     assert hs.bracket_divergence_summary() == {
-        "n": 0, "agree_rate": None, "mean_abs_ret_delta_pct": None}
+        "n": 0, "n_priced": 0, "agree_rate": None,
+        "mean_abs_ret_delta_pct": None}
 
 
 def test_tb_pt_close_within_tolerance_counts_agree(tmp_path):
@@ -113,17 +114,31 @@ def test_tb_sl_close_outside_tolerance_counts_disagree(tmp_path):
     assert s["mean_abs_ret_delta_pct"] == pytest.approx(1.05, abs=1e-6)
 
 
-def test_tb_time_close_always_agrees_by_construction(tmp_path):
+def test_tb_time_close_is_counted_but_never_priced(tmp_path):
     """tb_time has no fixed barrier distance to diverge from — the
-    counterfactual IS the realized return, so delta is always 0
-    regardless of pt_frac/sl_frac/cost_pct/the realized number itself."""
+    counterfactual IS the realized return, so delta is always 0 regardless
+    of pt_frac/sl_frac/cost_pct/the realized number itself.
+
+    THIS TEST PREVIOUSLY ASSERTED agree_rate == 1.0, i.e. it pinned the
+    tautology as intended behaviour. It was correct about the mechanism
+    and wrong about what should be PUBLISHED. Measured 2026-08-06 over the
+    instrument's whole production lifetime: 33 of 35 records (94.3%) were
+    tb_time, so the agree_rate reaching Grafana was 1.0000 and 94%
+    arithmetically incapable of being anything else — a gauge that could
+    only ever read "perfect". A tb_time close is still a real bracket
+    close and still counts toward `n`; it just cannot contribute evidence
+    about whether the traded bet resolved where the label says it should,
+    so it is excluded from `n_priced` and from the rate computed over it.
+    """
     hs = _store(tmp_path)
     _close(hs, "p1", 1, net_pnl_usd=-37.5, barrier="tb_time", pt_frac=0.05,
           sl_frac=0.05, entry_usd=1000.0, cost_pct=0.20)
     s = hs.bracket_divergence_summary()
-    assert s["n"] == 1
-    assert s["agree_rate"] == pytest.approx(1.0)
-    assert s["mean_abs_ret_delta_pct"] == pytest.approx(0.0, abs=1e-9)
+    assert s["n"] == 1, "the close itself is still recorded"
+    assert s["n_priced"] == 0
+    assert s["agree_rate"] is None, \
+        "a definitional agreement must not publish as a measured 1.0"
+    assert s["mean_abs_ret_delta_pct"] is None
 
 
 def test_non_bracket_barrier_never_recorded(tmp_path):

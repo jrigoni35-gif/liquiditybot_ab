@@ -121,6 +121,7 @@ def recover_local_baks(root: Path = ROOT) -> str:
     if not baks:
         return "no_baks"
     sys.path.insert(0, str(ROOT))
+    from core.runtime import durable_append
     from ml.history import HistoryStore
     from scripts.migrate_history import migrate_rows
     import csv as _csv
@@ -143,13 +144,21 @@ def recover_local_baks(root: Path = ROOT) -> str:
                 existing = {r.get("position_id")
                             for r in _csv.DictReader(f)}
         written = 0
-        with open(dest, "a", newline="", encoding="utf-8") as f:
-            w = _csv.writer(f)
-            for row in rows:
-                if row[0] in existing:
-                    continue
-                w.writerow(row)
-                written += 1
+        fresh = [row for row in rows if row[0] not in existing]
+        if fresh:
+            # SECOND writer to the training corpus (the runner's
+            # HistoryStore._append_row is the first). Two independent
+            # appenders with no torn-tail heal is exactly the seam that
+            # produced SD-007 on the audit chain: whichever process is
+            # killed mid-row, the other one welds onto the fragment and
+            # BOTH labelled outcomes are lost. One probe per OPEN here,
+            # not per row - the whole recovery batch is a single append.
+            def _emit(f, batch=fresh):
+                w = _csv.writer(f)
+                for row in batch:
+                    w.writerow(row)
+            if durable_append(dest, _emit):
+                written = len(fresh)
         total += written
         try:
             bak.rename(bak.with_name(bak.name + ".recovered"))

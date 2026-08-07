@@ -113,6 +113,73 @@ def atomic_write_json(path: Path, payload: dict, _retries: int = 6):
         Path(tmp).unlink(missing_ok=True)
 
 
+def durable_append(path, render, *, header: str = "", newline: str = "",
+                   torn_sep: str = "\r\n", fsync: bool = True) -> bool:
+    """Append ONE record so a hard kill cannot fuse it with the previous.
+
+    THE DEFECT THIS EXISTS TO PREVENT, observed three times before this
+    helper existed (core/fill_ledger.py, ml/registry.py, and the
+    2026-08-06 sweep that found the same shape in seven more writers): a
+    kill mid-append - auto_update's `taskkill /F` (scripts/auto_update.py),
+    or power loss - leaves a final line with no trailing newline. The next
+    append concatenates onto that fragment, welding two records into one
+    malformed line, and the reader drops BOTH. One kill destroys the torn
+    record AND the next good one.
+
+    The append-mode sibling of atomic_write_json above: same durability
+    contract, same never-raise discipline, for the file that grows a
+    record at a time instead of being republished whole.
+
+    Three guarantees, in the order they matter:
+
+    1. SIZE-0 COUNTS AS NEW. A kill in the create-to-first-flush window
+       leaves a zero-length file; appending a data row to it without the
+       header makes csv.DictReader silently adopt the first RECORD as the
+       column names, and every consumer then misparses the whole file with
+       no error at all. `not path.exists()` alone does not catch this.
+    2. A TORN TAIL IS ISOLATED, NEVER REPAIRED. Writing `torn_sep` first
+       leaves the fragment as its own junk line that CSV/JSONL readers
+       skip, and the new record lands intact beside it. Repair would have
+       to invent the missing bytes; isolation loses exactly the one record
+       the kill already destroyed, and no more.
+    3. FSYNC bounds the torn window to the single record being written,
+       instead of everything since the last OS flush.
+
+    `render(f)` writes the record to the open handle - `csv.writer(f)
+    .writerow(...)` for CSV callers, `f.write(json.dumps(rec) + "\\n")`
+    for JSONL. `header` is written only when the file is new/empty, and
+    must carry its own terminator. `newline=""` is the csv module's
+    required setting; JSONL callers pass newline="\\n".
+
+    Returns True when the record landed, False on OSError. Never raises:
+    every call site is bookkeeping on a path where the trade, decision or
+    disposition has ALREADY happened, and losing a log row must never
+    unwind it (CLAUDE.md invariant 5)."""
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        new_file = not path.exists() or path.stat().st_size == 0
+        torn = False
+        if not new_file:
+            with open(path, "rb") as rf:
+                rf.seek(-1, os.SEEK_END)
+                torn = rf.read(1) != b"\n"
+        with open(path, "a", newline=newline, encoding="utf-8") as f:
+            if torn:
+                f.write(torn_sep)          # isolate the torn fragment
+            if new_file and header:
+                f.write(header)
+            render(f)
+            f.flush()
+            if fsync:
+                os.fsync(f.fileno())
+        return True
+    except OSError:
+        log.exception("durable append failed (%s) - record lost, the "
+                      "action it describes is unaffected", path)
+        return False
+
+
 def read_json(path: Path):
     """Best-effort UTF-8 JSON read: the parsed payload, or None on any
     OS/parse error (never raises - readers must not wedge on a torn file)."""
@@ -432,9 +499,11 @@ class StatusWriter:
         self.equity_path = Path(equity_path)
         self._last_equity_ts = 0.0
         self._write_fails = 0        # consecutive status-write losses
-        if not self.equity_path.exists():
-            self.equity_path.parent.mkdir(parents=True, exist_ok=True)
-            self.equity_path.write_text("ts,equity,daily_pnl\n", encoding="utf-8")
+        # Header creation is now durable_append's job (it treats a
+        # zero-length file as new), so a kill in the create-to-first-flush
+        # window can no longer leave a headerless equity.csv that readers
+        # parse with the first SAMPLE as their column names.
+        self.equity_path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, payload: dict, now: float | None = None):
         """Publish the status snapshot atomically (MUTATES payload: adds
@@ -464,9 +533,14 @@ class StatusWriter:
                             "cycle rewrites", self._write_fails)
         if now - self._last_equity_ts >= 15.0:
             self._last_equity_ts = now
-            try:
-                with open(self.equity_path, "a", encoding="utf-8") as f:
-                    f.write(f"{now:.0f},{payload.get('equity', 0):.2f},"
-                            f"{payload.get('daily_pnl', 0):.2f}\n")
-            except OSError:
-                pass
+            # Highest write frequency of any append-only file in the repo
+            # (every 15s, ~5,760 rows/day), so it has the widest exposure
+            # window to auto_update's taskkill. fsync=False: the payload is
+            # a dense redundant time series where one interpolatable sample
+            # is not worth an fsync 5,760 times a day - the torn-tail heal
+            # and the size-0 header guard are what matter here.
+            line = (f"{now:.0f},{payload.get('equity', 0):.2f},"
+                    f"{payload.get('daily_pnl', 0):.2f}\n")
+            durable_append(self.equity_path, lambda f: f.write(line),
+                           header="ts,equity,daily_pnl\n", newline="\n",
+                           torn_sep="\n", fsync=False)

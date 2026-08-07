@@ -48,7 +48,17 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core.runtime import durable_append
+
 log = logging.getLogger("liquiditybot.ml.postmortem")
+
+# Summary CSV column order. Named once so the header written at file
+# creation and the row written at append time cannot drift apart - they
+# used to be two separate literal lists in two different methods.
+SUMMARY_COLS = ["ts", "position_id", "asset", "direction", "p_win",
+                "expected_pct", "realized_pct", "shortfall_pct",
+                "cause", "cost_overrun_bps", "mfe_pct", "mae_pct",
+                "recovered_after_stop", "regime_entry", "regime_exit"]
 
 EPS = 1e-9
 
@@ -161,14 +171,11 @@ class PostmortemEngine:
         self._open: dict = {}       # position_id -> TradeThesis (live)
         self._closed: dict = {}     # position_id -> TradeThesis (observing)
         self._last_mark: dict = {}
-        if not self.summary_path.exists():
-            self.summary_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.summary_path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(
-                    ["ts", "position_id", "asset", "direction", "p_win",
-                    "expected_pct", "realized_pct", "shortfall_pct",
-                    "cause", "cost_overrun_bps", "mfe_pct", "mae_pct",
-                    "recovered_after_stop", "regime_entry", "regime_exit"])
+        # Header creation belongs to durable_append at the append site (it
+        # treats a zero-length file as new); doing it here on `not exists()`
+        # alone left a size-0 file headerless, and csv.DictReader then reads
+        # the first POSTMORTEM as its column names.
+        self.summary_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     def register_entry(self, thesis: TradeThesis):
@@ -349,13 +356,14 @@ filled {t.fill_price:.{t.price_decimals}f} | held {held_h:.1f}h | MFE {mfe:+.2f}
 """
         try:
             (self.out_dir / name).write_text(body, encoding="utf-8")
-            with open(self.summary_path, "a", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(
-                    [f"{t.exit_ts:.0f}", t.position_id, t.asset, t.direction,
-                    f"{t.p_win:.3f}", f"{t.expected_ret_pct:.3f}",
-                    f"{t.realized_ret_pct:.3f}", f"{shortfall:.3f}", cause,
-                    f"{overrun:.1f}", f"{mfe:.3f}", f"{mae:.3f}",
-                    int(recovered), t.entry_regime, t.exit_regime])
+            row = [f"{t.exit_ts:.0f}", t.position_id, t.asset, t.direction,
+                   f"{t.p_win:.3f}", f"{t.expected_ret_pct:.3f}",
+                   f"{t.realized_ret_pct:.3f}", f"{shortfall:.3f}", cause,
+                   f"{overrun:.1f}", f"{mfe:.3f}", f"{mae:.3f}",
+                   int(recovered), t.entry_regime, t.exit_regime]
+            durable_append(self.summary_path,
+                           lambda f: csv.writer(f).writerow(row),
+                           header=",".join(SUMMARY_COLS) + "\r\n")
         except OSError:
             log.exception("postmortem write failed")
         log.warning(

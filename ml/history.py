@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 
 from core.codes import Code
+from core.runtime import durable_append
 from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
                          REGIME_LABELS, REGIME_ONE_HOT_FEATURES)
 from ml.labeling import barrier_geometry, simulate_exit_policy, triple_barrier
@@ -266,6 +267,21 @@ LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 # (scripts/gate_truth_report.py). Order IS the column order.
 SG_COMPONENT_KEYS = ("flow", "delta", "accum", "burst", "trend",
                      "evidence", "conc")
+
+# Corpus row shape, as counts rather than as literals repeated per use.
+# _N_LEAD: position_id, asset, side. _N_TRAIL: label, net_pnl_usd, source,
+# ts, signal_ts, barrier, probe, disp, candidate_id, book, label_era,
+# pt_frac, sl_frac (13) + the 7 sg_* + entry_price, exit_price = 22.
+# _append_row's width guard AND its warning message both derive from these,
+# so the "expected feature count" they report can never disagree again -
+# tests/test_history_schema.py pins the identity against the live header.
+_N_LEAD = 3
+_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2
+
+# Cap on the candidate `disp` column. See CandidateLabeler.mark_disposition
+# for the measurement that moved it off 40 (which amputated the bracket
+# geometry on 3,666 of 9,692 rows).
+DISPOSITION_MAX_CHARS = 200
 
 # Vertical-barrier reasons: "price touched NEITHER profit nor stop inside the
 # horizon". This is a POPULATION, not a spelling, and the sample-weight
@@ -825,6 +841,21 @@ class HistoryStore:
             bak = self.path.with_suffix(f".bak_{int(time.time())}")
             os.replace(self.path, bak)      # cross-platform atomic
             log.warning(f"history schema changed - old file kept at {bak}")
+            # Invalidate the derived LIVE counters (2026-08-06). Both caches
+            # key on the corpus's (mtime_ns, size) and are refreshed AFTER
+            # each append - but a rotation here replaces the file wholesale
+            # while the in-memory counts still describe the OLD corpus. The
+            # next append then stamps the NEW file's key onto the STALE
+            # counts, and _load_regime_counts/_load_asset_live_counts see a
+            # matching key and refuse to re-scan. Reproduced as a 6x asset
+            # overcount that the cache actively protected from correction.
+            # These are not telemetry: asset_live_counts is n_a in SPB-R
+            # scarcity pricing (position SIZING) and regime_live_count gates
+            # the regime-coverage admission hold.
+            self._regime_counts_loaded = False
+            self._regime_counts_key = None
+            self._asset_live_loaded = False
+            self._asset_live_key = None
             self._mark_rotated()
         with open(self.path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(self._header)
@@ -885,15 +916,20 @@ class HistoryStore:
         # FEATURE_NAMES bump and restored after) would silently write a
         # short, misaligned row. Observed live 2026-07-12: 4 pre-SMC
         # 36-feature candidates labeled under the 43-feature header.
-        # 22 trailing meta columns (label..label_era, pt_frac, sl_frac,
-        # sg_flow..sg_conc - gate-truth instrumentation added 7 - and
-        # entry_price/exit_price, the 2026-08-04 price anchor, last 2).
-        if 3 + len(feats) + 22 != len(self._header):
+        # Both the guard and its message derive from ONE pair of constants
+        # (_N_LEAD/_N_TRAIL). They used to be two independent literals - a
+        # correct `22` in the test and a stale `20` in the message - and the
+        # `20` silently drifted as sg_* (7) and entry_price/exit_price (2)
+        # were appended, so the one line a human reads while debugging a
+        # misaligned corpus reported a phantom 69-column schema against a
+        # true 64. Derived, they cannot drift apart again.
+        if _N_LEAD + len(feats) + _N_TRAIL != len(self._header):
             log.warning(
                 f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
-                f"schema {len(self._header) - 20} - stale pre-rotation "
-                f"vector, row would misalign under the current header")
+                f"schema {len(self._header) - _N_LEAD - _N_TRAIL} - stale "
+                f"pre-rotation vector, row would misalign under the "
+                f"current header")
             return
         # finiteness invariant: a NaN/inf slips through float() silently
         # (float('nan') never raises) and poisons the corpus - one non-finite
@@ -922,20 +958,26 @@ class HistoryStore:
             except (TypeError, ValueError):
                 v = 0.0
             sg[k] = v if np.isfinite(v) else 0.0
-        with open(self.path, "a", newline="", encoding="utf-8") as f:
-            now = time.time()
-            csv.writer(f).writerow([position_id, asset, direction,
-                                    *[f"{v:.6f}" for v in feats],
-                                    label, f"{pnl_usd:.2f}", source,
-                                    f"{now:.0f}",
-                                    f"{signal_ts if signal_ts else now:.0f}",
-                                    barrier, probe, disp, candidate_id, book,
-                                    self._row_era(barrier),
-                                    f"{pt_frac:.6f}", f"{sl_frac:.6f}",
-                                    *[f"{sg[k]:.4f}" for k in
-                                      SG_COMPONENT_KEYS],
-                                    f"{entry_price:.10g}",
-                                    f"{exit_price:.10g}"])
+        now = time.time()
+        row = [position_id, asset, direction,
+               *[f"{v:.6f}" for v in feats],
+               label, f"{pnl_usd:.2f}", source,
+               f"{now:.0f}",
+               f"{signal_ts if signal_ts else now:.0f}",
+               barrier, probe, disp, candidate_id, book,
+               self._row_era(barrier),
+               f"{pt_frac:.6f}", f"{sl_frac:.6f}",
+               *[f"{sg[k]:.4f}" for k in SG_COMPONENT_KEYS],
+               f"{entry_price:.10g}", f"{exit_price:.10g}"]
+        # torn-tail heal + fsync (2026-08-06). This is the ground-truth
+        # training corpus and the highest-value append-only file in the
+        # repo: a kill mid-row welded the fragment to the NEXT row, and
+        # load_training_data's `except (KeyError, ValueError): continue`
+        # dropped the chimera with no counter and no log line - so the
+        # corpus lost TWO labelled outcomes per kill, invisibly. The
+        # header is already guaranteed by _ensure_schema above, so this
+        # only needs the isolation write and the fsync.
+        durable_append(self.path, lambda f: csv.writer(f).writerow(row))
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
         # lazy re-scan. If the counter has never been loaded yet in this
@@ -996,6 +1038,19 @@ class HistoryStore:
         of re-running triple_barrier() on recorded bars."""
         entry = self._pending.pop(position_id, None)
         if entry is None:
+            # The ONLY unlogged exit in the write path until 2026-08-06.
+            # A close with no pending vector writes no training row, and
+            # silence here meant ground-truth attrition could only be
+            # detected by reconstructing closes from fills.csv. Legitimate
+            # causes exist (a FEATURE_SCHEMA_VERSION bump deliberately
+            # drops pending vectors, core/persistence.py), so this is a
+            # counter, not an alarm - but it must be VISIBLE.
+            self.unlabeled_closes = getattr(self, "unlabeled_closes", 0) + 1
+            log.warning(
+                f"{Code.ML_UNLABELED_CLOSE.value}: close "
+                f"{position_id[:12]} had no pending feature vector - no "
+                f"training row written ({self.unlabeled_closes} so far "
+                f"this process)")
             return
         probe = False
         cand_id = ""
@@ -1086,8 +1141,20 @@ class HistoryStore:
         tol = float(tele_cfg.get("bracket_divergence_tolerance_pct", 0.15))
         win = max(int(tele_cfg.get("bracket_divergence_window_n", 100)), 10)
         agree = delta <= tol
+        # `priced` marks the records where agreement was actually MEASURED.
+        # tb_time's counterfactual IS realized_ret_pct (above), so its delta
+        # is 0 by construction and it always "agrees" - it carries no
+        # information about whether the traded bet resolved where the label
+        # says it should. Measured 2026-08-06 over the instrument's whole
+        # lifetime: 33 of 35 records (94.3%) were tb_time, so the published
+        # agree_rate of 1.0000 was 94% arithmetically incapable of being
+        # anything else. Keeping the tb_time rows (they are real closes)
+        # but reporting the rate over the PRICED subset is the honest
+        # version, and it matches how bracket_divergence_summary already
+        # reports absence as None rather than as a flattering zero.
         self._bracket_divergence.append(
-            {"agree": agree, "abs_delta_pct": delta})
+            {"agree": agree, "abs_delta_pct": delta,
+             "priced": barrier in ("tb_pt", "tb_sl")})
         if len(self._bracket_divergence) > win:
             self._bracket_divergence = self._bracket_divergence[-win:]
         log.info(
@@ -1097,7 +1164,7 @@ class HistoryStore:
             f"agree={agree}")
 
     def bracket_divergence_summary(self) -> dict:
-        """ML-082 status surface (T6): {"n", "agree_rate",
+        """ML-082 status surface (T6): {"n", "n_priced", "agree_rate",
         "mean_abs_ret_delta_pct"} over the rolling window
         _record_bracket_divergence maintains. n=0/agree_rate=None/
         mean_abs_ret_delta_pct=None whenever no bracket close has been
@@ -1105,15 +1172,27 @@ class HistoryStore:
         that would read as "perfect agreement" instead of "not measured".
         Read by runner.py's status build into status["ml"]["bracket_
         divergence"] and scripts/gc_pusher.py's gauge emission ONLY -
-        report-only, never consumed by a decision path."""
+        report-only, never consumed by a decision path.
+
+        `agree_rate` and `mean_abs_ret_delta_pct` are computed over the
+        PRICED subset only (tb_pt/tb_sl) and are None until one exists:
+        a tb_time record's delta is 0 by construction, so including them
+        published a 1.0000 agreement gauge that was 94.3% definitional
+        (2026-08-06 measurement over the instrument's full lifetime).
+        `n` stays the count of ALL bracket closes so the two numbers
+        together say "of N closes, only M could be measured" - which is
+        the fact an operator needs, and which a single blended rate hid.
+        """
         win = self._bracket_divergence
         n = len(win)
-        if n == 0:
-            return {"n": 0, "agree_rate": None,
+        priced = [w for w in win if w.get("priced")]
+        if not priced:
+            return {"n": n, "n_priced": 0, "agree_rate": None,
                     "mean_abs_ret_delta_pct": None}
-        agree_rate = sum(1 for w in win if w["agree"]) / n
-        mean_abs = sum(w["abs_delta_pct"] for w in win) / n
-        return {"n": n, "agree_rate": round(agree_rate, 4),
+        agree_rate = sum(1 for w in priced if w["agree"]) / len(priced)
+        mean_abs = sum(w["abs_delta_pct"] for w in priced) / len(priced)
+        return {"n": n, "n_priced": len(priced),
+                "agree_rate": round(agree_rate, 4),
                 "mean_abs_ret_delta_pct": round(mean_abs, 4)}
 
     def row_count(self) -> int:
@@ -1931,12 +2010,18 @@ class HorizonShadowStore:
         _n = self._frac
         try:
             self._ensure()
-            with open(self.path, "a", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow([
-                    candidate_id, asset, direction, int(horizon_bars),
-                    int(label), f"{net_ret_pct:.6f}", exit_reason,
-                    f"{time.time():.0f}",
-                    _n(sigma_bar_frac), _n(pt_frac), _n(sl_frac)])
+            row = [candidate_id, asset, direction, int(horizon_bars),
+                   int(label), f"{net_ret_pct:.6f}", exit_reason,
+                   f"{time.time():.0f}",
+                   _n(sigma_bar_frac), _n(pt_frac), _n(sl_frac)]
+            # durable_append heals a torn tail and re-writes the header on a
+            # zero-length file. Both mattered here: _ensure's own creation
+            # branch is `if not self.path.exists()`, which a size-0 file
+            # passes THROUGH, so a kill in the create-to-first-flush window
+            # left a headerless file that csv.DictReader then read with the
+            # first RESEARCH ROW as its column names (2026-08-06 sweep).
+            durable_append(self.path, lambda f: csv.writer(f).writerow(row),
+                           header=",".join(self.HEADER) + "\r\n")
         except OSError:
             self.dropped = getattr(self, "dropped", 0) + 1
             if self.dropped == 1 or self.dropped % 20 == 0:
@@ -2134,10 +2219,27 @@ class CandidateLabeler:
         """Stamp the NEWEST open candidate for (asset, direction) with the
         pipeline's final verdict on that signal - entered, or the veto that
         stopped it. Best-effort: no matching open candidate (evicted,
-        already labeled, sampler-thinned) is a silent no-op."""
+        already labeled, sampler-thinned) is a silent no-op.
+
+        The cap was 40 and it CUT THROUGH THE PAYLOAD (2026-08-06). A full
+        SZ-023 disposition is 113 chars:
+            'SZ-023: p 0.28 below bar 0.63 (net breakeven 0.594 + margin
+             0.036, derived) [bracket pt=2.06% sl=1.54% b=0.983]'
+        and 40 chars kept it only as far as '(net break'. Measured on the
+        corpus: 2,614 SZ-023 rows lost the bracket geometry the sizer had
+        just computed, 1,052 SZ-030 rows lost their net breakeven and
+        b_net, and ZERO of 9,692 rows retained a '[bracket ...]' payload.
+        That geometry is the whole reason a vetoed candidate is worth
+        filing - it is the bet that WOULD have been traded, and
+        scripts/gate_efficacy_report.py regex-scrapes this very field to
+        recover the thresholded quantity. 200 clears the longest
+        constructed disposition with headroom; a cap still exists because
+        an unbounded free-text column in a 9,692-row corpus is its own
+        hazard, and the veto strings are engine-generated, not user
+        input."""
         for cand in reversed(self._cands):
             if cand.get("asset") == asset and cand.get("direction") == direction:
-                cand["disp"] = str(code)[:40]
+                cand["disp"] = str(code)[:DISPOSITION_MAX_CHARS]
                 return
 
     def _cost_pct(self, cand: dict) -> float:
