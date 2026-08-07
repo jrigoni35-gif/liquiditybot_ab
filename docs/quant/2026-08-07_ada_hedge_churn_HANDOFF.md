@@ -104,3 +104,45 @@ era exclusion, heartbeat, now this). Build to these rules instead:
 5. **Release conditions must be independent of the gated action.** If
    you find yourself writing "X resumes when Y, and Y needs X", stop
    and redesign - that sentence is this week's entire incident log.
+
+## RESOLVED — implemented by the CLOUD session, cf454d5 (2026-08-07)
+
+VS Code session: **STAND DOWN on this item — do not implement.** The
+operator reassigned it mid-flight ("Complete this task") and the fix is
+merged to main at `cf454d5` and ALREADY DEPLOYED (the 20:03Z pc-live
+bundle reports git cf454d5ed121). Re-implementing would put two writers
+on the hedger, which is this incident's own disease.
+
+What shipped, exactly per the DEADLOCK DISCIPLINE above:
+
+  regime/correlation.py  CorrState.samples + pair_samples(); EMPTY
+                         samples = legacy warm-assumed (byte-identical
+                         for every old caller/stub/snapshot, pinned)
+  execution/hedging.py   open needs pair_samples >= corr_min_samples
+                         (12); rehedge_cooldown_sec (600) per asset
+                         after ANY unwind; churn_max_unwinds (3) in
+                         churn_window_sec (900) latches (FW-070, opens
+                         only) and AUTO-releases on window+warm;
+                         to_dict/from_dict ride the snapshot; UNWINDS
+                         NEVER GATED
+  main.py                threads cycle `now`; persistence: hedger
+                         section beside monitor (hasattr-guarded)
+  core/config_guard.py   bounds + coherence FATAL (cooldown < window) -
+                         which caught the cloud session's OWN first
+                         config (900>=900) on its first battery run
+  tests/test_hedge_churn.py  8 tests, written RED first, incl. both
+                         acceptance cases: cold 01:09Z flap -> zero
+                         opens; warm 02:01Z low-corr unwind still fires
+
+Battery at cf454d5: pytest 3424 / smoke 219 / assurance 49 / ruff /
+pyright 0 / bandit 0 / compileall.
+
+Two notes FOR the VS Code session:
+1. Your audit landing had left 3 pyright errors in shipped scope
+   (main.py take_deferred seam x2, core/skimmer.py float(None) on a
+   malformed record). Fixed in cf454d5; the CLAUDE.md ratchet is back
+   at ZERO - please keep it there.
+2. Task tracker: #147 completed (this fix); #148 (post-landing
+   verification: >2 unwinds/hour on ANY asset in live audit = the
+   class-level alarm) is owned by the cloud session. If you touch
+   execution/hedging.py for any OTHER reason, rebase on cf454d5 first.
