@@ -66,3 +66,41 @@ estimator warming out of its post-restart reset (restarts logged ~01:00).
 
 Cloud session verified the evidence; everything above is reproducible
 from `outputs/imported_sessions/pc-live/{audit.jsonl,equity.csv}`.
+
+## DEADLOCK DISCIPLINE (operator directive 2026-08-07 — supersedes §fix
+## part 1's "hold state" wording wherever they conflict)
+
+Operator: "I don't want to deadlock anything so take that into account."
+The naive warmup guard ("cold -> hold the unwind") is itself a deadlock:
+measured restart cadence is MEDIAN 0.5h / p90 4h / max 34h (241 gaps,
+07-26..08-03 audit), so an estimator that resets on restart can be
+perpetually cold and a held unwind becomes a hedge frozen forever. That
+is the 4th instance of this week's recurring shape - a gate whose
+release condition depends on the thing it is blocking (probe share-cap,
+era exclusion, heartbeat, now this). Build to these rules instead:
+
+1. **Gate the RE-HEDGE on warm evidence, never the unwind.** New risk
+   requires evidence; exits never do (invariant 5). Cold estimator ->
+   the unwind MAY fire (once - idempotent, nothing left to unwind) and
+   re-hedging is what waits for warmth. Composition converges to a flat
+   hedge, no churn, no frozen position, no blocked exit. The $318 came
+   from RE-OPENING, not from closing.
+2. **Every latch has an owned release.** The churn rate-latch freezes
+   re-hedging only, and auto-clears on (estimator warm AND cooldown
+   elapsed) - plus operator clear. Precedents to follow: the wedge
+   guard's auto-recovery (A1-F1: "the wedge must be RECOVERABLE") and
+   ML-075 shadow-recovery (a kill with no refill path deadlocked).
+   No latch may require the operator to notice it.
+3. **Warmup/cooldown clocks ride the snapshot** (precedent:
+   _last_floor_admit_ts, persisted because the deploy-restart cadence
+   reset it). Persist the correlation estimator's sample count too -
+   otherwise every 15-min deploy re-colds it and rule 1's "waits for
+   warmth" starves re-hedging on a healthy book.
+4. **Size every window against the measured restart cadence above**,
+   not against intent. A warmup requirement unreachable inside typical
+   uptime is a deadlock wearing a config value. config_guard FATALs for
+   incoherent combos (e.g. warmup window >> p90 uptime without
+   persistence; cooldown >= rate-latch window).
+5. **Release conditions must be independent of the gated action.** If
+   you find yourself writing "X resumes when Y, and Y needs X", stop
+   and redesign - that sentence is this week's entire incident log.
