@@ -40,6 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.audit import verify_chain  # noqa: E402
+from core.runtime import durable_append  # noqa: E402
 from ml.history import HistoryStore  # noqa: E402
 
 # Manifests are ATTACKER-AUTHORED. bundle_format and the per-file sha256 are
@@ -360,12 +361,20 @@ def run(src: str, outputs: str, apply: bool,
             bak.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest_hist, bak)
             print(f"  backup: {bak}")
-        else:
-            dest_hist.parent.mkdir(parents=True, exist_ok=True)
-            dest_hist.write_text(",".join(expected) + "\n", encoding="utf-8")
-        with open(dest_hist, "a", encoding="utf-8") as f:
-            for ln in new_lines:
+        # THIRD independent appender to the training corpus (the runner's
+        # HistoryStore._append_row and corpus_sync's recovery merge are the
+        # other two), and this one runs HOURLY and UNATTENDED. Three writers
+        # with no torn-tail heal is the seam that produced SD-007 on the
+        # audit chain. durable_append also owns the header now: the old
+        # `if dest_hist.exists()` branch left a ZERO-LENGTH file headerless,
+        # and csv.DictReader then adopts the first TRAINING ROW as its
+        # column names. One probe per open, not per row - the whole import
+        # batch is a single append.
+        def _emit(f, batch=new_lines):
+            for ln in batch:
                 f.write(ln + "\n")
+        durable_append(dest_hist, _emit, newline="\n", torn_sep="\n",
+                       header=",".join(expected) + "\n")
     record.mkdir(parents=True, exist_ok=True)
     for name in manifest.get("files", {}):
         if name == "signal_history.csv" or not (srcp / name).exists():
