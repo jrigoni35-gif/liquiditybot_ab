@@ -411,6 +411,64 @@ class MoomooFeed:
                 / 10.0, -3.0, 3.0))
         return (pcr_z, oi_z, skew, round(pcr, 3), round(oi_pcr, 3))
 
+    def to_dict(self) -> dict:
+        """Serializable window/freeze state (owed 41c). The z windows and
+        the freeze gate's comparison state survive a restart, closing the
+        fleet-measured hole where every rolling window rebuilt empty at
+        the measured median 0.5h restart cadence (~3.5h/day of context z
+        fabricated back toward neutral by an empty history). Poll
+        timestamps are deliberately NOT persisted: an immediate re-poll
+        on restart is wanted, and the restored _last_per lets 41a's gate
+        classify that first poll honestly (still-frozen market -> frozen,
+        moved market -> append)."""
+        return {"ret_hist": [float(x) for x in self._ret_hist],
+                "opt_hist": [float(x) for x in self._opt_hist],
+                "opt_oi_hist": [float(x) for x in self._opt_oi_hist],
+                "last_per": dict(self._last_per),
+                "frozen": bool(self._frozen),
+                "last_opt_raw": (list(self._last_opt_raw)
+                                 if self._last_opt_raw else None),
+                "opt_vals": [float(x) for x in self._opt_vals],
+                "opt_available": bool(self._opt_available)}
+
+    def from_dict(self, d: dict) -> None:
+        """Restore window/freeze state. Extend-with-defaults and fail-
+        soft: a malformed/pre-41c section leaves the feed exactly at its
+        clean-boot state (empty windows), never raises into the caller -
+        persistence restore must not be able to take down the feed."""
+        try:
+            if not isinstance(d, dict):
+                return
+            for key, hist in (("ret_hist", self._ret_hist),
+                              ("opt_hist", self._opt_hist),
+                              ("opt_oi_hist", self._opt_oi_hist)):
+                vals = d.get(key) or []
+                hist.clear()
+                hist.extend(float(x) for x in vals)
+            lp = d.get("last_per")
+            self._last_per = ({str(k): float(v) for k, v in lp.items()}
+                              if isinstance(lp, dict) else {})
+            self._frozen = bool(d.get("frozen", False))
+            raw = d.get("last_opt_raw")
+            self._last_opt_raw = ((float(raw[0]), float(raw[1]))
+                                  if isinstance(raw, (list, tuple))
+                                  and len(raw) == 2 else None)
+            ov = d.get("opt_vals")
+            if isinstance(ov, (list, tuple)) and len(ov) == 5:
+                self._opt_vals = tuple(float(x) for x in ov)
+            self._opt_available = bool(d.get("opt_available", False))
+        except (TypeError, ValueError):
+            # partial garbage: reset to clean-boot rather than run on a
+            # half-restored window
+            self._ret_hist.clear()
+            self._opt_hist.clear()
+            self._opt_oi_hist.clear()
+            self._last_per = {}
+            self._frozen = False
+            self._last_opt_raw = None
+            self._opt_vals = (0.0, 0.0, 0.0, 0.0, 0.0)
+            self._opt_available = False
+
     def close(self):
         if self._ctx is not None:
             try:

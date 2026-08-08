@@ -524,6 +524,13 @@ class StateStore:
                 "drought_elapsed_s": max(0.0, time.time() - _admit_ts),
                 "scs": (bot.scs.to_dict()
                         if getattr(bot, "scs", None) is not None else {}),
+                # 41c: moomoo z-window + freeze-gate state. Guarded on the
+                # METHOD (runner-state doubles stub moomoo with a bare
+                # close()-only namespace), same duck-typed convention as
+                # every other optional section here.
+                "moomoo_state": (bot.moomoo.to_dict() if callable(
+                    getattr(getattr(bot, "moomoo", None), "to_dict", None))
+                    else {}),
                 # V2 vindication continuity: fired-detector maps for OPEN
                 # positions and the graded reliability ledger. Detector
                 # OBSERVATION state stays un-snapshotted (see NOTE below);
@@ -888,6 +895,19 @@ class StateStore:
             bot.sizer._last_entry.update(data.get("sizer_last_entry", {}))
         except (TypeError, ValueError):
             log.warning("sizer_last_entry section malformed - skipped")
+        # 41c: moomoo windows/freeze state - restored BEFORE the first
+        # poll so 41a's gate classifies that poll against the pre-restart
+        # per-ticker returns (a still-closed market reads frozen from
+        # poll one instead of re-seeding an empty window with its quote).
+        # from_dict is fail-soft by contract; pre-41c snapshots simply
+        # lack the key.
+        try:
+            ms = data.get("moomoo_state")
+            if ms and callable(getattr(getattr(bot, "moomoo", None),
+                                       "from_dict", None)):
+                bot.moomoo.from_dict(ms)
+        except Exception:
+            log.exception("moomoo section malformed - skipped")
         try:
             bot._pos_realized.update(data.get("pos_realized", {}))
         except (TypeError, ValueError):
