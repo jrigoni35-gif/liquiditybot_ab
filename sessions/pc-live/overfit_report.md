@@ -1,6 +1,6 @@
-# Overfit audit — 2026-08-08 03:14 UTC
+# Overfit audit — 2026-08-08 15:50 UTC
 
-Dataset: SYNTHETIC benchmark (live rows=416 < 640) — validating machinery, not market
+Dataset: SYNTHETIC benchmark (live rows=456 < 640) — validating machinery, not market
 
 - **PASS** gap[logistic]: OOF gap within memorization band — train_auc=0.645 oof_auc=0.619 gap=+0.026
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.686 oof_auc=0.605 gap=+0.081
@@ -20,7 +20,7 @@ Dataset: SYNTHETIC benchmark (live rows=416 < 640) — validating machinery, not
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
-- **INFO** dsr — DEFERRED — 19 conviction-marked live trades < 30 (mixed n=304); mixed-sample dsr=0.000 sr=-0.49; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** dsr — DEFERRED — 19 conviction-marked live trades < 30 (mixed n=305); mixed-sample dsr=0.000 sr=-0.49; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 - **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
 - **INFO** regime diagnostic — SYNTHETIC benchmark dataset — candidate/live split & base rate n/a (no signal_history.csv correspondence); OOF numbers below validate the machinery on the planted-signal benchmark, not a market read
 - **INFO** regime[bull_quiet] oof — oof_n=1097 auc=0.629 (pooled 0.605, delta_auc=+0.024) brier=0.2387 (pooled 0.2423, delta_brier=-0.0036)
@@ -28,4 +28,4 @@ Dataset: SYNTHETIC benchmark (live rows=416 < 640) — validating machinery, not
 - **INFO** learning curve — SYNTHETIC benchmark dataset — corpus-size trend has no market meaning; skipped
 - **INFO** extras liveness — SYNTHETIC benchmark dataset — feed liveness has no meaning; skipped
 
-7 passed, 0 failed (51s)
+7 passed, 0 failed (46s)
