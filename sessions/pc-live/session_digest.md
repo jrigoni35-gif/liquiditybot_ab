@@ -2,14 +2,14 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-08 03:03 UTC (691.17h, ~961 cycles)
-- Equity: $25,000.00 -> $4,615.20 (range $99,208.70) | realized PnL $-208.22 | fees $382.28
-- Activity: 3 open | 304 live labeled trades | 9477 candidates | 262 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-08 04:03 UTC (692.17h, ~1059 cycles)
+- Equity: $25,000.00 -> $4,616.32 (range $99,208.70) | realized PnL $-208.22 | fees $382.28
+- Activity: 3 open | 304 live labeled trades | 9481 candidates | 262 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 304 | cold=True
-- Audit: 33688 records (28893 non-routine) | dominant SZ-047 (77% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 88
-- Liquidity: spoofy 38% of classified cycles | feed errors 0
+- Audit: 33904 records (29006 non-routine) | dominant SZ-047 (77% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 88
+- Liquidity: spoofy 40% of classified cycles | feed errors 0
 
 ## Diagnostics
 - [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=304, brier=n/a) yet retrain was requested 88x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 77% of the audit trail
-- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 77% of 28893 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 77% of 29006 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  6 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
