@@ -247,6 +247,10 @@ def collect(status_path: str) -> list:
         for key in ("equity", "daily_pnl", "weekly_pnl", "monthly_pnl", "savings",
                     "reserve", "drawdown_pct", "cycle",
                     "cycle_lifetime", "feed_latency_ms", "marks_age_sec",
+                    # true iteration durations (latency audit 2026-08-07):
+                    # an 88s stall is finally a plottable event, not a
+                    # sleep-sizing intermediate thrown away every loop
+                    "cycle_duration_sec", "cycle_duration_max_sec",
                     "fees_total", "realized_total", "equity_drift_pct",
                     # hardening guards (rising = a book position or the whole
                     # cycle is wedging its own escape path — see the incidents

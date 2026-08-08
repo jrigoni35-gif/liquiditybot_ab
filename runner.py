@@ -1054,6 +1054,16 @@ class BotRunner:
                                    cm.get("monthly_profit_goal_usd", 0) or 0),
         }
 
+    def _note_cycle_duration(self, elapsed: float) -> None:
+        """Record the iteration's true wall duration (latency audit
+        2026-08-07): `elapsed` was computed every loop and used only to
+        size the sleep - the documented 88.1s stall left no trace in any
+        exported number. last + max, exported by build_status and pushed
+        to Grafana, so a stalling cycle is finally a visible event."""
+        self._cycle_dur_last = elapsed
+        self._cycle_dur_max = max(getattr(self, "_cycle_dur_max", 0.0),
+                                  elapsed)
+
     def build_status(self, now: float) -> dict:
         bot = self.bot
         marks = bot.marks
@@ -1158,11 +1168,17 @@ class BotRunner:
             # truthful mark freshness: feed_latency_ms only updates on a
             # SUCCESSFUL Kraken call, so a Ticker outage freezes prices AND
             # freezes the latency gauge - stale marks read as live everywhere.
-            # marks_age_sec = age of the OLDEST live mark; it climbs the moment
-            # a price stops updating, giving the UI a real staleness signal.
-            "marks_age_sec": round(max(
-                (now - bot._mark_ts.get(s, now)
-                 for s in bot.marks), default=0.0), 1),
+            # marks_age_sec = WALL-clock age of the OLDEST live mark from the
+            # engine's telemetry-only wall stamps (latency audit 2026-08-07:
+            # the old form compared the loop-frozen `now` against stamps set
+            # to that same `now` - arithmetically 0.0 forever).
+            "marks_age_sec": _marks_age_sec(bot, time.time()),
+            # true iteration durations (see _note_cycle_duration): the only
+            # place an 88s stall becomes a number an operator can see.
+            "cycle_duration_sec": round(
+                getattr(self, "_cycle_dur_last", 0.0), 2),
+            "cycle_duration_max_sec": round(
+                getattr(self, "_cycle_dur_max", 0.0), 2),
             "positions": positions, "open_orders": orders,
             # shallow-copy: the REST/gRPC provider returns _last_status from an
             # API thread while the engine thread mutates bot.last_signals in
@@ -1579,6 +1595,7 @@ class BotRunner:
                 except Exception:
                     log.exception("runner loop error - continuing")
                 elapsed = time.time() - now
+                self._note_cycle_duration(elapsed)
                 time.sleep(max(self.poll_sec - elapsed, 0.25))
         finally:
             # C1: stop the heartbeat FIRST. A refresh landing after
@@ -1784,6 +1801,21 @@ def main():
         log.info("--fresh: saved state cleared")
     BotRunner(config, start_paused=args.paused,
               resume=not args.fresh, lock=_lock).run()
+
+
+def _marks_age_sec(bot, wall_now: float) -> float:
+    """WALL-clock age of the oldest live mark, from the engine's
+    telemetry-only `_mark_wall_ts` stamps (latency audit 2026-08-07).
+
+    Module-level and pure-ish on purpose: build_status calls it with a
+    fresh time.time(), tests call it with a stub - no BotRunner needed.
+    An unstamped symbol (first cycle after boot) defaults to wall_now,
+    reading age 0 rather than a since-epoch number, matching the old
+    gauge's benign cold start. Decision paths never read wall stamps;
+    replay determinism is untouched."""
+    wall = getattr(bot, "_mark_wall_ts", {}) or {}
+    return round(max((wall_now - wall.get(s, wall_now)
+                      for s in bot.marks), default=0.0), 1)
 
 
 if __name__ == "__main__":

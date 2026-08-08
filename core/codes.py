@@ -48,6 +48,7 @@ class Code(str, Enum):
     FW_EXIT_PRICE_SUB = "FW-052"
     FW_NO_REFERENCE = "FW-060"
     FW_HEDGE_CHURN_LATCH = "FW-070"  # >=N hedge unwinds of one asset in the window: re-hedging frozen (opens only, auto-releases warm+window; 2026-08-07 ADA churn, -$318 in 147 laps)
+    FW_STALE_BARS = "FW-080"         # venue bars accepted into the view whose LAST bar timestamp lags the engine clock (latency audit 2026-08-07: fetch age was checked, bar age never; detection only)
     FW_FAULT_REJECT = "FW-090"
     FW_FAULT_DEGRADED = "FW-091"
 

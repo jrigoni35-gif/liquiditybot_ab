@@ -1341,10 +1341,14 @@ def test_runtime_and_runner():
     check("runner: marks_age_sec present and fresh after a live cycle",
           "marks_age_sec" in st and st["marks_age_sec"] < 5.0,
           f"marks_age_sec={st.get('marks_age_sec')}")
-    # freeze a mark (simulate a Ticker-only outage: _mark_ts stops advancing)
-    # and rebuild - the age must climb, exposing the stale price as stale
-    for s in bot._mark_ts:
-        bot._mark_ts[s] -= 120.0
+    # freeze a mark (simulate a Ticker-only outage: the WALL stamps stop
+    # advancing) and rebuild - the age must climb, exposing the stale
+    # price as stale. 2026-08-07 latency audit: the gauge's truth source
+    # moved from _mark_ts (loop-frozen `now`, arithmetically 0 forever)
+    # to the telemetry-only _mark_wall_ts, so the outage is simulated on
+    # the wall stamps - exactly what a real Ticker outage freezes.
+    for s in bot._mark_wall_ts:
+        bot._mark_wall_ts[s] -= 120.0
     st2 = r.build_status(now)
     check("runner: marks_age_sec climbs when a mark freezes (stale != live)",
           st2["marks_age_sec"] >= 120.0,

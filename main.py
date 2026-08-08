@@ -459,6 +459,47 @@ def whiplash_suspicion(whiplash_std: float, healthy_p95: float,
 _KR_CANDLE_FETCH_BUDGET = 3
 _KR_CANDLE_STALE_MULT = 3.0
 
+# FW-080 stale-bar threshold: 4 five-minute bars. Thin Kraken pairs
+# legitimately omit empty intervals, so 2 bars would cry wolf on quiet
+# listings (latency audit 2026-08-07).
+_STALE_BAR_SEC = 1200.0
+
+
+def _bar_age_check(bot, asset: str, candles: list, now: float) -> None:
+    """Venue bars carry their own timestamps; fetch age proves the CALL
+    was recent, not the DATA (latency audit 2026-08-07: nothing anywhere
+    validated candles[-1]['time'], so a venue serving a stale OHLC page
+    was undetectable while those bars fed vol, features and sizing).
+    Warns FW-080 once per stale EPISODE - latched per asset on the bot,
+    re-armed when the feed recovers - when the last committed bar lags
+    more than _STALE_BAR_SEC behind the engine clock. Detection only:
+    the veto-grade response is sequenced with the staleness-veto
+    resurrection (owed 42), never bolted on here. Module-level with a
+    duck-typed `bot` (the SimpleNamespace fixture convention in
+    test_v8_batch.py drives _augment_view_with_kraken without a real
+    engine). Deterministic under replay: venue bar times and the
+    injected `now` only; telemetry must never raise."""
+    try:
+        bar_ts = float((candles[-1] or {}).get("time", 0.0) or 0.0)
+    except (TypeError, ValueError, IndexError, AttributeError):
+        return                     # malformed/list-shaped rows: sanitize
+                                   # owns row shape, not this check
+    if bar_ts <= 0.0:
+        return                     # no timestamp -> nothing to measure
+    latched = getattr(bot, "_stale_bar_latched", None)
+    if latched is None:
+        latched = bot._stale_bar_latched = set()
+    if now - bar_ts > _STALE_BAR_SEC:
+        if asset not in latched:
+            latched.add(asset)
+            log.warning(
+                f"{Code.FW_STALE_BARS.value}: {asset} last committed "
+                f"bar is {now - bar_ts:.0f}s old (> {_STALE_BAR_SEC:.0f}s)"
+                f" - venue bars entering the view are stale; vol/"
+                f"features/sizing read old data (detection only)")
+    else:
+        latched.discard(asset)
+
 
 def _book_imbalance(book: dict) -> float:
     """log(bid depth / ask depth) over the top 10 levels, clipped like the
@@ -1184,6 +1225,14 @@ class LiquidityBot:
         self.kraken_books: dict = {}        # base asset -> kraken order book
         self.marks: dict = {}               # kraken symbol -> last price
         self._mark_ts: dict = {}            # kraken symbol -> last mark update
+        # TELEMETRY-ONLY wall-clock twins of _mark_ts (latency audit
+        # 2026-08-07): _mark_ts stamps the loop-frozen injected `now`, so
+        # any age computed against that same `now` is arithmetically 0 -
+        # status.json showed marks_age_sec=0.0 beside a 253ms feed RTT.
+        # No decision path may ever read this dict (replay determinism);
+        # the runner's status export is its only consumer.
+        self._mark_wall_ts: dict = {}
+        self._stale_bar_latched: set = set()  # FW-080 one-warn-per-episode
         self.book_ts: dict = {}             # base asset -> fetch time
         self.daily_candles: dict = {}       # base asset -> daily candles
         # v8 venue-grounded candles: execution-venue 5m bars, cached per
@@ -2400,6 +2449,7 @@ class LiquidityBot:
                 mark, stop_ok = self.watchdog.filter_mark(asset, px)
                 self.marks[symbol] = mark
                 self._mark_ts[symbol] = now      # mark freshness (TH-freeze)
+                self._stamp_mark_wall(symbol)    # telemetry only
                 self._stop_ok[asset] = stop_ok
             # push-based Kraken book first (sub-second, keyed by REST pair);
             # None means disabled/stale/down -> REST, the source of truth
@@ -2436,6 +2486,7 @@ class LiquidityBot:
                             m, ok = self.watchdog.filter_mark(asset, mid)
                             self.marks[symbol] = m
                             self._mark_ts[symbol] = now
+                            self._stamp_mark_wall(symbol)
                             self._stop_ok[asset] = ok
 
         # execution algos: release due child slices (paced). ISOLATED, like
@@ -3961,6 +4012,7 @@ class LiquidityBot:
             ts, kr = self._kr_candles.get(asset, (0.0, []))
             if not kr or (now - ts) > max_age:
                 continue           # no usable venue bars -> external stands
+            _bar_age_check(self, asset, kr, now)
             existing = self.view.get(asset)
             ext = (existing or {}).get("candles") or []
             if len(kr) < 97 and len(kr) < len(ext):
@@ -3970,6 +4022,15 @@ class LiquidityBot:
             entry.setdefault("order_book", self.kraken_books.get(asset) or {})
             entry.setdefault("kraken_symbol", symbol)
             self.view[asset] = entry
+
+    def _stamp_mark_wall(self, symbol: str) -> None:
+        """Telemetry-only wall-clock stamp beside _mark_ts. getattr-guarded
+        lazy init (the _sig_gates fixture convention): __new__ test doubles
+        bypass __init__ and must never trip fast_cycle on a missing dict."""
+        d = getattr(self, "_mark_wall_ts", None)
+        if d is None:
+            d = self._mark_wall_ts = {}
+        d[symbol] = time.time()
 
     def _refresh_market_state(self, now: float) -> None:
         """Per-asset market-state refresh, extracted verbatim from the top
