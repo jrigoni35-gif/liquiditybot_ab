@@ -84,13 +84,20 @@ def test_legacy_csv_migrates_pt_sl_frac_with_zero_default(tmp_path):
     assert h[isg:isg + 7] == ["sg_flow", "sg_delta", "sg_accum",
                               "sg_burst", "sg_trend", "sg_evidence",
                               "sg_conc"]
-    assert h[-2:] == ["entry_price", "exit_price"]
+    # 41b (2026-08-08): avail_* flags trail the price pair; name-anchored
+    # like everything above so the next trailing bump shifts nothing here
+    iep = h.index("entry_price")
+    assert h[iep:iep + 2] == ["entry_price", "exit_price"]
+    assert h[-4:] == ["avail_web", "avail_equity", "avail_options",
+                      "quotes_frozen"]
     for row in rows:
         assert len(row) == len(h)                  # full current width
         assert float(row[ipt]) == 0.0               # pt_frac default
         assert float(row[ipt + 1]) == 0.0           # sl_frac default
         assert all(float(v) == 0.0 for v in row[isg:isg + 7])  # sg_*
-        assert row[-2:] == ["0", "0"]               # price pair: absent
+        assert row[iep:iep + 2] == ["0", "0"]       # price pair: absent
+        # migrated legacy rows never measured availability: blank UNKNOWN
+        assert row[-4:] == ["", "", "", ""]
 
 
 def test_labeler_path_writes_real_pt_sl_frac(tmp_path):

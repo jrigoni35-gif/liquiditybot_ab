@@ -64,10 +64,14 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     _i = header.index("sg_flow")
     assert header[_i:_i + 7] == _sg
     assert row[_i:_i + 7] == ["0.0000"] * 7
-    # entry_price/exit_price (2026-08-04) now trail the sg_* block, so
-    # slicing from the END would capture them instead - anchor on sg_flow.
-    assert header[-2:] == ["entry_price", "exit_price"]
-    assert row[-2:] == ["0", "0"]        # candidate path: no price supplied
+    # entry_price/exit_price (2026-08-04) trail the sg_* block; the
+    # avail_* flags (41b, 2026-08-08) trail THOSE - anchor by name.
+    _ip = header.index("entry_price")
+    assert header[_ip:_ip + 2] == ["entry_price", "exit_price"]
+    assert row[_ip:_ip + 2] == ["0", "0"]  # candidate path: no price supplied
+    assert header[-4:] == ["avail_web", "avail_equity", "avail_options",
+                           "quotes_frozen"]
+    assert row[-4:] == ["", "", "", ""]    # unmeasured -> blank UNKNOWN
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -99,7 +103,12 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
         # documented 0.0 default
         _i2 = hdr.index("sg_flow")
         assert tail[_i2:_i2 + 7] == ["0.0000"] * 7
-        assert tail[-2:] == ["0", "0"]   # live close: no price supplied yet
+        # price pair joined 2026-08-04; avail_* joined 2026-08-08 (41b) and
+        # now trail it - name-anchored like everything above
+        _ip = hdr.index("entry_price")
+        assert tail[_ip:_ip + 2] == ["0", "0"]  # live close: no price yet
+        # a caller that never measured availability writes blank UNKNOWN
+        assert tail[-4:] == ["", "", "", ""]
 
 
 # ---- average uniqueness ----------------------------------------------------

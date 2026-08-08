@@ -1234,6 +1234,11 @@ class BotRunner:
                        "basket_ret_pct": risk.basket_ret_pct,
                        "per_ticker": risk.per_ticker,
                        "available": risk.available,
+                       # 41a/41b: closed-market freeze state - the quote is
+                       # real but static and z-window appends are suspended;
+                       # getattr-guarded for pre-41a snapshots in doubles
+                       "quotes_frozen": bool(getattr(risk, "quotes_frozen",
+                                                     False)),
                        "opt_pcr": risk.opt_pcr,
                        "opt_pcr_z": round(risk.opt_pcr_z, 2),
                        "opt_oi_pcr": risk.opt_oi_pcr,

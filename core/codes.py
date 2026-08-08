@@ -475,6 +475,18 @@ class Code(str, Enum):
                                      # Latched: one log per episode.
     DF_QUOTES_RESUMED = "DF-011"     # basket moving again after a DF-010
                                      # episode: window appends resume
+    DF_CONTEXT_DEGRADED = "DF-020"   # feature rows are being built while a
+                                     # context source (webdata / moomoo
+                                     # equity / moomoo options) is dark or
+                                     # frozen - the affected features carry
+                                     # neutral values byte-identical to
+                                     # genuine neutral (input-feed audit
+                                     # 2026-08-07: failure == neutral ==
+                                     # padding on the ML path). Latched:
+                                     # one log per degradation episode;
+                                     # rows record avail_* flags.
+    DF_CONTEXT_RECOVERED = "DF-021"  # every context source back and
+                                     # unfrozen after a DF-020 episode
 
     # ---- long-horizon book (LB) — risk/long_book.py (Compounder C) ----
     LB_ADD_PLACED = "LB-000"         # accumulation add order placed (paper/live)

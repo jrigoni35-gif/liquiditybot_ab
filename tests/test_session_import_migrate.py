@@ -62,13 +62,15 @@ def test_old_schema_bundle_is_migrated_and_merged(tmp_path):
         assert reader.fieldnames == HistoryStore(str(dest))._header  # current
         rows = list(reader)
     assert len(rows) == 3
-    # a padded-but-current row is the full width: 3 meta + features + 20
-    # trailing (label, net_pnl_usd, source, ts, signal_ts, barrier, probe,
-    # disp, candidate_id, book, label_era, pt_frac, sl_frac, sg_flow..
-    # sg_conc - gate-truth instrumentation T2 added the last 7)
-    # 22 trailing meta since the price anchor (2026-08-04) - keep this
-    # count in lockstep with _append_row's own width invariant
-    assert all(len(r) == 3 + len(FEATURE_NAMES) + 22 for r in rows)
+    # a padded-but-current row is the full width. The trailing count is
+    # DERIVED from ml.history's own constants (41b, 2026-08-08): a literal
+    # here went stale on every trailing bump (22 was already one bump
+    # behind the file's own comment when the avail_* columns landed) -
+    # deriving keeps this test in lockstep with _append_row's width
+    # invariant BY CONSTRUCTION, which is what the old comment asked for.
+    from ml.history import _N_LEAD, _N_TRAIL
+    assert all(len(r) == _N_LEAD + len(FEATURE_NAMES) + _N_TRAIL
+               for r in rows)
     # the labels survived the migration
     assert sorted(r["label"] for r in rows) == ["0", "0", "1"]
 

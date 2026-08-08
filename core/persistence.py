@@ -499,7 +499,14 @@ class StateStore:
                           # silently degrades its eventual sg_* telemetry
                           # to all-zero even though log_entry recorded the
                           # real components.
-                          "gate_components": e[7] if len(e) > 7 else {}}
+                          "gate_components": e[7] if len(e) > 7 else {},
+                          # 41b: context-availability flags captured at
+                          # signal time (9th slot; older tuples lack it).
+                          # None is meaningful (= unrecorded -> blank
+                          # UNKNOWN columns) and must survive the trip -
+                          # the exact silent-drop this fixed-shape rebuild
+                          # inflicted on gate_components before T4.
+                          "avail": e[8] if len(e) > 8 else None}
                     for pid, e in bot.history._pending.items()
                 },
                 "sizer_last_entry": dict(bot.sizer._last_entry),
@@ -868,7 +875,12 @@ class StateStore:
                         # snapshots lack this key -> {} default, same
                         # inert convention _append_row already applies to
                         # a missing/None gate_components argument.
-                        h.get("gate_components") or {})
+                        h.get("gate_components") or {},
+                        # 41b: pre-41b snapshots lack this key -> None =
+                        # unrecorded; _append_row writes blank UNKNOWN
+                        # columns for any falsy avail, so restored rows
+                        # never fabricate a "measured down" reading.
+                        h.get("avail") or None)
         except Exception:
             log.exception("history section malformed - skipped")
 

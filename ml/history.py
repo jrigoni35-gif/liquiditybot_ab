@@ -271,12 +271,30 @@ SG_COMPONENT_KEYS = ("flow", "delta", "accum", "burst", "trend",
 # Corpus row shape, as counts rather than as literals repeated per use.
 # _N_LEAD: position_id, asset, side. _N_TRAIL: label, net_pnl_usd, source,
 # ts, signal_ts, barrier, probe, disp, candidate_id, book, label_era,
-# pt_frac, sl_frac (13) + the 7 sg_* + entry_price, exit_price = 22.
+# pt_frac, sl_frac (13) + the 7 sg_* + entry_price, exit_price
+# + the 4 avail_* flags (AVAIL_COLS) = 26.
 # _append_row's width guard AND its warning message both derive from these,
 # so the "expected feature count" they report can never disagree again -
-# tests/test_history_schema.py pins the identity against the live header.
+# tests/test_durable_append.py pins the identity against the live header
+# and tests/test_data_contracts.py pins the header itself.
 _N_LEAD = 3
-_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2
+
+# Context-input availability flags persisted per row (input-feed audit
+# 2026-08-07, owed 41b): which of the row's context features were built
+# from a LIVE source vs a dark/frozen one. A dead feed's neutral zeros are
+# byte-identical to genuine neutral AND to historical padding
+# (CONTEXT_NEUTRAL), so without these flags no offline consumer can ever
+# separate "options feed down" from "options flat" from "row predates the
+# feature". Column order IS this tuple's order; values are "1"/"0" when
+# recorded, "" on rows written before the flags existed or by paths that
+# do not carry them (long-book rows, legacy pending tuples) - consumers
+# must treat "" as UNKNOWN, never as false. BOOKKEEPING ONLY - never a
+# feature (the 2026-08-08 DoF adjudication keeps the feature ledger
+# closed); these exist so a FUTURE training decision can weight or filter
+# degraded-context rows offline, deliberately.
+AVAIL_COLS = ("avail_web", "avail_equity", "avail_options",
+              "quotes_frozen")
+_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS)
 
 # Cap on the candidate `disp` column. See CandidateLabeler.mark_disposition
 # for the measurement that moved it off 40 (which amputated the bracket
@@ -734,7 +752,7 @@ class HistoryStore:
                         "barrier", "probe", "disp", "candidate_id", "book",
                         "label_era", "pt_frac", "sl_frac",
                         *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
-                        "entry_price", "exit_price"]
+                        "entry_price", "exit_price", *AVAIL_COLS]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -875,14 +893,19 @@ class HistoryStore:
     def log_entry(self, position_id: str, asset: str, direction: str,
                 features: np.ndarray, probe: bool = False,
                 candidate_id: "str | None" = None, book: str = "5m",
-                gate_components: "dict | None" = None):
+                gate_components: "dict | None" = None,
+                avail: "dict | None" = None):
         # signal time captured HERE: rows are appended at label time, and
         # the purged walk-forward must order/purge by when the SIGNAL
-        # happened, not when its barrier resolved
+        # happened, not when its barrier resolved. avail (41b) likewise:
+        # the flags describe the feeds at the moment the features were
+        # built, not at close. None is preserved (-> blank UNKNOWN
+        # columns), never coerced to a dict of falses.
         self._pending[position_id] = (asset, direction, features.copy(),
                                       time.time(), bool(probe),
                                       candidate_id or "", book,
-                                      dict(gate_components or {}))
+                                      dict(gate_components or {}),
+                                      dict(avail) if avail else None)
 
     def _row_era(self, barrier: str) -> str:
         """The era tag persisted on a NEW row. Identical to
@@ -908,7 +931,12 @@ class HistoryStore:
                     candidate_id: str = "", book: str = "5m",
                     pt_frac: float = 0.0, sl_frac: float = 0.0,
                     gate_components: "dict | None" = None,
-                    entry_price: float = 0.0, exit_price: float = 0.0):
+                    entry_price: float = 0.0, exit_price: float = 0.0,
+                    avail: "dict | None" = None):
+        # avail (owed 41b): context-availability flags captured at SIGNAL
+        # time (main._feature_extras "avail" dict, keys web/equity/options/
+        # frozen). Falsy -> all AVAIL_COLS written blank = UNKNOWN (legacy
+        # rows, paths that don't carry it); a recorded dict writes "1"/"0".
         self._ensure_schema()
         # width invariant: a row must have exactly as many fields as the
         # header. The header check above only guards the FILE's schema -
@@ -968,7 +996,10 @@ class HistoryStore:
                self._row_era(barrier),
                f"{pt_frac:.6f}", f"{sl_frac:.6f}",
                *[f"{sg[k]:.4f}" for k in SG_COMPONENT_KEYS],
-               f"{entry_price:.10g}", f"{exit_price:.10g}"]
+               f"{entry_price:.10g}", f"{exit_price:.10g}",
+               *(["", "", "", ""] if not avail else
+                 [str(int(bool(avail.get(k, False))))
+                  for k in ("web", "equity", "options", "frozen")])]
         # torn-tail heal + fsync (2026-08-06). This is the ground-truth
         # training corpus and the highest-value append-only file in the
         # repo: a kill mid-row welded the fragment to the NEXT row, and
@@ -1056,7 +1087,11 @@ class HistoryStore:
         cand_id = ""
         book = "5m"
         gate_comp = None
-        if len(entry) == 8:
+        avail = None
+        if len(entry) == 9:
+            (asset, direction, feats, sig_ts, probe, cand_id, book,
+             gate_comp, avail) = entry
+        elif len(entry) == 8:
             (asset, direction, feats, sig_ts, probe, cand_id, book,
              gate_comp) = entry
         elif len(entry) == 7:
@@ -1078,7 +1113,7 @@ class HistoryStore:
                         candidate_id=cand_id or "", book=book or "5m",
                         pt_frac=pt_frac, sl_frac=sl_frac,
                         gate_components=gate_comp, entry_price=entry_price,
-                        exit_price=exit_price)
+                        exit_price=exit_price, avail=avail)
         log.info(f"labeled trade {position_id[:8]}: label={label} "
                 f"pnl=${net_pnl_usd:,.2f}")
         if barrier in ("tb_pt", "tb_sl", "tb_time"):
@@ -2143,7 +2178,8 @@ class CandidateLabeler:
                 sigma_bar: float, bar_time, gates_passed=None,
                 spread_bps: float = 0.0,
                 confidence: "float | None" = None,
-                gate_components: "dict | None" = None) -> bool:
+                gate_components: "dict | None" = None,
+                avail: "dict | None" = None) -> bool:
         """Returns True when a candidate row was actually appended -
         the SCS latch must only be consumed by a REAL append (a dedup
         no-op would silently discard the state-change lesson the
@@ -2169,6 +2205,10 @@ class CandidateLabeler:
                             "id": f"cand-{self._id_salt}-{self._seq}",
                             "asset": asset,
                             "direction": direction,
+                            # 41b: feed availability at SIGNAL time; None =
+                            # unrecorded (legacy persisted candidates) ->
+                            # blank UNKNOWN columns at label time
+                            "avail": dict(avail) if avail else None,
                             "features": features.copy(),
                             "sigma_bar": float(max(sigma_bar, 1e-5)),
                             "bar_time": bar_time,
@@ -2393,7 +2433,8 @@ class CandidateLabeler:
                             pt_frac=float(getattr(out, "pt_frac", 0.0) or 0.0),
                             sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0),
                             gate_components=cand.get("gate_components"),
-                            entry_price=entry_price, exit_price=exit_price)
+                            entry_price=entry_price, exit_price=exit_price,
+                            avail=cand.get("avail"))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

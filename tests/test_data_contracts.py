@@ -109,12 +109,21 @@ def test_history_header_contract_is_stable(tmp_path):
     # can be re-examined in price space (relabelling at a new horizon,
     # external-tape alignment, realized-return audits) - appended last
     # so meta order (and every past bump) stays stable
+    # avail_web..quotes_frozen joined 2026-08-08 (owed 41b): which context
+    # feeds were LIVE when the row's features were built - a dark feed's
+    # neutrals are byte-identical to genuine neutral, so without these no
+    # consumer can separate "feed down" from "flat" from "predates the
+    # feature". "" = unknown (legacy/uncarried), "1"/"0" = recorded.
+    # BOOKKEEPING ONLY, never features (the 2026-08-08 DoF adjudication
+    # keeps the ledger closed) - appended last so meta order stays stable
     expected = ["position_id", "asset", "side", *FEATURE_NAMES,
                 "label", "net_pnl_usd", "source", "ts", "signal_ts",
                 "barrier", "probe", "disp", "candidate_id", "book",
                 "label_era", "pt_frac", "sl_frac",
                 *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
-                "entry_price", "exit_price"]
+                "entry_price", "exit_price",
+                "avail_web", "avail_equity", "avail_options",
+                "quotes_frozen"]
     assert hs._header == expected
 
 

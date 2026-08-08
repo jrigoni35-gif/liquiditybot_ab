@@ -241,16 +241,24 @@ def test_pending_snapshot_round_trips_gate_components(tmp_path):
     store = StateStore(str(tmp_path / "state.json"))
     hs = _mk_store(tmp_path / "src")
     hs.log_entry("posA", "ETH", "long", _feats(), probe=False,
-                 candidate_id="cand-9", book="5m", gate_components=SG)
-    assert len(hs._pending["posA"]) == 8
+                 candidate_id="cand-9", book="5m", gate_components=SG,
+                 avail={"web": True, "equity": False, "options": True,
+                        "frozen": False})
+    # 41b grew the tuple to 9 (avail joins as the newest slot - the same
+    # fixed-shape rebuild hazard this test exists for)
+    assert len(hs._pending["posA"]) == 9
     bot = _persist_stub_bot(hs)
     assert store.snapshot(bot)
 
     hs2 = _mk_store(tmp_path / "dst")
     revived = _persist_stub_bot(hs2)
     assert store.restore(revived)
-    assert len(hs2._pending["posA"]) == 8
+    assert len(hs2._pending["posA"]) == 9
     hs2.log_close("posA", 3.0)
     rows = list(csv.DictReader(open(hs2.path, encoding="utf-8")))
     assert rows[0]["sg_flow"] == "0.5000"
     assert rows[0]["sg_conc"] == "0.4000"
+    # the avail slot survives the SAME rebuild that once dropped sg_*
+    assert [rows[0][c] for c in ("avail_web", "avail_equity",
+                                 "avail_options", "quotes_frozen")] \
+        == ["1", "0", "1", "0"]

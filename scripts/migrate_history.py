@@ -152,7 +152,18 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # stored one anywhere), so 0 is permanent for them and
                     # readers must treat it as "absent", never as a price.
                     r.get("entry_price") or "0",
-                    r.get("exit_price") or "0"])
+                    r.get("exit_price") or "0",
+                    # avail_web..quotes_frozen joined 2026-08-08 (owed
+                    # 41b): context-feed availability at feature-build
+                    # time. Same idempotence precedent - pass an already-
+                    # migrated row's real value through UNCHANGED; a row
+                    # that predates the columns pads "" = UNKNOWN. Never
+                    # "0": nothing measured those feeds for a legacy row,
+                    # and "0" would claim a measured outage.
+                    r.get("avail_web") or "",
+                    r.get("avail_equity") or "",
+                    r.get("avail_options") or "",
+                    r.get("quotes_frozen") or ""])
     return out, padded
 
 

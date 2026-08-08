@@ -501,6 +501,39 @@ def _bar_age_check(bot, asset: str, candles: list, now: float) -> None:
         latched.discard(asset)
 
 
+def _context_avail_check(bot, avail: dict) -> None:
+    """DF-020/DF-021 (owed 41b): latched one-log-per-episode transition
+    when feature rows are being built while a context source is dark or
+    frozen. Same latched discipline as FW-080/_bar_age_check above and
+    41a's DF-010/DF-011; module-level with a duck-typed `bot` for the
+    same fixture reasons. Telemetry only - the per-row truth is the
+    avail_* columns; this log exists so the OPERATOR sees the episode
+    without diffing the corpus. Never raises."""
+    try:
+        down = frozenset(k for k, ok in
+                         (("web", avail.get("web")),
+                          ("equity", avail.get("equity")),
+                          ("options", avail.get("options")))
+                         if not ok) | (
+            frozenset(("frozen",)) if avail.get("frozen") else frozenset())
+    except AttributeError:
+        return
+    prev = getattr(bot, "_ctx_avail_down", None)
+    if prev is None:
+        prev = bot._ctx_avail_down = frozenset()
+    if down == prev:
+        return
+    bot._ctx_avail_down = down
+    if down:
+        log.warning(
+            f"{Code.DF_CONTEXT_DEGRADED.value}: building feature rows "
+            f"with degraded context ({', '.join(sorted(down))}) - the "
+            f"affected features read neutral; rows carry avail_* flags")
+    else:
+        log.info(f"{Code.DF_CONTEXT_RECOVERED.value}: all context "
+                 f"sources live again - degradation episode over")
+
+
 def _book_imbalance(book: dict) -> float:
     """log(bid depth / ask depth) over the top 10 levels, clipped like the
     imbalance feature; 0.0 when a side is missing."""
@@ -1400,6 +1433,7 @@ class LiquidityBot:
                   "edge_bps": meta_t.get("edge_bps", 0.0),
                   "est_cost_bps": meta_t.get("est_cost_bps", 0.0),
                   "features": meta_t.get("features"),
+                  "avail": meta_t.get("avail") or {},
                   "gate_components": meta_t.get("gate_components") or {},
                   "probe": bool(meta_t.get("probe", False)),
                   "candidate_id": meta_t.get("candidate_id") or "",
@@ -1899,7 +1933,8 @@ class LiquidityBot:
                                         candidate_id=order.meta.get(
                                             "candidate_id"),
                                         book=pos.book,
-                                        gate_components=order.meta.get("gate_components"))
+                                        gate_components=order.meta.get("gate_components"),
+                                        avail=order.meta.get("avail"))
                 if pos.book == "long":
                     self._register_long_book_thesis(
                         pos, position_id, event.fill_price, now)
@@ -4281,13 +4316,17 @@ class LiquidityBot:
             smc_feats = self.smc.compute(asset, v.get("candles") or [],
                                          signal.direction, now,
                                          daily_candles=self.daily_candles.get(asset))
+            extras = self._feature_extras(asset, v, web, risk,
+                                          others[0] if others else None, now)
+            # 41b: availability flags at THIS signal's build instant - they
+            # ride the candidate row, the order meta and the eventual live
+            # row as bookkeeping columns (never features)
+            feat_avail = extras.get("avail") or {}
             feats = build_features(asset, signal.direction, gate_conf, v,
                                 fv_state, vol_state, liq_state, macro_state,
                                 self.corr.state, sentiment, smc_feats,
                                 other_asset=others[0] if others else None,
-                                extras=self._feature_extras(
-                                    asset, v, web, risk,
-                                    others[0] if others else None, now))
+                                extras=extras)
             p_win = self.meta.p_win(feats, gate_conf,
                                     shrinkage=self.monitor.shrinkage,
                                     use_model=self.monitor.use_model)
@@ -4353,7 +4392,8 @@ class LiquidityBot:
                                         gates_passed=signal.gates_passed,
                                         spread_bps=liq_state.spread_bps,
                                         confidence=model_p,  # W2-1: honest p(win)
-                                        gate_components=signal.components):
+                                        gate_components=signal.components,
+                                        avail=feat_avail):
                     # consume the latch ONLY on a real append: a same-
                     # candle dedup no-op keeps the event pending so the
                     # state-change lesson registers at the next bar
@@ -4605,6 +4645,7 @@ class LiquidityBot:
                                             None) or {}).pop(asset, None)
                                    if explored else None),
                     "candidate_id": cand_id or "",
+                    "avail": feat_avail,
                     "thales_fired": self._thales_fired.get(asset) or [],
                     "gates_passed": getattr(self, "_sig_gates", {}).get(asset) or {},
                     "gate_components": dict(getattr(signal, "components", None) or {}),
@@ -4644,7 +4685,8 @@ class LiquidityBot:
                 decision=decision, sized=sized, lev=lev_decision,
                 equity=equity, vol_state=vol_state, fv_state=fv_state,
                 macro_state=macro_state, liq_state=liq_state,
-                verdict=verdict, feats=feats, explored=explored,
+                verdict=verdict, feats=feats, feat_avail=feat_avail,
+                explored=explored,
                 p_win=p_win, model_p=model_p, shadow_p=shadow_p,
                 ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
                 target_pct=target_pct, now=now,
@@ -4691,6 +4733,7 @@ class LiquidityBot:
                     "est_cost_bps": decision.est_cost_bps,
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
+                    "avail": feat_avail,
                     "thales_fired": self._thales_fired.get(asset) or [],
                     "gates_passed": getattr(self, "_sig_gates", {}).get(asset) or {},
                     "gate_components": dict(getattr(signal, "components", None) or {}),
@@ -5464,7 +5507,8 @@ class LiquidityBot:
                       explored, p_win, model_p, shadow_p, ev_pct,
                       stop_pct_eff, target_pct, now, reserved_entries,
                       can_enter, cand_id=None, bracket_pt_frac=0.0,
-                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0):
+                      bracket_sl_frac=0.0, bracket_deadline_ts=0.0,
+                      feat_avail=None):
         """v10 ladder pathway for one approved entry. Returns the updated
         (reserved_entries, can_enter, handled): handled=True means the ladder
         placed (or consciously consumed) this entry and the caller skips the
@@ -5500,7 +5544,8 @@ class LiquidityBot:
             side=side, signal=signal, decision=decision, lev=lev,
             equity=equity, vol_state=vol_state, fv_state=fv_state,
             macro_state=macro_state, liq_state=liq_state, verdict=verdict,
-            feats=feats, explored=explored, p_win=p_win, model_p=model_p,
+            feats=feats, feat_avail=feat_avail, explored=explored,
+            p_win=p_win, model_p=model_p,
             shadow_p=shadow_p, ev_pct=ev_pct, stop_pct_eff=stop_pct_eff,
             target_pct=target_pct, now=now, cand_id=cand_id,
             bracket_pt_frac=bracket_pt_frac,
@@ -5541,7 +5586,7 @@ class LiquidityBot:
                       p_win, model_p, shadow_p, ev_pct, stop_pct_eff,
                       target_pct, now, cand_id=None, bracket_pt_frac=0.0,
                       bracket_sl_frac=0.0, bracket_deadline_ts=0.0,
-                      probe_cost=None) -> int:
+                      probe_cost=None, feat_avail=None) -> int:
         """Submit an armed ladder's rungs as maker-only limit entries through
         the FULL existing rail (firewall, collar, venue minimums). Every rung
         is its own position with its own postmortem thesis, so labels stay
@@ -5603,7 +5648,8 @@ class LiquidityBot:
                       # tier-1 cost floor (P1) sees the same cost every rung
                       # of this entry was actually approved against.
                       "est_cost_bps": decision.est_cost_bps,
-                      "features": feats, "probe": explored,
+                      "features": feats, "avail": feat_avail or {},
+                      "probe": explored,
                       "ladder_rung": rung.idx,
                       # H16 group key: every rung of ONE decision shares it,
                       # so a fill on any rung can retire the single
@@ -5761,7 +5807,19 @@ class LiquidityBot:
                                self._wl_p95, self._wl_thr),
             kb_imb, comp_imb if comp_imb is not None else kb_imb)
         self._manip_scores[asset] = round(suspect, 3)
-        return {"fear_greed": web.fear_greed,
+        # 41b availability truth: which context feeds were LIVE when these
+        # features were built. A dark feed's neutrals are byte-identical to
+        # genuine neutral on the ML path (input-feed audit 2026-08-07), so
+        # the flags ride every corpus row as bookkeeping columns - never as
+        # features (the DoF ledger is closed). "frozen" is 41a's closed-
+        # market signature: the equity quote is real but static.
+        avail = {"web": bool(getattr(web, "available", False)),
+                 "equity": bool(getattr(risk, "available", False)),
+                 "options": bool(getattr(risk, "options_available", False)),
+                 "frozen": bool(getattr(risk, "quotes_frozen", False))}
+        _context_avail_check(self, avail)
+        return {"avail": avail,
+                "fear_greed": web.fear_greed,
                 "dominance_delta": web.dominance_delta,
                 "equity_risk_z": risk.risk_z,
                 "ts": now,

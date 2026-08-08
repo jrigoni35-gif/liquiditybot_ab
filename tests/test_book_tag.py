@@ -84,7 +84,12 @@ def test_history_header_ends_with_label_era(tmp_path):
     h = hs._header
     assert h.index("sg_flow") + 6 == h.index("sg_conc")
     assert h.index("label_era") < h.index("pt_frac") < h.index("sg_flow")
-    assert h[-2:] == ["entry_price", "exit_price"]
+    # 41b (2026-08-08): the 4 avail_* bookkeeping columns trail the price
+    # pair - the price anchor is no longer last, relative order preserved
+    assert h[-4:] == ["avail_web", "avail_equity", "avail_options",
+                      "quotes_frozen"]
+    assert h.index("entry_price") + 1 == h.index("exit_price")
+    assert h.index("exit_price") + 1 == h.index("avail_web")
     assert h.index("book") + 1 == h.index("label_era")
     assert h.index("pt_frac") + 1 == h.index("sl_frac")
     assert h.index("candidate_id") + 1 == h.index("book")
@@ -155,14 +160,18 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     # extended again (price anchor, 2026-08-04): entry_price/exit_price
     # trail everything; a caller that never heard of them (this one)
     # defaults both to "0" = absent.
+    # extended again (41b, 2026-08-08): the 4 avail_* flags trail the
+    # price pair; a caller that never heard of `avail` (this one) writes
+    # all four BLANK = unknown - "" and never "0", because "0" would
+    # claim the feed was measured down.
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
                 "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
-                *(["0.0000"] * 7), "0", "0"]
+                *(["0.0000"] * 7), "0", "0", "", "", "", ""]
     assert row == expected
-    assert header[-1] == "exit_price"
+    assert header[-1] == "quotes_frozen"
     assert len(row) == len(header)
 
 
