@@ -1,4 +1,4 @@
-# Overfit audit — 2026-08-08 21:54 UTC
+# Overfit audit — 2026-08-08 22:05 UTC
 
 Dataset: SYNTHETIC benchmark (live rows=467 < 640) — validating machinery, not market
 
@@ -28,4 +28,4 @@ Dataset: SYNTHETIC benchmark (live rows=467 < 640) — validating machinery, not
 - **INFO** learning curve — SYNTHETIC benchmark dataset — corpus-size trend has no market meaning; skipped
 - **INFO** extras liveness — SYNTHETIC benchmark dataset — feed liveness has no meaning; skipped
 
-7 passed, 0 failed (44s)
+7 passed, 0 failed (46s)
