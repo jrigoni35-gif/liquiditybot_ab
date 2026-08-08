@@ -58,6 +58,48 @@ _LEGAL = {
 _HISTORY_CAP = 512          # bounded terminal-order retention
 
 
+def _passive_poll_prob(sf_base: float, dist_bps: float, sigma_bps: float,
+                       ttl_sec: float, cal_life_sec: float) -> float:
+    """TTL-normalized passive-fill hazard (owed 40, fill-sim audit
+    2026-08-07 - the #1 P&L-integrity defect).
+
+    p_cal = sf_base * exp(-d/sigma) was CALIBRATED by inverting a
+    per-ORDER trade-through rate measured on ~25s order lives
+    (outputs/fill_calibration.json, n_bar=5.0). Drawing that same p
+    per poll over a 6h long-book life compounded to a guaranteed fill
+    (1-(1-p)^4320 ~ 1.0 at any distance) - the ledger's 22/41 entries
+    at exactly -50.0bps "improvement" and the positive BTC/ETH markout
+    where passive maker fills must be negative.
+
+    Normalizing the exponent by cal_life/ttl makes the per-ORDER fill
+    probability TTL-invariant (poll cadence cancels: n_cal/n_ord ==
+    cal_life/ttl). The exponent is clamped at 1.0 so shorter-than-
+    calibrated orders keep the measured per-poll hazard and fill LESS
+    over their shorter life, never more. The measured F(25s) becomes a
+    conservative floor for long lives; genuine trade-through (the
+    deterministic maker-cross path against the live book) still fills
+    long orders whenever the market actually crosses. Execution-era
+    boundary #3 (after the QA quarantine and XV-021).
+    """
+    sf_base = min(max(float(sf_base), 0.0), 1.0)
+    d = max(float(dist_bps), 0.0)
+    sig = max(float(sigma_bps), 1e-9)
+    p_cal = min(max(sf_base * math.exp(-d / sig), 0.0), 1.0)
+    if sf_base >= 1.0 or p_cal >= 1.0:
+        # sf_base=1.0 is the DETERMINISTIC TEST MODE (bug-78 fixture
+        # convention: pinned prob + queue off). Calibration can never
+        # emit 1.0 (Wilson keeps estimates off the boundary), so the
+        # boundary value bypasses TTL normalization and keeps every
+        # deterministic fixture's guarantee byte-identical.
+        return p_cal
+    expo = min(max(float(cal_life_sec), 1.0) / max(float(ttl_sec), 1.0),
+               1.0)
+    p = 1.0 - (1.0 - p_cal) ** expo
+    if not math.isfinite(p):
+        return p_cal
+    return min(max(p, 0.0), 1.0)
+
+
 @dataclass
 class ManagedOrder:
     order_id: str
@@ -206,6 +248,14 @@ class OrderManager:
                                                    0.20)), 0.0), 1.0)
         self.sf_sigma_ref_bps = max(float(sf.get("sigma_ref_bps", 30.0)),
                                     1.0)
+        # the order life the passive hazard was CALIBRATED at (n_bar=5.0
+        # polls x 5s, outputs/fill_calibration.json). _passive_poll_prob
+        # normalizes each order's per-poll hazard by cal_life/ttl so the
+        # per-ORDER fill probability matches calibration at ANY ttl
+        # (owed 40: the 6h long-book life previously compounded
+        # 0.048/poll into a guaranteed fill at -50bps).
+        self.sf_cal_life_sec = max(float(sf.get("calibration_life_sec",
+                                                25.0)), 1.0)
         self.firewall = firewall
         self.pair_meta = pair_meta or {}
         self.latency_ms: float = 0.0
@@ -1237,7 +1287,10 @@ class OrderManager:
                     if _fin_pos(mid) and queue_ok:
                         dist_bps = abs(mid - order.price) / mid * 1e4
                         sigma_bps = max(sigma_bar_pct * 100.0, 1.0)
-                        p = self.sf_base * float(np.exp(-dist_bps / sigma_bps))
+                        p = _passive_poll_prob(
+                            self.sf_base, dist_bps, sigma_bps,
+                            self._timeout_for(order, self.timeout_sec),
+                            self.sf_cal_life_sec)
                         if self._rng.random() < p:
                             frac = float(self._rng.uniform(self.sf_frac_min,
                                                            self.sf_frac_max))

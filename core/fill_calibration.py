@@ -8,6 +8,14 @@ Forward model for one resting maker order (execution/order_manager.py):
     per-poll fill prob   p = sf_base * exp(-d_bar)      d_bar = dist_bps / sigma_bps
     per-order fill prob  F = 1 - (1 - p)^n_bar          n_bar = order_life / poll_sec
 
+2026-08-08 (owed 40): the runtime now TTL-normalizes the per-poll hazard
+(_passive_poll_prob: exponent cal_life/ttl, clamped at 1.0) so the
+per-ORDER F above holds AT THE CALIBRATED LIFE for any actual ttl - a 6h
+order no longer compounds the 25s-calibrated hazard into certainty. The
+inversion below is unchanged: it still maps a measured per-order rate at
+the recorded n_bar to sf_base; sf_base keeps its calibrated meaning.
+When recordings gain long-life buckets, calibrate per-TTL (XV-023).
+
 Given a bucket's observed per-order fill rate ``f`` (successes ``k`` in ``n``
 resting orders, measured from RECORDED market trade-through — not the sim's
 own fills, which would be circular), the maximum-likelihood base prob is the
