@@ -260,7 +260,14 @@ def _server(auth_token=""):
 
 
 def _request(port, method, path, body=None, headers=None):
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    # timeout 30, not 5 (2026-08-07): under pytest-xdist -n 8 the box's 12
+    # logical cores are saturated and a ThreadingHTTPServer handler thread
+    # can miss a 5s window - observed as a one-off flake on this file's
+    # hdrs3 case while the server's OWN log showed the refusal had already
+    # happened. 30s still detects a genuinely hung server; it just stops
+    # detecting a busy scheduler. Serial behavior is unchanged (responses
+    # arrive in milliseconds).
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
     try:
         conn.request(method, path, body=body, headers=headers or {})
         r = conn.getresponse()
