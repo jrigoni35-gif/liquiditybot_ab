@@ -218,6 +218,7 @@ class Code(str, Enum):
     RP_GAP_CAP = "RP-030"            # gap-at-risk shock cap applied
     RP_BUDGET_TAPER = "RP-040"       # loss-budget taper active
     RP_BUDGET_EXHAUSTED = "RP-041"   # daily/weekly loss budget spent: no new risk
+    RP_BUDGET_REANCHORED = "RP-042"  # operator re-anchored a loss budget (audited override for bug-attributable consumption; reason required)
     RP_HEAT_CAP = "RP-050"           # portfolio heat headroom capped size
     RP_HEAT_FULL = "RP-051"          # portfolio heat at max: no new risk
     RP_WARMUP = "RP-060"             # component neutral: insufficient observations

@@ -235,6 +235,25 @@ class RiskProtocolStack:
         except Exception:  # fed from the hot loop; must never raise  # nosec B110
             pass
 
+    def reanchor_week(self, equity: float,
+                      now: Optional[float] = None) -> bool:
+        """Operator override (2026-08-08): re-anchor the WEEK loss budget
+        at `equity`. Exists for BUG-ATTRIBUTABLE consumption - first use:
+        the ADA hedge-churn class (fixed 5c111962/cf454d5e/FW-070) spent
+        109% of ISO week 2026-W32 on manufactured fees and taper_mult
+        0.0 blocked every entry through the weekend. Touches ONLY the
+        anchor: weekly_pnl, pools and the day budget are untouched, and
+        the natural ISO rollover keeps working (the key is refreshed so
+        the next genuine week boundary re-anchors as always). Reached
+        exclusively via the audited ControlChannel verb
+        budget_reanchor_week (runner.handle_command); never over REST."""
+        if not (isinstance(equity, (int, float)) and math.isfinite(equity)
+                and equity > EPS):
+            return False
+        _, wk = self._keys(now if now is not None else time.time())
+        self._week_key, self._week_anchor = wk, float(equity)
+        return True
+
     def spent_fracs(self, equity: float) -> tuple[float, float]:
         def frac(anchor, budget_pct):
             if anchor is None or anchor <= EPS or budget_pct <= EPS:

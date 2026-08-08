@@ -45,7 +45,7 @@ log = logging.getLogger("liquiditybot.runtime")
 VALID_COMMANDS = {
     "start", "pause", "stop", "step", "snapshot", "entries_on",
     "entries_off", "arm_live", "disarm_live", "clear_fault", "force_dry",
-    "flatten_all",
+    "flatten_all", "budget_reanchor_week",
     "sim_price_shock", "sim_force_fear", "sim_force_regime", "sim_clear",
 }
 ARM_PHRASE = "ARM LIVE"

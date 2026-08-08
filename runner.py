@@ -32,6 +32,7 @@ from typing import Callable, Optional
 
 from core import code_stats
 from core.audit import get_audit
+from core.codes import Code
 from core.goals import goal_progress
 from core.persistence import StateStore
 from core.precision import round_price
@@ -70,7 +71,7 @@ FORCE_DRY_SENTINEL = Path("outputs") / "force_dry.on"
 HANDLED_COMMANDS = frozenset({
     "start", "pause", "stop", "step", "snapshot", "entries_on",
     "entries_off", "arm_live", "disarm_live", "clear_fault", "force_dry",
-    "flatten_all",
+    "flatten_all", "budget_reanchor_week",
     "sim_price_shock", "sim_force_fear", "sim_force_regime", "sim_clear",
 })
 
@@ -589,6 +590,35 @@ class BotRunner:
                     self._lock_lost_latched = False
                 note = (f"fault {key} cleared -> op-state {fm.status()['state']}"
                         if cleared else f"no such fault {key!r}")
+        elif cmd == "budget_reanchor_week":
+            # operator override for BUG-ATTRIBUTABLE weekly loss-budget
+            # consumption (first use 2026-08-08: the ADA hedge-churn
+            # class, fixed in 5c111962/cf454d5e, had spent 109% of the
+            # week and taper_mult=0.0 blocked all entries; without the
+            # bug the week was net positive). The budget measures from
+            # persisted EQUITY ANCHORS, so no restart clears it - this
+            # verb re-anchors the week at current equity, touching no
+            # ledger, pool or learning data. Reason REQUIRED (audited,
+            # RP-042); deliberately absent from rest_server's
+            # ALLOWED_CONTROL - risk-loosening verbs stay off the
+            # browser-reachable surface, same posture as arm_live.
+            rp = getattr(bot, "risk_protocols", None)
+            reason = str(args.get("reason", "")).strip()
+            if rp is None:
+                note = "no risk protocol stack"
+            elif not reason:
+                note = ("REFUSED: give args.reason - this is an audited "
+                        "operator override")
+            else:
+                eq = bot.state.total_equity(bot.marks)
+                if rp.reanchor_week(eq, now=now):
+                    note = (f"weekly loss budget re-anchored at "
+                            f"${eq:,.2f}: {reason}")
+                    get_audit().log("runner", Code.RP_BUDGET_REANCHORED,
+                                    note, {"equity": round(eq, 2),
+                                           "reason": reason})
+                else:
+                    note = "REFUSED: no finite positive equity to anchor"
         elif cmd == "force_dry":
             note = self._cmd_force_dry(bot)
         elif cmd == "flatten_all":
