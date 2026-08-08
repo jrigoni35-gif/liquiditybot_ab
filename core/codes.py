@@ -460,6 +460,22 @@ class Code(str, Enum):
                                       # unknown" DenyReason from
                                       # LongBookEngine.decide_add)
 
+    # ---- data feeds (DF) — data/moomoo_feed.py -----------------------
+    DF_QUOTES_FROZEN = "DF-010"      # full-basket freeze: every per-ticker
+                                     # return identical to the previous
+                                     # poll (the closed-market signature -
+                                     # three liquid names byte-identical is
+                                     # not a quiet market). Window append
+                                     # suppressed so the z holds its last
+                                     # honest value instead of decaying
+                                     # (input-feed audit 2026-08-07: 93% of
+                                     # a closed day's polls were duplicate
+                                     # appends, z decayed +0.39 -> 0.00;
+                                     # weekends inject ~62h of it).
+                                     # Latched: one log per episode.
+    DF_QUOTES_RESUMED = "DF-011"     # basket moving again after a DF-010
+                                     # episode: window appends resume
+
     # ---- long-horizon book (LB) — risk/long_book.py (Compounder C) ----
     LB_ADD_PLACED = "LB-000"         # accumulation add order placed (paper/live)
     LB_ADD_DENIED = "LB-010"         # add refused (detail names the gate:

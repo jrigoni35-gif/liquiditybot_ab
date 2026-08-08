@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from core.codes import Code
+
 log = logging.getLogger("liquiditybot.data.moomoo")
 
 EPS = 1e-9
@@ -51,6 +53,11 @@ class MoomooSnapshot:
     per_ticker: dict = field(default_factory=dict)   # code -> session ret %
     available: bool = False
     ts: float = field(default_factory=time.time)
+    # full-basket repeat of the previous poll (closed-market signature).
+    # The quote is REAL, so available stays True; this flag says the
+    # z-window append was suppressed to stop stale-repeat decay
+    # (DF-010/DF-011). Additive field, defaults False (interface rule 7).
+    quotes_frozen: bool = False
     # options positioning on the same risk basket (nearest expiry, NTM):
     # put/call volume-ratio z vs own history (crowd fear when high) and
     # the put-minus-call IV skew (tail-hedging premium). Read-only quote
@@ -76,6 +83,10 @@ class MoomooFeed:
         self._sdk_ok = quote_ctx is not None
         self._last_poll = 0.0
         self._ret_hist: deque = deque(maxlen=int(cfg.get("z_lookback_polls", 60)))
+        # frozen-quote gate state (input-feed audit 2026-08-07, item 41a)
+        self._last_per: dict = {}       # previous poll's per-ticker returns
+        self._frozen = False            # latched: one DF-010 per episode
+        self._last_opt_raw: tuple | None = None   # previous (pcr, oi_pcr)
         ocfg = cfg.get("options", {}) or {}
         self.opt_enabled = bool(ocfg.get("enabled", True))
         self.opt_underlyings = list(ocfg.get("underlyings", [])) or \
@@ -239,7 +250,31 @@ class MoomooFeed:
             raise RuntimeError("no usable quotes in snapshot")
 
         basket = num / den
-        self._ret_hist.append(basket)
+        # Frozen-quote gate (input-feed audit 2026-08-07, #1 CRITICAL):
+        # moomoo has no market-hours guard, so a closed market re-serves
+        # the same last/prev pair every poll and each duplicate append
+        # shrank the window's std and dragged its mean onto the frozen
+        # value - the z decayed +0.39 -> 0.00 over one closed day (93%
+        # duplicate polls) and a weekend injects ~62h of it. A FULL-basket
+        # repeat is the closed-market signature; one name moving while
+        # another sits still is a market, not a freeze. On a frozen poll
+        # the window is not appended, so the z computed from the
+        # unpolluted history holds its last honest value.
+        frozen = bool(self._last_per) and per == self._last_per
+        self._last_per = per
+        if frozen:
+            if not self._frozen:
+                self._frozen = True
+                log.info(f"{Code.DF_QUOTES_FROZEN.value}: moomoo basket "
+                         f"frozen - every per-ticker return matches the "
+                         f"previous poll (closed-market signature); "
+                         f"z-window appends suspended, z holds")
+        else:
+            if self._frozen:
+                log.info(f"{Code.DF_QUOTES_RESUMED.value}: moomoo basket "
+                         f"moving again - z-window appends resume")
+            self._frozen = False
+            self._ret_hist.append(basket)
         arr = np.array(self._ret_hist, float)
         sd = float(arr.std()) if len(arr) >= 8 else 0.0
         z = float(np.clip((basket - float(arr.mean())) / sd, -4, 4)) if sd > EPS else 0.0
@@ -261,6 +296,7 @@ class MoomooFeed:
             if self._opt_available else (0.0, 0.0, 0.0, 0.0, 0.0)
         snap = MoomooSnapshot(risk_z=z, basket_ret_pct=round(basket, 3),
                             per_ticker=per, available=True, ts=now,
+                            quotes_frozen=frozen,
                             opt_pcr_z=pcr_z, opt_oi_pcr_z=oi_z,
                             opt_iv_skew=skew, opt_pcr=pcr,
                             opt_oi_pcr=oi_pcr,
@@ -333,18 +369,32 @@ class MoomooFeed:
         if call_vol <= EPS and put_vol <= EPS:
             raise RuntimeError("no option volume in NTM band")
 
+        pcr = put_vol / max(call_vol, 1.0)
+        # OI may be unentitled/zero on some plans: neutral, never fatal
+        oi_pcr = (put_oi / max(call_oi, 1.0)) \
+            if (put_oi > EPS or call_oi > EPS) else 0.0
+
+        # Same freeze gate as the equity basket, on the RAW ratio pair:
+        # option volume/OI are cumulative day totals, so a closed market
+        # re-serves them byte-identical and every duplicate append is what
+        # pinned opt_oi_pcr_z at a permanent 0.00 in the audit. On a
+        # repeat, skip the appends; the z from the unpolluted history
+        # holds. (No DF log here: the basket gate above already carries
+        # the episode, and options ride the same closed market.)
+        opt_frozen = (pcr, oi_pcr) == self._last_opt_raw
+        self._last_opt_raw = (pcr, oi_pcr)
+
         def _z(ratio: float, hist: deque) -> float:
-            hist.append(ratio)
+            if not opt_frozen:
+                hist.append(ratio)
+            if not hist:            # defensive: frozen before any append
+                return 0.0
             arr = np.array(hist, float)
             sd = float(arr.std()) if len(arr) >= 8 else 0.0
             return float(np.clip((ratio - float(arr.mean())) / sd,
                                  -4, 4)) if sd > EPS else 0.0
 
-        pcr = put_vol / max(call_vol, 1.0)
         pcr_z = _z(pcr, self._opt_hist)
-        # OI may be unentitled/zero on some plans: neutral, never fatal
-        oi_pcr = (put_oi / max(call_oi, 1.0)) \
-            if (put_oi > EPS or call_oi > EPS) else 0.0
         oi_z = _z(oi_pcr, self._opt_oi_hist) if oi_pcr > EPS else 0.0
         skew = 0.0
         if put_iv and call_iv:
