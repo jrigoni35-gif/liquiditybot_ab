@@ -1,39 +1,39 @@
 {
-  "generated_at": 1786161831.3160198,
+  "generated_at": 1786165433.177522,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786161829.0,
-    "duration_h": 692.17
+    "end": 1786165420.0,
+    "duration_h": 693.17
   },
   "pnl": {
     "starting_capital": 5000.0,
     "equity_start": 25000.0,
-    "equity_end": 4616.32,
+    "equity_end": 4615.79,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -208.22,
-    "fees_paid_total": 382.2818,
-    "open_positions": 3,
-    "samples": 152079
+    "realized_pnl_total": -208.34,
+    "fees_paid_total": 382.3536,
+    "open_positions": 2,
+    "samples": 152315
   },
   "activity": {
-    "signal_rows_total": 9785,
-    "live_labeled_trades": 304,
-    "candidate_rows": 9481
+    "signal_rows_total": 9788,
+    "live_labeled_trades": 305,
+    "candidate_rows": 9483
   },
   "audit": {
-    "records": 33904,
-    "signal_records": 29006,
+    "records": 34158,
+    "signal_records": 29137,
     "by_src": {
-      "exploration": 30040,
-      "order_manager": 1318,
-      "ml_governor": 1152,
-      "long_book": 414,
+      "exploration": 30286,
+      "order_manager": 1319,
+      "ml_governor": 1154,
+      "long_book": 418,
       "startup": 274,
       "fault": 253,
-      "exit": 208,
+      "exit": 209,
       "conviction": 77,
       "firewall": 60,
       "engine": 58,
@@ -47,19 +47,19 @@
       ],
       [
         "ML-070",
-        4898
+        5021
       ],
       [
         "SZ-051",
-        2376
+        2499
       ],
       [
         "OM-000",
-        1031
+        1032
       ],
       [
         "ML-031",
-        408
+        409
       ],
       [
         "ML-072",
@@ -79,7 +79,7 @@
       ],
       [
         "PT-061",
-        208
+        209
       ],
       [
         "ML-041",
@@ -91,8 +91,8 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.768,
-    "retrain_requests": 88,
+    "dominant_frac": 0.764,
+    "retrain_requests": 89,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -100,12 +100,12 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 13482,
+    "records": 14750,
     "by_level": {
-      "INFO": 13419,
-      "WARNING": 57,
+      "INFO": 14685,
+      "WARNING": 58,
       "ERROR": 5,
-      "CRITICAL": 1
+      "CRITICAL": 2
     },
     "top_warnings": [
       [
@@ -150,11 +150,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2316,
-      "spoofy": 1521
+      "thin": 2453,
+      "spoofy": 1723
     },
-    "spoofy_frac": 0.396,
-    "cycles_estimate": 1059,
+    "spoofy_frac": 0.413,
+    "cycles_estimate": 1177,
     "feed_error_events": 0
   },
   "model": {
@@ -163,7 +163,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.3094685437537132,
     "brier": "n/a",
-    "history_rows": 304,
+    "history_rows": 305,
     "cold": true
   },
   "postmortems": {
@@ -191,13 +191,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=304, brier=n/a) yet retrain was requested 88x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 77% of the audit trail"
+      "detail": "model is cold (live training rows=305, brier=n/a) yet retrain was requested 89x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 76% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 77% of 29006 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 76% of 29137 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
