@@ -1,0 +1,77 @@
+"""The battery's pytest stage gate must actually bite (2026-08-08).
+
+FOUND LIVE: `start /b /wait "" cmd || (...)` NEVER fires the `||` -
+start's own successful LAUNCH satisfies the conditional; the awaited
+child's exit code lands only in ERRORLEVEL. A red pytest stage
+(1 failed, 3444 passed) sailed through to ALL GREEN - the first false
+arm this matrix ever produced. Every earlier "failed" battery was
+caught by a LATER stage whose engine broke on the same bugs, which is
+why the lie survived every prior red run.
+
+Two pins:
+  1. The cmd semantics themselves (subprocess, two-sided): `||` misses
+     an exit-1 child behind start /wait; `if errorlevel 1` catches it.
+     If a future Windows changes this, the pin tells us.
+  2. test_windows.bat never combines `start /b /wait` with `||` on one
+     line - the construct is banned in the matrix (same spirit as the
+     AST append-mode gate: the CLASS is fenced, not the instance).
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+_BAT = Path(__file__).resolve().parents[1] / "test_windows.bat"
+
+
+def _run_bat(tmp_path: Path, body: str) -> int:
+    """Run the construct from a REAL .bat file: `cmd /c "start ..."`
+    inline deadlocks under captured pipes (the quote layers make start
+    mis-parse and wait forever - measured 60s TimeoutExpired x3 on the
+    first version of these pins), while the identical construct inside
+    a .bat file completes instantly. The battery is a .bat, so the
+    file form is also the faithful reproduction."""
+    bat = tmp_path / "gate_pin.bat"
+    bat.write_text("@echo off\r\n" + body + "\r\n", encoding="ascii")
+    return subprocess.run(
+        ["cmd.exe", "/d", "/c", str(bat)], capture_output=True,
+        timeout=60).returncode  # nosec B603 B607 - fixed argv, no shell
+
+
+def test_start_wait_or_operator_misses_child_failure(tmp_path):
+    """The defect, pinned: || after start /b /wait sees the LAUNCH, not
+    the child - an exit-1 child yields outer exit 0."""
+    rc = _run_bat(tmp_path,
+                  f'start /b /wait "" "{sys.executable}" -c '
+                  f'"import sys; sys.exit(1)" || exit /b 7')
+    assert rc == 0, ("cmd's || now sees the awaited child's code - "
+                     "revisit the matrix gates with this new semantics")
+
+
+def test_if_errorlevel_catches_child_failure(tmp_path):
+    """The fix, pinned: if errorlevel 1 reads the awaited child's code."""
+    rc = _run_bat(tmp_path,
+                  f'start /b /wait "" "{sys.executable}" -c '
+                  f'"import sys; sys.exit(1)"\r\n'
+                  f'if errorlevel 1 exit /b 7')
+    assert rc == 7
+
+
+def test_if_errorlevel_passes_child_success(tmp_path):
+    rc = _run_bat(tmp_path,
+                  f'start /b /wait "" "{sys.executable}" -c '
+                  f'"import sys; sys.exit(0)"\r\n'
+                  f'if errorlevel 1 exit /b 7')
+    assert rc == 0
+
+
+def test_matrix_never_pairs_start_wait_with_or_operator():
+    """No line of test_windows.bat may gate a start /wait child with ||."""
+    for i, line in enumerate(
+            _BAT.read_text(encoding="utf-8", errors="replace").splitlines(),
+            1):
+        s = line.strip()
+        if s.upper().startswith("REM"):
+            continue
+        assert not ("start" in s and "/wait" in s and "||" in s), (
+            f"test_windows.bat:{i} gates a start /wait child with || - "
+            f"that gate can never fire; use `if errorlevel 1`")

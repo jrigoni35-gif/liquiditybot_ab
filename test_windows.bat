@@ -19,7 +19,15 @@ REM headroom - it runs BelowNormal and a Normal-priority battery on all
 REM 12 threads outcompetes it (measured stalls up to 88s are documented
 REM in runner.py). /belownormal puts the battery UNDER the bot, never
 REM the bot under the battery: tests can be slow, exits cannot.
-start /belownormal /b /wait "" %PY% -m pytest tests -q -n 8 || (echo PYTEST FAILED - do not arm & exit /b 1)
+REM `start /b /wait cmd || (...)` NEVER fires the || - start's own launch
+REM success satisfies the conditional; the awaited child's exit code only
+REM lands in ERRORLEVEL. Discovered 2026-08-08 when a red pytest stage
+REM (1 failed) sailed through to ALL GREEN - the first false arm this
+REM gate ever produced (prior "failed" batteries were caught by LATER
+REM stages whose engines broke on the same bugs). `if errorlevel 1` reads
+REM the awaited child's code and is the documented-reliable form.
+start /belownormal /b /wait "" %PY% -m pytest tests -q -n 8
+if errorlevel 1 (echo PYTEST FAILED - do not arm & exit /b 1)
 
 echo.
 echo === smoke_test (end-to-end checks) ===
