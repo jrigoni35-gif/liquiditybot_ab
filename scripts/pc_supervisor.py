@@ -191,6 +191,44 @@ def _fresh(path: Path, key: str | None = None) -> bool:
         return False
 
 
+# Child-log rotation cap/retention. Lifted defaults, overridable via env
+# (LB_CHILD_LOG_MAX_MB / LB_CHILD_LOG_KEEP) so no fitted literal hides in a
+# decision path: 64MB is sized against the measured growth (runner.log hit
+# 153.8MB in ~3 weeks, ~7MB/day, so one generation spans ~9 days) and 2
+# archives keep ~3 weeks of forensics - the window every incident
+# investigation this month actually needed. Rotation must happen at the
+# SPAWN boundary and nowhere else: Windows refuses to rename a file with an
+# open handle, and between spawns the dead child's handle is released -
+# this is the only moment the rename can succeed.
+_CHILD_LOG_MAX_BYTES = int(float(
+    os.environ.get("LB_CHILD_LOG_MAX_MB", "64")) * 1024 * 1024)
+_CHILD_LOG_KEEP = max(int(os.environ.get("LB_CHILD_LOG_KEEP", "2")), 1)
+
+
+def _rotate_child_log(path: Path) -> None:
+    """Rotate `path` to path.1 (shifting .1->.2 ...) when it exceeds the
+    cap. Best-effort by contract: a lingering handle (a child not fully
+    dead yet, an operator tail, AV) makes os.replace raise on Windows, and
+    the spawn must proceed with append rather than fail - an unrotated log
+    is an inconvenience, an unspawned runner is an outage. gc_log_pusher's
+    _drain_rotated already handles the rename losslessly on its side."""
+    try:
+        if not path.exists() or path.stat().st_size < _CHILD_LOG_MAX_BYTES:
+            return
+        for i in range(_CHILD_LOG_KEEP, 0, -1):
+            src = path.with_name(f"{path.name}.{i}")
+            if i == _CHILD_LOG_KEEP:
+                src.unlink(missing_ok=True)
+                continue
+            if src.exists():
+                os.replace(src, path.with_name(f"{path.name}.{i + 1}"))
+        os.replace(path, path.with_name(f"{path.name}.1"))
+        log(f"rotated {path.name} ({_CHILD_LOG_MAX_BYTES >> 20}MB cap)")
+    except OSError as e:
+        log(f"child-log rotation skipped for {path.name} ({e}) - "
+            f"appending to the existing file")
+
+
 def _spawn(argv: list, own_log: bool = True) -> None:
     """Launch a windowless child that outlives this process. When own_log is
     False the child keeps its own log file, so stdout goes to DEVNULL
@@ -217,8 +255,10 @@ def _spawn(argv: list, own_log: bool = True) -> None:
     # and pinning it to OUT meant a test that drove _spawn appended real
     # child output (outputs/telemetry_backup.log) to the production tree
     # while LOG_PATH was already redirected. One knob now moves both.
-    out = (open(LOG_PATH.parent / (Path(argv[1]).stem + ".log"), "a",
-                encoding="utf-8")
+    child_log = LOG_PATH.parent / (Path(argv[1]).stem + ".log")
+    if own_log:
+        _rotate_child_log(child_log)
+    out = (open(child_log, "a", encoding="utf-8")
            if own_log else subprocess.DEVNULL)
     if not IS_WIN:
         subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,  # nosec B603
