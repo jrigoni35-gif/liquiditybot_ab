@@ -354,6 +354,71 @@ def test_no_options_handler_so_the_forced_preflight_fails():
         assert st == 501
 
 
+def test_deny_drains_declared_body_before_responding():
+    """The RST race behind both xdist flakes in this file (2026-08-07):
+    _deny used to respond and close with the POST body still unread, so
+    closesocket() with unread bytes raised TCP RST — under -n 8 load the
+    RST could beat the queued response and the client saw a reset while
+    the server's own log showed the refusal had fired (REST-003 captured
+    in the 48a63610 battery). The observable contract of the fix: a
+    refused POST's response is written only AFTER the declared body is
+    drained, so a slow-sending client can never be reset mid-response.
+
+    Deterministic both ways: pre-fix the 415 arrives while the body is
+    still unsent; post-fix the server visibly waits for it."""
+    import socket
+    with _server() as (port, _sent):
+        body = json.dumps({"cmd": "entries_on"}).encode()
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        try:
+            s.sendall(b"POST /control HTTP/1.1\r\n"
+                      b"Host: 127.0.0.1\r\n"
+                      b"Content-Type: text/plain;charset=UTF-8\r\n"
+                      + f"Content-Length: {len(body)}\r\n\r\n".encode())
+            s.settimeout(1.0)
+            try:
+                early = s.recv(1024)
+            except socket.timeout:
+                early = b""
+            assert early == b"", ("server responded before draining the "
+                                  "declared body - the RST race is open")
+            s.sendall(body)
+            s.settimeout(10.0)
+            chunks = []
+            while True:
+                try:
+                    c = s.recv(4096)
+                except socket.timeout:
+                    break
+                if not c:
+                    break
+                chunks.append(c)
+            resp = b"".join(chunks)
+            assert b" 415 " in resp.split(b"\r\n", 1)[0]
+        finally:
+            s.close()
+
+
+def test_oversize_declared_body_is_refused_413_without_draining():
+    """The drain must be bounded: an attacker-declared Content-Length may
+    not pin the handler thread reading garbage. Past the cap the server
+    refuses 413 IMMEDIATELY - before any body bytes exist to read."""
+    import socket
+    with _server() as (port, sent):
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        try:
+            s.sendall(b"POST /control HTTP/1.1\r\n"
+                      b"Host: 127.0.0.1\r\n"
+                      b"Content-Type: application/json\r\n"
+                      b"Content-Length: 2097152\r\n\r\n")
+            s.settimeout(5.0)
+            resp = s.recv(4096)
+            assert b" 413 " in resp.split(b"\r\n", 1)[0]
+            assert sent == []
+        finally:
+            s.close()
+
+
 # ---- the paths that must keep working -----------------------------------
 def test_non_browser_client_still_dispatches():
     """curl / requests / the checkin scripts send no Origin, no Referer and

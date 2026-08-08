@@ -68,6 +68,14 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # a non-browser client already has whatever host access it needs.
 _SAFE_FETCH_SITE = {"same-origin", "none"}
 
+# Body-handling bounds (2026-08-07, xdist-flake root cause). DRAIN cap:
+# _deny reads at most this much unconsumed request body before closing,
+# so a refused legit client is never TCP-reset mid-response, while a
+# hostile Content-Length cannot pin the thread. BODY cap: do_POST refuses
+# 413 before reading anything larger - control bodies are tens of bytes.
+_DENY_DRAIN_CAP = 64 * 1024
+_MAX_BODY = 1024 * 1024
+
 
 def _origin_is_loopback(value: str) -> bool:
     """True when an Origin/Referer header names this host. 'null' (sandboxed
@@ -107,14 +115,32 @@ class RestStatusServer:
 
             # ---- helpers -------------------------------------------
             def _deny(self, code: int, msg: str):
+                # Drain the unread declared body (bounded) BEFORE writing
+                # the refusal: closing a socket with unread bytes raises
+                # TCP RST, and an RST can destroy the queued response on
+                # the client side - a legit refused caller then sees a
+                # reset instead of this 4xx (observed as the 2026-08-07
+                # xdist flakes: REST-003 logged server-side, client reset;
+                # ConnectionAbortedError reproduced in the red test). The
+                # cap keeps an attacker-declared Content-Length from
+                # pinning the handler thread; a real control body is tens
+                # of bytes, and past the cap we accept the RST risk on
+                # what is by definition a hostile request.
+                if not getattr(self, "_body_consumed", False):
+                    try:
+                        n = int(self.headers.get("Content-Length", 0) or 0)
+                        if 0 < n <= _DENY_DRAIN_CAP:
+                            self.rfile.read(n)
+                            self._body_consumed = True
+                    except (ValueError, OSError):
+                        pass
                 body = json.dumps({"error": msg}).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                # a refused POST leaves its request body unread; on a
-                # keep-alive HTTP/1.1 connection the next parse would then
-                # read that body as a request line. Close instead of
-                # draining attacker-chosen bytes.
+                # a refused POST's remaining body (over-cap case) is still
+                # unread; on a keep-alive HTTP/1.1 connection the next
+                # parse would read it as a request line. Close instead.
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
@@ -199,7 +225,19 @@ class RestStatusServer:
                                            "application/json")
                 try:
                     n = int(self.headers.get("Content-Length", 0))
-                    req = json.loads(self.rfile.read(n) or b"{}")
+                    if n > _MAX_BODY:
+                        # refuse BEFORE reading: an attacker-declared
+                        # length may not buy an unbounded read into memory
+                        # (control bodies are tens of bytes). Over-cap
+                        # skips _deny's drain too - fast close, RST is
+                        # acceptable on a hostile request.
+                        log.warning("REST-004: /control refused, declared "
+                                    "Content-Length %d exceeds %d", n,
+                                    _MAX_BODY)
+                        return self._deny(413, "body too large")
+                    raw = self.rfile.read(n)
+                    self._body_consumed = True
+                    req = json.loads(raw or b"{}")
                 except (ValueError, TypeError):
                     return self._deny(400, "malformed JSON body")
                 if not isinstance(req, dict):
