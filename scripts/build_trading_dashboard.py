@@ -714,22 +714,44 @@ def _author_command():
     # money" could only be answered by reading a curve's shape. Net $ and
     # goal attainment are the two numbers the operator opens this board for,
     # so they lead, at hero size, before any mechanism.
-    stat("Net P&L (all time)", M("liquiditybot_perf_net_usd"), 6, 5,
+    # Three-series P&L taxonomy (institutional review condition, 2026-08-07):
+    # this tile used to be titled "Net P&L (all time)" while reading
+    # perf_net_usd — a rolling 200-close hedge-excluded ring, NOT all time.
+    # The two series legitimately disagree (ring −56.91 vs ledger −208.22
+    # at review time); the label was the lie. Each series now carries its
+    # true name, and the fee ledger — the ONLY counter where an open leg's
+    # entry fee is visible before its close (record_entry_fee debits cash
+    # at fill; no P&L counter sees it until the trade closes) — gets a
+    # tile of its own instead of being invisible on every board.
+    stat("Net P&L (all time)", M("liquiditybot_realized_total"), 6, 5,
          unit=USD, steps=PNL, size="hero",
-         desc="Cumulative realized P&L across every closed trade — the "
-              "bottom line. P&L today answers 'what happened since "
-              "midnight'; this answers 'is the strategy making money at "
-              "all'. Paper while system.dry_run is true.")
+         desc="Monotonic realized P&L across every close since inception — "
+              "the true bottom line, never resets, hedges included. A "
+              "trade's fees enter here only when it closes; fees on OPEN "
+              "legs live in 'Fees paid (all time)' until then. Paper "
+              "while system.dry_run is true.")
+    stat("Net P&L (last 200 closes)", M("liquiditybot_perf_net_usd"), 6, 5,
+         unit=USD, steps=PNL,
+         desc="Rolling ring of the last 200 non-hedge closes — recent "
+              "form, not the lifetime ledger. Diverges from all-time by "
+              "construction: it forgets old trades and excludes hedges.")
+    stat("Fees paid (all time)", M("liquiditybot_fees_total"), 6, 5,
+         unit=USD, decimals=2, steps=GRN,
+         desc="Every venue fee ever booked, BOTH legs at fill time "
+              "(state.fees_paid_total). The one counter where an open "
+              "position's entry fee is visible before the close — cash "
+              "each entry spends that no P&L tile can see yet. Simulated "
+              "at configured bps while paper.")
     stat("Goal attainment", 'max(liquiditybot_goal_attainment_pct'
          '{period="month",job="liquiditybot"})', 6, 5, unit="percent",
          decimals=1, steps=WR100, size="hero",
          desc="Progress toward the monthly goal (liquiditybot_goal_target). "
               "Emitted since the goals ledger shipped and never displayed, "
               "so the target existed with no way to see distance from it.")
-    stat("Equity", M("liquiditybot_equity"), 6, 5, unit=USD,
+    stat("Equity", M("liquiditybot_equity"), 12, 5, unit=USD,
          decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
-    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 6, 5, mx=15.0, steps=DD,
-          desc="Peak-to-now; 15% is the hard stop.")
+    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 12, 5, mx=15.0,
+          steps=DD, desc="Peak-to-now; 15% is the hard stop.")
 
     # Band 3 — TRADE QUALITY. Win rate alone is not a quality measure: a 30%
     # win rate with a 3.0 payoff ratio is profitable and a 60% win rate with

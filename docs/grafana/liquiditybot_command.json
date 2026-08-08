@@ -1379,7 +1379,7 @@
       "id": 18,
       "type": "stat",
       "title": "Net P&L (all time)",
-      "description": "Cumulative realized P&L across every closed trade — the bottom line. P&L today answers 'what happened since midnight'; this answers 'is the strategy making money at all'. Paper while system.dry_run is true.",
+      "description": "Monotonic realized P&L across every close since inception — the true bottom line, never resets, hedges included. A trade's fees enter here only when it closes; fees on OPEN legs live in 'Fees paid (all time)' until then. Paper while system.dry_run is true.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1438,7 +1438,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_perf_net_usd{job=\"liquiditybot\"})",
+          "expr": "max(liquiditybot_realized_total{job=\"liquiditybot\"})",
           "instant": false,
           "range": true,
           "legendFormat": ""
@@ -1449,6 +1449,144 @@
     {
       "id": 19,
       "type": "stat",
+      "title": "Net P&L (last 200 closes)",
+      "description": "Rolling ring of the last 200 non-hedge closes — recent form, not the lifetime ledger. Diverges from all-time by construction: it forgets old trades and excludes hedges.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF453A",
+                "value": null
+              },
+              {
+                "color": "#30D158",
+                "value": 0
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_perf_net_usd{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Fees paid (all time)",
+      "description": "Every venue fee ever booked, BOTH legs at fill time (state.fees_paid_total). The one counter where an open position's entry fee is visible before the close — cash each entry spends that no P&L tile can see yet. Simulated at configured bps while paper.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_fees_total{job=\"liquiditybot\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 21,
+      "type": "stat",
       "title": "Goal attainment",
       "description": "Progress toward the monthly goal (liquiditybot_goal_target). Emitted since the goals ledger shipped and never displayed, so the target existed with no way to see distance from it.",
       "datasource": {
@@ -1458,7 +1596,7 @@
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 6,
+        "x": 18,
         "y": 40
       },
       "fieldConfig": {
@@ -1522,7 +1660,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 22,
       "type": "stat",
       "title": "Equity",
       "description": "Account equity (cash + open uPnL).",
@@ -1532,9 +1670,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 40
+        "w": 12,
+        "x": 0,
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1589,7 +1727,7 @@
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 23,
       "type": "gauge",
       "title": "Drawdown",
       "description": "Peak-to-now; 15% is the hard stop.",
@@ -1599,9 +1737,9 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 40
+        "w": 12,
+        "x": 12,
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1658,7 +1796,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 24,
       "type": "gauge",
       "title": "Win rate",
       "description": "Rolling closed-trade win rate.",
@@ -1670,7 +1808,7 @@
         "h": 5,
         "w": 5,
         "x": 0,
-        "y": 45
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -1727,7 +1865,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 25,
       "type": "stat",
       "title": "Payoff ratio",
       "description": "Average win / average loss. The other half of win rate — below 1.0 every winner is smaller than every loser, so the win rate has to clear 1/(1+payoff) just to break even.",
@@ -1739,7 +1877,7 @@
         "h": 5,
         "w": 5,
         "x": 5,
-        "y": 45
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -1802,7 +1940,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 26,
       "type": "stat",
       "title": "Profit factor",
       "description": "Gross profit / gross loss.",
@@ -1814,7 +1952,7 @@
         "h": 5,
         "w": 5,
         "x": 10,
-        "y": 45
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -1877,7 +2015,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 27,
       "type": "stat",
       "title": "Expectancy R",
       "description": "Avg trade in R-multiples.",
@@ -1889,7 +2027,7 @@
         "h": 5,
         "w": 5,
         "x": 15,
-        "y": 45
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -1948,7 +2086,7 @@
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 28,
       "type": "stat",
       "title": "Worst streak",
       "description": "Longest run of consecutive losers ever recorded. The board showed the CURRENT streak but not the worst, so there was nothing to judge the current one against.",
@@ -1960,7 +2098,7 @@
         "h": 5,
         "w": 4,
         "x": 20,
-        "y": 45
+        "y": 50
       },
       "fieldConfig": {
         "defaults": {
@@ -2023,7 +2161,7 @@
       "transparent": true
     },
     {
-      "id": 27,
+      "id": 29,
       "type": "row",
       "title": "🏦 PROFIT POOLS — weekly rollover",
       "collapsed": true,
@@ -2031,11 +2169,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 55
       },
       "panels": [
         {
-          "id": 28,
+          "id": 30,
           "type": "stat",
           "title": "P&L this week",
           "description": "Realized P&L since the ISO-week open (Mon 00:00 UTC). Resets at the weekly close-out (RP-070); a losing week is refilled from Reserve before the working baseline shrinks.",
@@ -2047,7 +2185,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 51
+            "y": 56
           },
           "fieldConfig": {
             "defaults": {
@@ -2106,7 +2244,7 @@
           "transparent": true
         },
         {
-          "id": 29,
+          "id": 31,
           "type": "stat",
           "title": "Savings pool",
           "description": "20% of every realized win, locked away - never traded, never refilled from, only ever grows.",
@@ -2118,7 +2256,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 51
+            "y": 56
           },
           "fieldConfig": {
             "defaults": {
@@ -2173,7 +2311,7 @@
           "transparent": true
         },
         {
-          "id": 30,
+          "id": 32,
           "type": "stat",
           "title": "Reserve pool",
           "description": "10% of every realized win - the drawdown shock absorber. At each weekly close a losing week's realized loss refills trading cash from here (reserve only ever moves INTO cash).",
@@ -2185,7 +2323,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 51
+            "y": 56
           },
           "fieldConfig": {
             "defaults": {
@@ -2240,7 +2378,7 @@
           "transparent": true
         },
         {
-          "id": 31,
+          "id": 33,
           "type": "stat",
           "title": "Reinvested (cash)",
           "description": "Working trading capital: equity minus the two locked pools - the 70% share that compounds position sizing.",
@@ -2252,7 +2390,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 51
+            "y": 56
           },
           "fieldConfig": {
             "defaults": {
@@ -2307,7 +2445,7 @@
           "transparent": true
         },
         {
-          "id": 32,
+          "id": 34,
           "type": "timeseries",
           "title": "Pools over time",
           "description": "Savings + reserve accrual and the week's running realized P&L - the rollover ritual made visible.",
@@ -2319,7 +2457,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 56
+            "y": 61
           },
           "fieldConfig": {
             "defaults": {
@@ -2449,7 +2587,7 @@
       }
     },
     {
-      "id": 33,
+      "id": 35,
       "type": "row",
       "title": "🛡️ POSITIONS & RISK",
       "collapsed": false,
@@ -2457,7 +2595,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 68
       },
       "panels": [],
       "fieldConfig": {
@@ -2465,7 +2603,7 @@
       }
     },
     {
-      "id": 34,
+      "id": 36,
       "type": "table",
       "title": "Open positions (net per instrument)",
       "description": "Open instruments; green uPnL/R rows are working, red need managing.",
@@ -2477,7 +2615,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 64
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2867,7 +3005,7 @@
       "transparent": true
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "bargauge",
       "title": "uPnL by instrument",
       "description": "Unrealized P&L ranked across open instruments.",
@@ -2879,7 +3017,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 64
+        "y": 69
       },
       "fieldConfig": {
         "defaults": {
@@ -2936,7 +3074,7 @@
       "transparent": true
     },
     {
-      "id": 36,
+      "id": 38,
       "type": "stat",
       "title": "Loss streak (now)",
       "description": "Consecutive losers now — circuit-breaker input.",
@@ -2948,7 +3086,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 69
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3011,7 +3149,7 @@
       "transparent": true
     },
     {
-      "id": 37,
+      "id": 39,
       "type": "stat",
       "title": "Open risk",
       "description": "$ lost if every open stop filled now.",
@@ -3023,7 +3161,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 69
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3078,7 +3216,7 @@
       "transparent": true
     },
     {
-      "id": 38,
+      "id": 40,
       "type": "stat",
       "title": "Trades (window)",
       "description": "Closed trades in the window.",
@@ -3090,7 +3228,7 @@
         "h": 5,
         "w": 4,
         "x": 8,
-        "y": 69
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3145,7 +3283,7 @@
       "transparent": true
     },
     {
-      "id": 39,
+      "id": 41,
       "type": "table",
       "title": "Entry-decision reason codes",
       "description": "Why entries fired/vetoed.",
@@ -3157,7 +3295,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 69
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3468,7 +3606,7 @@
       "transparent": true
     },
     {
-      "id": 40,
+      "id": 42,
       "type": "table",
       "title": "Learned gate weights",
       "description": "Evidence weight per gate.",
@@ -3480,7 +3618,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 69
+        "y": 74
       },
       "fieldConfig": {
         "defaults": {
@@ -3604,7 +3742,7 @@
       "transparent": true
     },
     {
-      "id": 41,
+      "id": 43,
       "type": "gauge",
       "title": "Gross exposure",
       "description": "Gross notional %/equity vs the 35% heat cap.",
@@ -3616,7 +3754,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 74
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {
@@ -3673,7 +3811,7 @@
       "transparent": true
     },
     {
-      "id": 42,
+      "id": 44,
       "type": "stat",
       "title": "Positions open",
       "description": "Open count (max 5).",
@@ -3685,7 +3823,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 74
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {
@@ -3740,7 +3878,7 @@
       "transparent": true
     },
     {
-      "id": 43,
+      "id": 45,
       "type": "row",
       "title": "⚖️ EDGE — per-asset performance",
       "collapsed": true,
@@ -3748,11 +3886,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 79
+        "y": 84
       },
       "panels": [
         {
-          "id": 44,
+          "id": 46,
           "type": "bargauge",
           "title": "Net $ by asset",
           "description": "Realized net per asset — where P&L actually comes from.",
@@ -3764,7 +3902,7 @@
             "h": 8,
             "w": 8,
             "x": 0,
-            "y": 80
+            "y": 85
           },
           "fieldConfig": {
             "defaults": {
@@ -3822,7 +3960,7 @@
           "transparent": true
         },
         {
-          "id": 45,
+          "id": 47,
           "type": "bargauge",
           "title": "Signal concentration",
           "description": "0 diffuse average .. 1 pinpointed setup.",
@@ -3834,7 +3972,7 @@
             "h": 8,
             "w": 8,
             "x": 8,
-            "y": 80
+            "y": 85
           },
           "fieldConfig": {
             "defaults": {
@@ -3896,7 +4034,7 @@
           "transparent": true
         },
         {
-          "id": 46,
+          "id": 48,
           "type": "bargauge",
           "title": "Confidence",
           "description": "Model conviction per asset.",
@@ -3908,7 +4046,7 @@
             "h": 8,
             "w": 8,
             "x": 16,
-            "y": 80
+            "y": 85
           },
           "fieldConfig": {
             "defaults": {
@@ -3970,7 +4108,7 @@
           "transparent": true
         },
         {
-          "id": 47,
+          "id": 49,
           "type": "table",
           "title": "Asset scorecard",
           "description": "One row per asset; color-coded so a green row (positive net, high concentration, low manip, tight spread) reads instantly. Absent cells (·) mean the asset hasn't traded yet — not a fault.",
@@ -3982,7 +4120,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 88
+            "y": 93
           },
           "fieldConfig": {
             "defaults": {
@@ -4563,7 +4701,7 @@
       }
     },
     {
-      "id": 48,
+      "id": 50,
       "type": "row",
       "title": "🌱 LONG BOOK — evidence ladder",
       "collapsed": true,
@@ -4571,11 +4709,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 101
       },
       "panels": [
         {
-          "id": 49,
+          "id": 51,
           "type": "stat",
           "title": "Rung",
           "description": "Evidence ladder (spec §5): rung 0 is paper-only; r1-r3 unlock progressively wider LIVE ceilings on realized, book-tagged closes. A drawdown breach drops one rung instantly; re-earning it back is gradual (redemption).",
@@ -4587,7 +4725,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 97
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4670,7 +4808,7 @@
           "transparent": true
         },
         {
-          "id": 50,
+          "id": 52,
           "type": "gauge",
           "title": "Ceiling",
           "description": "Equity-fraction ceiling for the CURRENT track (paper floors at r1 regardless of earned rung; live is 0 at rung 0) — bounded by the shared combined-envelope 35% portfolio heat cap; the long book never gets its own risk stack.",
@@ -4682,7 +4820,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 97
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4740,7 +4878,7 @@
           "transparent": true
         },
         {
-          "id": 51,
+          "id": 53,
           "type": "stat",
           "title": "Book exposure",
           "description": "Open long-book position notional + resting entry-order notional, book-wide across every configured asset.",
@@ -4752,7 +4890,7 @@
             "h": 5,
             "w": 6,
             "x": 12,
-            "y": 97
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4808,7 +4946,7 @@
           "transparent": true
         },
         {
-          "id": 52,
+          "id": 54,
           "type": "stat",
           "title": "Adds placed",
           "description": "Post_only maker bids placed since boot — averaging adds into the book's one growing position per asset (never a second same-book position, never a short).",
@@ -4820,7 +4958,7 @@
             "h": 5,
             "w": 6,
             "x": 18,
-            "y": 97
+            "y": 102
           },
           "fieldConfig": {
             "defaults": {
@@ -4876,7 +5014,7 @@
           "transparent": true
         },
         {
-          "id": 53,
+          "id": 55,
           "type": "stat",
           "title": "Paused",
           "description": "Last add-cycle disposition: any deny (spacing wait, ceiling exhaustion, context gate, event window, halt) reads paused. New-risk cadence only — exits are always allowed regardless of this state.",
@@ -4888,7 +5026,7 @@
             "h": 5,
             "w": 6,
             "x": 0,
-            "y": 102
+            "y": 107
           },
           "fieldConfig": {
             "defaults": {
@@ -4961,7 +5099,7 @@
           "transparent": true
         },
         {
-          "id": 54,
+          "id": 56,
           "type": "stat",
           "title": "PF (live)",
           "description": "Running live-track profit factor — the same evidence r2/r3 gate on (pf_floor).",
@@ -4973,7 +5111,7 @@
             "h": 5,
             "w": 6,
             "x": 6,
-            "y": 102
+            "y": 107
           },
           "fieldConfig": {
             "defaults": {
@@ -5037,7 +5175,7 @@
           "transparent": true
         },
         {
-          "id": 55,
+          "id": 57,
           "type": "bargauge",
           "title": "Closed (paper vs live)",
           "description": "Realized book-tagged closes per evidence track — the ladder's raw input (r1 gates on paper evidence; r2/r3 gate on live evidence + live profit factor).",
@@ -5049,7 +5187,7 @@
             "h": 5,
             "w": 12,
             "x": 12,
-            "y": 102
+            "y": 107
           },
           "fieldConfig": {
             "defaults": {
@@ -5115,7 +5253,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 108
+        "y": 113
       },
       "transparent": true,
       "options": {
