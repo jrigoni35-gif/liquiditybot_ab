@@ -160,6 +160,55 @@ def _feature_schema_version() -> int:
     return FEATURE_SCHEMA_VERSION
 
 
+def _restore_subsystem_sections(bot, data: dict) -> None:
+    """The learning/guard subsystem run of restore(), one try/except per
+    section: a raise in one (e.g. a malformed monitor section) must never
+    skip the others - a breaker trip or risk_protocols loss-budget anchor
+    laundered by a reboot is exactly the failure mode
+    risk/circuit_breaker.py's docstring exists to prevent.
+
+    Extracted from restore() 2026-08-07: cf454d5e's hedger churn-guard
+    section pushed restore past the C901 ceiling (42 > 40), and the
+    file's own convention for that pressure is a _restore_*_section
+    helper, not a waiver."""
+    try:
+        bot.monitor.restore(data.get("monitor"))
+    except Exception:
+        log.exception("monitor section malformed - skipped")
+    try:
+        if hasattr(bot, "hedger"):
+            bot.hedger.from_dict(data.get("hedger"))
+    except Exception:
+        log.exception("hedger churn-guard section malformed - skipped")
+    try:
+        bot.postmortem.restore(data.get("postmortem"))
+    except Exception:
+        log.exception("postmortem section malformed - skipped")
+    try:
+        if getattr(bot, "perf", None) is not None:
+            bot.perf.restore(data.get("performance"))
+    except Exception:
+        log.exception("performance section malformed - skipped")
+    try:
+        if getattr(bot, "breaker", None) is not None:
+            bot.breaker.restore(data.get("circuit_breaker"))
+    except Exception:
+        log.exception("circuit_breaker section malformed - skipped")
+    _restore_markout_section(bot, data)
+    try:
+        bot.candidates.restore(data.get("candidates"))
+    except Exception:
+        log.exception("candidates section malformed - skipped")
+    try:
+        bot.gate_stats.restore(data.get("gate_stats"))
+    except Exception:
+        log.exception("gate_stats section malformed - skipped")
+    try:
+        bot._stop_hit.update(data.get("stop_hit", {}))
+    except (TypeError, ValueError):
+        log.warning("stop_hit section malformed - skipped")
+
+
 def _restore_fault_section(bot, data: dict) -> None:
     """W2-15: isolated so a malformed section can't skip anything else in
     restore(), and so this doesn't add to restore()'s own branch count
@@ -878,47 +927,10 @@ class StateStore:
         # (rows at launch), the old behavior
         if data.get("rows_at_last_train") is not None:
             bot._rows_at_last_train = int(data["rows_at_last_train"])
-        # each subsystem restores in its own try/except: a raise in one (e.g.
-        # a malformed monitor section) must never skip the others - a breaker
-        # trip or risk_protocols loss-budget anchor laundered by a reboot is
-        # exactly the failure mode risk/circuit_breaker.py's docstring exists
-        # to prevent.
-        try:
-            bot.monitor.restore(data.get("monitor"))
-        except Exception:
-            log.exception("monitor section malformed - skipped")
-        try:
-            if hasattr(bot, "hedger"):
-                bot.hedger.from_dict(data.get("hedger"))
-        except Exception:
-            log.exception("hedger churn-guard section malformed - skipped")
-        try:
-            bot.postmortem.restore(data.get("postmortem"))
-        except Exception:
-            log.exception("postmortem section malformed - skipped")
-        try:
-            if getattr(bot, "perf", None) is not None:
-                bot.perf.restore(data.get("performance"))
-        except Exception:
-            log.exception("performance section malformed - skipped")
-        try:
-            if getattr(bot, "breaker", None) is not None:
-                bot.breaker.restore(data.get("circuit_breaker"))
-        except Exception:
-            log.exception("circuit_breaker section malformed - skipped")
-        _restore_markout_section(bot, data)
-        try:
-            bot.candidates.restore(data.get("candidates"))
-        except Exception:
-            log.exception("candidates section malformed - skipped")
-        try:
-            bot.gate_stats.restore(data.get("gate_stats"))
-        except Exception:
-            log.exception("gate_stats section malformed - skipped")
-        try:
-            bot._stop_hit.update(data.get("stop_hit", {}))
-        except (TypeError, ValueError):
-            log.warning("stop_hit section malformed - skipped")
+        # per-subsystem isolation lives in _restore_subsystem_sections (its
+        # docstring carries the why): one malformed section must never skip
+        # the others.
+        _restore_subsystem_sections(bot, data)
         _restore_probe_admissions_section(bot, data)
         _restore_probe_budget_section(bot, data)
         try:

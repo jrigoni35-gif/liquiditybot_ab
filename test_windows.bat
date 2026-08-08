@@ -10,7 +10,16 @@ if exist .venv\Scripts\python.exe set PY=.venv\Scripts\python.exe
 echo using interpreter: %PY%
 
 echo === pytest acceptance suite ===
-%PY% -m pytest tests -q || (echo PYTEST FAILED - do not arm & exit /b 1)
+REM -n 8: pytest-xdist, adopted 2026-08-07 after the evidence gate (two
+REM clean full runs, 623s serial -> ~400s on the 5600X's 12 threads;
+REM the one flake between them was a load-starved 5s client timeout in
+REM the REST test harness, hardened to 30s in 00bd0e52). 8 workers, not
+REM 12: SMT threads share execution units and the LIVE runner needs
+REM headroom - it runs BelowNormal and a Normal-priority battery on all
+REM 12 threads outcompetes it (measured stalls up to 88s are documented
+REM in runner.py). /belownormal puts the battery UNDER the bot, never
+REM the bot under the battery: tests can be slow, exits cannot.
+start /belownormal /b /wait "" %PY% -m pytest tests -q -n 8 || (echo PYTEST FAILED - do not arm & exit /b 1)
 
 echo.
 echo === smoke_test (end-to-end checks) ===
@@ -30,12 +39,14 @@ echo === ruff lint ===
 
 echo.
 echo === pyright type ratchet (shipped scope, must stay at zero) ===
-where pyright >nul 2>nul
-if %ERRORLEVEL%==0 (
-    pyright core data execution ml risk regime strategies sentiment api main.py runner.py || (echo PYRIGHT FAILED - type ratchet regressed & exit /b 1)
-) else (
-    echo pyright not installed - stage SKIPPED. Install: pip install pyright
-)
+REM A missing tool is a RED stage, not a skip (2026-08-07): this stage
+REM silently printed SKIPPED for weeks while CLAUDE.md claimed a
+REM zero-error ratchet - a gate that can quietly not exist is a gate
+REM that lies. pyright now ships in the venv (pip install pyright).
+set "PYRIGHT=pyright"
+if exist .venv\Scripts\pyright.exe set "PYRIGHT=.venv\Scripts\pyright.exe"
+%PYRIGHT% --version >nul 2>nul || (echo PYRIGHT MISSING - install: %PY% -m pip install pyright & exit /b 1)
+%PYRIGHT% core data execution ml risk regime strategies sentiment api main.py runner.py || (echo PYRIGHT FAILED - type ratchet regressed & exit /b 1)
 
 echo.
 echo === bandit security scan ===
@@ -43,7 +54,10 @@ echo === bandit security scan ===
 
 echo.
 echo === compileall ===
-%PY% -m compileall -q . -x ".venv" || (echo COMPILE FAILED & exit /b 1)
+REM -j 0 (auto workers): measured 9.32s -> 1.71s cold, 4.07s -> 3.48s
+REM warm on the 5600X; .pyc output is byte-identical, -q hides the
+REM interleaved worker output.
+%PY% -m compileall -q -j 0 . -x ".venv" || (echo COMPILE FAILED & exit /b 1)
 
 echo.
 echo === quant trials (risk protocol A/B gates) ===
