@@ -26,8 +26,23 @@ REM (1 failed) sailed through to ALL GREEN - the first false arm this
 REM gate ever produced (prior "failed" batteries were caught by LATER
 REM stages whose engines broke on the same bugs). `if errorlevel 1` reads
 REM the awaited child's code and is the documented-reliable form.
-start /belownormal /b /wait "" %PY% -m pytest tests -q -n 8
+REM Two passes since 2026-08-08 (owed item 44): the honest gate above
+REM immediately exposed a rotating one-red-per-battery family - tests
+REM whose assertions measure WALL CLOCK (burst-gap spacing, elapsed
+REM upper bounds, hard 120s subprocess timeouts). Under 8 saturated
+REM workers any of them can fail with no code defect (measured:
+REM TimeoutExpired on overfit_check subprocesses; burst gaps compressed
+REM by stamp descheduling - each verified green solo on the same tree).
+REM They carry @pytest.mark.timing (registered strict in pyproject.toml)
+REM and run in the SERIAL pass below on a quiet machine; everything else
+REM keeps xdist. The split is pinned by tests/test_battery_gate.py.
+start /belownormal /b /wait "" %PY% -m pytest tests -q -n 8 -m "not timing"
 if errorlevel 1 (echo PYTEST FAILED - do not arm & exit /b 1)
+
+echo.
+echo === pytest timing family (serial - wall-clock-sensitive) ===
+start /belownormal /b /wait "" %PY% -m pytest tests -q -m timing
+if errorlevel 1 (echo PYTEST TIMING FAILED - do not arm & exit /b 1)
 
 echo.
 echo === smoke_test (end-to-end checks) ===

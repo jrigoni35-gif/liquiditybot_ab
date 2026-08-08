@@ -431,6 +431,11 @@ def _info_lines(report_text: str) -> list:
            if line.startswith("- **INFO**")]
 
 
+# timing: these three CLI tests each run scripts/overfit_check.py as a
+# CPU-heavy subprocess under a HARD 120s wall timeout. A saturated -n 8
+# battery starves the child past the deadline (subprocess.TimeoutExpired
+# measured 2026-08-08, no code defect) - serial pass only.
+@pytest.mark.timing
 def test_schema_ab_flag_adds_no_new_gating_check_and_is_info_only(tmp_path):
     prunefile = tmp_path / "empty_prune.json"
     prunefile.write_text(json.dumps({"always_dead": []}), encoding="utf-8")
@@ -468,6 +473,7 @@ def test_schema_ab_flag_adds_no_new_gating_check_and_is_info_only(tmp_path):
                 f"experiment-arm line must be INFO-only: {line}")
 
 
+@pytest.mark.timing
 def test_epoch_ab_flag_is_a_no_op_info_line_on_synthetic_benchmark(tmp_path):
     """--epoch-ab has no signal_history.csv correspondence on the SYNTHETIC
     benchmark path; it must degrade to a single INFO skip line, never crash
@@ -496,6 +502,7 @@ def test_epoch_ab_flag_is_a_no_op_info_line_on_synthetic_benchmark(tmp_path):
     assert "- **INFO** epoch-ab" in epoch_text
 
 
+@pytest.mark.timing
 def test_schema_ab_malformed_prunefile_fails_loudly_non_zero_exit(tmp_path):
     bad = tmp_path / "bad_prune.json"
     bad.write_text(json.dumps({"ever_dead": []}), encoding="utf-8")

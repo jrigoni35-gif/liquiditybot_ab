@@ -11,6 +11,8 @@ queued before the runner existed are discarded, not executed (a leftover
 import time
 import types
 
+import pytest
+
 from main import LiquidityBot
 
 
@@ -30,6 +32,10 @@ def _bot(serial=False, ccxt=None, okx_delay=0.15, bn_delay=0.15):
     return b
 
 
+# timing: UPPER-bounds elapsed (< 0.27s over two 0.15s sleeps) - pool
+# spin-up under a saturated battery can blow the bound with no defect.
+# The serial-mode test below only LOWER-bounds elapsed (load-safe).
+@pytest.mark.timing
 def test_fetch_is_concurrent_not_serial():
     b = _bot(okx_delay=0.15, bn_delay=0.15)
     t0 = time.perf_counter()

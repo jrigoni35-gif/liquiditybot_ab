@@ -350,6 +350,11 @@ def _feed(tmp_path: Path, fetch, **cfg) -> ContextFeed:
                        calendar_path=cal)
 
 
+# timing (this test and the two below): each UPPER-bounds a threaded
+# poll's elapsed wall clock (< 2.5s around a 1.0s budget). Deadline
+# handling can overshoot when the battery saturates the box - the same
+# load-marginal class as the burst-gap tests. Serial pass only.
+@pytest.mark.timing
 def test_poll_cluster_is_bounded_by_the_wall_clock_budget(tmp_path):
     """PRE-FIX: five sequential blocking GETs on the engine thread — with
     every host dark the poll floors at 5x the per-request timeout, and for
@@ -374,6 +379,7 @@ def test_poll_cluster_is_bounded_by_the_wall_clock_budget(tmp_path):
     assert state.stress is None and state.stress_known is False
 
 
+@pytest.mark.timing
 def test_budget_timeout_degrades_exactly_like_a_failed_fetch(tmp_path):
     """A source that misses the deadline must take the ordinary
     failed-fetch disposition — no raise into the engine, the 3x-grace
@@ -400,6 +406,7 @@ def test_budget_timeout_degrades_exactly_like_a_failed_fetch(tmp_path):
     assert s2.cot_z is not None and s2.stable_wk_pct is not None
 
 
+@pytest.mark.timing
 def test_slow_source_does_not_delay_the_fast_ones(tmp_path, caplog):
     """One blackholed host must cost the budget, not its own timeout, and
     it is logged with the same shape as any other failed fetch — so CX-010

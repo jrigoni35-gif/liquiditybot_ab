@@ -17,7 +17,17 @@ Fast by construction: a high rate limit keeps the whole suite well under 1s.
 import threading
 import time
 
+import pytest
+
 from data._http import ThrottledRestClient
+
+# timing (whole module): every test here measures wall-clock behavior of
+# REAL contending threads. The burst test is the canonical load-marginal
+# case: a worker can be descheduled between the throttle releasing and
+# the stamp being taken, so a saturated -n 8 battery compresses measured
+# gaps below min_interval with no code defect (observed red 2026-08-08,
+# 4/4 green solo in 7.7s on the same tree) - serial pass only.
+pytestmark = pytest.mark.timing
 
 
 class _RecordingResponse:

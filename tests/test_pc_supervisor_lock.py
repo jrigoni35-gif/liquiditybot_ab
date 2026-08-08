@@ -48,6 +48,10 @@ def _wire(monkeypatch, tmp_path):
 
 # ---- wait-and-verify acquisition -------------------------------------------
 
+# timing: the beater thread must land a heartbeat every 0.05s to stay
+# under the 0.6s staleness horizon - a saturated battery can starve it
+# past 0.6s and the live peer reads as stale (falsely acquirable).
+@pytest.mark.timing
 def test_advancing_heartbeat_means_live_peer_and_refusal(monkeypatch,
                                                          tmp_path):
     _wire(monkeypatch, tmp_path)
@@ -92,6 +96,8 @@ def test_frozen_recent_heartbeat_is_a_dead_holder_taken_over(monkeypatch,
     assert cur["pid"] == sup.os.getpid()  # we own it now
 
 
+# timing: UPPER-bounds the reclaim at 0.5s of wall clock.
+@pytest.mark.timing
 def test_stale_lock_is_reclaimed_immediately(monkeypatch, tmp_path):
     _wire(monkeypatch, tmp_path)
     lockfile = tmp_path / "pc_supervisor.lock"

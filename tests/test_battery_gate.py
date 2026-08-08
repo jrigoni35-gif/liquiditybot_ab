@@ -64,14 +64,46 @@ def test_if_errorlevel_passes_child_success(tmp_path):
     assert rc == 0
 
 
-def test_matrix_never_pairs_start_wait_with_or_operator():
-    """No line of test_windows.bat may gate a start /wait child with ||."""
-    for i, line in enumerate(
-            _BAT.read_text(encoding="utf-8", errors="replace").splitlines(),
-            1):
-        s = line.strip()
-        if s.upper().startswith("REM"):
-            continue
-        assert not ("start" in s and "/wait" in s and "||" in s), (
-            f"test_windows.bat:{i} gates a start /wait child with || - "
-            f"that gate can never fire; use `if errorlevel 1`")
+def test_matrix_splits_timing_family_into_a_serial_pass():
+    """Owed item 44 (2026-08-08): once the gate above became honest, a
+    rotating one-red-per-battery family surfaced - wall-clock-sensitive
+    tests failing purely from -n 8 saturation. The matrix must run
+    exactly two pytest passes: parallel xdist EXCLUDING @timing, then a
+    serial pass of ONLY @timing on the quiet machine - each behind its
+    own `if errorlevel 1` gate so neither can lie."""
+    lines = _BAT.read_text(encoding="utf-8").splitlines()
+    idx = [i for i, ln in enumerate(lines)
+           if "-m pytest tests" in ln
+           and not ln.strip().upper().startswith("REM")]
+    assert len(idx) == 2, (
+        "expected exactly two pytest passes (parallel + serial timing), "
+        f"found {len(idx)}")
+    par, ser = lines[idx[0]], lines[idx[1]]
+    assert "-n 8" in par and '-m "not timing"' in par, (
+        "parallel pass must keep xdist and exclude the timing family: "
+        f"{par.strip()}")
+    assert "-m timing" in ser and " -n " not in f"{ser} ", (
+        "timing pass must select the family and stay SERIAL (no xdist): "
+        f"{ser.strip()}")
+    for i in idx:
+        nxt = next(ln.strip() for ln in lines[i + 1:] if ln.strip())
+        assert nxt.lower().startswith("if errorlevel 1"), (
+            f"pytest pass at line {i + 1} is not gated by the honest "
+            f"`if errorlevel 1` form; next line: {nxt}")
+
+
+def test_no_bat_file_pairs_start_wait_with_or_operator():
+    """No batch file in the repo may gate a start /wait child with || -
+    the ban is class-wide (2026-08-08 sweep: exactly one live instance
+    existed, in the matrix; auto_update's deploy gate was verified
+    honest - subprocess.run + returncode, no cmd involved)."""
+    for bat in sorted(_BAT.parent.glob("*.bat")):
+        for i, line in enumerate(
+                bat.read_text(encoding="utf-8",
+                              errors="replace").splitlines(), 1):
+            s = line.strip()
+            if s.upper().startswith("REM"):
+                continue
+            assert not ("start" in s and "/wait" in s and "||" in s), (
+                f"{bat.name}:{i} gates a start /wait child with || - "
+                f"that gate can never fire; use `if errorlevel 1`")

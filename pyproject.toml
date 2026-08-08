@@ -1,5 +1,15 @@
 # Tooling config. Kept minimal on purpose.
 
+[tool.pytest.ini_options]
+# --strict-markers: an unregistered or typo'd mark is a collection ERROR,
+# never a silently-ignored no-op. Without it, a misspelled `timing` tag
+# would quietly put a load-marginal test back into the battery's parallel
+# pass - a gate hole with no visible failure.
+addopts = "--strict-markers"
+markers = [
+    "timing: wall-clock-sensitive under CPU load. Excluded from the battery's parallel -n 8 pass and run in a follow-up SERIAL pass (test_windows.bat, owed item 44). Tag tests a saturated box can fail without a code defect: upper-bounded elapsed measurements, thread-gap spacing, hard wall timeouts on CPU-heavy subprocesses.",
+]
+
 [tool.ruff.lint]
 # Defaults (E4,E7,E9,F) plus a curated breadth bump:
 #   B    - bugbear: real bug classes (B905 zip strict, B904 raise-from,

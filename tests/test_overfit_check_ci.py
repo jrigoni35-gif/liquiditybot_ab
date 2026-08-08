@@ -31,10 +31,17 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 
 
+# timing: subprocess runs of the full audit under a HARD 120s wall timeout
+# - the same load-marginal class as test_pbo_variants' CLI tests (a
+# saturated -n 8 battery starves the child past the deadline). The
+# in-process _run_overfit_main tests below have no wall deadline and stay
+# in the parallel pass.
+@pytest.mark.timing
 def test_full_overfit_audit_passes_on_synthetic_benchmark(tmp_path):
     # cwd=tmp_path (NOT the repo): OF-5 reads outputs/signal_history.csv
     # relative to cwd, so running from the repo made this test depend on
@@ -70,6 +77,7 @@ def _pass_fail_lines(report_text: str) -> list:
     return out
 
 
+@pytest.mark.timing
 def test_regime_diagnostic_section_present_report_only(tmp_path):
     """#103 T3: the regime-stratified section must show up in the report
     and must never use PASS/FAIL formatting — every line is INFO, so it can
@@ -254,6 +262,7 @@ def test_regime_diagnostic_exception_is_isolated_report_only(
     assert "regime[" not in raises_text
 
 
+@pytest.mark.timing
 def test_dsr_is_informational_not_gating_during_exploration(tmp_path):
     # The live 2026-07-17 regression, distilled: 40 losing live-labeled
     # trades (an active-learning sample, EV-mixed by design) must NOT fail
