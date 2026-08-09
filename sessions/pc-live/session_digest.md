@@ -2,15 +2,14 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-09 09:05 UTC (721.19h, ~2295 cycles)
-- Equity: $25,000.00 -> $4,615.10 (range $99,208.70) | realized PnL $-208.34 | fees $382.48
-- Activity: 5 open | 305 live labeled trades | 9588 candidates | 263 postmortems
-- Model: level 0 | use_model=True | brier n/a | history_rows 305 | cold=True
-- Audit: 38248 records (31273 non-routine) | dominant SZ-047 (71% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 93
-- Liquidity: spoofy 56% of classified cycles | feed errors 0
+- Window: 2026-07-10 07:53 UTC -> 2026-08-09 10:05 UTC (722.19h, ~91 cycles)
+- Equity: $25,000.00 -> $4,616.07 (range $99,208.70) | realized PnL $-208.31 | fees $382.59
+- Activity: 5 open | 306 live labeled trades | 9595 candidates | 263 postmortems
+- Model: level 0 | use_model=True | brier n/a | history_rows 306 | cold=True
+- Audit: 38268 records (31287 non-routine) | dominant SZ-047 (71% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 93
+- Liquidity: spoofy 46% of classified cycles | feed errors 0
 
 ## Diagnostics
-- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=305, brier=n/a) yet retrain was requested 93x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 71% of the audit trail
-- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 56% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
-- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 71% of 31273 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=306, brier=n/a) yet retrain was requested 93x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 71% of the audit trail
+- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 71% of 31287 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  6 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
