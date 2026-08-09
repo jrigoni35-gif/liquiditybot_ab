@@ -252,6 +252,13 @@ def collect(status_path: str) -> list:
                     # sleep-sizing intermediate thrown away every loop
                     "cycle_duration_sec", "cycle_duration_max_sec",
                     "fees_total", "realized_total", "equity_drift_pct",
+                    # honest all-time P&L (2026-08-09): realized_total is
+                    # net of the CLOSING fee leg only - opening-leg fees hit
+                    # cash and no P&L line, hiding 49% of lifetime fees.
+                    # net_pnl_all_time is the equity identity and is the
+                    # number to trust on a board.
+                    "net_pnl_all_time", "realized_net_all_in",
+                    "entry_fees_total", "starting_capital",
                     # hardening guards (rising = a book position or the whole
                     # cycle is wedging its own escape path — see the incidents
                     # dashboard). Emitted as gauges; 0 in steady state.

@@ -1193,6 +1193,24 @@ class BotRunner:
             "daily_pnl": round(bot.state.daily_realized_pnl, 2),
             "realized_total": round(bot.state.realized_pnl_total, 2),
             "fees_total": round(bot.state.fees_paid_total, 2),
+            # HONEST ALL-TIME P&L (2026-08-09). `realized_total` is net of
+            # the CLOSING fee leg only: opening-leg fees (entry + hedge) are
+            # debited straight to cash by record_entry_fee and were netted
+            # into no P&L figure at all, so the bot reported -208.31 against
+            # a true all-time change of -383.26 - 49% of lifetime fees were
+            # invisible to every number an operator could read. These four
+            # keys close the identity so it can be audited from status.json
+            # alone:
+            #   net_pnl_all_time = equity - starting_capital
+            #   realized_net_all_in = realized_total - entry_fees_total
+            # net_pnl_all_time comes from the STATE METHOD rather than being
+            # recomputed here: one quantity, one derivation (the drift class
+            # that caused this session's corpus incident).
+            "starting_capital": round(bot.state.starting_capital, 2),
+            "entry_fees_total": round(bot.state.entry_fees_total, 2),
+            "realized_net_all_in": round(bot.state.realized_net_all_in(), 2),
+            "net_pnl_all_time": round(
+                bot.state.net_pnl_all_time(bot.marks), 2),
             "drawdown_pct": round(bot.state.drawdown_pct(), 2),
             "latency_ms": round(bot.orders.latency_ms, 1),
             "feed_latency_ms": round(getattr(bot.kraken, "latency_ms", 0.0), 1),

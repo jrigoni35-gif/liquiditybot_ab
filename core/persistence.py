@@ -455,6 +455,11 @@ class StateStore:
                     "realized_pnl_total": state.realized_pnl_total,
                     "daily_realized_pnl": state.daily_realized_pnl,
                     "fees_paid_total": state.fees_paid_total,
+                    # 2026-08-09: the opening-leg fee population that hits
+                    # cash but no P&L line (see PortfolioState.
+                    # entry_fees_total). Persisted so the honest all-time
+                    # figures survive a restart.
+                    "entry_fees_total": state.entry_fees_total,
                     "last_pnl_reset_date": state._last_pnl_reset_date,
                     # peak MTM equity — persist so the drawdown backstop's
                     # high-water survives a restart (else it re-seats lower and
@@ -816,6 +821,32 @@ class StateStore:
             state._last_pnl_reset_date = p.get("last_pnl_reset_date", "")
             state._equity_high_water = float(p.get("equity_high_water",
                                                    state.starting_capital))
+            # entry_fees_total (2026-08-09): a lifetime accumulator added
+            # after this bot had already been trading, so defaulting it to
+            # 0.0 on a pre-upgrade snapshot would leave the honest all-time
+            # figures permanently wrong by the whole historical population.
+            # It is EXACTLY derivable from the cash identity instead:
+            #     cash = start + realized - entry_fees - (savings+reserve)
+            # because those are the only four paths that move cash
+            # (record_realized_pnl, record_entry_fee, and the pool
+            # skim/refill pair in risk/capital_manager, whose net cash
+            # removal is precisely the two pool balances). Backfilled ONCE;
+            # thereafter the persisted value wins. Measured on the live
+            # 2026-08-09 snapshot this recovers $185.94 of $382.59 lifetime
+            # fees that no P&L line had ever shown.
+            if "entry_fees_total" in p:
+                state.entry_fees_total = float(p["entry_fees_total"] or 0.0)
+            else:
+                state.entry_fees_total = max(
+                    0.0,
+                    state.starting_capital + state.realized_pnl_total
+                    - state.cash_balance - state.savings_balance
+                    - state.reserve_balance)
+                log.warning(
+                    "entry_fees_total absent from snapshot - backfilled "
+                    "%.2f from the cash identity (opening-leg fees that "
+                    "hit cash but no P&L line; all-time P&L was "
+                    "understating by this amount)", state.entry_fees_total)
             for pd in p.get("positions", []):
                 state.add_position(position_from_dict(pd))
         except (KeyError, TypeError, ValueError):

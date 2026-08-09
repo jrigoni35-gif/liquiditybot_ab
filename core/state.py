@@ -96,6 +96,18 @@ class PortfolioState:
     weekly_realized_pnl: float = 0.0
     monthly_realized_pnl: float = 0.0
     fees_paid_total: float = 0.0
+    # Opening-leg (entry + hedge) fees, accumulated separately because
+    # record_entry_fee debits them STRAIGHT TO CASH and they are therefore
+    # netted into NO P&L figure - not realized_pnl_total, not the daily/
+    # weekly/monthly counters. Found 2026-08-09 when the operator noticed
+    # all-time P&L disagreeing with equity: the invisible population was
+    # $185.94 of $382.59 lifetime fees (49%), so the bot reported -$208.31
+    # against a true all-time change of -$383.26. Closing-leg fees are
+    # already netted inside realized_pnl_total by record_realized_pnl, so
+    # this is exactly the missing half of the cost stack.
+    # BOOKKEEPING ONLY - no decision path reads it; it exists so
+    # net_pnl_all_time / realized_net_all_in can be reported honestly.
+    entry_fees_total: float = 0.0
     _positions: dict = field(default_factory=dict)
     _last_pnl_reset_date: str = field(default="", init=False)
     _last_week_key: str = field(default="", init=False)
@@ -174,12 +186,38 @@ class PortfolioState:
         PnL-settled (no debit at open for the position itself), but without
         this debit every round trip overstated equity by the entry fee leg —
         the sizer priced 65bps RT while the ledger charged only the exit leg
-        (audit MP-2 2026-07-17). Exit fees stay netted inside realized PnL."""
+        (audit MP-2 2026-07-17). Exit fees stay netted inside realized PnL.
+
+        The accumulator (2026-08-09) is what makes the debit REPORTABLE:
+        cash felt it immediately, but no P&L line ever showed it, so
+        `realized_pnl_total` understated the true all-time loss by this
+        entire population. See entry_fees_total's field comment."""
         self.cash_balance -= amount
+        self.entry_fees_total += amount
+
+    def net_pnl_all_time(self,
+                         mark_prices: Optional[Dict[str, float]] = None
+                         ) -> float:
+        """TRUE all-time net P&L: every fee, realized and unrealized.
+
+        Defined as the equity identity rather than as a sum of counters,
+        so it cannot drift from the money: total_equity already carries
+        cash (which absorbed the opening fees), the pools, and open
+        marks. Any future cash path that bypasses a counter shows up here
+        automatically - the counters are the thing that can lie, equity
+        is not."""
+        return self.total_equity(mark_prices) - self.starting_capital
+
+    def realized_net_all_in(self) -> float:
+        """Realized P&L net of BOTH fee legs - the closing legs already
+        netted inside realized_pnl_total, plus the opening legs that only
+        ever hit cash. Excludes open positions (that is what
+        net_pnl_all_time is for)."""
+        return self.realized_pnl_total - self.entry_fees_total
 
     # --- Capital tracking ------------------------------------------------------
     def total_equity(self, mark_prices: Optional[Dict[str, float]] = None) -> float:
-        """Cash + savings + unrealized PnL of open positions (if mark_prices).
+        """Cash + savings + RESERVE + unrealized PnL of open positions.
 
         Cash is PnL-settled: it is NOT debited when a position opens (only
         realized PnL is booked to it on close). So equity is cash + savings +
