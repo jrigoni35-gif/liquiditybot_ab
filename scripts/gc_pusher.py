@@ -370,6 +370,18 @@ def collect(status_path: str) -> list:
                 if isinstance(v, (int, float)):
                     m.append(gauge(f"liquiditybot_perf_asset_{k}", v,
                                    {"asset": str(asset)}, ts))
+        # probe vs conviction, labelled rather than pooled: a blended
+        # expectancy describes neither population. "unknown" carries
+        # pre-upgrade restored trades and drains as the window rolls.
+        for kind, st in (perf.get("by_conviction") or {}).items():
+            if not isinstance(st, dict):
+                continue
+            for k in ("trades", "win_rate", "profit_factor", "expectancy_usd",
+                      "net_usd", "payoff_ratio"):
+                v = st.get(k)
+                if isinstance(v, (int, float)):
+                    m.append(gauge(f"liquiditybot_perf_conviction_{k}", v,
+                                   {"kind": str(kind)}, ts))
         # ---- signal & edge (§4) --------------------------------------------------
         # confirmed + per-gate pass as 1/0 gauges: avg_over_time() in Grafana turns
         # them into confirmed-rate / gate pass-rate, so "which gate blocks most" is
@@ -888,7 +900,8 @@ def collect(status_path: str) -> list:
         # ---- risk-protocol posture (§6) ------------------------------------------
         rp = s.get("risk_protocols") or {}
         for k in ("daily_budget_used_frac", "weekly_budget_used_frac",
-                  "taper_mult", "heat_frac", "heat_cap_frac", "dd_throttle_mult"):
+                  "taper_mult", "heat_frac", "heat_cap_frac",
+                  "dd_throttle_mult", "drawdown_mtm_pct", "hard_stop_dd_pct"):
             v = rp.get(k)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 m.append(gauge(f"liquiditybot_rp_{k}", v, ts=ts))

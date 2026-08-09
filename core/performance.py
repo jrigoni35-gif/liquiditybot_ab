@@ -42,9 +42,19 @@ class PerformanceTracker:
     # ------------------------------------------------------------------
     def record_close(self, asset: str, realized_usd: float, entry_usd: float,
                      entry_price: float = 0.0, stop_price=None,
-                     now: float = 0.0) -> None:
+                     now: float = 0.0, is_probe: bool | None = None) -> None:
         """Log one COMPLETED trade (call once per full close, hedges excluded by
-        the caller). realized_usd is the whole trade's cumulative net P&L."""
+        the caller). realized_usd is the whole trade's cumulative net P&L.
+
+        is_probe splits two populations that must not be pooled. A probe is a
+        deliberately small exploratory ticket; a conviction trade is the real
+        thesis. Averaging them yields an expectancy describing NEITHER - the
+        probes drag the mean toward zero while the conviction trades carry the
+        variance, and the blended number is the one an operator would read as
+        "how is the strategy doing". Pass None (the default) only when the
+        provenance is genuinely unknown, e.g. a trade restored from a snapshot
+        written before this field existed; those land in their own bucket
+        rather than silently counting as conviction."""
         realized_usd = float(realized_usd)
         entry_usd = float(entry_usd)
         ret_pct = (realized_usd / entry_usd * 100.0) if entry_usd > EPS else 0.0
@@ -59,7 +69,8 @@ class PerformanceTracker:
             r_mult = None
         self._trades.append({
             "asset": str(asset), "usd": realized_usd, "ret_pct": ret_pct,
-            "r": r_mult, "win": realized_usd > 0.0, "ts": float(now)})
+            "r": r_mult, "win": realized_usd > 0.0, "ts": float(now),
+            "probe": None if is_probe is None else bool(is_probe)})
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -113,8 +124,18 @@ class PerformanceTracker:
         buckets: dict = defaultdict(list)
         for t in trades:
             buckets[t["asset"]].append(t)
+        # Probe and conviction tickets are separate populations - see
+        # record_close. "unknown" holds pre-upgrade restored trades and
+        # drains as the rolling window turns over; it is reported rather
+        # than folded into either side.
+        conv: dict = {"probe": [], "conviction": [], "unknown": []}
+        for t in trades:
+            p = t.get("probe")
+            conv["unknown" if p is None
+                 else ("probe" if p else "conviction")].append(t)
         return {"overall": self._stats(trades),
-                "by_asset": {a: self._stats(ts) for a, ts in buckets.items()}}
+                "by_asset": {a: self._stats(ts) for a, ts in buckets.items()},
+                "by_conviction": {k: self._stats(v) for k, v in conv.items()}}
 
     # --- persistence hooks -------------------------------------------
     def to_dict(self) -> dict:
@@ -125,4 +146,8 @@ class PerformanceTracker:
             return
         for t in (d.get("trades") or [])[-self.window:]:
             if isinstance(t, dict) and "usd" in t:
+                # A snapshot written before the probe split has no such key.
+                # Absent != conviction: setdefault(None) keeps it in the
+                # honest "unknown" bucket instead of inflating one side.
+                t.setdefault("probe", None)
                 self._trades.append(t)

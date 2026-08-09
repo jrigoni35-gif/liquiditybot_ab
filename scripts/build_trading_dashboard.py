@@ -723,13 +723,25 @@ def _author_command():
     # entry fee is visible before its close (record_entry_fee debits cash
     # at fill; no P&L counter sees it until the trade closes) — gets a
     # tile of its own instead of being invisible on every board.
-    stat("Net P&L (all time)", M("liquiditybot_realized_total"), 6, 5,
+    stat("Net P&L (all time)", M("liquiditybot_net_pnl_all_time"), 6, 5,
          unit=USD, steps=PNL, size="hero",
-         desc="Monotonic realized P&L across every close since inception — "
-              "the true bottom line, never resets, hedges included. A "
-              "trade's fees enter here only when it closes; fees on OPEN "
-              "legs live in 'Fees paid (all time)' until then. Paper "
-              "while system.dry_run is true.")
+         desc="equity − starting capital: the ONE figure that cannot drift "
+              "from the money, because it is measured rather than "
+              "accumulated. Repointed 2026-08-09 from realized_total, which "
+              "is net of the CLOSING fee leg only and so hid 49% of "
+              "lifetime fees (−208.31 shown against a true −383.48). "
+              "Includes unrealized. Paper while system.dry_run is true.")
+    stat("Realized (closing-leg basis)", M("liquiditybot_realized_total"),
+         6, 5, unit=USD, steps=PNL,
+         desc="The old hero tile, kept and correctly named. Monotonic "
+              "realized P&L across every close, hedges included — but a "
+              "trade's OPENING fee never enters it, so it reads better than "
+              "the truth. Compare with 'Realized (all-in)'.")
+    stat("Realized (all-in)", M("liquiditybot_realized_net_all_in"), 6, 5,
+         unit=USD, steps=PNL,
+         desc="realized_total − entry_fees_total: realized P&L net of BOTH "
+              "fee legs. Excludes unrealized, so it is the harshest honest "
+              "read of closed business.")
     stat("Net P&L (last 200 closes)", M("liquiditybot_perf_net_usd"), 6, 5,
          unit=USD, steps=PNL,
          desc="Rolling ring of the last 200 non-hedge closes — recent "
@@ -750,8 +762,22 @@ def _author_command():
               "so the target existed with no way to see distance from it.")
     stat("Equity", M("liquiditybot_equity"), 12, 5, unit=USD,
          decimals=2, steps=GRN, desc="Account equity (cash + open uPnL).")
-    gauge("Drawdown", M("liquiditybot_drawdown_pct"), 12, 5, mx=15.0,
-          steps=DD, desc="Peak-to-now; 15% is the hard stop.")
+    gauge("Drawdown (MTM, governs the hard stop)",
+          M("liquiditybot_rp_drawdown_mtm_pct"), 6, 5, mx=15.0, steps=DD,
+          desc="Peak-to-now on MARK-TO-MARKET equity — the basis the "
+               "catastrophe hard stop and the sizer throttle actually use. "
+               "This panel previously plotted liquiditybot_drawdown_pct, "
+               "which measures from STARTING CAPITAL on cash+savings only "
+               "and ignores unrealized loss: the description said "
+               "'peak-to-now' while the metric said something else, so a "
+               "book underwater on marks could read calm here while the "
+               "throttle was already biting.")
+    gauge("Drawdown (realized, from start)", M("liquiditybot_drawdown_pct"),
+          6, 5, mx=15.0, steps=DD,
+          desc="From starting capital, cash + savings only — blind to "
+               "unrealized loss and to any high-water above start. Kept "
+               "because it is what the daily/weekly budget ledger reasons "
+               "about; it is NOT the hard-stop basis.")
 
     # Band 3 — TRADE QUALITY. Win rate alone is not a quality measure: a 30%
     # win rate with a 3.0 payoff ratio is profitable and a 60% win rate with
@@ -765,6 +791,33 @@ def _author_command():
               "win rate has to clear 1/(1+payoff) just to break even.")
     stat("Profit factor", M("liquiditybot_perf_profit_factor"), 5, 5,
          decimals=2, steps=PF, desc="Gross profit / gross loss.")
+    # Probe vs conviction, side by side rather than blended. A probe is a
+    # deliberately small exploratory ticket and a conviction trade is the
+    # real thesis; one pooled expectancy describes neither, because the
+    # probes drag the mean toward zero while the conviction trades carry the
+    # variance. kind="unknown" holds trades restored from a snapshot written
+    # before the split existed and drains as the rolling window turns over.
+    stat("Expectancy · conviction",
+         'liquiditybot_perf_conviction_expectancy_usd'
+         '{kind="conviction",job="liquiditybot"}', 5, 5, unit=USD,
+         decimals=4, steps=PNL,
+         desc="Average $ per REAL-thesis close. The number that answers "
+              "'is the strategy working', with exploratory probes taken "
+              "out of it.")
+    stat("Expectancy · probe",
+         'liquiditybot_perf_conviction_expectancy_usd'
+         '{kind="probe",job="liquiditybot"}', 5, 5, unit=USD,
+         decimals=4, steps=PNL,
+         desc="Average $ per exploratory probe close. Expected to be "
+              "small and slightly negative — probes buy information, not "
+              "P&L. Judge it against the information, not against zero.")
+    stat("Probe / conviction mix",
+         'liquiditybot_perf_conviction_trades{kind="probe",job="liquiditybot"}'
+         ' / clamp_min(sum(liquiditybot_perf_conviction_trades'
+         '{job="liquiditybot"}), 1)', 4, 5, unit="percentunit",
+         decimals=1, steps=BLUE, graph="none",
+         desc="Share of closes that were probes. If this drifts high the "
+              "headline expectancy is mostly measuring exploration cost.")
     stat("Expectancy R", M("liquiditybot_perf_expectancy_r"), 5, 5,
          decimals=2, steps=PNL, desc="Avg trade in R-multiples.")
     stat("Worst streak", M("liquiditybot_perf_max_loss_streak"), 4, 5,
@@ -1657,9 +1710,13 @@ def _author_problem():
               "Nonzero is healthy — it tracks taken teach-trades.")
 
     row("💰 CAPITAL & DRAWDOWN")
-    gauge("PROBLEM: drawdown", M("liquiditybot_drawdown_pct"), 5, 6, mx=15.0,
-          steps=DD, desc="SOLUTION: drawdown throttle + 15% hard-stop "
-          "flatten.")
+    gauge("PROBLEM: drawdown", M("liquiditybot_rp_drawdown_mtm_pct"), 5, 6,
+          mx=15.0, steps=DD,
+          desc="SOLUTION: drawdown throttle + 15% hard-stop flatten. Plots "
+               "the MARK-TO-MARKET drawdown, which is the basis both of "
+               "those controls key off — it previously plotted the "
+               "realized-only figure, so the panel and the control it "
+               "describes were reading different numbers.")
     stat("Loss streak", M("liquiditybot_perf_cur_loss_streak"), 4, 6,
          decimals=0, mode="background", graph="none", steps=STREAK,
          desc="PROBLEM: consecutive losers. SOLUTION: per-asset circuit "

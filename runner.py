@@ -995,6 +995,14 @@ class BotRunner:
                 "heat_frac": round(float(heat), 4),
                 "heat_cap_frac": rp.ht_max,
                 "dd_throttle_mult": round(float(throttle), 4),
+                # The drawdown ITSELF, not just its derived throttle. It was
+                # computed here and discarded, so the only drawdown an
+                # operator could see was second-hand through the multiplier -
+                # and a throttle of 1.0 reads identically whether drawdown is
+                # zero or the hard stop is misconfigured. Exported with its
+                # cap so a gauge has a scale.
+                "drawdown_mtm_pct": round(float(dd), 4),
+                "hard_stop_dd_pct": round(float(sizer.hard_stop_dd_pct), 4),
             }
         except Exception:
             log.exception("risk-protocol status failed - section omitted")

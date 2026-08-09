@@ -28,6 +28,15 @@ _SYNTH_STATUS = {
     "written_at": time.time(), "equity": 5000.0, "daily_pnl": 3.0,
     "weekly_pnl": 11.0, "savings": 20.0, "reserve": 8.0,
     "realized_total": 1.0, "drawdown_pct": 0.4, "fees_total": 2.0,
+    # Honest all-time P&L (a6334162). These four status keys and their
+    # gc_pusher gauges shipped WITHOUT reaching this fixture; nothing failed
+    # only because no panel referenced them yet, so the staleness sat latent
+    # until the hero tile was repointed. Values satisfy the identity the
+    # production writer maintains:
+    #   net_pnl_all_time = equity - starting_capital = 5000.0 - 5000.0 = 0.0
+    #   realized_net_all_in = realized_total - entry_fees_total = 1.0 - 1.2
+    "starting_capital": 5000.0, "entry_fees_total": 1.2,
+    "net_pnl_all_time": 0.0, "realized_net_all_in": -0.2,
     "cycle": 10, "cycle_lifetime": 100, "feed_latency_ms": 50.0,
     "marks_age_sec": 1.0, "equity_drift_pct": 0.0, "exit_eval_failures": 0,
     "cycle_consecutive_failures": 0, "runner_state": "RUNNING",
@@ -59,7 +68,21 @@ _SYNTH_STATUS = {
         "by_asset": {"BTC": {"trades": 8, "win_rate": 0.5,
                              "profit_factor": 1.2, "expectancy_usd": 1.0,
                              "net_usd": 5.0, "cur_loss_streak": 2,
-                             "max_loss_streak": 3}}},
+                             "max_loss_streak": 3}},
+        # probe/conviction split (2026-08-09). "unknown" holds trades
+        # restored from a pre-split snapshot and drains with the window;
+        # it is a real bucket PerformanceTracker.snapshot() always emits,
+        # so the fixture carries all three.
+        "by_conviction": {
+            "conviction": {"trades": 12, "win_rate": 0.58,
+                           "profit_factor": 1.9, "expectancy_usd": 3.1,
+                           "payoff_ratio": 1.7, "net_usd": 37.2},
+            "probe": {"trades": 6, "win_rate": 0.33,
+                      "profit_factor": 0.7, "expectancy_usd": -0.4,
+                      "payoff_ratio": 0.9, "net_usd": -2.4},
+            "unknown": {"trades": 2, "win_rate": 0.5,
+                        "profit_factor": 1.0, "expectancy_usd": 0.0,
+                        "payoff_ratio": 1.0, "net_usd": 0.0}}},
     "order_manager": {"venue_rejects": 0, "deadman_failures": 0,
                       "latency_ms": 40.0, "maker_fills": 7, "taker_fills": 3,
                       "maker_share": 0.7, "maker_notional_usd": 500.0,
@@ -178,10 +201,15 @@ _SYNTH_STATUS = {
     "firewall": {"fault": None, "counters": {"FW-040": 2}},
     "circuit_breaker": {"enabled": True, "loss_streak": 4,
                         "streaks": {"BTC": 1}, "tripped": {"ETH": 3.0}},
+    # drawdown_mtm_pct/hard_stop_dd_pct added 2026-08-09. The MTM drawdown is
+    # the basis the catastrophe hard stop and the sizer throttle actually key
+    # off; the top-level drawdown_pct measures from starting capital on
+    # cash+savings only and is blind to unrealized loss. Both are emitted.
     "risk_protocols": {"daily_budget_used_frac": 0.1,
                        "weekly_budget_used_frac": 0.05, "taper_mult": 1.0,
                        "heat_frac": 0.04, "heat_cap_frac": 0.35,
-                       "dd_throttle_mult": 1.0},
+                       "dd_throttle_mult": 1.0,
+                       "drawdown_mtm_pct": 3.1, "hard_stop_dd_pct": 15.0},
     "skimmer": {"enabled": True, "candidates": 8, "max_extra": 6,
                 "promoted": ["SOL/USD"],
                 "scores": {"SOL/USD": {"score": 0.7, "spread_bps": 2.0,

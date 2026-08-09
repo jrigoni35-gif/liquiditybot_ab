@@ -1485,7 +1485,7 @@
       "id": 23,
       "type": "gauge",
       "title": "PROBLEM: drawdown",
-      "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten.",
+      "description": "SOLUTION: drawdown throttle + 15% hard-stop flatten. Plots the MARK-TO-MARKET drawdown, which is the basis both of those controls key off — it previously plotted the realized-only figure, so the panel and the control it describes were reading different numbers.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1543,7 +1543,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_drawdown_pct{job=\"liquiditybot\"})",
+          "expr": "max(liquiditybot_rp_drawdown_mtm_pct{job=\"liquiditybot\"})",
           "instant": true,
           "range": false
         }

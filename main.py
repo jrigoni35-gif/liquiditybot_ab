@@ -1671,7 +1671,8 @@ class LiquidityBot:
         if not pos.is_hedge:
             self.perf.record_close(
                 asset, total_net, pos.entry_price * pos.original_size,
-                entry_price=pos.entry_price, stop_price=pos.stop_price, now=now)
+                entry_price=pos.entry_price, stop_price=pos.stop_price, now=now,
+                is_probe=bool(getattr(pos, "is_probe", False)))
             if self.breaker.record_close(asset, total_net > 0, now=now):
                 get_audit().log("circuit_breaker", Code.SZ_CIRCUIT_BREAKER,
                                 f"{asset} paused: "
