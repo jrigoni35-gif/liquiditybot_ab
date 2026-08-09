@@ -202,11 +202,25 @@ def test_stack_warmup_is_neutral_and_never_raises():
 def test_open_heat_reads_position_size_not_units():
     """Regression: an earlier draft read a nonexistent `units` attribute,
     which zeroed heat for every real Position and made the RP-050/051
-    heat gates unreachable in production."""
+    heat gates unreachable in production.
+
+    2026-08-09 - THIS TEST FAILED AT ITS OWN JOB and the fix is instructive.
+    It guards against a nonexistent field on Position while its own double
+    exposed `positions`, a nonexistent attribute on STATE (PortfolioState
+    keeps `_positions`, read via `open_positions()`). The sizer read
+    `getattr(state, "positions", {})`, so the identical bug the docstring
+    describes - a nonexistent attribute zeroing heat and making the heat
+    gates unreachable - was live one level up, and this test could not see
+    it because the double supplied the missing attribute itself. The double
+    now mirrors the REAL accessor; a double may only implement API the
+    production object actually has."""
     from risk.position_sizer import PositionSizer
 
     class _State:
-        positions = {"a": _pos(entry=2000.0)}          # size=1.0
+        _positions = {"a": _pos(entry=2000.0)}         # size=1.0
+
+        def open_positions(self):
+            return list(self._positions.values())
 
     h = PositionSizer._open_heat_frac(_State(), {"ETH/USD": 2000.0},
                                       equity=10_000.0)

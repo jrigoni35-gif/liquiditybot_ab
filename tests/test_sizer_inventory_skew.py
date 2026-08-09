@@ -21,8 +21,22 @@ from risk.position_sizer import PositionSizer
 
 
 class _StubState:
+    """Faithful to PortfolioState's REAL contract (2026-08-09).
+
+    This double used to expose `self.positions` - an attribute
+    PortfolioState has never had (its book is `_positions`, read via
+    `open_positions()`). The sizer read `getattr(state, "positions", {})`,
+    so in PRODUCTION every heat/inventory reader saw an empty book and
+    three risk controls were inert, while this suite stayed green because
+    the double supplied the invented attribute. The double asserted an
+    API the real object does not implement, which is how a dead risk
+    control passes 3,400 tests. Expose only what PortfolioState exposes."""
+
     def __init__(self, positions):
-        self.positions = positions
+        self._positions = dict(positions)
+
+    def open_positions(self):
+        return list(self._positions.values())
 
 
 def _pos(symbol, size, px, direction="long"):

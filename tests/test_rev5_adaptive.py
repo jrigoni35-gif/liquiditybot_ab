@@ -160,8 +160,15 @@ def test_labeler_gates_survive_persistence(tmp_path):
 # D3: inventory-aware aggression
 # --------------------------------------------------------------------------
 class _StubState:
+    """Mirrors PortfolioState's real accessor, not an invented one - see
+    tests/test_heat_reads_the_book.py for the 2026-08-09 incident where a
+    double exposing `positions` kept a dead heat/aggression path green."""
+
     def __init__(self, positions):
-        self.positions = positions
+        self._positions = dict(positions)
+
+    def open_positions(self):
+        return list(self._positions.values())
 
 
 def _pos(symbol, size, px, opened_ts):

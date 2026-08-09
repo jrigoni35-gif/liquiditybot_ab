@@ -30,7 +30,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from core.codes import Code, tag
 from core.sanitize import is_finite as _fin
@@ -248,13 +248,64 @@ class PositionSizer:
                  self.p_bar_base, self.p_bar_mode, self.min_p_win,
                  self.dd_throttle_power, self.dd_throttle_floor)
 
+    # one-shot guard for the wiring warning in _open_book below
+    _warned_no_book = False
+
+    @staticmethod
+    def _open_book(state) -> list:
+        """The open book, via the accessor PortfolioState actually has.
+
+        2026-08-09 INCIDENT: the three heat/inventory readers below each
+        did `getattr(state, "positions", {}).values()`. PortfolioState
+        stores the book in `_positions` and exposes it as
+        `open_positions()`; it has NO `positions` attribute, so the
+        getattr default was taken UNCONDITIONALLY and every one of them
+        read an EMPTY BOOK forever. Consequences, all measured live with
+        5 open positions and 11.8% gross heat:
+          * _open_heat_frac -> 0.0, so RiskProtocolStack's portfolio-heat
+            veto (max_portfolio_heat_frac 0.35, RP_HEAT_FULL) could never
+            fire - the branch was unreachable in production;
+          * _signed_heat_frac -> 0.0, so the signed-inventory reservation
+            skew (SZ-061) never applied;
+          * _inventory_aggression -> u=0, pinning the multiplier at
+            light_boost 1.10 - a permanent 10% size-UP as if the book
+            were empty, where it should taper toward heavy_cut 0.65 as
+            heat approaches full_book_heat_frac.
+        Three risk controls silently dead, all in the permissive
+        direction. Centralised here so one accessor serves all three and
+        the class cannot recur site-by-site."""
+        get = getattr(state, "open_positions", None)
+        if callable(get):
+            try:
+                book: Any = get()        # Any: callable() narrowing would
+                return list(book)        # otherwise type this `object`
+            except TypeError:            # None / non-iterable return: treat
+                pass                     # as unwired, fall through to warn
+        # A state object that cannot report its book is a WIRING ERROR, and
+        # returning [] silently is precisely how the original defect hid for
+        # so long: an empty book and a dead reader produce the identical
+        # benign 0.0. Keep the hot path non-raising (a sizing call must
+        # never take down a cycle) but make the condition VISIBLE - a
+        # never-logged risk control is indistinguishable from a satisfied
+        # one. Logged once per process; the AST pin in
+        # tests/test_heat_reads_the_book.py stops the class returning at
+        # authoring time.
+        if not PositionSizer._warned_no_book:
+            PositionSizer._warned_no_book = True
+            log.warning(
+                "position sizer received a state with no open_positions() - "
+                "heat, signed inventory and the aggression taper are all "
+                "reading an EMPTY BOOK (%s). Risk controls that depend on "
+                "them are inert until this is wired.", type(state).__name__)
+        return []
+
     @staticmethod
     def _open_heat_frac(state, marks, equity) -> float:
         """Gross open notional as a fraction of equity, marked to the
         freshest price (entry price as fallback). Never raises."""
         heat = 0.0
         try:
-            for p in getattr(state, "positions", {}).values():
+            for p in PositionSizer._open_book(state):
                 px = (marks or {}).get(getattr(p, "symbol", ""), 0.0) or \
                     getattr(p, "entry_price", 0.0)
                 heat += abs(float(getattr(p, "size", 0.0) or 0.0)) * \
@@ -270,7 +321,7 @@ class PositionSizer:
         Never raises."""
         net = 0.0
         try:
-            for p in getattr(state, "positions", {}).values():
+            for p in PositionSizer._open_book(state):
                 px = (marks or {}).get(getattr(p, "symbol", ""), 0.0) or \
                     getattr(p, "entry_price", 0.0)
                 notional = abs(float(getattr(p, "size", 0.0) or 0.0)) * \
@@ -315,7 +366,7 @@ class PositionSizer:
         recent = 0
         try:
             cutoff = now - self.ia_window_s
-            for p in getattr(state, "positions", {}).values():
+            for p in PositionSizer._open_book(state):
                 opened = getattr(p, "opened_at", None)
                 if isinstance(opened, datetime):
                     o = opened if opened.tzinfo is not None \
