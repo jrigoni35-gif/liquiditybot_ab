@@ -136,8 +136,12 @@ def test_enabled_manager_serves_fresh_book_and_falls_back_when_stale():
          "max_book_age_sec": 2.0}, cache=LiveMarketCache(now=clk))
     m.cache.update_book("binanceus", "BTCUSD",
                         [["64000", "1"]], [["64010", "1"]])
+    # 42a: the MANAGER attaches recv_ts (the cache's raw write stamp) so
+    # the engine can stamp book_ts with data time; the cache's own
+    # get_book stays the pure 2-key shape (pinned above).
     assert m.get_order_book("BTCUSD") == {"bids": [[64000.0, 1.0]],
-                                          "asks": [[64010.0, 1.0]]}
+                                          "asks": [[64010.0, 1.0]],
+                                          "recv_ts": clk.t}
     clk.t += 5.0
     assert m.get_order_book("BTCUSD") is None       # stale -> REST fallback
 
@@ -339,7 +343,8 @@ def test_manager_with_kraken_adapter_serves_book_by_pair():
     adapter.handle(_snap("BTC/USD", [(100.0, 1.0)], [(101.0, 1.0)],
                          checksum=_ck({100.0: 1.0}, {101.0: 1.0})))
     assert m.get_order_book("BTCUSD") == {"bids": [[100.0, 1.0]],
-                                          "asks": [[101.0, 1.0]]}
+                                          "asks": [[101.0, 1.0]],
+                                          "recv_ts": clk.t}    # 42a stamp
     clk.t += 9.0
     assert m.get_order_book("BTCUSD") is None              # stale -> REST
 

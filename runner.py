@@ -938,7 +938,8 @@ class BotRunner:
                 book = kraken.get_order_book(pair)
                 if book:
                     bot.kraken_books[asset] = book
-                    bot.book_ts[asset] = now
+                    # 42a: DATA-time stamp, same convention as fast_cycle
+                    bot.book_ts[asset] = float(book.get("recv_ts") or now)
             except Exception:
                 log.exception("paused flatten: refresh failed for %s - "
                               "continuing with the rest", asset)

@@ -286,10 +286,23 @@ class KrakenFeed(ThrottledRestClient):
         book = result[key]
         if not isinstance(book, dict):    # DL-3: malformed payload
             return None
-        return clean_book({
+        cleaned = clean_book({
             "bids": [list(lvl) for lvl in book.get("bids", [])],
             "asks": [list(lvl) for lvl in book.get("asks", [])],
         })
+        # recv_ts (owed 42a): wall clock at DATA receipt, attached AFTER
+        # clean_book (which strips unknown keys by constructing a fresh
+        # dict). The engine stamps book_ts from this instead of its cycle-
+        # frozen `now`, resurrecting the pre-trade staleness veto -
+        # book_ts previously measured "when we last looked", never "when
+        # data last arrived". The FeedRecorder records this dict verbatim,
+        # so replay reproduces the stamp byte-identically from the
+        # recording (never recomputed); books without the key (older
+        # recordings, test stubs) fall back to the legacy now-stamp at
+        # the engine.
+        if cleaned is not None:
+            cleaned["recv_ts"] = time.time()
+        return cleaned
 
     def get_candles(self, pair: str, interval: int = 5,
                     include_forming: bool = False) -> list:

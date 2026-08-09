@@ -2502,7 +2502,17 @@ class LiquidityBot:
             self.thales.observe_feed_health(asset, book is not None, now)
             if book:
                 self.kraken_books[asset] = book
-                self.book_ts[asset] = now
+                # 42a: stamp DATA time, not look time. recv_ts is the
+                # feed's own receive stamp (ws cache write / REST parse
+                # wall clock; replay reproduces it verbatim from the
+                # recording). Books without it - older recordings, test
+                # stub books - keep the legacy cycle-`now` stamp, byte-
+                # identical to the pre-42a behavior. This is what makes
+                # the pre-trade staleness veto (PT-020) and the DL-10
+                # absent-book gate measure something real: previously
+                # book_ts was re-stamped with the same cycle-frozen `now`
+                # it was later compared against, so both read ~0 forever.
+                self.book_ts[asset] = float(book.get("recv_ts") or now)
                 self.thales.observe_fast(asset, book,
                                          self.marks.get(symbol, 0.0), now)
                 # MARK FRESHNESS: the batched Ticker can silently stop returning

@@ -134,6 +134,15 @@ class LiveMarketCache:
             entry = self._books.get((venue, symbol))
         return None if entry is None else self._now() - entry[2]
 
+    def book_ts(self, venue: str, symbol: str) -> Optional[float]:
+        """RAW wall timestamp of the last book write (owed 42a), or None
+        if never written. The stored stamp itself, not an age - the
+        manager attaches it to served books as recv_ts so the engine's
+        book_ts records DATA time, never look time."""
+        with self._lock:
+            entry = self._books.get((venue, symbol))
+        return None if entry is None else float(entry[2])
+
     def stats(self) -> dict:
         """Entry counts ({books, marks}) for health/telemetry payloads."""
         with self._lock:
@@ -749,10 +758,22 @@ class WebSocketFeedManager:
         or stale both return None, so the engine's existing REST path is
         the single source of truth whenever live data is not trustworthy.
         `symbol` is whatever key the adapter caches under (Binance symbol /
-        Kraken REST pair)."""
+        Kraken REST pair).
+
+        recv_ts (owed 42a): the cache's RAW write timestamp rides the
+        served book, attached HERE (the cache's get_book stays the pure
+        2-key clean_book shape its own tests pin) so the engine's book_ts
+        records when the DATA arrived, not when it was looked at. Books
+        within max_age_s always have a write stamp; the None-guard is
+        for an invalidate() racing between the two cache reads."""
         if not self.enabled:
             return None
-        return self.cache.get_book(self.venue, symbol, self.max_age_s)
+        book = self.cache.get_book(self.venue, symbol, self.max_age_s)
+        if book is not None:
+            ts = self.cache.book_ts(self.venue, symbol)
+            if ts is not None:
+                book["recv_ts"] = ts
+        return book
 
     def get_mark(self, symbol: str) -> Optional[float]:
         """Fresh cached mark or None (disabled/stale both -> None, caller
