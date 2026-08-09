@@ -22,16 +22,48 @@ _CFG = json.loads((Path(__file__).resolve().parents[1] / "config.json")
 
 
 # --- config_guard now covers the Kraken v2 ws (was unguarded) ---------------
-def test_config_guard_fatals_book_age_that_defeats_watchdog():
+def test_config_guard_fatals_incoherent_book_age():
+    """RENAMED + REWRITTEN 2026-08-09. This test previously asserted the
+    guard FATALs "a book-age that reads stale books as fresh" - a premise
+    commit 36fcfd6e (owed 42a) FALSIFIED: books now carry recv_ts and
+    book_ts is DATA time, so an old book no longer reads fresh, it reports
+    its true age. The test name and message survived the change and would
+    have kept pinning the dead premise into the suite.
+
+    The relation that binds NOW: the ws cache serves any book younger than
+    kraken_max_book_age_sec, and the pre-trade gate vetoes any book older
+    than pretrade.max_data_staleness_ms. Overlap = books served by the feed
+    and then vetoed by the decision path (PT-020), preempting a REST read
+    that would have been fresh."""
     import core.config_guard as g
     # "clean" = no FATAL findings (WARN findings are advisory and never block
     # startup); the shipped config carries advisory WARNs by design.
     assert not [m for s, m in g.validate(_CFG) if s == "FATAL"], \
         "shipped config must have no FATAL findings"
+
     bad = json.loads(json.dumps(_CFG))
     bad["websockets"]["kraken_max_book_age_sec"] = 300.0
     assert any("kraken_max_book_age" in str(x) for x in g.validate(bad)), \
-        "guard must FATAL a book-age that reads stale books as fresh"
+        "guard must FATAL an absurd book age"
+
+    # the incoherence itself: served-then-vetoed band
+    band = json.loads(json.dumps(_CFG))
+    band["websockets"]["kraken_max_book_age_sec"] = 5.0
+    band["pretrade"]["max_data_staleness_ms"] = 4000
+    fatals = [m for s, m in g.validate(band) if s == "FATAL"]
+    assert any("max_data_staleness_ms" in m and "kraken_max_book_age" in m
+               for m in fatals), (
+        "a ws book age at/above the pre-trade staleness ceiling is a dead "
+        "band - the feed serves what the gate refuses")
+
+    # equality is NOT safe: at exactly the ceiling the gate's own > test
+    # still admits the boundary book while any read delay pushes it over
+    eq = json.loads(json.dumps(_CFG))
+    eq["websockets"]["kraken_max_book_age_sec"] = 4.0
+    eq["pretrade"]["max_data_staleness_ms"] = 4000
+    assert [m for s, m in g.validate(eq) if s == "FATAL"], \
+        "equal bounds leave no headroom for the cycle read delay"
+
     bad2 = json.loads(json.dumps(_CFG))
     bad2["websockets"]["kraken_depth"] = 7
     assert any("kraken_depth" in str(x) for x in g.validate(bad2))

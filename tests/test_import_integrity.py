@@ -19,6 +19,21 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
+# timing (owed 44, tagged 2026-08-09 after it went red in the battery):
+# this module is the single most SELF-SATURATING test in the suite - it
+# fans 8 threads out over ~100 modules, each a fresh interpreter spawn
+# under a hard 120s wall timeout. Run inside the battery's -n 8 parallel
+# pass that is up to 64 concurrent interpreter startups competing with
+# the 8 xdist workers AND the live BelowNormal runner, and the timeout
+# fires with no code defect (observed: TimeoutExpired in
+# subprocess.run's communicate; the same file passes in 4.3s solo).
+# It belongs in the SERIAL pass for the same reason as the
+# overfit_check CLI tests - a hard wall deadline around a CPU-heavy
+# child is not a property a saturated box can honor.
+pytestmark = pytest.mark.timing
+
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _PACKAGES = ("core", "data", "execution", "ml", "risk", "api")
 

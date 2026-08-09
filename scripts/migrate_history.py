@@ -115,14 +115,37 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # just a fallback, it is the FACT of every such row
                     r.get("book") or "5m",
                     # label_era joined 2026-07-26 (label-era instrumentation,
-                    # DEEP DIVE progress.md): derived from THIS row's own
-                    # (possibly-migrated) barrier value via the same
-                    # label_era_of the live loader uses for a legacy row -
-                    # identical derivation, computed once here rather than
-                    # left to the loader's own fallback, so a migrated row
-                    # is the FULL current width like every other trailing
-                    # field above.
-                    label_era_of(r.get("barrier") or ""),
+                    # DEEP DIVE progress.md): which label DEFINITION produced
+                    # this row's barrier value.
+                    #
+                    # IDEMPOTENCE (2026-08-09 incident): pass an already-
+                    # migrated row's own persisted value through UNCHANGED,
+                    # exactly like every other trailing column below. This
+                    # line previously recomputed it unconditionally as
+                    # `label_era_of(r.get("barrier") or "")` and was the ONLY
+                    # non-idempotent column in this function - the rule it
+                    # broke is documented in the pt_frac comment immediately
+                    # below. label_era_of() has no horizon knowledge and
+                    # returns the UNQUALIFIED "triple_barrier" for any tb_*
+                    # barrier, while the writer (ml/history.py _row_era ->
+                    # triple_barrier_era(max_bars)) persists the QUALIFIED
+                    # "triple_barrier_h432". So every migration pass silently
+                    # re-tagged era-qualified rows into the pooled bucket,
+                    # merging label definitions that must never share a name.
+                    # Measured blast radius on 2026-08-08's rotation: 2,729
+                    # rows across two rotations (h432->triple_barrier 652,
+                    # h24->triple_barrier 2,077). Downstream that collapsed
+                    # the current-era count below ml.era_exclusion.
+                    # min_new_era_rows, DISARMING the era filter, which
+                    # released the whole pooled corpus into training and
+                    # promoted the model family on a data bug rather than on
+                    # evidence.
+                    #
+                    # Only a row that genuinely predates the column (no value
+                    # to preserve) falls back to the derivation - the same
+                    # meaning the loader's own _row_label_era fallback gives
+                    # such a row.
+                    r.get("label_era") or label_era_of(r.get("barrier") or ""),
                     # pt_frac, sl_frac joined 2026-07-27 (geometry-alignment
                     # T3): the barrier_geometry() bracket a row's label was
                     # decided under. Pass an already-migrated row's own real

@@ -100,3 +100,85 @@ def test_pattern_features_have_documented_neutral(tmp_path):
     from scripts.migrate_history import KNOWN_NEUTRAL
     for name in ("pat_engulf_dir", "pat_hammer_dir", "pat_marubozu_dir"):
         assert name in KNOWN_NEUTRAL and KNOWN_NEUTRAL[name] == 0.0
+
+
+# ---------------------------------------------------------------------
+# label_era idempotence — the 2026-08-09 corpus incident
+# ---------------------------------------------------------------------
+def _current_file(path, rows):
+    """A file already on the CURRENT schema (what a rotation's .bak is)."""
+    store = HistoryStore(str(path))
+    store._ensure_schema()
+    hdr = store._header
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        for r in rows:
+            w.writerow([r.get(c, "") for c in hdr])
+    return path
+
+
+def _row(pid, barrier, label_era):
+    r = {c: "" for c in ("position_id", "asset", "side", "label",
+                         "net_pnl_usd", "source", "ts", "signal_ts",
+                         "barrier", "label_era")}
+    r.update({"position_id": pid, "asset": "BTC", "side": "long",
+              "label": "1", "net_pnl_usd": "1.00", "source": "candidate",
+              "ts": "1700000000", "signal_ts": "1700000000",
+              "barrier": barrier, "label_era": label_era})
+    for n in FEATURE_NAMES:
+        r[n] = "0.000000"
+    return r
+
+
+def test_migration_preserves_persisted_label_era(tmp_path):
+    """THE 2026-08-09 INCIDENT. This line was the ONLY non-idempotent
+    trailing column in migrate_rows: it recomputed label_era via
+    label_era_of(barrier), which has no horizon knowledge and returns the
+    UNQUALIFIED "triple_barrier" for any tb_* barrier - while the writer
+    persists the QUALIFIED "triple_barrier_h432". Every migration pass
+    (rotation recovery, session_import, a manual re-run) silently merged
+    label definitions that must never share a name.
+
+    Downstream that is not cosmetic: the era-exclusion filter arms on the
+    CURRENT-era row count, so re-tagging era rows into the pooled bucket
+    collapsed that count below its threshold, disarmed the filter,
+    released the whole pooled corpus into training and promoted the model
+    family on a data bug instead of on evidence."""
+    src = _current_file(tmp_path / "bak.csv", [
+        _row("a1", "tb_pt", "triple_barrier_h432"),
+        _row("a2", "tb_sl", "triple_barrier_h24"),
+        _row("a3", "realized", "exit_sim"),
+    ])
+    rows, _padded = migrate_rows(str(src))
+    store = HistoryStore(str(tmp_path / "unused.csv"))
+    i = store._header.index("label_era")
+    assert [r[i] for r in rows] == ["triple_barrier_h432",
+                                    "triple_barrier_h24", "exit_sim"], (
+        "a migration pass must never re-derive an era a row already "
+        "carries - horizon qualifiers are destroyed by the derivation")
+
+
+def test_migration_is_a_fixed_point_on_label_era(tmp_path):
+    """Idempotence proper: migrating an already-migrated file twice must
+    not drift. The live corpus is migrated on EVERY schema rotation, so a
+    non-fixed-point column degrades a little more each time."""
+    src = _current_file(tmp_path / "bak.csv",
+                        [_row("a1", "tb_pt", "triple_barrier_h432")])
+    once, _ = migrate_rows(str(src))
+    store = HistoryStore(str(tmp_path / "u.csv"))
+    hdr = store._header
+    twice_src = tmp_path / "again.csv"
+    _current_file(twice_src, [dict(zip(hdr, once[0], strict=True))])
+    twice, _ = migrate_rows(str(twice_src))
+    assert once == twice, "migration must be a fixed point"
+
+
+def test_legacy_row_without_era_still_derives_one(tmp_path):
+    """The fallback must survive: a row that genuinely predates the
+    column (no value to preserve) still gets the loader's own derivation,
+    so migrated legacy rows stay full-width and self-describing."""
+    src = _old_file(tmp_path / "old.csv", n=1)     # pre-era schema
+    rows, _ = migrate_rows(str(src))
+    store = HistoryStore(str(tmp_path / "unused.csv"))
+    i = store._header.index("label_era")
+    assert rows[0][i] == "legacy", "empty barrier derives the legacy era"

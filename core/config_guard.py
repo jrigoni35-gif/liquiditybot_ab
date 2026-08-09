@@ -2831,21 +2831,48 @@ def validate(config: dict) -> list:
 
     # --- Kraken v2 live book stream (data/ws_feed.KrakenV2BookStream) -----
     # Wired INDEPENDENTLY of websockets.enabled (main.py gates it on
-    # websockets.kraken_enabled), so its knobs need their OWN validation — they
-    # were previously unguarded, so a high kraken_max_book_age_sec silently
-    # served stale books into stops/imbalance/firewall AND defeated the
-    # staleness watchdog (book_ts is stamped at read time, not data time).
+    # websockets.kraken_enabled), so its knobs need their OWN validation.
+    #
+    # SEMANTICS CHANGED 2026-08-09 (owed 42a, commit 36fcfd6e). Books now
+    # carry their own receive stamp (recv_ts) and the engine stamps
+    # book_ts from it, so book_ts is DATA time, not read time. The old
+    # hazard was "a stale book reads FRESH and defeats the watchdog"; that
+    # is now inverted - an old book reports its true age, which the
+    # pre-trade gate ACTS on. The knob therefore has a new, tighter
+    # binding constraint checked below.
     if bool(_f(config, "websockets.kraken_enabled", False)):
         k_age = float(_f(config, "websockets.kraken_max_book_age_sec", 5.0))
         poll = float(_f(config, "system.polling_interval_sec", 5))
+        stale_ms = float(_f(config, "pretrade.max_data_staleness_ms", 4000.0))
         if k_age <= 0:
             fatal(f"websockets.kraken_max_book_age_sec={k_age} must be > 0 - a "
                   f"non-positive staleness gate would trust a dead socket "
                   f"forever")
+        # THE COHERENCE RELATION (2026-08-09): the ws cache serves any book
+        # younger than k_age, and the pre-trade gate vetoes any book older
+        # than max_data_staleness_ms. If k_age*1000 >= stale_ms there is a
+        # band of book ages that the feed SERVES and the decision path then
+        # VETOES (PT-020) - and because main.py only falls back to REST when
+        # the ws returns None, that served-but-doomed book PREEMPTS a REST
+        # read that would have been fresh. The result is entries silently
+        # refused while a good data source sits one call away. Measured on
+        # the 2026-08-08 config (5.0s vs 4000ms): a 1000ms-wide dead band,
+        # hitting the thinnest pairs hardest (~3% of evaluations) and so
+        # skewing which assets can ever accumulate fill labels.
+        if k_age * 1000.0 >= stale_ms:
+            fatal(f"websockets.kraken_max_book_age_sec={k_age}s "
+                  f"(={k_age * 1000.0:.0f}ms) must be < "
+                  f"pretrade.max_data_staleness_ms={stale_ms:.0f}ms - books "
+                  f"in the overlap are SERVED by the ws cache and then "
+                  f"vetoed by the pre-trade staleness gate (PT-020), "
+                  f"preempting a REST read that would have been fresh. "
+                  f"Lower the book age (preferred) rather than raising the "
+                  f"veto ceiling")
         if k_age > 30.0:
             fatal(f"websockets.kraken_max_book_age_sec={k_age} must be <= 30s - "
-                  f"a book that stale reads as FRESH (book_ts is stamped at read "
-                  f"time) and defeats the staleness watchdog that guards stops")
+                  f"a book that stale is far past any plausible decision "
+                  f"horizon; since 42a its true age reaches the pre-trade "
+                  f"gate, so this only guarantees vetoed entries")
         elif k_age > poll:
             findings.append(("WARN",
                              f"websockets.kraken_max_book_age_sec={k_age} "

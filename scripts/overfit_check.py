@@ -6,8 +6,15 @@ that can overfit, entirely offline, and emits a PASS/FAIL report:
 
   [OF-1] TRAIN/OOF GAP        ml/overfit.train_test_gap on the live
                               labeled history (or the planted-signal
-                              synthetic benchmark when live rows < 60,
-                              clearly labeled as machinery validation).
+                              synthetic benchmark when the LOADED corpus
+                              is under len(FEATURE_NAMES)*10 rows, clearly
+                              labeled as machinery validation). That
+                              predicate counts LOADED rows - candidate +
+                              live, after every filter - not live rows;
+                              the flat "60" this line used to claim was
+                              deleted 2026-07-11 (7486ab29) and the stale
+                              wording caused a real misdiagnosis on
+                              2026-08-08, so it is spelled out here.
   [OF-2] SHUFFLED-LABEL NULL  leakage detector: destroyed labels must
                               yield chance OOF AUC through the purged
                               walk-forward. Catches purge bugs, feature
@@ -213,7 +220,12 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
             "live_clean", store.source_counts().get("live", 0)))
         return X, y, w, sig, res, f"live history ({len(X)} rows)", n_live
     Xs, ys = synthetic_benchmark()
-    reason = "forced" if force_synthetic else f"live rows={len(X)} < {min_rows}"
+    # NOT "live rows": len(X) is the LOADED row count (candidate + live,
+    # post-filter). Mislabelling it cost a session's diagnosis on
+    # 2026-08-08 - the number was read as a live-row count it can never be
+    # (the corpus held 305 live rows while this string printed 467).
+    reason = ("forced" if force_synthetic
+              else f"loaded rows={len(X)} < {min_rows}")
     # synthetic benchmark is uniformly spaced -> row-count purge is exact.
     # n_live = len(Xs): the benchmark validates the FULL selection machinery,
     # so it must not be evidence-gated down to logistic-only.
