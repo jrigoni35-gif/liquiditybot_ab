@@ -35,6 +35,19 @@ that can overfit, entirely offline, and emits a PASS/FAIL report:
                               is reported INFORMATIONAL, not gated; it
                               arms when exploration is disabled.
 
+EXPLORATION-PHASE GATING (operator adjudication 2026-08-09). OF-1 and
+OF-7's dead-feature check follow the OF-5 rule above for the same
+reason: while ml.exploration.enabled is true the corpus is dominated by
+EV-mixed probe/candidate rows bought to acquire labels, so both grade
+the acquisition phase rather than anything a trade depends on. NO
+THRESHOLD MOVED - 0.12 and 0.55 are unchanged and the numbers are always
+printed; only what they BLOCK is scoped, because this battery stage
+gates CODE deploys and model trust is enforced independently by
+ml.model_selection's evidence floors and the live ML governor. Both
+gates are fail-CLOSED (an unreadable config gates fully), stay HARD on
+the synthetic benchmark where they validate the instrument, and re-arm
+by themselves when exploration is switched off.
+
 Usage:
   python scripts/overfit_check.py [--quick] [--recording PATH]
 Exit code 0 = all applicable checks pass, 1 = any failure.
@@ -83,6 +96,26 @@ def check(name: str, ok: bool, detail: str = ""):
 def info(name: str, detail: str = ""):
     print(f"  --    {name}" + (f"  {detail}" if detail else ""))
     REPORT.append(("INFO", name, detail))
+
+
+def gate_is_informational(explore_on: bool, on_synthetic: bool) -> bool:
+    """THE exploration-phase gating predicate for OF-1 and OF-7's
+    dead-feature check (operator adjudication 2026-08-09; see the module
+    header). One function so the two gates can never drift apart, and a
+    pure one so the policy is unit-testable instead of only observable
+    through a 40s CLI run.
+
+    True = report the number, do not block. It never changes a THRESHOLD;
+    it decides whether a threshold's verdict gates the CODE battery.
+
+    Two properties are deliberate and load-bearing:
+      * fail-CLOSED - a caller that could not read the config passes
+        explore_on=False and gets the full gate, matching OF-5/DSR;
+      * the SYNTHETIC benchmark always gates, because there these checks
+        validate the INSTRUMENT (planted signal, known answer) rather
+        than the corpus, and an instrument must never grade itself
+        leniently."""
+    return bool(explore_on) and not bool(on_synthetic)
 
 
 # ---------------------------------------------------------------------------
@@ -652,14 +685,23 @@ def main() -> int:
         inc_adaptive = bool(_ag.get("enabled", False))
         adaptive_cfg = _ag if inc_adaptive else None
         select_cfg = _ml_cfg.get("model_selection", {}) or None
+        # Active-learning phase flag, derived ONCE here and reused by
+        # OF-1, OF-7 and OF-5 below. It used to be re-derived inside the
+        # DSR block from a second config read; two derivations of one
+        # predicate is the drift hazard this repo keeps paying for, so
+        # there is now exactly one.
+        _explore_on = bool((_ml_cfg.get("exploration") or {})
+                           .get("enabled", False))
     except Exception:                                    # noqa: BLE001
         inc_adaptive, adaptive_cfg, select_cfg, _ml_cfg = (
             False, None, None, {})                        # fail safe
+        _explore_on = False              # unreadable config: FULL gate
     hist_path = _ml_cfg.get("history_path", "outputs/signal_history.csv")
 
     X, y, w, sig, res, source, n_live = load_dataset(
         force_synthetic=args.force_synthetic, history_path=hist_path,
         ml_cfg=_ml_cfg)
+    on_synthetic = source.startswith("SYNTHETIC")
     print(f"[OF-1] train/OOF gap  ({source})")
     # return_oof=True: purely additive (see train_test_gap docstring) - it
     # only adds 'oof_idx'/'oof_pred' keys the gap[...] checks below never
@@ -676,14 +718,48 @@ def main() -> int:
     gaps = train_test_gap(X, y, sample_weight=w,
                           n_splits=3 if args.quick else 5, sig=sig,
                           return_oof=True, res=res)
+    # OF-1 GATING POLICY (operator adjudication 2026-08-09, following the
+    # OF-5/DSR precedent above it in this file's own header).
+    #
+    # The THRESHOLD IS UNCHANGED (0.12) and the numbers are always printed.
+    # What is scoped is what the number BLOCKS. While dry-run active
+    # learning is on, the corpus is dominated by EV-mixed probe/candidate
+    # rows acquired to BUY labels (PT-050) - the identical reason DSR is
+    # informational during exploration - so a train/OOF gap measured on it
+    # grades the acquisition phase, not the generalization of a model any
+    # trade actually depends on. Model TRUST is enforced elsewhere and is
+    # untouched by this: the selection ladder's evidence floors
+    # (ml.model_selection.min_live_rows) refuse the higher-capacity
+    # families outright at this row count, and the ML governor grades the
+    # deployed model on REALIZED outcomes and kills it (use_model=False)
+    # when it is confidently wrong. This battery stage gates CODE deploys;
+    # holding a code-safety fix hostage to a data-starved corpus conflates
+    # model readiness with code correctness.
+    #
+    # Fail-CLOSED and self-terminating, exactly like DSR: an unreadable
+    # config leaves _explore_on False (full gate), the SYNTHETIC benchmark
+    # always keeps the hard gate because there OF-1 validates the
+    # instrument rather than the corpus, and the gate re-arms by itself
+    # the moment ml.exploration.enabled goes false - no stamp to clear, no
+    # operator memory required.
+    _of1_soft = gate_is_informational(_explore_on, on_synthetic)
     for name, g in gaps.items():
         if not g.get("folds"):
             info(f"gap[{name}]", "no viable folds")
             continue
-        check(f"gap[{name}]: OOF gap within memorization band",
-              g["gap_auc"] <= 0.12,
-              f"train_auc={g['train_auc']:.3f} oof_auc={g['oof_auc']:.3f} "
-              f"gap={g['gap_auc']:+.3f}")
+        detail = (f"train_auc={g['train_auc']:.3f} "
+                  f"oof_auc={g['oof_auc']:.3f} gap={g['gap_auc']:+.3f}")
+        if _of1_soft:
+            verdict = "WITHIN" if g["gap_auc"] <= 0.12 else "OVER"
+            info(f"gap[{name}]",
+                 f"INFORMATIONAL ({verdict} the 0.12 memorization band) - "
+                 f"{detail}; exploration is ON so the corpus is EV-mixed "
+                 f"by design (PT-050) - model trust stays enforced by the "
+                 f"selection evidence floors + the live governor; this "
+                 f"gate arms when ml.exploration.enabled is false")
+        else:
+            check(f"gap[{name}]: OOF gap within memorization band",
+                  g["gap_auc"] <= 0.12, detail)
 
     # ---- OF-1b: NULL-MODEL FLOOR (2026-07-31 era-deadlock debate, item
     # G). A model that scores WORSE than a constant predicting the corpus
@@ -858,13 +934,23 @@ def main() -> int:
     # synthetic set it's reported for machinery validation. The models
     # already regularize against dead weight (GBT colsample + L2 + gain
     # importance, logistic L2), and OF-2 confirms none is exploited.
-    on_synthetic = source.startswith("SYNTHETIC")
     dead_detail = (f"dead_frac={dof['dead_feature_frac']:.2f} "
                    f"({len(dof['dead_features'])} near-zero-importance "
                    f"features)")
     if on_synthetic:
         info("dof: dead-feature fraction (synthetic — informational)",
              dead_detail + " — expected: benchmark plants signal in ~6/36")
+    elif gate_is_informational(_explore_on, on_synthetic):
+        # Same adjudication as OF-1 above, same threshold (0.55), same
+        # self-terminating condition, via the SAME predicate so the two
+        # gates cannot drift into disagreeing about the phase. A dead-feature fraction on a corpus
+        # this size is the DoF budget restating itself (2026-08-08:
+        # hundreds of labels fund ~2-5 effectively independent features
+        # against 64 present), which is a FEATURE-COUNT decision - the
+        # schema-AB prune experiment - not a code-deploy verdict.
+        info("dof: dead-feature fraction (exploration — informational)",
+             dead_detail + " — arms when ml.exploration.enabled is false; "
+             "reduce the schema (prune experiment) or grow the corpus")
     else:
         check("dof: dead-feature fraction under 55% (live data)",
               dof["dead_feature_frac"] < 0.55, dead_detail)
@@ -910,8 +996,9 @@ def main() -> int:
         _cfg_p = Path(__file__).resolve().parents[1] / "config.json"
         _ml_cfg = (json.loads(_cfg_p.read_text(encoding="utf-8"))
                    .get("ml") or {})
-        _explore_on = bool((_ml_cfg.get("exploration") or {})
-                           .get("enabled", False))
+        # _explore_on is NOT re-derived here: it is resolved once at the
+        # top of main() (fail-closed) and shared by OF-1/OF-5/OF-7, so the
+        # three gates can never disagree about which phase they are in.
         # Debate-1 item A: the DSR trials count is a decision-path knob
         # (Harvey-Liu multiple-testing deflation) — config-lifted with the
         # identical default; config_guard bounds it and WARNs below the
@@ -919,7 +1006,6 @@ def main() -> int:
         _dsr_trials = int((_ml_cfg.get("overfit") or {})
                           .get("dsr_n_trials", 7))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        _explore_on = False                     # unreadable config: full gate
         _dsr_trials = 7
 
     def _dsr_of(r):

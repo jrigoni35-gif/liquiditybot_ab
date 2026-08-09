@@ -35,6 +35,7 @@ correct parity fix is threading `res`, pinned below.
 import ast
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -787,7 +788,16 @@ def test_overfit_check_reads_the_configured_corpus_and_ships_deployed_parity(
     # outputs/signal_history.csv default - which does not exist under this
     # cwd, so the old code reported an EMPTY sample.
     assert "mixed n=20" in text or "20 live labeled trades" in text, text
-    assert "mixed n=0" not in text and "0 live labeled trades" not in text
+    # word-boundary anchored (2026-08-09): a bare substring test read
+    # "2>0< live labeled trades" as the empty-sample string it was meant to
+    # forbid, so this assertion failed on a report that PROVES the fix.
+    # The flip that surfaced it is itself the improvement: OF-5's phase
+    # flag is now resolved once through main.load_config (injectable, so
+    # THIS test's cfg decides), where it used to re-read the shipped
+    # repo config.json off disk and ignore the injected one - which is
+    # exactly the independence this test's docstring asks for.
+    assert not re.search(r"\b0 live labeled trades", text), text
+    assert "mixed n=0" not in text, text
     # ...and the regime diagnostic was handed the same file
     assert Path(calls["regime_csv_path"]) == Path(rel)
 
