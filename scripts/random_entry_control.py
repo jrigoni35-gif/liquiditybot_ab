@@ -46,6 +46,13 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Legs that OPEN risk. A hedge opens a position exactly as an entry does
+# (main.py debits the entry fee for every non-exit leg), so a reconstruction
+# keyed on "entry" alone silently drops every hedge-opened round trip - 159 of
+# 400 here, and 77% of all fees paid. tests/test_opening_leg_pin.py pins every
+# fills-reading script against a regression.
+_OPEN_PURPOSES = ("entry", "hedge")
 BAR_SEC = 300.0          # kraken.get_candles bar spacing (5-minute bars)
 COVERAGE_MIN = 0.8       # window must have >= this fraction of its bars
 
@@ -111,7 +118,7 @@ def load_trades(fills_path: Path) -> list:
                 by_pid[r["position_id"]].append(r)
     trades = []
     for fills in by_pid.values():
-        ent = [r for r in fills if r.get("purpose") == "entry"]
+        ent = [r for r in fills if r.get("purpose") in _OPEN_PURPOSES]
         ext = [r for r in fills if r.get("purpose") == "exit"]
         if not ent or not ext:
             continue

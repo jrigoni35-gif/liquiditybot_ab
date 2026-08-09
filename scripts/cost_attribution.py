@@ -66,6 +66,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Legs that OPEN risk - a hedge opens a position exactly as an entry does.
+# See scripts/breakeven_test.py's docstring; pinned by
+# tests/test_opening_leg_pin.py.
+_OPEN_PURPOSES = ("entry", "hedge")
+
 # Kraken Pro base (highest) tier, 30-day volume < $10k, as of 2026-08.
 # Lower tiers only reduce these, so using base is the conservative check.
 KRAKEN_MAKER_BPS = 16.0
@@ -89,13 +94,21 @@ def med(xs):
 
 
 def load(path, tol=0.02):
-    """Fully-closed positions, DEDUPLICATED BY FILL PATTERN."""
+    """Fully-closed positions, DEDUPLICATED BY FILL PATTERN.
+
+    Returns (trades, skipped) where skipped is a Counter keyed by REASON.
+    It used to return trades alone and drop the rest with a bare `continue`,
+    which meant an exclusion of any size was indistinguishable from no
+    exclusion at all - the same blindness that hid 159 hedge-opened round
+    trips (40% of the book) from scripts/breakeven_test.py.
+    """
     by_pid = defaultdict(list)
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
             if r.get("position_id"):
                 by_pid[r["position_id"]].append(r)
     out, seen = [], set()
+    skipped = Counter()
     # position_id is deliberately discarded: it is the field that carries
     # the 16x duplication, so keying on it is the bug this dedupe exists to
     # avoid. The fill pattern is the identity.
@@ -112,7 +125,7 @@ def load(path, tol=0.02):
             val = sz * px
             cash += val if r.get("side") == "sell" else -val
             fees += fee
-            if r.get("purpose") == "entry":
+            if r.get("purpose") in _OPEN_PURPOSES:
                 ez += sz
                 notional += val
             elif r.get("purpose") == "exit":
@@ -123,12 +136,21 @@ def load(path, tol=0.02):
                 taker_n += 1
             sig.append((r.get("purpose"), r.get("side"),
                         round(sz, 6), round(px, 4)))
-        if not ok or ez <= 0 or xz <= 0 or notional <= 0:
+        if not ok:
+            skipped["malformed_row"] += 1
+            continue
+        if ez <= 0 or notional <= 0:
+            skipped["no_opening_leg"] += 1
+            continue
+        if xz <= 0:
+            skipped["still_open"] += 1
             continue
         if abs(xz - ez) / ez > tol:
+            skipped["size_mismatch"] += 1
             continue
         key = tuple(sig)
         if key in seen:
+            skipped["duplicate_fill_pattern"] += 1
             continue
         seen.add(key)
         out.append({"notional": notional, "gross": cash, "fees": fees,
@@ -136,7 +158,7 @@ def load(path, tol=0.02):
                     "fees_pct": 100.0 * fees / notional,
                     "maker_fills": maker_n, "taker_fills": taker_n,
                     "n_fills": len(fills)})
-    return out
+    return out, skipped
 
 
 def main() -> int:
@@ -163,7 +185,7 @@ def main() -> int:
         by_flag[str(r.get("post_only"))].append(bps)
         rate_hist[round(bps, 1)] += 1
 
-    trades = load(p)
+    trades, skipped = load(p)
     n = len(trades)
     if not n:
         print("no closed positions")
@@ -216,14 +238,23 @@ def main() -> int:
            "post_only_bps": {k: {"n": len(v), "median": med(v)}
                              for k, v in by_flag.items()},
            "net_by_schedule": {k: mean_g - v
-                               for k, v in schedules.items()}}
+                               for k, v in schedules.items()},
+           "skipped": sum(skipped.values()),
+           "skipped_by_reason": dict(skipped)}
     if ns.json:
         print(json.dumps(res, indent=1))
         return 0
 
     print("COST ATTRIBUTION - deduplicated by fill pattern")
     print("=" * 66)
-    print("%d distinct closed positions\n" % n)
+    print("%d distinct closed positions" % n)
+    n_skip = sum(skipped.values())
+    if n_skip:
+        # Named, not pooled. An unreported exclusion is an unauditable one.
+        print("%d skipped (%.1f%% of round trips): %s"
+              % (n_skip, 100.0 * n_skip / (n + n_skip),
+                 ", ".join("%s=%d" % kv for kv in sorted(skipped.items()))))
+    print()
 
     print("1. IS post_only BUYING A MAKER FEE?")
     for flag in sorted(by_flag):

@@ -13,9 +13,9 @@ ONE, and it cannot separate fees from slippage. This reconstructs P&L from
 outputs/fills.csv - real fill prices and real per-fill fees_delta_usd - so
 the fee term is removed, not estimated.
 
-METHOD. Fills carry purpose (entry/exit) and side (buy/sell). Summing signed
-cash flows works for BOTH directions without a direction column: a long buys
-then sells, a short sells then buys, and in each case
+METHOD. Fills carry purpose (entry/hedge/exit) and side (buy/sell). Summing
+signed cash flows works for BOTH directions without a direction column: a long
+buys then sells, a short sells then buys, and in each case
 
     gross_usd = (proceeds from every sell) - (cost of every buy)
 
@@ -23,6 +23,15 @@ is the correct P&L. Fees are then subtracted separately, which is what makes
 the fee term removable. Positions are included only when the exited size
 matches the entered size within tolerance - a partially-closed position has
 an unrealized leg and its "P&L" would be an artifact of where the data ends.
+
+HEDGE IS AN OPENING LEG, CORRECTED 2026-08-09. This tool tested
+`purpose == "entry"` for the opening side, so any position opened by a HEDGE
+leg had entry_sz == 0 and was dropped as "partial or malformed" - 159 of 400
+round trips, 66% of all fees ever paid, silently absent from the one number
+that decides whether this bot should keep running. main.py debits the entry
+fee for every non-exit leg, so a hedge opens risk exactly as an entry does.
+The skip counter is now broken out by reason precisely because a single
+pooled "skipped" total is what let a 40%-of-the-book exclusion look routine.
 
 DEDUPLICATION, ADDED 2026-08-02 AFTER THIS TOOL GOT IT WRONG. An earlier
 run of this script reported mean gross -1.32%/trade and that number was
@@ -61,10 +70,16 @@ import argparse
 import csv
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Legs that OPEN risk. A hedge is an opening leg: main.py fires the entry-fee
+# path for every non-exit leg, and a hedge's cash flow enters gross P&L the
+# same way an entry's does. Testing only for "entry" dropped every
+# hedge-opened round trip - see the docstring.
+_OPEN_PURPOSES = ("entry", "hedge")
 
 
 def _f(v):
@@ -101,7 +116,10 @@ def main() -> int:
             if r.get("position_id"):
                 by_pos[r["position_id"]].append(r)
 
-    trades, skipped, deduped = [], 0, 0
+    # Skips are counted BY REASON. A pooled total cannot distinguish "a few
+    # partials at the edge of the file" from "40% of the book is structurally
+    # invisible", and the second is what was actually happening.
+    trades, skipped, deduped = [], Counter(), 0
     seen = set()
     for pid, fills in by_pos.items():
         cash = 0.0          # + on sells, - on buys
@@ -123,20 +141,26 @@ def main() -> int:
                 break
             cash += (sz * px) if r.get("side") == "sell" else -(sz * px)
             fees += fee
-            if r.get("purpose") == "entry":
+            if r.get("purpose") in _OPEN_PURPOSES:
                 entry_sz += sz
                 entry_notional += sz * px
             elif r.get("purpose") == "exit":
                 exit_sz += sz
             sig.append((r.get("purpose"), r.get("side"),
                         round(sz, 6), round(px, 4)))
-        if not ok or entry_sz <= 0 or exit_sz <= 0 or entry_notional <= 0:
-            skipped += 1
+        if not ok:
+            skipped["malformed_row"] += 1
+            continue
+        if entry_sz <= 0 or entry_notional <= 0:
+            skipped["no_opening_leg"] += 1
+            continue
+        if exit_sz <= 0:
+            skipped["still_open"] += 1
             continue
         # Fully-closed only: an open leg's "P&L" is an artifact of the
         # dataset's end date, not a result.
         if abs(exit_sz - entry_sz) / entry_sz > ns.tol:
-            skipped += 1
+            skipped["size_mismatch"] += 1
             continue
         # position_id is deliberately NOT the identity: it is the field
         # that carried a 16x duplication of one position and produced a
@@ -166,7 +190,8 @@ def main() -> int:
     gw = sum(1 for v in g if v > 0)
     nw = sum(1 for v in net if v > 0)
     res = {
-        "n": n, "skipped": skipped, "deduped": deduped,
+        "n": n, "skipped": sum(skipped.values()),
+        "skipped_by_reason": dict(skipped), "deduped": deduped,
         "mean_gross_pct": sum(g) / n, "median_gross_pct": median(g),
         "mean_fees_pct": sum(c) / n, "median_fees_pct": median(c),
         "mean_net_pct": sum(net) / n, "median_net_pct": median(net),
@@ -181,8 +206,15 @@ def main() -> int:
 
     print("BREAK-EVEN TEST - reconstructed from actual fills")
     print("=" * 64)
-    print("%d fully-closed positions (%d skipped: partial or malformed)"
-          % (n, skipped))
+    n_skip = sum(skipped.values())
+    print("%d fully-closed positions (%d skipped)" % (n, n_skip))
+    if n_skip:
+        # Named, not pooled: an exclusion nobody can see is an exclusion
+        # nobody audits.
+        print("  skipped by reason: %s"
+              % ", ".join("%s=%d" % kv for kv in sorted(skipped.items())))
+        print("  (%.1f%% of reconstructable round trips were excluded)"
+              % (100.0 * n_skip / (n + n_skip)))
     if deduped:
         print("%d DUPLICATE fill patterns dropped - the same position was"
               % deduped)

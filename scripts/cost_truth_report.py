@@ -66,6 +66,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.codes import Code  # noqa: E402
 
+# Legs that OPEN risk. A hedge fill's fee rate belongs with the opening side;
+# testing only for "entry" put every hedge leg in NEITHER bucket, understating
+# the measured opening-leg count. Pinned by tests/test_opening_leg_pin.py.
+_OPEN_PURPOSES = ("entry", "hedge")
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 # spec D4: "+/-20% tolerance" - a fixed spec constant, not a fitted knob.
@@ -197,7 +202,7 @@ def read_audit_fill_costs(path) -> tuple:
                     continue
                 bps = fees / notional * 1e4
                 purpose = str(data.get("purpose") or "")
-                if purpose == "entry":
+                if purpose in _OPEN_PURPOSES:
                     entry_bps.append(bps)
                 elif purpose == "exit":
                     exit_bps.append(bps)

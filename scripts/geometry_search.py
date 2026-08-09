@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from random_entry_control import (  # noqa: E402
-    BAR_SEC, harvest_candles, wilson)
+    _OPEN_PURPOSES, BAR_SEC, harvest_candles, wilson)
 
 # Pre-registered grid (see docstring for the derivation - brackets the
 # measured MFE/MAE quartiles, horizons from the shadow ladder + deployed).
@@ -78,7 +78,7 @@ def load_entries(fills_path: Path) -> list:
     by_pid = defaultdict(list)
     with open(fills_path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            if r.get("position_id") and r.get("purpose") == "entry":
+            if r.get("position_id") and r.get("purpose") in _OPEN_PURPOSES:
                 by_pid[r["position_id"]].append(r)
     out = []
     for fills in by_pid.values():
