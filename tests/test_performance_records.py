@@ -43,7 +43,12 @@ def test_fill_ledger_appends_with_header(tmp_path):
     p = tmp_path / "fills.csv"
     ev = SimpleNamespace(fill_size=0.5, fill_price=100.1)
     append_fill(p, fill_row(_order(), ev, 0.02, 1000.0))
-    append_fill(p, fill_row(_order(), ev, 0.01, 1030.0))
+    # the second fill must be a DIFFERENT fill: two identical
+    # (order_id, size, price, remaining) rows are the restart-replay
+    # signature OM-085 now refuses (owed 62), and this test's subject is
+    # the header, not the guard - test_fill_ledger_provenance owns that.
+    ev2 = SimpleNamespace(fill_size=0.5, fill_price=100.2)
+    append_fill(p, fill_row(_order(), ev2, 0.01, 1030.0))
     lines = p.read_text(encoding="utf-8").strip().splitlines()
     assert lines[0] == ",".join(COLS)
     assert len(lines) == 3

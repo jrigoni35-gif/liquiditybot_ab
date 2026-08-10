@@ -1,0 +1,159 @@
+"""Execution-era provenance + the restart-replay guard (owed 62, OM-085).
+
+TWO DEFECTS THESE PIN, both CDO-review findings on the ledger the era-4
+verdict gate reads:
+
+  1. PROVENANCE. Four execution-era boundaries deep, era membership lived
+     only in a join between row timestamps and boundary constants scattered
+     across config prose - a silent-misattribution risk. exec_era now
+     travels WITH the row. Old files keep their own width (never a ragged
+     book of record) until scripts/migrate_fills_schema.py upgrades them
+     explicitly, with a backup, leaving old rows BLANK - back-filling a
+     guess would manufacture provenance the rows never had.
+
+  2. REPLAY. The ledger is fsync-durable per fill; order state is durable
+     per snapshot. A kill between them restores a pre-fill order that the
+     sim re-executes, appending the same fill twice - the duplicates that
+     correlated 1:1 with restarts and produced the 16x/27x headline error.
+     append_fill now refuses a row whose (order_id, size, price, remaining)
+     already exists; remaining decreases monotonically within an order, so
+     legitimate fills never collide.
+
+Doubles: the real ManagedOrder and FillEvent (test-double-fidelity - a
+double may only implement API the production object actually has).
+"""
+from __future__ import annotations
+
+import csv
+import subprocess
+import sys
+from pathlib import Path
+
+from core.fill_ledger import (COLS, EXEC_ERA, _seen_keys, append_fill,
+                              fill_row)
+from execution.order_manager import FillEvent, ManagedOrder
+
+ROOT = Path(__file__).resolve().parents[1]
+
+_OLD_COLS = COLS[:-1]          # the pre-exec_era 16-column schema
+
+
+def _order(oid="o1", remaining=0.0):
+    o = ManagedOrder(order_id=oid, txid=None, asset="ADA", pair="ADAUSD",
+                     symbol="ADA/USD", side="buy", price=0.5, size=10.0,
+                     purpose="entry", post_only=True)
+    o.arrival_ref = 0.5
+    o.filled = o.size - remaining
+    return o
+
+
+def _row(oid="o1", remaining=0.0, size=10.0, now=1000.0):
+    o = _order(oid, remaining)
+    ev = FillEvent(o, size, 0.5, final=remaining == 0.0)
+    return fill_row(o, ev, fees_delta=0.01, now=now)
+
+
+def _read(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        rd = csv.reader(f)
+        return next(rd), list(rd)
+
+
+def _fresh(path):
+    """The guard cache is per-process; tests simulate distinct processes by
+    clearing it, exactly what a restart does."""
+    _seen_keys.pop(str(path), None)
+
+
+# ------------------------------------------------------------- provenance
+def test_new_file_carries_exec_era():
+    assert COLS[-1] == "exec_era"          # append-at-END discipline
+    r = _row()
+    assert r["exec_era"] == EXEC_ERA
+    assert EXEC_ERA.startswith("4-"), (
+        "era constant must name the era AND its boundary commit")
+
+
+def test_append_to_new_file_writes_full_schema(tmp_path):
+    p = tmp_path / "fills.csv"
+    append_fill(p, _row())
+    hdr, rows = _read(p)
+    assert hdr == COLS
+    assert rows[0][hdr.index("exec_era")] == EXEC_ERA
+
+
+def test_old_header_file_never_gets_ragged_rows(tmp_path):
+    """An un-migrated 16-col file keeps its own width - a consumer must
+    never meet a row wider than the header in the book of record."""
+    p = tmp_path / "fills.csv"
+    with open(p, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(_OLD_COLS)
+    _fresh(p)
+    append_fill(p, _row())
+    hdr, rows = _read(p)
+    assert hdr == _OLD_COLS
+    assert all(len(r) == len(_OLD_COLS) for r in rows)
+
+
+def test_migration_upgrades_backs_up_and_is_idempotent(tmp_path):
+    p = tmp_path / "fills.csv"
+    with open(p, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(_OLD_COLS)
+        w.writerow(["1000.0", "old1", "pid1", "entry", "ADA/USD", "buy",
+                    "limit", "1", "0", "10", "0.5", "0.5", "0", "0.01",
+                    "0", ""])
+    r = subprocess.run([sys.executable,
+                        str(ROOT / "scripts" / "migrate_fills_schema.py"),
+                        "--fills", str(p)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    hdr, rows = _read(p)
+    assert hdr == COLS
+    # old rows are BLANK, not back-filled with a guess
+    assert rows[0][hdr.index("exec_era")] == ""
+    assert list(tmp_path.glob("*.preschema_*")), "no backup written"
+    before = p.read_bytes()
+    r2 = subprocess.run([sys.executable,
+                         str(ROOT / "scripts" / "migrate_fills_schema.py"),
+                         "--fills", str(p)],
+                        capture_output=True, text=True, timeout=60)
+    assert r2.returncode == 0 and "untouched" in r2.stdout
+    assert p.read_bytes() == before
+
+
+# ------------------------------------------------------------ replay guard
+def test_identical_row_is_refused_same_process(tmp_path):
+    p = tmp_path / "fills.csv"
+    append_fill(p, _row(oid="a", remaining=0.0))
+    append_fill(p, _row(oid="a", remaining=0.0))       # replay
+    _hdr, rows = _read(p)
+    assert len(rows) == 1, "the replay row reached the book of record"
+
+
+def test_identical_row_is_refused_across_restart(tmp_path):
+    """The real signature: the duplicate arrives from a NEW process whose
+    in-memory cache is empty - the guard must reload from disk."""
+    p = tmp_path / "fills.csv"
+    append_fill(p, _row(oid="a", remaining=0.0))
+    _fresh(p)                                          # "restart"
+    append_fill(p, _row(oid="a", remaining=0.0))
+    _hdr, rows = _read(p)
+    assert len(rows) == 1
+
+
+def test_legitimate_partial_sequence_is_not_collateral(tmp_path):
+    """Two partials of one order share size and price but never
+    `remaining` - the key must let them both through."""
+    p = tmp_path / "fills.csv"
+    append_fill(p, _row(oid="a", remaining=7.0, size=3.0))
+    append_fill(p, _row(oid="a", remaining=4.0, size=3.0))
+    append_fill(p, _row(oid="b", remaining=0.0, size=10.0))
+    _hdr, rows = _read(p)
+    assert len(rows) == 3
+
+
+def test_om085_is_a_registered_code():
+    from core.codes import Code
+    assert Code.OM_LEDGER_DUP_REFUSED == "OM-085"

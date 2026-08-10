@@ -113,6 +113,12 @@ class Code(str, Enum):
     OM_FILL_APPLY_FAILED = "OM-070"  # _handle_fill raised on one poll event; the
                                      # rest of the batch is still applied and
                                      # snapshotted (no book/venue desync, no lost fill)
+    OM_LEDGER_DUP_REFUSED = "OM-085" # fill_ledger refused a row identical to
+                                     # one already recorded - restart-replay
+                                     # signature (snapshot restored a pre-fill
+                                     # order, sim earned the fill again). The
+                                     # ledger keeps the FIRST copy; the trade
+                                     # itself is unaffected. Owed 62.
     OM_CANCEL_UNCONFIRMED = "OM-090" # a venue CancelOrder returned no
                                      # confirmation (rate limit / 5xx /
                                      # venue error - _private_post returns
