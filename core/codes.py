@@ -230,6 +230,10 @@ class Code(str, Enum):
     RP_WARMUP = "RP-060"             # component neutral: insufficient observations
     RP_WEEK_CLOSED = "RP-070"        # weekly ledger: week closed, pools rolled
     RP_MONTH_CLOSED = "RP-071"       # monthly ledger: month closed, goal graded
+    RP_GOAL_ESCALATED = "RP-072"     # goal ladder ratcheted: a month closed at
+                                     # >=100% attainment, next month's effective
+                                     # goal = base x mult (x1.5 per met month,
+                                     # never down; stressor regime 2026-08-11)
 
     # ---- quoter / fair value ------------------------------------------
     QT_FEE_FLOOR = "QT-010"          # half-spread raised to structural floor

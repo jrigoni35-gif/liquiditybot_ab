@@ -42,7 +42,17 @@ from core.persistence import StateStore  # noqa: E402
 
 _MONEY_ZERO = ("savings_balance", "reserve_balance", "weekly_realized_pnl",
                "realized_pnl_total", "daily_realized_pnl",
-               "fees_paid_total")
+               "fees_paid_total",
+               # 2026-08-11 completeness audit (the $800 stressor reset).
+               # monthly_realized_pnl predates this script and was never
+               # in the list - the monthly counter survived every prior
+               # reset. entry_fees_total was born 2026-08-09 (a6334162);
+               # left unzeroed it would carry the OLD regime's opening-leg
+               # fees into a fresh base and break the equity identity
+               # (net_pnl_all_time = equity - starting_capital) on day one,
+               # and core/persistence's backfill only fires when the key is
+               # ABSENT, so a stale persisted value would win.
+               "monthly_realized_pnl", "entry_fees_total")
 _HEARTBEAT_STALE_SEC = 12.0     # a status.json older than this => runner is gone
 
 
@@ -56,8 +66,20 @@ def reset_portfolio(snapshot: dict, capital: float) -> dict:
     pf["equity_high_water"] = float(capital)  # drawdown now measured from here
     for k in _MONEY_ZERO:
         pf[k] = 0.0
+    # RP-072 goal ladder: a fresh capital regime starts at the BASE goal.
+    # 1.0, not 0.0 - it is a multiplier, and zeroing it would disable
+    # monthly grading entirely (goal 0 = "untracked").
+    pf["goal_ladder_mult"] = 1.0
     # positions (pf["positions"]) intentionally left as-is
     data["portfolio"] = pf
+    # PERFORMANCE WINDOW SWEEP (2026-08-11 full-sweep audit): the rolling
+    # perf ledger is DOLLAR-denominated (expectancy_usd, net_usd, avg win/
+    # loss). Carrying a $5000-regime window into an $800 regime blends
+    # populations whose dollar scale differs 6.25x - the pooled-populations
+    # defect, live on every board tile. Money figures, so the full sweep
+    # takes them; the corpus and fills ledger are files, untouched.
+    if "performance" in data:
+        data["performance"] = {"trades": []}
     return data
 
 

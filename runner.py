@@ -1086,11 +1086,17 @@ class BotRunner:
         for the status surface / Grafana (measurement only). 0 goal ->
         untracked (goal_progress handles it)."""
         cm = bot.config.get("capital_management", {})
+        # month tracks the EFFECTIVE goal (base x RP-072 ladder), and the
+        # mult is exported so a board can show how many rungs have been
+        # climbed rather than a target that silently moved
+        mult = float(getattr(bot.state, "goal_ladder_mult", 1.0))
         return {
             "week": goal_progress("week", bot.state.weekly_realized_pnl,
                                   cm.get("weekly_profit_goal_usd", 0) or 0),
             "month": goal_progress("month", bot.state.monthly_realized_pnl,
-                                   cm.get("monthly_profit_goal_usd", 0) or 0),
+                                   (cm.get("monthly_profit_goal_usd", 0) or 0)
+                                   * mult),
+            "ladder_mult": round(mult, 4),
         }
 
     def _note_cycle_duration(self, elapsed: float) -> None:

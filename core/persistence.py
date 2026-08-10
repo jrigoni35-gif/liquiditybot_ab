@@ -460,6 +460,11 @@ class StateStore:
                     # entry_fees_total). Persisted so the honest all-time
                     # figures survive a restart.
                     "entry_fees_total": state.entry_fees_total,
+                    # goal-ladder multiplier (RP-072 stressor regime): the
+                    # effective monthly goal survives restarts or the ladder
+                    # silently un-ratchets every reboot
+                    "goal_ladder_mult": getattr(state, "goal_ladder_mult",
+                                                1.0),
                     "last_pnl_reset_date": state._last_pnl_reset_date,
                     # peak MTM equity — persist so the drawdown backstop's
                     # high-water survives a restart (else it re-seats lower and
@@ -847,6 +852,11 @@ class StateStore:
                     "%.2f from the cash identity (opening-leg fees that "
                     "hit cash but no P&L line; all-time P&L was "
                     "understating by this amount)", state.entry_fees_total)
+            # goal ladder: absent on a pre-RP-072 snapshot => 1.0 (base goal).
+            # Unlike entry_fees_total there is nothing to backfill - the
+            # ladder had never escalated before it existed.
+            state.goal_ladder_mult = max(float(p.get("goal_ladder_mult",
+                                                     1.0) or 1.0), 1.0)
             for pd in p.get("positions", []):
                 state.add_position(position_from_dict(pd))
         except (KeyError, TypeError, ValueError):

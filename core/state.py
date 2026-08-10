@@ -108,6 +108,12 @@ class PortfolioState:
     # BOOKKEEPING ONLY - no decision path reads it; it exists so
     # net_pnl_all_time / realized_net_all_in can be reported honestly.
     entry_fees_total: float = 0.0
+    # Goal-ladder multiplier (2026-08-11 stressor regime, operator-adjudicated):
+    # the effective MONTHLY profit goal is config's monthly_profit_goal_usd x
+    # this. Ratchets x1.5 on each month that CLOSES at >=100% attainment
+    # (RP-072), never de-escalates, resets to 1.0 only with a capital reset.
+    # Grading/telemetry only - no trading decision reads it.
+    goal_ladder_mult: float = 1.0
     _positions: dict = field(default_factory=dict)
     _last_pnl_reset_date: str = field(default="", init=False)
     _last_week_key: str = field(default="", init=False)

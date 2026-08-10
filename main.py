@@ -2171,6 +2171,32 @@ class LiquidityBot:
                     f"month {_mo['month']} closed: net "
                     f"{_mo['monthly_realized']:+.2f}, goal {_mo['category']}",
                     dict(_mo))
+                # RP-072 ratchet: a month closing at >=100% of its EFFECTIVE
+                # goal raises the next month's bar x1.5. Never down - the
+                # stress never relaxes (operator directive 2026-08-11:
+                # "scale the profits to the most it can stress every
+                # month"). Fires AFTER grading so the closed month is judged
+                # by the bar it was run under.
+                # consume the grader's OWN verdict (_GOAL_COLS carries
+                # "hit") rather than re-deriving `realized >= goal` here -
+                # two sites deriving one predicate drift silently the day
+                # evaluate_goal's hit semantics grow a tolerance or a
+                # net-of-refill adjustment (challenge ordering audit,
+                # 2026-08-11)
+                _eff = float(_mo.get("goal", 0.0) or 0.0)
+                if _eff > 0 and bool(_mo.get("hit")):
+                    _old = float(getattr(self.state, "goal_ladder_mult", 1.0))
+                    self.state.goal_ladder_mult = _old * 1.5
+                    get_audit().log(
+                        "engine", Code.RP_GOAL_ESCALATED,
+                        f"month {_mo['month']} met its {_eff:.2f} goal: "
+                        f"ladder {_old:.4f} -> "
+                        f"{self.state.goal_ladder_mult:.4f} (next effective "
+                        f"goal {_eff * 1.5:.2f})",
+                        {"month": _mo["month"], "old_mult": round(_old, 4),
+                         "new_mult": round(self.state.goal_ladder_mult, 4),
+                         "realized": round(float(_mo["monthly_realized"]), 2),
+                         "effective_goal": round(_eff, 2)})
                 _append_period_ledger(
                     Path(self.config.get("system", {}).get(
                         "monthly_ledger_path", "outputs/monthly_ledger.csv")),
@@ -5739,6 +5765,13 @@ class LiquidityBot:
         so a stub bot without a monitor still grades cleanly."""
         goal = float(self.config.get("capital_management", {})
                      .get(goal_key, 0.0) or 0.0)
+        # RP-072 goal ladder (stressor regime, operator-adjudicated
+        # 2026-08-11): the MONTH is graded against base x ladder. The week
+        # stays at base - escalation is monthly by directive. Grading uses
+        # the mult the month was RUN under; the ratchet (in _close_periods)
+        # fires AFTER grading, for the next month.
+        if period == "month":
+            goal *= float(getattr(self.state, "goal_ladder_mult", 1.0))
         ctx = {"reserve_refill": reserve_refill,
                "model_active": getattr(self.monitor, "use_model", None),
                "entries_enabled": getattr(self, "entries_enabled", None)}
