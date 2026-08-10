@@ -249,8 +249,19 @@ def era4_section(trips):
     if n:
         g = sorted(t["gross_pct"] for t in trips)
         nt = sorted(t["net_pct"] for t in trips)
+        mean_g = sum(g) / n
+        # SE of the mean, printed WITH the mean (challenge hardening #2,
+        # added at n=2, pre-data). At n=50 with per-trade sd ~0.5% the SE is
+        # ~0.07%, so only |edges| beyond ~0.14% are resolvable - an order of
+        # magnitude above every gross edge this strategy has exhibited. The
+        # readout rule is unchanged: it is a pre-committed decision TRIGGER,
+        # not a significance claim, and the interval exists so nobody reads
+        # a triggered readout as a measured effect size.
+        var_g = sum((v - mean_g) ** 2 for v in g) / n
+        se_g = math.sqrt(var_g / n) if n > 1 else float("nan")
         res.update({
-            "gross_mean_pct": sum(g) / n, "gross_median_pct": g[n // 2],
+            "gross_mean_pct": mean_g, "gross_median_pct": g[n // 2],
+            "gross_se_pct": se_g,
             "net_mean_pct": sum(nt) / n, "net_median_pct": nt[n // 2],
             "gross_win_rate": sum(1 for v in g if v > 0) / n,
             "net_win_rate": sum(1 for v in nt if v > 0) / n,
@@ -356,9 +367,12 @@ def main() -> int:
     print("\n  accrual: %s entry-opened closes toward the verdict gate"
           % e4["progress"])
     if e4["n"]:
-        print("  gross  mean %+.4f%%  median %+.4f%%  win %.1f%%"
-              % (e4["gross_mean_pct"], e4["gross_median_pct"],
-                 e4["gross_win_rate"] * 100))
+        print("  gross  mean %+.4f%%  (SE %.4f%%)  median %+.4f%%  win %.1f%%"
+              % (e4["gross_mean_pct"], e4.get("gross_se_pct", float("nan")),
+                 e4["gross_median_pct"], e4["gross_win_rate"] * 100))
+        print("  resolution note: the gate is a pre-committed TRIGGER, not a")
+        print("  measurement - a readout does not claim the effect size is")
+        print("  resolved beyond ~2x the SE above.")
         print("  net    mean %+.4f%%  median %+.4f%%  win %.1f%%"
               % (e4["net_mean_pct"], e4["net_median_pct"],
                  e4["net_win_rate"] * 100))

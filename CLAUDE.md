@@ -76,6 +76,27 @@ INVARIANT below, stop and say so instead of complying.
   legitimate change moves numbers, re-baseline consciously at 200×1200 —
   never widen a gate to silence CI.
 
+## Era-4 accrual moratorium (2026-08-10 -> gate readout)
+
+The strategy verdict accrues on the era-4 honest-fill cohort
+(`scripts/cohort_eval.py`, pre-registered n=50; boundary #4 = aeeaae36,
+2026-08-10T11:03:35Z). Until the gate reads out:
+
+- **COHORT-RESETTING — forbidden without operator adjudication** (any of
+  these mints execution-era boundary #5 and restarts accrual): changes to
+  entry decisioning, position sizing, the fill simulator, fee booking, or
+  the order lifecycle.
+- **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
+  export, and bug fixes that do not alter which orders are placed or how
+  they fill.
+- Do not read the accruing gate numbers as a trend; do not retune on
+  them. The registration is the law; the readout (NO_GROSS_EDGE /
+  COST_BOUND / CONTINUE) names which decision has become decidable — it
+  never decides.
+- Model-side investment is FROZEN per the 2026-08-10 operator
+  adjudication (no new families, features, or meta-labeling); the
+  retrain loop itself continues by design.
+
 ## Definition of done (every change, every session)
 
 Run ALL of it; a change is not done while anything is red:
