@@ -43,6 +43,7 @@ SCRIPTS = ROOT / "scripts"
 # rename cannot silently empty the whole pin.
 FILLS_READERS = (
     "breakeven_test.py",
+    "cohort_eval.py",           # era-4 gate reconstruction (2026-08-10)
     "cost_attribution.py",
     "cost_truth_report.py",
     "geometry_search.py",
