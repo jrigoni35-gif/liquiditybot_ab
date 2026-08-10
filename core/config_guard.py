@@ -475,7 +475,8 @@ def validate(config: dict) -> list:
              "_sim_maker_cross both model the same market crossing - a "
              "per-order fill rate of 2f-f^2 against a calibration target of "
              "f (22.0% vs 11.66%, ~1.88x at the touch). Legitimate ONLY for "
-             "reproducing a pre-2026-08-09 cohort. It is not a tuning knob: "
+             "reproducing a pre-boundary-#4 cohort (commit aeeaae36, "
+             "2026-08-10T11:03:35Z). It is not a tuning knob: "
              "every paper fill statistic produced under it carries a ~2x "
              "upward bias near the touch.")
 
