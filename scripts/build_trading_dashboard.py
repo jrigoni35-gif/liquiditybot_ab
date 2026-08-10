@@ -807,7 +807,13 @@ def _author_command():
     stat("Expectancy · probe",
          'liquiditybot_perf_conviction_expectancy_usd'
          '{kind="probe",job="liquiditybot"}', 5, 5, unit=USD,
-         decimals=4, steps=PNL,
+         # BLUE, not PNL (design-token audit 2026-08-10): a probe's
+         # expectancy is EXPECTED slightly negative - it buys information.
+         # PNL steps would paint this tile red in normal operation, and a
+         # tile that is red when nothing is wrong trains alarm fatigue.
+         # Neutral-info semantics; the money verdict lives in the
+         # conviction tile beside it.
+         decimals=4, steps=BLUE,
          desc="Average $ per exploratory probe close. Expected to be "
               "small and slightly negative — probes buy information, not "
               "P&L. Judge it against the information, not against zero.")
