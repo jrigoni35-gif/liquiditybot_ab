@@ -222,7 +222,14 @@ def test_c1_first_lost_heartbeat_latches_new_risk_off(tmp_path, monkeypatch):
     r.run()
     assert runner_mod.LOCK_LOST_FAULT in fm.status()["faults"]
     assert fm.status()["state"] == OpState.HALTED.value
-    assert seen.get("allow_new_risk") is False, \
+    # TWO legal schedules, both sealing new risk (the subject): on a quiet
+    # machine the first cycle runs and observes allow_new_risk False; under
+    # CPU contention the heartbeat thread latches BEFORE the first loop
+    # iteration and the halted runner never cycles at all - a cycle that
+    # never runs places no orders. Only observing True refutes the
+    # invariant. The old `is False` assert encoded the quiet-machine
+    # schedule and flaked under the battery's -n 8 load (2026-08-10).
+    assert seen.get("allow_new_risk") is not True, \
         "a contended lock must refuse NEW risk on the FIRST lost heartbeat"
     assert FaultManager.allow_exits() is True, "exits are never gated"
 
