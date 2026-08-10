@@ -49,6 +49,12 @@ def test_registration_constants_are_pinned():
                                 tzinfo=timezone.utc).timestamp()
     assert CE.ERA4_MIN_N == 50
     assert CE._PREREG_ERA4 == "2026-08-10"
+    # capital epoch: the $800 stressor reset instant (book flat, entries
+    # OFF across it - zero in-flight ambiguity), amended at accrual n=3
+    from datetime import datetime as _dt, timezone as _tz
+    assert CE.CAPITAL_EPOCH_TS == _dt(2026, 8, 10, 23, 5, 27,
+                                      tzinfo=_tz.utc).timestamp()
+    assert CE._PREREG_CAPITAL == "2026-08-10T23:05:27Z"
     # the original 2026-08-02 registration must be untouched by the addition
     assert CE.MIGRATION_TS == 1785634028
     assert CE.MIN_COHORT_N == 50
@@ -84,11 +90,16 @@ def test_population_rules(tmp_path):
     """Entry-opened + fully-closed + post-boundary ONLY. A hedge-opened trip
     is reconstructable (hedge IS an opening leg) but is not the strategy's
     trade; a pre-boundary close belongs to the inflated-fill eras."""
-    b4 = CE.B4_TS
+    # anchor on the LATER boundary: since the 2026-08-10T23:05:27Z capital
+    # epoch the population cut is max(B4_TS, CAPITAL_EPOCH_TS)
+    b4 = max(CE.B4_TS, CE.CAPITAL_EPOCH_TS)
     rows = []
     rows += _trip("in-era4", "entry", b4 + 1000, 100.0, 110.0)     # counted
     rows += _trip("hedge4", "hedge", b4 + 2000, 100.0, 95.0)       # excluded
     rows += _trip("pre-b4", "entry", b4 - 5000, 100.0, 120.0)      # excluded
+    # a $5000-regime trade: post-#4 execution but PRE-capital-epoch -
+    # honest fills, wrong capital regime, excluded from the verdict
+    rows += _trip("old-cap", "entry", CE.B4_TS + 1000, 100.0, 130.0)
     # still-open: opening leg only
     rows.append({"ts": b4 + 3000, "order_id": "x", "position_id": "open",
                  "purpose": "entry", "symbol": "ADA/USD", "side": "buy",
@@ -106,7 +117,7 @@ def test_population_rules(tmp_path):
 
 def test_duplicate_fill_patterns_are_dropped(tmp_path):
     """position_id is not the identity - the 16x re-log class."""
-    b4 = CE.B4_TS
+    b4 = max(CE.B4_TS, CE.CAPITAL_EPOCH_TS)
     rows = _trip("a", "entry", b4 + 1000, 100.0, 110.0) \
         + _trip("b", "entry", b4 + 1000, 100.0, 110.0)   # identical pattern
     p = tmp_path / "fills.csv"

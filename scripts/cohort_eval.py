@@ -111,8 +111,20 @@ _PREREG = "2026-08-02"
 #   net > 0                                -> "CONTINUE".
 B4_TS = datetime(2026, 8, 10, 11, 3, 35,
                  tzinfo=timezone.utc).timestamp()   # aeeaae36, UTC instant
+# CAPITAL EPOCH AMENDMENT (2026-08-10T23:05:27Z, operator-adjudicated
+# stressor): the paper account reset 5000 -> 800 with the $100/month RP-072
+# ladder. The verdict population starts at the RESET instant, not merely at
+# boundary #4 - the 3 closes accrued between them were $5000-regime trades
+# whose sizing floors ($15 min ticket = 0.3% of equity then, 1.9% now)
+# differ enough to shift the gross%% distribution. Amended at accrual n=3,
+# BEFORE any new-regime data existed: the book was flat and entries were
+# OFF across the instant, so the boundary has zero in-flight ambiguity.
+# The registration's rules (n=50, three readouts) are UNCHANGED.
+CAPITAL_EPOCH_TS = datetime(2026, 8, 10, 23, 5, 27,
+                            tzinfo=timezone.utc).timestamp()
 ERA4_MIN_N = 50                # entry-opened closes before ANY verdict
 _PREREG_ERA4 = "2026-08-10"
+_PREREG_CAPITAL = "2026-08-10T23:05:27Z"
 
 
 def wilson(k: int, n: int, z: float = 1.96):
@@ -231,7 +243,9 @@ def era4_trips(fills_path):
         seen.add(key)
         if opened_by != "entry":        # hedges are insurance, not the thesis
             continue
-        if tclose < B4_TS:
+        # the verdict population: honest fills (post-#4) AND one capital
+        # regime (post-reset) - the epoch cut is the later of the two
+        if tclose < max(B4_TS, CAPITAL_EPOCH_TS):
             continue
         out.append({"t": tclose, "gross_pct": 100.0 * cash / enot,
                     "net_pct": 100.0 * (cash - fees) / enot})
