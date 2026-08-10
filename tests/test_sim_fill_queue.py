@@ -23,6 +23,14 @@ from execution.order_manager import ManagedOrder, OrderManager
 
 
 def _om(**sf):
+    # MP-7's queue gate guards the PASSIVE HAZARD and nothing else - queue_ok
+    # is consumed only by that branch. Since owed 57 / execution-era boundary
+    # #4 the hazard does not fire while a book is present, so these tests opt
+    # into the legacy simulator explicitly: their SUBJECT is the gate, and the
+    # gate needs the path it gates to exist. See
+    # test_queue_gate_is_inert_on_the_default_path below, which pins the
+    # consequence so it stays visible rather than implied.
+    sf.setdefault("passive_hazard_with_book", True)
     cfg = {"taker_fee_bps": 40.0, "maker_fee_bps": 25.0,
            "order_timeout_sec": 1e9, "sim_fill": sf}
     return OrderManager(feed=None, config=cfg, dry_run=True, seed=1)
@@ -168,3 +176,39 @@ def test_guard_rejects_incoherent_sim_fill():
         {"order_manager": {"sim_fill": {"queue_tol_frac": -1.0}}}))
     assert not any("sim_fill" in m for m in fatals(
         {"order_manager": {"sim_fill": {}}}))       # defaults coherent
+
+
+# ------------------------------------------- owed 57 / era boundary #4
+def test_queue_gate_is_inert_on_the_default_path():
+    """THE CONSEQUENCE OF THE DOUBLE-COUNT FIX, pinned so it stays visible.
+
+    `queue_ok` is consumed ONLY by the passive-hazard branch. Since the
+    hazard no longer fires while a book is present, MP-7 queue gating has no
+    effect on the shipped configuration: `_sim_maker_cross` fills the FULL
+    remaining with no depth constraint, exactly as it always did.
+
+    This is NOT an endorsement. It is a dead control, of the same family this
+    codebase keeps finding, and it is registered as owed 61 - the surviving
+    maker-cross path arguably SHOULD carry the queue constraint (a trade-
+    through fills the queue in order, so we fill only after the depth ahead
+    of us clears). That is a second, uncalibrated change to the fill model
+    and was deliberately not compounded into the same commit.
+
+    The test exists so nobody reads `queue_aware: true` in config.json and
+    believes it is protecting them.
+    """
+    cfg = {"order_timeout_sec": 1e9,
+           "sim_fill": {"queue_aware": True, "passive_base_prob": 1.0,
+                        "queue_tol_frac": 1.0, "queue_drain_frac": 0.0}}
+    om = OrderManager(feed=None, config=cfg, dry_run=True, seed=1)
+    assert om.sf_queue_aware is True          # gate is ON in config...
+    assert om.sf_hazard_with_book is False    # ...but its only consumer is off
+
+    # an enormous wall ahead of us must NOT prevent a crossed-book fill,
+    # because the maker-cross path never consults the queue at all
+    o = _buy(price=100.0, size=1.0)
+    crossed = {"bids": [[100.0, 1e9]], "asks": [[99.99, 1.0]]}
+    om._poll_dry(o, crossed, 0.05, 0.0)
+    assert o.filled == pytest.approx(1.0), (
+        "maker-cross ignored the queue - if this ever fails, the gate was "
+        "wired onto the cross path and owed 61 is closed; update this test")

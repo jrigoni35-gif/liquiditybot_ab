@@ -60,8 +60,13 @@ def test_sim_passive_books_maker_zero_slip():
     om, o = _om(), _order(post_only=True)
     om._rng = _Rng()
     om._orders[o.order_id] = o
-    # non-crossing book (asks above the buy limit) -> passive path fills
-    om._poll_dry(o, {"bids": [[1990.0, 5.0]], "asks": [[2010.0, 5.0]]},
+    # CROSSED book: the market traded through our resting buy, so we fill AT
+    # OUR OWN price as maker. Vehicle changed 2026-08-09 (owed 57 / era
+    # boundary #4) from a non-crossing book driving the passive hazard - that
+    # hazard double-counted this same crossing and no longer fires when a
+    # book is present. The SUBJECT here is unchanged and is fee/slip
+    # BOOKING, which _note_exec performs identically on both paths.
+    om._poll_dry(o, {"bids": [[1990.0, 5.0]], "asks": [[1999.0, 5.0]]},
                  sigma_bar_pct=0.5, now=o.created_ts + 1.0)
     assert om.maker_fills == 1 and om.taker_fills == 0
     assert om.maker_notional_usd == pytest.approx(1.0 * 2000.0)
@@ -82,7 +87,8 @@ def test_status_mixed_share_and_no_fill_none():
     o2 = _order(post_only=True)
     om._rng = _Rng()
     om._orders[o2.order_id] = o2
-    om._poll_dry(o2, {"bids": [[1990.0, 5.0]], "asks": [[2010.0, 5.0]]},
+    # crossed book -> maker-cross (see the note in the maker/zero-slip test)
+    om._poll_dry(o2, {"bids": [[1990.0, 5.0]], "asks": [[1999.0, 5.0]]},
                  sigma_bar_pct=0.5, now=o2.created_ts + 1.0)
     s = om.status()
     assert s["maker_fills"] == 1 and s["taker_fills"] == 1
@@ -177,7 +183,9 @@ def test_arrival_ref_passive_maker_shows_capture_not_zero():
     o.arrival_ref = 2000.0
     om._rng = _Rng()
     om._orders[o.order_id] = o
-    om._poll_dry(o, {"bids": [[1990.0, 5.0]], "asks": [[2010.0, 5.0]]},
+    # ask 1989 crosses our 1990 resting buy: the market traded THROUGH us and
+    # we fill at 1990 as maker (see the note in the maker/zero-slip test).
+    om._poll_dry(o, {"bids": [[1980.0, 5.0]], "asks": [[1989.0, 5.0]]},
                  sigma_bar_pct=0.5, now=o.created_ts + 1.0)
     # (1990-2000)/2000 = -50 bps -> favourable maker capture vs mid
     assert om.status()["avg_slip_bps"] == pytest.approx(-50.0, abs=0.02)

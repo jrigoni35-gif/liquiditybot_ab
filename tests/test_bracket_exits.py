@@ -1024,7 +1024,17 @@ def _force_confirmed_signals(bot: LiquidityBot) -> None:
         size=0.0, all_confirmed=True, gates_passed={})
 
 
-def _drive(bot, n=30, seed=7):
+def _drive(bot, n=30, seed=7, drift=0.0006):
+    """Drive n fast cycles over a random walk.
+
+    `drift` is the per-cycle log-drift. It became load-bearing on 2026-08-09
+    (owed 57 / execution-era boundary #4): a resting post-only BUY now fills
+    only when the market actually trades DOWN through it, because the passive
+    hazard that used to grant fills on an uncrossed book was double-counting
+    that same crossing. Under the default upward drift a resting bid may
+    never be reached, so a test that needs a fill must bring the market to
+    the order rather than rely on the walk happening to dip.
+    """
     t = 1_700_000_000.0
     bot.hourly_cycle(t)
     for a in ("ETH", "BTC"):
@@ -1036,7 +1046,7 @@ def _drive(bot, n=30, seed=7):
     prices = bot.okx.prices
     for cycle in range(n):
         for a in prices:
-            prices[a] *= float(np.exp(rng.normal(0.0006, 0.0035)))
+            prices[a] *= float(np.exp(rng.normal(drift, 0.0035)))
         bot.fast_cycle(t)
         if cycle % 3 == 0:
             bot.slow_cycle(t)
@@ -1050,7 +1060,13 @@ def test_full_engine_conviction_entry_stamps_bracket_fields(tmp_path,
     prices = {"ETH": 2000.0, "BTC": 60000.0}
     bot = _entry_bot(_entry_cfg(bracket_enabled=True), prices)
     _force_confirmed_signals(bot)
-    _drive(bot, n=30)
+    # owed 57 / era boundary #4: a resting post-only bid now fills only
+    # when the market actually trades through it, so this walk is
+    # driftless and longer - the market gets enough chances to come to
+    # the order, and the fill stops sitting on a knife edge. A negative
+    # drift also fills it but walks price far enough that FW-050's
+    # 100bps collar rejects the entry instead.
+    _drive(bot, n=90, drift=0.0)
     open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
     assert open_5m, "the forced confirmed signal never produced a fill"
     assert any(p.bracket_pt_frac > 0.0 and p.bracket_sl_frac > 0.0
@@ -1067,7 +1083,12 @@ def test_full_engine_bracket_disabled_stamps_nothing(tmp_path, monkeypatch):
     prices = {"ETH": 2000.0, "BTC": 60000.0}
     bot = _entry_bot(_entry_cfg(bracket_enabled=False), prices)
     _force_confirmed_signals(bot)
-    _drive(bot, n=30)
+    # owed 57 / era boundary #4: a resting post-only bid now fills only
+    # when the market actually trades through it, so this walk is
+    # driftless and longer - the market gets enough chances to come to
+    # the order. A negative drift also fills it but walks the price far
+    # enough that FW-050's 100bps collar rejects the entry instead.
+    _drive(bot, n=90, drift=0.0)
     open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
     assert open_5m, "the forced confirmed signal never produced a fill"
     assert all(p.bracket_pt_frac == 0.0 and p.bracket_sl_frac == 0.0
@@ -1103,7 +1124,12 @@ def test_full_engine_bracket_keyless_config_stamps_nothing(tmp_path,
     del cfg["bracket_exits"]
     bot = _entry_bot(cfg, prices)
     _force_confirmed_signals(bot)
-    _drive(bot, n=30)
+    # owed 57 / era boundary #4: a resting post-only bid now fills only
+    # when the market actually trades through it, so this walk is
+    # driftless and longer - the market gets enough chances to come to
+    # the order. A negative drift also fills it but walks the price far
+    # enough that FW-050's 100bps collar rejects the entry instead.
+    _drive(bot, n=90, drift=0.0)
     open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
     assert open_5m, "the forced confirmed signal never produced a fill"
     assert all(p.bracket_pt_frac == 0.0 and p.bracket_sl_frac == 0.0
@@ -1121,7 +1147,13 @@ def test_full_engine_probe_entry_also_stamps_bracket(tmp_path, monkeypatch):
                      prices)
     _force_confirmed_signals(bot)
     bot._probe_admission_decision = lambda now, asset, regime_label=None: True
-    _drive(bot, n=30)
+    # owed 57 / era boundary #4: a resting post-only bid now fills only
+    # when the market actually trades through it, so this walk is
+    # driftless and longer - the market gets enough chances to come to
+    # the order, and the fill stops sitting on a knife edge. A negative
+    # drift also fills it but walks price far enough that FW-050's
+    # 100bps collar rejects the entry instead.
+    _drive(bot, n=90, drift=0.0)
     open_5m = [p for p in bot.state.open_positions() if p.book == "5m"]
     assert open_5m, "the forced probe signal never produced a fill"
     assert any(p.is_probe for p in open_5m), \

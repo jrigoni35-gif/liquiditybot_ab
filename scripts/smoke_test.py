@@ -558,9 +558,17 @@ def test_entry_fill_exit_path():
     # order behind realistic mock depth; that realism lives in test_sim_fill_queue.
     # base prob pinned too - the shipped value is the MEASURED market rate
     # (0.048 since XV-021, 2026-08-02) and "deterministic" must not depend on it.
+    # AND the hazard must be allowed to fire at all: since owed 57 /
+    # execution-era boundary #4 (2026-08-09) it is off whenever a book is
+    # present, because it double-counted the same crossing _sim_maker_cross
+    # already models. Without this the mock book never crosses the resting
+    # entry and the forced signal produces an order that never fills - the
+    # fixture would be testing nothing. Realism stays in
+    # tests/test_fill_double_count and tests/test_sim_fill_queue.
     _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
     _sf["queue_aware"] = False
     _sf["passive_base_prob"] = 1.0
+    _sf["passive_hazard_with_book"] = True
     # this scenario tests tier PLUMBING (reduce + book PnL) against the
     # legacy fixed-% path; rev-3 vol-scaled calculus is covered by
     # tests/test_rev3.py
@@ -803,9 +811,15 @@ def test_persistence_roundtrip():
     # realism is exercised in tests/test_sim_fill_queue, not here.
     # base prob pinned too - the shipped value is the MEASURED market rate
     # (0.048 since XV-021, 2026-08-02) and "deterministic" must not depend on it.
+    # AND the hazard must be allowed to fire at all: since owed 57 /
+    # execution-era boundary #4 (2026-08-09) it is off whenever a book is
+    # present. Without this there is no fill, hence no position, and
+    # open_positions()[0] below raises IndexError rather than failing an
+    # assertion. Realism stays in tests/test_fill_double_count.
     _sf = cfg.setdefault("order_manager", {}).setdefault("sim_fill", {})
     _sf["queue_aware"] = False
     _sf["passive_base_prob"] = 1.0
+    _sf["passive_hazard_with_book"] = True
     # geometry-alignment T5: this scenario's subject is snapshot/restore
     # plumbing, not exit geometry - disabled so the "tiers must fire"
     # assertion below exercises the legacy tier ladder it was written

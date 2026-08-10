@@ -464,6 +464,21 @@ def validate(config: dict) -> list:
     # WARN there should mean a real operational concern, not a cosmetic note.
     advisory = lambda m: findings.append(("ADVISORY", m))  # noqa: E731
 
+    # --- owed 57 / execution-era boundary #4: the fill-sim double-count.
+    # Not FATAL: true is a LEGITIMATE reproduction mode for a pre-#4 cohort,
+    # and a FATAL would make the old simulator unreachable. But it must never
+    # be true by accident or to recover entry volume, so it is loud.
+    if bool(_f(config, "order_manager.sim_fill.passive_hazard_with_book",
+               False)):
+        warn("order_manager.sim_fill.passive_hazard_with_book=true restores "
+             "the PRE-BOUNDARY-#4 simulator, in which the passive hazard and "
+             "_sim_maker_cross both model the same market crossing - a "
+             "per-order fill rate of 2f-f^2 against a calibration target of "
+             "f (22.0% vs 11.66%, ~1.88x at the touch). Legitimate ONLY for "
+             "reproducing a pre-2026-08-09 cohort. It is not a tuning knob: "
+             "every paper fill statistic produced under it carries a ~2x "
+             "upward bias near the touch.")
+
     dry_run = bool(_f(config, "system.dry_run", True))
 
     # --- fees ----------------------------------------------------------

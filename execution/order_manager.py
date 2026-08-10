@@ -256,6 +256,24 @@ class OrderManager:
         # 0.048/poll into a guaranteed fill at -50bps).
         self.sf_cal_life_sec = max(float(sf.get("calibration_life_sec",
                                                 25.0)), 1.0)
+        # OWED 57 / EXECUTION-ERA BOUNDARY #4 — THE DOUBLE-COUNT.
+        # The passive hazard and _sim_maker_cross model the SAME physical
+        # event. calibrate_fills.py measures f = "how often the market
+        # actually crossed a hypothetical resting limit within its life"
+        # from recorded book frames, and core.fill_calibration.
+        # invert_base_prob solves sf_base so the HAZARD ALONE reproduces f
+        # over n_bar polls. But _poll_dry ALSO fills deterministically
+        # whenever the live book crosses — the very event f counts — and the
+        # hazard only ever runs INSIDE `if book:`, so it is purely additive
+        # to an observed cross rather than a model of anything the snapshot
+        # cannot see. Combined per-order rate is 1-(1-f)^2 = 2f - f^2, i.e.
+        # 22.0% against an 11.66% target: 1.88x at the touch, approaching
+        # 2x as f falls, and 57.2% of post-only fills rest within 5bps.
+        # Default False = the book is ground truth. True restores the
+        # pre-boundary behaviour so a pre-#4 cohort can be reproduced
+        # exactly; it is NOT a tuning knob.
+        self.sf_hazard_with_book = bool(sf.get("passive_hazard_with_book",
+                                               False))
         self.firewall = firewall
         self.pair_meta = pair_meta or {}
         self.latency_ms: float = 0.0
@@ -1284,7 +1302,10 @@ class OrderManager:
                     queue_ok = (not self.sf_queue_aware
                                 or self._queue_eligible(order, book,
                                                         sigma_bar_pct))
-                    if _fin_pos(mid) and queue_ok:
+                    # owed 57 / era boundary #4: with a book in hand the
+                    # cross above already decided this event. Running the
+                    # hazard too counts the same crossing twice.
+                    if _fin_pos(mid) and queue_ok and self.sf_hazard_with_book:
                         dist_bps = abs(mid - order.price) / mid * 1e4
                         sigma_bps = max(sigma_bar_pct * 100.0, 1.0)
                         p = _passive_poll_prob(
