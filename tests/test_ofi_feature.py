@@ -414,3 +414,26 @@ def test_guard_bounds_for_the_v9_ofi_knobs():
     # 30s default) resets the EWMA every poll - structurally dead feature
     assert any("ofi.stale_sec" in m for m in fatals(
         {**base, "liquidity_regime": {"ofi": {"stale_sec": 20.0}}}))
+
+
+def test_basis_and_venue_disloc_keep_their_opposite_orientations():
+    """2026-08-11 audit: basis_bps = (fair_value - kraken_mid) is positive
+    when Kraken is CHEAP; venue_disloc_bps = (kraken_mid - venue_mid) is
+    positive when Kraken is RICH. The two near-identical quantities enter
+    the feature vector ANTI-oriented - documented, intended, and the model
+    learned each weight against its own sign. This pin exists because that
+    anti-orientation is the closest thing to a 'backwards derivative' in
+    the codebase: 'harmonizing' either sign now would be a feature-meaning
+    change under the MODEL FREEZE and would silently invert a trained
+    weight's effect. Flip one only with an operator-adjudicated retrain."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    fv = (root / "execution" / "fair_value.py").read_text(encoding="utf-8")
+    mn = (root / "main.py").read_text(encoding="utf-8")
+    assert "st.basis_bps = (st.fair_value - st.kraken_mid)" in fv.replace(
+        " \\n                ", " "), (
+        "basis_bps subtraction order changed - Kraken-cheap-positive "
+        "orientation broken")
+    assert "disloc_bps = (km - vm) / vm * 1e4" in mn, (
+        "venue_disloc subtraction order changed - Kraken-rich-positive "
+        "orientation broken")

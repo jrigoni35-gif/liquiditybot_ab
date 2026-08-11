@@ -139,6 +139,36 @@ def main() -> int:
     _bucket_table(cand, "funding_dist", "Funding distance", lines)
     _bucket_table(cand, "th_stopzone", "Stop-cluster proximity (Osler zone)", lines)
 
+    # ------------------------------------------------- momentum conditioning
+    lines.append("\n## 2b. Momentum alignment (owed 69 — LEAD, not fact)\n")
+    lines.append("The 2026-08-11 audit's verifier found candidates entered "
+                 "WITH 12-bar momentum winning LESS at h432, symmetrically "
+                 "in both direction cohorts. ret_12_dir is SIDE-RELATIVE "
+                 "(positive = momentum with the trade, ml/features.py:342) "
+                 "— do not read it market-absolute. The lifetime table "
+                 "pools across every boundary cut; the post-epoch table is "
+                 "the clean cohort and stays a lead until its n is real.")
+    def _mom_table(rows, tag):
+        lines.append(f"\n### {tag}\n")
+        lines.append("| direction | momentum | n | win rate |")
+        lines.append("|---|---|---|---|")
+        for want_dir, dlabel in ((1.0, "long"), (-1.0, "short")):
+            drs = [r for r in rows if _f(r.get("direction")) == want_dir
+                   and r.get("label") in ("0", "1")]
+            for lo, hi, mlabel in ((0.5, float("inf"), "with (>+0.5)"),
+                                   (-0.5, 0.5, "flat"),
+                                   (float("-inf"), -0.5, "against (<-0.5)")):
+                sub = [r for r in drs
+                       if lo <= _f(r.get("ret_12_dir")) < hi]
+                n = len(sub)
+                wr = (f"{sum(1 for r in sub if r['label'] == '1') / n:.1%}"
+                      if n else "—")
+                lines.append(f"| {dlabel} | {mlabel} | {n} | {wr} |")
+    _mom_table(cand, "Lifetime h432 candidates (POOLED across all cuts — "
+                     "context only)")
+    _mom_table(post_cand, "Since capital epoch (clean cohort — the owed-69 "
+                          "measurement of record as it accrues)")
+
     # ------------------------------------------------------ live-close section
     lines.append("\n## 3. Live closes (exit_sim era — separate ledger)\n")
     if live:

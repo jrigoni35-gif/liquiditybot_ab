@@ -5480,6 +5480,7 @@ class LiquidityBot:
         # _handle_fill already tolerates an absent "features" key by
         # skipping log_entry for whatever fill this order produces.
         feats = None
+        _lb_extras = None
         try:
             view_snap = getattr(self, "view", {}).get(asset)
             if view_snap and view_snap.get("candles"):
@@ -5491,17 +5492,19 @@ class LiquidityBot:
                     asset, view_snap.get("candles") or [], "long", now,
                     daily_candles=self.daily_candles.get(asset))
                 gate_conf = 1.0   # neutral: no gate stack on this path
+                _lb_extras = self._feature_extras(
+                    asset, view_snap, web, risk, other_asset, now)
                 feats = build_features(
                     asset, "long", gate_conf, view_snap, fv_state,
                     vol_state, liq_state, macro_state, self.corr.state,
                     sentiment, smc_feats, other_asset=other_asset,
-                    extras=self._feature_extras(
-                        asset, view_snap, web, risk, other_asset, now))
+                    extras=_lb_extras)
             else:
                 log.debug("long-book feature assembly skipped for %s - "
                          "no candles this cycle", asset)
         except Exception:
             feats = None
+            _lb_extras = None
             log.debug("long-book feature assembly failed for %s - add "
                      "proceeds without a corpus row", asset, exc_info=True)
 
@@ -5509,6 +5512,13 @@ class LiquidityBot:
                "est_cost_bps": est_cost_bps, "probe": False}
         if feats is not None:
             meta["features"] = feats
+            # owed 68 (2026-08-11 ledger audit): the 5m path threads
+            # avail from the SAME extras dict its features were built
+            # from (feat_avail at ~4374); this path computed the dict and
+            # discarded it, so every long-book live row shipped blank
+            # avail_*/quotes_frozen columns forever. Same instant, same
+            # semantics: the flags describe the feeds at feature-build.
+            meta["avail"] = (_lb_extras or {}).get("avail") or {}
 
         order = self.orders.submit(
             asset=asset, symbol=symbol,
