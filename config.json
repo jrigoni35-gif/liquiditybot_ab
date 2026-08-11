@@ -186,7 +186,8 @@
   "risk": {
     "stop_loss_pct": 2.0,
     "stop_round_buffer_bps": 5.0,
-    "_stop_round_doc": "Osler round-number hygiene: a stop resting within this many bps of a magnitude-relative round level (00/50 endings) is nudged to the safe side of the level (long above, short below) so it exits BEFORE stop-cascade zones, never inside them. 0 disables.",
+    "stop_round_offset_bps": 5.0,
+    "_stop_round_doc": "Osler round-number hygiene, WIDEN-BEYOND semantics since cut #7 (2026-08-11, operator-adjudicated bull-readiness package; risk/stop_placement.py documents the flip): a stop resting within buffer bps of a magnitude-relative round level (00/50 endings, half-step lattice) is moved offset bps BEYOND the level (long below, short above) - the herd's clustered stops fire first and ours only if the level actually breaks. The PREVIOUS semantics nudged to the near side (exit before the cascade), which meant any sweep TO the level ejected the position - the shakeout the directive names. Cost accepted knowingly: a genuine break exits into the cascade; the escalation ladder owns that. Widening bounded by buffer+offset bps; applied to BOTH the bracket sl leg (sl_frac back-derived so the traded bet stays the labeled bet) and the vol-scaled fallback. 0 disables. Also fixed with the flip: the old reader looked up config[risk_management], which does not exist - this knob was a phantom (never read) until cut #7.",
     "stop_vol_mult": 4.0,
     "max_slippage_pct": 0.5,
     "mark_stale_sec": 20.0,

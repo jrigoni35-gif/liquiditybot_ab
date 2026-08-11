@@ -69,6 +69,7 @@ from strategies.signal_gates import (GateStats, SignalGateEngine,
                                      concentration_conf_mult)
 from risk.capital_manager import CapitalManager
 from risk.profit_tiers import ProfitTierEngine
+from risk.stop_placement import nudge_stop_off_round
 from execution.algos import ExecutionScheduler
 from execution.routing import SmartOrderRouter
 from risk.leverage import LeverageGovernor
@@ -357,29 +358,12 @@ def _regime_under_coverage_floor(regime_live: int,
     return regime_floor_live > 0 and regime_live < regime_floor_live
 
 
-def nudge_stop_off_round_number(stop: float, direction: str,
-                                buffer_bps: float) -> float:
-    """Osler (Stop-Loss Orders and Price Cascades in Currency Markets,
-    J. Int'l Money & Finance 2005 / NY Fed SR150): stop orders cluster
-    at round numbers, and cascades fire just AFTER price crosses one -
-    a stop resting within buffer_bps of a round level fills at the
-    bottom of the herd's cascade, not at its trigger. Nudge ours to the
-    safe side of the level (long stops just ABOVE it, short stops just
-    BELOW), exiting BEFORE the cluster detonates. The round lattice is
-    magnitude-relative: half of the second-significant-digit unit
-    (BTC ~63k -> every 500; ETH ~1.8k -> every 50; MINA ~0.45 -> every
-    0.005), matching the 00/50 endings Osler documents. The nudge only
-    ever TIGHTENS the stop (toward entry); if it cannot stay on the
-    stop's own side of the level, the stop is returned unchanged."""
-    if stop <= 0 or buffer_bps <= 0:
-        return stop
-    import math as _math
-    spacing = 10.0 ** (_math.floor(_math.log10(stop)) - 1) / 2.0
-    level = round(stop / spacing) * spacing
-    if abs(stop - level) / stop * 1e4 > buffer_bps:
-        return stop
-    pad = level * buffer_bps / 1e4
-    return level + pad if direction == "long" else level - pad
+# nudge_stop_off_round_number RETIRED here 2026-08-11 (cut #7): its
+# tighten-side semantics ("exit before the cascade detonates") meant any
+# sweep TO a round level took the position out - the shakeout ejection the
+# operator's bull-readiness directive names. The unified widen-beyond
+# implementation, its documented semantic flip, and the same half-step
+# lattice live in risk/stop_placement.nudge_stop_off_round.
 
 
 def manip_suspect_score(spoof: float, whiplash: float,
@@ -1553,6 +1537,21 @@ class LiquidityBot:
         usd = v * price if v * price < 1e13 and v < 1e8 else v
         return max(usd * self._adv_haircut, self._adv_floor_usd)
 
+    def _nudge_stop(self, stop: float, direction: str) -> float:
+        """Cut #7 Osler widen-beyond nudge, config-gated. One method so the
+        bracket sl leg and the vol-scaled fallback can never drift apart
+        (the bracket caller back-derives sl_frac from the result - the
+        traded bet stays the labeled bet)."""
+        # NOTE the block is config["risk"], where the knob actually lives -
+        # the retired implementation read config["risk_management"], which
+        # does not exist, so the config value was NEVER read and only the
+        # coinciding 5.0 default masked it (phantom-knob class).
+        rm = self.config.get("risk", {})
+        return nudge_stop_off_round(
+            stop, direction,
+            band_bps=float(rm.get("stop_round_buffer_bps", 5.0)),
+            offset_bps=float(rm.get("stop_round_offset_bps", 5.0)))
+
     def _stop_price_for(self, direction: str, entry: float, asset: str) -> float:
         vol_state = self.vol.state(asset)
         macro_state = self.macro.state(asset)
@@ -1562,15 +1561,12 @@ class LiquidityBot:
         stop_pct *= self.monitor.stop_widen
         stop = entry * (1 - stop_pct / 100.0) if direction == "long" \
             else entry * (1 + stop_pct / 100.0)
-        # Osler round-number hygiene: never rest a stop inside the herd's
-        # cascade zone (see nudge_stop_off_round_number). Config-gated;
-        # the nudge is bps-scale and only ever tightens.
-        buf = float(self.config.get("risk_management", {})
-                    .get("stop_round_buffer_bps", 5.0))
-        nudged = nudge_stop_off_round_number(stop, direction, buf)
-        if direction == "long":
-            return min(max(nudged, stop), entry * 0.999)
-        return max(min(nudged, stop), entry * 1.001)
+        # Osler round-number hygiene, WIDEN-BEYOND semantics since cut #7
+        # (risk/stop_placement - the semantic flip is documented there).
+        # The old tail's clamps (max(nudged, stop) for long) structurally
+        # enforced tighten-only and were removed WITH the flip; widening
+        # moves away from entry so no toward-entry clamp is needed.
+        return self._nudge_stop(stop, direction)
 
     # ------------------------------------------------------------------
     # fill handling
@@ -1907,9 +1903,23 @@ class LiquidityBot:
                     pos.stop_price = pos.entry_price * (
                         1.0 - pos.bracket_sl_frac) if pos.direction == "long" \
                         else pos.entry_price * (1.0 + pos.bracket_sl_frac)
+                    # ALGO-7 (cut #7, Osler round-number avoidance): a stop
+                    # resting inside a round-number cluster is hit by any
+                    # sweep TO the cluster. Nudge beyond it, then
+                    # BACK-DERIVE sl_frac from the nudged price - the
+                    # traded bet stays the labeled bet (geometry-alignment
+                    # law); tb_sl threads unchanged.
+                    _nudged = self._nudge_stop(pos.stop_price, pos.direction)
+                    if _nudged != pos.stop_price:
+                        pos.stop_price = _nudged
+                        pos.bracket_sl_frac = abs(
+                            1.0 - _nudged / pos.entry_price)
                 else:
+                    # _stop_price_for nudges internally (cut #7) - wrapping
+                    # it here again would double-nudge
                     pos.stop_price = self._stop_price_for(
-                        pos.direction, pos.entry_price, self._asset_of(pos.symbol))
+                        pos.direction, pos.entry_price,
+                        self._asset_of(pos.symbol))
                 order.position_id = position_id
                 self.state.add_position(pos)
                 fired = order.meta.get("thales_fired")
