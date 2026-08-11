@@ -1,10 +1,10 @@
 {
-  "generated_at": 1786446498.9654143,
+  "generated_at": 1786450101.7364933,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786446490.0,
-    "duration_h": 771.24
+    "end": 1786450091.0,
+    "duration_h": 772.24
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.0,
     "fees_paid_total": 0.0,
     "open_positions": 0,
-    "samples": 170554
+    "samples": 170790
   },
   "activity": {
     "signal_rows_total": 10175,
@@ -24,17 +24,17 @@
     "candidate_rows": 9862
   },
   "audit": {
-    "records": 40968,
-    "signal_records": 32856,
+    "records": 41270,
+    "signal_records": 33012,
     "by_src": {
-      "exploration": 36489,
+      "exploration": 36781,
       "order_manager": 1353,
-      "ml_governor": 1262,
-      "long_book": 789,
+      "ml_governor": 1264,
+      "long_book": 793,
       "startup": 290,
       "fault": 269,
       "exit": 217,
-      "conviction": 129,
+      "conviction": 133,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -47,11 +47,11 @@
       ],
       [
         "ML-070",
-        8112
+        8258
       ],
       [
         "SZ-051",
-        5589
+        5735
       ],
       [
         "OM-000",
@@ -59,11 +59,11 @@
       ],
       [
         "LB-010",
-        548
+        552
       ],
       [
         "ML-031",
-        467
+        468
       ],
       [
         "ML-072",
@@ -91,8 +91,8 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.678,
-    "retrain_requests": 99,
+    "dominant_frac": 0.675,
+    "retrain_requests": 100,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -100,16 +100,16 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 8620,
+    "records": 9796,
     "by_level": {
-      "INFO": 8610,
-      "WARNING": 9,
-      "CRITICAL": 1
+      "INFO": 9784,
+      "WARNING": 10,
+      "CRITICAL": 2
     },
     "top_warnings": [
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
+        3
       ],
       [
         "ML-031: feature drift 25/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -142,14 +142,18 @@
       [
         "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
         1
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 1801,
-      "spoofy": 1472
+      "thin": 2029,
+      "spoofy": 1694
     },
-    "spoofy_frac": 0.45,
-    "cycles_estimate": 870,
+    "spoofy_frac": 0.455,
+    "cycles_estimate": 988,
     "feed_error_events": 0
   },
   "model": {
@@ -186,13 +190,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=313, brier=n/a) yet retrain was requested 99x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 68% of the audit trail"
+      "detail": "model is cold (live training rows=313, brier=n/a) yet retrain was requested 100x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 68% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 68% of 32856 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 68% of 33012 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
