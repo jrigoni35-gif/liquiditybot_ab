@@ -1012,6 +1012,16 @@ def test_postmortem():
     shutil.rmtree(str(TMP / "smoke_pm"), ignore_errors=True)
     pm = PostmortemEngine({"report_dir": str(TMP / "smoke_pm"),
                            "summary_path": str(TMP / "smoke_pm" / "summary.csv"),
+                           # TENTH instance of the QA-writes-production class
+                           # (2026-08-11): 2602371b made poll() write EVERY
+                           # finalized close to the paths ledger; this cfg
+                           # predates that and fell through to the production
+                           # default - pm1/pm2 fixture rows (ts~1e6, epoch
+                           # 1970) landed in outputs/trade_paths.csv. The
+                           # conftest tripwire can never catch smoke_test
+                           # (it runs outside pytest) - hence the synthetic-
+                           # clock tripwire in __main__ below.
+                           "paths_path": str(TMP / "smoke_pm" / "trade_paths.csv"),
                            "observe_minutes": 1, "mark_sample_sec": 1})
     t0 = 1_000_000.0
     th = TradeThesis(position_id="pm1", asset="ETH", symbol="ETH/USD",
@@ -2102,6 +2112,29 @@ if __name__ == "__main__":
     print("[23] security hardening");        test_security_hardening()
     print("[24] institutional hardening");  test_hardening_layer()
     print("[25] rev4 venues + risk protocols"); test_rev4_connectivity_and_protocols()
+    # SYNTHETIC-CLOCK TRIPWIRE (2026-08-11, tenth QA-writes-production
+    # instance). Smoke fixtures run on a synthetic clock (ts ~1e6, epoch
+    # 1970); production rows are all ts >= 1.75e9. Any row in a production
+    # ledger with ts < 1e9 is a QA fixture that leaked. This runs OUTSIDE
+    # pytest, where the conftest tripwire structurally cannot see - and it
+    # is immune to the live runner appending real rows concurrently, which
+    # a bytes-unchanged check would false-flag.
+    import csv as _csv
+    for _led in ("outputs/trade_paths.csv", "outputs/postmortem_summary.csv",
+                 "outputs/signal_history.csv", "outputs/fills.csv"):
+        _p = Path(_led)
+        if not _p.exists():
+            continue
+        try:
+            with open(_p, newline="", encoding="utf-8") as _fh:
+                for _row in _csv.DictReader(_fh):
+                    _ts = float(_row.get("ts") or _row.get("entry_ts") or "nan")
+                    if _ts == _ts and 0 < _ts < 1e9:
+                        check(f"tripwire: NO synthetic-clock rows in {_led}",
+                              False, f"ts={_ts} ({_row.get('position_id') or _row.get('candidate_id') or '?'})")
+                        break
+        except Exception as _e:          # unreadable ledger is its own alarm
+            check(f"tripwire: {_led} readable", False, repr(_e))
     print("=" * 42)
     print(f"passed {PASS}, failed {FAIL}")
     sys.exit(1 if FAIL else 0)

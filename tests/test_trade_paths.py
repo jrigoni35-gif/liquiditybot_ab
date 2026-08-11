@@ -92,3 +92,23 @@ def test_column_pin_and_winner_mae_is_the_point(tmp_path):
         f"the winner's adverse excursion ({mae}) is the quantity the old "
         f"ledgers discarded - it must survive here")
     assert float(rows[0]["realized_pct"]) > 0
+
+
+def test_smoke_test_postmortem_harness_is_isolated():
+    """Tenth QA-writes-production instance (2026-08-11): scripts/smoke_test.py
+    built its PostmortemEngine without paths_path, so 2602371b's unconditional
+    poll()-time ledger write sent pm1/pm2 fixture rows (synthetic clock,
+    ts~1e6) into outputs/trade_paths.csv. The conftest tripwire runs only
+    under pytest and can never see smoke_test - so this pin checks the
+    harness source, and smoke_test carries its own synthetic-clock tripwire
+    for everything the pin can't anticipate."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "scripts"
+           / "smoke_test.py").read_text(encoding="utf-8")
+    assert "PostmortemEngine({" in src
+    cfg = src.split("PostmortemEngine({", 1)[1].split("})", 1)[0]
+    assert "paths_path" in cfg, (
+        "smoke_test's PostmortemEngine cfg lost its paths_path isolation - "
+        "its fixture closes will land in the production trade_paths ledger")
+    assert "synthetic-clock rows" in src, (
+        "smoke_test's end-of-run synthetic-clock tripwire is gone")
