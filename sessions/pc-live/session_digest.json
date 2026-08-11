@@ -1,10 +1,10 @@
 {
-  "generated_at": 1786450101.7364933,
+  "generated_at": 1786453704.7416775,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786450091.0,
-    "duration_h": 772.24
+    "end": 1786453698.0,
+    "duration_h": 773.25
   },
   "pnl": {
     "starting_capital": 800.0,
@@ -16,7 +16,7 @@
     "realized_pnl_total": 0.0,
     "fees_paid_total": 0.0,
     "open_positions": 0,
-    "samples": 170790
+    "samples": 171026
   },
   "activity": {
     "signal_rows_total": 10175,
@@ -24,17 +24,17 @@
     "candidate_rows": 9862
   },
   "audit": {
-    "records": 41270,
-    "signal_records": 33012,
+    "records": 41540,
+    "signal_records": 33149,
     "by_src": {
-      "exploration": 36781,
+      "exploration": 37047,
       "order_manager": 1353,
       "ml_governor": 1264,
-      "long_book": 793,
+      "long_book": 795,
       "startup": 290,
       "fault": 269,
       "exit": 217,
-      "conviction": 133,
+      "conviction": 135,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -47,11 +47,11 @@
       ],
       [
         "ML-070",
-        8258
+        8391
       ],
       [
         "SZ-051",
-        5735
+        5868
       ],
       [
         "OM-000",
@@ -59,7 +59,7 @@
       ],
       [
         "LB-010",
-        552
+        554
       ],
       [
         "ML-031",
@@ -91,7 +91,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.675,
+    "dominant_frac": 0.672,
     "retrain_requests": 100,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -100,9 +100,9 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 9796,
+    "records": 10926,
     "by_level": {
-      "INFO": 9784,
+      "INFO": 10914,
       "WARNING": 10,
       "CRITICAL": 2
     },
@@ -149,11 +149,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2029,
-      "spoofy": 1694
+      "thin": 2235,
+      "spoofy": 1855
     },
-    "spoofy_frac": 0.455,
-    "cycles_estimate": 988,
+    "spoofy_frac": 0.454,
+    "cycles_estimate": 1106,
     "feed_error_events": 0
   },
   "model": {
@@ -190,13 +190,13 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=313, brier=n/a) yet retrain was requested 100x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 68% of the audit trail"
+      "detail": "model is cold (live training rows=313, brier=n/a) yet retrain was requested 100x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 67% of the audit trail"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 68% of 33012 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 67% of 33149 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
