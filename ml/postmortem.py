@@ -60,6 +60,21 @@ SUMMARY_COLS = ["ts", "position_id", "asset", "direction", "p_win",
                 "cause", "cost_overrun_bps", "mfe_pct", "mae_pct",
                 "recovered_after_stop", "regime_entry", "regime_exit"]
 
+# THE COMPLETE PATH LEDGER (2026-08-11, geometry-package prerequisite).
+# postmortem_summary.csv records only UNDERPERFORMERS - so the excursion
+# paths of WINNING trades (the MAE envelope of trades that paid: how much
+# heat does a good trade take before it works) were computed by
+# _excursions and then DISCARDED, the same computed-and-thrown-away class
+# as the drawdown gauge. Any evidence-derived stop geometry needs the
+# uncensored population; this ledger records EVERY finalized close. cause
+# is empty for a trade that performed to expectation - named, not
+# omitted, so the censoring stays visible. Measurement only.
+PATHS_COLS = ["ts", "position_id", "asset", "direction", "p_win",
+              "expected_pct", "realized_pct", "mfe_pct", "mae_pct",
+              "held_h", "stopped_out", "recovered_after_stop",
+              "stress_during_hold", "regime_entry", "regime_exit",
+              "cause"]
+
 EPS = 1e-9
 
 
@@ -176,6 +191,10 @@ class PostmortemEngine:
         # alone left a size-0 file headerless, and csv.DictReader then reads
         # the first POSTMORTEM as its column names.
         self.summary_path.parent.mkdir(parents=True, exist_ok=True)
+        # complete-population path ledger (see PATHS_COLS)
+        self.paths_path = Path(cfg.get("paths_path",
+                                       "outputs/trade_paths.csv"))
+        self.paths_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     def register_entry(self, thesis: TradeThesis):
@@ -263,6 +282,10 @@ class PostmortemEngine:
             cause = self._attribute(t) if trigger else ""
             if trigger:
                 self._write_report(t, cause, shortfall)
+            # EVERY finalized close reaches the path ledger - winners
+            # included. The summary keeps its underperformer semantics
+            # untouched (extend, never redefine).
+            self._write_path(t, cause)
             done.append((cause, t))
         return done
 
@@ -332,6 +355,26 @@ class PostmortemEngine:
         if t.stopped_out:
             return "alpha_wrong"
         return "underperformance"
+
+    def _write_path(self, t: TradeThesis, cause: str):
+        """One row per finalized close, WINNERS INCLUDED - the uncensored
+        excursion ledger (PATHS_COLS). Guarded like every capture path:
+        losing a telemetry row must never break the close that produced
+        it."""
+        try:
+            mfe, mae = self._excursions(t)
+            row = [f"{t.exit_ts:.0f}", t.position_id, t.asset, t.direction,
+                   f"{t.p_win:.3f}", f"{t.expected_ret_pct:.3f}",
+                   f"{t.realized_ret_pct:.3f}", f"{mfe:.3f}", f"{mae:.3f}",
+                   f"{(t.exit_ts - t.entry_ts) / 3600.0:.3f}",
+                   int(t.stopped_out), int(self._recovered(t)),
+                   int(t.stress_seen), t.entry_regime, t.exit_regime, cause]
+            durable_append(self.paths_path,
+                           lambda f: csv.writer(f).writerow(row),
+                           header=",".join(PATHS_COLS) + "\r\n")
+        except Exception:
+            log.exception("trade-path ledger append failed - row lost, "
+                          "close unaffected")
 
     def _write_report(self, t: TradeThesis, cause: str, shortfall: float):
         mfe, mae = self._excursions(t)

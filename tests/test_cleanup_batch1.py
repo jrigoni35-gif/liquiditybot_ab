@@ -30,7 +30,8 @@ def _thesis(entry_usd, fees_usd=5.0):
 
 
 def _engine(tmp_path):
-    return PostmortemEngine({"report_dir": str(tmp_path / "pm"),
+    return PostmortemEngine({"paths_path": str(tmp_path / "trade_paths.csv"),
+                             "report_dir": str(tmp_path / "pm"),
                              "summary_path": str(tmp_path / "pm_summary.csv")})
 
 

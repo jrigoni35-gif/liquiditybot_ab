@@ -79,7 +79,8 @@ def _thesis(pid, ts):
 
 
 def test_unfilled_thesis_expires_filled_one_survives(tmp_path):
-    eng = PostmortemEngine({"report_dir": str(tmp_path / "pm"),
+    eng = PostmortemEngine({"paths_path": str(tmp_path / "trade_paths.csv"),
+                            "report_dir": str(tmp_path / "pm"),
                             "summary_path": str(tmp_path / "pm.csv")})
     eng.register_entry(_thesis("orphan", ts=0.0))          # never fills
     eng.register_entry(_thesis("livepos", ts=0.0))
@@ -90,7 +91,8 @@ def test_unfilled_thesis_expires_filled_one_survives(tmp_path):
 
 
 def test_fresh_unfilled_thesis_not_expired(tmp_path):
-    eng = PostmortemEngine({"report_dir": str(tmp_path / "pm"),
+    eng = PostmortemEngine({"paths_path": str(tmp_path / "trade_paths.csv"),
+                            "report_dir": str(tmp_path / "pm"),
                             "summary_path": str(tmp_path / "pm.csv")})
     eng.register_entry(_thesis("pending", ts=1000.0))
     eng.poll(now=1000.0 + 60.0)                             # only a minute old

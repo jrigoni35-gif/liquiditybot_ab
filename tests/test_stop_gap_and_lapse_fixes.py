@@ -46,7 +46,11 @@ def _thesis(realized_pct, stop_pct=1.8, stopped=True, fees_usd=0.12,
 
 def _engine(tmp_path, **cfg):
     base = {"report_dir": str(tmp_path / "pm"),
-            "summary_path": str(tmp_path / "pm.csv")}
+            "summary_path": str(tmp_path / "pm.csv"),
+            # owed 65: without this the engine's complete path ledger falls
+            # through to the PRODUCTION default - the ninth instance of the
+            # QA-writes-production class, caught by conftest's tripwire
+            "paths_path": str(tmp_path / "trade_paths.csv")}
     base.update(cfg)
     return PostmortemEngine(base)
 
