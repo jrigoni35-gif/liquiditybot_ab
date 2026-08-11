@@ -1734,7 +1734,10 @@ class LiquidityBot:
             stopped_out=self._stop_hit.pop(pos.position_id, False),
             exit_regime=self.macro.state(asset).label,
             exit_liq=self.liq.state(asset).label,
-            now=now)
+            now=now,
+            # orphan-close degradation (2026-08-11): if the thesis is gone,
+            # these let the paths ledger still name the trade
+            asset=asset, direction=pos.direction)
         self.state.remove_position(pos.position_id)
         self._exit_attempts.pop(pos.position_id, None)
         # v10 ladder: a fully-closed position drops the armed state so

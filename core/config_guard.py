@@ -28,6 +28,7 @@ Returns a list of (severity, message); severity is "FATAL" or "WARN".
 """
 
 import logging
+import math
 from typing import Any
 
 from regime.vol_regime import FAST_WARMUP_BARS
@@ -479,6 +480,32 @@ def validate(config: dict) -> list:
              "2026-08-10T11:03:35Z). It is not a tuning knob: "
              "every paper fill statistic produced under it carries a ~2x "
              "upward bias near the touch.")
+
+    # --- cut #7 stop-placement knobs (2026-08-11 commits audit: these had
+    # no guard at ship). nudge_stop_off_round clamps negatives to 0 and
+    # fails inert, so a bad knob cannot crash - but an incoherent value
+    # must not pass silently: band+offset is the maximum stop WIDENING in
+    # bps of stop price, and a nonsensically large value is a geometry
+    # change wearing a hygiene knob's name.
+    for _k in ("stop_round_buffer_bps", "stop_round_offset_bps"):
+        _v = _f(config, f"risk.{_k}", None)
+        if _v is None:
+            continue
+        try:
+            _fv = float(_v)
+        except (TypeError, ValueError):
+            fatal(f"risk.{_k} ({_v!r}) is not a number")
+            continue
+        if not math.isfinite(_fv) or _fv < 0:
+            fatal(f"risk.{_k} ({_fv}) must be finite and >= 0 - the nudge "
+                  f"clamps it inert at runtime, so this value is config "
+                  f"noise that can only mislead")
+        elif _fv > 25.0:
+            warn(f"risk.{_k} ({_fv}bps) is far beyond the Osler cluster "
+                 f"band (~5bps); band+offset is the maximum widening "
+                 f"applied to every near-round stop, and at this size it "
+                 f"is a stop-geometry change (cohort-resetting under the "
+                 f"era-4 moratorium), not round-number hygiene.")
 
     dry_run = bool(_f(config, "system.dry_run", True))
 

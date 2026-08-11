@@ -33,8 +33,13 @@ it never tightens. Callers that stamp a bracket sl leg MUST back-derive
 sl_frac from the nudged price so the traded bet stays the labeled bet
 (geometry-alignment law).
 
-Config: risk.stop_placement {round_number_avoidance, band_bps, offset_bps};
-sanity-checked by core/config_guard. Pure functions, no state, no I/O.
+Config: config["risk"] -> stop_round_buffer_bps (the band) and
+stop_round_offset_bps (the rest-beyond distance), read by main._nudge_stop
+and range-checked by core/config_guard. (This paragraph's first version
+named a nonexistent risk.stop_placement block with invented knob names -
+a phantom-block doc inside the module that fixed a phantom-knob bug,
+caught by the 2026-08-11 commits audit. The knob names above are pinned
+by tests/test_stop_placement.py.) Pure functions, no state, no I/O.
 """
 from __future__ import annotations
 

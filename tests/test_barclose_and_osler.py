@@ -9,8 +9,12 @@ excess share in bucket zero.
 
 Osler round-number stop hygiene — stops cluster at 00/50 levels and
 cascades fire just AFTER price crosses one (Osler, Stop-Loss Orders and
-Price Cascades in Currency Markets). Our stop never rests inside the
-cascade band: nudged to the safe side, only ever tightening.
+Price Cascades in Currency Markets). Since cut #7 (2026-08-11) our stop
+never rests inside the cascade band: nudged BEYOND the level (widen-only),
+so the herd's clustered stops fire first and ours only on a genuine
+break. This paragraph's first version still described the retired
+tighten-side reading after the tests below were flipped — the flip
+comment above the Osler tests is the authoritative record.
 """
 from risk.stop_placement import nudge_stop_off_round
 from strategies.thales import ThalesEngine

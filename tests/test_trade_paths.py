@@ -112,3 +112,31 @@ def test_smoke_test_postmortem_harness_is_isolated():
         "its fixture closes will land in the production trade_paths ledger")
     assert "synthetic-clock rows" in src, (
         "smoke_test's end-of-run synthetic-clock tripwire is gone")
+
+
+def test_orphan_close_writes_a_degraded_row_not_nothing(tmp_path):
+    """2026-08-11 ledger audit: two long-book flatten_all closes had no
+    registered thesis and vanished from EVERY ledger - the mechanism behind
+    cohort_eval's coverage caveat. The paths ledger is the uncensored
+    population by contract: a lost thesis degrades the row (nan thesis
+    fields, cause=orphan_close), it never deletes it."""
+    eng = _engine(tmp_path)
+    eng.on_close("ghost-1", realized_net_usd=-2.5, fees_usd=0.4,
+                 entry_usd=100.0, stopped_out=True, exit_regime="bear",
+                 exit_liq="thin", now=1786400000.0,
+                 asset="ETH", direction="long")
+    rows = _read(tmp_path / "trade_paths.csv")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["cause"] == "orphan_close"
+    assert r["position_id"] == "ghost-1"
+    assert r["asset"] == "ETH" and r["direction"] == "long"
+    assert float(r["realized_pct"]) == -2.5
+    assert r["mae_pct"] == "nan" and r["p_win"] == "nan"
+    assert r["stopped_out"] == "1"
+    assert r["regime_exit"] == "bear"
+    # and a KNOWN thesis still takes the full-fidelity path
+    _run_trade(eng, "known-1", expected=0.2, realized_usd=0.5,
+               marks=[1.001, 1.004])
+    rows = _read(tmp_path / "trade_paths.csv")
+    assert len(rows) == 2 and rows[1]["cause"] != "orphan_close"
