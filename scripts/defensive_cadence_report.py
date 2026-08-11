@@ -74,7 +74,7 @@ def _bucket_table(rows, col, title, lines):
     vals = [_f(r.get(col)) for r in rows]
     edges = _tercile_edges([v for v in vals if math.isfinite(v)])
     buckets = defaultdict(list)
-    for r, v in zip(rows, vals):
+    for r, v in zip(rows, vals, strict=True):
         buckets[_tercile(v, edges)].append(r)
     lines.append(f"\n### {title} (terciles of `{col}`, h432 candidates)\n")
     lines.append("| bucket | n | labeled | win rate | tb_sl | tb_pt | tb_time |")
@@ -88,8 +88,9 @@ def _bucket_table(rows, col, title, lines):
         bar = Counter(r.get("barrier", "") for r in labeled)
         nl = len(labeled)
         wr = f"{wins / nl:.1%}" if nl else "—"
-        def share(k):
-            return f"{bar.get(k, 0) / nl:.0%}" if nl else "—"
+
+        def share(k, _bar=bar, _nl=nl):
+            return f"{_bar.get(k, 0) / _nl:.0%}" if _nl else "—"
         lines.append(f"| {b} | {len(rs)} | {nl} | {wr} (n={nl}) | "
                      f"{share('tb_sl')} | {share('tb_pt')} | {share('tb_time')} |")
 
@@ -169,7 +170,7 @@ def main() -> int:
             lines.append(f"| {reg} | {len(rs)} | {maes[len(maes)//2]:.2f} | "
                          f"{mfes[len(mfes)//2]:.2f} | {stopped} | {top} |")
     else:
-        lines.append(f"- **0 paths since cut #7** — the ledger accrues from "
+        lines.append("- **0 paths since cut #7** — the ledger accrues from "
                      "2026-08-11T01:33:50Z; the ALGO-5 amendment is pre-named "
                      "at ~30 uncensored paths (owed 67). Nothing to report is "
                      "the correct state, not a defect.")
