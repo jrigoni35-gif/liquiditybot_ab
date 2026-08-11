@@ -70,8 +70,14 @@ def test_new_file_carries_exec_era():
     assert COLS[-1] == "exec_era"          # append-at-END discipline
     r = _row()
     assert r["exec_era"] == EXEC_ERA
-    assert EXEC_ERA.startswith("4-"), (
-        "era constant must name the era AND its boundary commit")
+    # Cut #7 (geometry epoch, deployed 2026-08-11T01:33:50Z): era 4 -> 7.
+    # The assertion changing here IS the record of the bump, per convention.
+    assert EXEC_ERA == "7-e7d5ca1a", (
+        "era constant must name the CURRENT era and its boundary commit - "
+        "if you bumped it deliberately, this pin moves in the same commit")
+    import re
+    assert re.fullmatch(r"\d+-[0-9a-f]{8}", EXEC_ERA), (
+        "era constant format: <era>-<8-hex boundary commit>")
 
 
 def test_append_to_new_file_writes_full_schema(tmp_path):
