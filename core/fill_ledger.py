@@ -37,7 +37,13 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # an old row = pre-stamp: decide by ts against the boundary table
 # (paper-real-boundary in the vault); the only era-4-but-blank window is
 # aeeaae36 -> the commit introducing this stamp.
-EXEC_ERA = "4-aeeaae36"
+#
+# 7-e7d5ca1a: cut #7, the geometry epoch (widen-beyond stop placement),
+# deployed 2026-08-11T01:33:50Z. The bump SHOULD have ridden e7d5ca1a itself
+# per the rule above; it landed one commit late. Verified at the bump: ZERO
+# fills between the deploy instant and this commit (book flat through the
+# window), so no row ever carried "4-aeeaae36" on the era-7 side.
+EXEC_ERA = "7-e7d5ca1a"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order

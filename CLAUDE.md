@@ -80,12 +80,21 @@ INVARIANT below, stop and say so instead of complying.
 
 The strategy verdict accrues on the era-4 honest-fill cohort
 (`scripts/cohort_eval.py`, pre-registered n=50; boundary #4 = aeeaae36,
-2026-08-10T11:03:35Z). Until the gate reads out:
+2026-08-10T11:03:35Z; capital epoch 2026-08-10T23:05:27Z). **Re-fenced at
+cut #7** — the geometry epoch, 2026-08-11T01:33:50Z (`e7d5ca1a`,
+widen-beyond stop placement; `exec_era` = `7-e7d5ca1a`): zero closes
+existed before it in the gate window, so the accruing cohort is uniformly
+post-geometry with no change to the pre-registered cut. Until the gate
+reads out:
 
 - **COHORT-RESETTING — forbidden without operator adjudication** (any of
-  these mints execution-era boundary #5 and restarts accrual): changes to
-  entry decisioning, position sizing, the fill simulator, fee booking, or
-  the order lifecycle.
+  these mints the next execution-era boundary and restarts accrual):
+  changes to entry decisioning, position sizing, stop/exit geometry
+  (placement, nudges, time limits — the cut-#7 lesson: geometry changes
+  trip outcomes even when fills don't move), the fill simulator, fee
+  booking, or the order lifecycle. The ALGO-5 amendment (stop widths +
+  time-decay ladder at ~30 uncensored paths) is PRE-NAMED as the next
+  such adjudication.
 - **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
   export, and bug fixes that do not alter which orders are placed or how
   they fill.

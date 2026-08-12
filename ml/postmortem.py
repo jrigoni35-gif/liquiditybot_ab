@@ -60,6 +60,21 @@ SUMMARY_COLS = ["ts", "position_id", "asset", "direction", "p_win",
                 "cause", "cost_overrun_bps", "mfe_pct", "mae_pct",
                 "recovered_after_stop", "regime_entry", "regime_exit"]
 
+# THE COMPLETE PATH LEDGER (2026-08-11, geometry-package prerequisite).
+# postmortem_summary.csv records only UNDERPERFORMERS - so the excursion
+# paths of WINNING trades (the MAE envelope of trades that paid: how much
+# heat does a good trade take before it works) were computed by
+# _excursions and then DISCARDED, the same computed-and-thrown-away class
+# as the drawdown gauge. Any evidence-derived stop geometry needs the
+# uncensored population; this ledger records EVERY finalized close. cause
+# is empty for a trade that performed to expectation - named, not
+# omitted, so the censoring stays visible. Measurement only.
+PATHS_COLS = ["ts", "position_id", "asset", "direction", "p_win",
+              "expected_pct", "realized_pct", "mfe_pct", "mae_pct",
+              "held_h", "stopped_out", "recovered_after_stop",
+              "stress_during_hold", "regime_entry", "regime_exit",
+              "cause"]
+
 EPS = 1e-9
 
 
@@ -176,6 +191,10 @@ class PostmortemEngine:
         # alone left a size-0 file headerless, and csv.DictReader then reads
         # the first POSTMORTEM as its column names.
         self.summary_path.parent.mkdir(parents=True, exist_ok=True)
+        # complete-population path ledger (see PATHS_COLS)
+        self.paths_path = Path(cfg.get("paths_path",
+                                       "outputs/trade_paths.csv"))
+        self.paths_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     def register_entry(self, thesis: TradeThesis):
@@ -209,9 +228,24 @@ class PostmortemEngine:
 
     def on_close(self, position_id: str, realized_net_usd: float,
                 fees_usd: float, entry_usd: float, stopped_out: bool,
-                exit_regime: str, exit_liq: str, now: float):
+                exit_regime: str, exit_liq: str, now: float,
+                asset: str = "", direction: str = ""):
         t = self._open.pop(position_id, None)
         if t is None:
+            # ORPHAN CLOSE (2026-08-11 ledger audit): a close with no
+            # registered thesis used to vanish silently - two long-book
+            # flatten_all closes (ETH d5513dd5, BTC e35c0a59) left no row
+            # anywhere, the mechanism behind cohort_eval's 85-93% coverage
+            # caveat. The paths ledger is the UNCENSORED population by
+            # contract (ALGO-5's ~30-path amendment trigger accrues on it),
+            # so a lost thesis must degrade the row, never delete it:
+            # excursions/thesis fields print nan, cause says what happened.
+            log.warning("postmortem: close for unregistered position %s - "
+                        "writing degraded orphan_close path row",
+                        position_id[:12])
+            self._write_orphan_path(position_id, realized_net_usd,
+                                    entry_usd, stopped_out, exit_regime,
+                                    now, asset=asset, direction=direction)
             return
         t.exit_ts = now
         t.realized_net_usd = realized_net_usd
@@ -263,6 +297,10 @@ class PostmortemEngine:
             cause = self._attribute(t) if trigger else ""
             if trigger:
                 self._write_report(t, cause, shortfall)
+            # EVERY finalized close reaches the path ledger - winners
+            # included. The summary keeps its underperformer semantics
+            # untouched (extend, never redefine).
+            self._write_path(t, cause)
             done.append((cause, t))
         return done
 
@@ -332,6 +370,52 @@ class PostmortemEngine:
         if t.stopped_out:
             return "alpha_wrong"
         return "underperformance"
+
+    def _write_orphan_path(self, position_id: str, realized_net_usd: float,
+                           entry_usd: float, stopped_out: bool,
+                           exit_regime: str, now: float,
+                           asset: str = "", direction: str = ""):
+        """Degraded PATHS_COLS row for a close whose thesis was lost (never
+        registered, or dropped by a failed state restore). Same column
+        order as _write_path; unknowable fields are nan/0, cause is
+        'orphan_close' so the ALGO-5 replay can include or exclude these
+        rows EXPLICITLY instead of never seeing them."""
+        try:
+            if entry_usd > EPS:
+                realized_pct = realized_net_usd / entry_usd * 100.0
+                realized_s = f"{realized_pct:.3f}"
+            else:
+                realized_s = "nan"
+            row = [f"{now:.0f}", position_id, asset, direction,
+                   "nan", "nan", realized_s, "nan", "nan", "nan",
+                   int(bool(stopped_out)), 0, 0, "", exit_regime,
+                   "orphan_close"]
+            durable_append(self.paths_path,
+                           lambda f: csv.writer(f).writerow(row),
+                           header=",".join(PATHS_COLS) + "\r\n")
+        except Exception:
+            log.exception("orphan path row append failed - row lost, "
+                          "close unaffected")
+
+    def _write_path(self, t: TradeThesis, cause: str):
+        """One row per finalized close, WINNERS INCLUDED - the uncensored
+        excursion ledger (PATHS_COLS). Guarded like every capture path:
+        losing a telemetry row must never break the close that produced
+        it."""
+        try:
+            mfe, mae = self._excursions(t)
+            row = [f"{t.exit_ts:.0f}", t.position_id, t.asset, t.direction,
+                   f"{t.p_win:.3f}", f"{t.expected_ret_pct:.3f}",
+                   f"{t.realized_ret_pct:.3f}", f"{mfe:.3f}", f"{mae:.3f}",
+                   f"{(t.exit_ts - t.entry_ts) / 3600.0:.3f}",
+                   int(t.stopped_out), int(self._recovered(t)),
+                   int(t.stress_seen), t.entry_regime, t.exit_regime, cause]
+            durable_append(self.paths_path,
+                           lambda f: csv.writer(f).writerow(row),
+                           header=",".join(PATHS_COLS) + "\r\n")
+        except Exception:
+            log.exception("trade-path ledger append failed - row lost, "
+                          "close unaffected")
 
     def _write_report(self, t: TradeThesis, cause: str, shortfall: float):
         mfe, mae = self._excursions(t)

@@ -29,6 +29,7 @@ def _thesis(pid="p1"):
 
 def _engine(tmp_path):
     return PostmortemEngine({
+        "paths_path": str(tmp_path / "trade_paths.csv"),
         "report_dir": str(tmp_path / "pm"),
         "summary_path": str(tmp_path / "pm_summary.csv"),
         "observe_minutes": 0.0})     # finalize immediately in poll()

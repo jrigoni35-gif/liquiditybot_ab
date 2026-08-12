@@ -2391,3 +2391,24 @@ def test_post_only_maker_short_entry_does_not_cancel_resting_bid(
 
     assert not [e for e in fake_audit.entries if e[1] == Code.LB_BID_CLEARED], \
         "LB-022 must never fire for a maker-first short entry"
+
+
+def test_long_book_entry_meta_threads_avail_from_its_own_extras():
+    """owed 68 (2026-08-11 ledger audit): the long-book entry path computed
+    _feature_extras (which carries the avail feed flags) and threw the dict
+    away, so every long-book live row shipped blank avail_*/quotes_frozen
+    columns while the 5m path's rows were populated. The meta must thread
+    avail from the SAME extras dict its features were built from."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "main.py").read_text(
+        encoding="utf-8")
+    i = src.find('meta = {"book": "long"')
+    assert i != -1, "long-book entry meta literal moved - re-pin"
+    window = src[i:i + 900]
+    assert '"features"' in window and '"avail"' in window, (
+        "long-book entry meta no longer threads avail beside features - "
+        "owed 68 regressed: long-book live rows will ship blank "
+        "avail_*/quotes_frozen columns again")
+    assert "_lb_extras" in window, (
+        "avail must come from the SAME extras dict the features were "
+        "built from (feature-build instant semantics), not a re-computation")
