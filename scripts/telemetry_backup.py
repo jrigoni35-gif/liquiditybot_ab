@@ -56,13 +56,15 @@ def _log(msg: str) -> None:
 
 # Windows: children of the WINDOWLESS supervisor spawn otherwise pop a new
 # console window per call ("command centers"). CREATE_NO_WINDOW = silent.
-_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+# Plain int passed as creationflags= (0 is the POSIX no-op) — a **dict
+# unpack typed every subprocess.run kwarg as int for the type checker.
+_NOWIN = 0x08000000 if os.name == "nt" else 0
 
 
 def _run(argv: list, cwd: Path | None = None, check: bool = True) -> str:
     """Run a fixed-argv command (no shell), returning stripped stdout."""
     p = subprocess.run(argv, cwd=str(cwd or ROOT), capture_output=True,  # nosec B603
-                       text=True, **_NOWIN)
+                       text=True, creationflags=_NOWIN)
     if check and p.returncode != 0:
         raise RuntimeError(
             f"{' '.join(argv[:3])}… exit {p.returncode}: "
@@ -114,7 +116,7 @@ def _run_bytes(argv: list, cwd: Path) -> bytes:
     tree verifier hashes blobs, and text-mode decoding would corrupt CRLF
     or non-UTF-8 bytes before they reach the hash."""
     p = subprocess.run(argv, cwd=str(cwd), capture_output=True,  # nosec B603
-                       **_NOWIN)
+                       creationflags=_NOWIN)
     if p.returncode != 0:
         err = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
         raise RuntimeError(

@@ -87,7 +87,9 @@ def log(msg: str) -> None:
 # Windows: children of the WINDOWLESS supervisor spawn otherwise pop a new
 # console window per call ("command centers") — for this script that meant a
 # git window every poll AND a lingering pytest window per battery run.
-_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+# Plain int, not a **dict unpack (which typed every run() kwarg as int and
+# tripped the type checker at all six call sites); 0 is the POSIX no-op.
+_NOWIN = 0x08000000 if os.name == "nt" else 0
 
 
 def _git(*args, cwd=None, timeout=120):
@@ -95,7 +97,7 @@ def _git(*args, cwd=None, timeout=120):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd or ROOT),  # nosec B603 B607
                            capture_output=True, text=True, timeout=timeout,
-                           **_NOWIN)
+                           creationflags=_NOWIN)
         return p.returncode, (p.stdout or "").strip()
     except Exception as e:                       # noqa: BLE001
         return 1, f"error: {e}"
@@ -170,7 +172,7 @@ def battery_passes(worktree: Path) -> bool:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
                             "-x", "--no-header"],
                            cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200, env=env, **_NOWIN)
+                           timeout=1200, env=env, creationflags=_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False
@@ -226,7 +228,7 @@ def _replay_gate_passes(worktree: Path, py: str) -> bool:
                             "--recording-dir", rec_dir, "--determinism-only"],
                            cwd=str(worktree), capture_output=True,
                            encoding="utf-8", errors="replace",
-                           timeout=1200, env=env, **_NOWIN)
+                           timeout=1200, env=env, creationflags=_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"replay gate could not run ({e}) - refusing the update")
         _BATTERY_DETAIL = f"replay gate error: {e}"
@@ -308,7 +310,7 @@ def _pid_is_runner(pid) -> bool:
         else:                        # test/dev path only - prod is Windows
             cmd = ["ps", "-p", str(int(pid)), "-o", "command="]
         p = subprocess.run(cmd, timeout=15, capture_output=True,  # nosec B603 B607
-                           text=True, **_NOWIN)
+                           text=True, creationflags=_NOWIN)
         return "runner.py" in (p.stdout or "")
     except Exception:                              # noqa: BLE001 - fail-safe
         return False
@@ -328,7 +330,8 @@ def _force_kill(pid) -> None:
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/F", "/PID", str(int(pid))],  # nosec B603 B607
-                           timeout=30, capture_output=True, **_NOWIN)
+                           timeout=30, capture_output=True,
+                           creationflags=_NOWIN)
         else:
             import signal as _signal
             os.kill(int(pid), _signal.SIGKILL)
@@ -439,7 +442,7 @@ def _ensure_pushers_current() -> None:
                   "-ErrorAction SilentlyContinue }")
             subprocess.run(["powershell", "-NoProfile",  # nosec B603 B607
                             "-Command", ps], timeout=90,
-                           capture_output=True, **_NOWIN)
+                           capture_output=True, creationflags=_NOWIN)
             log(f"pushers bounced for rev {head.strip()} - supervisor "
                 f"relaunches them on the deployed code")
         marker.write_text(head.strip() + "\n", encoding="utf-8")

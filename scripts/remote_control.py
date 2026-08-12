@@ -55,6 +55,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from typing import cast
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -88,7 +89,9 @@ if _bad:
 # sidecars with CREATE_NO_WINDOW) otherwise gets a brand-new console window
 # on EVERY subprocess call — the "popping command centers" (this script's
 # 120s git poll was the worst offender). CREATE_NO_WINDOW keeps them silent.
-_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+# Plain int passed as creationflags= (0 is the POSIX no-op) — a **dict
+# unpack typed every subprocess.run kwarg as int for the type checker.
+_NOWIN = 0x08000000 if os.name == "nt" else 0
 
 # W2-25: git occasionally echoes the remote URL it tried into stderr (e.g.
 # an auth failure names the URL it hit), and every caller logs that text
@@ -110,7 +113,7 @@ def _git(*args, cwd, timeout=120):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
                            capture_output=True, text=True, timeout=timeout,
-                           **_NOWIN)
+                           creationflags=_NOWIN)
         out = (p.stdout or "").strip() or (p.stderr or "").strip()
         return p.returncode, _redact(out)
     except Exception as e:                       # noqa: BLE001
@@ -155,8 +158,10 @@ def validate_command(payload, fname_id: str, now: float) -> str | None:
         return (f"{Code.RC_REJECTED.value}: '{cmd}' not remotely allowed "
                 f"(whitelist: {sorted(REMOTE_SAFE_COMMANDS)})")
     try:
-        issued = float(payload.get("issued_at"))
-    except (TypeError, ValueError):
+        # [] not .get(): a missing key raises KeyError (caught below) rather
+        # than handing float() an explicit None; same rejection either way.
+        issued = float(payload["issued_at"])
+    except (KeyError, TypeError, ValueError):
         return f"{Code.RC_REJECTED.value}: missing/invalid issued_at"
     if now - issued > MAX_AGE_SEC:
         return (f"{Code.RC_REJECTED.value}: stale "
@@ -363,6 +368,8 @@ def _poll_locked(root: Path, now: float) -> str:
                              "reason": reason, "at": now})
             _save_consumed(root, consumed)
             continue
+        # reason is None ⇒ validate_command proved payload is a dict
+        payload = cast(dict, payload)
         cmd, args = payload["cmd"], payload.get("args") or {}
         # AT-MOST-ONCE: ledger the id BEFORE forwarding. A crash between
         # the two leaves an honest 'forwarding' entry (visible in the

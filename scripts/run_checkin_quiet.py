@@ -16,7 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = ROOT / "outputs" / "checkin"
 LOG = LOG_DIR / "checkin_run.log"
-_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+# CREATE_NO_WINDOW as a plain int (0 is the POSIX no-op) passed as
+# creationflags= — a **dict unpack untyped the subprocess.run call.
+_NOWIN = 0x08000000 if os.name == "nt" else 0
 
 
 def main() -> int:
@@ -34,7 +36,8 @@ def main() -> int:
     env = dict(os.environ, PYTHONUTF8="1")
     with open(LOG, "a", encoding="utf-8") as fh:
         p = subprocess.run(argv, cwd=str(ROOT), stdout=fh,  # nosec B603
-                           stderr=subprocess.STDOUT, env=env, **_NOWIN)
+                           stderr=subprocess.STDOUT, env=env,
+                           creationflags=_NOWIN)
         fh.write(f"exit code {p.returncode}\n")
     return p.returncode
 
