@@ -80,3 +80,28 @@ def test_missing_portfolio_is_safe():
     out = reset_portfolio({"version": 9}, 5000.0)
     assert out["portfolio"]["cash_balance"] == 5000.0
     assert out["portfolio"].get("positions") in (None, [])
+
+
+def test_loss_budget_anchors_reanchor_with_the_capital():
+    """The 25-hour no-trade incident (2026-08-12): risk_protocols measures
+    the day/week loss budgets from persisted EQUITY ANCHORS, and the ISO
+    week key only rolls on Monday. The $800 reset left week_anchor at the
+    pre-reset 4614.22, so RP-041 read the reset as an 82.7% trading loss
+    (1378% of the 6% weekly budget) and hard-vetoed ALL new risk for the
+    rest of the week - 118 candidates, zero entry orders. A capital reset
+    is a regime change, not a loss: the sweep must re-anchor every
+    calendar-anchored budget at the new base, preserving the keys so the
+    natural rollover keeps working."""
+    snap = _snap()
+    snap["risk_protocols"] = {"day_key": "2026-08-12", "day_anchor": 4614.0,
+                              "week_key": "2026-W33",
+                              "week_anchor": 4614.224876076544}
+    out = reset_portfolio(snap, 800.0)
+    rp = out["risk_protocols"]
+    assert rp["day_anchor"] == 800.0
+    assert rp["week_anchor"] == 800.0
+    assert rp["day_key"] == "2026-08-12"        # keys untouched
+    assert rp["week_key"] == "2026-W33"
+    # snapshots without the section stay absent - never manufactured
+    out2 = reset_portfolio(_snap(), 800.0)
+    assert "risk_protocols" not in out2 or not out2.get("risk_protocols")

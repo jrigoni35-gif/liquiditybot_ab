@@ -72,6 +72,24 @@ def reset_portfolio(snapshot: dict, capital: float) -> dict:
     pf["goal_ladder_mult"] = 1.0
     # positions (pf["positions"]) intentionally left as-is
     data["portfolio"] = pf
+    # LOSS-BUDGET RE-ANCHOR (2026-08-12, the 25-hour no-trade incident):
+    # risk_protocols measures the day/week loss budgets from persisted
+    # EQUITY ANCHORS, and the ISO week key only rolls on Monday - so the
+    # $800 reset left week_anchor at the pre-reset 4614.22 and RP-041 read
+    # the reset itself as an 82.7% trading loss (1378% of the 6% weekly
+    # budget), hard-vetoing ALL new risk for the rest of the week. 118
+    # candidates died without a single entry order. A capital reset is a
+    # REGIME CHANGE, not a loss: every calendar-anchored budget must
+    # re-anchor at the new base in the same sweep (the live repair used
+    # the audited budget_reanchor_week control verb; this makes the next
+    # reset self-contained). Keys are preserved - the natural rollover
+    # keeps working.
+    rp = dict(data.get("risk_protocols") or {})
+    if rp:
+        for k in ("day_anchor", "week_anchor"):
+            if k in rp:
+                rp[k] = float(capital)
+        data["risk_protocols"] = rp
     # PERFORMANCE WINDOW SWEEP (2026-08-11 full-sweep audit): the rolling
     # perf ledger is DOLLAR-denominated (expectancy_usd, net_usd, avg win/
     # loss). Carrying a $5000-regime window into an $800 regime blends
