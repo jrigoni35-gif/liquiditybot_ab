@@ -1,35 +1,35 @@
 {
-  "generated_at": 1786589734.9585042,
+  "generated_at": 1786593336.4884844,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786589728.031,
-    "duration_h": 811.03
+    "end": 1786593323.0,
+    "duration_h": 812.03
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 798.35,
+    "equity_end": 798.37,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.78,
     "fees_paid_total": 0.734,
     "open_positions": 5,
-    "samples": 177265
+    "samples": 177501
   },
   "activity": {
-    "signal_rows_total": 10356,
+    "signal_rows_total": 10359,
     "live_labeled_trades": 317,
-    "candidate_rows": 10039
+    "candidate_rows": 10042
   },
   "audit": {
-    "records": 44654,
-    "signal_records": 34798,
+    "records": 44655,
+    "signal_records": 34799,
     "by_src": {
       "exploration": 39979,
       "order_manager": 1376,
-      "ml_governor": 1298,
+      "ml_governor": 1299,
       "long_book": 857,
       "startup": 292,
       "fault": 271,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        487
+        488
       ],
       [
         "ML-072",
@@ -100,14 +100,18 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 13521,
+    "records": 14939,
     "by_level": {
-      "INFO": 13477,
-      "WARNING": 40,
+      "INFO": 14893,
+      "WARNING": 42,
       "CRITICAL": 2,
       "ERROR": 2
     },
     "top_warnings": [
+      [
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        3
+      ],
       [
         "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'XRP/USD', 'LINK/USD', 'DOGE/USD', 'ADA/USD']",
         2
@@ -137,10 +141,6 @@
         2
       ],
       [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
         "POSTMORTEM ADA/USD 97ce75ff: underperformance \u2014 realized -0.05% vs expected +0.73% -> outputs\\postmortems\\20260812_031440_ADA_97ce75ff.md",
         1
       ],
@@ -150,11 +150,11 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2669,
-      "spoofy": 2566
+      "thin": 2835,
+      "spoofy": 2786
     },
-    "spoofy_frac": 0.49,
-    "cycles_estimate": 1466,
+    "spoofy_frac": 0.496,
+    "cycles_estimate": 1584,
     "feed_error_events": 0
   },
   "model": {
@@ -197,7 +197,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34798 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34799 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
