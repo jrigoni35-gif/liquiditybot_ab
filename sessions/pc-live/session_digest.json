@@ -1,35 +1,35 @@
 {
-  "generated_at": 1786632952.2484608,
+  "generated_at": 1786636553.3811822,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786632944.0,
-    "duration_h": 823.04
+    "end": 1786636552.0,
+    "duration_h": 824.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 797.76,
+    "equity_end": 798.06,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.4,
     "fees_paid_total": 1.0866,
     "open_positions": 5,
-    "samples": 180106
+    "samples": 180344
   },
   "activity": {
-    "signal_rows_total": 10382,
+    "signal_rows_total": 10401,
     "live_labeled_trades": 320,
-    "candidate_rows": 10062
+    "candidate_rows": 10081
   },
   "audit": {
-    "records": 44716,
-    "signal_records": 34845,
+    "records": 44717,
+    "signal_records": 34846,
     "by_src": {
       "exploration": 40014,
       "order_manager": 1386,
-      "ml_governor": 1312,
+      "ml_governor": 1313,
       "long_book": 857,
       "startup": 292,
       "fault": 271,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        498
+        499
       ],
       [
         "OM-040",
@@ -100,17 +100,23 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 684,
+    "records": 1684,
     "by_level": {
-      "INFO": 684
+      "INFO": 1683,
+      "WARNING": 1
     },
-    "top_warnings": [],
+    "top_warnings": [
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        1
+      ]
+    ],
     "liquidity_tally": {
-      "spoofy": 132,
-      "thin": 100
+      "spoofy": 370,
+      "thin": 259
     },
-    "spoofy_frac": 0.569,
-    "cycles_estimate": 67,
+    "spoofy_frac": 0.588,
+    "cycles_estimate": 186,
     "feed_error_events": 0
   },
   "model": {
@@ -153,13 +159,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 57% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 59% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34845 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34846 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
