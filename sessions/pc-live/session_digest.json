@@ -1,35 +1,35 @@
 {
-  "generated_at": 1786618546.8910885,
+  "generated_at": 1786622148.371075,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786618531.0,
-    "duration_h": 819.03
+    "end": 1786622142.0,
+    "duration_h": 820.03
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 798.22,
+    "equity_end": 798.31,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.24,
     "fees_paid_total": 0.8525,
     "open_positions": 5,
-    "samples": 179160
+    "samples": 179398
   },
   "activity": {
-    "signal_rows_total": 10369,
+    "signal_rows_total": 10370,
     "live_labeled_trades": 318,
-    "candidate_rows": 10051
+    "candidate_rows": 10052
   },
   "audit": {
-    "records": 44669,
-    "signal_records": 34812,
+    "records": 44671,
+    "signal_records": 34814,
     "by_src": {
       "exploration": 39982,
       "order_manager": 1378,
-      "ml_governor": 1307,
+      "ml_governor": 1309,
       "long_book": 857,
       "startup": 292,
       "fault": 271,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        495
+        496
       ],
       [
         "ML-072",
@@ -92,7 +92,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.64,
-    "retrain_requests": 105,
+    "retrain_requests": 106,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -100,11 +100,11 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 22219,
+    "records": 23388,
     "by_level": {
-      "INFO": 22164,
-      "WARNING": 50,
-      "CRITICAL": 3,
+      "INFO": 23331,
+      "WARNING": 51,
+      "CRITICAL": 4,
       "ERROR": 2
     },
     "top_warnings": [
@@ -145,16 +145,16 @@
         2
       ],
       [
-        "POSTMORTEM ADA/USD 97ce75ff: underperformance \u2014 realized -0.05% vs expected +0.73% -> outputs\\postmortems\\20260812_031440_ADA_97ce75ff.md",
-        1
+        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
+        2
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 4091,
-      "thin": 4063
+      "spoofy": 4311,
+      "thin": 4287
     },
-    "spoofy_frac": 0.502,
-    "cycles_estimate": 2411,
+    "spoofy_frac": 0.501,
+    "cycles_estimate": 2529,
     "feed_error_events": 0
   },
   "model": {
@@ -191,7 +191,7 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=318, brier=n/a) yet retrain was requested 105x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 64% of the audit trail"
+      "detail": "model is cold (live training rows=318, brier=n/a) yet retrain was requested 106x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 64% of the audit trail"
     },
     {
       "id": "SD-003",
@@ -203,7 +203,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34812 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34814 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
