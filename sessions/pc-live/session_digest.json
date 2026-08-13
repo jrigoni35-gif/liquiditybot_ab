@@ -1,40 +1,40 @@
 {
-  "generated_at": 1786650958.606457,
+  "generated_at": 1786654560.1345727,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786650947.0,
-    "duration_h": 828.04
+    "end": 1786654559.222,
+    "duration_h": 829.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 798.01,
+    "equity_end": 798.03,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.25,
     "fees_paid_total": 1.2559,
     "open_positions": 4,
-    "samples": 181285
+    "samples": 181520
   },
   "activity": {
-    "signal_rows_total": 10428,
+    "signal_rows_total": 10430,
     "live_labeled_trades": 322,
-    "candidate_rows": 10106
+    "candidate_rows": 10108
   },
   "audit": {
-    "records": 44778,
-    "signal_records": 34890,
+    "records": 44787,
+    "signal_records": 34899,
     "by_src": {
       "exploration": 40055,
       "order_manager": 1398,
-      "ml_governor": 1319,
-      "long_book": 857,
+      "ml_governor": 1322,
+      "long_book": 861,
       "startup": 292,
       "fault": 271,
       "exit": 226,
-      "conviction": 189,
+      "conviction": 191,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        502
+        503
       ],
       [
         "OM-040",
@@ -87,7 +87,7 @@
       ],
       [
         "ML-041",
-        218
+        219
       ]
     ],
     "dominant_code": "SZ-047",
@@ -100,10 +100,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 5370,
+    "records": 6385,
     "by_level": {
-      "INFO": 5361,
-      "WARNING": 8,
+      "INFO": 6373,
+      "WARNING": 11,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -138,21 +138,29 @@
       [
         "POSTMORTEM ADA/USD f15a71c2: underperformance \u2014 realized +0.13% vs expected +0.63% -> outputs\\postmortems\\20260813_170025_ADA_f15a71c2.md",
         1
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.479 over trailing 24h (132/10296 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 10296 rows (26 new)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1193,
-      "thin": 949
+      "spoofy": 1414,
+      "thin": 1092
     },
-    "spoofy_frac": 0.557,
-    "cycles_estimate": 655,
+    "spoofy_frac": 0.564,
+    "cycles_estimate": 773,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.18578932684145463,
+    "champion_brier": 0.2193614272083435,
     "brier": "n/a",
     "history_rows": 322,
     "cold": true
@@ -194,7 +202,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34890 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34899 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
