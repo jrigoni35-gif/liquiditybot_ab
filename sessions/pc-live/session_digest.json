@@ -1,40 +1,40 @@
 {
-  "generated_at": 1786690579.5493739,
+  "generated_at": 1786744606.7353115,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786690578.562,
-    "duration_h": 839.05
+    "end": 1786744595.0,
+    "duration_h": 854.05
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 797.99,
+    "equity_end": 797.86,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
-    "realized_pnl_total": -1.25,
-    "fees_paid_total": 1.3278,
-    "open_positions": 5,
-    "samples": 183879
+    "realized_pnl_total": -1.17,
+    "fees_paid_total": 1.8646,
+    "open_positions": 4,
+    "samples": 187413
   },
   "activity": {
-    "signal_rows_total": 10473,
-    "live_labeled_trades": 322,
-    "candidate_rows": 10151
+    "signal_rows_total": 10548,
+    "live_labeled_trades": 326,
+    "candidate_rows": 10222
   },
   "audit": {
-    "records": 44832,
-    "signal_records": 34943,
+    "records": 44973,
+    "signal_records": 35044,
     "by_src": {
-      "exploration": 40058,
-      "order_manager": 1403,
-      "ml_governor": 1345,
+      "exploration": 40147,
+      "order_manager": 1422,
+      "ml_governor": 1373,
       "long_book": 869,
       "startup": 293,
       "fault": 272,
-      "exit": 226,
-      "conviction": 195,
+      "exit": 230,
+      "conviction": 196,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -47,15 +47,15 @@
       ],
       [
         "ML-070",
-        9889
+        9929
       ],
       [
         "SZ-051",
-        7364
+        7404
       ],
       [
         "OM-000",
-        1078
+        1087
       ],
       [
         "LB-010",
@@ -63,11 +63,11 @@
       ],
       [
         "ML-031",
-        512
+        526
       ],
       [
         "OM-040",
-        325
+        335
       ],
       [
         "ML-072",
@@ -83,16 +83,16 @@
       ],
       [
         "PT-061",
-        226
+        230
       ],
       [
         "ML-016",
-        220
+        225
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.637,
-    "retrain_requests": 109,
+    "dominant_frac": 0.635,
+    "retrain_requests": 111,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -100,76 +100,71 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 16463,
+    "records": 6367,
     "by_level": {
-      "INFO": 16402,
-      "WARNING": 57,
-      "CRITICAL": 3,
-      "ERROR": 1
+      "INFO": 6357,
+      "WARNING": 9,
+      "CRITICAL": 1
     },
     "top_warnings": [
       [
-        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
-        6
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.454 over trailing 24h (115/10340 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        5
-      ],
-      [
-        "auto-retrain: 174 rows (44 new)",
-        5
-      ],
-      [
-        "auto-retrain unscoreable: 0 OOF points at 174 rows (purge span eats the folds) - keeping champion until more labels accrue",
-        5
-      ],
-      [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
         2
       ],
       [
-        "ML-080: exit-reason mix drift tvd=0.564 over trailing 24h (107/10271 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
         1
       ],
       [
-        "auto-retrain: 10271 rows (27 new)",
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
         1
       ],
       [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
+        1
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 32% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        1
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.447 over trailing 24h (113/10406 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 237 rows (29 new)",
+        1
+      ],
+      [
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'depth_log', 'basis_dir']",
+        1
+      ],
+      [
+        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3577,
-      "thin": 2863
+      "spoofy": 1434,
+      "thin": 1319
     },
-    "spoofy_frac": 0.555,
-    "cycles_estimate": 1946,
+    "spoofy_frac": 0.521,
+    "cycles_estimate": 778,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.2193614272083435,
+    "champion_brier": 0.21886764621291765,
     "brier": "n/a",
-    "history_rows": 322,
+    "history_rows": 326,
     "cold": true
   },
   "postmortems": {
-    "count": 278,
+    "count": 279,
     "causes": {
-      "underperformance": 212,
+      "underperformance": 213,
       "cost_overrun": 38,
       "regime_shift": 15,
       "alpha_wrong": 10,
@@ -191,19 +186,19 @@
       "id": "SD-002",
       "severity": "warn",
       "title": "model starvation loop",
-      "detail": "model is cold (live training rows=322, brier=n/a) yet retrain was requested 109x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 64% of the audit trail"
+      "detail": "model is cold (live training rows=326, brier=n/a) yet retrain was requested 111x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 64% of the audit trail"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 56% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 52% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34943 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 35044 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
