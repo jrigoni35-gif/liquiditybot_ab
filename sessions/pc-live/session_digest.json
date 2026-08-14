@@ -1,22 +1,22 @@
 {
-  "generated_at": 1786683377.1211708,
+  "generated_at": 1786686978.2815988,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786683374.0,
-    "duration_h": 837.04
+    "end": 1786686976.0,
+    "duration_h": 838.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 797.94,
+    "equity_end": 797.96,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.25,
     "fees_paid_total": 1.3278,
     "open_positions": 5,
-    "samples": 183406
+    "samples": 183643
   },
   "activity": {
     "signal_rows_total": 10473,
@@ -24,12 +24,12 @@
     "candidate_rows": 10151
   },
   "audit": {
-    "records": 44825,
-    "signal_records": 34936,
+    "records": 44828,
+    "signal_records": 34939,
     "by_src": {
       "exploration": 40058,
       "order_manager": 1403,
-      "ml_governor": 1338,
+      "ml_governor": 1341,
       "long_book": 869,
       "startup": 293,
       "fault": 272,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        510
+        511
       ],
       [
         "OM-040",
@@ -100,36 +100,36 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 14451,
+    "records": 15428,
     "by_level": {
-      "INFO": 14401,
-      "WARNING": 47,
+      "INFO": 15373,
+      "WARNING": 52,
       "CRITICAL": 2,
       "ERROR": 1
     },
     "top_warnings": [
       [
         "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
-        4
+        5
       ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
+        4
       ],
       [
         "ML-080: exit-reason mix drift tvd=0.454 over trailing 24h (115/10340 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        3
+        4
       ],
       [
         "auto-retrain: 174 rows (44 new)",
-        3
+        4
       ],
       [
         "auto-retrain unscoreable: 0 OOF points at 174 rows (purge span eats the folds) - keeping champion until more labels accrue",
+        4
+      ],
+      [
+        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
       ],
       [
@@ -150,11 +150,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3130,
-      "thin": 2449
+      "spoofy": 3345,
+      "thin": 2653
     },
-    "spoofy_frac": 0.561,
-    "cycles_estimate": 1710,
+    "spoofy_frac": 0.558,
+    "cycles_estimate": 1828,
     "feed_error_events": 0
   },
   "model": {
@@ -203,7 +203,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34936 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34939 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
