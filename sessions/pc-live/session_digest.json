@@ -1,35 +1,35 @@
 {
-  "generated_at": 1786744606.7353115,
+  "generated_at": 1786748209.9515095,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786744595.0,
-    "duration_h": 854.05
+    "end": 1786748205.0,
+    "duration_h": 855.05
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 797.86,
+    "equity_end": 797.83,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.17,
-    "fees_paid_total": 1.8646,
-    "open_positions": 4,
-    "samples": 187413
+    "fees_paid_total": 1.9096,
+    "open_positions": 5,
+    "samples": 187649
   },
   "activity": {
-    "signal_rows_total": 10548,
+    "signal_rows_total": 10556,
     "live_labeled_trades": 326,
-    "candidate_rows": 10222
+    "candidate_rows": 10230
   },
   "audit": {
-    "records": 44973,
-    "signal_records": 35044,
+    "records": 44989,
+    "signal_records": 35054,
     "by_src": {
-      "exploration": 40147,
-      "order_manager": 1422,
-      "ml_governor": 1373,
+      "exploration": 40160,
+      "order_manager": 1424,
+      "ml_governor": 1374,
       "long_book": 869,
       "startup": 293,
       "fault": 272,
@@ -47,15 +47,15 @@
       ],
       [
         "ML-070",
-        9929
+        9935
       ],
       [
         "SZ-051",
-        7404
+        7410
       ],
       [
         "OM-000",
-        1087
+        1088
       ],
       [
         "LB-010",
@@ -63,11 +63,11 @@
       ],
       [
         "ML-031",
-        526
+        527
       ],
       [
         "OM-040",
-        335
+        336
       ],
       [
         "ML-072",
@@ -100,10 +100,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 6367,
+    "records": 7460,
     "by_level": {
-      "INFO": 6357,
-      "WARNING": 9,
+      "INFO": 7448,
+      "WARNING": 11,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -142,15 +142,19 @@
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
         1
+      ],
+      [
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'depth_log']",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1434,
-      "thin": 1319
+      "spoofy": 1649,
+      "thin": 1531
     },
-    "spoofy_frac": 0.521,
-    "cycles_estimate": 778,
-    "feed_error_events": 0
+    "spoofy_frac": 0.519,
+    "cycles_estimate": 896,
+    "feed_error_events": 1
   },
   "model": {
     "monitor_level": 0,
@@ -198,7 +202,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 35044 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 35054 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
