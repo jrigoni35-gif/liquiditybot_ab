@@ -1,22 +1,22 @@
 {
-  "generated_at": 1786676174.3961372,
+  "generated_at": 1786679775.9257116,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786676171.593,
-    "duration_h": 835.04
+    "end": 1786679773.0,
+    "duration_h": 836.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 798.09,
+    "equity_end": 797.98,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.25,
-    "fees_paid_total": 1.2559,
-    "open_positions": 4,
-    "samples": 182931
+    "fees_paid_total": 1.3278,
+    "open_positions": 5,
+    "samples": 183169
   },
   "activity": {
     "signal_rows_total": 10473,
@@ -24,17 +24,17 @@
     "candidate_rows": 10151
   },
   "audit": {
-    "records": 44807,
-    "signal_records": 34919,
+    "records": 44822,
+    "signal_records": 34933,
     "by_src": {
-      "exploration": 40055,
-      "order_manager": 1400,
-      "ml_governor": 1332,
-      "long_book": 865,
+      "exploration": 40058,
+      "order_manager": 1403,
+      "ml_governor": 1335,
+      "long_book": 869,
       "startup": 293,
       "fault": 272,
       "exit": 226,
-      "conviction": 193,
+      "conviction": 195,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -47,7 +47,7 @@
       ],
       [
         "ML-070",
-        9888
+        9889
       ],
       [
         "SZ-051",
@@ -55,7 +55,7 @@
       ],
       [
         "OM-000",
-        1077
+        1078
       ],
       [
         "LB-010",
@@ -63,11 +63,11 @@
       ],
       [
         "ML-031",
-        508
+        509
       ],
       [
         "OM-040",
-        323
+        325
       ],
       [
         "ML-072",
@@ -100,10 +100,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 12491,
+    "records": 13505,
     "by_level": {
-      "INFO": 12451,
-      "WARNING": 37,
+      "INFO": 13460,
+      "WARNING": 42,
       "CRITICAL": 2,
       "ERROR": 1
     },
@@ -117,11 +117,23 @@
         3
       ],
       [
+        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
+        3
+      ],
+      [
         "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
-        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
+        "ML-080: exit-reason mix drift tvd=0.454 over trailing 24h (115/10340 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        2
+      ],
+      [
+        "auto-retrain: 174 rows (44 new)",
+        2
+      ],
+      [
+        "auto-retrain unscoreable: 0 OOF points at 174 rows (purge span eats the folds) - keeping champion until more labels accrue",
         2
       ],
       [
@@ -135,26 +147,14 @@
       [
         "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        1
-      ],
-      [
-        "POSTMORTEM XRP/USD 16847b5a: underperformance \u2014 realized +0.16% vs expected +0.61% -> outputs\\postmortems\\20260813_164754_XRP_16847b5a.md",
-        1
-      ],
-      [
-        "POSTMORTEM ADA/USD f15a71c2: underperformance \u2014 realized +0.13% vs expected +0.63% -> outputs\\postmortems\\20260813_170025_ADA_f15a71c2.md",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2715,
-      "thin": 2087
+      "spoofy": 2937,
+      "thin": 2256
     },
-    "spoofy_frac": 0.565,
-    "cycles_estimate": 1474,
+    "spoofy_frac": 0.566,
+    "cycles_estimate": 1592,
     "feed_error_events": 0
   },
   "model": {
@@ -197,13 +197,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 56% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 57% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34919 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34933 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
