@@ -1,204 +1,81 @@
 {
-  "generated_at": 1786394175.7895958,
+  "generated_at": 1786743056.2799816,
   "outputs_dir": "outputs",
   "window": {
-    "start": 1783938784.183,
-    "end": 1785460562.211,
-    "duration_h": 422.72
+    "start": null,
+    "end": null,
+    "duration_h": 0.0
   },
   "pnl": {
-    "starting_capital": 10000.0,
-    "equity_start": 800.0,
-    "equity_end": 4996.58,
-    "equity_min": 798.74,
-    "equity_max": 5000.09,
-    "equity_range": 4201.35,
+    "starting_capital": 0.0,
+    "equity_start": 0.0,
+    "equity_end": 0.0,
+    "equity_min": 0.0,
+    "equity_max": 0.0,
+    "equity_range": 0.0,
     "realized_pnl_total": 0.0,
-    "fees_paid_total": 0.7819,
-    "open_positions": 2,
-    "samples": 10759
+    "fees_paid_total": 0.0,
+    "open_positions": 0,
+    "samples": 0
   },
   "activity": {
-    "signal_rows_total": 9764,
-    "live_labeled_trades": 304,
-    "candidate_rows": 9460
+    "signal_rows_total": 10473,
+    "live_labeled_trades": 322,
+    "candidate_rows": 10151
   },
   "audit": {
-    "records": 1572,
-    "signal_records": 937,
-    "by_src": {
-      "exploration": 657,
-      "order_manager": 364,
-      "firewall": 165,
-      "ml_governor": 144,
-      "startup": 131,
-      "fault": 76,
-      "engine": 14,
-      "conviction": 13,
-      "long_book": 8
-    },
-    "top_codes": [
-      [
-        "ML-070",
-        635
-      ],
-      [
-        "OM-040",
-        202
-      ],
-      [
-        "FW-030",
-        165
-      ],
-      [
-        "OM-000",
-        161
-      ],
-      [
-        "CG-000",
-        131
-      ],
-      [
-        "ML-032",
-        121
-      ],
-      [
-        "FT-020",
-        76
-      ],
-      [
-        "ML-072",
-        16
-      ],
-      [
-        "ML-073",
-        13
-      ],
-      [
-        "CV-000",
-        10
-      ],
-      [
-        "ML-030",
-        7
-      ],
-      [
-        "LB-000",
-        6
-      ]
-    ],
-    "dominant_code": "OM-040",
-    "dominant_frac": 0.216,
-    "retrain_requests": 121,
-    "kill_switch_events": 3,
+    "records": 0,
+    "signal_records": 0,
+    "by_src": {},
+    "top_codes": [],
+    "dominant_code": null,
+    "dominant_frac": 0.0,
+    "retrain_requests": 0,
+    "kill_switch_events": 0,
     "chain_ok": false,
     "chain_first_break": null,
-    "chain_tamper": false,
-    "chain_seams": 4
+    "chain_tamper": true,
+    "chain_seams": 0
   },
   "events": {
-    "records": 13529,
-    "by_level": {
-      "INFO": 13274,
-      "WARNING": 119,
-      "CRITICAL": 70,
-      "ERROR": 66
-    },
-    "top_warnings": [
-      [
-        "op-state INIT -> ARMED (startup validation passed)",
-        56
-      ],
-      [
-        "config: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS outage would starve the book poll at 3 req/s",
-        34
-      ],
-      [
-        "ALERT config_fatal: 1 fatal config finding(s); first: skimmer: core (12) + max_extra (6) exceeds the 12-pair REST-fallback envelope - a WS o",
-        34
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        32
-      ],
-      [
-        "skimmer: universe widened for this boot: 6 core + promoted ['SOL/USD', 'XRP/USD', 'ADA/USD', 'LINK/USD', 'DOGE/USD', 'DOT/USD']",
-        24
-      ],
-      [
-        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
-        22
-      ],
-      [
-        "config: position_sizer.min_p_win=0.550 is below the net-Kelly breakeven 0.632, so the EFFECTIVE entry bar is 0.632 (the sizer floors Kelly a",
-        3
-      ],
-      [
-        "moomoo OpenD unreachable at 127.0.0.1:11111 - running without it",
-        3
-      ],
-      [
-        "control: stop  -> ok (runner=RUNNING)",
-        3
-      ],
-      [
-        "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
-        3
-      ]
-    ],
-    "liquidity_tally": {
-      "thin": 3973,
-      "spoofy": 3068
-    },
-    "spoofy_frac": 0.436,
-    "cycles_estimate": 1726,
-    "feed_error_events": 70
+    "records": 0,
+    "by_level": {},
+    "top_warnings": [],
+    "liquidity_tally": {},
+    "spoofy_frac": 0.0,
+    "cycles_estimate": 0,
+    "feed_error_events": 0
   },
   "model": {
-    "monitor_level": 0,
-    "use_model": true,
-    "kelly_mult": 1.0,
-    "champion_brier": 0.18957452494796392,
+    "monitor_level": null,
+    "use_model": null,
+    "kelly_mult": null,
+    "champion_brier": null,
     "brier": "n/a",
-    "history_rows": 304,
+    "history_rows": 322,
     "cold": true
   },
   "postmortems": {
-    "count": 17,
-    "causes": {
-      "alpha_wrong": 9,
-      "cost_overrun": 8
-    },
-    "worst_realized_pct": -6.909,
-    "impossible_count": 1
+    "count": 0,
+    "causes": {},
+    "worst_realized_pct": 0.0,
+    "impossible_count": 0
   },
   "streams_present": {
-    "audit.jsonl": true,
-    "events.jsonl": true,
-    "equity.csv": true,
-    "state.json": true,
+    "audit.jsonl": false,
+    "events.jsonl": false,
+    "equity.csv": false,
+    "state.json": false,
     "signal_history.csv": true,
-    "postmortem_summary.csv": true
+    "postmortem_summary.csv": false
   },
   "diagnostics": [
     {
-      "id": "SD-005",
+      "id": "SD-007",
       "severity": "error",
-      "title": "postmortem realized% contradicts its own excursions",
-      "detail": "1 of 17 postmortem(s) report a realized loss (worst -6.9%) while max adverse excursion was ~0% - impossible for a real fill. The % is fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); do NOT let ml/monitor.py train or auto-adjust on these causes"
-    },
-    {
-      "id": "SD-002",
-      "severity": "warn",
-      "title": "model starvation loop",
-      "detail": "model is cold (live training rows=304, brier=n/a) yet retrain was requested 121x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 22% of the audit trail"
-    },
-    {
-      "id": "SD-010",
-      "severity": "info",
-      "title": "audit writer seam(s)",
-      "detail": "4 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
+      "title": "audit chain broken",
+      "detail": "hash chain first breaks at record None  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point"
     }
   ],
-  "verdict": "SD-005 postmortem realized% contradicts its own excursions"
+  "verdict": "SD-007 audit chain broken"
 }
