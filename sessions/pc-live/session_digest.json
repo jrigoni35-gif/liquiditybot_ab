@@ -1,22 +1,22 @@
 {
-  "generated_at": 1786679775.9257116,
+  "generated_at": 1786683377.1211708,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786679773.0,
-    "duration_h": 836.04
+    "end": 1786683374.0,
+    "duration_h": 837.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 797.98,
+    "equity_end": 797.94,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -1.25,
     "fees_paid_total": 1.3278,
     "open_positions": 5,
-    "samples": 183169
+    "samples": 183406
   },
   "activity": {
     "signal_rows_total": 10473,
@@ -24,12 +24,12 @@
     "candidate_rows": 10151
   },
   "audit": {
-    "records": 44822,
-    "signal_records": 34933,
+    "records": 44825,
+    "signal_records": 34936,
     "by_src": {
       "exploration": 40058,
       "order_manager": 1403,
-      "ml_governor": 1335,
+      "ml_governor": 1338,
       "long_book": 869,
       "startup": 293,
       "fault": 272,
@@ -63,7 +63,7 @@
       ],
       [
         "ML-031",
-        509
+        510
       ],
       [
         "OM-040",
@@ -91,7 +91,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.638,
+    "dominant_frac": 0.637,
     "retrain_requests": 108,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -100,14 +100,18 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 13505,
+    "records": 14451,
     "by_level": {
-      "INFO": 13460,
-      "WARNING": 42,
+      "INFO": 14401,
+      "WARNING": 47,
       "CRITICAL": 2,
       "ERROR": 1
     },
     "top_warnings": [
+      [
+        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
+        4
+      ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
@@ -117,23 +121,19 @@
         3
       ],
       [
-        "ML-014: calibration skipped - only 0 OOF points (<20 needed) - challenger ships with raw, uncalibrated probabilities",
+        "ML-080: exit-reason mix drift tvd=0.454 over trailing 24h (115/10340 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        3
+      ],
+      [
+        "auto-retrain: 174 rows (44 new)",
+        3
+      ],
+      [
+        "auto-retrain unscoreable: 0 OOF points at 174 rows (purge span eats the folds) - keeping champion until more labels accrue",
         3
       ],
       [
         "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.454 over trailing 24h (115/10340 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        2
-      ],
-      [
-        "auto-retrain: 174 rows (44 new)",
-        2
-      ],
-      [
-        "auto-retrain unscoreable: 0 OOF points at 174 rows (purge span eats the folds) - keeping champion until more labels accrue",
         2
       ],
       [
@@ -150,11 +150,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2937,
-      "thin": 2256
+      "spoofy": 3130,
+      "thin": 2449
     },
-    "spoofy_frac": 0.566,
-    "cycles_estimate": 1592,
+    "spoofy_frac": 0.561,
+    "cycles_estimate": 1710,
     "feed_error_events": 0
   },
   "model": {
@@ -197,13 +197,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 57% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 56% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 64% of 34933 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 64% of 34936 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
