@@ -1,40 +1,40 @@
 {
-  "generated_at": 1786827450.65371,
+  "generated_at": 1786831052.2809002,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786827441.0,
-    "duration_h": 877.06
+    "end": 1786831043.0,
+    "duration_h": 878.06
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 799.41,
+    "equity_end": 799.3,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.22,
     "fees_paid_total": 2.2649,
     "open_positions": 5,
-    "samples": 192809
+    "samples": 193047
   },
   "activity": {
-    "signal_rows_total": 10660,
+    "signal_rows_total": 10671,
     "live_labeled_trades": 327,
-    "candidate_rows": 10333
+    "candidate_rows": 10344
   },
   "audit": {
-    "records": 45103,
-    "signal_records": 35168,
+    "records": 45108,
+    "signal_records": 35173,
     "by_src": {
       "exploration": 40160,
       "order_manager": 1429,
-      "ml_governor": 1405,
-      "long_book": 901,
+      "ml_governor": 1406,
+      "long_book": 903,
       "startup": 299,
       "fault": 278,
+      "conviction": 231,
       "exit": 231,
-      "conviction": 229,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -59,11 +59,11 @@
       ],
       [
         "LB-010",
-        627
+        629
       ],
       [
         "ML-031",
-        544
+        545
       ],
       [
         "OM-040",
@@ -100,16 +100,16 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 3746,
+    "records": 4796,
     "by_level": {
-      "INFO": 3739,
-      "WARNING": 6,
+      "INFO": 4788,
+      "WARNING": 7,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
-        1
+        2
       ],
       [
         "source unavailable (SSLError): https://news.google.com/rss/search?q=%22Jamie+Dimon%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&hl=en-U",
@@ -137,11 +137,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 804,
-      "thin": 758
+      "spoofy": 1091,
+      "thin": 930
     },
-    "spoofy_frac": 0.515,
-    "cycles_estimate": 421,
+    "spoofy_frac": 0.54,
+    "cycles_estimate": 539,
     "feed_error_events": 2
   },
   "model": {
@@ -184,13 +184,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 52% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 54% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 63% of 35168 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 63% of 35173 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
