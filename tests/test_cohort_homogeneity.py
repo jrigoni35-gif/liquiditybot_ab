@@ -220,3 +220,118 @@ def test_era4_trips_carries_position_id(tmp_path):
     """The join key. Without it the composition section is blind."""
     t = era4_trips(_write(tmp_path, _trip("pid-abc", T_IN, T_IN + 60)))
     assert len(t) == 1 and t[0]["pid"] == "pid-abc"
+
+
+# --- fee-free gross: BOTH populations, no verdict --------------------------
+def _hedge_trip(pid, topen, tclose, px=300.0):
+    base = {"symbol": "H", "fill_size": "1", "fees_delta_usd": "0.1",
+            "remaining": "0", "exec_era": "7-e7d5ca1a"}
+    return [
+        dict(base, ts=topen, order_id=pid + "h", position_id=pid,
+             purpose="hedge", side="buy", fill_price=f"{px:g}"),
+        dict(base, ts=tclose, order_id=pid + "x", position_id=pid,
+             purpose="exit", side="sell", fill_price=f"{px - 5.0:g}"),
+    ]
+
+
+def test_include_hedges_defaults_off_so_the_cohort_is_untouched(tmp_path):
+    """THE LOAD-BEARING ONE. include_hedges exists solely for the reporting
+    section; if it ever leaked into the default, hedge round trips would enter
+    the pre-registered verdict population — the exact thing era4_trips'
+    'a hedge is insurance, not the thesis' rule exists to prevent."""
+    rows = _trip("e1", T_IN, T_IN + 60, px=100.0) + \
+        _hedge_trip("h1", T_IN + 120, T_IN + 180)
+    path = _write(tmp_path, rows)
+    assert [t["pid"] for t in era4_trips(path)] == ["e1"], \
+        "default MUST stay entry-opened only"
+    both = era4_trips(path, include_hedges=True)
+    assert sorted(t["pid"] for t in both) == ["e1", "h1"]
+
+
+def test_lifetime_gross_reports_both_populations_and_asserts_nothing(tmp_path):
+    """The sign of fee-free gross is population-dependent on this book, so the
+    section reports both rows and draws no verdict. A single number here could
+    confirm or refute COST_BOUND at will."""
+    from scripts.cohort_eval import lifetime_gross
+    # NB three trips, not two: this module's median is the UPPER one
+    # (sorted(x)[n // 2]), so an even-sized population returns the larger
+    # element and a 1-win/1-loss fixture would read positive on both rows.
+    rows = _trip("e1", T_IN, T_IN + 60, px=100.0) + \
+        _hedge_trip("h1", T_IN + 120, T_IN + 180, px=300.0) + \
+        _hedge_trip("h2", T_IN + 240, T_IN + 300, px=400.0)
+    lt = lifetime_gross(_write(tmp_path, rows))
+    assert set(lt) == {"entry_only", "with_hedges"}, \
+        "both populations, always - never one 'the' number"
+    assert lt["entry_only"]["n"] == 1
+    assert lt["with_hedges"]["n"] == 3
+    # the entry trip wins, the hedge loses - so the two rows disagree in sign,
+    # which is the condition the report calls out
+    assert lt["entry_only"]["gross_median_pct"] > 0
+    assert lt["with_hedges"]["gross_median_pct"] < 0
+    assert "verdict" not in lt and "readout" not in lt
+
+
+# --- effective n: what the cohort KNOWS, not how many rows it has ----------
+def _span(topen, tclose):
+    return {"t_open": float(topen), "t": float(tclose)}
+
+
+def test_disjoint_trips_are_fully_unique():
+    """No overlap -> every trip is one whole independent observation."""
+    from scripts.cohort_eval import cohort_effective_n
+    e = cohort_effective_n([_span(0, 10), _span(20, 30), _span(40, 50)])
+    assert e["n"] == 3
+    assert abs(e["effective_n"] - 3.0) < 1e-9
+    assert abs(e["mean_uniqueness"] - 1.0) < 1e-9
+    assert abs(e["se_inflation"] - 1.0) < 1e-9
+
+
+def test_two_identical_spans_are_worth_one_observation():
+    """Perfectly concurrent trips share the entire market path: 2 rows, 1
+    lesson. This is the whole point of the section."""
+    from scripts.cohort_eval import cohort_effective_n
+    e = cohort_effective_n([_span(0, 10), _span(0, 10)])
+    assert abs(e["effective_n"] - 1.0) < 1e-9
+    assert abs(e["mean_uniqueness"] - 0.5) < 1e-9
+    assert abs(e["se_inflation"] - 2 ** 0.5) < 1e-9, \
+        "SE inflates as sqrt(n / n_eff)"
+
+
+def test_half_overlap_is_three_quarters_unique():
+    """A hand-checkable case. Spans [0,10] and [5,15]: each is alone for 5
+    units (weight 1.0) and shares 5 units with one other (weight 0.5), so each
+    averages (5*1.0 + 5*0.5)/10 = 0.75 and effective_n = 1.5."""
+    from scripts.cohort_eval import cohort_effective_n
+    e = cohort_effective_n([_span(0, 10), _span(5, 15)])
+    assert abs(e["mean_uniqueness"] - 0.75) < 1e-9
+    assert abs(e["effective_n"] - 1.5) < 1e-9
+
+
+def test_effective_n_never_exceeds_nominal():
+    """A sanity invariant: concurrency can only ever COST information."""
+    from scripts.cohort_eval import cohort_effective_n
+    for spans in ([_span(0, 10)], [_span(0, 10), _span(1, 9)],
+                  [_span(0, 100), _span(10, 20), _span(15, 25)]):
+        e = cohort_effective_n(spans)
+        assert e["effective_n"] <= e["n"] + 1e-9
+        assert e["se_inflation"] >= 1.0 - 1e-9
+
+
+def test_effective_n_degrades_on_unusable_spans():
+    """Report-only tools never raise. Missing t_open (pre-schema rows) and
+    zero-length spans must drop out rather than divide by zero."""
+    from scripts.cohort_eval import cohort_effective_n
+    assert cohort_effective_n([])["available"] is False
+    assert cohort_effective_n([{"t": 5.0}])["available"] is False
+    assert cohort_effective_n([_span(5, 5)])["available"] is False
+
+
+def test_lifetime_gross_ignores_the_epoch_cut(tmp_path):
+    """It is a LIFETIME falsifier population - pre-epoch trips belong in it,
+    and must still never reach the cohort."""
+    from scripts.cohort_eval import lifetime_gross
+    rows = _trip("old", EPOCH - 7200, EPOCH - 3600, px=100.0) + \
+        _trip("new", T_IN, T_IN + 60, px=200.0)
+    path = _write(tmp_path, rows)
+    assert lifetime_gross(path)["entry_only"]["n"] == 2
+    assert len(era4_trips(path)) == 1, "the cohort keeps its epoch cut"

@@ -191,7 +191,49 @@ def summarize(rows, label):
     }
 
 
-def era4_trips(fills_path):
+def _summ(trips: list) -> dict:
+    n = len(trips)
+    if not n:
+        return {"available": False, "n": 0}
+    g = sorted(t["gross_pct"] for t in trips)
+    nt = sorted(t["net_pct"] for t in trips)
+    return {"available": True, "n": n,
+            "gross_mean_pct": sum(g) / n, "gross_median_pct": g[n // 2],
+            "net_mean_pct": sum(nt) / n, "net_median_pct": nt[n // 2],
+            "gross_win_rate": sum(1 for v in g if v > 0) / n}
+
+
+def lifetime_gross(fills_path) -> dict:
+    """Fee-free gross over the WHOLE closed-trip history, on BOTH populations.
+
+    WHY BOTH, and why this section does not assert a verdict. COST_BOUND says
+    "a gross edge exists and fees eat it", and whether the wider history agrees
+    depends entirely on ONE population choice that is easy to make silently:
+
+      entry-opened only  — what the era-4 cohort measures (`opened_by` must be
+                           "entry"; a hedge is insurance, not the thesis)
+      + hedge-opened     — the whole book as actually traded
+
+    Measured 2026-08-15: entry-only gross mean **+0.0173%** / median
+    **+0.0533%** over 256 trips; hedge-inclusive is NEGATIVE, and the corpus
+    already records the flip (discarding 159 hedge round trips moves median
+    gross -0.0303% -> +0.0505%, `synthesis/the-money-path-thesis`). A session
+    that quotes one of these as "the" fee-free number can refute or confirm
+    COST_BOUND at will, which is exactly how the shipped breakeven tool once
+    printed the opposite of its own method's answer.
+
+    So this prints both, labelled, and draws no conclusion. The readout rule is
+    untouched; the registration is the law. What is added is the fact that the
+    verdict's SIGN is population-sensitive — the operator should see that before
+    acting on any branch, not after. Report-only.
+    """
+    return {"entry_only": _summ(era4_trips(fills_path, since=0.0)),
+            "with_hedges": _summ(era4_trips(fills_path, since=0.0,
+                                            include_hedges=True))}
+
+
+def era4_trips(fills_path, since: float | None = None,
+               include_hedges: bool = False):
     """Entry-opened closed round trips from fills.csv closing at/after B4_TS.
 
     Returns a list of {"t", "gross_pct", "net_pct"} - the complete era-4
@@ -264,11 +306,19 @@ def era4_trips(fills_path):
         if key in seen:
             continue
         seen.add(key)
-        if opened_by != "entry":        # hedges are insurance, not the thesis
+        # hedges are insurance, not the thesis — the pre-registered population
+        # is entry-opened ONLY. include_hedges=True is used solely by
+        # lifetime_gross() to show how much the fee-free sign depends on this
+        # one choice; it never touches the verdict population (default False).
+        if opened_by != "entry" and not include_hedges:
             continue
         # the verdict population: honest fills (post-#4) AND one capital
-        # regime (post-reset) - the epoch cut is the later of the two
-        if tclose < max(B4_TS, CAPITAL_EPOCH_TS):
+        # regime (post-reset) - the epoch cut is the later of the two.
+        # `since` defaults to EXACTLY that cut, so the pre-registered
+        # population is byte-identical; only lifetime_gross() passes 0.0, to
+        # reconstruct the same trips WITHOUT the cut as a falsifier population.
+        _cut = max(B4_TS, CAPITAL_EPOCH_TS) if since is None else since
+        if tclose < _cut:
             continue
         out.append({"t": tclose, "t_open": topen, "pid": legs[0].get(
                         "position_id", ""),
@@ -431,6 +481,53 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
                         if ts >= cohort_start]}
 
 
+def cohort_effective_n(trips: list) -> dict:
+    """Average-uniqueness effective sample size on the cohort's OWN trips.
+
+    WHY THE GATE NEEDS THIS. The era-4 readout prints a resolution note built
+    on the SE of the mean: "at n=50 with per-trade sd ~0.5% the SE is ~0.07%,
+    so only |edges| beyond ~0.14% are resolvable". That arithmetic assumes 50
+    INDEPENDENT observations. Trips held concurrently are not independent —
+    they share the same market path over their overlap, which is de Prado's
+    concurrency problem (AFML ch.4). The corpus already applies uniqueness
+    weighting to TRAINING (`ml/history.py` uniqueness_enabled,
+    `ml/event_sampler.py`) and the operator dashboard already plots label
+    uniqueness at ~15.3%. The VERDICT GATE has never had it, so its stated
+    resolution floor is optimistic by exactly the factor computed here.
+
+    Method, on trip spans [t_open, t_close], no library needed: a trip's
+    average uniqueness is the time-weighted mean of 1/c(t) over its own span,
+    where c(t) is how many trips are open at t. effective_n is their sum, and
+    SE scales as 1/sqrt(effective_n) rather than 1/sqrt(n) — so the resolvable
+    edge inflates by sqrt(n / effective_n).
+
+    Report-only. Changes no threshold and no selection; it says how much the
+    cohort KNOWS, not which trips are in it."""
+    spans = [(t["t_open"], t["t"]) for t in trips
+             if t.get("t_open") is not None and t.get("t") is not None
+             and t["t"] > t["t_open"]]
+    n = len(spans)
+    if not n:
+        return {"available": False, "n": 0}
+    # event-driven: concurrency only changes at a span endpoint, so the
+    # segments between sorted endpoints have constant c(t)
+    pts = sorted({p for s in spans for p in s})
+    uniq = []
+    for a, b in spans:
+        acc, span = 0.0, b - a
+        for lo, hi in zip(pts, pts[1:]):
+            seg = min(hi, b) - max(lo, a)
+            if seg <= 0:
+                continue
+            c = sum(1 for x, y in spans if x < hi and y > lo)
+            acc += seg / max(1, c)
+        uniq.append(acc / span if span > 0 else 1.0)
+    eff = sum(uniq)
+    return {"available": True, "n": n, "effective_n": eff,
+            "mean_uniqueness": eff / n,
+            "se_inflation": (n / eff) ** 0.5 if eff > 0 else float("inf")}
+
+
 def cohort_composition(trips: list, signal_history_path) -> dict:
     """WHAT the accruing cohort is made of, joined by position_id.
 
@@ -544,7 +641,9 @@ def main() -> int:
            "homogeneity": homogeneity(_trips, _epochs,
                                       max(B4_TS, CAPITAL_EPOCH_TS)),
            "geometry": geometry_breakeven(ns.signal_history),
-           "composition": cohort_composition(_trips, ns.signal_history)}
+           "composition": cohort_composition(_trips, ns.signal_history),
+           "lifetime": lifetime_gross(ns.fills),
+           "effective_n": cohort_effective_n(_trips)}
     nn = res["cohorts"][1]["n"]
     res["verdict_available"] = nn >= MIN_COHORT_N
     res["progress"] = f"{nn}/{MIN_COHORT_N}"
@@ -621,6 +720,19 @@ def main() -> int:
         print("  resolution note: the gate is a pre-committed TRIGGER, not a")
         print("  measurement - a readout does not claim the effect size is")
         print("  resolved beyond ~2x the SE above.")
+        _en = res.get("effective_n") or {}
+        if _en.get("available"):
+            print("  EFFECTIVE n: %.1f of %d nominal (mean uniqueness %.3f)."
+                  % (_en["effective_n"], _en["n"], _en["mean_uniqueness"]))
+            print("  Trips held CONCURRENTLY share the same market path over")
+            print("  their overlap, so the SE above - which assumes n")
+            print("  independent observations - is optimistic by x%.2f."
+                  % _en["se_inflation"])
+            print("  Read the resolvable-edge floor as ~%.4f%%, not the"
+                  % (2 * e4.get("gross_se_pct", float("nan"))
+                     * _en["se_inflation"]))
+            print("  nominal figure. (de Prado concurrency; the corpus already")
+            print("  weights TRAINING this way - the gate never did.)")
         print("  net    mean %+.4f%%  median %+.4f%%  win %.1f%%"
               % (e4["net_mean_pct"], e4["net_median_pct"],
                  e4["net_win_rate"] * 100))
@@ -637,6 +749,11 @@ def main() -> int:
         print("\n  COST-BOUND: a gross edge exists on honest fills and fees")
         print("  eat it. The fee levers held behind h432 become the live")
         print("  discussion.")
+        print("\n  BEFORE ACTING ON THAT LINE: the sign is POPULATION-SENSITIVE")
+        print("  (see the FEE-FREE GROSS section below). COST_BOUND asserts a")
+        print("  gross edge EXISTS; whether the wider history agrees flips with")
+        print("  one choice - whether hedge-opened round trips are counted.")
+        print("  Read both rows there before touching a fee lever.")
     else:
         print("\n  CONTINUE: net-positive on honest fills at n>=%d."
               % ERA4_MIN_N)
@@ -694,6 +811,33 @@ def main() -> int:
             print("    -> %d distinct label eras in one cohort - the label axis is"
                   % cp["label_eras_present"])
             print("       mixed as well as the fill and model axes.")
+
+    lt = res.get("lifetime") or {}
+    print("\n" + "=" * 68)
+    print("FEE-FREE GROSS over the whole closed-trip history - BOTH populations")
+    print("(the verdict's sign depends on this choice; neither row is 'the'")
+    print(" number, and quoting one alone can confirm or refute COST_BOUND at")
+    print(" will - which is how the shipped breakeven tool once printed the")
+    print(" opposite of its own method's answer)")
+    for _key, _lbl in (("entry_only", "entry-opened ONLY (what the cohort "
+                                      "measures)"),
+                       ("with_hedges", "+ hedge-opened (the whole book as "
+                                       "traded)")):
+        _s = lt.get(_key) or {}
+        if not _s.get("available"):
+            print("  %-46s unavailable" % _lbl)
+            continue
+        print("  %s" % _lbl)
+        print("    n=%-5d gross mean %+.4f%%  median %+.4f%%  win %.1f%%"
+              % (_s["n"], _s["gross_mean_pct"], _s["gross_median_pct"],
+                 100 * _s["gross_win_rate"]))
+    _e, _h = lt.get("entry_only") or {}, lt.get("with_hedges") or {}
+    if _e.get("available") and _h.get("available") and \
+            (_e["gross_median_pct"] > 0) != (_h["gross_median_pct"] > 0):
+        print("  -> THE TWO ROWS DISAGREE IN SIGN. The fee-free question has no")
+        print("     single answer on this book; it has one answer per")
+        print("     population, and the cohort's own definition picks the")
+        print("     entry-only row. Say which one you mean, every time.")
 
     g = res["geometry"]
     print("\n" + "=" * 68)
