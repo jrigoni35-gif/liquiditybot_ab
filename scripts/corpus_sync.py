@@ -66,12 +66,34 @@ def _log(msg: str, root: Path = ROOT) -> None:
 # unpack typed every subprocess.run kwarg as int for the type checker.
 _NOWIN = 0x08000000 if os.name == "nt" else 0
 
+# DL-2 (measured 2026-08-13): a git call needing credentials pops an
+# interactive Git-Credential-Manager dialog that nobody can answer in a
+# headless sidecar, and timeout= cannot rescue it — the credential helper is a
+# GRANDCHILD holding the inherited capture_output pipe, so communicate()
+# blocks for an EOF that never arrives. Make git FAIL instead of ASK. Env-only
+# injection; argv is left untouched. Full rationale: scripts/remote_control.py.
+_NOPROMPT = {
+    "GIT_TERMINAL_PROMPT": "0",     # core git: never prompt on a terminal
+    "GIT_ASKPASS": "",              # disable GUI askpass; terminal path is
+    "SSH_ASKPASS": "",              # then refused by GIT_TERMINAL_PROMPT=0
+    "GCM_INTERACTIVE": "never",     # Git-Credential-Manager: never show UI
+    # env-injected config (git >= 2.31) == `-c credential.interactive=false`
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "credential.interactive",
+    "GIT_CONFIG_VALUE_0": "false",
+}
+
+
+def _git_env() -> dict:
+    """os.environ plus the never-prompt overrides (read fresh per call)."""
+    return {**os.environ, **_NOPROMPT}
+
 
 def _git(*args, cwd, timeout=120):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
                            capture_output=True, text=True, timeout=timeout,
-                           creationflags=_NOWIN)
+                           creationflags=_NOWIN, env=_git_env())
         return p.returncode, (p.stdout or "").strip()
     except Exception as e:                       # noqa: BLE001
         return 1, f"error: {e}"
@@ -85,7 +107,7 @@ def _git_bytes(*args, cwd, timeout=60):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
                            capture_output=True, timeout=timeout,
-                           creationflags=_NOWIN)
+                           creationflags=_NOWIN, env=_git_env())
         return p.returncode, p.stdout or b""
     except Exception:                            # noqa: BLE001
         return 1, b""

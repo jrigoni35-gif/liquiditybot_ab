@@ -6102,6 +6102,17 @@ class LiquidityBot:
         if self.meta.reload_if_changed():
             if self.meta.trained and self.meta.oof_brier is not None:
                 self.monitor.note_deployed(float(self.meta.oof_brier))
+                # same ML-060 lineage gap as the auto-retrain path below: an
+                # externally-trained artifact adopted here becomes champion
+                # without any "deployed" row ever being written.
+                try:
+                    from ml.registry import get_registry
+                    get_registry().note(
+                        "deployed", str(self.meta.model_id or ""),
+                        {"oof_brier": float(self.meta.oof_brier),
+                         "source": "external_adopt"})
+                except Exception:                    # noqa: BLE001
+                    log.debug("registry deployed-note failed", exc_info=True)
                 log.warning("adopted externally-retrained meta-model %s "
                             "(oof brier %.4f) - champion baseline realigned",
                             self.meta.model_id or "?", self.meta.oof_brier)
@@ -6506,6 +6517,23 @@ class LiquidityBot:
                 return
             self.meta.reload()
             self.monitor.note_deployed(challenger_brier)
+            # ML-060 LINEAGE GAP (found 2026-08-14): outputs/models/
+            # registry.jsonl held 134 "registered" events and ZERO "deployed"
+            # ones, so the ledger could not answer the question its own
+            # docstring promises — "which model was making decisions at
+            # 3:47am on Tuesday". ml/models.py:404 registers on SAVE;
+            # becoming CHAMPION happens only here, so this is the one honest
+            # place to record it. Wrapped: lineage must never be able to take
+            # down the retrain path it is only observing.
+            try:
+                from ml.registry import get_registry
+                get_registry().note(
+                    "deployed", str(self.meta.model_id or ""),
+                    {"oof_brier": float(challenger_brier),
+                     "family": str(results.get("selected")),
+                     "rows": int(len(X)), "source": "auto_retrain"})
+            except Exception:                        # noqa: BLE001
+                log.debug("registry deployed-note failed", exc_info=True)
             log.warning(f"auto-retrain DEPLOYED {results['selected']} "
                         f"(oof brier {challenger_brier:.4f})")
         except Exception:

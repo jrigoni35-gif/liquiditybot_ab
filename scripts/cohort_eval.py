@@ -213,7 +213,22 @@ def era4_trips(fills_path):
         legs.sort(key=lambda r: _f(r, "ts") or 0.0)
         cash = fees = esz = xsz = enot = 0.0
         tclose = None
+        topen = None
         opened_by = None
+        # ERA PROVENANCE (report-only, added 2026-08-14). THREE-way, because
+        # the ledger's own rule ("blank exec_era = pre-stamp, decide by ts")
+        # returns the WRONG answer for rows a STALE BINARY wrote: their ts
+        # says era-7 while their fill physics is era-2. csv.DictReader fills a
+        # MISSING trailing field with None, and exec_era is the LAST column
+        # (core/fill_ledger.COLS, index 16 of 17), so "absent" and "blank" are
+        # distinguishable exactly where the distinction matters:
+        #   None -> the writer's COLS predates the stamp  -> STALE BINARY
+        #   ""   -> stamp-aware writer, pre-stamp row     -> decide by ts
+        #   else -> stamped
+        # This CLASSIFIES ONLY. The pre-registered selection below is
+        # untouched: changing which trips count after the cohort accrues is
+        # the exact thing pre-registration exists to prevent.
+        eras, stale_legs, prestamp_legs = set(), 0, 0
         sig, ok = [], True
         for r in legs:
             sz, px = _f(r, "fill_size"), _f(r, "fill_price")
@@ -221,6 +236,13 @@ def era4_trips(fills_path):
             if sz is None or px is None or fee is None or sz <= 0 or px <= 0:
                 ok = False
                 break
+            _era = r.get("exec_era")
+            if _era is None:
+                stale_legs += 1
+            elif not str(_era).strip():
+                prestamp_legs += 1
+            else:
+                eras.add(str(_era).strip())
             cash += (sz * px) if r.get("side") == "sell" else -(sz * px)
             fees += fee
             if r.get("purpose") in _OPEN_PURPOSES:
@@ -228,6 +250,7 @@ def era4_trips(fills_path):
                 enot += sz * px
                 if opened_by is None:
                     opened_by = r.get("purpose")
+                    topen = _f(r, "ts")
             elif r.get("purpose") == "exit":
                 xsz += sz
                 tclose = _f(r, "ts")
@@ -247,8 +270,11 @@ def era4_trips(fills_path):
         # regime (post-reset) - the epoch cut is the later of the two
         if tclose < max(B4_TS, CAPITAL_EPOCH_TS):
             continue
-        out.append({"t": tclose, "gross_pct": 100.0 * cash / enot,
-                    "net_pct": 100.0 * (cash - fees) / enot})
+        out.append({"t": tclose, "t_open": topen,
+                    "gross_pct": 100.0 * cash / enot,
+                    "net_pct": 100.0 * (cash - fees) / enot,
+                    "eras": sorted(eras), "stale_legs": stale_legs,
+                    "prestamp_legs": prestamp_legs})
     return out
 
 
@@ -291,11 +317,166 @@ def era4_section(trips):
     return res
 
 
+# --- CONTAMINATION / HOMOGENEITY (report-only, added 2026-08-14) ----------
+# WHY: the registration says the accruing cohort is "uniformly post-geometry
+# by construction". There are two ways that can silently stop being true, and
+# before this section no tool could see either.
+#   FILL-ERA  — fills.csv carries rows written by a binary whose COLS predate
+#               exec_era (the live tree sat at 21769fb8, 2026-08-07, until the
+#               08-12 fast-forward; boundaries #3/#4 and cut #7 are all NON-
+#               ancestors of it). Those fills were granted by a simulator with
+#               both the TTL-hazard bug and the ~1.88x near-touch double-count
+#               live — inside the accruing verdict window.
+#   MODEL-ERA — the champion can swap mid-cohort (it did: 2026-08-14T15:14:13Z,
+#               a 10,217-row adaptive_gbt replaced by a 211-row logistic via
+#               the ML-083 era-orphan unlock). fills.csv has NO model_id column
+#               and adding one would be a fill-path change the moratorium
+#               forbids, so a timestamp join against the retrain ledger is the
+#               only honest route.
+# Both are REPORTED and nothing else. Whether a mixed cohort resets accrual is
+# an operator adjudication; this exists so the question cannot go unnoticed.
+RETRAIN_HISTORY = "outputs/retrain_history.jsonl"
+SIGNAL_HISTORY = "outputs/signal_history.csv"
+CURRENT_LABEL_ERA = "triple_barrier_h432"
+
+
+def deploy_epochs(path) -> list:
+    """(ts, family, rows, oof_brier) per DEPLOYED retrain, ascending.
+
+    A missing or unreadable ledger returns [] and the model-era section
+    degrades to UNKNOWN rather than raising: a report tool must never become
+    the reason the verdict gate cannot be read at all."""
+    out = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not rec.get("deployed"):
+                    continue
+                try:
+                    ts = float(rec.get("ts"))
+                except (TypeError, ValueError):
+                    continue
+                out.append((ts, str(rec.get("selected") or "?"),
+                            rec.get("rows"), rec.get("oof_brier")))
+    except OSError:
+        return []
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _champion_at(epochs: list, t):
+    """Family in force at instant t; None before the first recorded deploy."""
+    if t is None:
+        return None
+    fam = None
+    for ts, family, _rows, _brier in epochs:
+        if ts <= t:
+            fam = family
+        else:
+            break
+    return fam
+
+
+def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
+    """Classify the accruing cohort. Report-only; selects nothing.
+
+    `cohort_start` trims the REPORTED deploy list to the accrual window. The
+    full epoch history is still consulted to resolve which champion was in
+    force when a trip opened — that champion may have deployed long before
+    the window began, so filtering the input would misattribute it."""
+    stale = [t for t in trips if t.get("stale_legs")]
+    prestamp = [t for t in trips if t.get("prestamp_legs")]
+    eras = sorted({e for t in trips for e in (t.get("eras") or [])})
+    fill_mixed = bool(stale) or len(eras) > 1
+
+    champs, straddle = set(), 0
+    for t in trips:
+        fam = _champion_at(epochs, t.get("t_open"))
+        if fam:
+            champs.add(fam)
+        # a deploy landing strictly INSIDE a trip means the model that opened
+        # it is not the model that was live when it closed
+        topen, tclose = t.get("t_open"), t.get("t")
+        # NB: never bind `_f` here — it is the module-level float parser
+        if topen is not None and tclose is not None and any(
+                topen < ts < tclose for ts, _fam, _r, _b in epochs):
+            straddle += 1
+    model_known = bool(epochs)
+    model_mixed = model_known and (len(champs) > 1 or straddle > 0)
+
+    if not model_known:
+        verdict = "MIXED(fill)" if fill_mixed else "UNKNOWN(no model ledger)"
+    elif fill_mixed and model_mixed:
+        verdict = "MIXED(both)"
+    elif fill_mixed:
+        verdict = "MIXED(fill)"
+    elif model_mixed:
+        verdict = "MIXED(model)"
+    else:
+        verdict = "CLEAN"
+    return {"verdict": verdict, "n": len(trips),
+            "stale_trips": len(stale), "prestamp_trips": len(prestamp),
+            "fill_eras": eras, "fill_mixed": fill_mixed,
+            "model_known": model_known, "champions": sorted(champs),
+            "straddling_trips": straddle, "model_mixed": model_mixed,
+            "deploys": [(ts, fam) for ts, fam, _r, _b in epochs
+                        if ts >= cohort_start]}
+
+
+def geometry_breakeven(path, era: str = CURRENT_LABEL_ERA) -> dict:
+    """Can the CURRENT label geometry pay at its own realized hit rate?
+
+    A triple barrier with take-profit pt and stop sl breaks even GROSS (before
+    any cost) only when the target is hit at least sl/(pt+sl) of the time.
+    That threshold is arithmetic, not a fit, and it is the cheapest possible
+    check on whether an exit geometry can pay AT ALL — model-independent. It
+    is reported, never enforced: pt/sl are frozen under the moratorium and
+    changing them is the pre-named ALGO-5 adjudication.
+
+    Time-stopped paths resolve at NEITHER barrier and are excluded from the
+    ratio; their count is always printed so the exclusion is never silent."""
+    try:
+        with open(path, newline="", encoding="utf-8") as fh:
+            rows = [r for r in csv.DictReader(fh)
+                    if str(r.get("label_era", "")).strip() == era]
+    except OSError:
+        return {"era": era, "n": 0, "available": False}
+    bars = collections.Counter(str(r.get("barrier", "")) for r in rows)
+    n_pt, n_sl = bars.get("tb_pt", 0), bars.get("tb_sl", 0)
+    res = {"era": era, "n": len(rows), "available": False,
+           "n_pt": n_pt, "n_sl": n_sl, "n_time": bars.get("tb_time", 0)}
+    pts = sorted(v for v in (_f(r, "pt_frac") for r in rows) if v)
+    sls = sorted(v for v in (_f(r, "sl_frac") for r in rows) if v)
+    if not (pts and sls and (n_pt + n_sl)):
+        return res
+    mpt, msl = pts[len(pts) // 2], sls[len(sls) // 2]
+    actual = n_pt / (n_pt + n_sl)
+    need = msl / (mpt + msl)
+    res.update({"available": True, "median_pt": mpt, "median_sl": msl,
+                "payoff": (mpt / msl) if msl else float("inf"),
+                "actual_hit": actual, "breakeven_hit": need,
+                "margin": actual - need,
+                "expectancy_pct": 100.0 * (n_pt * mpt - n_sl * msl)
+                / (n_pt + n_sl)})
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=str(ROOT / "outputs" /
                                          "postmortem_summary.csv"))
     ap.add_argument("--fills", default=str(ROOT / "outputs" / "fills.csv"))
+    ap.add_argument("--retrain-history", default=str(ROOT / RETRAIN_HISTORY),
+                    help="retrain ledger for the model-era join (report-only)")
+    ap.add_argument("--signal-history", default=str(ROOT / SIGNAL_HISTORY),
+                    help="label corpus for the geometry breakeven check")
     ap.add_argument("--json", action="store_true")
     ns = ap.parse_args()
 
@@ -307,11 +488,16 @@ def main() -> int:
     old = [r for r in rows if (_f(r, "ts") or 0) < MIGRATION_TS]
     new = [r for r in rows if (_f(r, "ts") or 0) >= MIGRATION_TS]
 
+    _trips = era4_trips(ns.fills)
+    _epochs = deploy_epochs(ns.retrain_history)
     res = {"pre_registered": _PREREG, "min_cohort_n": MIN_COHORT_N,
            "migration_ts": MIGRATION_TS,
            "cohorts": [summarize(old, "pre-432 (old geometry)"),
                        summarize(new, "post-432 (36h horizon)")],
-           "era4": era4_section(era4_trips(ns.fills))}
+           "era4": era4_section(_trips),
+           "homogeneity": homogeneity(_trips, _epochs,
+                                      max(B4_TS, CAPITAL_EPOCH_TS)),
+           "geometry": geometry_breakeven(ns.signal_history)}
     nn = res["cohorts"][1]["n"]
     res["verdict_available"] = nn >= MIN_COHORT_N
     res["progress"] = f"{nn}/{MIN_COHORT_N}"
@@ -380,6 +566,7 @@ def main() -> int:
     print(" fills.csv, entry-opened only; no postmortem censoring.)")
     print("\n  accrual: %s entry-opened closes toward the verdict gate"
           % e4["progress"])
+    print("  COHORT HOMOGENEITY: %s" % res["homogeneity"]["verdict"])
     if e4["n"]:
         print("  gross  mean %+.4f%%  (SE %.4f%%)  median %+.4f%%  win %.1f%%"
               % (e4["gross_mean_pct"], e4.get("gross_se_pct", float("nan")),
@@ -406,6 +593,67 @@ def main() -> int:
     else:
         print("\n  CONTINUE: net-positive on honest fills at n>=%d."
               % ERA4_MIN_N)
+
+    hg = res["homogeneity"]
+    print("\n" + "=" * 68)
+    print("COHORT HOMOGENEITY - %s" % hg["verdict"])
+    print("(Report-only. The pre-registered selection rule is UNCHANGED: this")
+    print(" section classifies what accrued, it never filters it. Whether a")
+    print(" mixed cohort resets accrual is an OPERATOR adjudication.)")
+    print("\n  FILL-ERA")
+    print("    trips with a STALE-BINARY leg (exec_era field ABSENT): %d/%d"
+          % (hg["stale_trips"], hg["n"]))
+    print("    trips with a pre-stamp blank leg:                      %d/%d"
+          % (hg["prestamp_trips"], hg["n"]))
+    print("    distinct stamped eras present: %s"
+          % (", ".join(hg["fill_eras"]) or "none"))
+    if hg["stale_trips"]:
+        print("    -> a leg was written by a binary whose COLS predate the")
+        print("       exec_era stamp: its ts reads era-7 while its fill")
+        print("       physics is pre-boundary-#4 (TTL hazard + ~1.88x")
+        print("       near-touch). The ledger's blank-means-decide-by-ts rule")
+        print("       returns the WRONG era for exactly these rows.")
+    print("\n  MODEL-ERA")
+    if not hg["model_known"]:
+        print("    UNKNOWN - no retrain ledger readable at the given path.")
+    else:
+        print("    champions that opened trips in this cohort: %s"
+              % (", ".join(hg["champions"]) or "none resolved"))
+        print("    trips straddling a mid-flight deploy:       %d"
+              % hg["straddling_trips"])
+        for _ts, _fam in hg["deploys"]:
+            print("      deploy %s  ->  %s"
+                  % (datetime.fromtimestamp(_ts, timezone.utc)
+                     .strftime("%Y-%m-%dT%H:%M:%SZ"), _fam))
+
+    g = res["geometry"]
+    print("\n" + "=" * 68)
+    print("LABEL-GEOMETRY BREAKEVEN - %s" % g["era"])
+    if not g.get("available"):
+        print("  unavailable (n=%d rows for this era; needs pt/sl plus at"
+              % g.get("n", 0))
+        print("  least one barrier-resolved path)")
+    else:
+        print("  n=%d rows   barriers: tb_pt=%d  tb_sl=%d  tb_time=%d"
+              % (g["n"], g["n_pt"], g["n_sl"], g["n_time"]))
+        print("  median pt %.4f%%   median sl %.4f%%   payoff %.3f"
+              % (100 * g["median_pt"], 100 * g["median_sl"], g["payoff"]))
+        print("  target-hit rate  ACTUAL %.3f  BREAKEVEN %.3f  margin %+.3f"
+              % (g["actual_hit"], g["breakeven_hit"], g["margin"]))
+        print("  gross expectancy %+.4f%% per barrier-resolved path (pre-cost)"
+              % g["expectancy_pct"])
+        print("  NOTE: %d time-stopped paths resolve at NEITHER barrier and"
+              % g["n_time"])
+        print("  are excluded from the ratio above - never silently.")
+        if g["margin"] < 0:
+            print("\n  NO GROSS EDGE IN THE GEOMETRY ITSELF: the target must be")
+            print("  hit %.1f%% of the time to break even before costs, and is"
+                  % (100 * g["breakeven_hit"]))
+            print("  hit %.1f%%. That is arithmetic, not a fit, and it is"
+                  % (100 * g["actual_hit"]))
+            print("  model-INDEPENDENT - no selector rescues a geometry that")
+            print("  cannot pay. Changing pt/sl is the pre-named ALGO-5")
+            print("  adjudication and is FROZEN: report, do not retune.")
 
     c = res["cohorts"][0]
     if c["n"] and c.get("cost_drag_median") is not None \

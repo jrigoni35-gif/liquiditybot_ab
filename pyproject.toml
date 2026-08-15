@@ -8,6 +8,32 @@
 addopts = "--strict-markers"
 markers = [
     "timing: wall-clock-sensitive under CPU load. Excluded from the battery's parallel -n 8 pass and run in a follow-up SERIAL pass (test_windows.bat, owed item 44). Tag tests a saturated box can fail without a code defect: upper-bounded elapsed measurements, thread-gap spacing, hard wall timeouts on CPU-heavy subprocesses.",
+    # --- foreign marks, declared so that strict may stay strict -------------
+    # A globally-installed SuperClaude pytest plugin APPLIES four marks during
+    # collection (unit / integration / hallucination / performance) while
+    # registering only its own, different four. Under --strict-markers that
+    # mismatch is not a warning and not one red test: pytest raises
+    # INTERNALERROR mid-collection and NOTHING runs. Measured on this box
+    # 2026-08-14 — "no tests ran in 4.28s". The entire definition-of-done
+    # battery, silenced by a guest the repo never invited.
+    #
+    # Two easy doors, both refused. `-p no:superclaude` hides the guest
+    # instead of housing it, and thereafter must be remembered by every
+    # human, every lane, every future session — a fix that survives only by
+    # being remembered is not a fix, it is a debt with a friendly face.
+    # Loosening --strict-markers is worse: the note above it explains what
+    # that strictness holds shut, and a typo'd `timing` slipping a
+    # load-marginal test back into the parallel pass is a gate hole that
+    # fails silently, which is the only kind that matters.
+    #
+    # So we name the guest. A mark that is declared is a mark that is meant.
+    # These four are inert here — nothing in this repo selects or deselects
+    # on them — and on the day the plugin is uninstalled they cost one dead
+    # line apiece, which is a very small rent for a battery that runs.
+    "unit: applied automatically by the SuperClaude pytest plugin at collection. Inert here; this repo's own selection never reads it.",
+    "integration: applied automatically by the SuperClaude pytest plugin at collection. Inert here; this repo's own selection never reads it.",
+    "hallucination: applied automatically by the SuperClaude pytest plugin at collection. Inert here; this repo's own selection never reads it.",
+    "performance: applied automatically by the SuperClaude pytest plugin at collection. Inert here; this repo's own selection never reads it.",
 ]
 
 [tool.ruff.lint]

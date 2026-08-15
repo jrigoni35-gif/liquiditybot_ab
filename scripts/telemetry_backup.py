@@ -60,11 +60,42 @@ def _log(msg: str) -> None:
 # unpack typed every subprocess.run kwarg as int for the type checker.
 _NOWIN = 0x08000000 if os.name == "nt" else 0
 
+# DL-2 (measured 2026-08-13): a git call needing credentials pops an
+# interactive Git-Credential-Manager dialog that nobody can answer in a
+# headless sidecar, and timeout= cannot rescue it — the credential helper is a
+# GRANDCHILD holding the inherited capture_output pipe, so communicate()
+# blocks for an EOF that never arrives. Make git FAIL instead of ASK. Env-only
+# injection; argv is left untouched (the error text below slices argv[:3] and
+# must keep naming the real subcommand). Full rationale: remote_control.py.
+# Harmless on the venv calls that share this helper: unknown vars are ignored.
+_NOPROMPT = {
+    "GIT_TERMINAL_PROMPT": "0",     # core git: never prompt on a terminal
+    "GIT_ASKPASS": "",              # disable GUI askpass; terminal path is
+    "SSH_ASKPASS": "",              # then refused by GIT_TERMINAL_PROMPT=0
+    "GCM_INTERACTIVE": "never",     # Git-Credential-Manager: never show UI
+    # env-injected config (git >= 2.31) == `-c credential.interactive=false`
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "credential.interactive",
+    "GIT_CONFIG_VALUE_0": "false",
+}
+
+# Every call here was previously UNBOUNDED (no timeout=), so a wedged git had
+# no ceiling at all. Generous but finite: a backup that times out logs one
+# line and retries next tick (fail-safe by design), so the cost of a too-short
+# ceiling is one skipped tick, while the cost of no ceiling is a stuck sidecar.
+_GIT_TIMEOUT = 300
+
+
+def _git_env() -> dict:
+    """os.environ plus the never-prompt overrides (read fresh per call)."""
+    return {**os.environ, **_NOPROMPT}
+
 
 def _run(argv: list, cwd: Path | None = None, check: bool = True) -> str:
     """Run a fixed-argv command (no shell), returning stripped stdout."""
     p = subprocess.run(argv, cwd=str(cwd or ROOT), capture_output=True,  # nosec B603
-                       text=True, creationflags=_NOWIN)
+                       text=True, creationflags=_NOWIN,
+                       timeout=_GIT_TIMEOUT, env=_git_env())
     if check and p.returncode != 0:
         raise RuntimeError(
             f"{' '.join(argv[:3])}… exit {p.returncode}: "
@@ -116,7 +147,8 @@ def _run_bytes(argv: list, cwd: Path) -> bytes:
     tree verifier hashes blobs, and text-mode decoding would corrupt CRLF
     or non-UTF-8 bytes before they reach the hash."""
     p = subprocess.run(argv, cwd=str(cwd), capture_output=True,  # nosec B603
-                       creationflags=_NOWIN)
+                       creationflags=_NOWIN,
+                       timeout=_GIT_TIMEOUT, env=_git_env())
     if p.returncode != 0:
         err = (p.stderr or p.stdout or b"").decode("utf-8", "replace")
         raise RuntimeError(

@@ -93,6 +93,36 @@ if _bad:
 # unpack typed every subprocess.run kwarg as int for the type checker.
 _NOWIN = 0x08000000 if os.name == "nt" else 0
 
+# DL-2 (measured 2026-08-13, 14h auth outage): a git call needing credentials
+# pops an interactive Git-Credential-Manager dialog, and nobody is there to
+# answer it in a headless sidecar. timeout= does NOT save us — the credential
+# helper is a GRANDCHILD holding the inherited capture_output pipe, so after
+# subprocess kills the direct child, communicate() still blocks waiting for an
+# EOF the survivor never sends. Twelve stacked pushers released together 14h
+# later. The fix is upstream of the hang: make git FAIL instead of ASK.
+# Injected via ENV ONLY — argv stays untouched, so callers that slice argv for
+# error text keep naming the real subcommand.
+_NOPROMPT = {
+    "GIT_TERMINAL_PROMPT": "0",     # core git: never prompt on a terminal
+    # empty askpass disables the GUI helper; git falls through to the terminal
+    # path, which GIT_TERMINAL_PROMPT=0 above then refuses
+    "GIT_ASKPASS": "",
+    "SSH_ASKPASS": "",
+    "GCM_INTERACTIVE": "never",     # Git-Credential-Manager: never show UI
+    # env-injected config (git >= 2.31): same effect as
+    # `-c credential.interactive=false` without touching argv
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "credential.interactive",
+    "GIT_CONFIG_VALUE_0": "false",
+}
+
+
+def _git_env() -> dict:
+    """os.environ plus the never-prompt overrides. Read fresh per call: the
+    supervisor can re-exec these sidecars with a changed environment."""
+    return {**os.environ, **_NOPROMPT}
+
+
 # W2-25: git occasionally echoes the remote URL it tried into stderr (e.g.
 # an auth failure names the URL it hit), and every caller logs that text
 # verbatim to outputs/remote_control.log — gitignored but readable on the
@@ -113,7 +143,7 @@ def _git(*args, cwd, timeout=120):
     try:
         p = subprocess.run(["git", *args], cwd=str(cwd),  # nosec B603 B607
                            capture_output=True, text=True, timeout=timeout,
-                           creationflags=_NOWIN)
+                           creationflags=_NOWIN, env=_git_env())
         out = (p.stdout or "").strip() or (p.stderr or "").strip()
         return p.returncode, _redact(out)
     except Exception as e:                       # noqa: BLE001
