@@ -104,8 +104,29 @@ _REASON_KNOWN = frozenset({"pt", "sl", "time", "trail", "realized", "tier",
 
 
 def _era_label(era) -> str:
+    """Clamp to a bounded vocabulary - but the vocabulary must include
+    the HORIZON-QUALIFIED triple_barrier eras.
+
+    2026-08-15: `_ERA_KNOWN` was written before the 432-bar migration
+    (7566ea88) started minting `triple_barrier_h<N>`, so the DEPLOYED
+    era clamped to "other" and the operator's Prometheus series for the
+    current era did not exist. The dashboard panel literally titled
+    "New-era outcomes by barrier" was querying era="triple_barrier" -
+    the RETIRED era - and would have found nothing even if it had asked
+    for the right one. Two independent defects, either of which alone
+    hides the current era.
+
+    Cardinality stays bounded: the suffix must be `_h` + digits, so the
+    series count is the number of horizons ever deployed (small and
+    operator-chosen), never unbounded on garbage input - which is the
+    property the frozenset was protecting."""
     e = str(era or "").strip()
-    return e if e in _ERA_KNOWN else "other"
+    if e in _ERA_KNOWN:
+        return e
+    base, sep, suffix = e.partition("_h")
+    if base == "triple_barrier" and sep and suffix.isdigit():
+        return e
+    return "other"
 
 
 def _reason_label(reason) -> str:

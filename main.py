@@ -92,7 +92,8 @@ from execution.tactics import ExecutionPlanner
 from execution.grid_ladder import GridLadderEngine
 from ml.features import FEATURE_NAMES, REGIME_LABELS, build_features
 from ml.meta_model import MetaModelService
-from ml.history import HistoryStore, CandidateLabeler, HorizonShadowStore
+from ml.history import (HistoryStore, CandidateLabeler,
+                        HorizonShadowStore, triple_barrier_era)
 from ml.labeling import ExitPolicy, barrier_geometry
 from ml.event_sampler import StateChangeSampler
 from ml.monitor import ModelMonitor
@@ -3686,9 +3687,19 @@ class LiquidityBot:
         admits: list = list(getattr(self, "_budget_admit_events", None)
                             or [])
         labels_24h = sum(1 for ts, _ in (tu or ()) if now - ts <= 86400.0)
+        # DEPLOYED era, not the retired literal. This read
+        # .get("triple_barrier") - the unqualified 96-bar era - while
+        # ml.label_max_bars has been 432 since 7566ea88. Measured
+        # 2026-08-15: it returned 5287 (retired) where the deployed era
+        # held 353, so unlock_eta_days below reported the 60-label
+        # milestone as long since passed throughout the exact window the
+        # new era was under it. Report-only, but it is the operator's
+        # only view of that milestone.
+        _tb_era_name = triple_barrier_era(
+            int(getattr(self, "_label_max_bars", 96)))
         tb_era = int(((getattr(self.history, "last_load_stats", {}) or {})
                       .get("label_era", {}) or {})
-                     .get("triple_barrier", {}).get("rows", 0) or 0)
+                     .get(_tb_era_name, {}).get("rows", 0) or 0)
         horizon_h = float(getattr(self, "_label_max_bars", 96)) * 300.0 \
             / 3600.0
         per_asset: dict = {}

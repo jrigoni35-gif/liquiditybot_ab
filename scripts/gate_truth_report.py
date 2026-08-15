@@ -3,7 +3,8 @@ against realized triple-barrier outcomes (gate-truth instrumentation,
 spec docs/superpowers/specs/2026-07-28-gate-truth-instrumentation.md).
 
 Report-only — reads outputs/signal_history.csv, mutates nothing.
-Sample: rows with label_era == "triple_barrier" AND any |sg_*| > 0
+Sample: rows whose label_era == the CONFIGURED triple-barrier era
+(ml.label_max_bars via triple_barrier_era) AND any |sg_*| > 0
 (instrumented). Direction alignment derived here: aligned_i = s_i × the
 row's `direction` feature (±1) — rows store RAW signed scores.
 
