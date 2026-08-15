@@ -73,9 +73,22 @@ Solving for the horizon where costs stop dominating:
 | 0.20 | 405 bars | **~34 hours** |
 | 0.10 | 1,622 bars | **~5.6 days** |
 
-At 10bps/side instead of 25 (a Kraken volume tier), cost/sigma = 0.2 needs
-only H = 65 bars (**5.4 hours**) — fee tier and horizon trade off against
-each other directly.
+> **CORRECTION 2026-08-16 — this paragraph was wrong, and it propagated.**
+> It originally read: *"At 10bps/side instead of 25 (a Kraken volume tier),
+> cost/sigma = 0.2 needs only H = 65 bars (5.4 hours)."* **No 10bps Kraken
+> tier exists.** The parenthetical asserted one with no citation and was
+> later filed into the vault as knowledge.
+>
+> The schedule was already triple-confirmed in the vault on 2026-08-07
+> (`sources/session-20260807-institutional-review` §C): Tier 1 ($0+)
+> **40/80**, Tier 2 30/60, Tier 3 22/38, **Tier 5 ($50k+) ~15/30 is the
+> deepest row.** At an $800 book the operator is **Tier 1**, so this
+> document's 0.50% round trip UNDERSTATES the real cost: Tier 1
+> maker/maker is 0.80% (cost/sigma **1.31**) and at the observed 60.6%
+> taker share 1.285% (cost/sigma **2.11**).
+>
+> The fee lever is real but roughly HALF the size claimed here, and every
+> horizon figure below is correspondingly optimistic.
 
 ## Is the labeled bet worse than chance?
 
