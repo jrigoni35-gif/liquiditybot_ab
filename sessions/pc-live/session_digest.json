@@ -1,39 +1,39 @@
 {
-  "generated_at": 1786834653.970927,
+  "generated_at": 1786838261.7727013,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786834646.0,
-    "duration_h": 879.06
+    "end": 1786838150.934,
+    "duration_h": 880.04
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 799.33,
+    "equity_end": 799.7,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.22,
     "fees_paid_total": 2.2649,
     "open_positions": 5,
-    "samples": 193285
+    "samples": 193478
   },
   "activity": {
-    "signal_rows_total": 10677,
+    "signal_rows_total": 10682,
     "live_labeled_trades": 327,
-    "candidate_rows": 10350
+    "candidate_rows": 10355
   },
   "audit": {
-    "records": 45115,
-    "signal_records": 35180,
+    "records": 45120,
+    "signal_records": 35185,
     "by_src": {
       "exploration": 40160,
       "order_manager": 1429,
-      "ml_governor": 1409,
-      "long_book": 905,
+      "ml_governor": 1410,
+      "long_book": 907,
       "startup": 299,
       "fault": 278,
-      "conviction": 233,
+      "conviction": 235,
       "exit": 231,
       "firewall": 60,
       "engine": 59,
@@ -59,11 +59,11 @@
       ],
       [
         "LB-010",
-        631
+        633
       ],
       [
         "ML-031",
-        546
+        547
       ],
       [
         "OM-040",
@@ -100,10 +100,10 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 5897,
+    "records": 6703,
     "by_level": {
-      "INFO": 5886,
-      "WARNING": 10,
+      "INFO": 6684,
+      "WARNING": 18,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -112,11 +112,11 @@
         2
       ],
       [
-        "source unavailable (SSLError): https://news.google.com/rss/search?q=%22Jamie+Dimon%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&hl=en-U",
-        1
+        "source unavailable (SSLError): https://cointelegraph.com/rss",
+        2
       ],
       [
-        "source unavailable (SSLError): https://cointelegraph.com/rss",
+        "source unavailable (SSLError): https://news.google.com/rss/search?q=%22Jamie+Dimon%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&hl=en-U",
         1
       ],
       [
@@ -149,12 +149,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1369,
-      "thin": 1139
+      "spoofy": 1606,
+      "thin": 1295
     },
-    "spoofy_frac": 0.546,
-    "cycles_estimate": 658,
-    "feed_error_events": 2
+    "spoofy_frac": 0.554,
+    "cycles_estimate": 755,
+    "feed_error_events": 6
   },
   "model": {
     "monitor_level": 0,
@@ -202,7 +202,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 63% of 35180 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 63% of 35185 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
