@@ -35,7 +35,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.codes import Code                                # noqa: E402
-from ml.history import SG_COMPONENT_KEYS                   # noqa: E402
+from ml.history import (SG_COMPONENT_KEYS,                 # noqa: E402
+                        triple_barrier_era)
 
 SG_MIN_ROWS = 100
 _WEIGHT_KEYS = ("flow", "delta", "accum", "burst", "trend")
@@ -191,12 +192,29 @@ def build_report(history_path="outputs/signal_history.csv",
 
     rows = list(csv.DictReader(open(history_path, newline="",
                                     encoding="utf-8")))
-    era = [r for r in rows if (r.get("label_era") or "") == "triple_barrier"]
+    # LABEL ERA: derived from config, NEVER hardcoded. This line read
+    # `== "triple_barrier"` - the RETIRED unqualified (96-bar) era -
+    # while the deployed era is horizon-qualified. Measured 2026-08-15
+    # with ml.label_max_bars=432: the literal selected 5,328 retired
+    # rows (4,228 instrumented) and ZERO deployed rows, so every figure
+    # below described a label geometry the bot had stopped using - and
+    # said nothing about it, because the era was never printed. A
+    # hardcoded era name is a silent time bomb at every horizon
+    # migration; triple_barrier_era() is the one definition of "which
+    # era is current", already used by ml/history.py's own loader.
+    _max_bars = int((cfg.get("ml") or {}).get("label_max_bars", 96))
+    _label_era = triple_barrier_era(_max_bars)
+    era = [r for r in rows if (r.get("label_era") or "") == _label_era]
     inst = [r for r in era if any(abs(_f(r.get(f"sg_{k}"))) > 0.0
                                   for k in SG_COMPONENT_KEYS)]
     n_eff, mean_u = effective_n(inst)
     out = ["GATE TRUTH REPORT", "=" * 60,
            "[1] instrumentation coverage",
+           # name the POPULATION on the report's own face: a reader who
+           # cannot see which era was measured cannot tell a thin real
+           # answer from a fat wrong one (the defect this line fixes).
+           f"  label era: {_label_era}  "
+           f"(ml.label_max_bars={_max_bars})",
            f"  corpus rows: {len(rows)}  era rows: {len(era)}  "
            f"instrumented era rows: {len(inst)}",
            f"  effective n (uniqueness-weighted): {n_eff:.1f}  "

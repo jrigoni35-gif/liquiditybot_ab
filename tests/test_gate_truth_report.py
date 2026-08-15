@@ -1,11 +1,25 @@
 """Gate-truth report: grades the informed-flow components against
 realized triple-barrier outcomes from the persisted sg_* telemetry."""
 import csv
+import json as _json
 import re
 
+from ml.history import triple_barrier_era
 from scripts.gate_truth_report import (SG_MIN_ROWS, _rank_auc,
                                        build_report, classify_alignment,
                                        effective_n)
+
+# The era the report will actually select, derived the SAME way the
+# report derives it. These fixtures used to hardcode "triple_barrier";
+# when ml.label_max_bars moved to 432 the report (correctly) stopped
+# selecting them and the tests only caught it because the literal was
+# ALSO hardcoded in the report. A fixture that hardcodes an era pins
+# the era, not the behaviour - and goes silently vacuous at the next
+# horizon migration, which is the defect this file now guards.
+CURRENT_ERA = triple_barrier_era(
+    int((_json.load(open("config.json", encoding="utf-8")).get("ml")
+         or {}).get("label_max_bars", 96)))
+
 
 
 def test_rank_auc_basics():
@@ -59,7 +73,7 @@ def test_build_report_end_to_end(tmp_path):
         rows.append({"position_id": f"p{i}", "asset": "ETH", "side": "long",
                      "direction": "1.000000", "label": "1" if win else "0",
                      "source": "candidate", "barrier": "tb_pt" if win
-                     else "tb_sl", "label_era": "triple_barrier",
+                     else "tb_sl", "label_era": CURRENT_ERA,
                      "ts": str(1000 + i), "signal_ts": str(1000 + i),
                      "sg_flow": "0.8000" if win else "-0.8000",
                      "sg_delta": "0.1000", "sg_evidence": "1.2000",
@@ -82,7 +96,7 @@ def test_report_ignores_uninstrumented_and_old_era(tmp_path):
              "sg_flow": "0.9000", "ts": "1", "signal_ts": "1"},
             {"position_id": "y", "asset": "ETH", "side": "long",
              "direction": "1.000000", "label": "1", "source": "candidate",
-             "barrier": "tb_pt", "label_era": "triple_barrier",
+             "barrier": "tb_pt", "label_era": CURRENT_ERA,
              "sg_flow": "0.0000", "ts": "2", "signal_ts": "2"}]
     _write_corpus(p, rows)
     text = build_report(str(p), "config.json")
@@ -105,7 +119,7 @@ def test_build_report_calibration_buckets_show_anti_calibration(tmp_path):
                      "direction": "1.000000", "label": "1" if win else "0",
                      "source": "candidate",
                      "barrier": "tb_pt" if win else "tb_sl",
-                     "label_era": "triple_barrier", "ts": str(i),
+                     "label_era": CURRENT_ERA, "ts": str(i),
                      "signal_ts": str(i), "sg_flow": "0.1000",
                      "gate_confidence": "0.300000"})
     for i in range(20):
@@ -114,7 +128,7 @@ def test_build_report_calibration_buckets_show_anti_calibration(tmp_path):
                      "direction": "1.000000", "label": "1" if win else "0",
                      "source": "candidate",
                      "barrier": "tb_pt" if win else "tb_sl",
-                     "label_era": "triple_barrier", "ts": str(20 + i),
+                     "label_era": CURRENT_ERA, "ts": str(20 + i),
                      "signal_ts": str(20 + i), "sg_flow": "0.1000",
                      "gate_confidence": "0.900000"})
     _write_corpus(p, rows)
@@ -150,7 +164,7 @@ def test_build_report_all_winners_nan_guard(tmp_path):
         rows.append({"position_id": f"p{i}", "asset": "ETH", "side": "long",
                      "direction": "1.000000", "label": "1",
                      "source": "candidate", "barrier": "tb_pt",
-                     "label_era": "triple_barrier", "ts": str(i),
+                     "label_era": CURRENT_ERA, "ts": str(i),
                      "signal_ts": str(i), "sg_flow": "0.5000",
                      "sg_delta": "0.4000", "sg_accum": "0.3000",
                      "sg_burst": "0.2000", "sg_trend": "0.1000",
@@ -236,7 +250,7 @@ def test_build_report_effective_n_gates_the_verdict(tmp_path):
                      "direction": "1.000000", "label": "1" if win else "0",
                      "source": "candidate",
                      "barrier": "tb_pt" if win else "tb_sl",
-                     "label_era": "triple_barrier", "ts": "1499",
+                     "label_era": CURRENT_ERA, "ts": "1499",
                      "signal_ts": "1", "sg_flow": "0.5000" if win
                      else "-0.5000", "sg_delta": "0.1000",
                      "sg_evidence": "1.0000", "sg_conc": "0.3000",
@@ -260,7 +274,7 @@ def test_build_report_independent_rows_still_reach_a_verdict(tmp_path):
                      "direction": "1.000000", "label": "1" if win else "0",
                      "source": "candidate",
                      "barrier": "tb_pt" if win else "tb_sl",
-                     "label_era": "triple_barrier", "ts": str(t0 + 299),
+                     "label_era": CURRENT_ERA, "ts": str(t0 + 299),
                      "signal_ts": str(t0), "sg_flow": "0.5000" if win
                      else "-0.5000", "sg_delta": "0.1000",
                      "sg_evidence": "1.0000", "sg_conc": "0.3000",
@@ -275,7 +289,7 @@ def test_section_headers_are_renumbered_1_through_5(tmp_path):
     p = tmp_path / "hist.csv"
     rows = [{"position_id": "p0", "asset": "ETH", "side": "long",
              "direction": "1.000000", "label": "1", "source": "candidate",
-             "barrier": "tb_pt", "label_era": "triple_barrier",
+             "barrier": "tb_pt", "label_era": CURRENT_ERA,
              "sg_flow": "0.5000", "ts": "1", "signal_ts": "1",
              "gate_confidence": "0.500000"}]
     _write_corpus(p, rows)
@@ -285,3 +299,58 @@ def test_section_headers_are_renumbered_1_through_5(tmp_path):
              "[5] verdict"]
     positions = [text.index(s) for s in order]
     assert positions == sorted(positions)
+
+
+def test_report_reads_the_CONFIGURED_era_not_a_hardcoded_one(tmp_path):
+    """Regression pin for the 2026-08-15 retired-era defect.
+
+    build_report filtered `label_era == "triple_barrier"` - the retired
+    unqualified 96-bar era - while ml.label_max_bars had moved to 432.
+    Measured on the live corpus at the time: the literal selected 5,328
+    retired rows (4,228 instrumented) and ZERO deployed rows, and the
+    report printed a confident XV-040 ALIGNED verdict about a label
+    geometry the bot had stopped using. Nothing failed, because nothing
+    named the population.
+
+    This pins the CONTRACT (read the era the config declares) rather
+    than any era name, so it cannot go vacuous at the next migration.
+    """
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(_json.dumps({"ml": {"label_max_bars": 432}}),
+                   encoding="utf-8")
+    deployed, retired = triple_barrier_era(432), triple_barrier_era(96)
+    assert deployed != retired            # guard the premise
+
+    p = tmp_path / "h.csv"
+    rows = []
+    # 40 RETIRED-era rows carrying strong instrumentation, and 12
+    # DEPLOYED-era rows. A reader of the old code sees 40; the contract
+    # says it must see 12.
+    for i in range(40):
+        rows.append({"label_era": retired, "label": "1", "ts": str(i),
+                     "signal_ts": str(i), "direction": "1",
+                     "sg_flow": "0.9", "gate_confidence": "0.9"})
+    for i in range(12):
+        rows.append({"label_era": deployed, "label": "0",
+                     "ts": str(500 + i * 400),
+                     "signal_ts": str(500 + i * 400), "direction": "1",
+                     "sg_flow": "0.4", "gate_confidence": "0.4"})
+    cols = ["label_era", "label", "ts", "signal_ts", "direction",
+            "sg_flow", "gate_confidence"]
+    with open(p, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+    text = build_report(str(p), str(cfg))
+    assert f"era rows: {len(rows) - 40}" in text, \
+        "report must select the DEPLOYED era, not the retired one"
+    assert f"label era: {deployed}" in text, \
+        "the report must NAME the population it measured"
+    # EQUALITY, not `retired not in ...`: the qualified era name CONTAINS
+    # the retired one as a prefix ("triple_barrier_h432".startswith(
+    # "triple_barrier")), so a substring check here can never fail - it
+    # would be exactly the tautological pin this docket exists to catch.
+    named = text.split("label era:")[1].split("(")[0].strip()
+    assert named == deployed, f"named {named!r}, expected {deployed!r}"
