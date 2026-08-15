@@ -118,6 +118,38 @@ strategies sentiment api main.py runner.py` (type ratchet: shipped scope
 is at ZERO errors — keep it there; tests/scripts are outside the gate)
 · `bandit -c pyproject.toml -r . -x ./.venv,./tests` · `python -m
 compileall -q . -x '.venv'`.
+**A GREEN IS ONLY AS BIG AS ITS CORPUS — read what each gate actually
+measured, not just its exit code.** Several gates degrade *honestly* rather
+than failing, and the degraded form answers a **different question** than this
+checklist implies. A passing line is not evidence until you have read what it
+ran on.
+
+- `overfit_check.py` substitutes a **planted-signal SYNTHETIC benchmark**
+  whenever loaded rows fall under `len(FEATURE_NAMES)*10`. Its green then
+  validates the **overfit machinery, not the market**, and is NOT evidence the
+  deployed strategy is un-overfit. **The corpus prints on the summary line —
+  read it every run.**
+- Inside that battery, **OF-4 plateau is inert whenever the replay recording
+  opens no positions** (a plateau test with zero entries cannot tell a plateau
+  from a cliff), and **OF-5 DSR defers below its conviction-trade floor**.
+  Neither is a failure; both are gates that could not fire.
+- Any statistic over **concurrent** trips or overlapping label windows must
+  report **effective n**, not row count — `scripts/gate_truth_report.py` has
+  applied that standard since 2026-07-29 and `scripts/cohort_eval.py` since
+  2026-08-15. An SE computed on nominal n is optimistic by `sqrt(n/n_eff)`.
+
+**DO NOT "fix" any of these by lowering a floor.** The overfit row floor,
+`SG_MIN_ROWS`, and the era-4 `n=50` are **measurement standards, not
+tunables** — `gate_truth_report`'s own docstring says so in as many words.
+Moving one so a gate reads "real" is the widening this file forbids. The
+correct response to a degraded gate is to say so out loud and treat what it
+was meant to prove as **unproven**.
+
+*(Dated measurements for each of the above live in the vault —
+`concepts/overfit-battery` and `sources/session-20260814-cohort-instruments` —
+deliberately NOT here: this file is loaded every session and a number written
+into law decays into a false claim.)*
+
 Every module must import in isolation (`tests/test_import_integrity.py`
 enforces; optional third-party deps may be absent, our names may not).
 New behavior gets a test in the same commit. Windows is the target

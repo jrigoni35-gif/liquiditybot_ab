@@ -1101,9 +1101,27 @@ def main() -> int:
                     (f" — {detail}" if detail else "") + "\n")
         f.write(f"\n{PASS_N} passed, {FAIL_N} failed "
                 f"({time.time() - t0:.0f}s)\n")
+        f.write(f"\nCorpus: {source}\n")
+        if on_synthetic:
+            f.write("\n> **This green validates the OVERFIT MACHINERY, not "
+                    "the market.** It is not evidence that the deployed "
+                    "strategy is un-overfit.\n")
     print("=" * 42)
     print(f"passed {PASS_N}, failed {FAIL_N}  "
           f"(report: {out}, {time.time() - t0:.0f}s)")
+    # THE CORPUS BELONGS ON THE SUMMARY LINE, not only in the OF-1 header ~30
+    # lines up. "passed N, failed 0" is what a reader takes away, and
+    # CLAUDE.md's definition-of-done lists this script as a GATE — so a
+    # synthetic-benchmark green was being read as evidence about the STRATEGY
+    # when the tool is (honestly) reporting evidence about the INSTRUMENT.
+    # Nothing about what runs or what passes changes; the distinction just
+    # survives the scroll. Measured 2026-08-15: era exclusion left 346 loaded
+    # rows against the len(FEATURE_NAMES)*10 = 640 floor, so every overfit
+    # green this session was machinery-validation.
+    print(f"corpus: {source}")
+    if on_synthetic:
+        print("  ^^ validates the OVERFIT MACHINERY, not the market - NOT "
+              "evidence the deployed strategy is un-overfit")
     return 0 if FAIL_N == 0 else 1
 
 

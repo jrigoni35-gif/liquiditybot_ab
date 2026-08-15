@@ -160,6 +160,27 @@ def test_prior_base_rate_and_judge_share_one_clip():
         src.count("np.clip(self._prior_base_rate()") >= 1
 
 
+def test_overfit_summary_prints_the_corpus_and_reuses_the_one_flag():
+    """The corpus banner must key on `on_synthetic` — the flag derived ONCE at
+    dataset load — and never re-derive it by string-matching the
+    human-readable source message.
+
+    This pin exists because the banner's own first cut did exactly that. A
+    second copy of the predicate can silently diverge from the first (reword
+    the reason string and the banner stops printing), and the failure mode is
+    that the caveat vanishes while the battery keeps reporting 'passed' — the
+    precise false-green the banner was added to prevent. Found in adversarial
+    review before merge, not after.
+    """
+    src = _code_only("scripts/overfit_check.py")
+    assert 'print(f"corpus: {source}")' in src, \
+        "the corpus must appear on the SUMMARY line, not only in the OF-1 header"
+    assert '"SYNTHETIC" in str(source).upper()' not in src, \
+        "re-deriving the flag duplicates the predicate that already exists"
+    assert src.count('on_synthetic = source.startswith') == 1, \
+        "exactly ONE place may derive on_synthetic; a second copy can diverge"
+
+
 @pytest.mark.parametrize("y_mean,prior", [(0.9, 0.25), (0.1, 0.25)])
 def test_oracle_and_prior_baselines_actually_differ(y_mean, prior):
     """Guard against the fix being cosmetic: on a skewed window the two
