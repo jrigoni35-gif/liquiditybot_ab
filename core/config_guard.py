@@ -52,6 +52,20 @@ KNOWN_SIGNAL_ENGINES = ("informed_flow", "five_gate")
 # disagreement is the finding, and the guard's job is to say so out loud.
 _MAIN_ENGINE_FALLBACK = "five_gate"
 
+# scripts/overfit_check.py load_dataset's rows-per-feature multiplier. The
+# battery's corpus floor is len(FEATURE_NAMES) * this; under it the WHOLE OF
+# battery silently substitutes a planted-signal SYNTHETIC benchmark. MIRRORED
+# (not chosen), same contract as _MAIN_ENGINE_FALLBACK above: the guard must
+# report on the floor that will actually run, so this tracks overfit_check's
+# own `min_rows = len(FEATURE_NAMES) * 10` line and moves only when that line
+# does (tests/test_config_guard_era_overfit_floor.py pins the pair). It is a
+# measurement standard, NOT a tunable (CLAUDE.md) - lowering it so a gate
+# reads "real" is exactly the widening the overfit discipline forbids. The
+# feature count itself is deliberately NOT mirrored here: it is imported
+# lazily at check time so the floor cannot go stale against the live feature
+# contract.
+_OVERFIT_ROWS_PER_FEATURE = 10
+
 
 class ConfigError(RuntimeError):
     pass
@@ -908,6 +922,52 @@ def validate(config: dict) -> list:
             fatal(f"ml.era_exclusion.min_new_era_rows ({min_new!r}) must "
                   f"be a non-negative number - the new-era row-count floor "
                   f"that arms the filter")
+        else:
+            # OBJ-8: the arming floor and the OVERFIT battery's corpus floor
+            # are two INDEPENDENT measurement standards over the SAME corpus,
+            # and nothing orders them. min_new_era_rows arms this filter (all
+            # old-era rows dropped) at a loaded-row count that can still sit
+            # BELOW scripts/overfit_check.py load_dataset's substitution
+            # floor - and in that window the bot trains on a clean single-era
+            # corpus while the whole OF battery is measuring a planted-signal
+            # SYNTHETIC benchmark instead of the market. Both greens are real;
+            # they are just answers to different questions, and only the
+            # battery's own corpus line distinguishes them.
+            #   NOT a FATAL: this is the SHIPPED, intentional configuration
+            # (150 < 640 as shipped), and it recurs at EVERY horizon
+            # migration - a new label era restarts the new-era count at zero,
+            # so the window reopens by design each time. Refusing to start the
+            # bot over a known, correct config would be strictly worse than
+            # trading with the instrument honestly labelled, which is what
+            # this WARN does. FEATURE_NAMES is imported lazily here for the
+            # same module-purity reason as the gbt_mono / label-era imports in
+            # this function (zero in-repo imports at MODULE level).
+            from ml.features import FEATURE_NAMES
+            of_floor = len(FEATURE_NAMES) * _OVERFIT_ROWS_PER_FEATURE
+            if min_new < of_floor:
+                warn(f"ml.era_exclusion.min_new_era_rows ({min_new:g}) is "
+                     f"BELOW scripts/overfit_check.py's synthetic-"
+                     f"substitution floor ({of_floor} = "
+                     f"{len(FEATURE_NAMES)} features x "
+                     f"{_OVERFIT_ROWS_PER_FEATURE} rows/feature) - a "
+                     f"{of_floor - min_new:g}-row window in which the era "
+                     f"filter is ARMED (>= {min_new:g} new-era rows, so "
+                     f"every old-era row is dropped from the training view) "
+                     f"while the loaded corpus is still under {of_floor} and "
+                     f"the OF battery has substituted its planted-signal "
+                     f"SYNTHETIC benchmark. Inside that window the battery "
+                     f"validates the MACHINERY, not the market: its green is "
+                     f"NOT evidence the deployed strategy is un-overfit, and "
+                     f"OF-4/OF-5 may additionally be inert. This reopens at "
+                     f"EVERY horizon migration. BOTH numbers are MEASUREMENT "
+                     f"STANDARDS, not tunables - do NOT raise "
+                     f"min_new_era_rows and do NOT lower the overfit floor "
+                     f"to silence this warning; moving either one so a gate "
+                     f"reads 'real' is the widening the overfit discipline "
+                     f"forbids. The correct response is to read the overfit "
+                     f"battery's corpus line on EVERY run and to treat a "
+                     f"SYNTHETIC green as UNPROVEN until the loaded corpus "
+                     f"clears {of_floor} rows on its own.")
         forced_off = era_ex.get("forced_off", False)
         if not isinstance(forced_off, bool):
             fatal(f"ml.era_exclusion.forced_off ({forced_off!r}) must be "
@@ -922,6 +982,33 @@ def validate(config: dict) -> list:
                   "true - contradictory operator intent (force the filter "
                   "active vs force it inactive); the rollback lever and "
                   "the manual-override lever cannot both be pulled")
+        # forced_off carried only a TYPE check while forced_on carried a
+        # semantic one - an asymmetry with no justification: forced_off is
+        # the lever with the larger blast radius of the two, because it is
+        # the one that silently makes the corpus BIGGER. Parity, as a WARN
+        # rather than a FATAL: true is a LEGITIMATE rollback mode (the same
+        # shape as the passive_hazard_with_book warn above - a FATAL would
+        # make the pre-exclusion view unreachable, which is the one thing a
+        # rollback lever may never be). It must simply never be true by
+        # accident, or as a way to make a starved corpus look fed.
+        if isinstance(forced_off, bool) and forced_off:
+            warn("ml.era_exclusion.forced_off=true forces the era filter "
+                 "OFF regardless of min_new_era_rows - config.json's own "
+                 "_era_exclusion_doc: 'the rollback lever - forces the "
+                 "filter OFF regardless of the threshold; flipping it (+ "
+                 "restart) restores the pre-exclusion training set "
+                 "exactly'. That restored view POOLS every label era on "
+                 "disk, i.e. several different label DEFINITIONS trained as "
+                 "one target - the exact mixing era exclusion exists to "
+                 "prevent. Measured 2026-08-15 on the 10,671-row corpus: "
+                 "five eras spanning ~40x in base rate (exit_sim_time_stop "
+                 "0.65% ... legacy 26.1%), loaded rows 365 -> 10,534. It is "
+                 "a ROLLBACK lever, never a way to recover corpus size or "
+                 "entry volume: it adds no new-era row, so it can lift the "
+                 "overfit battery off its SYNTHETIC benchmark while making "
+                 "the corpus LESS comparable, not more - a REAL-corpus "
+                 "green bought this way is worth less than the synthetic "
+                 "one it replaced.")
         if isinstance(forced_on, bool) and forced_on:
             # lazy import - config_guard is deliberately kept free of
             # in-repo cross-package imports AT MODULE SCOPE (see the
