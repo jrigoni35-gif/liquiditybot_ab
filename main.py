@@ -6469,13 +6469,20 @@ class LiquidityBot:
             # deployed or rejected (ml/retrain_log)
             from ml import retrain_log as _rl
             from ml.retrain_log import append_retrain, retrain_record
+            # incumbent watermark for the orphan-ratio column. Read HERE, i.e.
+            # before any deploy swaps the champion, and getattr-guarded for the
+            # same reason as the retirement capture below: a report column may
+            # never be the reason a retrain aborts.
+            _tr_watermark = getattr(self.meta, "trained_rows", None)
             append_retrain(
                 self.config.get("ml", {}).get(
                     "retrain_history_path",
                     _rl.RETRAIN_HISTORY_PATH_DEFAULT),
                 retrain_record(time.time(), "auto", results, len(X),
                                int(_n_live), challenger_brier,
-                               self.monitor.champion_brier, _deploy_ok))
+                               self.monitor.champion_brier, _deploy_ok,
+                               trained_rows=(int(_tr_watermark)
+                                             if _tr_watermark else None)))
             if not _deploy_ok:
                 return
             from ml.interpret import background_sample
@@ -6515,6 +6522,19 @@ class LiquidityBot:
                            "instead of overwriting the newer artifact",
                            self.meta.model_path)
                 return
+            # Capture the OUTGOING champion BEFORE reload() swaps it: a
+            # retirement is only recordable while its identity is still the
+            # loaded one, and prev_trained_rows read AFTER reload would be the
+            # incoming model's watermark, which is the opposite of the number
+            # wanted. `note("retired")` has existed since the registry shipped
+            # and had never been called by anything.
+            # getattr-guarded because this is OBSERVABILITY: it must degrade to
+            # "unknown", never raise into the retrain path. Caught by
+            # test_auto_retrain_stale_gate_cas when a bare attribute read here
+            # aborted a deploy through the outer fail-safe — lineage has no
+            # business deciding whether a retrain completes.
+            _outgoing_id = str(getattr(self.meta, "model_id", "") or "")
+            _outgoing_rows = getattr(self.meta, "trained_rows", None)
             self.meta.reload()
             self.monitor.note_deployed(challenger_brier)
             # ML-060 LINEAGE GAP (found 2026-08-14): outputs/models/
@@ -6527,11 +6547,26 @@ class LiquidityBot:
             # down the retrain path it is only observing.
             try:
                 from ml.registry import get_registry
-                get_registry().note(
-                    "deployed", str(self.meta.model_id or ""),
+                _reg = get_registry()
+                _new_id = str(self.meta.model_id or "")
+                _reg.note(
+                    "deployed", _new_id,
                     {"oof_brier": float(challenger_brier),
                      "family": str(results.get("selected")),
-                     "rows": int(len(X)), "source": "auto_retrain"})
+                     "rows": int(len(X)),
+                     # the OUTGOING champion's watermark (captured pre-reload),
+                     # so a reader sees the orphan ratio that gated — or
+                     # bypassed — this promotion without joining another ledger
+                     "prev_trained_rows": (int(_outgoing_rows)
+                                           if _outgoing_rows else None),
+                     "source": "auto_retrain"})
+                # the other half of a lifecycle the ledger has never recorded:
+                # a promotion RETIRES the model it replaces. Guarded on a real
+                # change so a no-op reload cannot retire a live champion.
+                if _outgoing_id and _outgoing_id != _new_id:
+                    _reg.note("retired", _outgoing_id,
+                              {"superseded_by": _new_id,
+                               "reason": "auto_retrain_promotion"})
             except Exception:                        # noqa: BLE001
                 log.debug("registry deployed-note failed", exc_info=True)
             log.warning(f"auto-retrain DEPLOYED {results['selected']} "

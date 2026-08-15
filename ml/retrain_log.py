@@ -36,10 +36,29 @@ def family_metric(results: dict, metric: str) -> dict:
 
 def retrain_record(now: float, source: str, results: dict, n_rows: int,
                    n_live: int, oof_brier, champion_bar,
-                   deployed: bool) -> dict:
+                   deployed: bool, trained_rows=None) -> dict:
+    """One history row per retrain. Capture-only; nothing reads it back.
+
+    `trained_rows` (the INCUMBENT champion's row watermark) is optional and
+    report-only. It exists because the ML-083 era-orphan unlock keys on
+    `trained_rows > n_rows` — and until 2026-08-14 the ratio between those two
+    numbers was recoverable only by hand-joining this ledger against
+    registry.jsonl, which is why a 48x orphan (10,217 vs 211) fired the unlock
+    and promoted a negative-skill model with nothing plotting the condition.
+    Recording it makes the firing condition a queryable series instead of a
+    forensic exercise. Extended with a DEFAULT so every existing caller keeps
+    working unchanged (invariant 7); a caller that omits it simply logs None.
+    Neither field is ever a decision input.
+    """
     fams = family_metric(results, "mean_brier")
+    _tr = None if trained_rows is None else int(trained_rows)
+    # ratio, not a difference: the unlock's severity is scale-free, and the
+    # 3.2x it was designed for vs the 48x it fired at is the whole finding
+    _orphan = (round(_tr / int(n_rows), 4)
+               if _tr and int(n_rows) > 0 else None)
     return {"ts": round(float(now), 1), "source": source,
             "rows": int(n_rows), "live": int(n_live),
+            "trained_rows": _tr, "orphan_ratio": _orphan,
             "selected": results.get("selected"),
             "admitted": results.get("admitted"),
             "gated": results.get("gated"),

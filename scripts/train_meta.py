@@ -137,6 +137,27 @@ def _deploy_challenger(config: dict, model, challenger_brier: float,
                   f"this challenger should still compete.")
         return False
     monitor.note_deployed(challenger_brier)
+    # ML-060 lineage, same gap the in-process auto-retrain had: this CLI path
+    # also makes an artifact champion, and the registry recorded neither the
+    # promotion nor the retirement it causes. `_prior_hash` was already taken
+    # above for the stale-gate CAS, so the outgoing identity is in hand — its
+    # first 12 hex ARE the model_id (ml/registry.register).
+    try:
+        from ml.registry import get_registry, sha256_file as _sha
+        _reg = get_registry()
+        _new_id = _sha(str(model_path))[:12]
+        _reg.note("deployed", _new_id,
+                  {"oof_brier": float(challenger_brier),
+                   "prev_champion_brier": (None if prev_champion is None
+                                           else float(prev_champion)),
+                   "source": "cli_train_meta"})
+        _old_id = None if _prior_hash is None else str(_prior_hash)[:12]
+        if _old_id and _old_id != _new_id:
+            _reg.note("retired", _old_id,
+                      {"superseded_by": _new_id,
+                       "reason": "cli_train_meta_promotion"})
+    except Exception:                                # noqa: BLE001
+        log.debug("registry deploy/retire note failed", exc_info=True)
     # Persist the new baseline onto the FRESHEST snapshot, never the
     # gate-time copy: this script runs beside a LIVE runner (side-car audit
     # note above) whose 30s snapshot cadence can land a newer book between
