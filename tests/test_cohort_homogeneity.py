@@ -178,3 +178,45 @@ def test_geometry_breakeven_arithmetic(tmp_path):
 def test_geometry_missing_file_degrades(tmp_path):
     g = geometry_breakeven(str(tmp_path / "nope.csv"))
     assert g["available"] is False and g["n"] == 0
+
+
+# --- selection era: WHAT the cohort is made of ------------------------------
+def test_composition_joins_by_position_id_and_flags_probe_share(tmp_path):
+    """The third homogeneity axis, and measured 2026-08-15 the worst: 13 of 14
+    accruing trips are probe admissions, whose p_win is forced to the
+    exploration constant 0.7 against a derived bar near 0.567 — so the model's
+    own probability never entered the admission decision."""
+    from scripts.cohort_eval import cohort_composition
+    trips = [{"pid": "p1"}, {"pid": "p2"}, {"pid": "p3"}]
+    hdr = ["position_id", "probe", "label_era", "source"]
+    rows = [{"position_id": "p1", "probe": "1",
+             "label_era": "triple_barrier_h432", "source": "live"},
+            {"position_id": "p2", "probe": "1",
+             "label_era": "exit_sim", "source": "live"},
+            {"position_id": "p3", "probe": "0",
+             "label_era": "exit_sim", "source": "live"},
+            # a row for a position NOT in the cohort must be excluded
+            {"position_id": "zzz", "probe": "0",
+             "label_era": "legacy", "source": "candidate"}]
+    c = cohort_composition(trips, _write(tmp_path, rows, header=hdr,
+                                         name="sh.csv"))
+    assert c["available"] is True
+    assert c["joined"] == 3, "must join only cohort position_ids"
+    assert c["probe"] == {"1": 2, "0": 1}
+    assert abs(c["probe_share"] - 2 / 3) < 1e-9
+    assert c["label_eras_present"] == 2, "two label eras in one cohort"
+    assert "legacy" not in c["label_era"], "non-cohort rows must not leak in"
+
+
+def test_composition_degrades_without_a_join(tmp_path):
+    """Report-only tools must never become the reason the gate cannot be read."""
+    from scripts.cohort_eval import cohort_composition
+    assert cohort_composition([], str(tmp_path / "x.csv"))["available"] is False
+    assert cohort_composition([{"pid": "p1"}],
+                              str(tmp_path / "nope.csv"))["available"] is False
+
+
+def test_era4_trips_carries_position_id(tmp_path):
+    """The join key. Without it the composition section is blind."""
+    t = era4_trips(_write(tmp_path, _trip("pid-abc", T_IN, T_IN + 60)))
+    assert len(t) == 1 and t[0]["pid"] == "pid-abc"

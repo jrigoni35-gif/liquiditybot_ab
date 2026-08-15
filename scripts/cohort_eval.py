@@ -270,7 +270,8 @@ def era4_trips(fills_path):
         # regime (post-reset) - the epoch cut is the later of the two
         if tclose < max(B4_TS, CAPITAL_EPOCH_TS):
             continue
-        out.append({"t": tclose, "t_open": topen,
+        out.append({"t": tclose, "t_open": topen, "pid": legs[0].get(
+                        "position_id", ""),
                     "gross_pct": 100.0 * cash / enot,
                     "net_pct": 100.0 * (cash - fees) / enot,
                     "eras": sorted(eras), "stale_legs": stale_legs,
@@ -430,6 +431,51 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
                         if ts >= cohort_start]}
 
 
+def cohort_composition(trips: list, signal_history_path) -> dict:
+    """WHAT the accruing cohort is made of, joined by position_id.
+
+    A THIRD homogeneity axis, and measured 2026-08-15 the most damaging of the
+    three. The fill-era and model-era sections above ask whether the trips were
+    executed comparably. This asks whether they were SELECTED comparably — and
+    they were not: 12 of 13 are `probe` admissions.
+
+    Why that breaks the reading rather than merely biasing it: a probe sets
+    `p_win = max(p_win, explore_p_win)` (main.py, exploration path) with
+    `ml.exploration.p_win` = 0.7 against a derived entry bar near 0.567, so 0.7
+    clears the bar BY CONSTRUCTION and the model's own probability is never the
+    admitting quantity. A cohort of probes measures the exploration constant,
+    not the selector the verdict is about.
+
+    Report-only. Joins, counts, and prints; it selects nothing and the
+    pre-registered population is untouched."""
+    res = {"n": len(trips), "joined": 0, "available": False,
+           "probe": {}, "label_era": {}, "source": {}}
+    if not trips:
+        return res
+    want = {str(t.get("pid") or "") for t in trips} - {""}
+    if not want:
+        return res
+    try:
+        with open(signal_history_path, newline="", encoding="utf-8") as fh:
+            rows = [r for r in csv.DictReader(fh)
+                    if str(r.get("position_id", "")) in want]
+    except OSError:
+        return res
+    if not rows:
+        return res
+    res["available"] = True
+    res["joined"] = len({str(r.get("position_id")) for r in rows})
+    for key in ("probe", "label_era", "source"):
+        res[key] = dict(collections.Counter(
+            str(r.get(key, "")).strip() or "<blank>" for r in rows
+        ).most_common())
+    n_probe = sum(v for k, v in res["probe"].items() if k == "1")
+    res["probe_share"] = n_probe / max(1, sum(res["probe"].values()))
+    res["label_eras_present"] = len([k for k in res["label_era"]
+                                     if k and k != "<blank>"])
+    return res
+
+
 def geometry_breakeven(path, era: str = CURRENT_LABEL_ERA) -> dict:
     """Can the CURRENT label geometry pay at its own realized hit rate?
 
@@ -497,7 +543,8 @@ def main() -> int:
            "era4": era4_section(_trips),
            "homogeneity": homogeneity(_trips, _epochs,
                                       max(B4_TS, CAPITAL_EPOCH_TS)),
-           "geometry": geometry_breakeven(ns.signal_history)}
+           "geometry": geometry_breakeven(ns.signal_history),
+           "composition": cohort_composition(_trips, ns.signal_history)}
     nn = res["cohorts"][1]["n"]
     res["verdict_available"] = nn >= MIN_COHORT_N
     res["progress"] = f"{nn}/{MIN_COHORT_N}"
@@ -625,6 +672,28 @@ def main() -> int:
             print("      deploy %s  ->  %s"
                   % (datetime.fromtimestamp(_ts, timezone.utc)
                      .strftime("%Y-%m-%dT%H:%M:%SZ"), _fam))
+
+    cp = res["composition"]
+    print("\n  SELECTION-ERA (what the cohort is MADE OF)")
+    if not cp.get("available"):
+        print("    UNAVAILABLE - no signal_history join at the given path.")
+    else:
+        print("    joined %d/%d trips by position_id" % (cp["joined"], cp["n"]))
+        print("    probe:     %s" % cp["probe"])
+        print("    label_era: %s" % cp["label_era"])
+        print("    source:    %s" % cp["source"])
+        if cp.get("probe_share", 0) > 0.5:
+            print("    -> %.0f%% of this cohort are PROBE admissions. A probe sets"
+                  % (100 * cp["probe_share"]))
+            print("       p_win = max(p_win, ml.exploration.p_win = 0.7) against a")
+            print("       derived bar near 0.567, so it clears BY CONSTRUCTION and")
+            print("       the model's own p is never the admitting quantity. This")
+            print("       cohort measures the EXPLORATION CONSTANT, not the selector")
+            print("       the verdict is about.")
+        if cp.get("label_eras_present", 0) > 1:
+            print("    -> %d distinct label eras in one cohort - the label axis is"
+                  % cp["label_eras_present"])
+            print("       mixed as well as the fill and model axes.")
 
     g = res["geometry"]
     print("\n" + "=" * 68)
