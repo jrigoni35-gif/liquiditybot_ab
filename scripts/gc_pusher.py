@@ -116,16 +116,42 @@ def _era_label(era) -> str:
     for the right one. Two independent defects, either of which alone
     hides the current era.
 
-    Cardinality stays bounded: the suffix must be `_h` + digits, so the
-    series count is the number of horizons ever deployed (small and
-    operator-chosen), never unbounded on garbage input - which is the
-    property the frozenset was protecting."""
+    CARDINALITY. The first version of this widening claimed to stay
+    bounded and did not - `suffix.isdigit()` alone admitted 50,000
+    distinct series from 50,000 garbage values, plus three separate
+    escapes found by adversarial review on 2026-08-15:
+      * NON-ASCII digits - `str.isdigit()` is True for Arabic-Indic,
+        Devanagari and superscript digits, so `triple_barrier_h<U+0664
+        U+0663 U+0662>` minted a series
+      * unbounded LENGTH - a 400-digit suffix produced a 416-char label
+      * LEADING ZEROS - `_h00000432` and `_h432` are the same horizon
+        and minted two different series
+    This matters because the value is not ours: `label_era` is a column
+    in signal_history.csv, and session_import.py MERGES that file from
+    bundles on the shared durable branch. A tampered or corrupt bundle
+    therefore reaches a Prometheus series name, which is the exact thing
+    the original frozenset comment forbade.
+
+    Bounded properly now: ASCII digits only, at most 4 of them, parsed
+    to 1..4032 (two weeks of 5-minute bars - past any plausible label
+    horizon). Worst case is 4032 series instead of unbounded, and the
+    realistic case is the two or three horizons actually deployed.
+
+    Leading zeros are handled by TWO different mechanisms, and saying
+    only one of them would be the kind of half-true docstring this
+    session spent its day deleting: `_h0432` NORMALISES through int() to
+    `triple_barrier_h432` (so it cannot twin with `_h432`), while
+    `_h00432` and longer exceed the 4-char bound and are REJECTED to
+    "other". Both routes are safe; neither mints a duplicate series."""
     e = str(era or "").strip()
     if e in _ERA_KNOWN:
         return e
     base, sep, suffix = e.partition("_h")
-    if base == "triple_barrier" and sep and suffix.isdigit():
-        return e
+    if (base == "triple_barrier" and sep and suffix.isascii()
+            and suffix.isdigit() and len(suffix) <= 4):
+        n = int(suffix)
+        if 1 <= n <= 4032:
+            return f"triple_barrier_h{n}"      # normalised, not echoed
     return "other"
 
 

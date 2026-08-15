@@ -116,3 +116,40 @@ def test_era_consumers_do_not_hardcode_the_retired_literal():
         code = "\n".join(ln.split("#", 1)[0] for ln in src.splitlines())
         bad = re.findall(r'==\s*["\']triple_barrier["\']', code)
         assert not bad, f"{rel} compares against the retired era literal"
+
+
+def test_era_label_cardinality_is_bounded_against_hostile_input():
+    """Adversarial-review finding, 2026-08-15 (Saboteur + Security Auditor).
+
+    `_era_label` widened to admit horizon-qualified eras and its first
+    version claimed to stay bounded while `suffix.isdigit()` alone
+    admitted 50,000 distinct series from 50,000 garbage values. Three
+    escapes: non-ASCII digits (str.isdigit() is True for Arabic-Indic,
+    Devanagari, superscript), unbounded length (a 400-digit suffix), and
+    leading-zero twins of the same horizon.
+
+    This is not hypothetical input. `label_era` is a column in
+    signal_history.csv and session_import.py MERGES that file from
+    bundles on the shared durable branch, so the value crosses a trust
+    boundary before it becomes a Prometheus series name.
+    """
+    from scripts.gc_pusher import _era_label
+    assert _era_label("triple_barrier_h432") == "triple_barrier_h432"
+    assert _era_label("exit_sim") == "exit_sim"
+    # non-ASCII digits must not mint series
+    for bad in ("triple_barrier_h٤٣٢",   # Arabic-Indic 432
+                "triple_barrier_h²",                # superscript two
+                "triple_barrier_h५"):               # Devanagari five
+        assert bad.partition("_h")[2].isdigit(), "premise: isdigit() is True"
+        assert _era_label(bad) == "other", bad.encode("unicode_escape")
+    # length and range bounds
+    assert _era_label("triple_barrier_h" + "9" * 400) == "other"
+    assert _era_label("triple_barrier_h9999") == "other"   # > 4032
+    assert _era_label("triple_barrier_h0") == "other"      # 0 bars
+    # leading zeros never produce a SECOND series for one horizon
+    assert _era_label("triple_barrier_h0432") == _era_label(
+        "triple_barrier_h432")
+    assert _era_label("triple_barrier_h00432") == "other"
+    # the bound itself, measured
+    minted = {_era_label(f"triple_barrier_h{i}") for i in range(50000)}
+    assert len(minted) <= 4033, f"cardinality escaped: {len(minted)}"
