@@ -1,6 +1,6 @@
-# Overfit audit — 2026-08-15 13:18 UTC
+# Overfit audit — 2026-08-15 16:13 UTC
 
-Dataset: SYNTHETIC benchmark (loaded rows=346 < 640) — validating machinery, not market
+Dataset: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, not market
 
 - **PASS** gap[logistic]: OOF gap within memorization band — train_auc=0.645 oof_auc=0.619 gap=+0.026
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.686 oof_auc=0.605 gap=+0.081
@@ -28,8 +28,8 @@ Dataset: SYNTHETIC benchmark (loaded rows=346 < 640) — validating machinery, n
 - **INFO** learning curve — SYNTHETIC benchmark dataset — corpus-size trend has no market meaning; skipped
 - **INFO** extras liveness — SYNTHETIC benchmark dataset — feed liveness has no meaning; skipped
 
-7 passed, 0 failed (32s)
+7 passed, 0 failed (30s)
 
-Corpus: SYNTHETIC benchmark (loaded rows=346 < 640) — validating machinery, not market
+Corpus: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, not market
 
 > **This green validates the OVERFIT MACHINERY, not the market.** It is not evidence that the deployed strategy is un-overfit.
