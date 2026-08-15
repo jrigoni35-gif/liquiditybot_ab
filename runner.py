@@ -1841,7 +1841,23 @@ def main():
         30.0))
     held = _lock.acquire()
     if held is not None:
-        hb_age = time.time() - float(held.get("heartbeat", 0))
+        # SENTINEL SHAPES FIRST. core/runtime.py returns {"pid":"initializing"}
+        # and {"pid":"contended"} with NO heartbeat key at all. A bare
+        # float(held.get("heartbeat", 0)) then makes hb_age ~1.79e9 s, which
+        # exceeds every stale window — so the benign branch below was
+        # UNREACHABLE for those shapes and a perfectly healthy peer was paged
+        # CRITICAL telling the operator to "clear it (stop.bat)". Treat a
+        # sentinel as the benign case: it means the peer is mid-handshake, not
+        # wedged. The lock's other readers already guard this
+        # (core/runtime.py:314, :380); this was the sole unguarded read.
+        _hb_raw = held.get("heartbeat")
+        _pid_raw = str(held.get("pid", ""))
+        if _hb_raw is None or not _pid_raw.isdigit():
+            log.info("outputs/ lock held by a transient peer (pid=%s, no "
+                     "heartbeat yet) - this redundant spawn is backing off, "
+                     "no action needed", _pid_raw or "?")
+            raise SystemExit(3)
+        hb_age = time.time() - float(_hb_raw)
         # Two cases, very different urgency:
         #  * peer HEALTHY (recent heartbeat): this is the benign supervisor/
         #    updater revive race — a redundant spawn during a restart window

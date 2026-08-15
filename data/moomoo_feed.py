@@ -179,8 +179,17 @@ class MoomooFeed:
                     # release our reference so background threads exit
                     pass
                 if not self._warned:
-                    log.info(f"moomoo OpenD unreachable at {self.host}:"
-                                f"{self.port} - running without it")
+                    # NOT "unreachable": _probe_port() already returned True
+                    # above, so the gateway IS listening. Saying unreachable
+                    # here sent a 2026-08-15 diagnosis down a dead end (port
+                    # 11111 open, feed still unavailable). Name the real state
+                    # and carry `ret`, which is the only value that separates
+                    # not-logged-in from no-quote-rights from a slow handshake.
+                    log.info(f"moomoo OpenD is LISTENING at {self.host}:"
+                             f"{self.port} but get_global_state returned "
+                             f"ret={ret} (not logged in, no quote rights, or "
+                             f"handshake slower than the sync-query timeout) "
+                             f"- running without it")
                     self._warned = True
                 return False
             self._ctx = ctx
@@ -202,6 +211,26 @@ class MoomooFeed:
                 self._warned = True
         return False
 
+    def _degrade(self) -> None:
+        """Mark the snapshot unavailable AND clear every sibling flag.
+
+        Both degradation paths used to set `available = False` alone, leaving
+        `options_available` and `quotes_frozen` at their last-LIVE values. A
+        corpus row written during a dead session therefore recorded
+        `avail_options="1"` — a flag asserting the options chain was live at
+        an instant the gateway was gone. The numeric fields already read as
+        neutral 0.0 downstream; the FLAGS are how a reader separates "neutral
+        because unavailable" from "neutral because the market was flat", which
+        is the only job those columns have.
+
+        `ts` is deliberately NOT advanced. A degraded snapshot's timestamp
+        should keep pointing at the last REAL observation — stamping it `now`
+        would make a dead feed look freshly polled to any staleness check.
+        """
+        self._snapshot.available = False
+        self._snapshot.options_available = False
+        self._snapshot.quotes_frozen = False
+
     def maybe_poll(self, now: float | None = None) -> MoomooSnapshot:
         now = now if now is not None else time.time()
         if not self.enabled or not self.tickers:
@@ -210,13 +239,13 @@ class MoomooFeed:
             return self._snapshot
         self._last_poll = now
         if not self._ensure_ctx():
-            self._snapshot.available = False
+            self._degrade()
             return self._snapshot
         try:
             self._snapshot = self._poll(now)
         except Exception as e:
             log.warning(f"moomoo poll failed ({e}) - keeping last snapshot")
-            self._snapshot.available = False
+            self._degrade()
             # drop the context so the next poll reconnects cleanly
             try:
                 if self._ctx is not None:

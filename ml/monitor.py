@@ -775,8 +775,19 @@ class ModelMonitor:
             out.update({
                 "window_trades": len(y),
                 "brier": round(brier_score(y, p), 4),
+                # The PUBLISHED baseline must be the SAME quantity _judge
+                # decides on (_prior_base_rate, see :251-253). It used to be
+                # clip(y.mean()) — the in-window ORACLE base rate, which no
+                # forecaster could have known in advance. That made the gauge
+                # and the kill line two different numbers, and the Grafana rule
+                # (docs/grafana/liquiditybot_brier_alert.yaml:72) pages "the
+                # governor has moved to kill it" off the gauge while the
+                # governor is still at level 0. Same clip bounds, so a genuine
+                # brier-vs-baseline crossing reads identically; only the
+                # phantom page goes away.
                 "baseline_brier": round(brier_score(
-                    y, np.full_like(p, np.clip(y.mean(), 0.05, 0.95))), 4),
+                    y, np.full_like(p, np.clip(self._prior_base_rate(),
+                                               0.05, 0.95))), 4),
                 "calibration_gap": round(calibration_gap(y, p), 4),
                 "hit_rate": round(float(y.mean()), 3),
                 "hit_rate_lcb": round(wilson_lcb(int(y.sum()), len(y)), 3),

@@ -104,7 +104,18 @@ def _read_csv(path: Path) -> list:
         return []
     try:
         with open(path, encoding="utf-8", newline="") as f:
-            return list(csv.DictReader(f))
+            # DROP MALFORMED ROWS. A torn final append (a crash mid-write on a
+            # live CSV) leaves a fragment that DictReader returns as a normal
+            # dict with restval=None for the missing tail — so "1786000000,98"
+            # parsed as a real equity sample and reported equity_min 98.0 on a
+            # ~$800 book, and a truncated epoch like "17860" put the window
+            # start in 1970 with duration_h in the hundreds of thousands.
+            # A short row is not a small observation; it is half an
+            # observation, and averaging it in is worse than dropping it.
+            #   None in r          -> restkey: the row had EXTRA fields
+            #   None in r.values() -> restval: the row was SHORT
+            return [r for r in csv.DictReader(f)
+                    if None not in r and None not in r.values()]
     except OSError:
         return []
 
@@ -132,11 +143,19 @@ def _audit_section(records: list, outputs: Path) -> dict:
     signal_total = sum(signal_codes.values())
     top_code, top_n = (signal_codes.most_common(1)[0]
                        if signal_codes else (None, 0))
-    # chain integrity via the real verifier (read-only)
+    # chain integrity via the real verifier — and it MUST be verify_chain().
+    # Constructing an AuditTrail is a WRITE: its _adopt_tail heals a torn tail
+    # by truncating it and appending a newline. This digest runs hourly from
+    # scripts/checkin.py against the LIVE outputs/audit.jsonl, so the previous
+    # `AuditTrail(...).verify()` could DELETE a just-appended record mid-write
+    # and latch tamper=True permanently — evidence destruction from a module
+    # whose own docstring promises it "never writes to the audit chain".
+    # verify_chain is read-only by contract; scripts/session_import.py:176
+    # already uses it for exactly this reason.
     chain = {"ok": None}
     try:
-        from core.audit import AuditTrail
-        chain = AuditTrail(str(outputs / "audit.jsonl")).verify()
+        from core.audit import verify_chain
+        chain = verify_chain(str(outputs / "audit.jsonl"))
     except Exception:  # pragma: no cover - verifier must never break the digest
         chain = {"ok": None, "error": "verifier unavailable"}
     return {
