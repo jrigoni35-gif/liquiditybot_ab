@@ -1,40 +1,40 @@
 {
-  "generated_at": 1786816642.0378768,
+  "generated_at": 1786820249.8464928,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786816629.0,
-    "duration_h": 874.06
+    "end": 1786820233.0,
+    "duration_h": 875.06
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 799.16,
+    "equity_end": 799.27,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.22,
     "fees_paid_total": 2.2649,
     "open_positions": 5,
-    "samples": 192100
+    "samples": 192334
   },
   "activity": {
-    "signal_rows_total": 10658,
+    "signal_rows_total": 10659,
     "live_labeled_trades": 327,
-    "candidate_rows": 10331
+    "candidate_rows": 10332
   },
   "audit": {
-    "records": 45084,
-    "signal_records": 35149,
+    "records": 45089,
+    "signal_records": 35154,
     "by_src": {
       "exploration": 40160,
       "order_manager": 1428,
-      "ml_governor": 1401,
-      "long_book": 894,
+      "ml_governor": 1402,
+      "long_book": 896,
       "startup": 299,
       "fault": 278,
       "exit": 231,
-      "conviction": 222,
+      "conviction": 224,
       "firewall": 60,
       "engine": 59,
       "circuit_breaker": 48,
@@ -59,11 +59,11 @@
       ],
       [
         "LB-010",
-        621
+        623
       ],
       [
         "ML-031",
-        541
+        542
       ],
       [
         "OM-040",
@@ -91,7 +91,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.634,
+    "dominant_frac": 0.633,
     "retrain_requests": 114,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -100,24 +100,36 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 535,
+    "records": 1575,
     "by_level": {
-      "INFO": 534,
-      "WARNING": 1
+      "INFO": 1571,
+      "WARNING": 4
     },
     "top_warnings": [
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
         1
+      ],
+      [
+        "source unavailable (SSLError): https://news.google.com/rss/search?q=%22Jamie+Dimon%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&hl=en-U",
+        1
+      ],
+      [
+        "source unavailable (SSLError): https://cointelegraph.com/rss",
+        1
+      ],
+      [
+        "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps', 'depth_log']",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 119,
-      "spoofy": 101
+      "thin": 345,
+      "spoofy": 306
     },
-    "spoofy_frac": 0.459,
-    "cycles_estimate": 67,
-    "feed_error_events": 0
+    "spoofy_frac": 0.47,
+    "cycles_estimate": 184,
+    "feed_error_events": 2
   },
   "model": {
     "monitor_level": 0,
@@ -159,7 +171,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 63% of 35149 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 63% of 35154 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
