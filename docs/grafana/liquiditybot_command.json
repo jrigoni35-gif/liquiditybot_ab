@@ -452,7 +452,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -536,7 +537,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -620,7 +622,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -704,7 +707,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -779,7 +783,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -868,7 +873,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -943,7 +949,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1010,7 +1017,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1094,7 +1102,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "awaiting first retrain (no corpus load)"
         },
         "overrides": []
       },
@@ -1151,7 +1160,7 @@
       "id": 15,
       "type": "timeseries",
       "title": "Equity curve",
-      "description": "Account equity over time — exact dollars (no K-rounding); the legend table shows last/min/max to the cent.",
+      "description": "Account equity over time — exact dollars (no K-rounding); the legend table shows last/min/max to the cent. Empty means: not in this cycle's status write.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1182,7 +1191,8 @@
           "color": {
             "mode": "palette-classic"
           },
-          "decimals": 2
+          "decimals": 2,
+          "noValue": "not in this cycle's status write"
         },
         "overrides": [
           {
@@ -1267,7 +1277,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1338,7 +1349,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -1409,7 +1421,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1480,7 +1493,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1551,7 +1565,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1622,7 +1637,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -1689,7 +1705,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1764,7 +1781,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "no profit goal configured"
         },
         "overrides": []
       },
@@ -1831,7 +1849,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1906,6 +1925,7 @@
               }
             ]
           },
+          "noValue": "risk-protocol stack not reporting",
           "color": {
             "mode": "thresholds"
           }
@@ -1975,6 +1995,7 @@
               }
             ]
           },
+          "noValue": "not in this cycle's status write",
           "color": {
             "mode": "thresholds"
           }
@@ -2044,6 +2065,7 @@
               }
             ]
           },
+          "noValue": "awaiting first closed trade",
           "color": {
             "mode": "thresholds"
           }
@@ -2113,7 +2135,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -2188,7 +2211,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -2259,7 +2283,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first close in this bucket"
         },
         "overrides": []
       },
@@ -2326,7 +2351,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first close in this bucket"
         },
         "overrides": []
       },
@@ -2393,7 +2419,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first close in this bucket"
         },
         "overrides": []
       },
@@ -2464,7 +2491,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -2539,7 +2567,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -2622,7 +2651,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "not in this cycle's status write"
             },
             "overrides": []
           },
@@ -2689,7 +2719,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "not in this cycle's status write"
             },
             "overrides": []
           },
@@ -2756,7 +2787,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "not in this cycle's status write"
             },
             "overrides": []
           },
@@ -2823,7 +2855,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "not in this cycle's status write"
             },
             "overrides": []
           },
@@ -2864,7 +2897,7 @@
           "id": 40,
           "type": "timeseries",
           "title": "Pools over time",
-          "description": "Savings + reserve accrual and the week's running realized P&L - the rollover ritual made visible.",
+          "description": "Savings + reserve accrual and the week's running realized P&L - the rollover ritual made visible. Empty means: not in this cycle's status write.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -2895,7 +2928,8 @@
               "color": {
                 "mode": "palette-classic"
               },
-              "decimals": 2
+              "decimals": 2,
+              "noValue": "not in this cycle's status write"
             },
             "overrides": [
               {
@@ -3527,7 +3561,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -3594,7 +3629,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -3661,7 +3697,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -4195,6 +4232,7 @@
               }
             ]
           },
+          "noValue": "not in this cycle's status write",
           "color": {
             "mode": "thresholds"
           }
@@ -4256,7 +4294,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -4341,7 +4380,8 @@
                 ]
               },
               "min": -12,
-              "max": 12
+              "max": 12,
+              "noValue": "awaiting first close on this asset"
             },
             "overrides": []
           },
@@ -4415,7 +4455,8 @@
                 ]
               },
               "min": 0,
-              "max": 1
+              "max": 1,
+              "noValue": "no signal read this cycle"
             },
             "overrides": []
           },
@@ -4489,7 +4530,8 @@
                 ]
               },
               "min": 0,
-              "max": 1
+              "max": 1,
+              "noValue": "no signal read this cycle"
             },
             "overrides": []
           },

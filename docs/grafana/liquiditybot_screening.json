@@ -129,7 +129,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -196,7 +197,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "skimmer has scored no candidate"
         },
         "overrides": []
       },
@@ -263,7 +265,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "skimmer has scored no candidate"
         },
         "overrides": []
       },
@@ -330,7 +333,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -405,6 +409,7 @@
               }
             ]
           },
+          "noValue": "not in this cycle's status write",
           "color": {
             "mode": "thresholds"
           }
@@ -483,7 +488,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -560,7 +566,8 @@
             ]
           },
           "min": 0,
-          "max": 1
+          "max": 1,
+          "noValue": "skimmer has scored no candidate"
         },
         "overrides": []
       },
@@ -1379,7 +1386,8 @@
               "type": "value",
               "options": {}
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -1514,7 +1522,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "no haven ladder read yet"
         },
         "overrides": []
       },
@@ -1624,7 +1633,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Gradient over time — is fear travelling down the ladder?",
-      "description": "The trend is the read: a gradient climbing through zero is capital rotating toward tangibility ahead of a drawdown; falling through zero is risk appetite returning. Sustained direction matters, not the current print.",
+      "description": "The trend is the read: a gradient climbing through zero is capital rotating toward tangibility ahead of a drawdown; falling through zero is risk appetite returning. Sustained direction matters, not the current print. Empty means: no haven ladder read yet.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1654,7 +1663,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "no haven ladder read yet"
         },
         "overrides": []
       },
@@ -1743,7 +1753,8 @@
                 "value": 8
               }
             ]
-          }
+          },
+          "noValue": "no regime data yet"
         },
         "overrides": []
       },
@@ -1807,7 +1818,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "no regime data yet"
         },
         "overrides": []
       },
@@ -2557,7 +2569,8 @@
                     }
                   }
                 }
-              ]
+              ],
+              "noValue": "no context poll yet"
             },
             "overrides": []
           },
@@ -3445,7 +3458,8 @@
                 ]
               },
               "min": 0,
-              "max": 1
+              "max": 1,
+              "noValue": "no THALES read for this asset"
             },
             "overrides": []
           },
@@ -3519,7 +3533,8 @@
                 ]
               },
               "min": 0,
-              "max": 1
+              "max": 1,
+              "noValue": "no THALES read for this asset"
             },
             "overrides": []
           },
@@ -3593,7 +3608,8 @@
                 ]
               },
               "min": 0,
-              "max": 1
+              "max": 1,
+              "noValue": "no manipulation read this cycle"
             },
             "overrides": []
           },

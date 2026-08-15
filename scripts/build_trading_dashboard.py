@@ -317,7 +317,8 @@ def gauge(title, expr, w, h, mx=35.0, mn=0, unit="percent", decimals=1,
 
 
 def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
-               calcs=None, decimals=None, extra=None, colors=None):
+               calcs=None, decimals=None, extra=None, colors=None,
+               no_value=None):
     """calcs upgrades the legend to a table of reductions (exact numbers
     beside the trend). colors: {series_name: hex} pins each line to a
     fixed validated color instead of palette-classic rotation."""
@@ -336,6 +337,8 @@ def timeseries(title, expr, w, h, unit="", legend="value", desc="", fill=18,
         "color": {"mode": "palette-classic"}}
     if decimals is not None:
         fld["decimals"] = decimals
+    if no_value:
+        fld["noValue"] = no_value
     overrides = []
     for name, col in (colors or {}).items():
         overrides.append({"matcher": {"id": "byName", "options": name},
@@ -1395,7 +1398,8 @@ def _author_execution():
           cols=[("liquiditybot_gate_weight", "Weight", "short", 3, HIGH_GOOD, "text")],
           label_keys=["gate"], sort="Weight", desc="Evidence weight per gate.")
     bargauge("New-era outcomes by barrier",
-             'liquiditybot_era_reason_label_rate{era="triple_barrier",'
+             'liquiditybot_era_reason_label_rate'
+             '{era=~"triple_barrier(_h[0-9]+)?",'
              'job="liquiditybot"}*100', 16, 6, unit="percent", decimals=1,
              steps=BLUE, legend="{{reason}}",
              desc="Label rate per exit reason on NEW-era (triple_barrier) "
@@ -2294,11 +2298,238 @@ _ZERO_ANCHOR = re.compile(
     r"label|row|count|position|trade|token|admission|candidate", re.I)
 
 
+# --- honest-absence presentation contract (2026-08-15) --------------------
+# A panel that renders Grafana's stock "No data" says nothing about WHY.
+# Two entirely different facts render identically: (a) the bot has not yet
+# done the thing the series counts (zero fills, no retrain, judge window
+# short) and (b) the telemetry that should always be there is gone. The
+# first is an honest absence and the board must SAY SO; the second is a
+# defect and the board must say THAT. This block is the rule, applied once
+# in _hig_pass to every panel on every board (same doctrine as
+# _apple_palette / the HIG pass: state it once, never at 185 call sites).
+
+# Metrics scripts/gc_pusher.collect() emits from a status.json containing
+# ONLY {written_at, runner_state} — i.e. whose emission depends on no
+# status content whatsoever. If one of these has no series, the bot's
+# trading state is not the explanation: the pusher, the status file, or
+# the query is. Pinned against the exporter by
+# tests/test_dashboard_no_value.py::test_always_on_set_matches_the_exporter,
+# which recomputes this set by RUNNING collect() on a minimal status.
+_ALWAYS_ON = frozenset({
+    "liquiditybot_audit_dropped_writes", "liquiditybot_audit_tail_truncations",
+    "liquiditybot_entries_enabled", "liquiditybot_fault_count",
+    "liquiditybot_firewall_fault", "liquiditybot_gauges_dropped_nonfinite",
+    "liquiditybot_gross_exposure_usd", "liquiditybot_halted",
+    "liquiditybot_haven_info", "liquiditybot_ml_model_info",
+    "liquiditybot_ml_retrain_flag", "liquiditybot_ml_use_model",
+    "liquiditybot_moomoo_available", "liquiditybot_moomoo_options_available",
+    "liquiditybot_op_state", "liquiditybot_open_risk_usd",
+    "liquiditybot_open_upnl_usd", "liquiditybot_positions_open",
+    "liquiditybot_running", "liquiditybot_status_age_sec",
+    "liquiditybot_status_malformed", "liquiditybot_status_missing",
+    "liquiditybot_status_stale", "liquiditybot_watchdog_critical_stale",
+    "liquiditybot_watchdog_divergent", "liquiditybot_watchdog_entries_blocked",
+    "liquiditybot_watchdog_stale_assets",
+    "liquiditybot_watchdog_velocity_tripped",
+    "liquiditybot_ws_kraken_connected",
+})
+
+# The one string that means "this is broken", never "this has not happened".
+_NV_DEFECT = "⚠ no series — exporter/pusher, not the bot"
+
+_NV_NOT_WRITTEN = "not in this cycle's status write"
+_NV_NO_RETRAIN = "awaiting first retrain (no corpus load)"
+_NV_JUDGE = "window filling (<15 model-scored closes)"
+
+# metric-name PREFIX -> (tier, operator-readable precondition).
+# tier "event"   the series cannot exist until the named event happens
+# tier "section" the series cannot exist until the runner writes that block
+# Every string restates the ACTUAL guard in scripts/gc_pusher.py; the
+# file:line of each guard is in the comment beside it.
+_NO_VALUE_BY_FAMILY = {
+    # ---- event-gated ----------------------------------------------------
+    # order_manager.py:730-731  "maker_share": ... if fills else None
+    "liquiditybot_order_maker_share": ("event", "awaiting first fill"),
+    # order_manager.py:734-741 read the SLIP LEDGER, appended at :707-710
+    # only for a fill with a finite arrival ref AND notional >= 1% of the
+    # order — a dust fill books fees and no slip.
+    "liquiditybot_order_avg_slip_bps": ("event", "awaiting first non-dust fill"),
+    "liquiditybot_order_worst_slip_bps": ("event", "awaiting first non-dust fill"),
+    "liquiditybot_order_slip_bps_notional_weighted":
+        ("event", "awaiting first non-dust fill"),
+    # gc_pusher.py:874-879  per asset+horizon markout sample
+    "liquiditybot_markout_bps": ("event", "awaiting first post-fill markout"),
+    # gc_pusher.py:721-728 <- ml/monitor.py:773 `if w is not None` <- :225-226
+    # `if len(recs) < self.min_trades: return None`, min_trades default 15
+    "liquiditybot_ml_brier": ("event", _NV_JUDGE),
+    "liquiditybot_ml_baseline_brier": ("event", _NV_JUDGE),
+    "liquiditybot_ml_calibration_gap": ("event", _NV_JUDGE),
+    "liquiditybot_ml_hit_rate": ("event", _NV_JUDGE),
+    "liquiditybot_ml_avg_p": ("event", _NV_JUDGE),
+    "liquiditybot_ml_window_trades": ("event", _NV_JUDGE),
+    # gc_pusher.py:757-765  ls = ml["load_stats"], written only by a
+    # completed HistoryStore.load_training_data (main.py:6245 auto-retrain)
+    "liquiditybot_ml_live_clean": ("event", _NV_NO_RETRAIN),
+    "liquiditybot_ml_mean_uniqueness": ("event", _NV_NO_RETRAIN),
+    "liquiditybot_ml_dropped_dirty": ("event", _NV_NO_RETRAIN),
+    "liquiditybot_ml_dropped_clash": ("event", _NV_NO_RETRAIN),
+    "liquiditybot_ml_prior_skew": ("event", _NV_NO_RETRAIN),
+    # gc_pusher.py:776  `if ls:` gates the WHOLE era block — same root cause
+    "liquiditybot_era_": ("event", _NV_NO_RETRAIN),
+    # gc_pusher.py:851-852  `bd_n > 0`
+    "liquiditybot_bracket_divergence_":
+        ("event", "awaiting first bracket close"),
+    # gc_pusher.py:533-536 / :537-547  zero-iteration over empty dicts
+    "liquiditybot_conviction_denials": ("event", "no conviction denial yet"),
+    "liquiditybot_conviction_regime_":
+        ("event", "awaiting first regime-bucketed eval"),
+    # gc_pusher.py:227-229  avg_cost_24h is None until the first admit
+    "liquiditybot_probe_budget_avg_cost_24h":
+        ("event", "awaiting first probe admit"),
+    # gc_pusher.py:939-942  loop over cb["tripped"], empty when nothing paused
+    "liquiditybot_cb_paused_hours_left":
+        ("event", "no asset circuit-breaker tripped"),
+    # gc_pusher.py:898-901  loop over firewall["counters"]
+    "liquiditybot_firewall_count": ("event", "no firewall trip recorded"),
+    # gc_pusher.py:510-514 / :956-959  per-code tallies
+    "liquiditybot_code_count": ("event", "this reason code has not fired"),
+    # gc_pusher.py:423-431 / :411-419 / :402-410  performance ledger slices
+    "liquiditybot_perf_conviction_":
+        ("event", "awaiting first close in this bucket"),
+    "liquiditybot_perf_asset_": ("event", "awaiting first close on this asset"),
+    "liquiditybot_perf_": ("event", "awaiting first closed trade"),
+    # gc_pusher.py:343-388  aggregated from status.positions (non-hedge)
+    "liquiditybot_position_": ("event", "flat — no open positions"),
+    # gc_pusher.py:189-204  graded-evidence ledger, structurally empty
+    # before the shadow-grading unlock
+    "liquiditybot_thales_rel_": ("event", "no graded THALES evidence yet"),
+    "liquiditybot_thales_base_": ("event", "no graded THALES evidence yet"),
+    # gc_pusher.py:734-737  labels_by_source
+    "liquiditybot_ml_labels": ("event", "no labelled rows yet"),
+    # ---- section-gated --------------------------------------------------
+    "liquiditybot_goal_": ("section", "no profit goal configured"),
+    "liquiditybot_context_": ("section", "no context poll yet"),
+    "liquiditybot_longbook_": ("section", "long book disabled/not built"),
+    "liquiditybot_probe_": ("section", "no probe-budget telemetry yet"),
+    "liquiditybot_thales_": ("section", "no THALES read for this asset"),
+    "liquiditybot_regime_": ("section", "no regime data yet"),
+    "liquiditybot_signal_": ("section", "no signal read this cycle"),
+    "liquiditybot_gate_": ("section", "gate ledger empty — no labelled rows"),
+    "liquiditybot_skimmer_": ("section", "skimmer has scored no candidate"),
+    "liquiditybot_haven_": ("section", "no haven ladder read yet"),
+    "liquiditybot_cb_": ("section", "circuit-breaker ledger not written"),
+    "liquiditybot_conviction_": ("section", "conviction ledger not written"),
+    "liquiditybot_manip_suspect": ("section", "no manipulation read this cycle"),
+    "liquiditybot_rp_": ("section", "risk-protocol stack not reporting"),
+    "liquiditybot_ml_": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_monitor_": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_order_": ("section", _NV_NOT_WRITTEN),
+    # ---- bare top-level scalars: gc_pusher.py:294-315 numeric whitelist --
+    "liquiditybot_equity": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_daily_pnl": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_weekly_pnl": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_savings": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_reserve": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_drawdown_pct": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_cycle": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_feed_latency_ms": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_marks_age_sec": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_fees_total": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_realized_": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_net_pnl_all_time": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_entry_fees_total": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_starting_capital": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_exit_eval_failures": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_gross_exposure_pct": ("section", _NV_NOT_WRITTEN),
+}
+_NV_TIER_RANK = {"event": 0, "section": 1}
+# Panel types whose fieldConfig.defaults.noValue replaces the panel-level
+# "No data" message. `table` is EXCLUDED on purpose: there noValue fills
+# every empty CELL, and a sentence per cell is unreadable — the table's
+# "·" stays, and its absence story rides its description.
+_NV_TYPES = ("stat", "gauge", "bargauge", "timeseries", "piechart")
+_MET_RE = re.compile(r"liquiditybot_[a-z0-9_]+")
+
+
+def _nv_family(metric):
+    """Longest-prefix match into _NO_VALUE_BY_FAMILY. None for an
+    always-on metric. Raises for anything undeclared — a panel whose
+    metric family has no stated precondition must not ship, because the
+    board would render its absence with no explanation at all."""
+    if metric in _ALWAYS_ON:
+        return None
+    best = ""
+    for k in _NO_VALUE_BY_FAMILY:
+        if metric.startswith(k) and len(k) > len(best):
+            best = k
+    if not best:
+        raise KeyError(
+            f"{metric}: no entry in _NO_VALUE_BY_FAMILY. Declare the "
+            f"precondition (the guard in scripts/gc_pusher.py) before "
+            f"shipping a panel that queries it.")
+    return best
+
+
+def _panel_no_value(panel):
+    """The honest empty-state string for one panel, or None if the panel
+    is not a noValue-bearing type or carries no query."""
+    if panel.get("type") not in _NV_TYPES:
+        return None
+    mets = set()
+    for t in panel.get("targets") or []:
+        mets |= set(_MET_RE.findall(t.get("expr") or ""))
+    if not mets:
+        return None
+    if any(m in _ALWAYS_ON for m in mets):
+        return _NV_DEFECT
+    ranked = []
+    for m in sorted(mets):
+        key = _nv_family(m)
+        tier, msg = _NO_VALUE_BY_FAMILY[key]
+        ranked.append((_NV_TIER_RANK[tier], -len(key), m, msg))
+    ranked.sort()
+    return ranked[0][3]
+
+
+def _nv_all_preconditions(panel):
+    """Every distinct precondition on the panel, for the description."""
+    mets = set()
+    for t in panel.get("targets") or []:
+        mets |= set(_MET_RE.findall(t.get("expr") or ""))
+    out = []
+    for m in sorted(mets):
+        key = _nv_family(m)
+        if key is None:
+            msg = _NV_DEFECT
+        else:
+            msg = _NO_VALUE_BY_FAMILY[key][1]
+        if msg not in out:
+            out.append(msg)
+    return out
+
+
 def _hig_pass(panel):
     """Apply the measured HIG fixes to one leaf panel, in place."""
     fc = panel.setdefault("fieldConfig", {}).setdefault("defaults", {})
     title = panel.get("title") or ""
     ptype = panel.get("type")
+
+    # Honest-absence contract: every data panel says what its own emptiness
+    # MEANS. setdefault, so a hand-authored no_value= at the call site always
+    # wins over the family default.
+    _nv = _panel_no_value(panel)
+    if _nv:
+        fc.setdefault("noValue", _nv)
+        if ptype == "timeseries":
+            # timeseries noValue support is not verified against this
+            # Grafana Cloud instance, and a multi-series panel has more
+            # than one precondition anyway — the description always renders
+            # and always carries the full list.
+            _pc = _nv_all_preconditions(panel)
+            _d = panel.get("description") or ""
+            _tail = "Empty means: " + "; ".join(_pc) + "."
+            if _tail not in _d:
+                panel["description"] = (_d + " " if _d else "") + _tail
 
     # Thresholds declared but no explicit color mode: Grafana's default
     # varies by panel type, so those steps may silently never paint.

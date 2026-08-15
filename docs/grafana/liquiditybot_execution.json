@@ -129,7 +129,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -197,7 +198,8 @@
           "color": {
             "mode": "thresholds"
           },
-          "displayName": "${__field.labels.kind}"
+          "displayName": "${__field.labels.kind}",
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -281,7 +283,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -370,7 +373,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -515,6 +519,7 @@
               }
             ]
           },
+          "noValue": "not in this cycle's status write",
           "color": {
             "mode": "thresholds"
           }
@@ -576,7 +581,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -617,7 +623,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "Brier — live vs champion vs baseline (lower = better)",
-      "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline. Lower is better.",
+      "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline. Lower is better. Empty means: window filling (<15 model-scored closes); not in this cycle's status write.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -648,7 +654,8 @@
           "color": {
             "mode": "palette-classic"
           },
-          "decimals": 4
+          "decimals": 4,
+          "noValue": "window filling (<15 model-scored closes)"
         },
         "overrides": [
           {
@@ -787,7 +794,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "no labelled rows yet"
         },
         "overrides": []
       },
@@ -854,7 +862,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -921,7 +930,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -996,7 +1006,8 @@
                 "value": 55
               }
             ]
-          }
+          },
+          "noValue": "window filling (<15 model-scored closes)"
         },
         "overrides": []
       },
@@ -1484,7 +1495,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "awaiting first retrain (no corpus load)"
         },
         "overrides": []
       },
@@ -1510,7 +1522,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_era_reason_label_rate{era=\"triple_barrier\",job=\"liquiditybot\"}*100",
+          "expr": "liquiditybot_era_reason_label_rate{era=~\"triple_barrier(_h[0-9]+)?\",job=\"liquiditybot\"}*100",
           "instant": true,
           "range": false,
           "legendFormat": "{{reason}}"
@@ -1556,7 +1568,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first retrain (no corpus load)"
         },
         "overrides": []
       },
@@ -1735,7 +1748,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "no labelled rows yet"
             },
             "overrides": []
           },
@@ -1810,7 +1824,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "no labelled rows yet"
             },
             "overrides": []
           },
@@ -1885,7 +1900,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "awaiting first retrain (no corpus load)"
             },
             "overrides": []
           },
@@ -1956,7 +1972,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "awaiting first retrain (no corpus load)"
             },
             "overrides": []
           },
@@ -2031,7 +2048,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "awaiting first retrain (no corpus load)"
             },
             "overrides": []
           },
@@ -2115,7 +2133,8 @@
                     }
                   }
                 }
-              ]
+              ],
+              "noValue": "awaiting first retrain (no corpus load)"
             },
             "overrides": []
           },
@@ -2275,6 +2294,7 @@
                   }
                 ]
               },
+              "noValue": "not in this cycle's status write",
               "color": {
                 "mode": "thresholds"
               }
@@ -2337,7 +2357,8 @@
               "color": {
                 "mode": "thresholds"
               },
-              "displayName": "${__field.labels.kind}"
+              "displayName": "${__field.labels.kind}",
+              "noValue": "⚠ no series — exporter/pusher, not the bot"
             },
             "overrides": []
           },
@@ -2480,7 +2501,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "awaiting first closed trade"
             },
             "overrides": []
           },
@@ -2564,7 +2586,8 @@
                     }
                   }
                 }
-              ]
+              ],
+              "noValue": "⚠ no series — exporter/pusher, not the bot"
             },
             "overrides": []
           },
@@ -2631,7 +2654,8 @@
               },
               "color": {
                 "mode": "thresholds"
-              }
+              },
+              "noValue": "not in this cycle's status write"
             },
             "overrides": []
           },
@@ -2715,7 +2739,8 @@
                     }
                   }
                 }
-              ]
+              ],
+              "noValue": "⚠ no series — exporter/pusher, not the bot"
             },
             "overrides": []
           },
@@ -2756,7 +2781,7 @@
           "id": 35,
           "type": "timeseries",
           "title": "Learning rows by label (live vs candidate)",
-          "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time — the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved.",
+          "description": "Ground-truth LIVE (real closed-trade) labels vs CANDIDATE (triple-barrier proxy) labels accruing over time — the learning loop turning. LIVE climbing past 35 = ML-073 realizing ground truth; a flat LIVE line = the loop is starved. Empty means: no labelled rows yet.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -2786,7 +2811,8 @@
               },
               "color": {
                 "mode": "palette-classic"
-              }
+              },
+              "noValue": "no labelled rows yet"
             },
             "overrides": [
               {
@@ -2856,7 +2882,7 @@
           "id": 36,
           "type": "timeseries",
           "title": "Brier — live vs champion vs baseline (lower = better)",
-          "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline the model must undercut. Above the baseline means the model is worse than guessing the base rate.",
+          "description": "Rolling outcome Brier: live vs deployed champion vs the base-rate baseline the model must undercut. Above the baseline means the model is worse than guessing the base rate. Empty means: window filling (<15 model-scored closes); not in this cycle's status write.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -2887,7 +2913,8 @@
               "color": {
                 "mode": "palette-classic"
               },
-              "decimals": 4
+              "decimals": 4,
+              "noValue": "window filling (<15 model-scored closes)"
             },
             "overrides": [
               {
@@ -2994,7 +3021,7 @@
           "id": 37,
           "type": "timeseries",
           "title": "Label rate by era",
-          "description": "Per-era label rate on the surviving corpus — the instrument that shows the 0.0066 (exit_sim_time_stop) -> 0.3991 (triple_barrier) repair as the new era takes over.",
+          "description": "Per-era label rate on the surviving corpus — the instrument that shows the 0.0066 (exit_sim_time_stop) -> 0.3991 (triple_barrier) repair as the new era takes over. Empty means: awaiting first retrain (no corpus load).",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -3025,7 +3052,8 @@
               "color": {
                 "mode": "palette-classic"
               },
-              "decimals": 2
+              "decimals": 2,
+              "noValue": "awaiting first retrain (no corpus load)"
             },
             "overrides": []
           },
@@ -3085,7 +3113,7 @@
       "id": 39,
       "type": "timeseries",
       "title": "Label supply — is training data arriving?",
-      "description": "The three label pools over time. live_clean gates retraining; it was pinned at 0 for thirteen days and no tile could show that. FLAT is the alarm here, not the all-clear.",
+      "description": "The three label pools over time. live_clean gates retraining; it was pinned at 0 for thirteen days and no tile could show that. FLAT is the alarm here, not the all-clear. Empty means: no labelled rows yet; awaiting first retrain (no corpus load).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3118,6 +3146,7 @@
             "mode": "palette-classic"
           },
           "decimals": 0,
+          "noValue": "awaiting first retrain (no corpus load)",
           "min": 0
         },
         "overrides": [
@@ -3225,7 +3254,7 @@
       "id": 40,
       "type": "timeseries",
       "title": "Era exclusion — progress toward re-arming",
-      "description": "New-era rows against the min_rows threshold that arms era-gated training. Both are plotted so the GAP is the visible quantity — distance to the threshold is what you actually want to read, and two separate tiles make you subtract by hand.",
+      "description": "New-era rows against the min_rows threshold that arms era-gated training. Both are plotted so the GAP is the visible quantity — distance to the threshold is what you actually want to read, and two separate tiles make you subtract by hand. Empty means: awaiting first retrain (no corpus load).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3258,6 +3287,7 @@
             "mode": "palette-classic"
           },
           "decimals": 0,
+          "noValue": "awaiting first retrain (no corpus load)",
           "min": 0
         },
         "overrides": [
@@ -3339,7 +3369,7 @@
       "id": 41,
       "type": "timeseries",
       "title": "Calibration quality — is the model honest?",
-      "description": "A gap that WIDENS while labels accumulate means the model is learning the wrong thing — the one failure mode that looks identical to healthy progress on a state tile.",
+      "description": "A gap that WIDENS while labels accumulate means the model is learning the wrong thing — the one failure mode that looks identical to healthy progress on a state tile. Empty means: window filling (<15 model-scored closes); awaiting first retrain (no corpus load).",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3370,7 +3400,8 @@
           "color": {
             "mode": "palette-classic"
           },
-          "decimals": 1
+          "decimals": 1,
+          "noValue": "window filling (<15 model-scored closes)"
         },
         "overrides": [
           {
@@ -3451,7 +3482,7 @@
       "id": 42,
       "type": "timeseries",
       "title": "Admission funnel — is the gate passing anything?",
-      "description": "A gate whose admitted line rides at zero while evaluated climbs is selecting against itself — which is what scripts/gate_efficacy_report.py measured at -12.2% separation. The divergence is the signal; neither line alone shows it.",
+      "description": "A gate whose admitted line rides at zero while evaluated climbs is selecting against itself — which is what scripts/gate_efficacy_report.py measured at -12.2% separation. The divergence is the signal; neither line alone shows it. Empty means: conviction ledger not written.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3484,6 +3515,7 @@
             "mode": "palette-classic"
           },
           "decimals": 0,
+          "noValue": "conviction ledger not written",
           "min": 0
         },
         "overrides": [
@@ -3968,7 +4000,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -4043,7 +4076,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -4114,7 +4148,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -5842,7 +5877,7 @@
           "id": 69,
           "type": "timeseries",
           "title": "Token bucket vs capacity",
-          "description": "Bucket level vs capacity C (= one book-fill, 5 tokens at defaults). Time below zero is bounded placement DEBT (worst −C ≈ 8h of refill); pinned at C = arrivals are cheaper than supply — headroom.",
+          "description": "Bucket level vs capacity C (= one book-fill, 5 tokens at defaults). Time below zero is bounded placement DEBT (worst −C ≈ 8h of refill); pinned at C = arrivals are cheaper than supply — headroom. Empty means: no probe-budget telemetry yet.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -5875,6 +5910,7 @@
                 "mode": "palette-classic"
               },
               "decimals": 2,
+              "noValue": "no probe-budget telemetry yet",
               "min": 0
             },
             "overrides": [
@@ -5954,7 +5990,7 @@
           "id": 70,
           "type": "timeseries",
           "title": "Avg admission cost (24h)",
-          "description": "Mean scarcity price of admitted probes. Drift toward 1.0 = buying scarce labels (good); toward the clamp = only redundant arms arriving.",
+          "description": "Mean scarcity price of admitted probes. Drift toward 1.0 = buying scarce labels (good); toward the clamp = only redundant arms arriving. Empty means: awaiting first probe admit.",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -5987,6 +6023,7 @@
                 "mode": "palette-classic"
               },
               "decimals": 2,
+              "noValue": "awaiting first probe admit",
               "min": 0
             },
             "overrides": [

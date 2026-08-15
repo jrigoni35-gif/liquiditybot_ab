@@ -153,7 +153,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -237,7 +238,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -312,7 +314,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -383,7 +386,8 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -489,7 +493,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -560,7 +565,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -631,7 +637,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -672,7 +679,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Gate divergence — reward-misspecification watch",
-      "description": "Learned gate-weight recommendations diverging from realized outcome grades. Flat near zero is healthy; a sustained trend means the gate is learning the wrong lesson. Report-only watch instrument.",
+      "description": "Learned gate-weight recommendations diverging from realized outcome grades. Flat near zero is healthy; a sustained trend means the gate is learning the wrong lesson. Report-only watch instrument. Empty means: gate ledger empty — no labelled rows.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -702,7 +709,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "noValue": "gate ledger empty — no labelled rows"
         },
         "overrides": []
       },
@@ -949,7 +957,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1033,7 +1042,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -1108,6 +1118,7 @@
               }
             ]
           },
+          "noValue": "not in this cycle's status write",
           "color": {
             "mode": "thresholds"
           }
@@ -1253,7 +1264,8 @@
                 "value": 5
               }
             ]
-          }
+          },
+          "noValue": "awaiting first retrain (no corpus load)"
         },
         "overrides": []
       },
@@ -1361,7 +1373,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1428,7 +1441,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first retrain (no corpus load)"
         },
         "overrides": []
       },
@@ -1519,6 +1533,7 @@
               }
             ]
           },
+          "noValue": "risk-protocol stack not reporting",
           "color": {
             "mode": "thresholds"
           }
@@ -1588,7 +1603,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "awaiting first closed trade"
         },
         "overrides": []
       },
@@ -1659,7 +1675,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "circuit-breaker ledger not written"
         },
         "overrides": []
       },
@@ -1734,6 +1751,7 @@
               }
             ]
           },
+          "noValue": "risk-protocol stack not reporting",
           "color": {
             "mode": "thresholds"
           }
@@ -1795,7 +1813,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "risk-protocol stack not reporting"
         },
         "overrides": []
       },
@@ -1870,6 +1889,7 @@
               }
             ]
           },
+          "noValue": "risk-protocol stack not reporting",
           "color": {
             "mode": "thresholds"
           }
@@ -1939,6 +1959,7 @@
               }
             ]
           },
+          "noValue": "risk-protocol stack not reporting",
           "color": {
             "mode": "thresholds"
           }
@@ -2234,7 +2255,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -2318,7 +2340,8 @@
                 }
               }
             }
-          ]
+          ],
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -2389,7 +2412,8 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "noValue": "⚠ no series — exporter/pusher, not the bot"
         },
         "overrides": []
       },
@@ -2496,7 +2520,8 @@
             ]
           },
           "min": 0,
-          "max": 1
+          "max": 1,
+          "noValue": "no manipulation read this cycle"
         },
         "overrides": []
       },
