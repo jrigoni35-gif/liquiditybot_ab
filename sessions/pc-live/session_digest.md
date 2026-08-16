@@ -2,15 +2,15 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-16 21:37 UTC (901.73h, ~1685 cycles)
-- Equity: $25,000.00 -> $798.96 (range $99,208.70) | realized PnL $0.29 | fees $2.68
-- Activity: 3 open | 329 live labeled trades | 10420 candidates | 281 postmortems
-- Model: level 0 | use_model=True | brier n/a | history_rows 329 | cold=True
-- Audit: 45178 records (35242 non-routine) | dominant SZ-047 (63% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 116
-- Liquidity: spoofy 58% of classified cycles | feed errors 256
+- Window: 2026-07-10 07:53 UTC -> 2026-08-16 23:32 UTC (903.65h, ~1700 cycles)
+- Equity: $25,000.00 -> $798.95 (range $99,208.70) | realized PnL $0.52 | fees $2.79
+- Activity: 3 open | 330 live labeled trades | 10453 candidates | 281 postmortems
+- Model: level 0 | use_model=True | brier n/a | history_rows 330 | cold=True
+- Audit: 45187 records (35251 non-routine) | dominant SZ-047 (63% of non-routine) | chain_ok=False (tamper=False, seams=6) | retrain_requests 116
+- Liquidity: spoofy 57% of classified cycles | feed errors 256
 
 ## Diagnostics
-- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=329, brier=n/a) yet retrain was requested 116x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 63% of the audit trail
-- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 58% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
-- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 63% of 35242 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-002 model starvation loop**  -  model is cold (live training rows=330, brier=n/a) yet retrain was requested 116x  -  with 0 entries there is no new data, so retraining can never clear the condition. Seed a model (scripts/train_meta.py) or supply history; this loop is also 63% of the audit trail
+- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 57% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
+- [WARN] **SD-004 audit trail dominated by one code**  -  SZ-047 is 63% of 35251 non-routine records  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  6 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
