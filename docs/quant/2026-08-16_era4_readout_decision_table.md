@@ -1,6 +1,8 @@
 # Era-4 readout decision table (pre-registration)
 
-**Status: UNSIGNED. Awaiting operator signature (§4).**
+**Status: UNSIGNED. Awaiting operator signature (§4). Amended 2026-08-16:
+convention rider §4.1 (owed 82/82(b)) — the signature now names its floor
+convention and estimator; no §2 number recomputed.**
 
 ## Preamble
 
@@ -372,6 +374,26 @@ are stated alongside it. All are printed by the tool already:
 
 ## 4. Signature block
 
+### 4.1 Convention rider (AMENDMENT 2026-08-16 — owed 82 / 82(b); names, never patches)
+
+Two facts the signature previously did not carry, added above the line so the
+signature commits to them explicitly. Nothing in §2 is recomputed — the
+registration is a measurement standard and mid-accrual re-derivation is the
+widening this repo forbids. The rider NAMES what the numbers are:
+
+1. **Every "resolvable-edge floor" in this document is the 2·SE DETECTION
+   convention** (a 2-sigma detection threshold), not a power-calibrated MDE.
+   At 80% power, two-sided 5%, the multiplier is 2.8016, not 2 — the two
+   conventions differ by **40.1%**. The signature block below now requires
+   circling ONE; unsigned convention = uninterpretable readout (owed 82).
+2. **Every sd/SE behind those floors uses the POPULATION (pstdev) estimator**
+   (§2.2 line "per-trade gross sd" says so itself: `sqrt(var_pop)`), which is
+   the optimistic side — the sample estimator widens the floor ~3.3% at this
+   n (owed 82(b)). Named here so the readout inherits the caveat; not patched.
+3. Restated from §3 so the signature line carries it: at n=50 the registered
+   readout is a **TRIGGER, not a measurement** — the projected floor sits
+   above the effect it is registered to detect, under EITHER convention.
+
 Fill in, date, sign. One action id per row. Leaving a row blank leaves that
 branch un-pre-registered — the readout would then be interpreted after the fact,
 which is the failure this document exists to prevent.
@@ -420,6 +442,16 @@ I acknowledge (§2.2) that at n=50 the projected resolvable-edge floor is
 mean smaller than that floor is not a measured effect:
 
     initials ______
+
+Convention rider (§4.1) — REQUIRED, the signature is void without it:
+
+    The floor convention this signature commits to (circle ONE;
+    the two differ by 40.1%):
+        [ ] 2*SE detection threshold
+        [ ] 80%-power MDE (multiplier 2.8016)
+
+    I acknowledge every sd/SE above uses the POPULATION (pstdev)
+    estimator - the optimistic side (owed 82(b)) ...... initials ______
 
 I am signing this BEFORE seeing the readout.
 
