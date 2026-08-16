@@ -35,9 +35,14 @@ DASHBOARDS = [
     # scripts/build_trading_dashboard.py (the command board keeps uid
     # liquiditybot-trading, replacing the old monolith). The dedicated
     # glass + mobile boards were retired 2026-07-22; the glass treatment
-    # lives in the boards themselves (docs/grafana/README_glass.md). The
-    # Pulse "one screen, one truth" hero lives INSIDE the Command board
-    # (operator decision 2026-07-23: the family stays at four).
+    # lives in the boards themselves (docs/grafana/README_glass.md).
+    # The Pulse "one screen, one truth" hero USED to live inside the Command
+    # board (operator decision 2026-07-23). It was DELETED 2026-08-15 with
+    # the rest of the board content; do not go looking for it. The family
+    # still stays at four, and all four are still imported: three of them
+    # now carry only the glass injector, and importing an intentionally
+    # empty board is what KEEPS it empty on the instance - skipping it would
+    # leave the old panel-laden version live in Grafana forever.
     "liquiditybot_command.json",
     "liquiditybot_execution.json",
     "liquiditybot_problem_solution.json",

@@ -11,6 +11,18 @@ contract, CI-enforced:
      build instead of silently blanking a panel ("code reacts to the panels");
   4. only supported panel types (stat/state/table/gauge/bargauge/timeseries/
      piechart/text) — the deprecated "graph" plugin is never allowed.
+
+2026-08-15 STRIP: every visualisation panel was deleted from all four boards
+before the reconfigured bot produced data, so no board could display a number
+carried over from the retired geometry. Each board now holds exactly one panel
+(the id-990 glass CSS injector). The panel FACTORIES and the generator
+framework were kept. Consequently the tests here that pinned specific rows,
+tiles, tables and queries were DELETED rather than skipped — git history holds
+them verbatim for whoever rebuilds the boards. What remains are framework
+invariants that hold on a stripped board and bite again the moment panels
+return. Two of them (checks 1 and 3 above, and the row/collapse policy) are
+vacuous while the boards are empty; they are kept because they name no deleted
+content, only structure.
 """
 import json
 import time
@@ -280,23 +292,6 @@ def _all_panels(d: dict) -> list:
     return out
 
 
-def _row_section(d: dict, key: str) -> list:
-    """Panels belonging to the row whose title contains `key` — nested list
-    for a collapsed row, the slice up to the next row otherwise."""
-    panels = d["panels"]
-    idx = [i for i, p in enumerate(panels)
-           if p["type"] == "row" and key in p["title"].upper()]
-    if not idx:
-        return []
-    row = panels[idx[0]]
-    if row.get("collapsed"):
-        return list(row.get("panels") or [])
-    start = idx[0] + 1
-    end = next((i for i in range(start, len(panels))
-                if panels[i]["type"] == "row"), len(panels))
-    return panels[start:end]
-
-
 def test_generator_matches_shipped_json():
     for fname, d in gen.DASHBOARDS.items():
         assert d == _shipped(fname), \
@@ -356,52 +351,58 @@ def test_timeseries_never_spans_an_outage():
     # sparkline that never spanned, showed the same gap honestly — so the
     # board was simultaneously telling the truth and lying about one event.
     # spanNulls must be a BOUNDED millisecond budget, never True.
+    #
+    # FRAMEWORK, not content: the outage-honesty rule lives in the KEPT
+    # timeseries() factory and its SPAN_NULLS_MS constant, not in any one
+    # panel. The 2026-08-15 strip removed every visualisation, so the old
+    # `seen >= 5` tail (which pinned the count of deleted panels) went with
+    # them; sweeping the shipped boards alone would now pass vacuously on a
+    # generator that had regressed to spanNulls=True. So the invariant is
+    # proved against the RUNNING factory — build a timeseries and inspect
+    # what it actually emits — and the board sweep is retained so every
+    # panel a rebuild adds is checked the moment it appears.
     period_ms = 30 * 1000        # gc_pusher GC_PERIOD_SEC default
-    seen = 0
+
+    def check(where, custom):
+        span = custom["spanNulls"]
+        assert span is not True, (
+            f"{where}: spanNulls=True draws a line across an outage of ANY "
+            "length — an 11.8h hole renders as a trend")
+        assert isinstance(span, int) and not isinstance(span, bool), \
+            f"{where}: spanNulls must be a ms budget"
+        # tolerate restart jitter, break on real downtime
+        assert 2 * period_ms <= span <= 30 * period_ms, (
+            f"{where}: spanNulls={span}ms outside "
+            f"[{2*period_ms}, {30*period_ms}] — too tight breaks on a "
+            "routine restart, too loose hides an outage")
+        # a bounded budget can leave isolated samples either side of a gap;
+        # showPoints="never" would render those as literally nothing, and a
+        # blank panel reads as "fine", not "no data"
+        assert custom["showPoints"] != "never", (
+            f"{where}: with bounded spanNulls, showPoints must not be "
+            "'never' — isolated samples would be invisible")
+
+    # 1. the factory. It appends to the generator's module-level layout state
+    #    (gen.panels / _cur / _pid), and that module is imported by other test
+    #    files in the same session, so the call is fully undone afterwards.
+    before = (list(gen.panels), dict(gen._cur), dict(gen._pid))
+    try:
+        gen.timeseries("spanNulls probe", "up", 12, 8)
+        built = gen.panels[-1]
+    finally:
+        gen.panels[:] = before[0]
+        gen._cur.update(before[1])
+        gen._pid.update(before[2])
+    assert built["type"] == "timeseries"
+    check("timeseries() factory", built["fieldConfig"]["defaults"]["custom"])
+
+    # 2. every timeseries actually shipped (none while the boards are
+    #    stripped — the strip removed the panels, not the rule)
     for fname in gen.DASHBOARDS:
         for p in _all_panels(_shipped(fname)):
-            if p["type"] != "timeseries":
-                continue
-            seen += 1
-            span = p["fieldConfig"]["defaults"]["custom"]["spanNulls"]
-            assert span is not True, (
-                f"{fname}/{p['title']}: spanNulls=True draws a line across "
-                "an outage of ANY length — an 11.8h hole renders as a trend")
-            assert isinstance(span, int) and not isinstance(span, bool), \
-                f"{fname}/{p['title']}: spanNulls must be a ms budget"
-            # tolerate restart jitter, break on real downtime
-            assert 2 * period_ms <= span <= 30 * period_ms, (
-                f"{fname}/{p['title']}: spanNulls={span}ms outside "
-                f"[{2*period_ms}, {30*period_ms}] — too tight breaks on a "
-                "routine restart, too loose hides an outage")
-            # a bounded budget can leave isolated samples either side of a
-            # gap; showPoints="never" would render those as literally
-            # nothing, and a blank panel reads as "fine", not "no data"
-            assert p["fieldConfig"]["defaults"]["custom"]["showPoints"] \
-                != "never", (
-                f"{fname}/{p['title']}: with bounded spanNulls, showPoints "
-                "must not be 'never' — isolated samples would be invisible")
-    assert seen >= 5, f"expected the known timeseries panels, saw {seen}"
-
-
-def test_every_board_surfaces_telemetry_age():
-    # The companion to the spanNulls fix. Value tiles reduce with
-    # "lastNotNull", so while the bot is dead they keep displaying the last
-    # push — during the 2026-07-26 outage the execution board showed a
-    # confident Brier, model rung and fill stats for 11.8h with NO cue that
-    # the runner was gone (it had zero staleness panels). gc_pusher is
-    # honest at the source (past STALE_AFTER_SEC it pushes running=0 +
-    # stale=1 and withholds market/PnL gauges) — the board has to be honest
-    # too. Every board carries a red-at-300s age tile.
-    for fname in gen.DASHBOARDS:
-        exprs = " ".join(
-            t.get("expr", "")
-            for p in _all_panels(_shipped(fname))
-            for t in (p.get("targets") or []))
-        assert "liquiditybot_status_age_sec" in exprs, (
-            f"{fname}: no telemetry-age panel — every value tile on this "
-            "board reduces with lastNotNull and will show pre-outage "
-            "numbers as if they were live")
+            if p["type"] == "timeseries":
+                check(f"{fname}/{p['title']}",
+                      p["fieldConfig"]["defaults"]["custom"])
 
 
 def test_refresh_cadence_matches_push_period():
@@ -443,15 +444,20 @@ def test_command_detail_rows_collapsed_by_default():
 
 
 def test_reason_codes_decoded_on_panels():
-    # "decode them" (2026-07-25): reason codes render with plain-language
-    # labels on every code-keyed panel. Two-sided contract:
-    #   1. COVERAGE — every SZ/CV/PT member of core.codes.Code has an entry
-    #      in gen.CODE_LABELS (a new code without a label breaks the build,
-    #      same philosophy as the emitted-metric check), and every label
-    #      keeps its code visible as the prefix;
-    #   2. WIRING — the shipped panels actually carry the decode (dropping
-    #      the mapping/override plumbing fails HERE, not silently on the
-    #      wall).
+    # "decode them" (2026-07-25): every reason code that can reach the
+    # operator has a plain-language label. This was a two-sided contract —
+    # COVERAGE (the label table) plus WIRING (the shipped panels carry the
+    # decode). The 2026-08-15 strip deleted every code-keyed panel, so the
+    # WIRING half pinned deleted content and was removed with them.
+    #
+    # The COVERAGE half is FRAMEWORK and stays: gen.CODE_LABELS is a KEPT
+    # generator constant checked against the LIVE core.codes.Code enum, so
+    # this is non-vacuous on a stripped board — adding a code without a
+    # label still breaks the build, the same philosophy as the
+    # emitted-metric check, and the labels are ready for a rebuild.
+    # (docs/superpowers/plans/2026-07-25-learnaccel-phase1-drought-floor.md
+    # cites this test BY NAME as the enforcer of family coverage — hence the
+    # name is unchanged.)
     from core.codes import Code
     fam = {m.value for m in Code if m.value[:2] in ("SZ", "CV", "PT")}
     missing = fam - set(gen.CODE_LABELS)
@@ -459,177 +465,6 @@ def test_reason_codes_decoded_on_panels():
     for code, label in gen.CODE_LABELS.items():
         assert label.startswith(code) and len(label) > len(code) + 3, \
             f"label must be 'CODE · meaning': {label!r}"
-
-    def code_mappings(panel):
-        for o in panel["fieldConfig"]["overrides"]:
-            if o["matcher"] == {"id": "byName", "options": "code"}:
-                for pr in o["properties"]:
-                    if pr["id"] == "mappings":
-                        return pr["value"][0]["options"]
-        return {}
-
-    cmd = _shipped("liquiditybot_command.json")
-    ex = _shipped("liquiditybot_execution.json")
-    entry_tbl = [p for p in _all_panels(cmd)
-                 if p.get("title") == "Entry-decision reason codes"]
-    assert entry_tbl, "entry-decision table missing"
-    opts = code_mappings(entry_tbl[0])
-    assert opts.get("SZ-030", {}).get("text") == gen.CODE_LABELS["SZ-030"]
-    assert set(opts) == set(gen.CODE_LABELS), "table mappings incomplete"
-    detail_tbl = [p for p in _all_panels(ex)
-                  if p.get("title") == "Denials by code (detail)"]
-    assert detail_tbl, "denials detail table missing"
-    opts = code_mappings(detail_tbl[0])
-    assert opts.get("CV-010", {}).get("text") == gen.CODE_LABELS["CV-010"]
-    # the CV denials bargauge decodes its series names via displayName
-    # (on the models board since the 2026-08-05 redesign, with the rest of
-    # the admission mechanics)
-    bar = [p for p in _all_panels(ex)
-           if p.get("title") == "Denials by code" and p["type"] == "bargauge"]
-    assert bar, "denials bargauge missing"
-    names = {o["matcher"]["options"]: pr["value"]
-             for o in bar[0]["fieldConfig"]["overrides"]
-             for pr in o["properties"] if pr["id"] == "displayName"}
-    cv = {c for c in gen.CODE_LABELS if c.startswith("CV")}
-    assert set(names) >= cv, "bargauge missing CV displayName decodes"
-    assert names["CV-020"] == gen.CODE_LABELS["CV-020"]
-
-
-def test_gate_divergence_watch_keeps_per_gate_series():
-    # The watch's entire point is spotting ONE gate trending away from its
-    # realized outcomes; a bare max() collapse plots only the least-diverged
-    # gate and masks the diverging one (round-2 review, 2026-08-05). The
-    # query must group by the gate label and the legend must name it.
-    d = _shipped("liquiditybot_problem_solution.json")
-    panels = [p for p in _all_panels(d)
-              if "gate_divergence" in " ".join(
-                  t["expr"] for t in p.get("targets", []))]
-    assert panels, "gate-divergence watch panel missing"
-    expr = " ".join(t["expr"] for p in panels for t in p["targets"])
-    assert "by (gate)" in expr, "per-gate series collapsed by bare max()"
-
-
-def test_screening_open_slots_relabeled():
-    # the tile displays liquiditybot_positions_open — "Open slots" read as
-    # slots AVAILABLE (backwards when 0 positions are open); it is titled
-    # by what it shows (2026-07-25 operator screenshot review)
-    d = _shipped("liquiditybot_screening.json")
-    titles = {p.get("title") for p in _all_panels(d)}
-    assert "Open slots" not in titles, "backwards label resurrected"
-    assert "Positions open" in titles
-
-
-def test_has_per_asset_comparison_table():
-    d = _shipped("liquiditybot_command.json")
-    tables = [p for p in _all_panels(d) if p["type"] == "table"]
-    # a table joined on the `asset` label = the decision-comparison scorecard
-    asset_tbl = [t for t in tables if any(
-        "asset" in str(tr.get("expr", "")) or
-        tr.get("expr", "").find("perf_asset") >= 0 for tr in t["targets"])]
-    assert asset_tbl, "per-asset comparison table is the decision centrepiece"
-
-
-def test_execution_board_has_conviction_row():
-    # #120, relocated by the 2026-08-05 trading-desk redesign: admission
-    # mechanics live on the models board beside the decision model. The row
-    # pins admit-share, window-n, alarm-state, per-regime share,
-    # denials-by-code — every target of which must query an actually-emitted
-    # liquiditybot_conviction_* metric
-    # (test_every_query_hits_an_emitted_metric enforces that globally).
-    d = _shipped("liquiditybot_execution.json")
-    section = _row_section(d, "CONVICTION")
-    assert section, "no Conviction row (or an empty one) on the models board"
-    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
-    for expect in ("liquiditybot_conviction_share",
-                   "liquiditybot_conviction_evaluated",
-                   "liquiditybot_conviction_admitted",
-                   "liquiditybot_conviction_alarm",
-                   "liquiditybot_conviction_regime_share",
-                   "liquiditybot_conviction_denials"):
-        assert expect in exprs, f"Conviction row missing {expect}"
-
-
-def test_command_board_has_context_row():
-    # Task B6, relocated by the 2026-08-05 trading-desk redesign: macro
-    # cycle context is a market-screening concern, so the row lives on the
-    # screening board — halving phase + days-since/to-next, the macro-stress
-    # dial, flow stats, event-window state, per-source ok/dark — every
-    # target of which must query an actually-emitted liquiditybot_context_*
-    # metric (test_every_query_hits_an_emitted_metric enforces that
-    # globally; this pins the row's existence and its metric coverage).
-    d = _shipped("liquiditybot_screening.json")
-    # needle avoids the board's own "REGIME CONTEXT & ADVERSE SELECTION" row
-    section = _row_section(d, "CYCLE & MACRO")
-    assert section, "no Context row (or an empty one) on the screening board"
-    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
-    for expect in ("liquiditybot_context_phase",
-                   "liquiditybot_context_days_since_halving",
-                   "liquiditybot_context_days_to_next_halving",
-                   "liquiditybot_context_stress",
-                   "liquiditybot_context_cot_z",
-                   "liquiditybot_context_stable_wk_pct",
-                   "liquiditybot_context_event_window",
-                   "liquiditybot_context_source_ok"):
-        assert expect in exprs, f"Context row missing {expect}"
-    # stress dial gauge is bounded [-2, 2] (clip_z's symmetric clip), never
-    # the default [0, mx] shape a bounded-ratio gauge normally gets
-    stress_gauges = [p for p in section if p["type"] == "gauge"
-                      and "liquiditybot_context_stress" in
-                      " ".join(t["expr"] for t in p["targets"])]
-    assert stress_gauges, "no stress dial gauge in the Context row"
-    for g in stress_gauges:
-        fld = g["fieldConfig"]["defaults"]
-        assert fld["min"] == -2 and fld["max"] == 2, \
-            "stress gauge must be bounded [-2, 2]"
-    # no hardcoded lookback window on any Context-row query (glass contract)
-    assert "[24h]" not in exprs and "[48h]" not in exprs and \
-        "[6h]" not in exprs, "Context row must not hardcode a lookback"
-
-
-def test_command_board_has_long_book_row():
-    # Task C6: the Command board surfaces ONE Long Book row — rung
-    # (value-mapped 0-3), ceiling gauge, book exposure, adds placed,
-    # paused state, live profit factor, closed-count-by-track — every
-    # target of which must query an actually-emitted
-    # liquiditybot_longbook_* metric (test_every_query_hits_an_emitted_
-    # metric enforces that globally; this pins the row's existence and
-    # its specific metric coverage).
-    d = _shipped("liquiditybot_command.json")
-    section = _row_section(d, "LONG BOOK")
-    assert section, "no Long Book row (or an empty one) on the Command board"
-    exprs = " ".join(t["expr"] for p in section for t in p.get("targets", []))
-    for expect in ("liquiditybot_longbook_rung",
-                   "liquiditybot_longbook_ceiling_frac",
-                   "liquiditybot_longbook_exposure_usd",
-                   "liquiditybot_longbook_adds_placed",
-                   "liquiditybot_longbook_paused",
-                   "liquiditybot_longbook_pf_live",
-                   "liquiditybot_longbook_closed"):
-        assert expect in exprs, f"Long Book row missing {expect}"
-    # ceiling gauge bounded [0, 0.35] (the shared portfolio heat cap,
-    # expressed in the gauge()-standard *100/percent convention every
-    # other fraction-valued gauge on this board already uses — e.g.
-    # Gross exposure / Portfolio heat, both mx=35.0 for the identical cap)
-    ceiling_gauges = [p for p in section if p["type"] == "gauge"
-                      and "liquiditybot_longbook_ceiling_frac" in
-                      " ".join(t["expr"] for t in p["targets"])]
-    assert ceiling_gauges, "no ceiling gauge in the Long Book row"
-    for g in ceiling_gauges:
-        fld = g["fieldConfig"]["defaults"]
-        assert fld["min"] == 0 and fld["max"] == 35.0, \
-            "ceiling gauge must be bounded [0, 0.35] (35% heat cap)"
-    # rung is a value-mapped state tile (0-3), not a raw number
-    rung_panels = [p for p in section
-                   if "liquiditybot_longbook_rung" in
-                   " ".join(t["expr"] for t in p.get("targets", []))]
-    assert rung_panels, "no rung panel in the Long Book row"
-    for p in rung_panels:
-        mappings = p["fieldConfig"]["defaults"].get("mappings")
-        assert mappings and len(mappings[0]["options"]) == 4, \
-            "rung panel must value-map exactly 0-3"
-    # no hardcoded lookback window on any Long Book row query (glass contract)
-    assert "[24h]" not in exprs and "[48h]" not in exprs and \
-        "[6h]" not in exprs, "Long Book row must not hardcode a lookback"
 
 
 def test_every_query_hits_an_emitted_metric(tmp_path):

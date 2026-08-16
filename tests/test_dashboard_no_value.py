@@ -91,15 +91,43 @@ def test_absence_of_an_always_on_series_reads_as_a_defect():
     assert not wrong_honest, f"honest-absence panels marked as defects: {wrong_honest}"
 
 
-def test_defect_text_is_not_confusable_with_an_honest_absence():
-    """The whole point is that an operator can tell them apart at a glance."""
+def test_defect_text_is_not_confusable_with_an_honest_absence(tmp_path):
+    """The whole point is that an operator can tell them apart at a glance.
+
+    FRAMEWORK, not content: the vocabulary (_NV_DEFECT, _NO_VALUE_BY_FAMILY)
+    and the rule that chooses between its two halves (_panel_no_value) live
+    in the generator, not in any panel, so they outlive the boards.
+
+    This test used to close by scanning the SHIPPED panels for each half.
+    That clause pinned deleted panels and is unsatisfiable on a board with
+    zero of them, so it is replaced by asking the rule itself — driven with
+    the real metric names gc_pusher puts on the wire, not hand-written ones.
+    Strictly wider than the clause it replaces: the old version needed one
+    panel per half, this one holds every emittable metric to its half."""
     honest = {v for _, v in gen._NO_VALUE_BY_FAMILY.values()}
     assert gen._NV_DEFECT not in honest
     for h in honest:
         assert h not in gen._NV_DEFECT and gen._NV_DEFECT not in h, h
-    shipped = {_no_value(p) for _, p in _all_panels() if _no_value(p)}
-    assert gen._NV_DEFECT in shipped, "no panel ever renders the defect state"
-    assert honest & shipped, "no panel ever renders an honest absence"
+
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
+                 encoding="utf-8")
+    emittable = {m["name"] for m in gp.collect(str(p))}
+
+    def _nv_of(metric):
+        return gen._panel_no_value({"type": "stat",
+                                    "targets": [{"expr": metric}]})
+
+    always = sorted(emittable & gen._ALWAYS_ON)
+    gated = sorted(n for n in emittable if n not in gen._ALWAYS_ON
+                   and any(n.startswith(k) for k in gen._NO_VALUE_BY_FAMILY))
+    assert always, "exporter emits no always-on metric to test the defect half"
+    assert gated, "exporter emits no gated metric to test the honest half"
+
+    wrong_defect = [n for n in always if _nv_of(n) != gen._NV_DEFECT]
+    wrong_honest = [n for n in gated if _nv_of(n) not in honest]
+    assert not wrong_defect, f"always-on metrics not marked broken: {wrong_defect}"
+    assert not wrong_honest, f"gated metrics not given an honest text: {wrong_honest}"
 
 
 def test_no_always_on_metric_can_resolve_to_a_precondition():
@@ -165,57 +193,6 @@ def test_timeseries_carry_every_precondition_in_the_description():
         assert "Empty means:" in desc, (f, p["id"], p.get("title"))
         for msg in gen._nv_all_preconditions(p):
             assert msg in desc, (f, p["id"], msg)
-
-
-def test_new_era_panel_asks_for_the_era_the_bot_actually_mints():
-    """The panel titled 'New-era outcomes by barrier' queried era=
-    "triple_barrier" — the RETIRED era — while the deployed horizon mints
-    triple_barrier_h<label_max_bars>. Pin the selector against the config,
-    so a horizon change fails here instead of blanking the panel."""
-    cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
-    horizon = int(cfg["ml"]["label_max_bars"])
-    deployed = gp._era_label(f"triple_barrier_h{horizon}")
-    assert deployed == f"triple_barrier_h{horizon}"
-    exprs = [t["expr"] for _, p in _all_panels()
-             for t in p.get("targets") or []
-             if "liquiditybot_era_reason_label_rate" in (t.get("expr") or "")]
-    assert exprs, "the new-era barrier panel disappeared"
-    for e in exprs:
-        m = re.search(r'era=~"([^"]+)"', e)
-        assert m, f"era selector is not a regex matcher: {e}"
-        assert re.fullmatch(m.group(1), deployed), (
-            f"selector {m.group(1)!r} does not match the deployed era "
-            f"{deployed!r}")
-
-
-def test_new_era_selector_matches_a_label_the_exporter_really_emits(tmp_path):
-    """Not just the clamp — the actual attribute value on the wire. Built
-    from a status carrying the deployed horizon, so this fails if either
-    the clamp or the selector stops covering it."""
-    cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
-    era = f"triple_barrier_h{int(cfg['ml']['label_max_bars'])}"
-    st = {"written_at": time.time(), "runner_state": "RUNNING",
-          "ml": {"load_stats": {"label_era": {
-              era: {"rows": 40, "label_rate": 0.4,
-                    "by_reason": {"tb_pt": {"rows": 20, "label_rate": 0.8}}}}}}}
-    p = tmp_path / "status.json"
-    p.write_text(json.dumps(st), encoding="utf-8")
-    emitted = set()
-    for g in gp.collect(str(p)):
-        if g["name"] != "liquiditybot_era_reason_label_rate":
-            continue
-        for a in g["gauge"]["dataPoints"][0].get("attributes") or []:
-            if a["key"] == "era":
-                emitted.add(a["value"]["stringValue"])
-    assert emitted, "exporter emitted no era_reason_label_rate at all"
-    pat = re.search(r'era=~"([^"]+)"',
-                    [t["expr"] for _, pn in _all_panels()
-                     for t in pn.get("targets") or []
-                     if "liquiditybot_era_reason_label_rate"
-                     in (t.get("expr") or "")][0]).group(1)
-    matched = {e for e in emitted if re.fullmatch(pat, e)}
-    assert matched == emitted, (
-        f"panel selector {pat!r} misses emitted eras: {emitted - matched}")
 
 
 def test_regeneration_is_byte_deterministic_and_matches_disk():

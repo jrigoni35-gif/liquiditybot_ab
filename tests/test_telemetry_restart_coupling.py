@@ -108,18 +108,3 @@ def test_model_info_still_names_a_loaded_champion(tmp_path):
     attrs = {a["key"]: a["value"]["stringValue"]
              for a in infos[0]["gauge"]["dataPoints"][0]["attributes"]}
     assert attrs["kind"] == "logistic"
-
-
-# --- dashboard empty-states --------------------------------------------------
-def test_sparse_panels_declare_honest_empty_states():
-    # event-sparse series (fills, open positions) legitimately vanish when
-    # there is nothing to report; the panels must SAY that instead of the
-    # broken-looking "No data"
-    doc = (ROOT / "docs" / "grafana"
-           / "liquiditybot_execution.json").read_text(encoding="utf-8")
-    assert doc.count('"noValue": "no fills yet"') >= 3
-    # the per-instrument uPnL bargauge moved to the trading desk with the
-    # rest of the positions row (2026-08-05 redesign)
-    desk = (ROOT / "docs" / "grafana"
-            / "liquiditybot_command.json").read_text(encoding="utf-8")
-    assert '"noValue": "flat — no open positions"' in desk
