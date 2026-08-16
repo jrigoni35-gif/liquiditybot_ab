@@ -1,39 +1,39 @@
 {
-  "generated_at": 1786838261.7727013,
+  "generated_at": 1786841885.5326915,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1786838150.934,
-    "duration_h": 880.04
+    "end": 1786841882.0,
+    "duration_h": 881.07
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 799.7,
+    "equity_end": 799.55,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": -0.22,
     "fees_paid_total": 2.2649,
     "open_positions": 5,
-    "samples": 193478
+    "samples": 193683
   },
   "activity": {
-    "signal_rows_total": 10682,
+    "signal_rows_total": 10683,
     "live_labeled_trades": 327,
-    "candidate_rows": 10355
+    "candidate_rows": 10356
   },
   "audit": {
-    "records": 45120,
-    "signal_records": 35185,
+    "records": 45127,
+    "signal_records": 35192,
     "by_src": {
       "exploration": 40160,
       "order_manager": 1429,
-      "ml_governor": 1410,
-      "long_book": 907,
-      "startup": 299,
-      "fault": 278,
-      "conviction": 235,
+      "ml_governor": 1411,
+      "long_book": 909,
+      "startup": 300,
+      "fault": 279,
+      "conviction": 237,
       "exit": 231,
       "firewall": 60,
       "engine": 59,
@@ -59,11 +59,11 @@
       ],
       [
         "LB-010",
-        633
+        635
       ],
       [
         "ML-031",
-        547
+        548
       ],
       [
         "OM-040",
@@ -75,11 +75,11 @@
       ],
       [
         "CG-000",
-        299
+        300
       ],
       [
         "FT-020",
-        278
+        279
       ],
       [
         "PT-061",
@@ -100,11 +100,12 @@
     "chain_seams": 6
   },
   "events": {
-    "records": 6703,
+    "records": 7564,
     "by_level": {
-      "INFO": 6684,
-      "WARNING": 18,
-      "CRITICAL": 1
+      "INFO": 7531,
+      "WARNING": 31,
+      "CRITICAL": 1,
+      "ERROR": 1
     },
     "top_warnings": [
       [
@@ -113,6 +114,14 @@
       ],
       [
         "source unavailable (SSLError): https://cointelegraph.com/rss",
+        2
+      ],
+      [
+        "skimmer: universe widened for this boot: 7 core + promoted ['XRP/USD', 'LTC/USD', 'DOGE/USD', 'LINK/USD', 'AVAX/USD']",
+        2
+      ],
+      [
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         2
       ],
       [
@@ -138,22 +147,14 @@
       [
         "ML-080: exit-reason mix drift tvd=0.463 over trailing 24h (120/10539 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
         1
-      ],
-      [
-        "auto-retrain: 370 rows (25 new)",
-        1
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps', 'depth_log']",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1606,
-      "thin": 1295
+      "spoofy": 1757,
+      "thin": 1466
     },
-    "spoofy_frac": 0.554,
-    "cycles_estimate": 755,
+    "spoofy_frac": 0.545,
+    "cycles_estimate": 851,
     "feed_error_events": 6
   },
   "model": {
@@ -202,7 +203,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "SZ-047 is 63% of 35185 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "SZ-047 is 63% of 35192 non-routine records  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
