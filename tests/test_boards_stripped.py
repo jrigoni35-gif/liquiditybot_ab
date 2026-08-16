@@ -55,12 +55,35 @@ import scripts.build_trading_dashboard as gen
 ROOT = Path(__file__).resolve().parents[1]
 
 COMMAND = "liquiditybot_command.json"
-DEEP_BOARDS = ("liquiditybot_execution.json",
-               "liquiditybot_problem_solution.json",
+EXECUTION = "liquiditybot_execution.json"
+# Still deliberately EMPTY. execution/ left this set on 2026-08-16 because the
+# alert rules had no board (see _COMMAND/_EXEC pins below); these two have no
+# alert pointing at them and stay empty until data justifies a panel.
+DEEP_BOARDS = ("liquiditybot_problem_solution.json",
                "liquiditybot_screening.json")
-ALL_BOARDS = (COMMAND,) + DEEP_BOARDS
+ALL_BOARDS = (COMMAND, EXECUTION) + DEEP_BOARDS
 
 INJ_TYPE = "marcusolsson-dynamictext-panel"
+
+# The execution board carries ONLY what the two alert rules fire on. It was
+# rebuilt 2026-08-16 after a measurement: liquiditybot_ml_brier and
+# _ml_baseline_brier last carried data 2026-08-06 21:42, final values 0.1133
+# and 0.0586 - a 0.0547 gap, over the rule's 0.03 line - and then went absent,
+# so noDataState:OK held the alert green for 10 days on an empty corpus.
+# If a panel here is removed, the alert it mirrors goes back to being invisible
+# until it pages, so this inventory is pinned exactly like the command board's.
+_EXEC_PANELS = frozenset({
+    (1, "Model health - what the alerts watch", "row", ()),
+    (2, "Brier gap vs baseline", "stat",
+     ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
+    (3, "Model Brier", "stat", ("liquiditybot_ml_brier",)),
+    (4, "Baseline Brier", "stat", ("liquiditybot_ml_baseline_brier",)),
+    (5, "Champion Brier", "stat", ("liquiditybot_ml_champion_brier",)),
+    (6, "Drift share", "stat", ("liquiditybot_ml_drift_share",)),
+    (7, "Monitor", "stat", ("liquiditybot_monitor_level",)),
+    (gen.INJ_ID, "", INJ_TYPE, ()),
+})
+_EXEC_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
 
 # The command board's authored inventory, as
 # (id, title, type, sorted metrics) QUADRUPLES.
@@ -192,6 +215,42 @@ def test_command_board_has_not_silently_regrown():
         "If you deliberately added, removed, renamed or retyped a panel, "
         "update _COMMAND_HERO_PANELS in this file in the SAME commit — that "
         "edit is the review record.")
+
+
+def test_execution_board_still_mirrors_the_alert_rules():
+    """The execution board exists to make the alert inputs visible.
+
+    Every metric the two rules fire on must be ON this board. Pinning the
+    inventory is not enough by itself, so the metric set is ALSO checked
+    against the alert YAML: if someone adds a metric to a rule, or drops a
+    panel from here, the board and the rule silently diverge and the first
+    notice is a page with nothing on screen to explain it.
+    """
+    got = frozenset(_identity(p) for p in _all_panels(_shipped(EXECUTION)))
+    assert got in (_EXEC_PANELS, _EXEC_STRIPPED_PANELS), (
+        f"{EXECUTION} inventory does not match either pinned form.\n"
+        f"  unexpected: {sorted(got - _EXEC_PANELS)}\n"
+        f"  missing:    {sorted(_EXEC_PANELS - got)}\n"
+        "Update _EXEC_PANELS in the SAME commit if the change is deliberate.")
+    if got == _EXEC_STRIPPED_PANELS:
+        pytest.skip("execution board is in the fully-stripped form")
+
+    alert_dir = ROOT / "docs" / "grafana"
+    fired_on = set()
+    for y in ("liquiditybot_brier_alert.yaml", "liquiditybot_drift_alert.yaml"):
+        txt = (alert_dir / y).read_text(encoding="utf-8")
+        for line in txt.splitlines():
+            # only the query EXPRESSIONS, not prose in comments/annotations
+            if "expr:" in line:
+                fired_on |= set(_MET_RE.findall(line))
+    on_board = set()
+    for p in _all_panels(_shipped(EXECUTION)):
+        on_board |= set(_identity(p)[3])
+    missing = fired_on - on_board
+    assert not missing, (
+        f"alert rules fire on {sorted(missing)} but no panel on {EXECUTION} "
+        "queries them. An alert whose inputs are on no board can only be "
+        "discovered by being paged. Add the panel or drop it from the rule.")
 
 
 @pytest.mark.parametrize("fname", ALL_BOARDS)

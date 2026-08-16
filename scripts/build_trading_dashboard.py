@@ -851,8 +851,61 @@ def _author_command():
 
 
 def _author_execution():
-    """Intentionally empty - board content stripped, see note above."""
-    return
+    """MODEL HEALTH - and it exists for one measured reason.
+
+    docs/grafana/liquiditybot_brier_alert.yaml fires on
+    liquiditybot_ml_brier - liquiditybot_ml_baseline_brier > 0.03, and
+    liquiditybot_drift_alert.yaml on _ml_drift_share / _monitor_level.
+    After the 2026-08-15 strip NONE of those four was on any board, so the
+    only way to learn the model had degraded was to receive the page.
+
+    Worse, measured 2026-08-16 against Prometheus: ml_brier and
+    ml_baseline_brier last carried data 2026-08-06 21:42 (234 h earlier),
+    and their FINAL observed values were 0.1133 and 0.0586 - a gap of
+    0.0547, i.e. the alert condition was BREACHED at the last observation.
+    The series then went absent and the rule's `noDataState: OK` returned
+    it to green. The alert is correctly configured (absence really is not
+    its job), but the practical effect is a gate that has read healthy for
+    ten days because its corpus is empty rather than because the model is.
+
+    So this board shows the alert's OWN CONDITION as a number, plus the
+    inputs, plus their honest empty-state text. "window filling (<15
+    model-scored closes)" on screen is not the same thing as green, and
+    that distinction is the entire point of rebuilding this board first.
+    """
+    row("Model health - what the alerts watch")
+
+    # The alert condition itself, rendered. Green below the firing line,
+    # red at or above it: the panel and the rule cannot disagree, because
+    # this is the same arithmetic the rule performs.
+    gap = (f'max(liquiditybot_ml_brier{JOB}) '
+           f'- max(liquiditybot_ml_baseline_brier{JOB})')
+    stat("Brier gap vs baseline", gap, 5, 6, unit="short", decimals=4,
+         size="hero",
+         steps=[{"color": "green", "value": None},
+                {"color": "red", "value": 0.03}],
+         desc="model Brier MINUS baseline Brier. This IS the firing "
+              "condition of liquiditybot_brier_alert.yaml (> 0.03). Last "
+              "real reading 2026-08-06: 0.0547 - already over the line.")
+    stat("Model Brier", M("liquiditybot_ml_brier"), 4, 6, unit="short",
+         decimals=4, steps=BRIER,
+         desc="Lower is better; 0.25 is the coin-flip line.")
+    stat("Baseline Brier", M("liquiditybot_ml_baseline_brier"), 4, 6,
+         unit="short", decimals=4, steps=GRN,
+         desc="What a no-skill reference scores on the same closes.")
+    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 6,
+         unit="short", decimals=4, steps=BRIER,
+         desc="The DEPLOYED model's Brier. Above 0.25 means the champion "
+              "is worse than a coin on its own scored closes.")
+    # decimals=1, not 3: percentunit multiplies by 100, so a 0.250 share
+    # rendered at 3dp reads "25.000%" - fraction-era precision on a
+    # proportion. tests/test_dashboard_hig.py::
+    # test_percentunit_shares_are_not_over_precise pins the ceiling at 2.
+    stat("Drift share", M("liquiditybot_ml_drift_share"), 4, 6,
+         unit="percentunit", decimals=1, steps=DRIFT,
+         desc="Feature-drift share; the input to liquiditybot_drift_alert.")
+    state("Monitor", M("liquiditybot_monitor_level"), 3, 6, GOV,
+          desc="ML monitor level. OK / DEGRADED / KILLED.")
 
 
 def _author_problem():
