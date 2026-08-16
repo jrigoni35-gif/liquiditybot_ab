@@ -515,7 +515,12 @@ def cohort_effective_n(trips: list) -> dict:
     uniq = []
     for a, b in spans:
         acc, span = 0.0, b - a
-        for lo, hi in zip(pts, pts[1:]):
+        # strict=False is REQUIRED here, not stylistic. pts[1:] is one shorter
+        # than pts by construction, so strict=True would raise ValueError on
+        # EVERY call - and this is the uniqueness/effective-n path, so the
+        # crash would land in the era-4 gate rather than in a report margin.
+        # The short-tail truncation IS the adjacent-pair semantics wanted.
+        for lo, hi in zip(pts, pts[1:], strict=False):
             seg = min(hi, b) - max(lo, a)
             if seg <= 0:
                 continue
