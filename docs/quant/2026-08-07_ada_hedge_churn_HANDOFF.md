@@ -146,3 +146,21 @@ Two notes FOR the VS Code session:
    verification: >2 unwinds/hour on ANY asset in live audit = the
    class-level alarm) is owned by the cloud session. If you touch
    execution/hedging.py for any OTHER reason, rebase on cf454d5 first.
+
+## WATCH CLOSED — #148 24h class-level scan CLEAN (2026-08-16)
+
+Scan of outputs/audit.jsonl, window 2026-08-15T23:54:05Z .. 2026-08-16T23:54:05Z
+inclusive (read stamp 23:54:04.96Z; file live/append-only, 45,187 records at
+read). Needles "hedge unwind" + "FW-070", grep and python-parse double-derived:
+
+- Hedge unwinds in window: 0. FW-070 latch events in window: 0.
+- The scan CAN see: window held 67 audit records; the runner outage
+  17:37-18:27 local that day sits inside the window and is the only
+  coverage gap.
+- All 159 lifetime unwind events cluster in the 2026-08-07 incident
+  (01:09:45Z .. 11:35:31Z); none since. The single lifetime FW-070 string
+  match is the 08-08 budget re-anchor message, not a latch firing - the
+  churn guard has never needed to latch since deploy.
+
+No recurrence at class level. #148 closed. Re-derive route: the scan method
+is written into this section; do not quote its counts as current - re-run.
