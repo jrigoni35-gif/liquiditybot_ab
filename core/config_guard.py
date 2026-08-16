@@ -66,6 +66,31 @@ _MAIN_ENGINE_FALLBACK = "five_gate"
 # contract.
 _OVERFIT_ROWS_PER_FEATURE = 10
 
+# ml/history.py CandidateLabeler's own fallback when ml.max_open_candidates
+# is absent from config - MIRRORED (not chosen), same contract as
+# _MAIN_ENGINE_FALLBACK above: the capacity check below must size the cap
+# that will actually run, and a config that never declares the key runs
+# this one. tests/test_candidate_capacity_guard.py regex-pins it against
+# ml/history.py's own `cfg.get("max_open_candidates", N)` line so the
+# mirror cannot drift silently.
+_CAND_QUEUE_CODE_DEFAULT = 200
+
+# Reference PEAK candidate arrival rate (registrations/hour) for the
+# Little's-law capacity check below. MEASURED, not chosen: 659 offered
+# registrations inside the densest 36h signal_ts window of the
+# triple_barrier_h432 era (2026-08-13T04:45Z..2026-08-14T16:45Z), exact by
+# candidate-id seq arithmetic over outputs/signal_history.csv (read
+# 2026-08-16; the id embeds a monotone per-append seq, so the seq delta
+# between two rows counts every registration between them - labeled,
+# evicted, and dropped alike). 659/36h = 18.3/h sustained. The MEAN rate
+# over the same era (5.5-9.3/h by two routes) is deliberately NOT the
+# sizing basis: a queue sized to the mean saturates in every busy stretch,
+# and the newest-pop eviction then refuses labeling to exactly the
+# busy-hour signals. Re-derive from signal_history.csv the same way before
+# moving this; it is a measurement, and moving it without a new
+# measurement is how the 8h-era cap survived a 36h horizon.
+_CAND_REF_PEAK_ARRIVALS_PER_H = 18.3
+
 
 class ConfigError(RuntimeError):
     pass
@@ -1496,6 +1521,74 @@ def validate(config: dict) -> list:
                   f"scratch is unreachable, so no live row can ever carry "
                   f"a tb_* barrier and the evidence gate starves (the "
                   f"2026-07-31 era deadlock)")
+
+    # Candidate-queue capacity vs the label horizon (2026-08-16 label-
+    # throughput fix). The labeler's pool is a Little's-law queue: slots
+    # required = offered arrivals/h x slot residence, and with
+    # multi_horizon shadows enabled residence is the FULL horizon for
+    # EVERY candidate (ml/history.py poll() retains early-labeled
+    # candidates until the shadow path completes). The 200 default was
+    # sized for the 8h horizon and survived the 24->432 migration
+    # unresized: at 36h it sat AT mean demand with zero headroom and 3.3x
+    # under the measured peak, and because eviction pops the NEWEST
+    # pending candidate, the signals refused labeling were exactly the
+    # busy-hour ones (measured 2026-08-16: 84% of registrations on
+    # fully-resolved launch spans produced no labeled row).
+    _moc_raw = _f(config, "ml.max_open_candidates", None)
+    _moc_ok = None
+    if _moc_raw is not None:
+        if isinstance(_moc_raw, bool) or \
+                not isinstance(_moc_raw, (int, float)) or \
+                int(_moc_raw) != _moc_raw:
+            fatal(f"ml.max_open_candidates ({_moc_raw!r}) must be an "
+                  f"integer - it is a queue slot count")
+        elif not (8 <= int(_moc_raw) <= 10000):
+            fatal(f"ml.max_open_candidates ({int(_moc_raw)}) must be in "
+                  f"[8, 10000]: every pending candidate is persisted into "
+                  f"EACH state.json snapshot (~KBs apiece), so an "
+                  f"unbounded pool is an I/O and memory hazard, and a "
+                  f"pool under 8 cannot hold even one bar of a "
+                  f"multi-asset scan")
+        else:
+            _moc_ok = int(_moc_raw)
+    _moc_lmb = int(_lmb_raw) if _lmb_raw is not None else None
+    if _moc_lmb is not None and 4 <= _moc_lmb <= 500 and \
+            (_moc_ok is not None or _moc_raw is None):
+        _moc_eff = _moc_ok if _moc_ok is not None \
+            else _CAND_QUEUE_CODE_DEFAULT
+        _moc_src = "" if _moc_ok is not None \
+            else ", the undeclared-key code default"
+        _moc_h = _moc_lmb * 300.0 / 3600.0
+        _moc_demand = math.ceil(_CAND_REF_PEAK_ARRIVALS_PER_H * _moc_h)
+        _mh_c = config.get("ml", {}).get("multi_horizon", {}) or {}
+        _shadow_retained = bool(_mh_c.get("enabled", False)) and any(
+            isinstance(h, (int, float)) and 0 < int(h) <= _moc_lmb
+            for h in (_mh_c.get("horizons_bars") or []))
+        if _moc_eff < _moc_demand:
+            _moc_msg = (
+                f"ml.max_open_candidates ({_moc_eff}{_moc_src}) "
+                f"is below the Little's-law demand of the configured "
+                f"label horizon: ceil({_CAND_REF_PEAK_ARRIVALS_PER_H}/h "
+                f"peak arrivals x label_max_bars {_moc_lmb} x 5m = "
+                f"{_moc_h:.1f}h) = {_moc_demand} slots. A pool smaller "
+                f"than the horizon's worth of peak arrivals saturates, "
+                f"and the newest-pop eviction then refuses labeling to "
+                f"exactly the busy-hour signals - the 36h-migration "
+                f"regression (200 was the 8h-era size). Raise "
+                f"ml.max_open_candidates; do NOT shorten label_max_bars "
+                f"to satisfy this check. The reference rate is MEASURED "
+                f"(peak 36h window of outputs/signal_history.csv "
+                f"candidate-id seq spans, 2026-08-16) - re-derive it the "
+                f"same way before moving it.")
+            if _shadow_retained:
+                fatal(_moc_msg + " FATAL because multi_horizon shadows "
+                      "retain every candidate for the FULL horizon, so "
+                      "the demand is structural, not market-dependent.")
+            else:
+                warn(_moc_msg + " WARN (not FATAL) because shadows are "
+                     "off, so early labels release slots before the "
+                     "horizon; time-barrier candidates still hold the "
+                     "full horizon - confirm the cap is intended.")
 
     # OF-5 DSR trials count (Debate-1 item A config-lift): the Harvey-Liu
     # deflation is only as honest as this number. Raising it deflates

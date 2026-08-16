@@ -2138,6 +2138,15 @@ class CandidateLabeler:
                                 if 0 < int(h) <= self.horizon}) \
             if self._mh_enabled else []
         self.shadow_store = shadow_store
+        # Pool capacity is CONFIG-OWNED (config.json ml.max_open_candidates)
+        # and coherence-guarded in core/config_guard.py: the pool is a
+        # Little's-law queue (slots = arrivals/h x residence), and with
+        # multi_horizon shadows on every candidate holds its slot for the
+        # FULL label horizon - so the cap must scale with label_max_bars.
+        # The 200 fallback here is the 8h-era size, kept only as the
+        # undeclared-key default; config_guard mirrors it (its capacity
+        # check must size the cap that will actually run) and a test pins
+        # the pair. Do not resize here: config.json carries the capacity.
         self.max_candidates = int(cfg.get("max_open_candidates", 200))
         self._bars: dict = {}          # asset -> {"t":[], "c":[], "h":[], "l":[]}
         self._cands: list = []
@@ -2307,6 +2316,14 @@ class CandidateLabeler:
         needs the complete path - stays whole; the primary row is
         written exactly once."""
         written = 0
+        # per-asset array cache, ONE conversion per asset per poll: bars do
+        # not mutate inside poll() (update_candles runs between cycles), and
+        # rebuilding three ~horizon*5-element arrays per CANDIDATE made this
+        # loop's cost scale with pool size x bar window - the 36h-horizon
+        # capacity lift multiplies the pool several-fold, the bar window is
+        # already 5x the horizon, and the outputs are bit-identical either
+        # way.
+        arrs: dict = {}
         for cand in list(self._cands):
             b = self._bars.get(cand["asset"])
             if not b or cand["bar_time"] not in b["t"]:
@@ -2318,9 +2335,12 @@ class CandidateLabeler:
             avail = len(b["t"]) - 1 - i
             if avail < 1:
                 continue
-            closes = np.array(b["c"], float)
-            highs = np.array(b["h"], float)
-            lows = np.array(b["l"], float)
+            got = arrs.get(cand["asset"])
+            if got is None:
+                got = (np.array(b["c"], float), np.array(b["h"], float),
+                       np.array(b["l"], float))
+                arrs[cand["asset"]] = got
+            closes, highs, lows = got
             side = 1 if cand["direction"] == "long" else -1
             cost = self._cost_pct(cand)
             if avail >= self.horizon:
@@ -2353,7 +2373,7 @@ class CandidateLabeler:
                 if not self.horizons:
                     # no multi-horizon shadows to complete: a DECIDED
                     # candidate has no reason to hold a pool slot for the
-                    # rest of its 8h horizon — at max_open_candidates that
+                    # rest of its label horizon — at max_open_candidates that
                     # retention starved registration of NEW signals for
                     # hours (audit M-finding). Shadows enabled -> keep it
                     # until the full path is recorded, as before.
