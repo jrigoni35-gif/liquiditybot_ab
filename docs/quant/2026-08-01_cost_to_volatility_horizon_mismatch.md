@@ -92,6 +92,33 @@ Solving for the horizon where costs stop dominating:
 
 ## Is the labeled bet worse than chance?
 
+> **RETRACTED 2026-08-16 — THIS SECTION USED THE WRONG NULL.**
+> `b/(a+b)` is the first-passage probability for an **unbounded-time**
+> walk. These labels are **censored at a vertical barrier**, and the
+> profit target sits FARTHER out (a/b = 1.333) so it takes longer to
+> reach - censoring therefore removes PT-bound paths **preferentially**.
+> Conditioning on resolution manufactures exactly the negative sign this
+> section reports.
+>
+> Correct driftless null, by exact lattice DP (converges to 0.4286 at ~0%
+> censoring, which validates the method):
+>
+> | censoring | correct P(PT \| resolved) |
+> |---|---|
+> | ~0% | 0.4396 |
+> | 48.6% | 0.3758 |
+> | **86.4%** | **0.2351** |
+>
+> This section's sample was **87.8% censored**. Against the correct null
+> of ~0.235, the observed **29.7% is ABOVE chance**, and the z below
+> flips from −2.28 to roughly **+1.7**. Applying the project's own
+> effective-n standard as well, the pooled statistic across both horizons
+> is **z = −0.63, p = 0.53** — nothing significant remains.
+>
+> The honest reading is that the labeled bet is **indistinguishable from
+> chance**, not worse than it. Everything below is preserved for the
+> record and must not be cited.
+
 For a driftless walk with barriers at +a / -b, gambler's ruin gives
 P(hit PT first) = b/(a+b) = 1.543/3.601 = **42.9%**.
 

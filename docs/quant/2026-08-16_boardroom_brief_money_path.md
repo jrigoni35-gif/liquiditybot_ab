@@ -17,37 +17,107 @@ The question is no longer *is it built correctly*. It is:
 
 ## The measured case AGAINST a money path
 
-**1. Fees are 32.8x the gross edge.** [ASSERTED, 2026-08-09 unbiased
-economic finding, `docs/quant` + vault `synthesis/the-money-path-thesis`]
-Gross P&L before any fees **−$11.66**; fees **−$382.59**; net all-in
-**−$394.25 (−7.89%)**. The strategy is not losing to the market. It is
-losing to its own cost stack by a factor of 33.
+> **FOUR OF THESE FIVE ITEMS WERE CORRECTED OR RETRACTED ON 2026-08-16**
+> by the adversarial seat this brief convened. Item 4 — the brief's ONLY
+> fresh measurement and the load-bearing evidence for "there is no edge" —
+> is **REFUTED**. The honest position after audit is that gross edge is
+> **indistinguishable from zero in BOTH directions**, which is not the
+> same as "no edge". This brief converted an underdetermined measurement
+> into a refutation.
+
+**1. ~~Fees are 32.8x the gross edge.~~ STALE + STATISTICALLY VOID.**
+Independently reproduced (gross −$11.89, fees $380.49, net −$392.38 over
+415 round trips) — but unusable twice over.
+
+*(a) 98.6% of it predates the simulator it is used to judge.* By close
+timestamp: 218 trips pre-passive-fix, 177 under the live double-count, 6
+post-double-count, and only **14 on today's simulator** — where gross is
+**+$0.82**, i.e. POSITIVE. On the 20 trips after `aeeaae36`, gross is
+**+$1.10**. This brief's own FOR-1 says "everything measured before
+2026-08-10 describes a simulator that no longer exists"; its lead item
+AGAINST is a 2026-08-09 measurement. The document refutes its own headline
+four paragraphs later.
+
+*(b) The ratio divides by a statistical zero.* Per-trip gross sd $0.4849,
+n=415 → SE of the sum **$9.88**, so gross = −11.89 ± 19.4 (95%), **z =
+−1.20**. |gross| spans zero, so `fees/|gross|` has CI **[12.2x, +∞)**.
+"32.8x" is 1/x evaluated at x≈0 — no stable magnitude. The vault states it
+correctly ("gross ≈ 0"); this brief converted it into "a factor of 33".
 
 **2. The geometry cannot pay, with no model in it.** [ASSERTED, vault
 `the-money-path-thesis`, 2026-08-14] Breakeven target-hit rate =
 `sl/(pt+sl)`. On h432: median pt 2.064%, median sl 1.548%, payoff 1.333 →
-**breakeven 0.429 vs realized 0.225** → **−0.734% per barrier-resolved
-path GROSS, pre-cost**. This is arithmetic on the label geometry — it is
-model-independent and upstream of every ML question.
+**breakeven 0.429 vs realized 0.225** → −0.734% per path.
+**CORRECTED 2026-08-16:** live `cohort_eval.py` now reads realized
+**0.291 → −0.4981%**, so the brief overstated the deficit by **47%**. And
+its implicit null of 0.000% is wrong for a censored sample: the correct
+driftless-with-vertical-barrier null is **−0.152%**, making the real
+deficit **−0.35%**, not −0.73%. The direction survives; the magnitude does
+not.
 
 **3. Cost-to-volatility is the binding constraint.** [MEASURED
 2026-08-01, this session] Round-trip cost 0.50% against a 2-hour sigma of
-0.61% → **cost/sigma = 0.82**. You pay 82% of one standard deviation in
-fees per round trip. Reaching cost/sigma 0.20 needs a ~34-hour hold;
-0.10 needs ~5.6 days.
+0.61% → cost/sigma 0.82. **UNDERSTATED 1.6–2.6x** — see the retraction of
+FOR-3 below: an $800 book is Kraken Tier 1 (40/80), giving cost/sigma
+**1.31**, or **2.11** at the observed 60.6% taker share. Measured
+population round trip is **75.58 bps against 65 configured**
+(`cost_truth_report.py`, n=479 legs). This item is the brief's most robust
+AGAINST, and it is worse than stated.
 
-**4. Entry selection is anti-predictive at the labeled geometry.**
-[MEASURED, this session] Among resolved candidate rows, P(hit target
-first) = 0.258 against a driftless gambler's-ruin expectation of 0.429 —
-**z = −3.24**. Measured at BOTH horizons (h24 z=−4.31, h432 z=−4.14), so
-it is not an artifact of the barrier width. Scope: candidate/simulated
-rows; live rows have too few resolutions to test.
+**4. ~~Entry selection is anti-predictive.~~ REFUTED 2026-08-16 — THE
+WRONG NULL.** This was the brief's only fresh measurement and it carried
+the entire evidentiary weight of "there is no edge" on current instruments.
 
-**5. Three independent refutations already retired "better model" as a
-lever.** [ASSERTED, 2026-08-05] Random-entry MFE 0.516 [0.439, 0.594] (no
-timing signal); a 48-combination Bonferroni-corrected geometry grid in
-which **no geometry survives** (best −0.400%, LB −1.124%); and break-even
-win rate `p=(cost+L)/(W+L)` **> 1 at every real fee schedule**.
+`b/(a+b) = 0.4286` is the first-passage probability for an **unbounded-time**
+walk. These labels are **censored at a vertical barrier**, and because the
+profit target sits FARTHER out (a/b = 1.333) it takes longer to reach — so
+censoring removes PT-bound paths **preferentially**. Conditioning on
+resolution is not neutral; it manufactures exactly the sign reported.
+
+Verified two independent ways (exact lattice DP, and a re-derivation by
+this session's author):
+
+| censoring | correct driftless P(PT \| resolved) |
+|---|---|
+| ~0% | 0.4396 ≈ 0.4286 *(validates the method)* |
+| 48.6% | 0.3758 |
+| **86.4%** | **0.2351** |
+
+The h24 case had **87.8% censoring** and observed **0.258** — which is
+**ABOVE** the correct null, i.e. weakly **pro**-predictive. Applying the
+correct null *and* this project's own effective-n standard (uniqueness
+0.245 by de Prado concurrency):
+
+| | brief's null | correct null, n_eff |
+|---|---|---|
+| h24 | −7.05 | **+0.58** (sign flips) |
+| h432 | −4.21 | **−1.47** |
+| pooled | **−3.24** | **−0.63 (p = 0.53)** |
+
+**Nothing significant remains.** A residual h432 negative drift (≈ −0.35%
+over 36h) may exist but is not significant, is measured on the *candidate*
+stream which pays no fees, and has never been shown to transfer to the
+live book. If any part of this claim becomes true, that is the piece to
+watch.
+
+**5. ~~Three INDEPENDENT refutations~~ — NOT INDEPENDENT, and pre-correction.**
+Commit `415af0f9` (2026-08-09) — *"a hedge is an OPENING leg — the go/no-go
+tool was answering backwards"* — fixed the SAME one-line defect in five
+scripts at once, including all three of these: `breakeven_test.py`,
+`geometry_search.py`, `random_entry_control.py`. They share a data path and
+it was broken. The brief dates them 2026-08-05, **four days before the tool
+that produced them was corrected**; the same commit records that the defect
+INVERTED breakeven_test's printed verdict. `geometry_search.py` ran entirely
+under the double-counting simulator. The corrected direction is worse for
+the strategy so the conclusion likely holds, but these numbers are
+pre-correction and the independence claim is false.
+
+The original three, recorded for the record [ASSERTED, 2026-08-05]:
+random-entry MFE 0.516 [0.439, 0.594] (no timing signal); a 48-combination
+Bonferroni-corrected geometry grid in which no geometry survives (best
+−0.400%, LB −1.124%); and break-even win rate `p=(cost+L)/(W+L)` > 1 at
+every real fee schedule. **All three need re-running post-`415af0f9`
+before they can be cited again.**
 
 ## The measured case FOR continuing
 
