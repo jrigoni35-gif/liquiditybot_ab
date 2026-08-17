@@ -526,7 +526,7 @@
       "id": 7,
       "type": "stat",
       "title": "Open positions",
-      "description": "Count of open positions. A zero here is a flat book; a MISSING series is a broken exporter, and the generator labels it so.",
+      "description": "Count of open positions. A zero here is a flat book; a MISSING series means the status write carried no positions key, or the exporter is down.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -553,7 +553,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "⚠ no series — exporter/pusher, not the bot"
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1192,7 +1192,7 @@
               }
             }
           ],
-          "noValue": "⚠ no series — exporter/pusher, not the bot"
+          "noValue": "kraken websocket block not written"
         },
         "overrides": []
       },

@@ -55,6 +55,10 @@ _SYNTH_STATUS = {
     "cycle": 10, "cycle_lifetime": 100, "feed_latency_ms": 50.0,
     "marks_age_sec": 1.0, "equity_drift_pct": 0.0, "exit_eval_failures": 0,
     "cycle_consecutive_failures": 0, "runner_state": "RUNNING",
+    # dry-run posture (runner.py:1193 vocabulary: DRY_RUN / LIVE_ARMED /
+    # LIVE_DISARMED) — presence-guarded from birth (guard batch 2), so the
+    # fixture must carry it for liquiditybot_dry_run to be emittable
+    "mode": "DRY_RUN",
     "halted": False, "entries_enabled": True, "audit_dropped_writes": 0,
     "audit_tail_truncations": 0,
     "positions": [{"symbol": "BTC/USD", "direction": "long", "entry": 60000.0,
@@ -126,7 +130,11 @@ _SYNTH_STATUS = {
            # exclusion.md) — shapes copied verbatim from the brief's
            # measured example (the bot's own status.json the morning the
            # era machinery went live).
-           "load_stats": {"live_clean": 20, "mean_uniqueness": 0.42,
+           # "rows" = the SURVIVING post-filter corpus (ml/history.py:1774
+           # rows=len(w)) -> liquiditybot_ml_loaded_rows. 4897 matches the
+           # era_mix_drift n_total below (same surviving-corpus universe).
+           "load_stats": {"rows": 4897,
+                          "live_clean": 20, "mean_uniqueness": 0.42,
                           "dropped_dirty": 0, "dropped_clash": 3,
                           "prior_skew": False,
                           "era_exclusion": {
@@ -209,6 +217,12 @@ _SYNTH_STATUS = {
     "code_stats": {"by_prefix": {"PT": 9},
                    "entry_codes": {"PT-041": 6, "PT-050": 2}},
     "ws_kraken": {"connected": True, "books": 6, "reconnects": 0},
+    # moomoo feed block — availability bools became presence-guarded in
+    # guard batch 2 (2026-08-17), so the fixture must carry the block for
+    # the liquiditybot_moomoo_ family to be emittable at all
+    "moomoo": {"available": True, "options_available": True,
+               "risk_z": 0.2, "opt_pcr_z": -0.1, "opt_oi_pcr_z": 0.05,
+               "opt_iv_skew": 1.3},
     "fault": {"state": "ARMED", "faults": {}},
     "watchdog": {"entries_blocked": False, "critical_stale": False,
                  "velocity_tripped": False, "divergent": [],

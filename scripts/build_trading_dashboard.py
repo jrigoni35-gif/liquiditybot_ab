@@ -828,9 +828,11 @@ def _author_command():
     # (:1137-1190), and that registry restates the ACTUAL guard in
     # scripts/gc_pusher.py per metric family. A hand-written string here
     # OVERRIDES it - which is how "Open positions" first shipped saying
-    # "flat" when its series was missing. positions_open is always-on, so its
-    # absence is a broken exporter, and "flat" would have read as a truthful
-    # empty book. Let the registry answer; it knows the guards and I do not.
+    # "flat" when its series was missing. positions_open has been
+    # presence-guarded since guard batch 2 (2026-08-17): its absence means
+    # the status write carried no positions key OR the exporter is down -
+    # either way "flat" would read a defect as a truthful empty book. Let
+    # the registry answer; it knows the guards and I do not.
     stat("Today", M("liquiditybot_daily_pnl"), 5, 6, unit=USD, decimals=2,
          steps=PNL, desc="P&L since midnight, realized plus unrealized.")
     stat("This week", M("liquiditybot_weekly_pnl"), 5, 6, unit=USD,
@@ -851,7 +853,8 @@ def _author_command():
     stat("Open positions", M("liquiditybot_positions_open"), 4, 5,
          unit="short", decimals=0, graph="none", size="compact", steps=BLUE,
          desc="Count of open positions. A zero here is a flat book; a MISSING "
-              "series is a broken exporter, and the generator labels it so.")
+              "series means the status write carried no positions key, or "
+              "the exporter is down.")
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 5, 5,
           mx=100.0, unit="percent", decimals=1, steps=BUDGET,
           desc="Notional at risk as a percent of equity.")
@@ -1747,17 +1750,19 @@ _ALWAYS_ON = frozenset({
     # status write, so an old-schema or partial write can no longer export
     # fabricated healthy zeros. Those families moved to
     # _NO_VALUE_BY_FAMILY below with "not in this status write" texts.
+    # SHRUNK AGAIN 2026-08-17 (17 -> 11, owed-metrics batch 2): the same
+    # guard sweep reached the remaining coerced bools — ml_use_model /
+    # ml_retrain_flag / ws_kraken_connected / moomoo_available /
+    # moomoo_options_available / positions_open now emit only when their
+    # key exists in the status write.
     "liquiditybot_gauges_dropped_nonfinite",
     "liquiditybot_gross_exposure_usd",
     "liquiditybot_haven_info", "liquiditybot_ml_model_info",
-    "liquiditybot_ml_retrain_flag", "liquiditybot_ml_use_model",
-    "liquiditybot_moomoo_available", "liquiditybot_moomoo_options_available",
     "liquiditybot_open_risk_usd",
-    "liquiditybot_open_upnl_usd", "liquiditybot_positions_open",
+    "liquiditybot_open_upnl_usd",
     "liquiditybot_running", "liquiditybot_status_age_sec",
     "liquiditybot_status_malformed", "liquiditybot_status_missing",
     "liquiditybot_status_stale",
-    "liquiditybot_ws_kraken_connected",
 })
 
 # The one string that means "this is broken", never "this has not happened".
@@ -1788,9 +1793,9 @@ _NO_VALUE_BY_FAMILY = {
     "liquiditybot_order_worst_slip_bps": ("event", "awaiting first non-dust fill"),
     "liquiditybot_order_slip_bps_notional_weighted":
         ("event", "awaiting first non-dust fill"),
-    # gc_pusher.py:874-879  per asset+horizon markout sample
+    # gc_pusher.py:929-934  per asset+horizon markout sample
     "liquiditybot_markout_bps": ("event", "awaiting first post-fill markout"),
-    # gc_pusher.py:721-728 <- ml/monitor.py:773 `if w is not None` <- :225-226
+    # gc_pusher.py:755-763 <- ml/monitor.py:773 `if w is not None` <- :225-226
     # `if len(recs) < self.min_trades: return None`, min_trades default 15
     "liquiditybot_ml_brier": ("event", _NV_JUDGE),
     "liquiditybot_ml_baseline_brier": ("event", _NV_JUDGE),
@@ -1798,7 +1803,7 @@ _NO_VALUE_BY_FAMILY = {
     "liquiditybot_ml_hit_rate": ("event", _NV_JUDGE),
     "liquiditybot_ml_avg_p": ("event", _NV_JUDGE),
     "liquiditybot_ml_window_trades": ("event", _NV_JUDGE),
-    # gc_pusher.py:757-765  ls = ml["load_stats"], written only by a
+    # gc_pusher.py:796-802  ls = ml["load_stats"], written only by a
     # completed HistoryStore.load_training_data (main.py:6245 auto-retrain)
     "liquiditybot_ml_live_clean": ("event", _NV_NO_RETRAIN),
     "liquiditybot_ml_mean_uniqueness": ("event", _NV_NO_RETRAIN),
@@ -1810,25 +1815,25 @@ _NO_VALUE_BY_FAMILY = {
     # cause (2026-08-17 honesty sweep)
     "liquiditybot_era_mix_": ("event",
                               "no retrain or mix check yet - or feed down"),
-    # gc_pusher.py:776  `if ls:` gates the WHOLE era block — same root cause
+    # gc_pusher.py:824  `if ls:` gates the WHOLE era block — same root cause
     "liquiditybot_era_": ("event", _NV_NO_RETRAIN),
-    # gc_pusher.py:851-852  `bd_n > 0`
+    # gc_pusher.py:899-900  `bd_n > 0`
     "liquiditybot_bracket_divergence_":
         ("event", "awaiting first bracket close"),
-    # gc_pusher.py:533-536 / :537-547  zero-iteration over empty dicts
+    # gc_pusher.py:551-554 / :555-565  zero-iteration over empty dicts
     "liquiditybot_conviction_denials": ("event", "no conviction denial yet"),
     "liquiditybot_conviction_regime_":
         ("event", "awaiting first regime-bucketed eval"),
-    # gc_pusher.py:227-229  avg_cost_24h is None until the first admit
+    # gc_pusher.py:230-232  avg_cost_24h is None until the first admit
     "liquiditybot_probe_budget_avg_cost_24h":
         ("event", "awaiting first probe admit"),
-    # gc_pusher.py:939-942  loop over cb["tripped"], empty when nothing paused
+    # gc_pusher.py:1004-1007  loop over cb["tripped"], empty when nothing paused
     "liquiditybot_cb_paused_hours_left":
         ("event", "no asset circuit-breaker tripped"),
-    # gc_pusher.py:898-901  loop over firewall["counters"]
+    # gc_pusher.py:963-966  loop over firewall["counters"]
     "liquiditybot_firewall_count": ("event", "no firewall trip recorded"),
-    # gc_pusher.py ws_kraken block — books/reconnects ride the section
-    # (connected itself is always-on and short-circuits before this map)
+    # gc_pusher.py ws_kraken block — the whole family (connected included
+    # since guard batch 2) is gated on its key existing in the block
     "liquiditybot_ws_": ("section", "kraken websocket block not written"),
     # ---- presence-guarded fault/health family (2026-08-17) --------------
     # These left _ALWAYS_ON when the exporter gained presence guards: an
@@ -1839,27 +1844,43 @@ _NO_VALUE_BY_FAMILY = {
     "liquiditybot_op_state": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_fault_count": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_firewall_fault": ("section", _NV_NOT_WRITTEN),
+    # ---- presence-guarded batch 2 (2026-08-17, owed-metrics batch) ------
+    # The remaining coerced bools left _ALWAYS_ON the same way: absent
+    # key -> no series, never a fabricated flat book / dead feed / model
+    # off. positions_open's absence therefore now means EITHER the key
+    # was not written OR the exporter is down — the panel desc says so.
+    "liquiditybot_positions_open": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_moomoo_": ("section", "moomoo block not in this status write"),
+    # liquiditybot_dry_run (guard batch 2, born guarded): absent mode key
+    # emits NO series — the tile must NEVER render live from silence, so
+    # the text asserts ignorance, not a state.
+    "liquiditybot_dry_run": ("section", "mode not in this status write - state unknown"),
+    # liquiditybot_ml_loaded_rows rides the load_stats gate like
+    # ml_live_clean, but its VALUE is a snapshot of the last corpus load,
+    # so the absence text names both honest causes.
+    "liquiditybot_ml_loaded_rows":
+        ("event", "as of the last retrain's corpus load, or exporter down"),
     "liquiditybot_watchdog_": ("section",
                                "watchdog block not in this status write"),
     "liquiditybot_audit_": ("section",
                             "audit counters not in this status write"),
-    # gc_pusher.py:510-514 / :956-959  per-code tallies
+    # gc_pusher.py:528-532 / :1021-1024  per-code tallies
     "liquiditybot_code_count": ("event", "this reason code has not fired"),
-    # gc_pusher.py:423-431 / :411-419 / :402-410  performance ledger slices
+    # gc_pusher.py:441-449 / :429-437 / :420-428  performance ledger slices
     "liquiditybot_perf_conviction_":
         ("event", "awaiting first close in this bucket"),
     "liquiditybot_perf_asset_": ("event", "awaiting first close on this asset"),
     "liquiditybot_perf_": ("event", "awaiting first closed trade"),
-    # gc_pusher.py:343-388  aggregated from status.positions (non-hedge).
+    # gc_pusher.py:360-409  aggregated from status.positions (non-hedge).
     # Both-cause: a frozen runner stops these series while positions are
     # still genuinely open (measured 2026-08-15, 5 open / 0 series)
     "liquiditybot_position_": ("event",
                                "flat, no open positions - or see Data age"),
-    # gc_pusher.py:189-204  graded-evidence ledger, structurally empty
+    # gc_pusher.py:192-208  graded-evidence ledger, structurally empty
     # before the shadow-grading unlock
     "liquiditybot_thales_rel_": ("event", "no graded THALES evidence yet"),
     "liquiditybot_thales_base_": ("event", "no graded THALES evidence yet"),
-    # gc_pusher.py:734-737  labels_by_source
+    # gc_pusher.py:773-776  labels_by_source
     "liquiditybot_ml_labels": ("event", "no labelled rows yet"),
     # ---- section-gated --------------------------------------------------
     "liquiditybot_goal_": ("section", "no profit goal configured"),
@@ -1879,7 +1900,7 @@ _NO_VALUE_BY_FAMILY = {
     "liquiditybot_ml_": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_monitor_": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_order_": ("section", _NV_NOT_WRITTEN),
-    # ---- bare top-level scalars: gc_pusher.py:294-315 numeric whitelist --
+    # ---- bare top-level scalars: gc_pusher.py:297-318 numeric whitelist --
     "liquiditybot_equity": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_daily_pnl": ("section", _NV_NOT_WRITTEN),
     "liquiditybot_weekly_pnl": ("section", _NV_NOT_WRITTEN),

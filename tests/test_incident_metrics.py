@@ -283,17 +283,23 @@ def test_collect_emits_model_health(tmp_path):
     assert _val(m, "liquiditybot_ml_labels", source="candidate") == 400.0
     assert _val(m, "liquiditybot_ml_model_info", kind="blend") == 1.0
 
-    # cold bot: no monitor window, no model, flag off -> booleans still emit.
+    # cold bot: no monitor window, no model, flag key absent.
     # Re-pinned 2026-07-20: an unloaded champion now exports kind="prior"
     # instead of silence — running the prior is a STATE the model panel
     # must show, not an outage ("No data" after the v7 schema bump read
     # as broken telemetry while the width guard was doing its job).
+    # Re-pinned AGAIN 2026-08-17 (guard batch 2): this block used to
+    # assert use_model=0.0/retrain_flag=0.0 for keys the write never
+    # carried — the exact fabricated-healthy-zero class the presence
+    # guards remove. Absent key -> NO series now; the truthful-value
+    # direction lives in the first half of this test and the absence
+    # direction in test_dashboard_no_value's parametrized guard.
     p2 = tmp_path / "s2.json"
     p2.write_text(json.dumps({"written_at": time.time(),
                               "ml": {"model_kind": None}}), encoding="utf-8")
     m2 = gp.collect(str(p2))
-    assert _val(m2, "liquiditybot_ml_use_model") == 0.0
-    assert _val(m2, "liquiditybot_ml_retrain_flag") == 0.0
+    assert _val(m2, "liquiditybot_ml_use_model") is None
+    assert _val(m2, "liquiditybot_ml_retrain_flag") is None
     assert _val(m2, "liquiditybot_ml_hit_rate") is None
     assert _val(m2, "liquiditybot_ml_model_info", kind="prior") == 1.0
 

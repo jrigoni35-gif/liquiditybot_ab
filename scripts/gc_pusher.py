@@ -34,8 +34,11 @@ import json
 import logging
 import math
 import os
+import subprocess  # nosec B404 - fixed argv, no shell (cohort_eval only)
+import sys
 import time
 import urllib.request
+from pathlib import Path
 
 
 log = logging.getLogger("gc_pusher")
@@ -325,10 +328,25 @@ def collect(status_path: str) -> list:
             if isinstance(att, (int, float)):
                 m.append(gauge("liquiditybot_goal_attainment_pct", att,
                                {"period": str(per)}, ts))
-        m.append(gauge("liquiditybot_positions_open",
-                       len(s.get("positions") or []), ts=ts))
+        # presence-guarded (the 2026-08-17 halted/entries_enabled idiom):
+        # an absent positions key must not fabricate a flat book — 0 open
+        # is a claim about the book, not a default
+        if "positions" in s:
+            m.append(gauge("liquiditybot_positions_open",
+                           len(s.get("positions") or []), ts=ts))
         m.append(gauge("liquiditybot_running",
                        1.0 if s.get("runner_state") == "RUNNING" else 0.0, ts=ts))
+        # dry-run posture off status "mode" (runner.py:1193): DRY_RUN -> 1;
+        # LIVE_ARMED / LIVE_DISARMED -> 0 (bot.dry_run is False in both —
+        # disarmed only withholds order transmission). PRESENCE-GUARDED FROM
+        # BIRTH: an absent mode key emits NO series and must NEVER render as
+        # live; an unrecognized string maps to -1.0 UNKNOWN (the op_state
+        # precedent below), never coerced onto either real state.
+        if "mode" in s:
+            m.append(gauge("liquiditybot_dry_run",
+                           {"DRY_RUN": 1.0, "LIVE_ARMED": 0.0,
+                            "LIVE_DISARMED": 0.0}.get(str(s.get("mode")),
+                                                      -1.0), ts=ts))
         ml = s.get("ml") or {}          # bound once; §4 + ML blocks below read it
         # ---- live positions (§2): net per instrument (symbol,side) --------------
         # Aggregated per (symbol, side), NOT per ephemeral lot-id: putting the
@@ -688,8 +706,12 @@ def collect(status_path: str) -> list:
         # dropping feed shows up as connected->0 / books falling while the bot
         # silently keeps trading on the REST fallback.
         kws = s.get("ws_kraken") or {}
-        m.append(gauge("liquiditybot_ws_kraken_connected",
-                       1.0 if kws.get("connected") else 0.0, ts=ts))
+        # presence-guarded (2026-08-17 batch 2): an absent block used to
+        # export connected=0 — a fabricated "disconnected" alarm for a
+        # status write that never carried the ws section
+        if "connected" in kws:
+            m.append(gauge("liquiditybot_ws_kraken_connected",
+                           1.0 if kws.get("connected") else 0.0, ts=ts))
         for k in ("books", "reconnects"):
             v = kws.get(k)
             if isinstance(v, (int, float)):
@@ -738,10 +760,15 @@ def collect(status_path: str) -> list:
             v = mon.get(k)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
-        m.append(gauge("liquiditybot_ml_use_model",
-                       1.0 if mon.get("use_model") else 0.0, ts=ts))
-        m.append(gauge("liquiditybot_ml_retrain_flag",
-                       1.0 if ml.get("retrain_flag") else 0.0, ts=ts))
+        # presence-guarded (2026-08-17 batch 2, same idiom as halted):
+        # absent key -> no series, never a fabricated "model off"/"no
+        # retrain queued" for a write that never carried the key
+        if "use_model" in mon:
+            m.append(gauge("liquiditybot_ml_use_model",
+                           1.0 if mon.get("use_model") else 0.0, ts=ts))
+        if "retrain_flag" in ml:
+            m.append(gauge("liquiditybot_ml_retrain_flag",
+                           1.0 if ml.get("retrain_flag") else 0.0, ts=ts))
         # labels by source: live = ground truth, candidate = triple-barrier proxy
         for src, cnt in (ml.get("labels_by_source") or {}).items():
             if isinstance(cnt, (int, float)) and not isinstance(cnt, bool):
@@ -772,6 +799,15 @@ def collect(status_path: str) -> list:
             v = ls.get(k)
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 m.append(gauge(f"liquiditybot_ml_{k}", v, ts=ts))
+        # the SURVIVING post-filter training corpus: ml/history.py:1774
+        # writes rows = len(w) after dirty/clash/era filtering, published
+        # via runner.py:1318 (last_load_stats verbatim). Named LOADED, not
+        # rows: liquiditybot_ml_history_rows above is the raw CSV count,
+        # this is what training actually saw at the last retrain. Presence-
+        # guarded like every ls gauge: no retrain yet -> no series.
+        _lr = ls.get("rows")
+        if isinstance(_lr, (int, float)) and not isinstance(_lr, bool):
+            m.append(gauge("liquiditybot_ml_loaded_rows", _lr, ts=ts))
         if "prior_skew" in ls:
             m.append(gauge("liquiditybot_ml_prior_skew",
                            1.0 if ls.get("prior_skew") else 0.0, ts=ts))
@@ -896,11 +932,16 @@ def collect(status_path: str) -> list:
                 if isinstance(v, (int, float)):
                     m.append(gauge("liquiditybot_markout_bps", v,
                                    {"asset": asset, "horizon_sec": str(hz)}, ts))
-        # moomoo up/down (options + basket feed) — was dark
-        m.append(gauge("liquiditybot_moomoo_options_available",
-                       1.0 if mm.get("options_available") else 0.0, ts=ts))
-        m.append(gauge("liquiditybot_moomoo_available",
-                       1.0 if mm.get("available") else 0.0, ts=ts))
+        # moomoo up/down (options + basket feed) — was dark. Presence-
+        # guarded (2026-08-17 batch 2): absent key -> no series, never a
+        # fabricated "feed down" for a moomoo-less status write
+        if "options_available" in mm:
+            m.append(gauge("liquiditybot_moomoo_options_available",
+                           1.0 if mm.get("options_available") else 0.0,
+                           ts=ts))
+        if "available" in mm:
+            m.append(gauge("liquiditybot_moomoo_available",
+                           1.0 if mm.get("available") else 0.0, ts=ts))
         # watchdog trips — each blocks new entries. Block-presence-guarded
         # (see the halted comment): a status write with no watchdog block
         # must not fabricate five healthy zeros.
@@ -1010,6 +1051,191 @@ def collect(status_path: str) -> list:
                 gauge("liquiditybot_status_missing", 0.0, ts=now)]
 
 
+# ---- ledger-derived sidecar metrics (owed-metrics batch, 2026-08-17) ----
+# Series that do NOT ride status.json: the retrain ledger, the model
+# registry, and the era-4 accrual count. Deliberately OUTSIDE collect():
+# the _ALWAYS_ON pin (tests/test_dashboard_no_value.py) and the board
+# coverage gate (tests/test_trading_dashboard.py) both recompute their
+# metric universes by RUNNING collect() on synthetic status files, and a
+# metric sourced from a real on-disk ledger would make those pins
+# machine-dependent (and put a subprocess inside the test suite). main()
+# pushes collect(...) + collect_aux() as ONE batch; every helper here
+# swallows its own failures (the _num isolation idiom writ large) because
+# one unreadable ledger must never black out the status batch.
+#
+# BOARD CONSUMPTION IS DELIBERATELY NOT WIRED (2026-08-17 batch): no
+# panel queries these names yet, and none of them have _NO_VALUE_BY_
+# FAMILY entries. Whoever panels one first will hit _nv_family's KeyError
+# forcing function - and must ALSO teach the board gates (test_trading_
+# dashboard's emitted-universe and test_dashboard_no_value's map-key
+# check, both built on collect() alone) to include collect_aux() with
+# these path attributes rebound to fixtures. Declaring the family entry
+# without extending those gates fails the map-key test by design.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+# rebindable module attributes (the ml/retrain_log.py
+# RETRAIN_HISTORY_PATH_DEFAULT precedent): tests point them at tmp files.
+RETRAIN_HISTORY_PATH = _REPO_ROOT / "outputs" / "retrain_history.jsonl"
+MODEL_REGISTRY_PATH = _REPO_ROOT / "outputs" / "models" / "registry.jsonl"
+COHORT_SCRIPT = _REPO_ROOT / "scripts" / "cohort_eval.py"
+
+
+def _orphan_ratio_metrics(ts: float) -> list:
+    """ML-083 orphan ratio (trained_rows / n_rows) off the LAST complete
+    record of outputs/retrain_history.jsonl (ml/retrain_log.py:57-61).
+    The 48x orphan that promoted a negative-skill model on 2026-08-14 was
+    recoverable only by hand-joining ledgers; this makes the firing
+    condition a plottable series.
+
+    FIXTURE-POLLUTION HISTORY, read before trusting a panel built on
+    this: on 2026-07-31, 305 of the 306 records in the operator's real
+    ledger were SUITE FIXTURES (tests wrote to the shipped default path
+    before it became rebindable — see ml/retrain_log.py's own comment),
+    and a prior session mistook the degeneracy for a corpus-size problem.
+    The value here is only as clean as the ledger's tail.
+
+    Tail-read only (64KB window), never the whole file. Reverse-walk
+    skips a torn final fragment to the last line that PARSES; the first
+    parsed record decides — a None/absent orphan_ratio (no trained_rows
+    watermark logged) emits nothing rather than walking deeper into
+    history for a stale value. Absent/empty/unreadable file -> no series.
+    """
+    try:
+        with open(RETRAIN_HISTORY_PATH, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - 65536))
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    for line in reversed(tail.splitlines()):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue            # torn tail fragment: step back one line
+        if not isinstance(rec, dict):
+            return []
+        v = rec.get("orphan_ratio")
+        if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                and math.isfinite(float(v)):
+            return [gauge("liquiditybot_ml_orphan_ratio", float(v), ts=ts)]
+        return []               # last record carries no ratio: honest absence
+    return []
+
+
+# BOUNDED label vocabulary for lineage events — the _ERA_KNOWN clamp
+# precedent (gc_pusher's cardinality law): exactly these three lifecycle
+# events get their own series; every other event string ml/registry.py
+# ever writes (retired, integrity_fail, a corrupt row, a future type)
+# clamps into "other". NEVER model ids as labels — unbounded by design.
+_LINEAGE_KNOWN = ("registered", "deployed", "rejected")
+
+
+def _lineage_metrics(ts: float) -> list:
+    """Model-lineage lifecycle counts off outputs/models/registry.jsonl
+    (ml/registry.py's append-only, hash-chained ledger). Cumulative
+    counts over the whole file — small by construction (one row per
+    register/note event). All four buckets (three known + "other") are
+    emitted together once ANY row parses, zeros included, so a rate()
+    on a quiet bucket reads 0 rather than no-data; a file that is
+    absent, unreadable, or yields zero parseable rows emits nothing
+    (honest absence — an unreadable ledger must not read as an empty
+    one). Unparseable lines (torn tail) are skipped, not counted."""
+    counts = dict.fromkeys(_LINEAGE_KNOWN, 0)
+    counts["other"] = 0
+    rows = 0
+    try:
+        with open(MODEL_REGISTRY_PATH, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue    # torn/garbage line is not an event
+                if not isinstance(rec, dict):
+                    continue
+                rows += 1
+                ev = str(rec.get("event") or "")
+                counts[ev if ev in _LINEAGE_KNOWN else "other"] += 1
+    except OSError:
+        return []
+    if not rows:
+        return []
+    return [gauge("liquiditybot_ml_lineage_events", float(c),
+                  {"event": k}, ts) for k, c in counts.items()]
+
+
+COHORT_MIN_INTERVAL_SEC = 1800.0   # >= 30 min between subprocess ATTEMPTS
+COHORT_TIMEOUT_SEC = 30.0          # hard wall on the child process
+_cohort_cache: dict = {"next_attempt": 0.0, "values": None}
+
+
+def _run_cohort_eval():
+    """(n, min_n) from `python scripts/cohort_eval.py --json` era4, or
+    None on ANY failure (missing inputs, nonzero exit, timeout, bad
+    JSON, wrong shape). NEVER parses the gross/net means: the era-4
+    moratorium forbids reading the accruing gate numbers as a trend, so
+    only the accrual count and its pre-registered floor leave here."""
+    try:
+        proc = subprocess.run(  # nosec B603 - fixed argv, our own script
+            [sys.executable, str(COHORT_SCRIPT), "--json"],
+            cwd=str(_REPO_ROOT), capture_output=True,
+            timeout=COHORT_TIMEOUT_SEC)
+        if proc.returncode != 0:
+            return None
+        era4 = (json.loads(proc.stdout.decode("utf-8", errors="replace"))
+                .get("era4") or {})
+        n, mn = era4.get("n"), era4.get("min_n")
+        # finiteness enforced HERE: collect()'s NaN choke point does not
+        # cover the aux batch, and json.loads happily yields NaN/Infinity
+        # — one non-finite gauge invalidates the whole OTLP body
+        if (isinstance(n, (int, float)) and not isinstance(n, bool)
+                and isinstance(mn, (int, float))
+                and not isinstance(mn, bool)
+                and math.isfinite(float(n)) and math.isfinite(float(mn))):
+            return (float(n), float(mn))
+        return None
+    except Exception:
+        return None
+
+
+def _cohort_metrics(now: float) -> list:
+    """Era-4 accrual progress: closes so far vs the pre-registered n=50
+    floor. CACHED at COHORT_MIN_INTERVAL_SEC — the count moves a few
+    times a day, so a per-push subprocess buys nothing; the cadence
+    gates ATTEMPTS, not successes, so a failing script is not re-invoked
+    every push either. A failed refresh DROPS the previous values rather
+    than re-serving them: a count that can no longer be re-derived is a
+    stale claim, and absent is the honest shape (never emit on failure).
+    """
+    if now >= _cohort_cache["next_attempt"]:
+        _cohort_cache["next_attempt"] = now + COHORT_MIN_INTERVAL_SEC
+        _cohort_cache["values"] = _run_cohort_eval()
+    vals = _cohort_cache["values"]
+    if not vals:
+        return []
+    return [gauge("liquiditybot_cohort_closes", vals[0], ts=now),
+            gauge("liquiditybot_cohort_min_n", vals[1], ts=now)]
+
+
+def collect_aux(now: float | None = None) -> list:
+    """The ledger-derived batch pushed beside collect()'s status batch.
+    Each helper already returns [] on its own failure; this wrapper
+    backstops the composition so a defect in one collector can never
+    cost the status batch (main() pushes both as one list)."""
+    now = time.time() if now is None else now
+    out: list = []
+    for fn in (_orphan_ratio_metrics, _lineage_metrics, _cohort_metrics):
+        try:
+            out.extend(fn(now))
+        except Exception:
+            log.exception("gc_pusher: aux collector %s failed",
+                          getattr(fn, "__name__", "?"))
+    return out
+
+
 def push(cfg: dict, metrics: list) -> int:
     # ONE resource attribute only: service.name -> job="liquiditybot". Adding
     # service.instance.id here would split the EXISTING series (historical
@@ -1059,7 +1285,7 @@ def main() -> None:
     cfg = _cfg()
     while True:
         try:
-            code = push(cfg, collect(cfg["status"]))
+            code = push(cfg, collect(cfg["status"]) + collect_aux())
             print(f"{time.strftime('%H:%M:%S')} pushed HTTP {code}",
                   flush=True)
         except Exception as e:

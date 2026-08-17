@@ -210,6 +210,17 @@ def test_timeseries_carry_every_precondition_in_the_description():
                   "liquiditybot_watchdog_stale_assets"]),
     ("firewall", ["liquiditybot_firewall_fault",
                   "liquiditybot_firewall_count"]),
+    # ---- guard batch 2 (2026-08-17, owed-metrics batch) -----------------
+    # the remaining coerced bools + the born-guarded dry_run: stripping
+    # the carrier key/block must silence the series, never fabricate a
+    # flat book / dead feed / "model off" / a mode
+    ("mode", ["liquiditybot_dry_run"]),
+    ("positions", ["liquiditybot_positions_open"]),
+    ("ws_kraken", ["liquiditybot_ws_kraken_connected"]),
+    ("moomoo", ["liquiditybot_moomoo_available",
+                "liquiditybot_moomoo_options_available"]),
+    ("monitor", ["liquiditybot_ml_use_model"]),
+    ("ml", ["liquiditybot_ml_retrain_flag"]),
 ])
 def test_absent_bool_keys_emit_no_series(tmp_path, strip, gone):
     """The exporter's presence guards (2026-08-17): an ABSENT key or block
