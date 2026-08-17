@@ -1590,6 +1590,33 @@ def validate(config: dict) -> list:
                      "horizon; time-barrier candidates still hold the "
                      "full horizon - confirm the cap is intended.")
 
+    # Zombie-eviction margin (2026-08-16 defect-A fix; companion to the
+    # capacity check above - capacity sizes the pool, this bounds how
+    # long a provably-unresolvable candidate may keep a slot in it).
+    # ml/history.py poll() censors a candidate (ML-085, no label row)
+    # only when engine-clock age passes label_max_bars + this margin AND
+    # the cached bars provably cannot produce the label, so the margin is
+    # a LIVENESS bound, not a signal threshold - it never decides a
+    # label, only how long dead weight squats. Validation only when
+    # declared; the undeclared-key default (24 bars) lives in
+    # ml/history.py and needs no mirror here because no capacity math
+    # consumes it.
+    _cem_raw = _f(config, "ml.candidate_evict_margin_bars", None)
+    if _cem_raw is not None:
+        if isinstance(_cem_raw, bool) or \
+                not isinstance(_cem_raw, (int, float)) or \
+                int(_cem_raw) != _cem_raw:
+            fatal(f"ml.candidate_evict_margin_bars ({_cem_raw!r}) must be "
+                  f"an integer - it is a bar count of eviction grace past "
+                  f"the label window end")
+        elif not (0 <= int(_cem_raw) <= 8640):
+            fatal(f"ml.candidate_evict_margin_bars ({int(_cem_raw)}) must "
+                  f"be in [0, 8640]: 0 censors an unresolvable candidate "
+                  f"at its window end; 8640 bars is 30 days of grace at "
+                  f"5m, beyond which the margin re-creates the "
+                  f"zombie-slot squatting it exists to end (do NOT widen "
+                  f"this to keep dead candidates - fix the feed instead)")
+
     # OF-5 DSR trials count (Debate-1 item A config-lift): the Harvey-Liu
     # deflation is only as honest as this number. Raising it deflates
     # harder (conservative); dropping below the shipped 7 weakens the

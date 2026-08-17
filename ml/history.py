@@ -32,8 +32,21 @@ from core.runtime import durable_append
 from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
                          REGIME_LABELS, REGIME_ONE_HOT_FEATURES)
 from ml.labeling import barrier_geometry, simulate_exit_policy, triple_barrier
+from ml.walkforward import BAR_SECONDS
 
 log = logging.getLogger("liquiditybot.ml.history")
+
+# Zombie eviction reasons about REAL elapsed time (now - bar_time), which
+# is only meaningful when bar_time rides the same epoch clock as the
+# engine's `now`. Test harnesses mint toy bar clocks (0, 1, 2, ...; e.g.
+# scripts/smoke_test.py MockOKX candles) while driving cycles with
+# time.time() - comparing those would compute a billion-second "age" and
+# censor every candidate on sight. Any real candle time is far above this
+# floor (1e9 = 2001-09-09 in epoch seconds; the config guard's own epoch
+# band for ml.epoch.candidate_cutoff_ts starts at 1752000000); any toy
+# clock is far below it. A candidate below the floor simply never arms
+# eviction - identical to the pre-fix behavior.
+_EPOCH_CLOCK_FLOOR = 1e9
 
 # regime label -> its one-hot column's index in FEATURE_NAMES (Task 4,
 # #103 regime-coverage hold). Built once from the shared mapping so a
@@ -2148,6 +2161,19 @@ class CandidateLabeler:
         # check must size the cap that will actually run) and a test pins
         # the pair. Do not resize here: config.json carries the capacity.
         self.max_candidates = int(cfg.get("max_open_candidates", 200))
+        # ZOMBIE-EVICTION margin (2026-08-16 defect-A fix, owed item 84):
+        # grace bars past the label window end before an UNRESOLVABLE
+        # candidate (stale/absent bars - _maybe_evict_zombie) is censored out
+        # of the pool. A LIVENESS bound, not a signal threshold: eviction
+        # additionally requires the data gate, so the margin only decides
+        # how long a provably-dead candidate may keep its slot. 24 bars =
+        # 2h at 5m, matching the measured zombie boundary (the 2026-08-16
+        # audit classed slots older than horizon+2h as zombies: 32/187).
+        # Config-owned (ml.candidate_evict_margin_bars, guarded in
+        # core/config_guard.py); this literal is only the undeclared-key
+        # default.
+        self.evict_margin_bars = int(
+            cfg.get("candidate_evict_margin_bars", 24))
         self._bars: dict = {}          # asset -> {"t":[], "c":[], "h":[], "l":[]}
         self._cands: list = []
         self._seq = 0
@@ -2301,7 +2327,7 @@ class CandidateLabeler:
             cost += spread / 100.0     # bps -> percent
         return cost
 
-    def poll(self) -> int:
+    def poll(self, now: "float | None" = None) -> int:
         """Label candidates. Returns rows written.
 
         EARLY DECIDABILITY: a pt/sl barrier hit inside the available
@@ -2314,8 +2340,22 @@ class CandidateLabeler:
         Early-labeled candidates STAY in the pool (labeled=True) until
         the full horizon so the multi-horizon shadow record - which
         needs the complete path - stays whole; the primary row is
-        written exactly once."""
+        written exactly once.
+
+        `now` (epoch seconds, the engine's cycle clock - main.py passes
+        its own `now` so replay stays deterministic) arms ZOMBIE EVICTION
+        (2026-08-16 defect-A fix): a candidate whose age exceeds the
+        label horizon plus ml.candidate_evict_margin_bars, and whose
+        asset's cached bars provably cannot produce its label (see
+        _is_zombie), is CENSORED - removed with ML-085, NO label row
+        written. Age is measured against the engine clock, never bar
+        arrival, so a dead feed cannot squat pool slots forever (the
+        pre-fix state: the only unlabelable-drop rule was the bar-window
+        slide, which itself needs new bars). None (the default, every
+        legacy caller) disarms eviction - behavior identical to before
+        this parameter existed."""
         written = 0
+        evicted: dict = {}
         # per-asset array cache, ONE conversion per asset per poll: bars do
         # not mutate inside poll() (update_candles runs between cycles), and
         # rebuilding three ~horizon*5-element arrays per CANDIDATE made this
@@ -2330,10 +2370,16 @@ class CandidateLabeler:
                 # entry bar evicted or never cached: unlabelable, drop
                 if b and b["t"] and cand["bar_time"] < b["t"][0]:
                     self._cands.remove(cand)
+                else:
+                    # bars absent, or the entry bar never arrived and the
+                    # feed has since gone stale: the slide-drop above can
+                    # never fire without new bars - censor if zombie
+                    self._maybe_evict_zombie(cand, now, evicted)
                 continue
             i = b["t"].index(cand["bar_time"])
             avail = len(b["t"]) - 1 - i
             if avail < 1:
+                self._maybe_evict_zombie(cand, now, evicted)
                 continue
             got = arrs.get(cand["asset"])
             if got is None:
@@ -2359,7 +2405,12 @@ class CandidateLabeler:
                 self._cands.remove(cand)
                 continue
             if cand.get("labeled"):
-                continue                    # waiting only for shadows now
+                # waiting only for shadows now - but a frozen feed means
+                # the shadow path can never complete either; the primary
+                # row is already written, so censoring here loses only
+                # the shadow record, never a label
+                self._maybe_evict_zombie(cand, now, evicted)
+                continue
             out = self._label(closes, highs, lows, i, side,
                               cand["sigma_bar"], cost,
                               conviction=cand.get("confidence"))
@@ -2378,10 +2429,83 @@ class CandidateLabeler:
                     # hours (audit M-finding). Shadows enabled -> keep it
                     # until the full path is recorded, as before.
                     self._cands.remove(cand)
+            else:
+                # in-window but undecided (the label attempt above just
+                # returned non-final): if the bars that could decide it
+                # have stopped coming, re-running the same attempt can
+                # never change the answer - censor if zombie
+                self._maybe_evict_zombie(cand, now, evicted)
+        if evicted:
+            total = sum(n for n, _ in evicted.values())
+            detail = ", ".join(f"{a} x{n} (oldest {h:.1f}h)"
+                               for a, (n, h) in sorted(evicted.items()))
+            log.warning(
+                f"{Code.ML_CAND_ZOMBIE_EVICT.value}: censored {total} "
+                f"unresolvable candidate(s) older than the label horizon "
+                f"({self.horizon} bars) + margin ({self.evict_margin_bars} "
+                f"bars) with stale/absent bars - no label row written "
+                f"({detail})")
         if written:
             log.info("labeled %d candidate signal(s) via %s",
                      written, self.label_mode)
         return written
+
+    def _maybe_evict_zombie(self, cand: dict, now: "float | None",
+                            evicted: dict) -> None:
+        """Censor `cand` - remove it from the pool and fold it into
+        poll()'s per-asset ML-085 tally (one aggregate log line per
+        poll, the ML_SCHEMA_MISMATCH precedent, never per-candidate
+        spam) - iff it has outlived its label window plus the configured
+        margin AND can never resolve from the data on hand. Called only
+        on poll()'s stuck paths (the resolution paths remove the
+        candidate before this is ever reached), and built so eviction
+        can never race resolution - THREE gates, all required:
+
+        clock - `now` is not None (legacy callers disarm eviction) and
+                bar_time is a real epoch timestamp (_EPOCH_CLOCK_FLOOR:
+                toy test clocks must never be compared against wall
+                time).
+        age   - now >= bar_time + (horizon + margin) x 5m bars. Engine
+                clock only: a dead feed cannot postpone its own eviction
+                by not sending bars.
+        data  - the cached bars provably cannot produce the label:
+                the latest bar predates the candidate's full window end
+                in TIME, and fewer than `horizon` bars follow the entry
+                bar in INDEX terms (poll's own resolution arithmetic).
+                If EITHER says the window is complete, poll() resolves
+                the candidate normally and eviction stands down - a
+                healthy at-horizon candidate with flowing bars is
+                labeled, never censored.
+
+        A candidate these gates admit is CENSORED: missing data, not an
+        outcome. No label row is ever fabricated for it."""
+        if now is None:
+            return
+        try:
+            bar_time = float(cand["bar_time"])
+        except (TypeError, ValueError):
+            return   # corrupt bar_time: age unknowable - keep the exact
+            #          pre-fix (squat) behavior rather than grow poll() a
+            #          new crash surface; the schema guards own that row
+        if bar_time < _EPOCH_CLOCK_FLOOR:
+            return
+        deadline = bar_time + \
+            (self.horizon + self.evict_margin_bars) * BAR_SECONDS
+        if float(now) < deadline:
+            return
+        b = self._bars.get(cand["asset"])
+        if b and b["t"]:
+            window_end = bar_time + self.horizon * BAR_SECONDS
+            if float(b["t"][-1]) >= window_end:
+                return              # full window on hand (time terms)
+            if cand["bar_time"] in b["t"]:
+                i = b["t"].index(cand["bar_time"])
+                if len(b["t"]) - 1 - i >= self.horizon:
+                    return          # full window on hand (index terms)
+        self._cands.remove(cand)
+        age_h = (float(now) - bar_time) / 3600.0
+        n, oldest = evicted.get(cand["asset"], (0, 0.0))
+        evicted[cand["asset"]] = (n + 1, max(oldest, age_h))
 
     def _label(self, closes, highs, lows, i, side, sigma_bar, cost,
                conviction=None):
@@ -2544,6 +2668,23 @@ class CandidateLabeler:
                         f"candidate(s) with pre-rotation feature width "
                         f"(current schema: {want} features)")
         self._cands = [c for c in cands if len(c["features"]) == want]
+        # CAP-SHRINK enforcement (2026-08-16 defect-B fix, owed item 85):
+        # register() only holds pool size CONSTANT at the cap (pop-then-
+        # append), so a cap DECREASE in config was never enforced against
+        # a larger restored pool - it stayed oversized until candidates
+        # resolved. Truncate here, in the SAME eviction direction
+        # register() uses at cap: drop the NEWEST (list tail; the head is
+        # closest to resolving and has waited longest for its label).
+        overflow = len(self._cands) - self.max_candidates
+        if overflow > 0:
+            self._cands = self._cands[:self.max_candidates]
+            log.warning(
+                f"{Code.ML_CAND_RESTORE_TRUNCATED.value}: restored "
+                f"candidate pool ({overflow + self.max_candidates}) "
+                f"exceeds ml.max_open_candidates "
+                f"({self.max_candidates}) - dropped the {overflow} "
+                f"newest restored candidate(s) (register()'s own at-cap "
+                f"eviction direction)")
         # RE-MINT restored ids onto THIS launch's salt. A candidate persisted
         # by an earlier process carries either a bare `cand-{seq}` id (pre-salt
         # builds) or a FOREIGN salt; when it finally labels it writes that id
