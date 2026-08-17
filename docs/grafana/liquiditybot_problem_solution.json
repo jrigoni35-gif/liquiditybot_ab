@@ -2068,7 +2068,7 @@
       "id": 29,
       "type": "stat",
       "title": "Books cross-check (live mode)",
-      "description": "Drift between reported equity and an independent recompute - BUT the recompute runs in LIVE mode only. In paper trading (dry-run, the current posture) it never runs and this reads 0.00 by construction: not a passed check, a check that never ran. Neutral color on purpose. In live mode, near zero means the accounting is telling the truth.",
+      "description": "Drift between reported equity and an independent recompute. The recompute runs in LIVE mode only, so in paper trading this tile is EMPTY by construction - the expression filters on the bot's own mode report, and absence here is the paper-mode truth, not a fault. In live mode, near zero means the accounting is telling the truth.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -2103,7 +2103,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "not in this cycle's status write"
+          "noValue": "accounting cross-check runs in live mode only"
         },
         "overrides": []
       },
@@ -2132,7 +2132,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_equity_drift_pct{job=\"liquiditybot\"})",
+          "expr": "max(liquiditybot_equity_drift_pct{job=\"liquiditybot\"}) and (max(liquiditybot_dry_run{job=\"liquiditybot\"}) == 0)",
           "instant": true,
           "range": false,
           "legendFormat": ""

@@ -294,6 +294,35 @@ _SYNTH_STATUS = {
 }
 
 
+def _aux_emitted(tmp_path, monkeypatch) -> set:
+    """The collect_aux() metric universe, produced against THROWAWAY
+    fixture ledgers — the aux-batch counterpart of running collect() on
+    _SYNTH_STATUS. Per gc_pusher's aux section header: a board may panel
+    an aux metric only if the coverage gates include this universe, and
+    the path attributes are REBOUND (the ml/retrain_log.py rebindable-
+    default precedent) so no gate ever reads the operator's real
+    outputs/ — a pin fed by a real on-disk ledger is machine-dependent.
+    Fixture values are shape-minimal; the per-metric semantics are pinned
+    in tests/test_gc_pusher_owed_metrics.py, not here."""
+    retrain = tmp_path / "retrain_history.jsonl"
+    retrain.write_text(json.dumps({"ts": 1.0, "orphan_ratio": 2.5}) + "\n",
+                       encoding="utf-8")
+    registry = tmp_path / "registry.jsonl"
+    registry.write_text(
+        json.dumps({"event": "deployed", "model_id": "fixture"}) + "\n",
+        encoding="utf-8")
+    cohort = tmp_path / "fixture_cohort_eval.py"
+    cohort.write_text(
+        'import json; print(json.dumps({"era4": {"n": 3, "min_n": 50}}))',
+        encoding="utf-8")
+    monkeypatch.setattr(gp, "RETRAIN_HISTORY_PATH", retrain)
+    monkeypatch.setattr(gp, "MODEL_REGISTRY_PATH", registry)
+    monkeypatch.setattr(gp, "COHORT_SCRIPT", cohort)
+    monkeypatch.setattr(gp, "_cohort_cache",
+                        {"next_attempt": 0.0, "values": None})
+    return {m["name"] for m in gp.collect_aux(1000.0)}
+
+
 def _shipped(fname: str) -> dict:
     return json.loads((ROOT / "docs" / "grafana" / fname)
                       .read_text(encoding="utf-8"))
@@ -487,14 +516,18 @@ def test_reason_codes_decoded_on_panels():
             f"label must be 'CODE · meaning': {label!r}"
 
 
-def test_every_query_hits_an_emitted_metric(tmp_path):
+def test_every_query_hits_an_emitted_metric(tmp_path, monkeypatch):
     p = tmp_path / "status.json"
     # written_at stamped at USE time, not module import: the DL-6 stale
     # guard returns the alarm-only batch for a status older than 120s, and
     # a full-suite run takes longer than that to reach this test
     p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
                  encoding="utf-8")
-    emitted = {m["name"] for m in gp.collect(str(p))}
+    # the emitted universe is BOTH halves of main()'s one push: collect()
+    # on the synthetic status plus collect_aux() on fixture ledgers (the
+    # aux section header's contract — boards now panel aux metrics)
+    emitted = ({m["name"] for m in gp.collect(str(p))}
+               | _aux_emitted(tmp_path, monkeypatch))
     referenced = set()
     # digits included ([a-z0-9_]): SPB-R metric names carry trailing-window
     # suffixes (liquiditybot_probe_budget_admits_24h) — the old [a-z_]

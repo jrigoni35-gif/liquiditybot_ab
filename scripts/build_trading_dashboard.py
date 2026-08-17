@@ -624,7 +624,10 @@ RECONNECTS = [{"color": "green", "value": None},
 # base text, not green: on a dry-run bot the recompute never runs and the
 # exported 0.0 is an initializer, not a verdict (main.py gates the
 # equity-truth check on `not dry_run`) — a green 0.00 would render the
-# check that never ran as the check that passed
+# check that never ran as the check that passed. Since 2026-08-17 the
+# Books tile ALSO filters itself away in paper mode (`and dry_run == 0`),
+# so the base color now covers live-mode zeros, which read neutral by
+# the neutral-when-ok doctrine — the base stays "text" either way.
 EQ_DRIFT = [{"color": "text", "value": None},
             {"color": "yellow", "value": 0.5},
             {"color": "red", "value": 2.0}]
@@ -886,18 +889,36 @@ def _author_command():
     # also the ONLY way to tell the two silences apart:
     #   runner frozen  -> Runner STOPPED / Telemetry STALE, age climbing
     #   pusher dead    -> every tile including these goes to its noValue text
-    state("Runner", M("liquiditybot_running"), 6, 5, UP_DOWN,
+    state("Runner", M("liquiditybot_running"), 5, 5, UP_DOWN,
           desc="Is the bot's own loop alive. STOPPED here means every money "
                "tile above is a fossil, however healthy it looks.")
-    state("Telemetry", M("liquiditybot_status_stale"), 6, 5,
+    state("Telemetry", M("liquiditybot_status_stale"), 5, 5,
           {"1": ("STALE", "red"), "0": ("fresh", "green")},
           desc="Whether the status write has aged past the exporter's "
                "staleness threshold. STALE = do not trust the numbers.")
-    state("Kraken feed", M("liquiditybot_ws_kraken_connected"), 6, 5, WS,
+    state("Kraken feed", M("liquiditybot_ws_kraken_connected"), 5, 5, WS,
           desc="Kraken websocket. REST means degraded marks, not an outage.")
-    state("Op state", M("liquiditybot_op_state"), 6, 5, OPSTATE,
+    state("Op state", M("liquiditybot_op_state"), 5, 5, OPSTATE,
           desc="Overall operating state. Distinct from the Halt tile: that "
                "is the circuit breaker alone, this is the whole posture.")
+    # posture tile (2026-08-17): the mode the bot ITSELF reports
+    # (liquiditybot_dry_run, born presence-guarded — an absent mode key
+    # emits NO series, so this tile can never render LIVE from silence;
+    # the registry's "state unknown" text answers instead). PAPER is the
+    # expected steady state and reads calm blue; LIVE is EXTRAORDINARY
+    # on this bot (dry_run defaults true; the only road to live is
+    # config + restart + typed ARM LIVE) and earns the red accent — not
+    # "unsafe", "look up from the coffee". -1 is the exporter's sentinel
+    # for a mode string it does not recognize. The liveness line above
+    # was retiled 6/6/6/6 -> 5/5/5/5+4 to seat this beside Op state;
+    # identities unchanged.
+    state("Paper / Live", M("liquiditybot_dry_run"), 4, 5,
+          {"1": ("PAPER", "blue"), "0": ("LIVE", "red"),
+           "-1": ("unknown", GRAY_HEX)},
+          desc="Which mode the bot itself reports. PAPER: dry-run, no real "
+               "order leaves the bot. LIVE: real money - deliberate red "
+               "accent so it can never be missed. 'unknown' means the "
+               "runner wrote a mode this board does not recognize.")
 
     # ---- the only detail worth showing before going deeper ---------------
     row("Positions")
@@ -1147,13 +1168,19 @@ def _author_learning():
 
     # ---- supply: is there anything to learn from? ------------------------
     row("Is the pipeline filling?")
-    # "Raw", said out loud: the overfit battery's 640 floor gates LOADED
-    # rows (post-hygiene, post-era-exclusion len(X)), which no exporter
-    # metric carries yet — so this gauge counts the RAW corpus and the 640
-    # mark is a REFERENCE scale, not a success line (no green step: raw
-    # crossing 640 does not mean the battery left its synthetic benchmark).
+    # The filter story, in two gauges (companion added 2026-08-17 when
+    # liquiditybot_ml_loaded_rows landed): RAW is every row ever recorded;
+    # LOADED is what the last retrain's corpus load actually kept
+    # (ml/history.py rows=len(w) via ml.load_stats.rows). The 640 mark on
+    # BOTH is the overfit battery's real-data floor for LOADED rows — a
+    # REFERENCE scale, not a success line (no green step: crossing 640
+    # means the battery can leave its synthetic benchmark, not that the
+    # model is un-overfit; the floor is a measurement standard, never a
+    # tunable). Row widths retiled 6/6/4/4/4 -> 8s so the mandated
+    # companion sits beside its raw twin on a full 24-col line; panel
+    # identities (id/title/type/query) unchanged by the retile.
     gauge("Raw training rows collected",
-          M("liquiditybot_ml_history_rows"), 6, 6, mn=0, mx=640, unit="",
+          M("liquiditybot_ml_history_rows"), 8, 6, mn=0, mx=640, unit="",
           decimals=0, steps=[{"color": "blue", "value": None}],
           desc="Every row ever recorded, BEFORE the loading filters "
                "(hygiene drops, era exclusion, uniqueness weighting) that "
@@ -1161,23 +1188,34 @@ def _author_learning():
                "overfit battery's real-data floor for LOADED rows - read "
                "the battery's own summary line for which corpus it ran on, "
                "never this gauge.")
+    gauge("Rows the trainer actually used (as of last retrain)",
+          M("liquiditybot_ml_loaded_rows"), 8, 6, mn=0, mx=640, unit="",
+          decimals=0, steps=[{"color": "blue", "value": None}],
+          desc="Rows that SURVIVED the loading filters at the last retrain "
+               "- what training actually saw. Read beside the raw gauge: "
+               "the gap between them is what hygiene and the era fence ate. "
+               "The 640 mark is the overfit battery's real-data floor as a "
+               "REFERENCE scale, not a success line: crossing it means the "
+               "battery can run on real data, not that the model is "
+               "un-overfit - read the battery's own summary line, never "
+               "this gauge.")
     gauge("New-era rows toward re-arm", M("liquiditybot_era_excl_new_rows"),
-          6, 6, mn=0, mx=150, unit="", decimals=0,
+          8, 6, mn=0, mx=150, unit="", decimals=0,
           steps=[{"color": "blue", "value": None},
                  {"color": "green", "value": 150}],
           desc="Rows collected under the CURRENT trading geometry. Old-era "
                "rows sit out of training until this reaches the re-arm line "
                "(liquiditybot_era_excl_min_rows, default 150).")
     stat("Labels per day",
-         M("liquiditybot_probe_budget_live_labels_per_day_7d"), 4, 6,
+         M("liquiditybot_probe_budget_live_labels_per_day_7d"), 8, 6,
          decimals=1, steps=PROBE_LABELS, graph="none",
          desc="7-day average of live labels earned per day. Under 3 a day "
               "the corpus fills slower than the floor pace.")
     stat("Labels in the last 24h", M("liquiditybot_probe_budget_labels_24h"),
-         4, 6, decimals=0, steps=PROBE_LABELS, graph="none",
+         8, 6, decimals=0, steps=PROBE_LABELS, graph="none",
          desc="Labels earned in the last day - today's pace against the "
               "same 3-a-day floor.")
-    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 6,
+    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 8, 6,
          decimals=1, steps=HIGH_GOOD, graph="none",
          desc="How independent the labels are - overlapping trades share "
               "evidence, so 100 rows at 0.05 uniqueness carry about 5 rows "
@@ -1257,6 +1295,68 @@ def _author_learning():
          decimals=0, graph="none", steps=ZERO_BAD,
          desc="Times inference fell back to the safe default instead of "
               "the deployed model.")
+    # lifecycle + orphan (2026-08-17): the first panels on any board fed by
+    # gc_pusher's LEDGER-derived aux batch rather than status.json — their
+    # families are declared above and the board coverage gates include
+    # collect_aux() on fixture ledgers (the aux section header's contract).
+    bargauge("Model lifecycle events", _pa("liquiditybot_ml_lineage_events"),
+             16, 6, legend="{{event}}", decimals=0, steps=BLUE, mn=0,
+             desc="Lifetime counts from the model registry ledger: models "
+                  "registered (a retrain produced a candidate), deployed "
+                  "(it took the wheel), rejected (the deploy gate refused "
+                  "it). 'other' bundles every rarer event so nothing is "
+                  "invisible. Counts cover the ledger's whole history, not "
+                  "the dashboard window.")
+    # NOT percentunit, deliberately, against the panel brief: orphan_ratio
+    # is trained_rows / n_rows (ml/retrain_log.py:57-59) — a scale-free
+    # MULTIPLE that measured 48.4x in the 2026-08-14 incident, not a 0..1
+    # share, and this file's own HIG doctrine forbids percentunit on a
+    # value that is not a part-of-whole (48.4 would render "4840%").
+    # Thresholds cite the code: ML-083 fires on watermark > corpus
+    # (main.py:6596, strict >1) and ~3.2x is the scale the unlock was
+    # designed for (ml/retrain_log.py docstring). Base "text": absence
+    # must read as absence, and sub-1x is the routine growing-corpus
+    # state, no verdict color earned.
+    stat("Is the model orphaned?", M("liquiditybot_ml_orphan_ratio"), 8, 6,
+         unit="suffix:x", decimals=2, graph="none",
+         steps=[{"color": "text", "value": None},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 3.2}],
+         desc="The deployed model's training watermark against the corpus "
+              "that exists today, from the retrain ledger's last record. "
+              "Below 1.00x is routine (the corpus grew since the model "
+              "trained). Above 1x the model learned from rows an era reset "
+              "has since removed - the ML-083 cold-start unlock territory. "
+              "The 2026-08-14 incident ran at 48x when ~3.2x was the "
+              "designed-for scale.")
+
+    # ---- the verdict clock -----------------------------------------------
+    # COUNT ONLY, by law: gc_pusher._run_cohort_eval never parses the
+    # gross/net means (era-4 moratorium — the accruing gate numbers are
+    # not a trend), so a count and its floor are the only things that CAN
+    # render here; keep it that way. The target comes from the metric
+    # (liquiditybot_cohort_min_n), never a hardcoded 50: the signed
+    # readout table's 3A path moves it to 100, and a literal would turn
+    # this panel into a lie the day that lands. Two-bar comparison (the
+    # bargauge factory's ranked-comparison idiom, shared auto scale)
+    # instead of a gauge with a config-from-query max: that
+    # transformation's JSON shape is unverifiable against this instance
+    # and fails SILENT (a wrong shape leaves a static max in force),
+    # which for THIS panel would render "target reached" against a stale
+    # floor — the exact lie the panel exists to prevent.
+    row("The verdict clock")
+    bargauge("Era-4 verdict progress", M("liquiditybot_cohort_closes"),
+             24, 5, legend="closed trades counted", decimals=0, steps=BLUE,
+             mn=0,
+             extra=[(M("liquiditybot_cohort_min_n"),
+                     "pre-registered target")],
+             desc="Closed trades counted toward the pre-registered era-4 "
+                  "verdict, against the target the readout needs - the "
+                  "target is read from the bot, never hardcoded. The gate "
+                  "DECIDES nothing until the target is reached, and the "
+                  "accruing win/loss numbers are deliberately on no board: "
+                  "reading them early is how a verdict gets tuned instead "
+                  "of measured. Count refreshes about every 30 minutes.")
 
     # ---- the price of tuition (collapsed: read on demand) ----------------
     row("The cost of learning", collapsed=True)
@@ -1470,14 +1570,26 @@ def _author_problem():
           6, 5, {"1": ("STALE", "red"), "0": ("fresh", "green")},
           desc="Whether any CRITICAL feed aged out. STALE blocks all new "
                "entries at once.")
-    stat("Books cross-check (live mode)", M("liquiditybot_equity_drift_pct"),
+    # gated on the mode the bot itself reports (2026-08-17): the equity
+    # recompute runs in LIVE mode only (main.py gates it on `not
+    # dry_run`), so in paper mode the exported 0.00 is an initializer,
+    # never a verdict. `and (dry_run == 0)` filters the drift value away
+    # unless the bot says LIVE — the comparison deliberately carries NO
+    # `bool` modifier: the drift mirror above needs a 0/1 and keeps
+    # `> bool`, this tile needs ABSENCE, and a bare `==` returns empty
+    # on a non-match. Paper mode, unknown mode (-1) and an absent mode
+    # key all land on the no_value text instead of a soothing 0.00.
+    stat("Books cross-check (live mode)",
+         f'{M("liquiditybot_equity_drift_pct")} and '
+         f'({M("liquiditybot_dry_run")} == 0)',
          6, 5, unit="percent", decimals=2, steps=EQ_DRIFT, graph="none",
-         desc="Drift between reported equity and an independent recompute - "
-              "BUT the recompute runs in LIVE mode only. In paper trading "
-              "(dry-run, the current posture) it never runs and this reads "
-              "0.00 by construction: not a passed check, a check that "
-              "never ran. Neutral color on purpose. In live mode, near "
-              "zero means the accounting is telling the truth.")
+         no_value="accounting cross-check runs in live mode only",
+         desc="Drift between reported equity and an independent recompute. "
+              "The recompute runs in LIVE mode only, so in paper trading "
+              "this tile is EMPTY by construction - the expression filters "
+              "on the bot's own mode report, and absence here is the "
+              "paper-mode truth, not a fault. In live mode, near zero "
+              "means the accounting is telling the truth.")
     state("Telemetry", M("liquiditybot_status_stale"), 6, 5,
           {"1": ("STALE", "red"), "0": ("fresh", "green")},
           desc="Whether the status write has aged past the exporter's "
@@ -1860,6 +1972,28 @@ _NO_VALUE_BY_FAMILY = {
     # so the absence text names both honest causes.
     "liquiditybot_ml_loaded_rows":
         ("event", "as of the last retrain's corpus load, or exporter down"),
+    # ---- ledger-derived aux batch (gc_pusher.collect_aux, 2026-08-17) ---
+    # These ride NO status.json: the guards live in the aux collectors,
+    # which emit nothing for an absent/empty/unreadable ledger or a failed
+    # cohort_eval run. The longer keys beat the generic liquiditybot_ml_
+    # entry by longest-prefix — its "status write" text would be a lie for
+    # a ledger series. Paneling one of these REQUIRES the board coverage
+    # gates to include collect_aux() on fixture-rebound paths (see the aux
+    # section header in scripts/gc_pusher.py and _aux_emitted in
+    # tests/test_trading_dashboard.py).
+    # gc_pusher.py:_orphan_ratio_metrics — last COMPLETE ledger record
+    # only; a record without a ratio emits nothing rather than walking
+    # deeper for a stale value
+    "liquiditybot_ml_orphan_ratio":
+        ("event", "no retrain-ledger ratio yet - or pusher down"),
+    # gc_pusher.py:_lineage_metrics — zero parseable registry rows emit
+    # nothing (an unreadable ledger must not read as an empty one)
+    "liquiditybot_ml_lineage_events":
+        ("event", "model registry ledger empty - or pusher down"),
+    # gc_pusher.py:_cohort_metrics — a failed refresh DROPS the cache: a
+    # count that cannot be re-derived is never re-served
+    "liquiditybot_cohort_":
+        ("section", "cohort_eval.py gave no count - or pusher down"),
     "liquiditybot_watchdog_": ("section",
                                "watchdog block not in this status write"),
     "liquiditybot_audit_": ("section",

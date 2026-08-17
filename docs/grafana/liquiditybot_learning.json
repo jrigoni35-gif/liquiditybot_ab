@@ -1081,7 +1081,7 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 6,
+        "w": 8,
         "x": 0,
         "y": 24
       },
@@ -1132,6 +1132,65 @@
     {
       "id": 15,
       "type": "gauge",
+      "title": "Rows the trainer actually used (as of last retrain)",
+      "description": "Rows that SURVIVED the loading filters at the last retrain - what training actually saw. Read beside the raw gauge: the gap between them is what hygiene and the era fence ate. The 640 mark is the overfit battery's real-data floor as a REFERENCE scale, not a success line: crossing it means the battery can run on real data, not that the model is un-overfit - read the battery's own summary line, never this gauge.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "min": 0,
+          "max": 640,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "as of the last retrain's corpus load, or exporter down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_loaded_rows{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 16,
+      "type": "gauge",
       "title": "New-era rows toward re-arm",
       "description": "Rows collected under the CURRENT trading geometry. Old-era rows sit out of training until this reaches the re-arm line (liquiditybot_era_excl_min_rows, default 150).",
       "datasource": {
@@ -1140,8 +1199,8 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 6,
-        "x": 6,
+        "w": 8,
+        "x": 16,
         "y": 24
       },
       "fieldConfig": {
@@ -1196,7 +1255,7 @@
       "transparent": true
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "stat",
       "title": "Labels per day",
       "description": "7-day average of live labels earned per day. Under 3 a day the corpus fills slower than the floor pace.",
@@ -1206,9 +1265,9 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 4,
-        "x": 12,
-        "y": 24
+        "w": 8,
+        "x": 0,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -1272,7 +1331,7 @@
       "transparent": true
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "stat",
       "title": "Labels in the last 24h",
       "description": "Labels earned in the last day - today's pace against the same 3-a-day floor.",
@@ -1282,9 +1341,9 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 4,
-        "x": 16,
-        "y": 24
+        "w": 8,
+        "x": 8,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -1348,7 +1407,7 @@
       "transparent": true
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "stat",
       "title": "Label uniqueness",
       "description": "How independent the labels are - overlapping trades share evidence, so 100 rows at 0.05 uniqueness carry about 5 rows of real information. As of the last retrain's corpus load.",
@@ -1358,9 +1417,9 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 4,
-        "x": 20,
-        "y": 24
+        "w": 8,
+        "x": 16,
+        "y": 30
       },
       "fieldConfig": {
         "defaults": {
@@ -1424,7 +1483,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "timeseries",
       "title": "Corpus growth",
       "description": "The corpus filling over the month. Both flat: the bot is not closing trades. All-rows climbing while clean-live stays flat: hygiene is eating the rows. Empty means: not in this cycle's status write; awaiting first retrain (no corpus load).",
@@ -1436,7 +1495,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 30
+        "y": 36
       },
       "fieldConfig": {
         "defaults": {
@@ -1539,7 +1598,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "timeseries",
       "title": "Where labels come from",
       "description": "Labelled rows by origin - live closes vs simulated candidates. Live rows are the gold standard; candidate rows fill in while live experience accumulates. Empty means: no labelled rows yet.",
@@ -1551,7 +1610,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 30
+        "y": 36
       },
       "fieldConfig": {
         "defaults": {
@@ -1612,7 +1671,7 @@
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 22,
       "type": "row",
       "title": "What the labels say",
       "collapsed": false,
@@ -1620,7 +1679,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 44
       },
       "panels": [],
       "fieldConfig": {
@@ -1628,7 +1687,7 @@
       }
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "piechart",
       "title": "How this era's trades ended",
       "description": "Outcome mix of current-era (triple_barrier_h432) labelled trades, as of the last retrain's corpus load. A healthy edge needs enough profit-target exits to pay for all the stops.",
@@ -1640,7 +1699,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1760,7 +1819,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 24,
       "type": "stat",
       "title": "Label rate this era",
       "description": "Share of current-era rows that earned a definite win/loss verdict (the rest timed out unresolved or are still open). As of the last retrain's corpus load.",
@@ -1772,7 +1831,7 @@
         "h": 8,
         "w": 4,
         "x": 8,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1836,7 +1895,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 25,
       "type": "stat",
       "title": "Corpus drift distance",
       "description": "How different the whole training corpus looks from recent live trading (0 = identical, 1 = nothing in common). As of the last retrain's corpus load.",
@@ -1848,7 +1907,7 @@
         "h": 8,
         "w": 4,
         "x": 12,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1912,7 +1971,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 26,
       "type": "stat",
       "title": "Corpus matches live?",
       "description": "DRIFTED means the model is learning mostly from a market that no longer exists - treat its opinions with suspicion until the mix re-aligns. As of the last retrain's corpus load.",
@@ -1924,7 +1983,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -1997,7 +2056,7 @@
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 27,
       "type": "stat",
       "title": "Rows excluded from training",
       "description": "Old-geometry rows the era fence keeps OUT of training so stale lessons cannot leak into the current model. As of the last retrain's corpus load.",
@@ -2009,7 +2068,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 39
+        "y": 45
       },
       "fieldConfig": {
         "defaults": {
@@ -2065,7 +2124,7 @@
       "transparent": true
     },
     {
-      "id": 27,
+      "id": 28,
       "type": "row",
       "title": "Which model is driving",
       "collapsed": false,
@@ -2073,7 +2132,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 53
       },
       "panels": [],
       "fieldConfig": {
@@ -2081,7 +2140,7 @@
       }
     },
     {
-      "id": 28,
+      "id": 29,
       "type": "timeseries",
       "title": "Deployed model over time",
       "description": "Which model family is deployed (its line sits at 1 while active). A step from one line to another is a redeploy; the full lineage ledger with Brier evidence lives in outputs/registry.jsonl. Empty means: ⚠ no series — exporter/pusher, not the bot.",
@@ -2093,7 +2152,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {
@@ -2152,7 +2211,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "stat",
       "title": "Retrain queued",
       "description": "QUEUED means the trainer will rebuild the model on its next pass - routine housekeeping, not an alarm.",
@@ -2164,7 +2223,7 @@
         "h": 7,
         "w": 4,
         "x": 12,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {
@@ -2237,7 +2296,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "stat",
       "title": "Retrain failures",
       "description": "Times the retrain loop crashed. Anything above zero deserves a look at the runner log.",
@@ -2249,7 +2308,7 @@
         "h": 7,
         "w": 4,
         "x": 16,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {
@@ -2309,7 +2368,7 @@
       "transparent": true
     },
     {
-      "id": 31,
+      "id": 32,
       "type": "stat",
       "title": "Model fallbacks",
       "description": "Times inference fell back to the safe default instead of the deployed model.",
@@ -2321,7 +2380,7 @@
         "h": 7,
         "w": 4,
         "x": 20,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {
@@ -2381,7 +2440,242 @@
       "transparent": true
     },
     {
-      "id": 32,
+      "id": 33,
+      "type": "bargauge",
+      "title": "Model lifecycle events",
+      "description": "Lifetime counts from the model registry ledger: models registered (a retrain produced a candidate), deployed (it took the wheel), rejected (the deploy gate refused it). 'other' bundles every rarer event so nothing is invisible. Counts cover the ledger's whole history, not the dashboard window.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 0,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "model registry ledger empty - or pusher down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_ml_lineage_events{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{event}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Is the model orphaned?",
+      "description": "The deployed model's training watermark against the corpus that exists today, from the retrain ledger's last record. Below 1.00x is routine (the corpus grew since the model trained). Above 1x the model learned from rows an era reset has since removed - the ML-083 cold-start unlock territory. The 2026-08-14 incident ran at 48x when ~3.2x was the designed-for scale.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:x",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 1
+              },
+              {
+                "color": "#FF453A",
+                "value": 3.2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "no retrain-ledger ratio yet - or pusher down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_orphan_ratio{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 35,
+      "type": "row",
+      "title": "The verdict clock",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 36,
+      "type": "bargauge",
+      "title": "Era-4 verdict progress",
+      "description": "Closed trades counted toward the pre-registered era-4 verdict, against the target the readout needs - the target is read from the bot, never hardcoded. The gate DECIDES nothing until the target is reached, and the accruing win/loss numbers are deliberately on no board: reading them early is how a verdict gets tuned instead of measured. Count refreshes about every 30 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "noValue": "cohort_eval.py gave no count - or pusher down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_cohort_closes{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "closed trades counted"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_cohort_min_n{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "pre-registered target"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 37,
       "type": "row",
       "title": "The cost of learning",
       "collapsed": true,
@@ -2389,11 +2683,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 73
       },
       "panels": [
         {
-          "id": 33,
+          "id": 38,
           "type": "gauge",
           "title": "Probe tokens in the tank",
           "description": "Small exploratory trades are paid for in tokens; an empty tank means no new probes until it refills (capacity: liquiditybot_probe_budget_capacity).",
@@ -2405,7 +2699,7 @@
             "h": 6,
             "w": 6,
             "x": 0,
-            "y": 56
+            "y": 74
           },
           "fieldConfig": {
             "defaults": {
@@ -2463,7 +2757,7 @@
           "transparent": true
         },
         {
-          "id": 34,
+          "id": 39,
           "type": "stat",
           "title": "Tuition spent in 24h",
           "description": "What the probes cost in the last day - the price paid for the labels they earned.",
@@ -2475,7 +2769,7 @@
             "h": 6,
             "w": 5,
             "x": 6,
-            "y": 56
+            "y": 74
           },
           "fieldConfig": {
             "defaults": {
@@ -2531,7 +2825,7 @@
           "transparent": true
         },
         {
-          "id": 35,
+          "id": 40,
           "type": "stat",
           "title": "Tuition cap",
           "description": "The most the bot may spend on learning per day.",
@@ -2543,7 +2837,7 @@
             "h": 6,
             "w": 4,
             "x": 11,
-            "y": 56
+            "y": 74
           },
           "fieldConfig": {
             "defaults": {
@@ -2599,7 +2893,7 @@
           "transparent": true
         },
         {
-          "id": 36,
+          "id": 41,
           "type": "stat",
           "title": "Unlock ETA",
           "description": "Projected days until enough current-era labels exist to unlock the next model step, at the current pace.",
@@ -2611,7 +2905,7 @@
             "h": 6,
             "w": 4,
             "x": 15,
-            "y": 56
+            "y": 74
           },
           "fieldConfig": {
             "defaults": {
@@ -2675,7 +2969,7 @@
           "transparent": true
         },
         {
-          "id": 37,
+          "id": 42,
           "type": "stat",
           "title": "Probes open now",
           "description": "Exploratory positions currently on the book.",
@@ -2687,7 +2981,7 @@
             "h": 6,
             "w": 5,
             "x": 19,
-            "y": 56
+            "y": 74
           },
           "fieldConfig": {
             "defaults": {
@@ -2743,7 +3037,7 @@
           "transparent": true
         },
         {
-          "id": 38,
+          "id": 43,
           "type": "stat",
           "title": "Denied - budget empty",
           "description": "Probe attempts turned away in the last day because the token tank was empty. High means the bot wants to learn faster than the budget allows.",
@@ -2755,7 +3049,7 @@
             "h": 5,
             "w": 8,
             "x": 0,
-            "y": 62
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -2819,7 +3113,7 @@
           "transparent": true
         },
         {
-          "id": 39,
+          "id": 44,
           "type": "stat",
           "title": "Probe governor",
           "description": "Throttle on probe spending (1.00 full speed, 0.25 floor). It backs off when tuition outruns the labels earned.",
@@ -2831,7 +3125,7 @@
             "h": 5,
             "w": 8,
             "x": 8,
-            "y": 62
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -2895,7 +3189,7 @@
           "transparent": true
         },
         {
-          "id": 40,
+          "id": 45,
           "type": "stat",
           "title": "Refunds in 24h",
           "description": "Probes whose token cost was refunded - scratched before risking anything.",
@@ -2907,7 +3201,7 @@
             "h": 5,
             "w": 8,
             "x": 16,
-            "y": 62
+            "y": 80
           },
           "fieldConfig": {
             "defaults": {
@@ -2968,7 +3262,7 @@
       }
     },
     {
-      "id": 41,
+      "id": 46,
       "type": "row",
       "title": "Gate learning",
       "collapsed": true,
@@ -2976,11 +3270,11 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 67
+        "y": 85
       },
       "panels": [
         {
-          "id": 42,
+          "id": 47,
           "type": "bargauge",
           "title": "Learned gate weights",
           "description": "How much say each entry gate has earned from labelled outcomes. A gate near zero is being ignored.",
@@ -2992,7 +3286,7 @@
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 68
+            "y": 86
           },
           "fieldConfig": {
             "defaults": {
@@ -3047,7 +3341,7 @@
           "transparent": true
         },
         {
-          "id": 43,
+          "id": 48,
           "type": "bargauge",
           "title": "Is any gate lying?",
           "description": "Gap between what a gate predicts and what actually happens (divergence from the base rate). High means that gate's opinion is misleading right now.",
@@ -3059,7 +3353,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 68
+            "y": 86
           },
           "fieldConfig": {
             "defaults": {
@@ -3121,7 +3415,7 @@
           "transparent": true
         },
         {
-          "id": 44,
+          "id": 49,
           "type": "stat",
           "title": "Labeled rows feeding the gates",
           "description": "Sample size behind the two panels above - small numbers mean noisy weights.",
@@ -3133,7 +3427,7 @@
             "h": 5,
             "w": 12,
             "x": 0,
-            "y": 76
+            "y": 94
           },
           "fieldConfig": {
             "defaults": {
@@ -3189,7 +3483,7 @@
           "transparent": true
         },
         {
-          "id": 45,
+          "id": 50,
           "type": "stat",
           "title": "Base win rate the gates see",
           "description": "The long-run average win rate the gates are judged against.",
@@ -3201,7 +3495,7 @@
             "h": 5,
             "w": 12,
             "x": 12,
-            "y": 76
+            "y": 94
           },
           "fieldConfig": {
             "defaults": {
@@ -3270,7 +3564,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 82
+        "y": 100
       },
       "transparent": true,
       "options": {

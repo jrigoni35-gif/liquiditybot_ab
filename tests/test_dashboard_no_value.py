@@ -18,7 +18,7 @@ import pytest
 
 import scripts.build_trading_dashboard as gen
 import scripts.gc_pusher as gp
-from tests.test_trading_dashboard import _SYNTH_STATUS
+from tests.test_trading_dashboard import _SYNTH_STATUS, _aux_emitted
 
 ROOT = Path(__file__).resolve().parents[1]
 MET = re.compile(r"liquiditybot_[a-z0-9_]+")
@@ -93,7 +93,8 @@ def test_absence_of_an_always_on_series_reads_as_a_defect():
     assert not wrong_honest, f"honest-absence panels marked as defects: {wrong_honest}"
 
 
-def test_defect_text_is_not_confusable_with_an_honest_absence(tmp_path):
+def test_defect_text_is_not_confusable_with_an_honest_absence(
+        tmp_path, monkeypatch):
     """The whole point is that an operator can tell them apart at a glance.
 
     FRAMEWORK, not content: the vocabulary (_NV_DEFECT, _NO_VALUE_BY_FAMILY)
@@ -114,7 +115,10 @@ def test_defect_text_is_not_confusable_with_an_honest_absence(tmp_path):
     p = tmp_path / "status.json"
     p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
                  encoding="utf-8")
-    emittable = {m["name"] for m in gp.collect(str(p))}
+    # aux included (2026-08-17): the ledger-derived names are gated
+    # honest-absence metrics too, and must resolve to their own texts
+    emittable = ({m["name"] for m in gp.collect(str(p))}
+                 | _aux_emitted(tmp_path, monkeypatch))
 
     def _nv_of(metric):
         return gen._panel_no_value({"type": "stat",
@@ -142,13 +146,16 @@ def test_no_always_on_metric_can_resolve_to_a_precondition():
     assert not leaks, f"always-on metrics that resolve to a precondition: {leaks}"
 
 
-def test_every_map_key_names_a_real_exporter_family(tmp_path):
+def test_every_map_key_names_a_real_exporter_family(tmp_path, monkeypatch):
     """No invented families: every key must prefix a metric gc_pusher can
-    actually emit."""
+    actually emit — from EITHER half of main()'s one push, collect() on
+    the synthetic status or collect_aux() on fixture ledgers (the aux
+    section header's contract, wired 2026-08-17)."""
     p = tmp_path / "status.json"
     p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
                  encoding="utf-8")
-    emittable = {m["name"] for m in gp.collect(str(p))}
+    emittable = ({m["name"] for m in gp.collect(str(p))}
+                 | _aux_emitted(tmp_path, monkeypatch))
     bogus = [k for k in gen._NO_VALUE_BY_FAMILY
              if not any(n.startswith(k) for n in emittable)]
     assert not bogus, f"map keys matching no emittable metric: {bogus}"

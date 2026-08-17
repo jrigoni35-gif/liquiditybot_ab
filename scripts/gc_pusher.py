@@ -1063,14 +1063,18 @@ def collect(status_path: str) -> list:
 # swallows its own failures (the _num isolation idiom writ large) because
 # one unreadable ledger must never black out the status batch.
 #
-# BOARD CONSUMPTION IS DELIBERATELY NOT WIRED (2026-08-17 batch): no
-# panel queries these names yet, and none of them have _NO_VALUE_BY_
-# FAMILY entries. Whoever panels one first will hit _nv_family's KeyError
-# forcing function - and must ALSO teach the board gates (test_trading_
-# dashboard's emitted-universe and test_dashboard_no_value's map-key
-# check, both built on collect() alone) to include collect_aux() with
-# these path attributes rebound to fixtures. Declaring the family entry
-# without extending those gates fails the map-key test by design.
+# BOARD CONSUMPTION WIRED 2026-08-17 (same day, follow-up commit): the
+# LEARNING board panels orphan_ratio / lineage_events / cohort_* — their
+# _NO_VALUE_BY_FAMILY entries are declared in the generator, and the
+# board gates (test_trading_dashboard's emitted-universe and
+# test_dashboard_no_value's map-key check, both built on collect()
+# alone before this) now ALSO include collect_aux() run against
+# throwaway fixture ledgers via tests/test_trading_dashboard._aux_emitted,
+# with these path attributes rebound so no pin ever reads the operator's
+# real outputs/. Any FUTURE aux metric repeats all three steps: family
+# entry, _aux_emitted fixture coverage, panel — declaring the family
+# without teaching _aux_emitted's fixtures to emit it fails the map-key
+# test by design.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 # rebindable module attributes (the ml/retrain_log.py
 # RETRAIN_HISTORY_PATH_DEFAULT precedent): tests point them at tmp files.

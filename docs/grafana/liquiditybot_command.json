@@ -985,7 +985,7 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 18
       },
@@ -1070,8 +1070,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 5,
         "y": 18
       },
       "fieldConfig": {
@@ -1155,8 +1155,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 10,
         "y": 18
       },
       "fieldConfig": {
@@ -1240,8 +1240,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 5,
+        "x": 15,
         "y": 18
       },
       "fieldConfig": {
@@ -1326,6 +1326,96 @@
     },
     {
       "id": 17,
+      "type": "stat",
+      "title": "Paper / Live",
+      "description": "Which mode the bot itself reports. PAPER: dry-run, no real order leaves the bot. LIVE: real money - deliberate red accent so it can never be missed. 'unknown' means the runner wrote a mode this board does not recognize.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "PAPER",
+                  "color": "#0A84FF",
+                  "index": 0
+                },
+                "0": {
+                  "text": "LIVE",
+                  "color": "#FF453A",
+                  "index": 1
+                },
+                "-1": {
+                  "text": "unknown",
+                  "color": "#8E8E93",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "noValue": "mode not in this status write - state unknown"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_dry_run{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 18,
       "type": "row",
       "title": "Positions",
       "collapsed": false,
@@ -1341,7 +1431,7 @@
       }
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "table",
       "title": "Open positions",
       "description": "One row per open position, joined on symbol. An empty table is AMBIGUOUS and must not be read as a flat book: the same emptiness appears when the runner freezes, because every liquiditybot_position_* series stops being emitted while the positions are still genuinely open (measured 2026-08-15 - 5 open, 0 series). Read the Runner and Telemetry tiles before concluding anything from an empty table.",
@@ -1736,7 +1826,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "row",
       "title": "Activity & budget",
       "collapsed": false,
@@ -1752,7 +1842,7 @@
       }
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "piechart",
       "title": "Exposure by asset",
       "description": "How the money at risk is split across assets right now. One big slice is concentration; many thin slices is spread.",
@@ -1816,7 +1906,7 @@
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 22,
       "type": "piechart",
       "title": "Fill mix",
       "description": "Of all fills since restart, how many were patient maker orders vs paying the spread to cross. Mostly-maker is the cheap, healthy shape at this account size.",
@@ -1922,7 +2012,7 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "gauge",
       "title": "Daily loss budget used",
       "description": "How much of today's allowed loss is already spent. At 100% the bot stops opening new trades until the day rolls over.",
@@ -1992,7 +2082,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 24,
       "type": "gauge",
       "title": "Weekly loss budget used",
       "description": "Same idea as the daily budget, over the trading week.",
@@ -2062,7 +2152,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 25,
       "type": "stat",
       "title": "Fills so far",
       "description": "Order fills since the bot last restarted (maker plus taker).",
@@ -2130,7 +2220,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 26,
       "type": "stat",
       "title": "Size taper",
       "description": "Multiplier applied to every new position's size. 1.00 is full size; lower means the risk stack is shrinking trades.",
@@ -2206,7 +2296,7 @@
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 27,
       "type": "stat",
       "title": "Profit pools",
       "description": "Money skimmed out of the trading float into the savings and reserve pools. It counts in equity but is no longer at risk.",
