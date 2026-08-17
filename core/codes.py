@@ -337,6 +337,26 @@ class Code(str, Enum):
     #   34 quarantined QA fills plus 3 legitimate FEATURE_SCHEMA_VERSION
     #   drops - i.e. nothing was wrong, and that took hours to establish).
     #   Report-only: the close itself is unaffected.
+    ML_CAND_ZOMBIE_EVICT = "ML-085"  # unresolvable candidate CENSORED: it
+    #   outlived label_max_bars + ml.candidate_evict_margin_bars on the
+    #   engine clock while its asset's cached bars provably could not
+    #   produce the label (stale or absent feed). Before this code, the
+    #   only drop rule for an unlabelable candidate was the bar-window
+    #   SLIDE (bar_time < cache head), which needs NEW bars - so a dead
+    #   feed squatted pool slots forever (measured 2026-08-16 on live
+    #   state.json: 32/187 pending slots older than 38h against the 36h
+    #   horizon; DOT held 17 slots with its bars cache 156h stale).
+    #   CENSORED means exactly that: NO label row is written - an
+    #   unresolvable candidate is missing data, not a tb_time outcome.
+    #   Labeling plane only; never touches orders, sizing, or fills.
+    ML_CAND_RESTORE_TRUNCATED = "ML-086"  # restored candidate pool exceeded
+    #   ml.max_open_candidates (a cap DECREASE between runs): truncated to
+    #   the cap at restore by dropping the NEWEST restored candidates -
+    #   the same eviction direction register() uses at cap (the head of
+    #   the list is closest to resolving; killing it wastes the most
+    #   waiting). register() alone only holds pool size CONSTANT at the
+    #   restored size (pop-then-append), so without this a shrunk cap was
+    #   never enforced against a larger restored pool.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed

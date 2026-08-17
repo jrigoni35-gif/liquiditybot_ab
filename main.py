@@ -4225,7 +4225,11 @@ class LiquidityBot:
             if asset in self.symbol_map and v.get("candles"):
                 self.candidates.update_candles(asset, v["candles"])
                 self.thales.observe_candles(asset, v["candles"], now)
-        self.candidates.poll()
+        # engine clock passed so zombie eviction (ML-085) ages candidates
+        # against wall/replay time, never bar arrival - a dead feed must
+        # not squat pool slots by simply not sending the bars that would
+        # slide its window
+        self.candidates.poll(now)
 
         # NEW-risk gate: the halt flag OR the central fault authority (DEGRADED/
         # HALTED refuses new risk; ARMED allows). Behaviour-preserving — the
