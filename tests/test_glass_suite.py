@@ -14,14 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_retired_glass_boards_stay_retired():
+    # 2026-08-17 three-link rebuild: LEARNING replaced the injector-only
+    # screening board. The family stays at exactly four; screening joins
+    # the retired set below so an import run deletes it from the instance.
     boards = {"liquiditybot_command.json", "liquiditybot_execution.json",
               "liquiditybot_problem_solution.json",
-              "liquiditybot_screening.json"}
+              "liquiditybot_learning.json"}
     assert set(gi.DASHBOARDS) == boards
     assert set(gen.DASHBOARDS) == boards
-    for name in ("liquiditybot_glass.json", "liquiditybot_glass_mobile.json"):
+    for name in ("liquiditybot_glass.json", "liquiditybot_glass_mobile.json",
+                 "liquiditybot_screening.json"):
         assert not (ROOT / "docs" / "grafana" / name).exists(), \
-            f"{name} was retired on 2026-07-22 — do not resurrect"
+            f"{name} was retired (glass/mobile 2026-07-22, screening " \
+            "2026-08-17) — do not resurrect"
+    assert "liquiditybot-screening" in gi.RETIRED_UIDS, \
+        "the screening uid must be deleted from the instance on import"
 
 
 def _boards():
@@ -154,7 +161,7 @@ def test_uids_and_nav_links_pinned():
     uids = {d["uid"] for d in _boards()}
     assert uids == {"liquiditybot-trading", "liquiditybot-exec",
                     "liquiditybot-problem-solution",
-                    "liquiditybot-screening"}
+                    "liquiditybot-learning"}
     for d in _boards():
         nav = {ln["url"] for ln in d["links"]}
         assert nav == {f"/d/{u}" for u in uids}, d["uid"]

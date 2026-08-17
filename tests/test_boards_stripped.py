@@ -1,48 +1,43 @@
-"""tests/test_boards_stripped.py — pins the STRIPPED board contract.
+"""tests/test_boards_stripped.py — pins each board's authored inventory.
 
-2026-08-15: every visualisation panel was deleted from the Grafana boards
-before the reconfigured bot produced data, so no board could display a number
-carried over from the retired geometry. The tests that pinned that deleted
-content were deleted with it (git history holds them verbatim). That left a
-hole: nothing pinned the *stripped* state itself, so a board could silently
-regrow panels — or the glass injector could quietly vanish — and the battery
-would stay green. "A green is only as big as its corpus." This module is that
-corpus.
+Lineage: the 2026-08-15 strip deleted every visualisation panel so nothing
+on screen could be a number carried over from the retired geometry, and this
+module pinned the stripped state itself. The boards have since been rebuilt
+in stages — the LIQUIDITY (command) board at c4272391, the alert-input
+mirror at ab8ee2b4, and on 2026-08-17 the three-link rebuild: LEARNING (new
+uid) and PROBLEMS authored, the injector-only screening board folded away
+and its uid retired. "A green is only as big as its corpus" — so every
+CONTENT board now carries the same inventory pin the command board proved
+out, and the stripped-form escape hatch is kept per board.
 
-What it pins, and why each item is a FRAMEWORK invariant rather than deleted
-content:
+What it pins:
 
-  * the three deep boards (execution / problem-solution / screening) hold
-    EXACTLY ONE panel, the id-990 glass CSS injector, seated at gridPos y=0.
-    This names no metric, query or tile — only the count and the skin.
+  * per board, the EXACT panel inventory as (id, title, type, sorted
+    metrics) QUADRUPLES — see the mutation story on _COMMAND_HERO_PANELS
+    for why the metric tuple is load-bearing. Each pin also accepts the
+    fully-stripped (injector-only) form, so re-stripping a board can never
+    brick the deploy gate.
   * the injector exists on EVERY board, is transparent, is 1x1, is the
     bottom-most panel, and carries the WHOLE of gen.GLASS_RULES inside its
     afterRender JS (asserted against the module constant, not a copy, so a
     rewritten stylesheet cannot pass by accident).
-  * the board shell survives the strip: unique non-empty uid, schemaVersion
-    39, non-empty title, and nav links whose targets are exactly the four
-    board uids.
+  * the board shell: unique non-empty uid, schemaVersion 39, non-empty
+    title, and nav links whose targets are exactly the four board uids.
   * shipped JSON == what the generator produces right now (the repo's
     long-standing source-of-truth invariant; same idiom as
     tests/test_trading_dashboard.py::test_generator_matches_shipped_json).
   * the panel FACTORIES still build a board — proved by actually running
-    _board() over a throwaway author, not by asserting callable(). A rebuild
-    has to be possible on the day the boards come back.
+    _board() over a throwaway author, not by asserting callable().
+  * the LEARNING board keeps its 30-day default range — it is the
+    long-term read and a silently-narrowed window would turn multi-week
+    trends back into scrape noise.
 
-DIVERGENCE, deliberate and flagged: the COMMAND board is no longer empty. It
-is the LIQUIDITY BOARD — the at-a-glance read (hero money line, equity chart,
-health + liveness group, positions table; ids 1..18 plus the injector), every
-panel authored against a metric verified emitted by scripts/gc_pusher.py. So
-the "exactly one panel" pin applies to the three deep boards; the command
-board instead gets a regrowth pin that accepts EITHER the fully-stripped form
-OR exactly the pinned inventory, and nothing else. Adding, removing, renaming,
-retyping or REPOINTING a tile is a deliberate act and must edit
-_COMMAND_HERO_PANELS below in the same commit — that edit is the review
-record. Accepting the stripped form too is not laxity: it means re-stripping
-the board cannot brick the deploy gate.
+Adding, removing, renaming, retyping or REPOINTING a tile is a deliberate
+act and must edit the matching _*_PANELS set below in the same commit —
+that edit is the review record.
 
 Every board file is read with encoding="utf-8" — the Windows cp1252 default
-CRASHES on the ⌘/⚙/🔎 nav-link glyphs.
+CRASHES on the ⌘/⚙/🧠/🚨 nav-link glyphs.
 """
 import json
 import re
@@ -56,12 +51,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 COMMAND = "liquiditybot_command.json"
 EXECUTION = "liquiditybot_execution.json"
-# Still deliberately EMPTY. execution/ left this set on 2026-08-16 because the
-# alert rules had no board (see _COMMAND/_EXEC pins below); these two have no
-# alert pointing at them and stay empty until data justifies a panel.
-DEEP_BOARDS = ("liquiditybot_problem_solution.json",
-               "liquiditybot_screening.json")
-ALL_BOARDS = (COMMAND, EXECUTION) + DEEP_BOARDS
+LEARNING = "liquiditybot_learning.json"
+PROBLEMS = "liquiditybot_problem_solution.json"
+ALL_BOARDS = (COMMAND, EXECUTION, LEARNING, PROBLEMS)
 
 INJ_TYPE = "marcusolsson-dynamictext-panel"
 
@@ -124,9 +116,176 @@ _COMMAND_HERO_PANELS = frozenset({
       "liquiditybot_position_notional_usd", "liquiditybot_position_r_multiple",
       "liquiditybot_position_stop_dist_pct", "liquiditybot_position_upnl_pct",
       "liquiditybot_position_upnl_usd")),
+    # activity & budget (2026-08-17, vault docket D1/55's panel half):
+    # appended AFTER the table so ids 1-18 above are byte-identical
+    (19, "Activity & budget", "row", ()),
+    (20, "Exposure by asset", "piechart",
+     ("liquiditybot_position_notional_usd",)),
+    (21, "Fill mix", "piechart",
+     ("liquiditybot_order_maker_fills", "liquiditybot_order_taker_fills")),
+    (22, "Daily loss budget used", "gauge",
+     ("liquiditybot_rp_daily_budget_used_frac",)),
+    (23, "Weekly loss budget used", "gauge",
+     ("liquiditybot_rp_weekly_budget_used_frac",)),
+    (24, "Fills so far", "stat",
+     ("liquiditybot_order_maker_fills", "liquiditybot_order_taker_fills")),
+    (25, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
+    (26, "Profit pools", "stat",
+     ("liquiditybot_reserve", "liquiditybot_savings")),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _COMMAND_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+
+# The LEARNING board (2026-08-17, uid liquiditybot-learning) — the operator's
+# long-term "is it getting smarter" read. Same pin philosophy as the command
+# board's: WHAT EACH PANEL QUERIES is pinned, because a tile labelled
+# "Model edge over naive guess" quietly plotting something else is exactly
+# the plausible lie a learning board must not be able to tell.
+_LEARNING_PANELS = frozenset({
+    (1, "Model edge over naive guess", "stat",
+     ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
+    (2, "Training rows", "stat", ("liquiditybot_ml_history_rows",)),
+    (3, "Clean live labels", "stat", ("liquiditybot_ml_live_clean",)),
+    (4, "Model in use", "stat", ("liquiditybot_ml_use_model",)),
+    (5, "Learning health", "stat", ("liquiditybot_monitor_level",)),
+    (6, "Data age", "stat", ("liquiditybot_status_age_sec",)),
+    (7, "Is it getting smarter?", "row", ()),
+    (8, "Prediction error - model vs naive vs champion", "timeseries",
+     ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier",
+      "liquiditybot_ml_champion_brier")),
+    (9, "Hit rate vs claimed probability", "timeseries",
+     ("liquiditybot_ml_avg_p", "liquiditybot_ml_hit_rate",
+      "liquiditybot_ml_hit_rate_lcb")),
+    (10, "Feature drift share", "timeseries",
+     ("liquiditybot_ml_drift_share",)),
+    (11, "Calibration gap", "timeseries",
+     ("liquiditybot_ml_calibration_gap",)),
+    (12, "Is the pipeline filling?", "row", ()),
+    (13, "Corpus rows toward honest testing", "gauge",
+     ("liquiditybot_ml_history_rows",)),
+    (14, "New-era rows toward re-arm", "gauge",
+     ("liquiditybot_era_excl_new_rows",)),
+    (15, "Labels per day", "stat",
+     ("liquiditybot_probe_budget_live_labels_per_day_7d",)),
+    (16, "Labels in the last 24h", "stat",
+     ("liquiditybot_probe_budget_labels_24h",)),
+    (17, "Label uniqueness", "stat", ("liquiditybot_ml_mean_uniqueness",)),
+    (18, "Corpus growth", "timeseries",
+     ("liquiditybot_ml_history_rows", "liquiditybot_ml_live_clean")),
+    (19, "Where labels come from", "timeseries", ("liquiditybot_ml_labels",)),
+    (20, "What the labels say", "row", ()),
+    (21, "How this era's trades ended", "piechart",
+     ("liquiditybot_era_reason_rows",)),
+    (22, "Label rate this era", "stat", ("liquiditybot_era_label_rate",)),
+    (23, "Corpus drift distance", "stat", ("liquiditybot_era_mix_tvd",)),
+    (24, "Corpus matches live?", "stat", ("liquiditybot_era_mix_alarm",)),
+    (25, "Rows excluded from training", "stat",
+     ("liquiditybot_era_excl_dropped",)),
+    (26, "Which model is driving", "row", ()),
+    (27, "Deployed model over time", "timeseries",
+     ("liquiditybot_ml_model_info",)),
+    (28, "Retrain queued", "stat", ("liquiditybot_ml_retrain_flag",)),
+    (29, "Retrain failures", "stat", ("liquiditybot_ml_retrain_failures",)),
+    (30, "Model fallbacks", "stat", ("liquiditybot_ml_model_fallbacks",)),
+    (31, "The cost of learning", "row", ()),
+    (32, "Probe tokens in the tank", "gauge",
+     ("liquiditybot_probe_budget_tokens",)),
+    (33, "Tuition spent in 24h", "stat",
+     ("liquiditybot_probe_budget_tuition_24h_usd",)),
+    (34, "Tuition cap", "stat",
+     ("liquiditybot_probe_budget_tuition_cap_usd",)),
+    (35, "Unlock ETA", "stat",
+     ("liquiditybot_probe_budget_unlock_eta_days",)),
+    (36, "Probes open now", "stat",
+     ("liquiditybot_probe_budget_open_probes",)),
+    (37, "Denied - budget empty", "stat",
+     ("liquiditybot_probe_budget_denied_exhausted_24h",)),
+    (38, "Probe governor", "stat",
+     ("liquiditybot_probe_budget_governor_factor",)),
+    (39, "Refunds in 24h", "stat",
+     ("liquiditybot_probe_budget_refunds_24h",)),
+    (40, "Gate learning", "row", ()),
+    (41, "Learned gate weights", "bargauge", ("liquiditybot_gate_weight",)),
+    (42, "Is any gate lying?", "bargauge",
+     ("liquiditybot_gate_divergence",)),
+    (43, "Labeled rows feeding the gates", "stat",
+     ("liquiditybot_gate_labeled",)),
+    (44, "Base win rate the gates see", "stat",
+     ("liquiditybot_gate_base_rate",)),
+    (gen.INJ_ID, "", INJ_TYPE, ()),
+})
+_LEARNING_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+
+# The PROBLEMS board (2026-08-17, keeps uid liquiditybot-problem-solution so
+# the operator's link survives) — what needs attention; looking empty is
+# good. Includes the two pager conditions rendered as the SAME arithmetic
+# the alert rules run (the execution board's lesson, ab8ee2b4).
+_PROBLEM_PANELS = frozenset({
+    (1, "Overall posture", "stat", ("liquiditybot_op_state",)),
+    (2, "Halted?", "stat", ("liquiditybot_halted",)),
+    (3, "New trades blocked?", "stat",
+     ("liquiditybot_watchdog_entries_blocked",)),
+    (4, "Active faults", "stat", ("liquiditybot_fault_count",)),
+    (5, "Risk firewall", "stat", ("liquiditybot_firewall_fault",)),
+    (6, "Data age", "stat", ("liquiditybot_status_age_sec",)),
+    (7, "What the pager watches", "row", ()),
+    (8, "Model worse than naive by", "stat",
+     ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
+    (9, "Drift stuck while degraded", "stat",
+     ("liquiditybot_ml_drift_share", "liquiditybot_monitor_level")),
+    (10, "Model governor", "stat", ("liquiditybot_monitor_level",)),
+    (11, "Faults & rejections", "row", ()),
+    (12, "Firewall trips by code", "timeseries",
+     ("liquiditybot_firewall_count",)),
+    (13, "Decisions by family", "timeseries", ("liquiditybot_code_count",)),
+    (14, "Venue rejects", "stat", ("liquiditybot_order_venue_rejects",)),
+    (15, "Dead-man failures", "stat",
+     ("liquiditybot_order_deadman_failures",)),
+    (16, "Exit-check failures", "stat",
+     ("liquiditybot_exit_eval_failures",)),
+    (17, "Cycle failures in a row", "stat",
+     ("liquiditybot_cycle_consecutive_failures",)),
+    (18, "Model inference faults", "stat", ("liquiditybot_ml_infer_faults",)),
+    (19, "Feature-contract failures", "stat",
+     ("liquiditybot_ml_contract_failed",)),
+    (20, "Staleness & feeds", "row", ()),
+    (21, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
+    (22, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
+    (23, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
+    (24, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
+    (25, "Stale assets", "stat", ("liquiditybot_watchdog_stale_assets",)),
+    (26, "Diverging feeds", "stat", ("liquiditybot_watchdog_divergent",)),
+    (27, "Critical data stale", "stat",
+     ("liquiditybot_watchdog_critical_stale",)),
+    (28, "Do the books add up?", "stat", ("liquiditybot_equity_drift_pct",)),
+    (29, "Telemetry", "stat", ("liquiditybot_status_stale",)),
+    (30, "Runner", "stat", ("liquiditybot_running",)),
+    (31, "Risk brakes", "row", ()),
+    (32, "Daily loss budget used", "gauge",
+     ("liquiditybot_rp_daily_budget_used_frac",)),
+    (33, "Weekly loss budget used", "gauge",
+     ("liquiditybot_rp_weekly_budget_used_frac",)),
+    (34, "Drawdown vs the hard stop", "timeseries",
+     ("liquiditybot_rp_drawdown_mtm_pct", "liquiditybot_rp_hard_stop_dd_pct")),
+    (35, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
+    (36, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
+    (37, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
+    (38, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
+    (39, "Circuit-breaker cooldown left", "bargauge",
+     ("liquiditybot_cb_paused_hours_left",)),
+    (40, "Loss streak by asset", "bargauge",
+     ("liquiditybot_perf_asset_cur_loss_streak",)),
+    (41, "Audit & self-health", "row", ()),
+    (42, "Audit writes dropped", "stat",
+     ("liquiditybot_audit_dropped_writes",)),
+    (43, "Audit tail truncations", "stat",
+     ("liquiditybot_audit_tail_truncations",)),
+    (44, "Bad values dropped by exporter", "stat",
+     ("liquiditybot_gauges_dropped_nonfinite",)),
+    (45, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
+    (gen.INJ_ID, "", INJ_TYPE, ()),
+})
+_PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
 
 _MET_RE = re.compile(r"liquiditybot_[a-z0-9_]+")
 
@@ -180,33 +339,12 @@ def test_expected_boards_present():
 
 
 # --------------------------------------------------------------------------
-# the stripped state itself
+# per-board inventory pins (the regrow detectors)
 # --------------------------------------------------------------------------
-@pytest.mark.parametrize("fname", DEEP_BOARDS)
-def test_deep_board_holds_only_the_glass_injector(fname):
-    """The deep boards were emptied on purpose. One panel, and it is the
-    skin — not a tile, not a row, not a text note."""
-    d = _shipped(fname)
-    panels = d["panels"]
-    assert len(panels) == 1, (
-        f"{fname}: expected EXACTLY 1 panel (the glass injector), found "
-        f"{len(panels)}: {[(p.get('id'), p.get('type')) for p in panels]}. "
-        "The deep boards stay empty until the reconfigured bot has produced "
-        "data worth a panel.")
-    only = panels[0]
-    assert not only.get("panels"), f"{fname}: injector must not nest panels"
-    assert only["id"] == gen.INJ_ID, f"{fname}: panel id {only['id']}"
-    assert only["type"] == INJ_TYPE, f"{fname}: panel type {only['type']}"
-    assert only["gridPos"]["y"] == 0, (
-        f"{fname}: the only panel must sit at the top (y=0), found "
-        f"{only['gridPos']}; a non-zero y leaves a dead band above it")
-
-
 def test_command_board_has_not_silently_regrown():
-    """Change-detector on the ONE board that kept content. Accepts the
-    stripped form too, so re-stripping the board does not brick the deploy
-    gate; anything else means panels appeared or disappeared without this
-    pin being updated."""
+    """Change-detector on the command board. Accepts the stripped form too,
+    so re-stripping the board does not brick the deploy gate; anything else
+    means panels appeared or disappeared without this pin being updated."""
     got = frozenset(_identity(p) for p in _all_panels(_shipped(COMMAND)))
     assert got in (_COMMAND_HERO_PANELS, _COMMAND_STRIPPED_PANELS), (
         f"{COMMAND} inventory does not match either pinned form.\n"
@@ -215,6 +353,61 @@ def test_command_board_has_not_silently_regrown():
         "If you deliberately added, removed, renamed or retyped a panel, "
         "update _COMMAND_HERO_PANELS in this file in the SAME commit — that "
         "edit is the review record.")
+
+
+def test_learning_board_matches_its_pin():
+    """Same contract as the command pin, for the operator's long-term
+    'is it getting smarter' link."""
+    got = frozenset(_identity(p) for p in _all_panels(_shipped(LEARNING)))
+    assert got in (_LEARNING_PANELS, _LEARNING_STRIPPED_PANELS), (
+        f"{LEARNING} inventory does not match either pinned form.\n"
+        f"  unexpected: {sorted(got - _LEARNING_PANELS)}\n"
+        f"  missing:    {sorted(_LEARNING_PANELS - got)}\n"
+        "Deliberate change? Update _LEARNING_PANELS in the SAME commit.")
+
+
+def test_learning_board_keeps_the_long_range():
+    """LEARNING is the long-term read: the default window is 30 days so
+    multi-week trends are legible the moment the link opens. A narrowed
+    default silently turns the board back into scrape noise."""
+    d = _shipped(LEARNING)
+    assert d["time"]["from"] == "now-30d", d["time"]
+    assert d["time"]["to"] == "now", d["time"]
+
+
+def test_problem_board_matches_its_pin():
+    """Same contract as the command pin, for the operator's 'what needs
+    attention' link."""
+    got = frozenset(_identity(p) for p in _all_panels(_shipped(PROBLEMS)))
+    assert got in (_PROBLEM_PANELS, _PROBLEM_STRIPPED_PANELS), (
+        f"{PROBLEMS} inventory does not match either pinned form.\n"
+        f"  unexpected: {sorted(got - _PROBLEM_PANELS)}\n"
+        f"  missing:    {sorted(_PROBLEM_PANELS - got)}\n"
+        "Deliberate change? Update _PROBLEM_PANELS in the SAME commit.")
+
+
+def test_problem_board_mirrors_both_pager_conditions():
+    """The PROBLEMS board must render the SAME arithmetic the two alert
+    rules run (the ab8ee2b4 lesson: an alert whose inputs are on no board
+    is discovered by being paged). Checked against the alert YAML like the
+    execution-board mirror below, not against a hand-copied metric list."""
+    got = frozenset(_identity(p) for p in _all_panels(_shipped(PROBLEMS)))
+    if got == _PROBLEM_STRIPPED_PANELS:
+        pytest.skip("problems board is in the fully-stripped form")
+    fired_on = set()
+    for y in ("liquiditybot_brier_alert.yaml", "liquiditybot_drift_alert.yaml"):
+        txt = (ROOT / "docs" / "grafana" / y).read_text(encoding="utf-8")
+        for line in txt.splitlines():
+            if "expr:" in line:
+                fired_on |= set(_MET_RE.findall(line))
+    on_board = set()
+    for p in _all_panels(_shipped(PROBLEMS)):
+        on_board |= set(_identity(p)[3])
+    missing = fired_on - on_board
+    assert not missing, (
+        f"alert rules fire on {sorted(missing)} but no PROBLEMS panel "
+        "queries them — the 'what needs attention' board would go quiet on "
+        "the exact inputs the pager watches.")
 
 
 def test_execution_board_still_mirrors_the_alert_rules():
@@ -269,29 +462,32 @@ def test_only_the_glass_injector_executes_javascript(fname):
         f"injector id {gen.INJ_ID}")
 
 
-def test_liquidity_board_surfaces_telemetry_age():
-    """Whatever else the at-a-glance board shows, it must show how OLD the
+@pytest.mark.parametrize("fname", (COMMAND, LEARNING, PROBLEMS))
+def test_operator_boards_surface_telemetry_age(fname):
+    """Whatever else an operator board shows, it must show how OLD the
     data is.
 
-    Every other number on this board is a snapshot republished by
-    scripts/gc_pusher.py. If the pusher stops, the tiles do not blank - they
-    keep displaying the last value they saw, indefinitely and confidently.
-    A stale equity figure is indistinguishable from a live one, so the age
-    reading is what makes the rest of the board falsifiable.
+    Every other number is a snapshot republished by scripts/gc_pusher.py.
+    If the pusher stops, the tiles do not blank - they keep displaying the
+    last value they saw, indefinitely and confidently. A stale equity (or
+    Brier, or fault) figure is indistinguishable from a live one, so the
+    age reading is what makes the rest of the board falsifiable.
 
-    This replaces the board-wide test_every_board_surfaces_telemetry_age,
-    which was retired with the panels it swept: the three deep boards are
-    intentionally empty and cannot carry the tile. Narrowed to the board that
-    still has content, NOT weakened - the assertion is the same one.
+    2026-08-17: re-widened from the command-only form back to every board
+    the operator screen-snips (the narrowing was itself a narrowing of the
+    original board-wide sweep, retired only because the other boards were
+    empty). The execution mirror is exempt: it is not an operator link and
+    its pinned inventory is exactly the alert inputs.
     """
-    d = _shipped(COMMAND)
-    if frozenset(_identity(p) for p in _all_panels(d)) ==             _COMMAND_STRIPPED_PANELS:
-        pytest.skip("command board is in the fully-stripped form")
+    d = _shipped(fname)
+    got = frozenset(_identity(p) for p in _all_panels(d))
+    if got == frozenset({(gen.INJ_ID, "", INJ_TYPE, ())}):
+        pytest.skip(f"{fname} is in the fully-stripped form")
     exprs = " ".join(t.get("expr", "")
                      for p in _all_panels(d)
                      for t in (p.get("targets") or []))
     assert "liquiditybot_status_age_sec" in exprs, (
-        f"{COMMAND} has content but no panel queries "
+        f"{fname} has content but no panel queries "
         "liquiditybot_status_age_sec. Without it a dead exporter looks "
         "exactly like a quiet market: every tile keeps showing its last "
         "value and nothing on screen says the data stopped moving.")

@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-trading",
   "title": "liquiditybot — trading desk",
-  "description": "Exchange-style daily driver: equity & P&L vs the rent goal, spot positions & risk, performance & bracket-geometry economics, profit pools, per-asset edge.",
+  "description": "COMMAND — what is the bot doing right now: equity & P&L, the open book, liveness, exposure by asset, fill mix, and the loss-budget posture.",
   "tags": [
     "command",
     "liquid-glass",
@@ -32,9 +32,9 @@
       "tags": []
     },
     {
-      "title": "⚙ Models·Inv·Exec",
+      "title": "🧠 Learning",
       "type": "link",
-      "url": "/d/liquiditybot-exec",
+      "url": "/d/liquiditybot-learning",
       "icon": "dashboard",
       "tooltip": "",
       "targetBlank": false,
@@ -44,7 +44,7 @@
       "tags": []
     },
     {
-      "title": "🩹 Problem/Solution",
+      "title": "🚨 Problems",
       "type": "link",
       "url": "/d/liquiditybot-problem-solution",
       "icon": "dashboard",
@@ -56,9 +56,9 @@
       "tags": []
     },
     {
-      "title": "🔎 Screening",
+      "title": "⚙ Alert inputs",
       "type": "link",
-      "url": "/d/liquiditybot-screening",
+      "url": "/d/liquiditybot-exec",
       "icon": "dashboard",
       "tooltip": "",
       "targetBlank": false,
@@ -1736,6 +1736,544 @@
       "transparent": true
     },
     {
+      "id": 19,
+      "type": "row",
+      "title": "Activity & budget",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 20,
+      "type": "piechart",
+      "title": "Exposure by asset",
+      "description": "How the money at risk is split across assets right now. One big slice is concentration; many thin slices is spread.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "flat — no open positions"
+        },
+        "overrides": []
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_position_notional_usd{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 21,
+      "type": "piechart",
+      "title": "Fill mix",
+      "description": "Of all fills since restart, how many were patient maker orders vs paying the spread to cross. Mostly-maker is the cheap, healthy shape at this account size.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "noValue": "not in this cycle's status write"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "maker (earned the spread)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#30D158"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "taker (paid the spread)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9F0A"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_maker_fills{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "maker (earned the spread)"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_taker_fills{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "taker (paid the spread)"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 22,
+      "type": "gauge",
+      "title": "Daily loss budget used",
+      "description": "How much of today's allowed loss is already spent. At 100% the bot stops opening new trades until the day rolls over.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 16,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.6
+              },
+              {
+                "color": "#FF453A",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "risk-protocol stack not reporting",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_rp_daily_budget_used_frac{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 23,
+      "type": "gauge",
+      "title": "Weekly loss budget used",
+      "description": "Same idea as the daily budget, over the trading week.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 20,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.6
+              },
+              {
+                "color": "#FF453A",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "risk-protocol stack not reporting",
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_rp_weekly_budget_used_frac{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Fills so far",
+      "description": "Order fills since the bot last restarted (maker plus taker).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "not in this cycle's status write"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 24
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_maker_fills{job=\"liquiditybot\"}) + max(liquiditybot_order_taker_fills{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Size taper",
+      "description": "Multiplier applied to every new position's size. 1.00 is full size; lower means the risk stack is shrinking trades.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF453A",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.5
+              },
+              {
+                "color": "#30D158",
+                "value": 0.99
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "risk-protocol stack not reporting"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 24
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_rp_taper_mult{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Profit pools",
+      "description": "Money skimmed out of the trading float into the savings and reserve pools. It counts in equity but is no longer at risk.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "prefix:$",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "not in this cycle's status write"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 24
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_savings{job=\"liquiditybot\"}) + max(liquiditybot_reserve{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -1744,7 +2282,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 34
+        "y": 47
       },
       "transparent": true,
       "options": {

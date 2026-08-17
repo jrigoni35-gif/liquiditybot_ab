@@ -14,15 +14,18 @@ contract, CI-enforced:
 
 2026-08-15 STRIP: every visualisation panel was deleted from all four boards
 before the reconfigured bot produced data, so no board could display a number
-carried over from the retired geometry. Each board now holds exactly one panel
+carried over from the retired geometry. Each board then held exactly one panel
 (the id-990 glass CSS injector). The panel FACTORIES and the generator
 framework were kept. Consequently the tests here that pinned specific rows,
 tiles, tables and queries were DELETED rather than skipped — git history holds
 them verbatim for whoever rebuilds the boards. What remains are framework
 invariants that hold on a stripped board and bite again the moment panels
-return. Two of them (checks 1 and 3 above, and the row/collapse policy) are
-vacuous while the boards are empty; they are kept because they name no deleted
-content, only structure.
+return.
+
+2026-08-17 REBUILD: the boards came back (command extended, LEARNING new,
+PROBLEMS authored, screening folded away), so the once-vacuous framework
+checks bite again on real content. The per-board inventory pins live in
+tests/test_boards_stripped.py; this module stays structural.
 """
 import json
 import time
@@ -300,9 +303,12 @@ def test_generator_matches_shipped_json():
 
 
 def test_expected_boards_present():
+    # 2026-08-17 three-link rebuild: LEARNING replaced the injector-only
+    # screening board (uid retired in scripts/grafana_import.py); the
+    # family stays at exactly four.
     assert set(gen.DASHBOARDS) == {
         "liquiditybot_command.json", "liquiditybot_execution.json",
-        "liquiditybot_problem_solution.json", "liquiditybot_screening.json"}
+        "liquiditybot_learning.json", "liquiditybot_problem_solution.json"}
 
 
 def test_importable_shape_and_layout_per_board():

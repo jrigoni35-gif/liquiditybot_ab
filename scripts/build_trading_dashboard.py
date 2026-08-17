@@ -42,11 +42,13 @@ DESIGN — the rules the rebuilt board follows, and that a future one should:
   * telemetry age belongs on the front page: if it climbs, every other number
     on the board is a fossil.
 
-Boards:
-  liquiditybot_command.json          — LIQUIDITY BOARD, the at-a-glance read
-  liquiditybot_execution.json        — models · inventory · execution (EMPTY)
-  liquiditybot_problem_solution.json — problem / solution diagnostics (EMPTY)
-  liquiditybot_screening.json        — asset screening (EMPTY)
+Boards (2026-08-17 rebuild — the operator's THREE screen-snip links plus the
+pin-required alert mirror; the empty screening board was folded away and its
+uid retired on import):
+  liquiditybot_command.json          — COMMAND: what is the bot doing
+  liquiditybot_learning.json         — LEARNING: is it getting smarter (30d)
+  liquiditybot_problem_solution.json — PROBLEMS: what needs attention
+  liquiditybot_execution.json        — alert-input mirror (kept verbatim)
 """
 import json
 import re
@@ -403,15 +405,18 @@ def bargauge(title, expr, w, h, unit="", decimals=2, steps=None,
             for i, (e, lg) in enumerate(extra or [])]})
 
 
-def donut(title, slices, w, h, colors, desc="", no_value=None):
+def donut(title, slices, w, h, colors, desc="", no_value=None,
+          unit="percentunit", decimals=1):
     """2-4 slice composition donut. slices: [(expr, legend)]; colors:
-    {legend: hex} — color follows the ENTITY, fixed, never positional."""
+    {legend: hex} — color follows the ENTITY, fixed, never positional
+    ({} for label-driven slices, which rotate palette-classic). unit rides
+    the VALUE (tooltips/legend); the slice labels always show percent."""
     x, y = _place(w, h)
     overrides = [{"matcher": {"id": "byName", "options": name},
                   "properties": [{"id": "color", "value": {
                       "mode": "fixed", "fixedColor": col}}]}
                  for name, col in colors.items()]
-    fld = {"unit": "percentunit", "decimals": 1, "mappings": [],
+    fld = {"unit": unit, "decimals": decimals, "mappings": [],
            "color": {"mode": "palette-classic"}}
     if no_value:
         fld["noValue"] = no_value
@@ -554,6 +559,34 @@ PROBE_GOV = [{"color": "red", "value": None},
 PROBE_REGIME = [{"color": "red", "value": None},
                 {"color": "yellow", "value": 30},
                 {"color": "green", "value": 60}]
+# 2026-08-17 rebuild palettes -----------------------------------------------
+# Staleness scale for the 30s push cadence, shared by the LEARNING and
+# PROBLEMS "Data age" tiles (the command board keeps its identical local
+# copy untouched): two missed pushes is noise, a minute is worth noticing,
+# five minutes means every other number on the board is a fossil.
+AGE_STEPS = [{"color": "green", "value": None},
+             {"color": "yellow", "value": 60},
+             {"color": "red", "value": 300}]
+# loss-budget FRACTIONS (0..1 percentunit): yellow at 60% spent, red at 90%
+FRAC_BUDGET = [{"color": "green", "value": None},
+               {"color": "yellow", "value": 0.6},
+               {"color": "red", "value": 0.9}]
+# size multipliers where 1.0 is nominal and LOWER means throttled
+MULT_LOW_BAD = [{"color": "red", "value": None},
+                {"color": "yellow", "value": 0.5},
+                {"color": "green", "value": 0.99}]
+MARKS_AGE = [{"color": "green", "value": None},
+             {"color": "yellow", "value": 30},
+             {"color": "red", "value": 120}]
+RECONNECTS = [{"color": "green", "value": None},
+              {"color": "yellow", "value": 3},
+              {"color": "red", "value": 10}]
+EQ_DRIFT = [{"color": "green", "value": None},
+            {"color": "yellow", "value": 0.5},
+            {"color": "red", "value": 2.0}]
+HEAT = [{"color": "green", "value": None},
+        {"color": "yellow", "value": 0.25},
+        {"color": "red", "value": 0.35}]
 
 ON_OFF = {"1": ("YES", "green"), "0": ("NO", "#8E8E93")}
 UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
@@ -682,13 +715,13 @@ _BRAIN_GUIDE = (
 # geometry, and an empty pane is honest where a stale one is not. 188
 # visualization panels and 23 row headers were deleted.
 #
-# CURRENT STATE, and it is deliberately asymmetric:
-#   _author_command    the LIQUIDITY BOARD - a small at-a-glance read (below)
-#   _author_execution  EMPTY
-#   _author_problem    EMPTY
-#   _author_screening  EMPTY
-# The three deep boards stay empty until the new configuration has produced
-# enough data to justify a panel. Emptiness here is a decision, not a defect.
+# CURRENT STATE (2026-08-17 three-link rebuild):
+#   _author_command    COMMAND - the at-a-glance read + activity & budget
+#   _author_learning   LEARNING - the 30-day "is it getting smarter" read
+#   _author_problem    PROBLEMS - what needs attention (empty-looking = good)
+#   _author_execution  the alert-input mirror (pin-required, kept verbatim)
+# The screening board was folded away (nothing to fold - it held only the
+# injector); scripts/grafana_import.py retires its uid on the next import.
 #
 # SANITIZER CONTRACT - recorded here because the only two places it was ever
 # written down (the _bt_options() docstring and the pulse banner comment) were
@@ -849,6 +882,48 @@ def _author_command():
                "open, 0 series). Read the Runner and Telemetry tiles before "
                "concluding anything from an empty table.")
 
+    # ---- activity & budget: what the bot is DOING with the book ----------
+    # Added 2026-08-17 (vault docket D1/55, panel half): live posture beyond
+    # the hero - where the risk sits, how it fills, and how much of the loss
+    # budget is spent. Appended AFTER the table so ids 1-18 stay stable.
+    row("Activity & budget")
+    donut("Exposure by asset",
+          [(_pa("liquiditybot_position_notional_usd"), "{{symbol}}")],
+          8, 7, colors={}, unit=USD, decimals=2,
+          desc="How the money at risk is split across assets right now. One "
+               "big slice is concentration; many thin slices is spread.")
+    donut("Fill mix",
+          [(M("liquiditybot_order_maker_fills"), "maker (earned the spread)"),
+           (M("liquiditybot_order_taker_fills"), "taker (paid the spread)")],
+          8, 7, colors={"maker (earned the spread)": GREEN,
+                        "taker (paid the spread)": ORANGE_HEX},
+          unit="", decimals=0,
+          desc="Of all fills since restart, how many were patient maker "
+               "orders vs paying the spread to cross. Mostly-maker is the "
+               "cheap, healthy shape at this account size.")
+    gauge("Daily loss budget used",
+          M("liquiditybot_rp_daily_budget_used_frac"), 4, 7, mn=0, mx=1,
+          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
+          desc="How much of today's allowed loss is already spent. At 100% "
+               "the bot stops opening new trades until the day rolls over.")
+    gauge("Weekly loss budget used",
+          M("liquiditybot_rp_weekly_budget_used_frac"), 4, 7, mn=0, mx=1,
+          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
+          desc="Same idea as the daily budget, over the trading week.")
+    stat("Fills so far", f'{M("liquiditybot_order_maker_fills")} + '
+         f'{M("liquiditybot_order_taker_fills")}', 8, 5, decimals=0,
+         graph="none", size="compact", steps=BLUE,
+         desc="Order fills since the bot last restarted (maker plus taker).")
+    stat("Size taper", M("liquiditybot_rp_taper_mult"), 8, 5, decimals=2,
+         graph="none", size="compact", steps=MULT_LOW_BAD,
+         desc="Multiplier applied to every new position's size. 1.00 is "
+              "full size; lower means the risk stack is shrinking trades.")
+    stat("Profit pools", f'{M("liquiditybot_savings")} + '
+         f'{M("liquiditybot_reserve")}', 8, 5, unit=USD, decimals=2,
+         graph="none", size="compact", steps=GRN,
+         desc="Money skimmed out of the trading float into the savings and "
+              "reserve pools. It counts in equity but is no longer at risk.")
+
 
 def _author_execution():
     """MODEL HEALTH - and it exists for one measured reason.
@@ -908,21 +983,468 @@ def _author_execution():
           desc="ML monitor level. OK / DEGRADED / KILLED.")
 
 
+def _author_learning():
+    """THE LEARNING BOARD - is the bot getting smarter, on a 30-day clock.
+
+    Built 2026-08-17 for the operator's three-link workflow: this is the
+    long-term read, so the board ships with a 30-day default range and every
+    trend panel is meant to be judged across weeks, not scrapes. Layout
+    follows the LEARNING BRAIN decision ladder (supply -> corpus -> quality
+    -> governor): the pipeline rows answer "is there anything to learn
+    from", the quality rows answer "is it learning", and the collapsed rows
+    price what the learning costs. Every metric was verified against
+    gc_pusher.collect() on 2026-08-17 (the ACCURACY RULE in
+    _author_command applies here verbatim).
+    """
+    # ---- hero: the verdict tiles ----------------------------------------
+    gap_good = (f'max(liquiditybot_ml_baseline_brier{JOB}) '
+                f'- max(liquiditybot_ml_brier{JOB})')
+    stat("Model edge over naive guess", gap_good, 6, 6, decimals=4,
+         size="hero", steps=PNL,
+         desc="Positive = the model predicts trade outcomes better than "
+              "always guessing the long-run average. (Baseline Brier minus "
+              "model Brier; higher is better; the pager fires at -0.03.)")
+    stat("Training rows", M("liquiditybot_ml_history_rows"), 4, 6,
+         decimals=0, steps=BLUE,
+         desc="Rows in the training corpus. More rows is more to learn "
+              "from; the sparkline shows the 30-day growth.")
+    stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 6,
+         decimals=0, steps=[{"color": "red", "value": None},
+                            {"color": "yellow", "value": 30},
+                            {"color": "green", "value": 150}],
+         desc="Live-outcome rows that survived hygiene checks - the highest-"
+              "value food the model gets. Under 30, the loop is starved and "
+              "every quality number below is a hypothesis, not a finding.")
+    state("Model in use", M("liquiditybot_ml_use_model"), 3, 6,
+          {"1": ("YES", "green"), "0": ("benched", GRAY_HEX)},
+          desc="Whether the governor lets the model influence sizing. "
+               "'benched' beside green quality tiles is usually a deliberate "
+               "stand-down, not a fault.")
+    state("Learning health", M("liquiditybot_monitor_level"), 4, 6, GOV,
+          desc="The ML governor's own verdict on the model. OK / DEGRADED / "
+               "KILLED.")
+    stat("Data age", M("liquiditybot_status_age_sec"), 3, 6, unit="s",
+         decimals=0, graph="none", size="compact", steps=AGE_STEPS,
+         desc="Seconds since the bot last wrote its status. If this climbs, "
+              "every other number on this board is a fossil - read it "
+              "first.")
+
+    # ---- quality: the trends that mean "smarter" -------------------------
+    row("Is it getting smarter?")
+    timeseries("Prediction error - model vs naive vs champion",
+               M("liquiditybot_ml_brier"), 24, 8, legend="model", decimals=3,
+               extra=[(M("liquiditybot_ml_baseline_brier"), "naive guess"),
+                      (M("liquiditybot_ml_champion_brier"), "champion")],
+               colors={"model": INDIGO, "naive guess": GRAY_HEX,
+                       "champion": CAT_TEAL},
+               desc="Brier score: how wrong the win-probability estimates "
+                    "are (lower is better; 0.25 is a coin flip). The model "
+                    "line staying UNDER the naive line, week after week, is "
+                    "what 'getting smarter' looks like.")
+    timeseries("Hit rate vs claimed probability",
+               M("liquiditybot_ml_hit_rate"), 8, 8, unit="percentunit",
+               legend="actual win rate", decimals=1,
+               extra=[(M("liquiditybot_ml_avg_p"), "claimed probability"),
+                      (M("liquiditybot_ml_hit_rate_lcb"),
+                       "conservative floor")],
+               colors={"actual win rate": GREEN,
+                       "claimed probability": INDIGO,
+                       "conservative floor": GRAY_HEX},
+               desc="If the model claims 65% and wins 45%, its sizing is "
+                    "built on a lie. Honest = the claimed line hugging the "
+                    "actual line; on small samples trust the conservative "
+                    "floor.")
+    timeseries("Feature drift share", M("liquiditybot_ml_drift_share"), 8, 8,
+               unit="percentunit", legend="drift share", decimals=1,
+               desc="Share of the model's inputs that look different from "
+                    "what it trained on. High AND stuck means the market "
+                    "moved and the model has not.")
+    timeseries("Calibration gap", M("liquiditybot_ml_calibration_gap"), 8, 8,
+               unit="percentunit", legend="gap", decimals=1,
+               desc="Distance between claimed probabilities and reality. "
+                    "Small is honest; widening turns into sizing errors, "
+                    "because position size reads these probabilities "
+                    "literally.")
+
+    # ---- supply: is there anything to learn from? ------------------------
+    row("Is the pipeline filling?")
+    gauge("Corpus rows toward honest testing",
+          M("liquiditybot_ml_history_rows"), 6, 6, mn=0, mx=640, unit="",
+          decimals=0, steps=[{"color": "blue", "value": None},
+                             {"color": "green", "value": 640}],
+          desc="Training rows against the overfit battery's real-data floor "
+               "(10 rows per feature = 640). Below it the battery validates "
+               "its own machinery on synthetic data, not the strategy - "
+               "re-derive the exact floor from scripts/overfit_check.py, "
+               "never from this caption.")
+    gauge("New-era rows toward re-arm", M("liquiditybot_era_excl_new_rows"),
+          6, 6, mn=0, mx=150, unit="", decimals=0,
+          steps=[{"color": "blue", "value": None},
+                 {"color": "green", "value": 150}],
+          desc="Rows collected under the CURRENT trading geometry. Old-era "
+               "rows sit out of training until this reaches the re-arm line "
+               "(liquiditybot_era_excl_min_rows, default 150).")
+    stat("Labels per day",
+         M("liquiditybot_probe_budget_live_labels_per_day_7d"), 4, 6,
+         decimals=1, steps=PROBE_LABELS,
+         desc="7-day average of live labels earned per day. Under 3 a day "
+              "the corpus fills slower than the floor pace.")
+    stat("Labels in the last 24h", M("liquiditybot_probe_budget_labels_24h"),
+         4, 6, decimals=0, steps=PROBE_LABELS,
+         desc="Labels earned in the last day - today's pace against the "
+              "same 3-a-day floor.")
+    stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 6,
+         decimals=1, steps=HIGH_GOOD,
+         desc="How independent the labels are - overlapping trades share "
+              "evidence, so 100 rows at 0.05 uniqueness carry about 5 rows "
+              "of real information.")
+    timeseries("Corpus growth", M("liquiditybot_ml_history_rows"), 12, 8,
+               legend="all rows", decimals=0,
+               extra=[(M("liquiditybot_ml_live_clean"), "clean live rows")],
+               colors={"all rows": CAT_TEAL, "clean live rows": GREEN},
+               desc="The corpus filling over the month. Both flat: the bot "
+                    "is not closing trades. All-rows climbing while "
+                    "clean-live stays flat: hygiene is eating the rows.")
+    timeseries("Where labels come from", _pa("liquiditybot_ml_labels"),
+               12, 8, legend="{{source}}", decimals=0,
+               desc="Labelled rows by origin - live closes vs simulated "
+                    "candidates. Live rows are the gold standard; candidate "
+                    "rows fill in while live experience accumulates.")
+
+    # ---- what the labels themselves say ----------------------------------
+    row("What the labels say")
+    _tb = ('liquiditybot_era_reason_rows{job="liquiditybot",'
+           'era="triple_barrier",reason="%s"}')
+    donut("How this era's trades ended",
+          [(f"max({_tb % 'tb_pt'})", "hit profit target"),
+           (f"max({_tb % 'tb_sl'})", "hit the stop"),
+           (f"max({_tb % 'tb_time'})", "timed out")],
+          8, 8, colors={"hit profit target": GREEN,
+                        "hit the stop": RED_HEX,
+                        "timed out": GRAY_HEX},
+          unit="", decimals=0,
+          desc="Outcome mix of current-era labelled trades. A healthy edge "
+               "needs enough profit-target exits to pay for all the stops.")
+    stat("Label rate this era",
+         'max(liquiditybot_era_label_rate{job="liquiditybot",'
+         'era="triple_barrier"})', 4, 8, unit="percentunit", decimals=1,
+         steps=HIGH_GOOD,
+         desc="Share of current-era rows that earned a definite win/loss "
+              "verdict (the rest timed out unresolved or are still open).")
+    stat("Corpus drift distance", M("liquiditybot_era_mix_tvd"), 4, 8,
+         decimals=2, steps=DRIFT,
+         desc="How different the whole training corpus looks from recent "
+              "live trading (0 = identical, 1 = nothing in common).")
+    state("Corpus matches live?", M("liquiditybot_era_mix_alarm"), 4, 8,
+          ERA_MIX,
+          desc="DRIFTED means the model is learning mostly from a market "
+               "that no longer exists - treat its opinions with suspicion "
+               "until the mix re-aligns.")
+    stat("Rows excluded from training", M("liquiditybot_era_excl_dropped"),
+         4, 8, decimals=0, steps=BLUE,
+         desc="Old-geometry rows the era fence keeps OUT of training so "
+              "stale lessons cannot leak into the current model.")
+
+    # ---- lineage: which model is driving ---------------------------------
+    row("Which model is driving")
+    timeseries("Deployed model over time", _pa("liquiditybot_ml_model_info"),
+               12, 7, legend="{{kind}}", decimals=0,
+               desc="Which model family is deployed (its line sits at 1 "
+                    "while active). A step from one line to another is a "
+                    "redeploy; the full lineage ledger with Brier evidence "
+                    "lives in outputs/registry.jsonl.")
+    state("Retrain queued", M("liquiditybot_ml_retrain_flag"), 4, 7, RETRAIN,
+          desc="QUEUED means the trainer will rebuild the model on its next "
+               "pass - routine housekeeping, not an alarm.")
+    stat("Retrain failures", M("liquiditybot_ml_retrain_failures"), 4, 7,
+         decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Times the retrain loop crashed. Anything above zero deserves "
+              "a look at the runner log.")
+    stat("Model fallbacks", M("liquiditybot_ml_model_fallbacks"), 4, 7,
+         decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Times inference fell back to the safe default instead of "
+              "the deployed model.")
+
+    # ---- the price of tuition (collapsed: read on demand) ----------------
+    row("The cost of learning", collapsed=True)
+    gauge("Probe tokens in the tank", M("liquiditybot_probe_budget_tokens"),
+          6, 6, mn=0, mx=5, unit="", decimals=1,
+          steps=[{"color": "red", "value": None},
+                 {"color": "yellow", "value": 1},
+                 {"color": "green", "value": 2.5}],
+          desc="Small exploratory trades are paid for in tokens; an empty "
+               "tank means no new probes until it refills (capacity: "
+               "liquiditybot_probe_budget_capacity).")
+    stat("Tuition spent in 24h",
+         M("liquiditybot_probe_budget_tuition_24h_usd"), 5, 6, unit=USD,
+         decimals=2, steps=GRN,
+         desc="What the probes cost in the last day - the price paid for "
+              "the labels they earned.")
+    stat("Tuition cap", M("liquiditybot_probe_budget_tuition_cap_usd"), 4, 6,
+         unit=USD, decimals=2, steps=GRN,
+         desc="The most the bot may spend on learning per day.")
+    stat("Unlock ETA", M("liquiditybot_probe_budget_unlock_eta_days"), 4, 6,
+         unit="suffix:d", decimals=1, steps=PROBE_ETA,
+         desc="Projected days until enough current-era labels exist to "
+              "unlock the next model step, at the current pace.")
+    stat("Probes open now", M("liquiditybot_probe_budget_open_probes"), 5, 6,
+         decimals=0, graph="none", steps=BLUE,
+         desc="Exploratory positions currently on the book.")
+    stat("Denied - budget empty",
+         M("liquiditybot_probe_budget_denied_exhausted_24h"), 8, 5,
+         decimals=0, steps=[{"color": "green", "value": None},
+                            {"color": "yellow", "value": 20},
+                            {"color": "red", "value": 100}],
+         desc="Probe attempts turned away in the last day because the token "
+              "tank was empty. High means the bot wants to learn faster "
+              "than the budget allows.")
+    stat("Probe governor", M("liquiditybot_probe_budget_governor_factor"),
+         8, 5, decimals=2, steps=PROBE_GOV,
+         desc="Throttle on probe spending (1.00 full speed, 0.25 floor). It "
+              "backs off when tuition outruns the labels earned.")
+    stat("Refunds in 24h", M("liquiditybot_probe_budget_refunds_24h"), 8, 5,
+         decimals=0, steps=BLUE,
+         desc="Probes whose token cost was refunded - scratched before "
+              "risking anything.")
+
+    # ---- learned gate weights (collapsed: read on demand) ----------------
+    row("Gate learning", collapsed=True)
+    bargauge("Learned gate weights", _pa("liquiditybot_gate_weight"), 12, 8,
+             legend="{{gate}}", decimals=2, steps=BLUE, mn=0, mx=1,
+             desc="How much say each entry gate has earned from labelled "
+                  "outcomes. A gate near zero is being ignored.")
+    bargauge("Is any gate lying?", _pa("liquiditybot_gate_divergence"),
+             12, 8, legend="{{gate}}", decimals=2, steps=DRIFT, mn=0,
+             desc="Gap between what a gate predicts and what actually "
+                  "happens (divergence from the base rate). High means that "
+                  "gate's opinion is misleading right now.")
+    stat("Labeled rows feeding the gates", M("liquiditybot_gate_labeled"),
+         12, 5, decimals=0, steps=BLUE,
+         desc="Sample size behind the two panels above - small numbers "
+              "mean noisy weights.")
+    stat("Base win rate the gates see", M("liquiditybot_gate_base_rate"),
+         12, 5, unit="percentunit", decimals=1, steps=GRN,
+         desc="The long-run average win rate the gates are judged against.")
+
+
 def _author_problem():
-    """Intentionally empty - board content stripped, see note above."""
-    return
+    """THE PROBLEMS BOARD - what needs attention. Looking empty is GOOD.
 
+    Rebuilt 2026-08-17 from the stripped state. Reading order is the
+    reading order of an incident: posture hero (is anything on fire), the
+    two pager conditions AS THE SAME ARITHMETIC THE RULES RUN (the
+    execution board's lesson: a rule whose inputs are on no board is
+    discovered by being paged), then fault tallies, staleness, the risk
+    brakes, and the audit trail's own health. Every metric verified against
+    gc_pusher.collect() 2026-08-17; the ACCURACY RULE in _author_command
+    applies verbatim.
+    """
+    # ---- hero: is anything on fire? --------------------------------------
+    state("Overall posture", M("liquiditybot_op_state"), 5, 6, OPSTATE,
+          desc="The whole bot's operating state in one word. ARMED is "
+               "normal; anything else is why the bot is holding back.")
+    state("Halted?", M("liquiditybot_halted"), 4, 6, HALT,
+          desc="The master circuit breaker. 'clear' is healthy; HALTED "
+               "blocks all NEW risk while exits keep running.")
+    state("New trades blocked?", M("liquiditybot_watchdog_entries_blocked"),
+          4, 6, {"1": ("BLOCKED", "red"), "0": ("open", "green")},
+          desc="The data watchdog's entry gate. BLOCKED means the feeds are "
+               "too stale or divergent to trust with new money.")
+    stat("Active faults", M("liquiditybot_fault_count"), 4, 6, decimals=0,
+         graph="none", steps=ZERO_BAD,
+         desc="Latched fault conditions right now. Zero is the only good "
+              "number; each fault names its reason code in the audit "
+              "trail.")
+    state("Risk firewall", M("liquiditybot_firewall_fault"), 4, 6,
+          {"1": ("TRIPPED", "red"), "0": ("quiet", "green")},
+          desc="Last line of defense before an order leaves the bot. "
+               "TRIPPED means it latched a violation and refuses new risk.")
+    stat("Data age", M("liquiditybot_status_age_sec"), 3, 6, unit="s",
+         decimals=0, graph="none", size="compact", steps=AGE_STEPS,
+         desc="Seconds since the bot last wrote its status. Past 5 minutes "
+              "every tile on this board describes the past - read it "
+              "first.")
 
-def _author_screening():
-    """Intentionally empty - board content stripped, see note above."""
-    return
+    # ---- the pager's own arithmetic --------------------------------------
+    row("What the pager watches")
+    gap = (f'max(liquiditybot_ml_brier{JOB}) '
+           f'- max(liquiditybot_ml_baseline_brier{JOB})')
+    stat("Model worse than naive by", gap, 8, 6, decimals=4,
+         steps=[{"color": "green", "value": None},
+                {"color": "red", "value": 0.03}],
+         desc="The Brier pager's exact arithmetic "
+              "(liquiditybot_brier_alert.yaml): above 0.03 for 15 minutes "
+              "pages. Red here means the page is coming.")
+    _drift_expr = (f'(max(liquiditybot_ml_drift_share{JOB}) > bool 0.3) * '
+                   f'(max(liquiditybot_monitor_level{JOB}) > bool 0)')
+    state("Drift stuck while degraded", _drift_expr, 8, 6,
+          {"1": ("FIRING", "red"), "0": ("quiet", GRAY_HEX)},
+          desc="The drift pager's exact condition "
+               "(liquiditybot_drift_alert.yaml): feature drift above 30% "
+               "WHILE the governor is degraded, held 30 minutes, pages.")
+    state("Model governor", M("liquiditybot_monitor_level"), 8, 6, GOV,
+          desc="OK / DEGRADED / KILLED - the governor both pagers read. "
+               "The learning board explains why it moved.")
+
+    # ---- faults & rejections ---------------------------------------------
+    row("Faults & rejections")
+    timeseries("Firewall trips by code", _pa("liquiditybot_firewall_count"),
+               12, 8, legend="{{code}}", decimals=0,
+               desc="Cumulative trips per firewall code - FW-070/080/081 "
+                    "are the data-staleness family. A step up is one new "
+                    "trip; codes are decoded in core/codes.py.")
+    timeseries("Decisions by family", _pa("liquiditybot_code_count"), 12, 8,
+               legend="{{prefix}}", decimals=0,
+               desc="Reason-code volume per family (SZ sizing, PT pretrade, "
+                    "CV conviction, ...). One family suddenly dominating is "
+                    "a behavior change worth explaining.")
+    stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 4, 4,
+         decimals=0, graph="none", size="compact", steps=ZERO_BAD,
+         desc="Orders Kraken refused. Zero is normal; a burst usually means "
+              "rate limits or malformed sizes.")
+    stat("Dead-man failures", M("liquiditybot_order_deadman_failures"), 4, 4,
+         decimals=0, graph="none", size="compact", steps=ZERO_BAD,
+         desc="Failed refreshes of the dead-man cancel timer that flattens "
+              "orders if the bot goes silent.")
+    stat("Exit-check failures", M("liquiditybot_exit_eval_failures"), 4, 4,
+         decimals=0, graph="none", size="compact", steps=ZERO_BAD,
+         desc="Cycles where evaluating an exit crashed. Exits are the one "
+              "thing that must never fail - any number here is urgent.")
+    stat("Cycle failures in a row",
+         M("liquiditybot_cycle_consecutive_failures"), 4, 4, decimals=0,
+         graph="none", size="compact", steps=ZERO_BAD,
+         desc="Consecutive whole-cycle crashes. The loop retries, but a "
+              "climb here means it is wedged on something.")
+    stat("Model inference faults", M("liquiditybot_ml_infer_faults"), 4, 4,
+         decimals=0, graph="none", size="compact", steps=ZERO_BAD,
+         desc="Times the model failed to score a candidate and the safe "
+              "default was used instead.")
+    stat("Feature-contract failures", M("liquiditybot_ml_contract_failed"),
+         4, 4, decimals=0, graph="none", size="compact", steps=ZERO_BAD,
+         desc="Feature rows that violated the model's input contract and "
+              "were refused. Rising = the feed and the model disagree "
+              "about the world's shape.")
+
+    # ---- staleness & feeds -----------------------------------------------
+    row("Staleness & feeds")
+    stat("Feed latency", M("liquiditybot_feed_latency_ms"), 4, 5, unit="ms",
+         decimals=0, steps=LAT,
+         desc="Round-trip time fetching market data. Slow feeds mean stale "
+              "decisions.")
+    stat("Price marks age", M("liquiditybot_marks_age_sec"), 4, 5, unit="s",
+         decimals=0, steps=MARKS_AGE,
+         desc="Age of the prices used to value open positions. Old marks "
+              "mean the P&L numbers are guesses.")
+    state("Kraken feed", M("liquiditybot_ws_kraken_connected"), 4, 5, WS,
+          desc="The live price stream. REST means degraded (polling) "
+               "marks, not an outage.")
+    stat("Feed reconnects", M("liquiditybot_ws_kraken_reconnects"), 4, 5,
+         decimals=0, graph="none", steps=RECONNECTS,
+         desc="Times the websocket dropped and re-dialed since restart. A "
+              "climb means an unstable link.")
+    stat("Stale assets", M("liquiditybot_watchdog_stale_assets"), 4, 5,
+         decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Assets whose market data has aged past the watchdog's "
+              "limit. Their entries are blocked until data freshens.")
+    stat("Diverging feeds", M("liquiditybot_watchdog_divergent"), 4, 5,
+         decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Assets where two data sources disagree about the price. "
+              "The bot refuses to trade what it cannot price.")
+    state("Critical data stale", M("liquiditybot_watchdog_critical_stale"),
+          6, 5, {"1": ("STALE", "red"), "0": ("fresh", "green")},
+          desc="Whether any CRITICAL feed aged out. STALE blocks all new "
+               "entries at once.")
+    stat("Do the books add up?", M("liquiditybot_equity_drift_pct"), 6, 5,
+         unit="percent", decimals=2, steps=EQ_DRIFT,
+         desc="Drift between reported equity and an independent recompute. "
+              "Near zero means the accounting is telling the truth.")
+    state("Telemetry", M("liquiditybot_status_stale"), 6, 5,
+          {"1": ("STALE", "red"), "0": ("fresh", "green")},
+          desc="Whether the status write has aged past the exporter's "
+               "threshold. STALE = do not trust the numbers anywhere.")
+    state("Runner", M("liquiditybot_running"), 6, 5, UP_DOWN,
+          desc="Is the bot's own loop alive. STOPPED means everything "
+               "else shown is the last known state, not the current one.")
+
+    # ---- the risk brakes -------------------------------------------------
+    row("Risk brakes")
+    gauge("Daily loss budget used",
+          M("liquiditybot_rp_daily_budget_used_frac"), 6, 7, mn=0, mx=1,
+          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
+          desc="How much of today's allowed loss is spent. At 100% new "
+               "trades stop until the day rolls over - the lockout state "
+               "this board exists to explain.")
+    gauge("Weekly loss budget used",
+          M("liquiditybot_rp_weekly_budget_used_frac"), 6, 7, mn=0, mx=1,
+          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
+          desc="Same as the daily budget, over the trading week. NOTE: a "
+               "capital sweep can inflate this falsely - see the "
+               "budget_reanchor_week control verb.")
+    timeseries("Drawdown vs the hard stop",
+               M("liquiditybot_rp_drawdown_mtm_pct"), 12, 7, unit="percent",
+               legend="drawdown (mark-to-market)", decimals=1,
+               extra=[(M("liquiditybot_rp_hard_stop_dd_pct"),
+                       "hard-stop line")],
+               colors={"drawdown (mark-to-market)": ORANGE_HEX,
+                       "hard-stop line": RED_HEX},
+               desc="The drawdown the catastrophe stop actually watches, "
+                    "against the line where it fires and flattens "
+                    "everything.")
+    stat("Size taper", M("liquiditybot_rp_taper_mult"), 6, 5, decimals=2,
+         graph="none", steps=MULT_LOW_BAD,
+         desc="Multiplier on every new position's size. 1.00 full size; "
+              "lower means the risk stack is shrinking trades.")
+    stat("Drawdown throttle", M("liquiditybot_rp_dd_throttle_mult"), 6, 5,
+         decimals=2, graph="none", steps=MULT_LOW_BAD,
+         desc="Extra size cut applied while climbing out of a drawdown. "
+              "1.00 means no throttle.")
+    stat("Portfolio heat", M("liquiditybot_rp_heat_frac"), 6, 5,
+         unit="percentunit", decimals=1, steps=HEAT,
+         desc="Total risk on the book if every stop filled, as a share of "
+              "equity. The stack caps this near 35%.")
+    stat("Assets circuit-broken", M("liquiditybot_cb_tripped_count"), 6, 5,
+         decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Assets benched for repeated losses. They sit out until "
+              "their cooldown ends.")
+    bargauge("Circuit-breaker cooldown left",
+             _pa("liquiditybot_cb_paused_hours_left"), 12, 6, unit="h",
+             decimals=1, steps=[{"color": "orange", "value": None}],
+             desc="Hours each benched asset still has to sit out. Empty "
+                  "with the tile at zero means nothing is benched - the "
+                  "good state.")
+    bargauge("Loss streak by asset",
+             _pa("liquiditybot_perf_asset_cur_loss_streak"), 12, 6,
+             decimals=0, steps=STREAK,
+             desc="Consecutive losses per asset right now. Streaks are what "
+                  "trip the circuit breaker.")
+
+    # ---- the audit trail's own health ------------------------------------
+    row("Audit & self-health")
+    stat("Audit writes dropped", M("liquiditybot_audit_dropped_writes"),
+         6, 5, decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Audit-trail records that could not be written. The hash "
+              "chain must never lose a link - any number here is urgent.")
+    stat("Audit tail truncations", M("liquiditybot_audit_tail_truncations"),
+         6, 5, decimals=0, graph="none", steps=ZERO_BAD,
+         desc="Times a partial line was cut from the audit tail on "
+              "recovery. Expected zero outside crash recovery.")
+    stat("Bad values dropped by exporter",
+         M("liquiditybot_gauges_dropped_nonfinite"), 6, 5, decimals=0,
+         graph="none", steps=ZERO_BAD,
+         desc="NaN/Infinity values the telemetry exporter refused to "
+              "push. Rising means something upstream is emitting garbage.")
+    stat("Cycles since restart", M("liquiditybot_cycle"), 6, 5, decimals=0,
+         graph="none", steps=BLUE,
+         desc="Decision cycles since the runner last started - a restart "
+              "shows as this resetting to zero (lifetime total: "
+              "liquiditybot_cycle_lifetime).")
 
 
 _TAGS = ["liquiditybot", "trading", "paper-trading"]
 _NAV = [("⌘ Command", "liquiditybot-trading"),
-        ("⚙ Models·Inv·Exec", "liquiditybot-exec"),
-        ("🩹 Problem/Solution", "liquiditybot-problem-solution"),
-        ("🔎 Screening", "liquiditybot-screening")]
+        ("🧠 Learning", "liquiditybot-learning"),
+        ("🚨 Problems", "liquiditybot-problem-solution"),
+        ("⚙ Alert inputs", "liquiditybot-exec")]
 
 
 def _links():
@@ -1177,6 +1699,9 @@ _NO_VALUE_BY_FAMILY = {
         ("event", "no asset circuit-breaker tripped"),
     # gc_pusher.py:898-901  loop over firewall["counters"]
     "liquiditybot_firewall_count": ("event", "no firewall trip recorded"),
+    # gc_pusher.py ws_kraken block — books/reconnects ride the section
+    # (connected itself is always-on and short-circuits before this map)
+    "liquiditybot_ws_": ("section", "kraken websocket block not written"),
     # gc_pusher.py:510-514 / :956-959  per-code tallies
     "liquiditybot_code_count": ("event", "this reason code has not fired"),
     # gc_pusher.py:423-431 / :411-419 / :402-410  performance ledger slices
@@ -1377,25 +1902,26 @@ def _hig_all(d):
 DASHBOARDS = {
     "liquiditybot_command.json": _board(
         "liquiditybot-trading", "liquiditybot — trading desk",
-        "Exchange-style daily driver: equity & P&L vs the rent goal, spot "
-        "positions & risk, performance & bracket-geometry economics, profit "
-        "pools, per-asset edge.", _author_command, "command"),
-    "liquiditybot_execution.json": _board(
-        "liquiditybot-exec", "liquiditybot — models · learning · execution",
-        "Decision-model health, the learning brain & trajectory, admission "
-        "detail, probe budget, and execution fill quality (maker/taker, "
-        "slippage, mark-out).", _author_execution, "execution"),
+        "COMMAND — what is the bot doing right now: equity & P&L, the open "
+        "book, liveness, exposure by asset, fill mix, and the loss-budget "
+        "posture.", _author_command, "command"),
+    "liquiditybot_learning.json": _board(
+        "liquiditybot-learning", "liquiditybot — learning",
+        "LEARNING — is the bot getting smarter, on a 30-day clock: model vs "
+        "naive-guess error, label supply & corpus health, outcome mix, "
+        "model lineage, and what the learning costs.", _author_learning,
+        "learning", time_from="now-30d"),
     "liquiditybot_problem_solution.json": _board(
-        "liquiditybot-problem-solution", "liquiditybot — problem / solution",
-        "Every failure mode as a PROBLEM whose panel shows the live detector "
-        "and names the SOLUTION mechanism handling it — including the audit "
-        "chain's and telemetry's own health.", _author_problem,
-        "diagnostics"),
-    "liquiditybot_screening.json": _board(
-        "liquiditybot-screening", "liquiditybot — screening & market",
-        "Asset screening & market context: skimmer ranks, per-asset "
-        "tradeability scorecard, regime, macro cycle context, THALES "
-        "manipulation defense.", _author_screening, "screening"),
+        "liquiditybot-problem-solution", "liquiditybot — problems",
+        "PROBLEMS — what needs attention: posture, the pager conditions as "
+        "live numbers, faults & rejections, staleness, the risk brakes, and "
+        "the audit trail's own health. Looking empty is good.",
+        _author_problem, "diagnostics"),
+    "liquiditybot_execution.json": _board(
+        "liquiditybot-exec", "liquiditybot — alert inputs",
+        "The alert-input mirror: every metric the Grafana alert rules fire "
+        "on, plus the alert conditions themselves as numbers, with honest "
+        "empty-state text.", _author_execution, "execution"),
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)

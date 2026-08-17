@@ -36,26 +36,25 @@ DASHBOARDS = [
     # liquiditybot-trading, replacing the old monolith). The dedicated
     # glass + mobile boards were retired 2026-07-22; the glass treatment
     # lives in the boards themselves (docs/grafana/README_glass.md).
-    # The Pulse "one screen, one truth" hero USED to live inside the Command
-    # board (operator decision 2026-07-23). It was DELETED 2026-08-15 with
-    # the rest of the board content; do not go looking for it. The family
-    # still stays at four, and all four are still imported: three of them
-    # now carry only the glass injector, and importing an intentionally
-    # empty board is what KEEPS it empty on the instance - skipping it would
-    # leave the old panel-laden version live in Grafana forever.
+    # 2026-08-17 three-link rebuild: the operator's links are COMMAND,
+    # LEARNING and PROBLEMS; EXECUTION stays as the pin-required
+    # alert-input mirror. The family stays at four — the empty screening
+    # board was folded away and its uid moved to RETIRED_UIDS below.
     "liquiditybot_command.json",
-    "liquiditybot_execution.json",
+    "liquiditybot_learning.json",
     "liquiditybot_problem_solution.json",
-    "liquiditybot_screening.json",
+    "liquiditybot_execution.json",
 ]
 
 # Boards retired — deleted from the instance on every run so a re-import
 # can never leave a dead board (with its fixed defects) live. DELETE is
 # idempotent here: 404 = already gone, which is success. glass + mobile
 # retired 2026-07-22; the standalone Pulse board 2026-07-23 (folded into
-# Command the same day it shipped — "not a new one").
+# Command the same day it shipped — "not a new one"); screening 2026-08-17
+# (held only the glass injector — nothing to fold, so it was removed and
+# its slot given to the new LEARNING board).
 RETIRED_UIDS = ["liquiditybot-glass", "liquiditybot-glass-mobile",
-                "liquiditybot-pulse"]
+                "liquiditybot-pulse", "liquiditybot-screening"]
 
 
 def _req(url: str, token: str, payload: dict | None = None, method=None):
