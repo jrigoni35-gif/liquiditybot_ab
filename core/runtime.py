@@ -182,12 +182,29 @@ def durable_append(path, render, *, header: str = "", newline: str = "",
 
 def read_json(path: Path):
     """Best-effort UTF-8 JSON read: the parsed payload, or None on any
-    OS/parse error (never raises - readers must not wedge on a torn file)."""
+    OS/parse/decode error (never raises - readers must not wedge on a torn
+    file). ValueError, not JSONDecodeError: a non-UTF8 byte in the file
+    raises UnicodeDecodeError - a ValueError that is NOT a JSONDecodeError -
+    and the one caller that runs OUTSIDE any guarded loop
+    (SingleInstanceLock.refresh, once per pc_supervisor cycle) turned that
+    single uncaught path into a silent process death under pythonw
+    (2026-08-16 incident: nothing on stderr, exit 1, whole job torn down)."""
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None
+
+
+def _heartbeat_age(rec: dict) -> float:
+    """Seconds since `rec`'s lock heartbeat; +inf when the field is missing,
+    empty, or garbage. Unprovable liveness must read as STALE - a corrupt
+    lock is then reclaimed and rewritten instead of float() raising out of
+    a supervisor/runner loop (same never-raise discipline as read_json)."""
+    try:
+        return time.time() - float(rec.get("heartbeat", 0) or 0)
+    except (TypeError, ValueError):
+        return float("inf")
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +328,7 @@ class SingleInstanceLock:
                     self.refresh()              # our own lock: reclaim
                     return None
                 if isinstance(cur, dict):
-                    age = time.time() - float(cur.get("heartbeat", 0) or 0)
-                    if age < self.stale_after:
+                    if _heartbeat_age(cur) < self.stale_after:
                         return cur              # a live peer owns it
                     # a stale, READABLE foreign lock -> safe to reclaim below
                 else:
@@ -377,8 +393,7 @@ class SingleInstanceLock:
         Deterministic winner, still portable (no fcntl on Windows)."""
         cur = read_json(self.path)
         if isinstance(cur, dict) and cur.get("pid") != self.pid:
-            age = time.time() - float(cur.get("heartbeat", 0) or 0)
-            if age < self.stale_after:
+            if _heartbeat_age(cur) < self.stale_after:
                 self.lost_count += 1            # a LIVE peer owns the dir
                 return False
         try:
