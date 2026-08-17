@@ -1,6 +1,6 @@
-# Overfit audit — 2026-08-15 16:13 UTC
+# Overfit audit — 2026-08-17 01:04 UTC
 
-Dataset: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, not market
+Dataset: SYNTHETIC benchmark (loaded rows=488 < 640) — validating machinery, not market
 
 - **PASS** gap[logistic]: OOF gap within memorization band — train_auc=0.645 oof_auc=0.619 gap=+0.026
 - **PASS** gap[gbt]: OOF gap within memorization band — train_auc=0.686 oof_auc=0.605 gap=+0.081
@@ -20,7 +20,7 @@ Dataset: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, n
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
-- **INFO** dsr — DEFERRED — 22 conviction-marked live trades < 30 (mixed n=327); mixed-sample dsr=0.000 sr=-0.48; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
+- **INFO** dsr — DEFERRED — 24 conviction-marked live trades < 30 (mixed n=331); mixed-sample dsr=0.000 sr=-0.48; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 - **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
 - **INFO** regime diagnostic — SYNTHETIC benchmark dataset — candidate/live split & base rate n/a (no signal_history.csv correspondence); OOF numbers below validate the machinery on the planted-signal benchmark, not a market read
 - **INFO** regime[bull_quiet] oof — oof_n=1097 auc=0.629 (pooled 0.605, delta_auc=+0.024) brier=0.2387 (pooled 0.2423, delta_brier=-0.0036)
@@ -30,6 +30,6 @@ Dataset: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, n
 
 7 passed, 0 failed (30s)
 
-Corpus: SYNTHETIC benchmark (loaded rows=347 < 640) — validating machinery, not market
+Corpus: SYNTHETIC benchmark (loaded rows=488 < 640) — validating machinery, not market
 
 > **This green validates the OVERFIT MACHINERY, not the market.** It is not evidence that the deployed strategy is un-overfit.
