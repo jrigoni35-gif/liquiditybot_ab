@@ -15,7 +15,21 @@ and no fragile Windows command-line scraping:
 
 The runner's SingleInstanceLock makes a relaunch safe even if the old one is
 merely hung (the duplicate is refused, not doubled). Fail-safe throughout: any
-error logs one line and retries next tick; the bot never depends on this.
+error logs one line WITH ITS TRACEBACK and retries next tick; the bot never
+depends on this.
+
+JOB-OBJECT HAZARD (2026-08-16 incident): when Task Scheduler launches this
+script, the task wraps it in a job object; children spawned without a
+successful CREATE_BREAKAWAY_FROM_JOB inherit it and are KILLED when this
+process exits (the scheduler tears the job down). _spawn tries breakaway
+first and logs LOUDLY when the job denies it; main() logs the live job/
+breakaway status at startup (_job_status). When breakaway is denied the
+children's survival depends entirely on this process not dying - hence the
+never-die-silently loop (_guarded_iteration) and exit forensics
+(_arm_exit_forensics) - and on the external revival layer (the keepalive
+scheduled task): verify that task's repetition never expires
+(schtasks /query /v; a One-Time trigger with StopAtDurationEnd stops
+reviving forever once its duration lapses).
 
 Telemetry token: materialised once from the GC_OTLP_TOKEN env var (set it as a
 Windows user environment variable) into ~/.liquiditybot/gc-token, matching the
@@ -24,12 +38,14 @@ cloud hook — so the pushers find it without a token ever entering git.
 Run it directly to test (Ctrl+C to stop); Task Scheduler runs it directly
 via .venv\\Scripts\\pythonw.exe at logon (see scripts/install_autostart.ps1).
 """
+import atexit
 import json
 import os
 import socket
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import time
+import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -266,16 +282,95 @@ def _spawn(argv: list, own_log: bool = True) -> None:
                          **kwargs)
         return
     base = 0x08000000 | 0x00000200
+    err: OSError | None = None
     for flags in (base | 0x01000000, base):     # breakaway, then in-job
         try:
             subprocess.Popen(argv, stdout=out,               # nosec B603
                              stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL,
                              creationflags=flags, **kwargs)
+            if not flags & 0x01000000:
+                # LOUD by design (2026-08-16 incident): this fallback was
+                # silent, so the forensics could not say whether children
+                # sat inside the task's job. They did - when the supervisor
+                # exited, the job teardown killed the runner and every
+                # pusher within one heartbeat. If this line appears, the
+                # children WILL die with this process; only an external
+                # revival layer (keepalive task) brings them back.
+                log(f"spawn {argv[1]!r}: job denies breakaway ({err}) - "
+                    f"child is IN the task job and dies with this process")
             return
-        except OSError:
+        except OSError as e:
+            err = e
             continue        # job denies breakaway -> retry inside the job
-    log(f"spawn failed for {argv[1]!r} (both flag sets refused)")
+    log(f"spawn failed for {argv[1]!r} (both flag sets refused: {err})")
+
+
+def _job_status() -> str:
+    """One honest startup line about the Windows JOB OBJECT this process
+    sits in - asked of the live kernel, never inferred. The 2026-08-16
+    incident hinged on exactly this being unknowable after the fact: the
+    supervisor exited, Task Scheduler tore its job down, and the runner +
+    every pusher died inside one heartbeat - and no log line ever said the
+    children were in the job (the breakaway fallback in _spawn was
+    silent). JOB_OBJECT_LIMIT_BREAKAWAY_OK (0x800) governs whether _spawn's
+    CREATE_BREAKAWAY_FROM_JOB can succeed; without it every child is
+    hostage to this process's exit. Fail-safe: any probe failure returns a
+    string saying so - this is forensics, never a gate."""
+    if not IS_WIN:
+        return "n/a (posix session semantics)"
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        in_job = wintypes.BOOL(0)
+        if not k32.IsProcessInJob(k32.GetCurrentProcess(), None,
+                                  ctypes.byref(in_job)):
+            return "unknown (IsProcessInJob failed)"
+        if not in_job.value:
+            return "not in a job - children survive this process's exit"
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOperationCount", "WriteOperationCount",
+                "OtherOperationCount", "ReadTransferCount",
+                "WriteTransferCount", "OtherTransferCount")]
+
+        class _BasicLimits(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t),    # ULONG_PTR
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class _ExtendedLimits(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", _BasicLimits),
+                        ("IoInfo", _IoCounters),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        info = _ExtendedLimits()
+        ok = k32.QueryInformationJobObject(
+            None, 9,               # 9 = JobObjectExtendedLimitInformation,
+            ctypes.byref(info),    # NULL handle = the job WE are in
+            ctypes.sizeof(info), None)
+        if not ok:
+            return "IN a job (limit flags unreadable)"
+        flags = int(info.BasicLimitInformation.LimitFlags)
+        breakaway = bool(flags & 0x00000800)      # BREAKAWAY_OK
+        kill_on_close = bool(flags & 0x00002000)  # KILL_ON_JOB_CLOSE
+        return (f"IN a job: limits=0x{flags:08x} breakaway_ok={breakaway} "
+                f"kill_on_job_close={kill_on_close}"
+                + ("" if breakaway else " - children CANNOT break away "
+                   "and die when this process exits"))
+    except Exception as e:            # noqa: BLE001 - forensics, never a gate
+        return f"unknown ({e})"
 
 
 # boot-grace spawn throttle: a freshly spawned runner takes minutes to boot
@@ -814,6 +909,35 @@ def _stagger_stamps() -> None:
             pass                             # stagger is best-effort
 
 
+def _guarded_iteration() -> bool:
+    """ONE supervisor loop iteration under the never-die-silently contract.
+
+    2026-08-16 incident: pid 15160 (Task Scheduler, pythonw) exited 1 five
+    minutes after logon with NOTHING in its own log, and the task's job
+    object took the runner and all three pushers down within one heartbeat
+    - a gate whose failure killed the thing it guards. The old loop guarded
+    tick() but ran `_LOCK.refresh()` OUTSIDE the try, so any raise there
+    (e.g. a decode error off a corrupt lock file) was an instant silent
+    death: under pythonw an unhandled traceback goes nowhere. Now BOTH are
+    guarded, exceptions log their FULL traceback, and the loop continues.
+    Returns False only for the one legitimate exit here (lock forfeited to
+    a live peer). The source-change handoff's SystemExit propagates
+    untouched - tests/test_pc_supervisor_lock.py pins that contract."""
+    try:
+        tick()
+    except SystemExit:
+        raise                                    # handoff already released
+    except Exception:                            # fail-safe: never wedge
+        log(f"tick error (continuing):\n{traceback.format_exc()}")
+    try:
+        if not _LOCK.refresh() and _LOCK.forfeited:  # type: ignore[union-attr]
+            log("lost the supervisor lock to a live peer — exiting")
+            return False                         # peer owns outputs/ now
+    except Exception:                            # the old silent-death path
+        log(f"lock refresh error (continuing):\n{traceback.format_exc()}")
+    return True
+
+
 def main() -> None:
     global _LOCK
     _stagger_stamps()
@@ -825,28 +949,80 @@ def main() -> None:
         return
     log(f"start (python={PY}, check={CHECK_SEC:.0f}s, stale={STALE_SEC:.0f}s, "
         f"lock pid={os.getpid()})")
+    log(f"job status: {_job_status()}")
     _materialise_token()
     if not _telemetry_ready():
         log("no GC_OTLP_URL/GC_INSTANCE_ID/token — running bot only, no push")
     try:
         while True:
-            try:
-                tick()
-            except SystemExit:
-                raise                                # handoff already released
-            except Exception as e:                   # fail-safe: never wedge
-                log(f"tick error (continuing): {e}")
-            if not _LOCK.refresh() and _LOCK.forfeited:
-                log("lost the supervisor lock to a live peer — exiting")
-                return                               # peer owns outputs/ now
+            if not _guarded_iteration():
+                return
             time.sleep(CHECK_SEC)
     finally:
         _LOCK.release()                              # ownership-aware: never
                                                      # deletes a peer's lock
 
 
-if __name__ == "__main__":
+_EXIT_HOOKS_ARMED = False
+
+
+def _arm_exit_forensics() -> None:
+    """atexit + faulthandler so this process can no longer END without a
+    trace. Every Python-level exit (return, sys.exit, unhandled exception)
+    now appends a 'process exit' line; faulthandler catches native-level
+    deaths (access violations) into pc_supervisor_fault.log. The
+    contrapositive is the forensic payoff the 2026-08-16 incident lacked:
+    a dead supervisor whose log has NO exit line was killed from OUTSIDE
+    python (TerminateProcess / power) - previously indistinguishable from
+    a silent crash. The log path is captured at arm time so the atexit
+    write lands where THIS process actually logged."""
+    global _EXIT_HOOKS_ARMED
+    if _EXIT_HOOKS_ARMED:
+        return
+    _EXIT_HOOKS_ARMED = True
+    path = LOG_PATH
+
+    def _log_exit() -> None:
+        line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} pc_supervisor: "
+                f"process exit (pid {os.getpid()})")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+    atexit.register(_log_exit)
+    try:
+        import faulthandler
+        faulthandler.enable(
+            open(path.with_name("pc_supervisor_fault.log"),  # noqa: SIM115
+                 "a", encoding="utf-8"))   # handle lives for the process
+    except Exception as e:                # noqa: BLE001 - forensics only
+        log(f"faulthandler not armed ({e}) - native-crash forensics off")
+
+
+def _main_guarded() -> int:
+    """Exit-proof top level (2026-08-16): under pythonw an unhandled
+    exception's traceback ceases to exist and the process just vanishes
+    with rc 1 - then Task Scheduler tears down the job and the whole stack
+    goes dark. Every death path now logs before the process ends. The exit
+    code contract is unchanged: unhandled -> 1, Ctrl+C -> 0, the
+    source-change handoff -> its own SystemExit code."""
+    _arm_exit_forensics()
     try:
         main()
+        return 0
     except KeyboardInterrupt:
-        sys.exit(0)
+        return 0
+    except SystemExit as e:                      # handoff: reason already logged
+        if isinstance(e.code, int):
+            return e.code
+        return 0 if e.code is None else 1
+    except BaseException:                        # noqa: BLE001 - last resort
+        log(f"FATAL: unhandled exception — exiting 1:\n"
+            f"{traceback.format_exc()}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(_main_guarded())
