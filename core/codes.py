@@ -49,6 +49,17 @@ class Code(str, Enum):
     FW_NO_REFERENCE = "FW-060"
     FW_HEDGE_CHURN_LATCH = "FW-070"  # >=N hedge unwinds of one asset in the window: re-hedging frozen (opens only, auto-releases warm+window; 2026-08-07 ADA churn, -$318 in 147 laps)
     FW_STALE_BARS = "FW-080"         # venue bars accepted into the view whose LAST bar timestamp lags the engine clock (latency audit 2026-08-07: fetch age was checked, bar age never; detection only)
+    FW_LABEL_BARS_STALE = "FW-081"   # an ACTIVE (symbol_map) asset's labeler
+    #   bars cache (ml/history.py CandidateLabeler._bars) stopped
+    #   accumulating: last cached bar older than ml.label_bars_stale_cycles
+    #   slow-cycles. Complements FW-080, which only fires when a fresh-enough
+    #   Kraken fetch EXISTS (main._augment_view_with_kraken skips absent/aged
+    #   _kr_candles entries entirely) - FW-081 watches the CONSUMER side, so a
+    #   fetch path that dies outright is still audible. Staleness audit
+    #   2026-08-16: DOT/SOL caches sat 157h/36h stale with zero log lines -
+    #   that instance was legitimate skimmer rotation (assets left the boot
+    #   universe), which is why this checks ACTIVE assets only. Latched once
+    #   per stale episode per asset, re-armed on fresh bars; detection only.
     FW_FAULT_REJECT = "FW-090"
     FW_FAULT_DEGRADED = "FW-091"
 
