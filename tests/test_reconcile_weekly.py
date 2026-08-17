@@ -174,6 +174,19 @@ def test_duplicate_fill_pattern_deduped_and_counted(tmp_path):
     assert rep["positions"]["total"] == 5          # P1 P2 P3 P4 P6
 
 
+def test_opening_fee_bridge_per_week_per_book(tmp_path):
+    """Opening-leg fees are in NO weekly row (record_entry_fee debits
+    cash directly) — the bridge must carry them per week per book, and
+    the duplicate position's 0.10 entry fee must NOT be double-counted
+    (W02 entry would read 0.21 if the dedupe leaked)."""
+    rep = _report(tmp_path)
+    w2, w3 = rep["weeks"]["2026-W02"], rep["weeks"]["2026-W03"]
+    assert w2["open_fees_entry"] == 0.11        # P1 0.10 + P6 0.01
+    assert w2["open_fees_hedge"] == 0.10        # P2
+    assert w3["open_fees_entry"] == 0.10        # P3 0.05 + P4 0.05
+    assert w3["open_fees_hedge"] == 0.0
+
+
 def test_orphan_exit_counted_never_priced(tmp_path):
     rep = _report(tmp_path)
     assert rep["skipped"]["orphan_exit_leg"] == 1

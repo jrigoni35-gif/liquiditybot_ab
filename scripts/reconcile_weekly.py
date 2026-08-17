@@ -45,6 +45,17 @@ THE WATERFALL (stages cumulative, per ISO week):
   r_i = ledger weekly_realized - s_i  (per week; blank when the week has
   no ledger row yet — the current ISO week closes at the next boundary).
 
+THE OPENING-LEG FEE BRIDGE (first live run, 2026-08-17): the waterfall
+proved RP-070 exact at its own grain (r0 == 0 on the sweep-free closed
+weeks), and the headline gap against full-net cash-flow books turned out
+to be NONE of the three named confounds: it is the opening-leg fee
+stack. record_entry_fee debits entry/hedge fees straight to cash at fill
+time, so they are IN equity but NEVER in any weekly_realized row — the
+same invisible-population shape as the 2026-08-09 all-time-P&L finding,
+here quantified per ISO week. The report carries these fees per week per
+book so a cash-flow book can be bridged to RP-070 exactly:
+  cashflow_week ~= s0_week - open_fees_week  (+/- cross-week attribution)
+
 DEDUPLICATION: positions are deduped by FILL PATTERN, not position_id
 (the restart-replay bug wrote one ETH position under 16 position_ids;
 see scripts/cost_attribution.py — same signature tuple here).
@@ -163,7 +174,10 @@ def build_positions(rows):
     sgn*(px-avg)*size - exit_fee and leave the average unchanged).
 
     Returns (positions, skipped): positions deduped by fill pattern, each
-      {pid, is_hedge, closed, close_week, legs:[{ts, week, net}]}.
+      {pid, is_hedge, closed, close_week, legs:[{ts, week, net}],
+       open_fees:[{week, fee}]}  (opening-leg fees ride along for the
+      fee-bridge section — deduped with their position, so a replayed
+      position's fees are not double-counted either).
     Orphan exits (no opening fill in the file) cannot price a basis and
     are counted, never guessed."""
     by_pid = defaultdict(list)
@@ -179,6 +193,7 @@ def build_positions(rows):
         seen.add(sig)
         size = avg = max_size = 0.0
         sgn, is_hedge, legs, orphaned = 0.0, False, [], False
+        open_fees = []
         for f in fills:
             if f["purpose"] in _OPEN_PURPOSES:
                 if size <= 0.0 and sgn == 0.0:
@@ -188,6 +203,8 @@ def build_positions(rows):
                 avg = (avg * size + f["price"] * f["size"]) / total
                 size = total
                 max_size = max(max_size, size)
+                open_fees.append({"week": iso_week_key(f["ts"]),
+                                  "fee": f["fee"]})
             else:                                  # exit leg
                 if sgn == 0.0:
                     orphaned = True
@@ -204,8 +221,26 @@ def build_positions(rows):
         positions.append({
             "pid": pid, "is_hedge": is_hedge, "closed": closed,
             "close_week": legs[-1]["week"] if closed else None,
-            "legs": legs})
+            "legs": legs, "open_fees": open_fees})
     return positions, skipped
+
+
+def opening_fee_bridge(positions):
+    """Per-ISO-week opening-leg (entry/hedge) fees, split by book.
+
+    RP-070's weekly number is exit-fee-net ONLY: record_entry_fee debits
+    opening fees straight to cash, so they appear in NO weekly row. A
+    full-net cash-flow book therefore reads lower than RP-070 by exactly
+    this stack (+/- cross-week attribution) — the first live run's whole
+    W32 headline gap (161.48 of 161.34) was these fees, not any of the
+    three named confounds."""
+    fees = defaultdict(lambda: {"entry": 0.0, "hedge": 0.0})
+    for pos in positions:
+        book = "hedge" if pos["is_hedge"] else "entry"
+        for of in pos["open_fees"]:
+            fees[of["week"]][book] += of["fee"]
+    return {wk: {k: round(v, 2) for k, v in d.items()}
+            for wk, d in fees.items()}
 
 
 # --------------------------------------------------------------------------
@@ -311,9 +346,10 @@ def build_report(fills_path: Path, ledger_path: Path, sweeps):
     if "missing" not in ledger_stamp:
         ledger_stamp["rows"] = len(ledger_rows)
     stages = waterfall(positions, sweeps)
+    fee_bridge = opening_fee_bridge(positions)
     chain = chain_check(ledger_rows)
     ledger_by_week = {r["week"]: r["weekly_realized"] for r in ledger_rows}
-    weeks = sorted(set(ledger_by_week)
+    weeks = sorted(set(ledger_by_week) | set(fee_bridge)
                    | {w for s in ("s0", "s1", "s2", "s3")
                       for w in stages[s]})
     table = {}
@@ -328,6 +364,9 @@ def build_report(fills_path: Path, ledger_path: Path, sweeps):
         row["presweep_legs"] = round(
             stages["presweep_legs"].get(wk, 0.0), 2)
         row["tier_shift"] = round(stages["tier_shift"].get(wk, 0.0), 2)
+        fb = fee_bridge.get(wk, {"entry": 0.0, "hedge": 0.0})
+        row["open_fees_entry"] = fb["entry"]
+        row["open_fees_hedge"] = fb["hedge"]
         table[wk] = row
     n_hedge = sum(1 for p in positions if p["is_hedge"])
     n_closed = sum(1 for p in positions if p["closed"])
@@ -407,6 +446,16 @@ def render_text(rep: dict) -> str:
         out.append(f"  {wk:9s} hedge={row['hedge_legs']:+9.2f}  "
                    f"presweep={row['presweep_legs']:+9.2f}  "
                    f"tier_shift={row['tier_shift']:+9.2f}")
+    out += ["", "    opening-leg fee bridge (NOT in any weekly row - "
+            "record_entry_fee debits",
+            "    cash directly; a full-net cash-flow book ~= s0 minus "
+            "these, +/- cross-week",
+            "    attribution)"]
+    for wk, row in rep["weeks"].items():
+        tot = row["open_fees_entry"] + row["open_fees_hedge"]
+        out.append(f"  {wk:9s} entry_open_fees={row['open_fees_entry']:8.2f}"
+                   f"  hedge_open_fees={row['open_fees_hedge']:8.2f}"
+                   f"  total={tot:8.2f}")
     out += ["", "[4] reading the residuals",
             "  RP-070 books per exit LEG, HEDGE-INCLUSIVE, exit-fee-net "
             "(measured from",
