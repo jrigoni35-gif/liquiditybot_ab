@@ -2,9 +2,9 @@
 
 **Verdict: SD-002 model starvation loop**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-17 15:34 UTC (919.69h, ~2489 cycles)
-- Equity: $25,000.00 -> $798.78 (range $99,208.70) | realized PnL $-0.05 | fees $3.13
-- Activity: 3 open | 332 live labeled trades | 10539 candidates | 283 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-17 16:34 UTC (920.69h, ~2607 cycles)
+- Equity: $25,000.00 -> $798.79 (range $99,208.70) | realized PnL $-0.05 | fees $3.13
+- Activity: 3 open | 332 live labeled trades | 10545 candidates | 283 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 332 | cold=True
 - Audit: 45225 records (35286 non-routine) | dominant SZ-047 (63% of non-routine) | chain_ok=False (tamper=False, seams=8) | retrain_requests 118
 - Liquidity: spoofy 60% of classified cycles | feed errors 269
