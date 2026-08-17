@@ -1,8 +1,11 @@
 # Era-4 readout decision table (pre-registration)
 
-**Status: UNSIGNED. Awaiting operator signature (§4). Amended 2026-08-16:
-convention rider §4.1 (owed 82/82(b)) — the signature now names its floor
-convention and estimator; no §2 number recomputed.**
+**Status: SIGNED 2026-08-17T01:00Z — operator adjudication recorded live in
+session 55a25968 (per-blank Q&A, inscribed verbatim). Scope: BOTH gates.
+Actions: NO_GROSS_EDGE→1D, COST_BOUND→2D, CONTINUE→3A, larger n=100.
+Convention: 80%-power MDE. Contamination: all rows accepted, incl. the
+adjudicated c031d650 mark-repair exception (see note below §4 block).
+Amended 2026-08-16: convention rider §4.1 (owed 82/82(b)).**
 
 ## Preamble
 
@@ -402,61 +405,94 @@ which is the failure this document exists to prevent.
 ERA-4 READOUT DECISION TABLE — OPERATOR SIGNATURE
 =================================================
 
-Date signed (UTC) : ____________________________________
+Date signed (UTC) : 2026-08-17T01:00Z — operator adjudication recorded
+                    live in Claude session 55a25968 (explicit Q&A, each
+                    blank answered as a separate question)
 
 Scope of this signature (circle or strike):
     [ ] era-4 gate ONLY (ERA4_MIN_N = 50, cohort_eval.py:125)
-    [ ] era-4 gate AND legacy 2026-08-02 gate (MIN_COHORT_N = 50, :79)
+    [X] era-4 gate AND legacy 2026-08-02 gate (MIN_COHORT_N = 50, :79)
         -- the legacy gate is 26 closes AHEAD and reads out FIRST (§1.3)
 
 Pre-committed action, one id per verdict:
 
-    NO_GROSS_EDGE  -> action id ______   (1A halt / 1B re-scope /
+    NO_GROSS_EDGE  -> action id [1D]     (1A halt / 1B re-scope /
                                           1C cost programme (OVERRIDE) /
                                           1D accrue to larger n)
 
-    COST_BOUND     -> action id ______   (2A fee tier / 2B maker-only /
+    COST_BOUND     -> action id [2D]     (2A fee tier / 2B maker-only /
                                           2C horizon / 2D fewer-larger /
                                           2E accrue to larger n / 2F halt)
+                     operator intent, verbatim: "do it for the most
+                     disciplined aggressive profit" -- 2D chosen as the
+                     only lever class the 2026-08-16 feasibility table
+                     leaves open (fee tiers/maker-only insufficient at
+                     every rung); executes with the ALGO-5 + 40/80
+                     fee-correction batch already adjudicated for this
+                     boundary (owed 88)
 
-    CONTINUE       -> action id ______   (3A accrue to larger n /
+    CONTINUE       -> action id [3A]     (3A accrue to larger n /
                                           3B unfreeze model / 3C arm live /
                                           3D scale capital / 3E halt)
 
 If any chosen action is "accrue to a larger n", the larger n is fixed
 HERE and may not be revised after the readout:
 
-    larger n = ______      (leave blank if no branch uses it)
+    larger n = 100         (binds 1D and 3A; ~15-18 days past first
+                            readout at realized 2.8-3.3 closes/day)
 
 Cohort contamination (§2.3) is adjudicated as follows -- required,
 because the readout's population is not the one the registration
 described:
 
-    4 of 14 trips carry stale-binary legs ..... [ ] accept  [ ] void cohort
-    7 of 14 trips straddle a model deploy ..... [ ] accept  [ ] void cohort
-    93% probe admissions (13 of 14) ........... [ ] accept  [ ] void cohort
-    2 label eras in one cohort ................ [ ] accept  [ ] void cohort
+    4 of 14 trips carry stale-binary legs ..... [X] accept  [ ] void cohort
+    7 of 14 trips straddle a model deploy ..... [X] accept  [ ] void cohort
+    93% probe admissions (13 of 14) ........... [X] accept  [ ] void cohort
+    2 label eras in one cohort ................ [X] accept  [ ] void cohort
+    1 trip's exit-mark feed restored mid-flight
+      (SOL/USD c031d650 - off-universe mark
+      starvation repair, adjudicated 2026-08-17
+      as a broken-exit-path BUG FIX, not a
+      geometry change; see exception note
+      below the block) ........................ [X] accept  [ ] void cohort
 
 I acknowledge (§2.2) that at n=50 the projected resolvable-edge floor is
 1.3974% to 1.7292% gross per trade, and that a verdict triggered by a
 mean smaller than that floor is not a measured effect:
 
-    initials ______
+    initials [JR - recorded]
 
 Convention rider (§4.1) — REQUIRED, the signature is void without it:
 
     The floor convention this signature commits to (circle ONE;
     the two differ by 40.1%):
         [ ] 2*SE detection threshold
-        [ ] 80%-power MDE (multiplier 2.8016)
+        [X] 80%-power MDE (multiplier 2.8016)
 
     I acknowledge every sd/SE above uses the POPULATION (pstdev)
-    estimator - the optimistic side (owed 82(b)) ...... initials ______
+    estimator - the optimistic side (owed 82(b)) ...... initials [JR - recorded]
 
 I am signing this BEFORE seeing the readout.
 
-    initials ______        signature ______________________________
+    initials [JR - recorded]
+    signature: jrigoni35-gif (operator) — commitments given as
+    explicit per-blank answers in Claude session 55a25968,
+    2026-08-17T01:00Z; inscribed verbatim by the session, not
+    inferred. §5.1's structural caveat applies as written.
 ```
+
+**Exception note (2026-08-17, operator-adjudicated, recorded with the
+signature so §5.3 cannot read it as a silent boundary):** the off-universe
+mark-starvation repair (commit lineage `6eaa1564`: marks/books restored for
+open positions whose asset left the trading universe) is classed a
+**broken-exit-path bug fix**, not a stop/exit-geometry change — it moves no
+stop, alters no placement/nudge/time-limit, and restores price DATA to
+existing exit logic that had structurally stopped running (the SOL/USD trip's
+stop compare had never executed; `marks_confirmed` was disabling the
+equity-peak ratchet and catastrophe hard-stop trigger book-wide). The one
+affected accruing trip (`c031d650`) is flagged in the §2.3 contamination row
+above and accepted. Any FUTURE change that moves exit data availability for
+in-universe trips remains §5.3 cohort-resetting as written.
 
 **Note on that last line.** It is true for the **era-4** gate at n=14/50. It is
 **not** fully true in the sense the phrase implies — §2 of this document
