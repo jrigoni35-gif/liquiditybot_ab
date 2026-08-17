@@ -2563,6 +2563,78 @@ class LiquidityBot:
     # ------------------------------------------------------------------
     # FAST cycle
     # ------------------------------------------------------------------
+    def _offuniverse_position_pairs(self) -> dict:
+        """asset -> (config symbol, Kraken REST pair) for every asset holding
+        an OPEN position (entries AND hedges) that is NOT in the current
+        trading universe.
+
+        WHY THIS EXISTS (broken-exit-path fix, 2026-08-16): symbol_map is
+        built ONCE in __init__ from config trading_pairs, AFTER runner.py's
+        merge_skimmer_universe widened them for this boot — so the universe
+        can shrink across a reboot (skimmer replace-hysteresis rotates a
+        candidate out) while a position on the rotated-out asset is still
+        open in the restored snapshot. marks/_mark_ts/kraken_books start
+        EMPTY every process and the fast-cycle refresh used to cover ONLY
+        symbol_map, so such a position had NO mark at all: _manage_open_
+        position early-returns on a missing mark and its protective stop
+        could never fire, forever. Every asset this returns joins the SAME
+        batched Ticker call (one request regardless — never per-asset
+        ticker calls) plus one Depth call, exactly the budget the asset
+        consumed while it was still in the universe; the set self-empties
+        as those positions close."""
+        extra: dict = {}
+        for p in self.state.open_positions():
+            a = self._asset_of(p.symbol)
+            if a in self.symbol_map or a in extra:
+                continue
+            extra[a] = (p.symbol, self.kraken.kraken_pair(p.symbol))
+        return extra
+
+    def _refresh_offuniverse_marks(self, offuni: dict, marks: dict,
+                                   now: float) -> None:
+        """Mark + book refresh for the off-universe open-position assets
+        (`offuni` from _offuniverse_position_pairs; `marks` is the SAME
+        batched-Ticker result the universe loop consumed — the batch was
+        widened, no second Ticker call). Mirrors the universe loop in
+        fast_cycle: tick quarantine via watchdog.filter_mark, freshness
+        stamp, ws-cache-then-REST book, book_ts DATA-time stamp, and the
+        book-mid fallback for a silently-stalled ticker. Deliberately NOT
+        mirrored: THALES observe_feed_health/observe_fast (entry-side
+        measurement streams for the trading universe; these assets take no
+        entries). The book matters beyond pricing: the dry-run fill
+        simulator (_poll_dry) only fills against a book in `kraken_books`,
+        so without it a fired stop's exit order could never fill on paper."""
+        for asset, (symbol, pair) in offuni.items():
+            px = marks.get(pair)
+            if px:
+                mark, stop_ok = self.watchdog.filter_mark(asset, px)
+                self.marks[symbol] = mark
+                self._mark_ts[symbol] = now
+                self._stamp_mark_wall(symbol)    # telemetry only
+                self._stop_ok[asset] = stop_ok
+            book = None
+            if self.kraken_ws is not None:
+                try:
+                    book = self.kraken_ws.get_order_book(pair)
+                except Exception:
+                    book = None
+            if book is None:
+                book = self.kraken.get_order_book(pair)
+            if book:
+                self.kraken_books[asset] = book
+                self.book_ts[asset] = float(book.get("recv_ts") or now)
+                if not px:
+                    bids = book.get("bids") or []
+                    asks = book.get("asks") or []
+                    if bids and asks:
+                        mid = 0.5 * (bids[0][0] + asks[0][0])
+                        if mid > 0:
+                            m, ok = self.watchdog.filter_mark(asset, mid)
+                            self.marks[symbol] = m
+                            self._mark_ts[symbol] = now
+                            self._stamp_mark_wall(symbol)
+                            self._stop_ok[asset] = ok
+
     def fast_cycle(self, now: float) -> None:
         if getattr(self, "_last_entry_admit_ts", None) is None:
             # W2-18: seed the ML-073 drought clock from the first now this
@@ -2587,7 +2659,15 @@ class LiquidityBot:
         # no new data arrives, so the reset never runs stops on stale data.
         if self._stop_ok:
             self._stop_ok = dict.fromkeys(self._stop_ok, True)
-        marks = self.kraken.get_tickers(self._pair_list)
+        # union(universe, open-position assets): an asset rotated out of the
+        # universe at a reboot (skimmer) while still holding an open position
+        # must keep receiving marks or its stop evaluates a missing/frozen
+        # price forever — see _offuniverse_position_pairs. Same ONE Ticker
+        # request either way; only the pair parameter widens.
+        offuni = self._offuniverse_position_pairs()
+        marks = self.kraken.get_tickers(
+            self._pair_list + [pr for _s, pr in offuni.values()]
+            if offuni else self._pair_list)
         # Books stay a SERIAL loop: measured live, parallelizing the 6 fetches
         # saved ~0ms (serial 2004ms vs parallel 2014ms) because the Kraken 3/s
         # rate limit is the binding constraint - concurrency can't beat a wall
@@ -2651,6 +2731,17 @@ class LiquidityBot:
                             self._mark_ts[symbol] = now
                             self._stamp_mark_wall(symbol)
                             self._stop_ok[asset] = ok
+
+        # off-universe open-position assets: same mark/book refresh from the
+        # SAME batched-Ticker result, isolated (invariant #5: a raise in new
+        # refresh code must never starve the stop loop for everyone else).
+        if offuni:
+            try:
+                self._refresh_offuniverse_marks(offuni, marks, now)
+            except Exception:
+                self._exit_eval_failures += 1
+                log.exception("off-universe mark refresh raised - isolated; "
+                              "stop loop still runs")
 
         # execution algos: release due child slices (paced). ISOLATED, like
         # every pre-stop stage below, so a raise here cannot skip the
@@ -2772,7 +2863,17 @@ class LiquidityBot:
             # (an ESCAPE that runs on the best mark there is) still manages
             # the deferred positions this cycle
 
-        macro_states = {a: self.macro.state(a) for a in self.symbol_map}
+        # union(universe, off-universe open-position assets): the tier branch
+        # of _manage_open_position indexes macro_states[asset] HARD for every
+        # open position — with the mark now refreshed for a rotated-out asset
+        # (offuni above), a symbol_map-only dict would KeyError there every
+        # cycle (isolated, but tiers/trailing would never evaluate). An asset
+        # the macro filter never updated gets macro.state()'s default
+        # MacroRegimeState — the "range" playbook, the SAME cold-start state
+        # every in-universe asset is managed under before its first macro
+        # update, so nothing here is scaled differently than a cold boot.
+        macro_states = {a: self.macro.state(a)
+                        for a in (*self.symbol_map, *offuni)}
 
         # postmortem / mark-out / risk observation, each stage ISOLATED so a
         # raise cannot skip the per-position stops that follow (invariant #5).
