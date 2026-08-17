@@ -301,6 +301,15 @@ class OrderManager:
         self.taker_fills: int = 0
         self.maker_notional_usd: float = 0.0
         self.taker_notional_usd: float = 0.0
+        # terminal-outcome tally (2026-08-17 funnel telemetry): every order
+        # that reaches a CLEAN terminal via the state machine (the same
+        # branch that audits OM-000/OM-040), and the subset that died as a
+        # timeout-cancel ("expired" = OM-040, the resting maker sat its
+        # whole TTL unfilled). 68% of terminals in a 48h audit window were
+        # OM-040 with nothing on the glass saying so. Session-scoped like
+        # venue_rejects; TELEMETRY ONLY — no decision path reads these.
+        self.terminal_orders: int = 0
+        self.timeout_cancels: int = 0
         self._slip_bps: deque = deque(maxlen=200)
         self._orders: dict = {}
         self._terminal_seq: list = []          # bounded eviction order
@@ -329,6 +338,13 @@ class OrderManager:
         order.status = new
         if new in _TERMINAL:
             self._retire(order)
+            # funnel telemetry: mirrors the OM-000/OM-040 audit split below
+            # 1:1 (the forced-cancel OM-030 path above is NOT counted here —
+            # these are CLEAN terminals). Counting only; the transition
+            # itself is unchanged.
+            self.terminal_orders += 1
+            if new == "expired":
+                self.timeout_cancels += 1
             get_audit().log("order_manager", Code.OM_TIMEOUT_CANCEL
                             if new == "expired" else Code.OM_CLEAN_TERMINAL,
                             f"{order.order_id} {order.side} {order.pair} "
@@ -724,6 +740,11 @@ class OrderManager:
                 "zero_format_rejects": self.zero_format_rejects,
                 "cancel_unconfirmed": self.cancel_unconfirmed,
                 "deadman_failures": self._deadman_failures,
+                # terminal-outcome funnel (2026-08-17): clean terminals +
+                # the OM-040 timeout-cancel subset, for the timeout-share
+                # panel (extend-don't-break: new keys, telemetry only)
+                "terminal_orders": self.terminal_orders,
+                "timeout_cancels": self.timeout_cancels,
                 # execution quality (§3): maker/taker split + rolling slippage
                 "maker_fills": self.maker_fills,
                 "taker_fills": self.taker_fills,

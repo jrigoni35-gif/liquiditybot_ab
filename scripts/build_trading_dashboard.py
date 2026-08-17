@@ -634,6 +634,14 @@ EQ_DRIFT = [{"color": "text", "value": None},
 HEAT = [{"color": "green", "value": None},
         {"color": "yellow", "value": 0.25},
         {"color": "red", "value": 0.35}]
+# OM-040 timeout-cancel share of clean terminals (0..1 percentunit). Base
+# "text" per the absence doctrine (a low share is the expected steady state
+# and reads neutral, never an affirmative green); the 48h audit that
+# motivated the panel measured 68% — squarely in the red band, which is the
+# scale's calibration point, not a tunable.
+OM_TIMEOUT_SHARE = [{"color": "text", "value": None},
+                    {"color": "yellow", "value": 0.4},
+                    {"color": "red", "value": 0.6}]
 
 ON_OFF = {"1": ("YES", "green"), "0": ("NO", "#8E8E93")}
 UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
@@ -1670,6 +1678,56 @@ def _author_problem():
          desc="Decision cycles since the runner last started - a restart "
               "shows as this resetting to zero (lifetime total: "
               "liquiditybot_cycle_lifetime).")
+
+    # ---- the entry/order funnel: why nothing is happening ----------------
+    # Appended 2026-08-17 (code-emission funnel audit) AFTER the existing
+    # rows so ids 1-46 stay stable — the command board's append-only
+    # precedent. Two measured gaps drove it: liquiditybot_code_count_detail
+    # was exported and consumed by ZERO panels (the recurring
+    # "why-no-entries-for-38h?" question had its answer on the wire and
+    # nothing on the glass), and 68% of terminal orders in a 48h window
+    # were OM-040 timeout-cancels with no panel saying so.
+    row("Why entries die")
+    _cd = ('max(liquiditybot_code_count_detail'
+           '{{job="liquiditybot",code="{c}"}})')
+    timeseries("Why entries die",
+               _cd.format(c="SZ-023"), 16, 8, decimals=0,
+               legend=CODE_LABELS["SZ-023"],
+               extra=[(_cd.format(c=c), CODE_LABELS[c])
+                      for c in ("SZ-022", "SZ-045", "PT-040", "PT-041")],
+               colors={CODE_LABELS["SZ-023"]: INDIGO,
+                       CODE_LABELS["SZ-022"]: CAT_TEAL,
+                       CODE_LABELS["SZ-045"]: ORANGE_HEX,
+                       CODE_LABELS["PT-040"]: CAT_PURPLE,
+                       CODE_LABELS["PT-041"]: GRAY_HEX},
+               desc="The recurring 'why has the bot opened nothing for 38 "
+                    "hours?' question, answered on glass: how often each of "
+                    "the top entry-killing checks said no. Win-prob below "
+                    "bar (SZ-023) is the model not believing in the trade; "
+                    "direction blocked (SZ-022) is the regime playbook; "
+                    "manipulation suspected (SZ-045) is a painted book; the "
+                    "PT-040 family is the EV gate ruling the trade cannot "
+                    "beat its own costs. Counts are cumulative since the "
+                    "last restart - read the SLOPE: the line climbing "
+                    "fastest is the check killing entries right now, and a "
+                    "restart resets all lines to zero.")
+    stat("Timeout-cancel share",
+         f'{M("liquiditybot_order_timeout_cancels")} / '
+         f'({M("liquiditybot_order_terminal_orders")} > 0)',
+         8, 8, unit="percentunit", decimals=0, steps=OM_TIMEOUT_SHARE,
+         no_value="no terminal orders since restart - or exporter down",
+         desc="Of the orders that finished cleanly since restart, the share "
+              "that died as OM-040 timeout-cancels - the resting maker "
+              "order sat out its whole lifetime without filling - instead "
+              "of filling (OM-000). A 48h audit measured 68%: two of every "
+              "three orders were never trades. REPORT-ONLY: the levers "
+              "this number informs - the resting-order lifetime "
+              "(order_manager.order_timeout_sec) and how far from the "
+              "touch entries rest (grid_ladder.spacing_vol_mult / "
+              "min_spacing_bps) - are execution geometry, FENCED by the "
+              "era-4 accrual moratorium: moving them mints a new execution "
+              "era and needs operator adjudication. This panel measures; "
+              "it must never be used to tune them mid-cohort.")
 
 
 _TAGS = ["liquiditybot", "trading", "paper-trading"]

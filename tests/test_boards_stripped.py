@@ -319,6 +319,16 @@ _PROBLEM_PANELS = frozenset({
     (45, "Bad values dropped by exporter", "stat",
      ("liquiditybot_gauges_dropped_nonfinite",)),
     (46, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
+    # the entry/order funnel (2026-08-17 code-emission funnel audit):
+    # liquiditybot_code_count_detail finally consumed by a panel, and the
+    # OM-040 timeout-cancel share of clean terminals on glass (report-only;
+    # the TTL/maker-offset levers it informs are era-4 fenced)
+    (47, "Why entries die", "row", ()),
+    (48, "Why entries die", "timeseries",
+     ("liquiditybot_code_count_detail",)),
+    (49, "Timeout-cancel share", "stat",
+     ("liquiditybot_order_terminal_orders",
+      "liquiditybot_order_timeout_cancels")),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})

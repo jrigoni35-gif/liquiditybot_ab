@@ -3318,6 +3318,291 @@
       "transparent": true
     },
     {
+      "id": 47,
+      "type": "row",
+      "title": "Why entries die",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 48,
+      "type": "timeseries",
+      "title": "Why entries die",
+      "description": "The recurring 'why has the bot opened nothing for 38 hours?' question, answered on glass: how often each of the top entry-killing checks said no. Win-prob below bar (SZ-023) is the model not believing in the trade; direction blocked (SZ-022) is the regime playbook; manipulation suspected (SZ-045) is a painted book; the PT-040 family is the EV gate ruling the trade cannot beat its own costs. Counts are cumulative since the last restart - read the SLOPE: the line climbing fastest is the check killing entries right now, and a restart resets all lines to zero. Empty means: this reason code has not fired.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 63
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "noValue": "this reason code has not fired",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-023 · win-prob below bar"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5E5CE6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-022 · direction blocked"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#40CBE0"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-045 · manipulation suspected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9F0A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PT-040 · EV negative after fill odds"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#BF5AF2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PT-041 · edge/cost below minimum"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8E8E93"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-023\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-023 · win-prob below bar"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-022\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-022 · direction blocked"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-045\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-045 · manipulation suspected"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-040\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "PT-040 · EV negative after fill odds"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-041\"})",
+          "instant": false,
+          "range": true,
+          "legendFormat": "PT-041 · edge/cost below minimum"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Timeout-cancel share",
+      "description": "Of the orders that finished cleanly since restart, the share that died as OM-040 timeout-cancels - the resting maker order sat out its whole lifetime without filling - instead of filling (OM-000). A 48h audit measured 68%: two of every three orders were never trades. REPORT-ONLY: the levers this number informs - the resting-order lifetime (order_manager.order_timeout_sec) and how far from the touch entries rest (grid_ladder.spacing_vol_mult / min_spacing_bps) - are execution geometry, FENCED by the era-4 accrual moratorium: moving them mints a new execution era and needs operator adjudication. This panel measures; it must never be used to tune them mid-cohort.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 63
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.4
+              },
+              {
+                "color": "#FF453A",
+                "value": 0.6
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "no terminal orders since restart - or exporter down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_order_timeout_cancels{job=\"liquiditybot\"}) / (max(liquiditybot_order_terminal_orders{job=\"liquiditybot\"}) > 0)",
+          "instant": false,
+          "range": true,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -3326,7 +3611,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 63
+        "y": 72
       },
       "transparent": true,
       "options": {

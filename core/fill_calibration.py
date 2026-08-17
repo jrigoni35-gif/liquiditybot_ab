@@ -14,7 +14,9 @@ per-ORDER F above holds AT THE CALIBRATED LIFE for any actual ttl - a 6h
 order no longer compounds the 25s-calibrated hazard into certainty. The
 inversion below is unchanged: it still maps a measured per-order rate at
 the recorded n_bar to sf_base; sf_base keeps its calibrated meaning.
-When recordings gain long-life buckets, calibrate per-TTL (XV-023).
+When recordings gain long-life buckets, calibrate per-TTL (XV-023 —
+RESERVED in core/codes.py's XV block for that verdict; not yet a
+registered member).
 
 Given a bucket's observed per-order fill rate ``f`` (successes ``k`` in ``n``
 resting orders, measured from RECORDED market trade-through — not the sim's

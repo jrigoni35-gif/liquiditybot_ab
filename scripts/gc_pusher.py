@@ -977,7 +977,11 @@ def collect(status_path: str) -> list:
                   # the Cochran ratio-of-sums estimator was invisible in
                   # Grafana while the dust-skewed simple mean kept the
                   # panel
-                  "slip_bps_notional_weighted"):
+                  "slip_bps_notional_weighted",
+                  # 2026-08-17 funnel telemetry: clean terminals + the
+                  # OM-040 timeout-cancel subset (order_manager.status()),
+                  # feeding the PROBLEMS board's timeout-share panel
+                  "terminal_orders", "timeout_cancels"):
             v = om.get(k)
             if isinstance(v, (int, float)):
                 m.append(gauge(f"liquiditybot_order_{k}", v, ts=ts))

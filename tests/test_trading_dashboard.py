@@ -110,7 +110,11 @@ _SYNTH_STATUS = {
                       # Cochran notional-weighted slip (f877de0) — added
                       # to the pusher whitelist 2026-07-29 (wave-2/3
                       # verify found it exported nowhere)
-                      "slip_bps_notional_weighted": -0.4},
+                      "slip_bps_notional_weighted": -0.4,
+                      # terminal-outcome funnel (2026-08-17): clean
+                      # terminals + the OM-040 timeout-cancel subset, for
+                      # the PROBLEMS board's timeout-share panel
+                      "terminal_orders": 25, "timeout_cancels": 17},
     "markout": {"horizons_sec": [5.0], "pending": 0, "overall": {},
                 "by_asset": {"BTC": {"5": {"markout_bps": -2.0, "n": 4}}}},
     "monitor": {"level": 0, "drift_share": 0.0, "brier": 0.2,

@@ -30,13 +30,21 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
 
+from core import code_stats
+
 log = logging.getLogger("liquiditybot.core.audit")
 
 _GENESIS = "0" * 16
+
+# Canonical registered-code shape ("XX-NNN", core/codes.py). Only values of
+# this shape reach the frequency tally from log(): src-like or freeform code
+# strings must not mint fake prefixes in code_stats.by_prefix().
+_CANON_CODE = re.compile(r"^[A-Z]{2}-\d{3}$")
 
 
 def _h(payload: str) -> str:
@@ -121,8 +129,28 @@ class AuditTrail:
             return
 
     # ------------------------------------------------------------------
-    def log(self, src: str, code, msg: str, data: dict | None = None) -> int:
-        """Append one chained record. Returns its seq (0 on failure)."""
+    def log(self, src: str, code, msg: str, data: dict | None = None, *,
+            counted: bool = False) -> int:
+        """Append one chained record. Returns its seq (0 on failure).
+
+        FREQUENCY LANE (2026-08-17): every audited canonical code also bumps
+        core/code_stats.py, so audit-only emissions (ML-*, OM-000/040, FT-*,
+        RP-070/071/072/042, RT-010, CG-000, ...) finally reach the central
+        {code: count} ledger that status.json/by_prefix and the exported
+        liquiditybot_code_count read — before this, only tag() bumped, and
+        those prefixes could never appear on the glass. One EMISSION counts
+        ONCE, guarded two ways against the call sites that already bumped
+        via tag():
+          * the tag idiom — ``log(src, code, tag(code, detail))`` — is
+            detected by the msg carrying the "CODE: " prefix tag() renders,
+            and is not re-counted;
+          * ``counted=True`` is for call sites whose SAME emission already
+            tag()'d the code into a DIFFERENT string (risk_firewall's
+            reject/clamp paths build reasons/notes with tag() and audit a
+            separate summary msg).
+        The bump never raises (code_stats contract) and happens whether or
+        not the disk write below succeeds — the tally counts emissions;
+        `dropped` counts write holes."""
         with self._lock:
             if not self._synced:
                 # a long gap between construction and first write (runner
@@ -134,10 +162,16 @@ class AuditTrail:
                 except (OSError, ValueError):
                     pass                     # keep in-memory chain state
                 self._synced = True
+            code_val = getattr(code, "value", None)
+            if not isinstance(code_val, str):
+                code_val = str(code)
+            if (not counted and _CANON_CODE.match(code_val)
+                    and not str(msg).startswith(code_val + ":")):
+                code_stats.bump(code_val)
             self._seq += 1
             rec = {"seq": self._seq, "ts": round(time.time(), 3),
                    "src": str(src),
-                   "code": getattr(code, "value", str(code)),
+                   "code": code_val,
                    "msg": str(msg)[:2000],
                    "data": data or {},
                    "prev": self._prev}

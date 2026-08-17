@@ -41,6 +41,21 @@ that look code-shaped (SD-002, SD-003) or accidental substrings (CCXT-001
 contains "XT-001") - those live inside much longer string constants /
 comments, never as a standalone literal argument, and must never fail this
 test.
+
+WIDENED 2026-08-17 (code-emission funnel audit): the scan covered ONLY
+main.py + runner.py, so a bare unregistered literal in execution/, risk/,
+ml/, core/, data/, regime/, strategies/, sentiment/ or api/ - the modules
+that emit most codes - sailed past the gate. It now sweeps all of them
+(scripts/ and tests/ stay out of scope: scripts are operator tooling with
+their own report vocabularies, and test fixtures legitimately mint fake
+codes). The full-corpus sweep found exactly ONE additional parallel
+vocabulary: core/session_digest.py's SD-000..SD-010 detector ids, which its
+own module docstring declares as "report diagnostics, not audit
+dispositions ... documented constants rather than in core/codes.py".
+Pinned as an allowlist below, same contract as EX-ALGO-*: a NEW SD id (or
+an SD id appearing outside session_digest.py) must be a reviewed decision,
+never a silent drive-by. Mutation-verified: a planted bare "ZZ-999" in
+execution/ reds the scan.
 """
 import ast
 import re
@@ -51,6 +66,28 @@ from core.codes import Code
 from ml.history import CandidateLabeler, HistoryStore
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Directories whose modules emit (or could emit) registered codes. scripts/
+# and tests/ are deliberately out of scope - see the module docstring.
+SCAN_DIRS = ("execution", "risk", "ml", "core", "data", "regime",
+             "strategies", "sentiment", "api")
+
+
+def _scan_targets():
+    """main.py + runner.py + every .py under SCAN_DIRS, deterministic order."""
+    files = [ROOT / "main.py", ROOT / "runner.py"]
+    for d in SCAN_DIRS:
+        files.extend(sorted((ROOT / d).rglob("*.py")))
+    return files
+
+
+# core/session_digest.py's own documented parallel vocabulary (module
+# docstring: "report diagnostics, not audit dispositions") - detector ids
+# for the session-digest report, append-only, never audited, never tag()'d.
+# Confined to that ONE file; the id set is pinned so a new SD id is a
+# reviewed allowlist edit, exactly like EX-ALGO-*.
+SD_ALLOWLIST = {f"SD-{i:03d}" for i in range(11)}     # SD-000 .. SD-010
+SD_HOME = (ROOT / "core" / "session_digest.py").resolve()
 
 # execution/algos.py's own documented internal reason-coded scheme (module
 # docstring: "reason-coded EX-ALGO-*") - log-line / abort_reason bookkeeping
@@ -78,7 +115,7 @@ def _scan(path: Path):
     code (exact "XX-NNN" shape) or an EX-ALGO-* tag (with an optional
     ": detail" suffix collapsed off) - never matches inside a longer
     docstring/comment string, since those don't fullmatch either pattern."""
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     canon, ex_algo = set(), set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -92,19 +129,50 @@ def _scan(path: Path):
 
 
 def test_every_canonical_code_literal_is_registered():
+    """Full-corpus sweep (2026-08-17): every bare "XX-NNN" literal in the
+    emitting packages is either a registered Code value or an explicitly
+    allowlisted parallel vocabulary confined to its home module."""
     registered = {c.value for c in Code}
-    for name in ("main.py", "runner.py"):
-        canon, _ = _scan(ROOT / name)
+    offenders = {}
+    for path in _scan_targets():
+        canon, _ = _scan(path)
         unregistered = canon - registered
-        assert not unregistered, (
-            f"{name} emits bare code literal(s) {unregistered} not present "
-            f"in core/codes.py - register them (never a bare string)")
+        if path.resolve() == SD_HOME:
+            unregistered -= SD_ALLOWLIST
+        else:
+            sd_astray = {c for c in canon if c.startswith("SD-")}
+            assert not sd_astray, (
+                f"{path.relative_to(ROOT)} carries SD-* literal(s) "
+                f"{sd_astray} - the session-digest vocabulary is confined "
+                f"to core/session_digest.py by the allowlist contract")
+        if unregistered:
+            offenders[str(path.relative_to(ROOT))] = sorted(unregistered)
+    assert not offenders, (
+        f"bare code literal(s) not present in core/codes.py: {offenders} - "
+        f"register them (never a bare string), or if a module grows its own "
+        f"documented report-only vocabulary, pin it here like SD-*/EX-ALGO-*")
+
+
+def test_sd_allowlist_stays_a_precise_pin():
+    """Both directions, same contract as EX-ALGO: a new SD id must be a
+    reviewed allowlist edit, and a retired one must be pruned."""
+    canon, _ = _scan(SD_HOME)
+    found_sd = {c for c in canon if c.startswith("SD-")}
+    assert found_sd == SD_ALLOWLIST, (
+        f"core/session_digest.py SD ids drifted from the pin: "
+        f"new={sorted(found_sd - SD_ALLOWLIST)} "
+        f"gone={sorted(SD_ALLOWLIST - found_sd)} - update SD_ALLOWLIST in "
+        f"the same commit (that edit is the review record)")
 
 
 def test_ex_algo_internal_tags_are_a_closed_pinned_vocabulary():
-    _, main_ex = _scan(ROOT / "main.py")
-    _, algos_ex = _scan(ROOT / "execution" / "algos.py")
-    found = main_ex | algos_ex
+    """Widened 2026-08-17 from the historical two-file check to the whole
+    scan corpus: an EX-ALGO-* tag minted anywhere in the emitting packages
+    is held to the same pin."""
+    found = set()
+    for path in _scan_targets():
+        _, ex = _scan(path)
+        found |= ex
     assert found, "expected to find the known EX-ALGO-* literals"
     unexpected = found - EX_ALGO_ALLOWLIST
     assert not unexpected, (

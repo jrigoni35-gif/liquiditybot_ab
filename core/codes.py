@@ -8,15 +8,22 @@ action carries exactly one code from this registry, in the form
 is never renumbered or reused (audit trails must stay interpretable
 forever).
 
-Prefix map (subsystem of origin):
+Prefix map (subsystem of origin — every family with a registered member is
+listed here, and nothing else: the map once advertised a WD (core.watchdog)
+family that never had a single code — the same defect shape as the
+unregistered-CG-000 bug (W2-19) — and omitted VN/RP/RT/DF, which all have
+shipped members below. Registry-hygiene pass 2026-08-17):
   FW  execution.risk_firewall     PT  execution.pretrade
   OM  execution.order_manager     SZ  risk.position_sizer
   QT  execution.market_maker      FV  execution.fair_value
+  VN  execution venue adapters (registration/eligibility gates)
+  RP  risk.protocols (CVaR/gap/budget/heat overlay + period ledgers)
   ML  ml.* (contracts/registry/monitor)
-  WD  core.watchdog               CG  core.config_guard
+  CG  core.config_guard
   FT  core.fault (system-level faults / state transitions)
   TP  risk.profit_tiers (exit-system dispositions)
   TH  strategies.thales (lazy-bot insecurity detectors / advice)
+  RT  runner.py (runner lifecycle: single-instance lock)
   RC  scripts.remote_control (git command-bus dispositions)
   XV  execution-truth harness (replay gate + fill-model calibration)
   LT  regime.liquidity_regime (asset liquidity-tier isolation)
@@ -24,6 +31,7 @@ Prefix map (subsystem of origin):
   HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
   CV  risk.conviction (Compounder Phase A conviction formula)
   CX  data.context_engine (Compounder Phase B context feed)
+  DF  data feeds (data/moomoo_feed.py freeze/degrade detectors)
   LB  risk.long_book (Compounder Phase C long-horizon book)
 """
 
@@ -280,13 +288,17 @@ class Code(str, Enum):
                                       # triple-barrier outcome — close it to
                                       # bank the live label + free a teach slot
     ML_PRIOR_SKEW = "ML-074"          # trailing-window label prior diverges
+                                      # hard from the corpus prior (one-sided
+                                      # batch, e.g. an all-zero quiet weekend):
+                                      # calibration drift risk — detection only
+                                      # (comment continuation reunited
+                                      # 2026-08-17: it had drifted below
+                                      # ML-076 and read as that code's
+                                      # semantics)
     ML_SHADOW_RECOVER = "ML-075"      # killed champion re-armed 2->1 on a clean
     #                                   telemetry-only shadow window (probation)
     ML_CHAMP_BADGE_SYNC = "ML-076"    # champion badge realigned to the loaded
     #                                   model at startup (stale snapshot ghost)
-                                      # hard from the corpus prior (one-sided
-                                      # batch, e.g. an all-zero quiet weekend):
-                                      # calibration drift risk — detection only
     ML_LINEAGE_AGREEMENT = "ML-077"  # dedup-twin proxy-vs-realized label
     #   agreement stat (T2.2b): simulator-fidelity telemetry over
     #   gate-passing signals only - detection-only, weights untouched
@@ -370,6 +382,12 @@ class Code(str, Enum):
     #   never enforced against a larger restored pool.
 
     # ---- profit-tier exit system (TP) -----------------------------------
+    # NOTE (cross-reference, registry hygiene 2026-08-17): two EXIT-path
+    # dispositions that would read as TP-family live under PT numbering
+    # instead — PT-060 (time-stop scratch) and PT-061 (verbatim close
+    # reason) continue the PT decade sequence per the P2 task spec even
+    # though both fire from risk.profit_tiers' exit path, not
+    # execution.pretrade. See their own entries in the PT block above.
     TP_SIGNAL_DECAY = "TP-010"       # runner leash tightened: entry signal decayed
     TP_INV_COUPLING = "TP-011"       # tier close boosted by inventory pressure
     TP_CONVICTION_LEASH = "TP-012"   # runner leash tightened: low entry conviction
@@ -391,7 +409,13 @@ class Code(str, Enum):
     TH_SPOOF_FLICKER = "TH-017"      # large top-of-book level pulled untraded: imbalance untrusted
     TH_CONF_SHADE = "TH-020"         # advise mode: bounded confidence shade applied
     TH_CONCENTRATION_SHADE = "TH-021"  # diffuse-and-marginal signal trimmed (averaging trap)
+
+    # ---- runner lifecycle (RT) — runner.py single-instance lock ---------
+    # (refiled out of the THALES section 2026-08-17: RT-010 fires from the
+    # runner's SingleInstanceLock heartbeat, nothing to do with detectors)
     RT_DUPLICATE_RUNNER = "RT-010"   # lost the instance lock to a live peer: this runner self-terminates
+
+    # ---- remote control (RC) — scripts/remote_control.py ----------------
     RC_APPLIED = "RC-010"            # remote command validated and forwarded to the runner's control queue
     RC_REJECTED = "RC-011"           # remote command refused (whitelist / stale / malformed)
 
@@ -405,6 +429,12 @@ class Code(str, Enum):
     XV_CALIB_DEFERRED = "XV-020"     # fill calibration underpowered/not-near-touch: no recommendation
     XV_CALIB_RECOMMEND = "XV-021"    # fill calibration recommends a passive_base_prob change
     XV_CALIB_MISSPECIFIED = "XV-022"  # per-distance buckets disagree: forward model misspecified
+    # XV-023 RESERVED (not yet a member): per-TTL fill-calibration verdict,
+    # to be registered when calibrate_fills gains long-life recording
+    # buckets — core/fill_calibration.py's module docstring and the
+    # calibration_life_sec config _doc both cite it by number (registry
+    # hygiene 2026-08-17: a cited-but-unregistered number is either
+    # reserved HERE or it is a dangling reference)
     # cost_truth_report (T7, spec D4 "measured, never assumed") - report-only
     # verdicts comparing measured realized cost against configured
     # pretrade.maker_fee_bps/taker_fee_bps; never printed via tag() (a one-off
@@ -577,6 +607,13 @@ def tag(code: Code, detail: str) -> str:
     """Canonical 'CODE: detail' string used in reasons lists and audit. Also
     bumps the process-global code tally (core.code_stats) so the FREQUENCY of
     every emitted code is countable — the central ledger the codes never had.
-    The bump never raises, so telemetry cannot wedge a decision path."""
+    The bump never raises, so telemetry cannot wedge a decision path.
+
+    SECOND LANE (2026-08-17): AuditTrail.log() also bumps the tally for
+    audit-only emissions (plain-msg records — the ML/OM/FT/RP-period lane
+    that tag() never saw). One emission counts once either way: log()
+    recognizes a tag()-built msg by its "CODE: " prefix and skips the
+    re-bump, and call sites that tag() the code into a DIFFERENT string of
+    the same emission pass log(..., counted=True). See core/audit.py."""
     code_stats.bump(code.value)
     return f"{code.value}: {detail}"

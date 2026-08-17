@@ -97,6 +97,34 @@ def test_status_mixed_share_and_no_fill_none():
     assert s["worst_slip_bps"] == pytest.approx(0.0)
 
 
+def test_terminal_counters_mirror_the_om000_om040_split():
+    """2026-08-17 funnel telemetry: terminal_orders / timeout_cancels count
+    exactly the state-machine branch that audits OM-000/OM-040 — clean
+    terminals only. The forced-cancel OM-030 path is not a clean terminal
+    and must not count."""
+    om = _om()
+    s0 = om.status()
+    assert s0["terminal_orders"] == 0 and s0["timeout_cancels"] == 0
+    o1 = _order()                                  # pending -> expired (OM-040)
+    om._orders[o1.order_id] = o1
+    assert om._transition(o1, "expired", "ttl")
+    o2 = _order()
+    o2.order_id = "y"                              # pending -> filled (OM-000)
+    om._orders[o2.order_id] = o2
+    assert om._transition(o2, "filled", "done")
+    s = om.status()
+    assert s["terminal_orders"] == 2
+    assert s["timeout_cancels"] == 1
+    # illegal transition out of a terminal: refused, no counter movement
+    o3 = _order()
+    o3.order_id = "z"
+    o3.status = "filled"
+    om._orders[o3.order_id] = o3
+    assert not om._transition(o3, "pending", "illegal")
+    s2 = om.status()
+    assert s2["terminal_orders"] == 2 and s2["timeout_cancels"] == 1
+
+
 def test_note_exec_garbage_safe():
     om = _om()
     om._note_exec(True, float("nan"), float("inf"), 0.0, "buy")
@@ -313,6 +341,7 @@ def test_slip_ledger_notional_weighted_companion():
     om.latency_ms = 0.0
     om.venue_rejects = om.zero_format_rejects = 0
     om.cancel_unconfirmed = 0            # OM-090 counter, same shape
+    om.terminal_orders = om.timeout_cancels = 0   # funnel tally, same shape
     om._deadman_failures = 0
     om._fee_recon_result = None
     om._orders = {}

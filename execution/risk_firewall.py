@@ -148,8 +148,12 @@ class RiskFirewall:
         except Exception:
             log.critical("firewall INTERNAL FAULT — latching", exc_info=True)
             self._fault = "internal exception in _check"
+            # counted=True: _fault_verdict below tag()s FW-090 into the
+            # verdict reasons for this SAME emission — the tag bump is the
+            # count; a bare bump here would double it
             get_audit().log("firewall", Code.FW_FAULT_REJECT,
-                            "internal exception latched FAULT", {})
+                            "internal exception latched FAULT", {},
+                            counted=True)
             return self._fault_verdict(purpose, price, size)
 
     def reset_fault(self):
@@ -240,10 +244,13 @@ class RiskFirewall:
                             seq, Code.FW_DUPLICATE.value, pair, side,
                             purpose, price, size, age)
                 # R4 total audit: every reject reaches the hash chain — this
-                # path previously log-only, the sole disposition that did
+                # path previously log-only, the sole disposition that did.
+                # counted=True: the verdict below tag()s FW-030 into its
+                # reasons for this SAME emission — that bump is the count
                 get_audit().log("firewall", Code.FW_DUPLICATE,
                                 f"{pair} {side} {purpose} identical order "
-                                f"{age:.1f}s ago", {"seq": seq})
+                                f"{age:.1f}s ago", {"seq": seq},
+                                counted=True)
             return FirewallVerdict(
                 allowed=False, price=price, size=size,
                 disposition=Disposition.REJECT,
@@ -393,12 +400,17 @@ class RiskFirewall:
                     "px=%.10g sz=%.10g notes=%s", seq, disp.value, pair,
                     side, purpose, price, size, notes or "-")
         if clamped and not quiet:
+            # counted=True: every note was built with tag() at its own
+            # emission point above (the FW-051/041 clamps plus any riding
+            # exit notes) and is already in the tally — this audit record
+            # summarizes the same emission(s)
             get_audit().log("firewall", Code.FW_COLLAR_CLAMP
                             if any("FW-051" in n for n in notes)
                             else Code.FW_NOTIONAL_CLAMP,
                             "; ".join(notes),
                             {"pair": pair, "side": side, "purpose": purpose,
-                             "px": price, "sz": size, "seq": seq})
+                             "px": price, "sz": size, "seq": seq},
+                            counted=True)
         return FirewallVerdict(allowed=True, price=price, size=size,
                                disposition=disp, clamped=clamped,
                                reasons=tuple(notes), seq=seq,
@@ -414,8 +426,12 @@ class RiskFirewall:
               + "; ".join(reasons)
         if not getattr(self, "_quiet", False):
             log.error("AUDIT seq=%06d disp=REJECT %s", seq, msg)
+            # counted=True: every reason was built with tag() at its own
+            # emission point (this SAME reject) and is already in the tally;
+            # the audited code here is reasons[0]'s prefix re-passed as a
+            # bare string, and re-bumping it would double-count the reject
             get_audit().log("firewall", reasons[0].split(":", 1)[0], msg,
-                            {"seq": seq})
+                            {"seq": seq}, counted=True)
         if self.alerts is not None:
             self.alerts.fire(f"firewall_{alert_key}", msg, level="ERROR")
         return FirewallVerdict(allowed=False, price=price, size=size,
