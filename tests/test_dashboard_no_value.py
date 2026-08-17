@@ -14,6 +14,8 @@ import re
 import time
 from pathlib import Path
 
+import pytest
+
 import scripts.build_trading_dashboard as gen
 import scripts.gc_pusher as gp
 from tests.test_trading_dashboard import _SYNTH_STATUS
@@ -193,6 +195,48 @@ def test_timeseries_carry_every_precondition_in_the_description():
         assert "Empty means:" in desc, (f, p["id"], p.get("title"))
         for msg in gen._nv_all_preconditions(p):
             assert msg in desc, (f, p["id"], msg)
+
+
+@pytest.mark.parametrize("strip,gone", [
+    ("halted", ["liquiditybot_halted"]),
+    ("entries_enabled", ["liquiditybot_entries_enabled"]),
+    ("audit_dropped_writes", ["liquiditybot_audit_dropped_writes"]),
+    ("audit_tail_truncations", ["liquiditybot_audit_tail_truncations"]),
+    ("fault", ["liquiditybot_op_state", "liquiditybot_fault_count"]),
+    ("watchdog", ["liquiditybot_watchdog_entries_blocked",
+                  "liquiditybot_watchdog_critical_stale",
+                  "liquiditybot_watchdog_velocity_tripped",
+                  "liquiditybot_watchdog_divergent",
+                  "liquiditybot_watchdog_stale_assets"]),
+    ("firewall", ["liquiditybot_firewall_fault",
+                  "liquiditybot_firewall_count"]),
+])
+def test_absent_bool_keys_emit_no_series(tmp_path, strip, gone):
+    """The exporter's presence guards (2026-08-17): an ABSENT key or block
+    must emit NO series, never a fabricated healthy zero. Before the
+    guards, `1.0 if s.get("halted") else 0.0` and the `or {}` block idioms
+    exported halted=0 / faults=0 / firewall quiet for a status write that
+    never carried those keys (version skew, schema transition) — the
+    check that never ran rendering as the check that passed. Each case
+    strips one key from the full synthetic status and asserts the whole
+    family disappears rather than reading healthy."""
+    status = {k: v for k, v in _SYNTH_STATUS.items() if k != strip}
+    assert strip not in status
+    p = tmp_path / "status.json"
+    p.write_text(json.dumps({**status, "written_at": time.time()}),
+                 encoding="utf-8")
+    emitted = {m["name"] for m in gp.collect(str(p))}
+    still = [n for n in gone if n in emitted]
+    assert not still, (
+        f"status without {strip!r} still emits {still} — a fabricated "
+        "healthy value for a key the runner never wrote")
+    # and the same collect WITH the key present emits every name (guards
+    # must gate on presence, not delete the family outright)
+    p.write_text(json.dumps({**_SYNTH_STATUS, "written_at": time.time()}),
+                 encoding="utf-8")
+    emitted_full = {m["name"] for m in gp.collect(str(p))}
+    lost = [n for n in gone if n not in emitted_full]
+    assert not lost, f"presence guard over-fired: {lost} gone from a full status"
 
 
 def test_regeneration_is_byte_deterministic_and_matches_disk():

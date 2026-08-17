@@ -153,64 +153,71 @@ _LEARNING_PANELS = frozenset({
     (8, "Prediction error - model vs naive vs champion", "timeseries",
      ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier",
       "liquiditybot_ml_champion_brier")),
-    (9, "Hit rate vs claimed probability", "timeseries",
+    # the judge-window disambiguator (2026-08-17): separates "window
+    # filling" from "judge dead" on the same glance as the Brier tiles
+    (9, "Trades the judge has scored", "stat",
+     ("liquiditybot_ml_window_trades",)),
+    (10, "Hit rate vs claimed probability", "timeseries",
      ("liquiditybot_ml_avg_p", "liquiditybot_ml_hit_rate",
       "liquiditybot_ml_hit_rate_lcb")),
-    (10, "Feature drift share", "timeseries",
+    (11, "Feature drift share", "timeseries",
      ("liquiditybot_ml_drift_share",)),
-    (11, "Calibration gap", "timeseries",
+    (12, "Calibration gap", "timeseries",
      ("liquiditybot_ml_calibration_gap",)),
-    (12, "Is the pipeline filling?", "row", ()),
-    (13, "Corpus rows toward honest testing", "gauge",
+    (13, "Is the pipeline filling?", "row", ()),
+    # renamed from "Corpus rows toward honest testing" (2026-08-17): the
+    # overfit floor gates LOADED rows, which no metric carries — the gauge
+    # counts RAW rows and must say so
+    (14, "Raw training rows collected", "gauge",
      ("liquiditybot_ml_history_rows",)),
-    (14, "New-era rows toward re-arm", "gauge",
+    (15, "New-era rows toward re-arm", "gauge",
      ("liquiditybot_era_excl_new_rows",)),
-    (15, "Labels per day", "stat",
+    (16, "Labels per day", "stat",
      ("liquiditybot_probe_budget_live_labels_per_day_7d",)),
-    (16, "Labels in the last 24h", "stat",
+    (17, "Labels in the last 24h", "stat",
      ("liquiditybot_probe_budget_labels_24h",)),
-    (17, "Label uniqueness", "stat", ("liquiditybot_ml_mean_uniqueness",)),
-    (18, "Corpus growth", "timeseries",
+    (18, "Label uniqueness", "stat", ("liquiditybot_ml_mean_uniqueness",)),
+    (19, "Corpus growth", "timeseries",
      ("liquiditybot_ml_history_rows", "liquiditybot_ml_live_clean")),
-    (19, "Where labels come from", "timeseries", ("liquiditybot_ml_labels",)),
-    (20, "What the labels say", "row", ()),
-    (21, "How this era's trades ended", "piechart",
+    (20, "Where labels come from", "timeseries", ("liquiditybot_ml_labels",)),
+    (21, "What the labels say", "row", ()),
+    (22, "How this era's trades ended", "piechart",
      ("liquiditybot_era_reason_rows",)),
-    (22, "Label rate this era", "stat", ("liquiditybot_era_label_rate",)),
-    (23, "Corpus drift distance", "stat", ("liquiditybot_era_mix_tvd",)),
-    (24, "Corpus matches live?", "stat", ("liquiditybot_era_mix_alarm",)),
-    (25, "Rows excluded from training", "stat",
+    (23, "Label rate this era", "stat", ("liquiditybot_era_label_rate",)),
+    (24, "Corpus drift distance", "stat", ("liquiditybot_era_mix_tvd",)),
+    (25, "Corpus matches live?", "stat", ("liquiditybot_era_mix_alarm",)),
+    (26, "Rows excluded from training", "stat",
      ("liquiditybot_era_excl_dropped",)),
-    (26, "Which model is driving", "row", ()),
-    (27, "Deployed model over time", "timeseries",
+    (27, "Which model is driving", "row", ()),
+    (28, "Deployed model over time", "timeseries",
      ("liquiditybot_ml_model_info",)),
-    (28, "Retrain queued", "stat", ("liquiditybot_ml_retrain_flag",)),
-    (29, "Retrain failures", "stat", ("liquiditybot_ml_retrain_failures",)),
-    (30, "Model fallbacks", "stat", ("liquiditybot_ml_model_fallbacks",)),
-    (31, "The cost of learning", "row", ()),
-    (32, "Probe tokens in the tank", "gauge",
+    (29, "Retrain queued", "stat", ("liquiditybot_ml_retrain_flag",)),
+    (30, "Retrain failures", "stat", ("liquiditybot_ml_retrain_failures",)),
+    (31, "Model fallbacks", "stat", ("liquiditybot_ml_model_fallbacks",)),
+    (32, "The cost of learning", "row", ()),
+    (33, "Probe tokens in the tank", "gauge",
      ("liquiditybot_probe_budget_tokens",)),
-    (33, "Tuition spent in 24h", "stat",
+    (34, "Tuition spent in 24h", "stat",
      ("liquiditybot_probe_budget_tuition_24h_usd",)),
-    (34, "Tuition cap", "stat",
+    (35, "Tuition cap", "stat",
      ("liquiditybot_probe_budget_tuition_cap_usd",)),
-    (35, "Unlock ETA", "stat",
+    (36, "Unlock ETA", "stat",
      ("liquiditybot_probe_budget_unlock_eta_days",)),
-    (36, "Probes open now", "stat",
+    (37, "Probes open now", "stat",
      ("liquiditybot_probe_budget_open_probes",)),
-    (37, "Denied - budget empty", "stat",
+    (38, "Denied - budget empty", "stat",
      ("liquiditybot_probe_budget_denied_exhausted_24h",)),
-    (38, "Probe governor", "stat",
+    (39, "Probe governor", "stat",
      ("liquiditybot_probe_budget_governor_factor",)),
-    (39, "Refunds in 24h", "stat",
+    (40, "Refunds in 24h", "stat",
      ("liquiditybot_probe_budget_refunds_24h",)),
-    (40, "Gate learning", "row", ()),
-    (41, "Learned gate weights", "bargauge", ("liquiditybot_gate_weight",)),
-    (42, "Is any gate lying?", "bargauge",
+    (41, "Gate learning", "row", ()),
+    (42, "Learned gate weights", "bargauge", ("liquiditybot_gate_weight",)),
+    (43, "Is any gate lying?", "bargauge",
      ("liquiditybot_gate_divergence",)),
-    (43, "Labeled rows feeding the gates", "stat",
+    (44, "Labeled rows feeding the gates", "stat",
      ("liquiditybot_gate_labeled",)),
-    (44, "Base win rate the gates see", "stat",
+    (45, "Base win rate the gates see", "stat",
      ("liquiditybot_gate_base_rate",)),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
@@ -231,58 +238,66 @@ _PROBLEM_PANELS = frozenset({
     (7, "What the pager watches", "row", ()),
     (8, "Model worse than naive by", "stat",
      ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
-    (9, "Drift stuck while degraded", "stat",
+    # the judge-window disambiguator (2026-08-17): the tile that says
+    # whether an empty Brier tile means "filling" or "judge dead"
+    (9, "Trades the judge has scored", "stat",
+     ("liquiditybot_ml_window_trades",)),
+    (10, "Drift stuck while degraded", "stat",
      ("liquiditybot_ml_drift_share", "liquiditybot_monitor_level")),
-    (10, "Model governor", "stat", ("liquiditybot_monitor_level",)),
-    (11, "Faults & rejections", "row", ()),
-    (12, "Firewall trips by code", "timeseries",
+    (11, "Model governor", "stat", ("liquiditybot_monitor_level",)),
+    (12, "Faults & rejections", "row", ()),
+    (13, "Firewall trips by code", "timeseries",
      ("liquiditybot_firewall_count",)),
-    (13, "Decisions by family", "timeseries", ("liquiditybot_code_count",)),
-    (14, "Venue rejects", "stat", ("liquiditybot_order_venue_rejects",)),
-    (15, "Dead-man failures", "stat",
+    (14, "Decisions by family", "timeseries", ("liquiditybot_code_count",)),
+    (15, "Venue rejects", "stat", ("liquiditybot_order_venue_rejects",)),
+    (16, "Dead-man failures", "stat",
      ("liquiditybot_order_deadman_failures",)),
-    (16, "Exit-check failures", "stat",
+    (17, "Exit-check failures", "stat",
      ("liquiditybot_exit_eval_failures",)),
-    (17, "Cycle failures in a row", "stat",
+    (18, "Cycle failures in a row", "stat",
      ("liquiditybot_cycle_consecutive_failures",)),
-    (18, "Model inference faults", "stat", ("liquiditybot_ml_infer_faults",)),
-    (19, "Feature-contract failures", "stat",
+    (19, "Model inference faults", "stat", ("liquiditybot_ml_infer_faults",)),
+    (20, "Feature-contract failures", "stat",
      ("liquiditybot_ml_contract_failed",)),
-    (20, "Staleness & feeds", "row", ()),
-    (21, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
-    (22, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
-    (23, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
-    (24, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
-    (25, "Stale assets", "stat", ("liquiditybot_watchdog_stale_assets",)),
-    (26, "Diverging feeds", "stat", ("liquiditybot_watchdog_divergent",)),
-    (27, "Critical data stale", "stat",
+    (21, "Staleness & feeds", "row", ()),
+    (22, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
+    (23, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
+    (24, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
+    (25, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
+    (26, "Stale assets", "stat", ("liquiditybot_watchdog_stale_assets",)),
+    (27, "Diverging feeds", "stat", ("liquiditybot_watchdog_divergent",)),
+    (28, "Critical data stale", "stat",
      ("liquiditybot_watchdog_critical_stale",)),
-    (28, "Do the books add up?", "stat", ("liquiditybot_equity_drift_pct",)),
-    (29, "Telemetry", "stat", ("liquiditybot_status_stale",)),
-    (30, "Runner", "stat", ("liquiditybot_running",)),
-    (31, "Risk brakes", "row", ()),
-    (32, "Daily loss budget used", "gauge",
+    # renamed from "Do the books add up?" (2026-08-17): the recompute runs
+    # in LIVE mode only — on a dry-run bot the old title over a green 0.00
+    # rendered a check that never ran as a check that passed
+    (29, "Books cross-check (live mode)", "stat",
+     ("liquiditybot_equity_drift_pct",)),
+    (30, "Telemetry", "stat", ("liquiditybot_status_stale",)),
+    (31, "Runner", "stat", ("liquiditybot_running",)),
+    (32, "Risk brakes", "row", ()),
+    (33, "Daily loss budget used", "gauge",
      ("liquiditybot_rp_daily_budget_used_frac",)),
-    (33, "Weekly loss budget used", "gauge",
+    (34, "Weekly loss budget used", "gauge",
      ("liquiditybot_rp_weekly_budget_used_frac",)),
-    (34, "Drawdown vs the hard stop", "timeseries",
+    (35, "Drawdown vs the hard stop", "timeseries",
      ("liquiditybot_rp_drawdown_mtm_pct", "liquiditybot_rp_hard_stop_dd_pct")),
-    (35, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
-    (36, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
-    (37, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
-    (38, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
-    (39, "Circuit-breaker cooldown left", "bargauge",
+    (36, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
+    (37, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
+    (38, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
+    (39, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
+    (40, "Circuit-breaker cooldown left", "bargauge",
      ("liquiditybot_cb_paused_hours_left",)),
-    (40, "Loss streak by asset", "bargauge",
+    (41, "Loss streak by asset", "bargauge",
      ("liquiditybot_perf_asset_cur_loss_streak",)),
-    (41, "Audit & self-health", "row", ()),
-    (42, "Audit writes dropped", "stat",
+    (42, "Audit & self-health", "row", ()),
+    (43, "Audit writes dropped", "stat",
      ("liquiditybot_audit_dropped_writes",)),
-    (43, "Audit tail truncations", "stat",
+    (44, "Audit tail truncations", "stat",
      ("liquiditybot_audit_tail_truncations",)),
-    (44, "Bad values dropped by exporter", "stat",
+    (45, "Bad values dropped by exporter", "stat",
      ("liquiditybot_gauges_dropped_nonfinite",)),
-    (45, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
+    (46, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
@@ -386,20 +401,52 @@ def test_problem_board_matches_its_pin():
         "Deliberate change? Update _PROBLEM_PANELS in the SAME commit.")
 
 
+ALERT_YAMLS = ("liquiditybot_brier_alert.yaml", "liquiditybot_drift_alert.yaml")
+
+
+def _alert_rule_facts(yaml_name):
+    """(metrics, thresholds) parsed from ONE alert YAML's query/math lines.
+
+    DEGRADES CLOSED (2026-08-17): a YAML rewrite into block scalars would
+    silently empty a line-based extraction and turn the mirror tests into
+    green no-ops — so parsing ZERO metrics or ZERO thresholds from a rule
+    file is itself a failure, never a pass.
+
+    SCOPE, stated because the old assertion overclaimed: these facts are
+    the REPO's copy of the rule. The live Grafana instance's rule can be
+    edited out from under the repo, and that drift is out of this test's
+    reach — the pin guarantees board == repo rule, nothing more.
+    """
+    txt = (ROOT / "docs" / "grafana" / yaml_name).read_text(encoding="utf-8")
+    metrics, thresholds = set(), set()
+    for line in txt.splitlines():
+        if "expr:" in line:
+            metrics |= set(_MET_RE.findall(line))
+        if "expression:" in line:
+            # math lines: "$RA - $RB > 0.03" / "$RA > 0.3 && $RB > 0"
+            thresholds |= {float(v) for v in
+                           re.findall(r">\s*([0-9]+(?:\.[0-9]+)?)", line)}
+    assert metrics, (
+        f"{yaml_name}: extracted ZERO metrics from expr lines — the rule "
+        "file changed shape and this mirror test can no longer see it. "
+        "Fix the extraction before trusting any mirror pin.")
+    assert thresholds, (
+        f"{yaml_name}: extracted ZERO numeric thresholds from expression "
+        "lines — same degradation as above, for the firing lines.")
+    return metrics, thresholds
+
+
 def test_problem_board_mirrors_both_pager_conditions():
     """The PROBLEMS board must render the SAME arithmetic the two alert
     rules run (the ab8ee2b4 lesson: an alert whose inputs are on no board
-    is discovered by being paged). Checked against the alert YAML like the
-    execution-board mirror below, not against a hand-copied metric list."""
+    is discovered by being paged). Checked against the REPO's alert YAML
+    (see _alert_rule_facts for the scope caveat), not a hand-copied list."""
     got = frozenset(_identity(p) for p in _all_panels(_shipped(PROBLEMS)))
     if got == _PROBLEM_STRIPPED_PANELS:
         pytest.skip("problems board is in the fully-stripped form")
     fired_on = set()
-    for y in ("liquiditybot_brier_alert.yaml", "liquiditybot_drift_alert.yaml"):
-        txt = (ROOT / "docs" / "grafana" / y).read_text(encoding="utf-8")
-        for line in txt.splitlines():
-            if "expr:" in line:
-                fired_on |= set(_MET_RE.findall(line))
+    for y in ALERT_YAMLS:
+        fired_on |= _alert_rule_facts(y)[0]
     on_board = set()
     for p in _all_panels(_shipped(PROBLEMS)):
         on_board |= set(_identity(p)[3])
@@ -408,6 +455,141 @@ def test_problem_board_mirrors_both_pager_conditions():
         f"alert rules fire on {sorted(missing)} but no PROBLEMS panel "
         "queries them — the 'what needs attention' board would go quiet on "
         "the exact inputs the pager watches.")
+
+
+def test_mirror_tiles_carry_the_rules_own_thresholds():
+    """Metric NAMES alone are half the mirror: a rule whose firing line
+    moves (0.03 -> 0.05) with the boards left behind shows a green tile
+    while the pager fires. The numeric thresholds parsed from the YAML
+    must appear in the mirror tiles' threshold steps / expressions."""
+    brier_metrics, brier_thr = _alert_rule_facts(ALERT_YAMLS[0])
+    drift_metrics, drift_thr = _alert_rule_facts(ALERT_YAMLS[1])
+    assert 0.03 in brier_thr, (
+        f"brier rule thresholds changed to {sorted(brier_thr)} — update the "
+        "mirror tiles' steps AND this pin in the same commit")
+    assert 0.3 in drift_thr, (
+        f"drift rule thresholds changed to {sorted(drift_thr)} — update the "
+        "mirror state expr AND this pin in the same commit")
+
+    def _panel(board, title):
+        hits = [p for p in _all_panels(_shipped(board))
+                if p.get("title") == title]
+        assert hits, f"{board}: no panel titled {title!r}"
+        return hits[0]
+
+    for board, title in ((PROBLEMS, "Model worse than naive by"),
+                         (EXECUTION, "Brier gap vs baseline")):
+        p = _panel(board, title)
+        steps = (p["fieldConfig"]["defaults"]["thresholds"]["steps"])
+        vals = {s.get("value") for s in steps}
+        assert 0.03 in vals, (
+            f"{board}/{title}: steps {sorted(v for v in vals if v is not None)} "
+            "do not include the rule's 0.03 firing line")
+    drift_tile = _panel(PROBLEMS, "Drift stuck while degraded")
+    exprs = " ".join(t.get("expr", "") for t in drift_tile["targets"])
+    assert "> bool 0.3" in exprs, (
+        f"PROBLEMS drift mirror expr {exprs!r} lost the rule's 0.3 line")
+
+
+def test_learning_stat_tiles_are_instant():
+    """THE INSTANT-TILE IDIOM (see _author_learning's docstring): on the
+    30-day board a range-queried stat renders a dead producer's last
+    value, in its healthy color, for up to a MONTH — the Brier-incident
+    mechanism rebuilt. Every stat tile on LEARNING must therefore be an
+    instant query (graphMode none), so absence surfaces at Prometheus'
+    ~5m lookback instead of the window width."""
+    d = _shipped(LEARNING)
+    got = frozenset(_identity(p) for p in _all_panels(d))
+    if got == _LEARNING_STRIPPED_PANELS:
+        pytest.skip("learning board is in the fully-stripped form")
+    bad = []
+    for p in _all_panels(d):
+        if p.get("type") != "stat":
+            continue
+        if (p.get("options") or {}).get("graphMode") != "none":
+            bad.append((p["id"], p.get("title"), "graphMode"))
+        for t in p.get("targets") or []:
+            if t.get("instant") is not True:
+                bad.append((p["id"], p.get("title"), "range target"))
+    assert not bad, (
+        f"range-queried stat tiles on the 30d board: {bad} — a dead "
+        "producer would render its last value in healthy color for up to "
+        "30 days before the empty-state text could fire.")
+
+
+def test_learning_era_panels_query_the_config_derived_era():
+    """The era donut/stat must query the CURRENT era, derived from config
+    — never the retired un-suffixed 'triple_barrier' (the exact defect
+    gc_pusher._era_label's docstring narrates: the 432-bar migration made
+    the bare name a dead series) and never a hardcoded h432 (the next
+    horizon migration would re-poison it). Pinned against the REAL
+    runtime derivation, ml.history.triple_barrier_era, so generator-side
+    formula drift reds this test instead of darkening panels."""
+    from ml.history import triple_barrier_era
+    cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    expected = triple_barrier_era(int(cfg["ml"]["label_max_bars"]))
+    assert gen.TB_ERA == expected, (
+        f"generator TB_ERA {gen.TB_ERA!r} != ml.history derivation "
+        f"{expected!r} for label_max_bars={cfg['ml']['label_max_bars']}")
+    d = _shipped(LEARNING)
+    got = frozenset(_identity(p) for p in _all_panels(d))
+    if got == _LEARNING_STRIPPED_PANELS:
+        pytest.skip("learning board is in the fully-stripped form")
+    era_exprs = [t.get("expr", "")
+                 for p in _all_panels(d)
+                 for t in (p.get("targets") or [])
+                 if "liquiditybot_era_reason_rows" in t.get("expr", "")
+                 or "liquiditybot_era_label_rate" in t.get("expr", "")]
+    assert era_exprs, "the era outcome panels are gone — update this pin"
+    for e in era_exprs:
+        assert f'era="{expected}"' in e, (
+            f"era panel queries {e!r}, not the config-derived era "
+            f"{expected!r}")
+
+
+def test_absence_never_borrows_a_verdict_color():
+    """Grafana paints a stat's noValue string with the BASE threshold
+    step's color, so a green base renders ABSENCE as an all-clear and a
+    red base renders "window filling" as an alarm. Every palette whose
+    tiles carry honest-absence text must anchor on the neutral "text"
+    base; signed-gap palettes park their real colors above an
+    unreachable sentinel so values still read true.
+
+    Verified-by-precedent renderer claim (the state() tiles already pair
+    base-text with mappings); the one-tile live injection remains the
+    deploy-time check."""
+    assert gen.ZERO_BAD[0] == {"color": "text", "value": None}, gen.ZERO_BAD
+    assert gen.EQ_DRIFT[0] == {"color": "text", "value": None}, gen.EQ_DRIFT
+    for pal in (gen.GAP_GOOD_POS, gen.GAP_BAD_POS):
+        assert pal[0] == {"color": "text", "value": None}, pal
+        # the sentinel keeps real values colored: everything reachable
+        # sits above the second step
+        assert pal[1]["value"] == -100, pal
+    # and the shipped judge tiles anchor neutral too
+    for board in (LEARNING, PROBLEMS):
+        for p in _all_panels(_shipped(board)):
+            if p.get("title") == "Trades the judge has scored":
+                base = p["fieldConfig"]["defaults"]["thresholds"]["steps"][0]
+                assert base["color"] == "text", (board, base)
+
+
+def test_judge_floor_text_tracks_config():
+    """The '<N scored closes' empty-state text and the judge tiles' green
+    line must equal ml.monitor.min_trades_to_judge — a hardcoded 15 would
+    turn into a lie on the first config change."""
+    cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    floor = int(cfg["ml"]["monitor"]["min_trades_to_judge"])
+    assert gen.JUDGE_MIN == floor
+    assert f"<{floor} " in gen._NV_JUDGE, gen._NV_JUDGE
+    for board in (LEARNING, PROBLEMS):
+        hits = [p for p in _all_panels(_shipped(board))
+                if p.get("title") == "Trades the judge has scored"]
+        if not hits:      # stripped form
+            continue
+        steps = hits[0]["fieldConfig"]["defaults"]["thresholds"]["steps"]
+        assert any(s.get("value") == floor for s in steps), (
+            f"{board}: judge tile's green line is not the config floor "
+            f"{floor}")
 
 
 def test_execution_board_still_mirrors_the_alert_rules():
@@ -428,14 +610,11 @@ def test_execution_board_still_mirrors_the_alert_rules():
     if got == _EXEC_STRIPPED_PANELS:
         pytest.skip("execution board is in the fully-stripped form")
 
-    alert_dir = ROOT / "docs" / "grafana"
     fired_on = set()
-    for y in ("liquiditybot_brier_alert.yaml", "liquiditybot_drift_alert.yaml"):
-        txt = (alert_dir / y).read_text(encoding="utf-8")
-        for line in txt.splitlines():
-            # only the query EXPRESSIONS, not prose in comments/annotations
-            if "expr:" in line:
-                fired_on |= set(_MET_RE.findall(line))
+    for y in ALERT_YAMLS:
+        # _alert_rule_facts degrades CLOSED: zero extracted metrics is a
+        # failure, so a YAML rewrite cannot hollow this mirror silently
+        fired_on |= _alert_rule_facts(y)[0]
     on_board = set()
     for p in _all_panels(_shipped(EXECUTION)):
         on_board |= set(_identity(p)[3])

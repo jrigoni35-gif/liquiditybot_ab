@@ -432,25 +432,47 @@ def _stamp_due(stamp: Path, period_sec: float) -> bool:
     return True
 
 
+def _dash_manifest() -> list:
+    """The import manifest — the EXACT file list grafana_import ships.
+    Falls back to a directory glob only if the import module cannot be
+    loaded (it lives beside this file, so that is a broken deploy)."""
+    try:
+        from grafana_import import DASHBOARDS
+        return list(DASHBOARDS)
+    except ImportError:
+        return []
+
+
 def _dash_fingerprint(dash_dir: Path = _DASH_DIR) -> str:
-    """Stable content hash of the repo's dashboard JSONs — the
-    auto-import change-detection key. Empty string when the directory is
-    absent/empty (nothing to import)."""
+    """Stable content hash of the dashboards the import MANIFEST ships —
+    the auto-import change-detection key. Empty string when none of the
+    manifest files exist (nothing to import).
+
+    Manifest-scoped, not a directory glob (2026-08-17): the import child
+    only ever POSTs grafana_import.DASHBOARDS, so hashing every *.json in
+    the directory let a stray/leftover json (a scratch export, a retired
+    board resurrected by a bad merge) hold the fingerprint permanently
+    ahead of the stamp and re-trigger imports forever. A manifest file
+    that is MISSING still changes the hash (its absence is hashed), so a
+    deleted board is a change, while a stray file is not."""
     import hashlib
     h = hashlib.sha256()
-    try:
-        files = sorted(dash_dir.glob("*.json"))
-    except OSError:
+    names = _dash_manifest()
+    if not names:
         return ""
-    if not files:
-        return ""
-    for p in files:
+    seen_any = False
+    for name in sorted(names):
+        p = dash_dir / name
+        h.update(name.encode("utf-8"))
         try:
-            h.update(p.name.encode("utf-8"))
-            h.update(p.read_bytes())
+            if p.exists():
+                h.update(p.read_bytes())
+                seen_any = True
+            else:
+                h.update(b"<ABSENT>")
         except OSError:
             return ""          # unreadable mid-deploy: skip this tick
-    return h.hexdigest()
+    return h.hexdigest() if seen_any else ""
 
 
 def _grafana_token_present() -> bool:
@@ -465,6 +487,30 @@ def _grafana_token_present() -> bool:
 
 _dash_no_token_warned = False
 
+# Exponential retry backoff on the import child (2026-08-17). The stamp is
+# written by the CHILD on success; the supervisor observes failure only as
+# "I spawned an import for fingerprint X and the stamp still is not X".
+# Without backoff that observation re-spawned every BOOT_GRACE_SEC (180s)
+# forever against e.g. a revoked token — 480 doomed child processes a day.
+# fails counts OBSERVED failed attempts at the same fingerprint; the gap
+# is BOOT_GRACE_SEC * 2**fails capped at 1h, and any success (stamp
+# matches) or content change (new fingerprint) resets it.
+_DASH_BACKOFF_CAP_SEC = 3600.0
+_dash_retry = {"fails": 0, "next_ok": 0.0, "spawned_fp": ""}
+
+
+def _dash_mark_spawn(fp: str) -> None:
+    """Record that an import child was just spawned for fingerprint fp.
+    Called by the main loop right after a successful _spawn_gated."""
+    r = _dash_retry
+    if r["spawned_fp"] == fp:
+        r["fails"] += 1        # previous attempt at this same fp never stamped
+    else:
+        r["spawned_fp"] = fp
+        r["fails"] = 0
+    r["next_ok"] = time.time() + min(
+        BOOT_GRACE_SEC * (2 ** r["fails"]), _DASH_BACKOFF_CAP_SEC)
+
 
 def _dash_import_due(dash_dir: Path = _DASH_DIR,
                      stamp: Path = _DASH_IMPORT_STAMP) -> str:
@@ -472,14 +518,17 @@ def _dash_import_due(dash_dir: Path = _DASH_DIR,
     (content changed since the last SUCCESSFUL import and a token is
     available), else "". The stamp is written by the import child on
     success, never here — a failed import stays due and retries under
-    _spawn_gated's rate limit. A due import with NO token warns once per
-    process instead of degrading silently (the boards would drift stale
-    on Grafana with nothing in the log saying why)."""
+    _spawn_gated's rate limit plus the exponential backoff above. A due
+    import with NO token warns once per process instead of degrading
+    silently (the boards would drift stale on Grafana with nothing in
+    the log saying why)."""
     fp = _dash_fingerprint(dash_dir)
     if not fp:
         return ""
     try:
         if stamp.read_text(encoding="utf-8").strip() == fp:
+            if _dash_retry["fails"] or _dash_retry["spawned_fp"]:
+                _dash_retry.update(fails=0, next_ok=0.0, spawned_fp="")
             return ""
     except OSError:
         pass                   # no stamp yet -> first import is due
@@ -492,6 +541,9 @@ def _dash_import_due(dash_dir: Path = _DASH_DIR,
                 "auto-import skipped; boards will drift until a token is "
                 "provided")
         return ""
+    if (_dash_retry["spawned_fp"] == fp
+            and time.time() < _dash_retry["next_ok"]):
+        return ""              # backing off after an observed failure
     return fp
 
 
@@ -826,6 +878,7 @@ def tick() -> None:
                 [PY, "scripts/grafana_import.py",
                  "--stamp", str(_DASH_IMPORT_STAMP),
                  "--fingerprint", _dash_fp], own_log=True):
+            _dash_mark_spawn(_dash_fp)
             log("dashboards changed + Grafana token present -> importing")
 
 

@@ -120,8 +120,16 @@ def main() -> int:
     if not base.startswith("https://"):
         print("refusing non-https Grafana URL")
         return 2
-    folder_uid = ensure_folder(base, token, args.folder)
-    failures = 0
+    # Hardened 2026-08-17: every network call catches URLError (DNS down,
+    # connection refused, TLS failure, timeout) and OSError, not only
+    # HTTPError — an offline PC used to crash this child with a traceback
+    # every 180s instead of logging one FAIL line and retrying later.
+    try:
+        folder_uid = ensure_folder(base, token, args.folder)
+    except (urllib.error.URLError, OSError) as e:
+        print(f"  FAIL folder {args.folder}: {e}")
+        return 1
+    board_failures = 0
     for name in DASHBOARDS:
         path = ROOT / "docs" / "grafana" / name
         if not path.exists():
@@ -137,9 +145,19 @@ def main() -> int:
             print(f"  OK   {name} -> {out.get('url')} "
                   f"(v{out.get('version')})")
         except urllib.error.HTTPError as e:
-            failures += 1
+            board_failures += 1
             print(f"  FAIL {name}: HTTP {e.code} {e.read()[:200]!r}")
+        except (urllib.error.URLError, OSError) as e:
+            board_failures += 1
+            print(f"  FAIL {name}: {e}")
 
+    # Retire failures are tracked SEPARATELY and do not block the stamp
+    # (2026-08-17): the stamp answers "are the shipped boards current on
+    # the instance", which the retire pass does not change. A permission
+    # gap here (403 on DELETE) used to hold the stamp back and re-import
+    # four unchanged boards every 180s forever; now it warns and the
+    # retired uid is retried on the NEXT content change.
+    retire_failures = 0
     for uid in RETIRED_UIDS:
         try:
             _req(f"{base}/api/dashboards/uid/{uid}", token, method="DELETE")
@@ -148,19 +166,23 @@ def main() -> int:
             if e.code == 404:
                 print(f"  RETIRED {uid}: already gone")
             else:
-                failures += 1
-                print(f"  FAIL retire {uid}: HTTP {e.code}")
-    if not failures and args.stamp:
+                retire_failures += 1
+                print(f"  WARN retire {uid}: HTTP {e.code} - boards "
+                      "imported fine; the dead board stays on the "
+                      "instance until this succeeds")
+        except (urllib.error.URLError, OSError) as e:
+            retire_failures += 1
+            print(f"  WARN retire {uid}: {e}")
+    if not board_failures and args.stamp:
         # pc_supervisor auto-import contract: record WHAT was imported
-        # (content fingerprint), only on full success — a partial or
-        # failed run leaves the stamp untouched so the supervisor
-        # retries on its next tick.
+        # (content fingerprint) once every BOARD posted — a failed board
+        # leaves the stamp untouched so the supervisor retries next tick.
         try:
             Path(args.stamp).write_text(str(args.fingerprint),
                                         encoding="utf-8")
         except OSError as e:
             print(f"  stamp write failed (import itself succeeded): {e}")
-    return 1 if failures else 0
+    return 1 if board_failures else 0
 
 
 if __name__ == "__main__":

@@ -98,8 +98,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#FF453A",
+                "color": "text",
                 "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": -100
               },
               {
                 "color": "#30D158",
@@ -110,13 +114,13 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -140,8 +144,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_baseline_brier{job=\"liquiditybot\"}) - max(liquiditybot_ml_brier{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
@@ -151,7 +155,7 @@
       "id": 2,
       "type": "stat",
       "title": "Training rows",
-      "description": "Rows in the training corpus. More rows is more to learn from; the sparkline shows the 30-day growth.",
+      "description": "Rows in the training corpus (raw, before loading filters). The 'Corpus growth' chart below carries the 30-day trend.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -184,7 +188,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -208,8 +212,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_history_rows{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
@@ -219,7 +223,7 @@
       "id": 3,
       "type": "stat",
       "title": "Clean live labels",
-      "description": "Live-outcome rows that survived hygiene checks - the highest-value food the model gets. Under 30, the loop is starved and every quality number below is a hypothesis, not a finding.",
+      "description": "Live-outcome rows that survived hygiene checks - the highest-value food the model gets. Under 30, the loop is starved and every quality number below is a hypothesis, not a finding. As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -260,7 +264,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -284,8 +288,8 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_live_clean{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
@@ -562,7 +566,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Prediction error - model vs naive vs champion",
-      "description": "Brier score: how wrong the win-probability estimates are (lower is better; 0.25 is a coin flip). The model line staying UNDER the naive line, week after week, is what 'getting smarter' looks like. Empty means: window filling (<15 model-scored closes); not in this cycle's status write.",
+      "description": "Brier score: how wrong the win-probability estimates are (lower is better; 0.25 is a coin flip). The model line staying UNDER the naive line, week after week, is what 'getting smarter' looks like. Empty means: window filling (<15 scored closes) or judge down; not in this cycle's status write.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -594,7 +598,7 @@
             "mode": "palette-classic"
           },
           "decimals": 3,
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": [
           {
@@ -699,17 +703,89 @@
     },
     {
       "id": 9,
-      "type": "timeseries",
-      "title": "Hit rate vs claimed probability",
-      "description": "If the model claims 65% and wins 45%, its sizing is built on a lie. Honest = the claimed line hugging the actual line; on small samples trust the conservative floor. Empty means: window filling (<15 model-scored closes).",
+      "type": "stat",
+      "title": "Trades the judge has scored",
+      "description": "How many recent closes the model judge has scored - the Brier tiles wake at 15. Zero or absent here while Brier numbers sit unchanged means the judge is dead, not the model healthy.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 6,
         "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "#30D158",
+                "value": 15
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "window filling (<15 scored closes) or judge down"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_ml_window_trades{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Hit rate vs claimed probability",
+      "description": "If the model claims 65% and wins 45%, its sizing is built on a lie. Honest = the claimed line hugging the actual line; on small samples trust the conservative floor. Empty means: window filling (<15 scored closes) or judge down.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
         "y": 15
       },
       "fieldConfig": {
@@ -733,7 +809,7 @@
             "mode": "palette-classic"
           },
           "decimals": 1,
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": [
           {
@@ -837,7 +913,7 @@
       "transparent": true
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "timeseries",
       "title": "Feature drift share",
       "description": "Share of the model's inputs that look different from what it trained on. High AND stuck means the market moved and the model has not. Empty means: not in this cycle's status write.",
@@ -847,8 +923,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 6,
+        "x": 12,
         "y": 15
       },
       "fieldConfig": {
@@ -908,18 +984,18 @@
       "transparent": true
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "timeseries",
       "title": "Calibration gap",
-      "description": "Distance between claimed probabilities and reality. Small is honest; widening turns into sizing errors, because position size reads these probabilities literally. Empty means: window filling (<15 model-scored closes).",
+      "description": "Distance between claimed probabilities and reality. Small is honest; widening turns into sizing errors, because position size reads these probabilities literally. Empty means: window filling (<15 scored closes) or judge down.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 18,
         "y": 15
       },
       "fieldConfig": {
@@ -943,7 +1019,7 @@
             "mode": "palette-classic"
           },
           "decimals": 1,
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": []
       },
@@ -979,7 +1055,7 @@
       "transparent": true
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "row",
       "title": "Is the pipeline filling?",
       "collapsed": false,
@@ -995,10 +1071,10 @@
       }
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "gauge",
-      "title": "Corpus rows toward honest testing",
-      "description": "Training rows against the overfit battery's real-data floor (10 rows per feature = 640). Below it the battery validates its own machinery on synthetic data, not the strategy - re-derive the exact floor from scripts/overfit_check.py, never from this caption.",
+      "title": "Raw training rows collected",
+      "description": "Every row ever recorded, BEFORE the loading filters (hygiene drops, era exclusion, uniqueness weighting) that decide what training actually sees. The 640 mark is the overfit battery's real-data floor for LOADED rows - read the battery's own summary line for which corpus it ran on, never this gauge.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1021,17 +1097,10 @@
               {
                 "color": "#0A84FF",
                 "value": null
-              },
-              {
-                "color": "#30D158",
-                "value": 640
               }
             ]
           },
-          "noValue": "not in this cycle's status write",
-          "color": {
-            "mode": "thresholds"
-          }
+          "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
@@ -1061,7 +1130,7 @@
       "transparent": true
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "gauge",
       "title": "New-era rows toward re-arm",
       "description": "Rows collected under the CURRENT trading geometry. Old-era rows sit out of training until this reaches the re-arm line (liquiditybot_era_excl_min_rows, default 150).",
@@ -1127,7 +1196,7 @@
       "transparent": true
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "stat",
       "title": "Labels per day",
       "description": "7-day average of live labels earned per day. Under 3 a day the corpus fills slower than the floor pace.",
@@ -1171,7 +1240,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1195,15 +1264,15 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_probe_budget_live_labels_per_day_7d{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "stat",
       "title": "Labels in the last 24h",
       "description": "Labels earned in the last day - today's pace against the same 3-a-day floor.",
@@ -1247,7 +1316,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1271,18 +1340,18 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_probe_budget_labels_24h{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "stat",
       "title": "Label uniqueness",
-      "description": "How independent the labels are - overlapping trades share evidence, so 100 rows at 0.05 uniqueness carry about 5 rows of real information.",
+      "description": "How independent the labels are - overlapping trades share evidence, so 100 rows at 0.05 uniqueness carry about 5 rows of real information. As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1323,7 +1392,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1347,15 +1416,15 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_ml_mean_uniqueness{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "timeseries",
       "title": "Corpus growth",
       "description": "The corpus filling over the month. Both flat: the bot is not closing trades. All-rows climbing while clean-live stays flat: hygiene is eating the rows. Empty means: not in this cycle's status write; awaiting first retrain (no corpus load).",
@@ -1470,7 +1539,7 @@
       "transparent": true
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "timeseries",
       "title": "Where labels come from",
       "description": "Labelled rows by origin - live closes vs simulated candidates. Live rows are the gold standard; candidate rows fill in while live experience accumulates. Empty means: no labelled rows yet.",
@@ -1543,7 +1612,7 @@
       "transparent": true
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "row",
       "title": "What the labels say",
       "collapsed": false,
@@ -1559,10 +1628,10 @@
       }
     },
     {
-      "id": 21,
+      "id": 22,
       "type": "piechart",
       "title": "How this era's trades ended",
-      "description": "Outcome mix of current-era labelled trades. A healthy edge needs enough profit-target exits to pay for all the stops.",
+      "description": "Outcome mix of current-era (triple_barrier_h432) labelled trades, as of the last retrain's corpus load. A healthy edge needs enough profit-target exits to pay for all the stops.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1660,7 +1729,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier\",reason=\"tb_pt\"})",
+          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier_h432\",reason=\"tb_pt\"})",
           "instant": true,
           "range": false,
           "legendFormat": "hit profit target"
@@ -1671,7 +1740,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier\",reason=\"tb_sl\"})",
+          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier_h432\",reason=\"tb_sl\"})",
           "instant": true,
           "range": false,
           "legendFormat": "hit the stop"
@@ -1682,7 +1751,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier\",reason=\"tb_time\"})",
+          "expr": "max(liquiditybot_era_reason_rows{job=\"liquiditybot\",era=\"triple_barrier_h432\",reason=\"tb_time\"})",
           "instant": true,
           "range": false,
           "legendFormat": "timed out"
@@ -1691,10 +1760,10 @@
       "transparent": true
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "stat",
       "title": "Label rate this era",
-      "description": "Share of current-era rows that earned a definite win/loss verdict (the rest timed out unresolved or are still open).",
+      "description": "Share of current-era rows that earned a definite win/loss verdict (the rest timed out unresolved or are still open). As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1735,7 +1804,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1758,19 +1827,19 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_era_label_rate{job=\"liquiditybot\",era=\"triple_barrier\"})",
-          "instant": false,
-          "range": true,
+          "expr": "max(liquiditybot_era_label_rate{job=\"liquiditybot\",era=\"triple_barrier_h432\"})",
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 24,
       "type": "stat",
       "title": "Corpus drift distance",
-      "description": "How different the whole training corpus looks from recent live trading (0 = identical, 1 = nothing in common).",
+      "description": "How different the whole training corpus looks from recent live trading (0 = identical, 1 = nothing in common). As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1805,13 +1874,13 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "awaiting first retrain (no corpus load)"
+          "noValue": "no retrain or mix check yet - or feed down"
         },
         "overrides": []
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1835,18 +1904,18 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_era_mix_tvd{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 25,
       "type": "stat",
       "title": "Corpus matches live?",
-      "description": "DRIFTED means the model is learning mostly from a market that no longer exists - treat its opinions with suspicion until the mix re-aligns.",
+      "description": "DRIFTED means the model is learning mostly from a market that no longer exists - treat its opinions with suspicion until the mix re-aligns. As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1890,7 +1959,7 @@
               }
             }
           ],
-          "noValue": "awaiting first retrain (no corpus load)"
+          "noValue": "no retrain or mix check yet - or feed down"
         },
         "overrides": []
       },
@@ -1928,10 +1997,10 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 26,
       "type": "stat",
       "title": "Rows excluded from training",
-      "description": "Old-geometry rows the era fence keeps OUT of training so stale lessons cannot leak into the current model.",
+      "description": "Old-geometry rows the era fence keeps OUT of training so stale lessons cannot leak into the current model. As of the last retrain's corpus load.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1964,7 +2033,7 @@
       },
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "textMode": "auto",
         "wideLayout": true,
@@ -1988,15 +2057,15 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_era_excl_dropped{job=\"liquiditybot\"})",
-          "instant": false,
-          "range": true,
+          "instant": true,
+          "range": false,
           "legendFormat": ""
         }
       ],
       "transparent": true
     },
     {
-      "id": 26,
+      "id": 27,
       "type": "row",
       "title": "Which model is driving",
       "collapsed": false,
@@ -2012,7 +2081,7 @@
       }
     },
     {
-      "id": 27,
+      "id": 28,
       "type": "timeseries",
       "title": "Deployed model over time",
       "description": "Which model family is deployed (its line sits at 1 while active). A step from one line to another is a redeploy; the full lineage ledger with Brier evidence lives in outputs/registry.jsonl. Empty means: ⚠ no series — exporter/pusher, not the bot.",
@@ -2083,7 +2152,7 @@
       "transparent": true
     },
     {
-      "id": 28,
+      "id": 29,
       "type": "stat",
       "title": "Retrain queued",
       "description": "QUEUED means the trainer will rebuild the model on its next pass - routine housekeeping, not an alarm.",
@@ -2168,7 +2237,7 @@
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "stat",
       "title": "Retrain failures",
       "description": "Times the retrain loop crashed. Anything above zero deserves a look at the runner log.",
@@ -2190,7 +2259,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#30D158",
+                "color": "text",
                 "value": null
               },
               {
@@ -2240,7 +2309,7 @@
       "transparent": true
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "stat",
       "title": "Model fallbacks",
       "description": "Times inference fell back to the safe default instead of the deployed model.",
@@ -2262,7 +2331,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#30D158",
+                "color": "text",
                 "value": null
               },
               {
@@ -2312,7 +2381,7 @@
       "transparent": true
     },
     {
-      "id": 31,
+      "id": 32,
       "type": "row",
       "title": "The cost of learning",
       "collapsed": true,
@@ -2324,7 +2393,7 @@
       },
       "panels": [
         {
-          "id": 32,
+          "id": 33,
           "type": "gauge",
           "title": "Probe tokens in the tank",
           "description": "Small exploratory trades are paid for in tokens; an empty tank means no new probes until it refills (capacity: liquiditybot_probe_budget_capacity).",
@@ -2394,7 +2463,7 @@
           "transparent": true
         },
         {
-          "id": 33,
+          "id": 34,
           "type": "stat",
           "title": "Tuition spent in 24h",
           "description": "What the probes cost in the last day - the price paid for the labels they earned.",
@@ -2430,7 +2499,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2454,15 +2523,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_tuition_24h_usd{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 34,
+          "id": 35,
           "type": "stat",
           "title": "Tuition cap",
           "description": "The most the bot may spend on learning per day.",
@@ -2498,7 +2567,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2522,15 +2591,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_tuition_cap_usd{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 35,
+          "id": 36,
           "type": "stat",
           "title": "Unlock ETA",
           "description": "Projected days until enough current-era labels exist to unlock the next model step, at the current pace.",
@@ -2574,7 +2643,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2598,15 +2667,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_unlock_eta_days{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 36,
+          "id": 37,
           "type": "stat",
           "title": "Probes open now",
           "description": "Exploratory positions currently on the book.",
@@ -2674,7 +2743,7 @@
           "transparent": true
         },
         {
-          "id": 37,
+          "id": 38,
           "type": "stat",
           "title": "Denied - budget empty",
           "description": "Probe attempts turned away in the last day because the token tank was empty. High means the bot wants to learn faster than the budget allows.",
@@ -2696,7 +2765,7 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "#30D158",
+                    "color": "text",
                     "value": null
                   },
                   {
@@ -2718,7 +2787,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2742,15 +2811,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_denied_exhausted_24h{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 38,
+          "id": 39,
           "type": "stat",
           "title": "Probe governor",
           "description": "Throttle on probe spending (1.00 full speed, 0.25 floor). It backs off when tuition outruns the labels earned.",
@@ -2794,7 +2863,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2818,15 +2887,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_governor_factor{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 39,
+          "id": 40,
           "type": "stat",
           "title": "Refunds in 24h",
           "description": "Probes whose token cost was refunded - scratched before risking anything.",
@@ -2862,7 +2931,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -2886,8 +2955,8 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_probe_budget_refunds_24h{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
@@ -2899,7 +2968,7 @@
       }
     },
     {
-      "id": 40,
+      "id": 41,
       "type": "row",
       "title": "Gate learning",
       "collapsed": true,
@@ -2911,7 +2980,7 @@
       },
       "panels": [
         {
-          "id": 41,
+          "id": 42,
           "type": "bargauge",
           "title": "Learned gate weights",
           "description": "How much say each entry gate has earned from labelled outcomes. A gate near zero is being ignored.",
@@ -2978,7 +3047,7 @@
           "transparent": true
         },
         {
-          "id": 42,
+          "id": 43,
           "type": "bargauge",
           "title": "Is any gate lying?",
           "description": "Gap between what a gate predicts and what actually happens (divergence from the base rate). High means that gate's opinion is misleading right now.",
@@ -3052,7 +3121,7 @@
           "transparent": true
         },
         {
-          "id": 43,
+          "id": 44,
           "type": "stat",
           "title": "Labeled rows feeding the gates",
           "description": "Sample size behind the two panels above - small numbers mean noisy weights.",
@@ -3088,7 +3157,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -3112,15 +3181,15 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_gate_labeled{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],
           "transparent": true
         },
         {
-          "id": 44,
+          "id": 45,
           "type": "stat",
           "title": "Base win rate the gates see",
           "description": "The long-run average win rate the gates are judged against.",
@@ -3156,7 +3225,7 @@
           },
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "textMode": "auto",
             "wideLayout": true,
@@ -3180,8 +3249,8 @@
                 "uid": "grafanacloud-prom"
               },
               "expr": "max(liquiditybot_gate_base_rate{job=\"liquiditybot\"})",
-              "instant": false,
-              "range": true,
+              "instant": true,
+              "range": false,
               "legendFormat": ""
             }
           ],

@@ -380,14 +380,27 @@ def test_collect_emits_hardening_guard_counters(tmp_path):
 
 
 def test_collect_handles_missing_fault_blocks(tmp_path):
-    # a minimal/old status.json must never crash the pusher
+    # a minimal/old status.json must never crash the pusher.
+    #
+    # CONTRACT INVERTED 2026-08-17 (deliberate pin flip, review record in
+    # this commit): this test used to assert liquiditybot_halted and
+    # liquiditybot_firewall_fault were emitted as "graceful defaults" from
+    # a status that never carried those keys — i.e. it PINNED the
+    # fabricated-healthy-zero behavior. A version-skew or schema-transition
+    # write then rendered a bot that had never been checked as one that had
+    # been checked and passed. The exporter now presence-guards the
+    # bool/state family: absent key -> NO series -> the boards' honest
+    # empty-state text ("not in this cycle's status write") fires instead.
     p = tmp_path / "status.json"
     p.write_text(json.dumps({"written_at": time.time(), "equity": 800.0}),
                  encoding="utf-8")
-    names = _names(gp.collect(str(p)))
-    assert "liquiditybot_halted" in names
-    assert "liquiditybot_firewall_fault" in names       # graceful default
-    # the new counters are absent-safe (None -> not emitted, no crash)
+    names = _names(gp.collect(str(p)))       # must not raise — that part holds
+    assert "liquiditybot_halted" not in names
+    assert "liquiditybot_firewall_fault" not in names
+    assert "liquiditybot_op_state" not in names
+    assert "liquiditybot_fault_count" not in names
+    assert "liquiditybot_watchdog_entries_blocked" not in names
+    # the counters were already absent-safe (None -> not emitted, no crash)
     assert "liquiditybot_exit_eval_failures" not in names
     # brier is only pushed when the judge window is full; a status with no
     # monitor block must NOT emit it (so the outcome alert stays OK, not firing)

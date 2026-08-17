@@ -95,7 +95,7 @@
       "id": 2,
       "type": "stat",
       "title": "Brier gap vs baseline",
-      "description": "model Brier MINUS baseline Brier. This IS the firing condition of liquiditybot_brier_alert.yaml (> 0.03). Last real reading 2026-08-06: 0.0547 - already over the line.",
+      "description": "model Brier MINUS baseline Brier - the firing condition of the REPO's copy of liquiditybot_brier_alert.yaml (> 0.03). The live instance's rule can drift from that copy, and an ABSENT series holds the alert green while this tile shows its empty-state text. Last real reading 2026-08-06: 0.0547 - already over the line.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -114,8 +114,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#30D158",
+                "color": "text",
                 "value": null
+              },
+              {
+                "color": "#30D158",
+                "value": -100
               },
               {
                 "color": "#FF453A",
@@ -126,7 +130,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": []
       },
@@ -202,7 +206,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": []
       },
@@ -270,7 +274,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "noValue": "window filling (<15 model-scored closes)"
+          "noValue": "window filling (<15 scored closes) or judge down"
         },
         "overrides": []
       },

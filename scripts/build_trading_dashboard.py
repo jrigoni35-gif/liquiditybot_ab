@@ -128,6 +128,28 @@ def _code_value_mappings():
              "options": {c: {"text": t, "index": i}
                          for i, (c, t) in enumerate(sorted(CODE_LABELS.items()))}}]
 JOB = '{job="liquiditybot"}'
+
+# ---- config-derived board constants (2026-08-17) ---------------------------
+# Values that must TRACK config are read from it at generation time, never
+# hardcoded. Two lessons drive this:
+#   * the era donut shipped querying era="triple_barrier" — the RETIRED
+#     un-suffixed era (see gc_pusher._era_label's own incident docstring:
+#     the 432-bar migration mints triple_barrier_h<N>) — so the panel would
+#     have found nothing even on a healthy bot. The era label is derived
+#     from ml.label_max_bars with the SAME formula as
+#     ml.history.triple_barrier_era (legacy 96 stays un-suffixed);
+#     tests/test_boards_stripped.py pins the board's label against the real
+#     function, so formula drift reds the build instead of dark panels.
+#   * the judge-window floor ("<15") was hardcoded into empty-state text; a
+#     config change would turn the text into a lie. It reads
+#     ml.monitor.min_trades_to_judge instead.
+_CFG = json.loads((Path(__file__).resolve().parents[1] / "config.json")
+                  .read_text(encoding="utf-8"))
+_TB_MAX_BARS = int(_CFG["ml"]["label_max_bars"])
+TB_ERA = ("triple_barrier" if _TB_MAX_BARS == 96
+          else f"triple_barrier_h{_TB_MAX_BARS}")
+JUDGE_MIN = int((_CFG["ml"].get("monitor") or {})
+                .get("min_trades_to_judge", 15))
 # NON-SCALING dollars. Grafana's built-in currencyUSD SI-abbreviates at
 # >=$1k, so a $4,997.92 equity renders as "$5.00K" on stats and axes —
 # literally not the actual amount (user-reported). The custom prefix unit
@@ -518,7 +540,25 @@ CALIB = [{"color": "green", "value": None}, {"color": "yellow", "value": 0.10},
          {"color": "red", "value": 0.15}]
 STREAK = [{"color": "green", "value": None}, {"color": "yellow", "value": 3},
           {"color": "red", "value": 5}]
-ZERO_BAD = [{"color": "green", "value": None}, {"color": "red", "value": 1}]
+# Base "text", not green (2026-08-17): Grafana paints a stat's noValue
+# string with the BASE threshold step's color, so a green base rendered
+# ABSENCE as an all-clear — a dead exporter's empty fault tile glowed the
+# same green as a checked-and-passed one. Neutral base = value 0 reads
+# neutral (the board's neutral-when-ok doctrine, see CV_ALARM), a real
+# count reads red, and absence reads as neither verdict. Renderer claim
+# verified by precedent (state() tiles already pair base-text with
+# mappings); the one-tile live injection is the deploy-time check.
+ZERO_BAD = [{"color": "text", "value": None}, {"color": "red", "value": 1}]
+# Signed-gap tiles (Brier gap) need base-text for absence AND real colors
+# for every reachable value, which a two-step scale cannot do — so the
+# base covers only an UNREACHABLE band via a -100 sentinel (Brier gaps
+# live in [-1, 1]) and the reachable range gets its true colors above it.
+GAP_GOOD_POS = [{"color": "text", "value": None},      # only noValue lands here
+                {"color": "red", "value": -100},
+                {"color": "green", "value": 0}]
+GAP_BAD_POS = [{"color": "text", "value": None},       # only noValue lands here
+               {"color": "green", "value": -100},
+               {"color": "red", "value": 0.03}]
 BRIER = [{"color": "green", "value": None}, {"color": "yellow", "value": 0.24},
          {"color": "red", "value": 0.25}]
 WR100 = [{"color": "red", "value": None}, {"color": "yellow", "value": 45},
@@ -581,7 +621,11 @@ MARKS_AGE = [{"color": "green", "value": None},
 RECONNECTS = [{"color": "green", "value": None},
               {"color": "yellow", "value": 3},
               {"color": "red", "value": 10}]
-EQ_DRIFT = [{"color": "green", "value": None},
+# base text, not green: on a dry-run bot the recompute never runs and the
+# exported 0.0 is an initializer, not a verdict (main.py gates the
+# equity-truth check on `not dry_run`) — a green 0.00 would render the
+# check that never ran as the check that passed
+EQ_DRIFT = [{"color": "text", "value": None},
             {"color": "yellow", "value": 0.5},
             {"color": "red", "value": 2.0}]
 HEAT = [{"color": "green", "value": None},
@@ -950,18 +994,21 @@ def _author_execution():
     """
     row("Model health - what the alerts watch")
 
-    # The alert condition itself, rendered. Green below the firing line,
-    # red at or above it: the panel and the rule cannot disagree, because
-    # this is the same arithmetic the rule performs.
+    # The alert condition itself, rendered — the same arithmetic as the
+    # REPO's copy of the rule. Scope stated honestly (2026-08-17): the
+    # LIVE instance's rule can drift from the repo copy without anything
+    # here noticing, and an absent series holds the alert green
+    # (noDataState: OK) while this tile falls to its empty-state text.
     gap = (f'max(liquiditybot_ml_brier{JOB}) '
            f'- max(liquiditybot_ml_baseline_brier{JOB})')
     stat("Brier gap vs baseline", gap, 5, 6, unit="short", decimals=4,
-         size="hero",
-         steps=[{"color": "green", "value": None},
-                {"color": "red", "value": 0.03}],
-         desc="model Brier MINUS baseline Brier. This IS the firing "
-              "condition of liquiditybot_brier_alert.yaml (> 0.03). Last "
-              "real reading 2026-08-06: 0.0547 - already over the line.")
+         size="hero", steps=GAP_BAD_POS,
+         desc="model Brier MINUS baseline Brier - the firing condition of "
+              "the REPO's copy of liquiditybot_brier_alert.yaml (> 0.03). "
+              "The live instance's rule can drift from that copy, and an "
+              "ABSENT series holds the alert green while this tile shows "
+              "its empty-state text. Last real reading 2026-08-06: 0.0547 "
+              "- already over the line.")
     stat("Model Brier", M("liquiditybot_ml_brier"), 4, 6, unit="short",
          decimals=4, steps=BRIER,
          desc="Lower is better; 0.25 is the coin-flip line.")
@@ -995,26 +1042,44 @@ def _author_learning():
     price what the learning costs. Every metric was verified against
     gc_pusher.collect() on 2026-08-17 (the ACCURACY RULE in
     _author_command applies here verbatim).
+
+    THE INSTANT-TILE IDIOM (2026-08-17, board-wide on THIS board): every
+    stat tile here is graph="none", i.e. an INSTANT query. A range-queried
+    stat reduces lastNotNull over the DASHBOARD WINDOW, and this board's
+    window is 30 days - a dead producer would render its final value, in
+    its healthy color, for a month before the noValue text could fire.
+    That is the same fossil mechanism the command board's liveness group
+    narrates, stretched 30x - and the exact Brier-incident shape
+    (ab8ee2b4: last real reading a breach, then ten silent green days).
+    An instant query falls off within Prometheus' ~5m lookback, so
+    absence becomes visible at the same speed the Data age tile turns
+    yellow. Sparklines are given up on tiles ONLY: every trend worth
+    seeing has a dedicated timeseries panel, whose bounded spanNulls
+    already draws outages as holes. The 24h boards (command/problems)
+    keep sparkline stats - their exposure is bounded to a day and each
+    carries the liveness group.
     """
     # ---- hero: the verdict tiles ----------------------------------------
     gap_good = (f'max(liquiditybot_ml_baseline_brier{JOB}) '
                 f'- max(liquiditybot_ml_brier{JOB})')
     stat("Model edge over naive guess", gap_good, 6, 6, decimals=4,
-         size="hero", steps=PNL,
+         size="hero", steps=GAP_GOOD_POS, graph="none",
          desc="Positive = the model predicts trade outcomes better than "
               "always guessing the long-run average. (Baseline Brier minus "
               "model Brier; higher is better; the pager fires at -0.03.)")
     stat("Training rows", M("liquiditybot_ml_history_rows"), 4, 6,
-         decimals=0, steps=BLUE,
-         desc="Rows in the training corpus. More rows is more to learn "
-              "from; the sparkline shows the 30-day growth.")
+         decimals=0, steps=BLUE, graph="none",
+         desc="Rows in the training corpus (raw, before loading filters). "
+              "The 'Corpus growth' chart below carries the 30-day trend.")
     stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 6,
-         decimals=0, steps=[{"color": "red", "value": None},
-                            {"color": "yellow", "value": 30},
-                            {"color": "green", "value": 150}],
+         decimals=0, graph="none",
+         steps=[{"color": "red", "value": None},
+                {"color": "yellow", "value": 30},
+                {"color": "green", "value": 150}],
          desc="Live-outcome rows that survived hygiene checks - the highest-"
               "value food the model gets. Under 30, the loop is starved and "
-              "every quality number below is a hypothesis, not a finding.")
+              "every quality number below is a hypothesis, not a finding. "
+              "As of the last retrain's corpus load.")
     state("Model in use", M("liquiditybot_ml_use_model"), 3, 6,
           {"1": ("YES", "green"), "0": ("benched", GRAY_HEX)},
           desc="Whether the governor lets the model influence sizing. "
@@ -1041,8 +1106,19 @@ def _author_learning():
                     "are (lower is better; 0.25 is a coin flip). The model "
                     "line staying UNDER the naive line, week after week, is "
                     "what 'getting smarter' looks like.")
+    # the disambiguator: separates "window filling" from "judge dead" —
+    # absent/zero here with old Brier numbers means the judge stopped
+    # scoring, not that the model went quiet
+    stat("Trades the judge has scored",
+         M("liquiditybot_ml_window_trades"), 6, 8, decimals=0, graph="none",
+         steps=[{"color": "text", "value": None},
+                {"color": "green", "value": JUDGE_MIN}],
+         desc=f"How many recent closes the model judge has scored - the "
+              f"Brier tiles wake at {JUDGE_MIN}. Zero or absent here while "
+              f"Brier numbers sit unchanged means the judge is dead, not "
+              f"the model healthy.")
     timeseries("Hit rate vs claimed probability",
-               M("liquiditybot_ml_hit_rate"), 8, 8, unit="percentunit",
+               M("liquiditybot_ml_hit_rate"), 6, 8, unit="percentunit",
                legend="actual win rate", decimals=1,
                extra=[(M("liquiditybot_ml_avg_p"), "claimed probability"),
                       (M("liquiditybot_ml_hit_rate_lcb"),
@@ -1054,12 +1130,12 @@ def _author_learning():
                     "built on a lie. Honest = the claimed line hugging the "
                     "actual line; on small samples trust the conservative "
                     "floor.")
-    timeseries("Feature drift share", M("liquiditybot_ml_drift_share"), 8, 8,
+    timeseries("Feature drift share", M("liquiditybot_ml_drift_share"), 6, 8,
                unit="percentunit", legend="drift share", decimals=1,
                desc="Share of the model's inputs that look different from "
                     "what it trained on. High AND stuck means the market "
                     "moved and the model has not.")
-    timeseries("Calibration gap", M("liquiditybot_ml_calibration_gap"), 8, 8,
+    timeseries("Calibration gap", M("liquiditybot_ml_calibration_gap"), 6, 8,
                unit="percentunit", legend="gap", decimals=1,
                desc="Distance between claimed probabilities and reality. "
                     "Small is honest; widening turns into sizing errors, "
@@ -1068,15 +1144,20 @@ def _author_learning():
 
     # ---- supply: is there anything to learn from? ------------------------
     row("Is the pipeline filling?")
-    gauge("Corpus rows toward honest testing",
+    # "Raw", said out loud: the overfit battery's 640 floor gates LOADED
+    # rows (post-hygiene, post-era-exclusion len(X)), which no exporter
+    # metric carries yet — so this gauge counts the RAW corpus and the 640
+    # mark is a REFERENCE scale, not a success line (no green step: raw
+    # crossing 640 does not mean the battery left its synthetic benchmark).
+    gauge("Raw training rows collected",
           M("liquiditybot_ml_history_rows"), 6, 6, mn=0, mx=640, unit="",
-          decimals=0, steps=[{"color": "blue", "value": None},
-                             {"color": "green", "value": 640}],
-          desc="Training rows against the overfit battery's real-data floor "
-               "(10 rows per feature = 640). Below it the battery validates "
-               "its own machinery on synthetic data, not the strategy - "
-               "re-derive the exact floor from scripts/overfit_check.py, "
-               "never from this caption.")
+          decimals=0, steps=[{"color": "blue", "value": None}],
+          desc="Every row ever recorded, BEFORE the loading filters "
+               "(hygiene drops, era exclusion, uniqueness weighting) that "
+               "decide what training actually sees. The 640 mark is the "
+               "overfit battery's real-data floor for LOADED rows - read "
+               "the battery's own summary line for which corpus it ran on, "
+               "never this gauge.")
     gauge("New-era rows toward re-arm", M("liquiditybot_era_excl_new_rows"),
           6, 6, mn=0, mx=150, unit="", decimals=0,
           steps=[{"color": "blue", "value": None},
@@ -1086,18 +1167,18 @@ def _author_learning():
                "(liquiditybot_era_excl_min_rows, default 150).")
     stat("Labels per day",
          M("liquiditybot_probe_budget_live_labels_per_day_7d"), 4, 6,
-         decimals=1, steps=PROBE_LABELS,
+         decimals=1, steps=PROBE_LABELS, graph="none",
          desc="7-day average of live labels earned per day. Under 3 a day "
               "the corpus fills slower than the floor pace.")
     stat("Labels in the last 24h", M("liquiditybot_probe_budget_labels_24h"),
-         4, 6, decimals=0, steps=PROBE_LABELS,
+         4, 6, decimals=0, steps=PROBE_LABELS, graph="none",
          desc="Labels earned in the last day - today's pace against the "
               "same 3-a-day floor.")
     stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 4, 6,
-         decimals=1, steps=HIGH_GOOD,
+         decimals=1, steps=HIGH_GOOD, graph="none",
          desc="How independent the labels are - overlapping trades share "
               "evidence, so 100 rows at 0.05 uniqueness carry about 5 rows "
-              "of real information.")
+              "of real information. As of the last retrain's corpus load.")
     timeseries("Corpus growth", M("liquiditybot_ml_history_rows"), 12, 8,
                legend="all rows", decimals=0,
                extra=[(M("liquiditybot_ml_live_clean"), "clean live rows")],
@@ -1113,8 +1194,12 @@ def _author_learning():
 
     # ---- what the labels themselves say ----------------------------------
     row("What the labels say")
-    _tb = ('liquiditybot_era_reason_rows{job="liquiditybot",'
-           'era="triple_barrier",reason="%s"}')
+    # TB_ERA, never a literal: the un-suffixed "triple_barrier" is the
+    # RETIRED 96-bar era (see the config-derived constants block at the
+    # top of this file); a hardcoded era here is a dark panel on a healthy
+    # bot, and a hardcoded h432 re-poisons on the next horizon migration.
+    _tb = (f'liquiditybot_era_reason_rows{{job="liquiditybot",'
+           f'era="{TB_ERA}",reason="%s"}}')
     donut("How this era's trades ended",
           [(f"max({_tb % 'tb_pt'})", "hit profit target"),
            (f"max({_tb % 'tb_sl'})", "hit the stop"),
@@ -1123,27 +1208,32 @@ def _author_learning():
                         "hit the stop": RED_HEX,
                         "timed out": GRAY_HEX},
           unit="", decimals=0,
-          desc="Outcome mix of current-era labelled trades. A healthy edge "
-               "needs enough profit-target exits to pay for all the stops.")
+          desc=f"Outcome mix of current-era ({TB_ERA}) labelled trades, as "
+               "of the last retrain's corpus load. A healthy edge needs "
+               "enough profit-target exits to pay for all the stops.")
     stat("Label rate this era",
-         'max(liquiditybot_era_label_rate{job="liquiditybot",'
-         'era="triple_barrier"})', 4, 8, unit="percentunit", decimals=1,
-         steps=HIGH_GOOD,
+         f'max(liquiditybot_era_label_rate{{job="liquiditybot",'
+         f'era="{TB_ERA}"}})', 4, 8, unit="percentunit", decimals=1,
+         steps=HIGH_GOOD, graph="none",
          desc="Share of current-era rows that earned a definite win/loss "
-              "verdict (the rest timed out unresolved or are still open).")
+              "verdict (the rest timed out unresolved or are still open). "
+              "As of the last retrain's corpus load.")
     stat("Corpus drift distance", M("liquiditybot_era_mix_tvd"), 4, 8,
-         decimals=2, steps=DRIFT,
+         decimals=2, steps=DRIFT, graph="none",
          desc="How different the whole training corpus looks from recent "
-              "live trading (0 = identical, 1 = nothing in common).")
+              "live trading (0 = identical, 1 = nothing in common). As of "
+              "the last retrain's corpus load.")
     state("Corpus matches live?", M("liquiditybot_era_mix_alarm"), 4, 8,
           ERA_MIX,
           desc="DRIFTED means the model is learning mostly from a market "
                "that no longer exists - treat its opinions with suspicion "
-               "until the mix re-aligns.")
+               "until the mix re-aligns. As of the last retrain's corpus "
+               "load.")
     stat("Rows excluded from training", M("liquiditybot_era_excl_dropped"),
-         4, 8, decimals=0, steps=BLUE,
+         4, 8, decimals=0, steps=BLUE, graph="none",
          desc="Old-geometry rows the era fence keeps OUT of training so "
-              "stale lessons cannot leak into the current model.")
+              "stale lessons cannot leak into the current model. As of the "
+              "last retrain's corpus load.")
 
     # ---- lineage: which model is driving ---------------------------------
     row("Which model is driving")
@@ -1177,14 +1267,14 @@ def _author_learning():
                "liquiditybot_probe_budget_capacity).")
     stat("Tuition spent in 24h",
          M("liquiditybot_probe_budget_tuition_24h_usd"), 5, 6, unit=USD,
-         decimals=2, steps=GRN,
+         decimals=2, steps=GRN, graph="none",
          desc="What the probes cost in the last day - the price paid for "
               "the labels they earned.")
     stat("Tuition cap", M("liquiditybot_probe_budget_tuition_cap_usd"), 4, 6,
-         unit=USD, decimals=2, steps=GRN,
+         unit=USD, decimals=2, steps=GRN, graph="none",
          desc="The most the bot may spend on learning per day.")
     stat("Unlock ETA", M("liquiditybot_probe_budget_unlock_eta_days"), 4, 6,
-         unit="suffix:d", decimals=1, steps=PROBE_ETA,
+         unit="suffix:d", decimals=1, steps=PROBE_ETA, graph="none",
          desc="Projected days until enough current-era labels exist to "
               "unlock the next model step, at the current pace.")
     stat("Probes open now", M("liquiditybot_probe_budget_open_probes"), 5, 6,
@@ -1192,18 +1282,19 @@ def _author_learning():
          desc="Exploratory positions currently on the book.")
     stat("Denied - budget empty",
          M("liquiditybot_probe_budget_denied_exhausted_24h"), 8, 5,
-         decimals=0, steps=[{"color": "green", "value": None},
-                            {"color": "yellow", "value": 20},
-                            {"color": "red", "value": 100}],
+         decimals=0, graph="none",
+         steps=[{"color": "text", "value": None},
+                {"color": "yellow", "value": 20},
+                {"color": "red", "value": 100}],
          desc="Probe attempts turned away in the last day because the token "
               "tank was empty. High means the bot wants to learn faster "
               "than the budget allows.")
     stat("Probe governor", M("liquiditybot_probe_budget_governor_factor"),
-         8, 5, decimals=2, steps=PROBE_GOV,
+         8, 5, decimals=2, steps=PROBE_GOV, graph="none",
          desc="Throttle on probe spending (1.00 full speed, 0.25 floor). It "
               "backs off when tuition outruns the labels earned.")
     stat("Refunds in 24h", M("liquiditybot_probe_budget_refunds_24h"), 8, 5,
-         decimals=0, steps=BLUE,
+         decimals=0, steps=BLUE, graph="none",
          desc="Probes whose token cost was refunded - scratched before "
               "risking anything.")
 
@@ -1219,11 +1310,11 @@ def _author_learning():
                   "happens (divergence from the base rate). High means that "
                   "gate's opinion is misleading right now.")
     stat("Labeled rows feeding the gates", M("liquiditybot_gate_labeled"),
-         12, 5, decimals=0, steps=BLUE,
+         12, 5, decimals=0, steps=BLUE, graph="none",
          desc="Sample size behind the two panels above - small numbers "
               "mean noisy weights.")
     stat("Base win rate the gates see", M("liquiditybot_gate_base_rate"),
-         12, 5, unit="percentunit", decimals=1, steps=GRN,
+         12, 5, unit="percentunit", decimals=1, steps=GRN, graph="none",
          desc="The long-run average win rate the gates are judged against.")
 
 
@@ -1269,20 +1360,32 @@ def _author_problem():
     row("What the pager watches")
     gap = (f'max(liquiditybot_ml_brier{JOB}) '
            f'- max(liquiditybot_ml_baseline_brier{JOB})')
-    stat("Model worse than naive by", gap, 8, 6, decimals=4,
-         steps=[{"color": "green", "value": None},
-                {"color": "red", "value": 0.03}],
-         desc="The Brier pager's exact arithmetic "
-              "(liquiditybot_brier_alert.yaml): above 0.03 for 15 minutes "
-              "pages. Red here means the page is coming.")
+    stat("Model worse than naive by", gap, 6, 6, decimals=4,
+         steps=GAP_BAD_POS, graph="none",
+         desc="Mirrors the REPO's copy of the Brier rule "
+              "(liquiditybot_brier_alert.yaml: above 0.03 for 15 minutes "
+              "pages). Red here means the page is coming. Two things this "
+              "tile cannot see: the live instance's rule can drift from "
+              "the repo copy, and when the series is ABSENT the alert "
+              "holds green (noDataState: OK) while this tile shows its "
+              "empty-state text instead.")
+    stat("Trades the judge has scored",
+         M("liquiditybot_ml_window_trades"), 6, 6, decimals=0, graph="none",
+         steps=[{"color": "text", "value": None},
+                {"color": "green", "value": JUDGE_MIN}],
+         desc=f"The Brier tiles and pager wake at {JUDGE_MIN} model-scored "
+              f"closes. Zero or absent here is why the tile beside this "
+              f"one is empty - and if it stays absent while trades close, "
+              f"the judge is dead, which the pager cannot see.")
     _drift_expr = (f'(max(liquiditybot_ml_drift_share{JOB}) > bool 0.3) * '
                    f'(max(liquiditybot_monitor_level{JOB}) > bool 0)')
-    state("Drift stuck while degraded", _drift_expr, 8, 6,
+    state("Drift stuck while degraded", _drift_expr, 6, 6,
           {"1": ("FIRING", "red"), "0": ("quiet", GRAY_HEX)},
-          desc="The drift pager's exact condition "
+          desc="Mirrors the REPO's copy of the drift rule "
                "(liquiditybot_drift_alert.yaml): feature drift above 30% "
-               "WHILE the governor is degraded, held 30 minutes, pages.")
-    state("Model governor", M("liquiditybot_monitor_level"), 8, 6, GOV,
+               "WHILE the governor is degraded, held 30 minutes, pages. "
+               "The live instance's rule can drift from the repo copy.")
+    state("Model governor", M("liquiditybot_monitor_level"), 6, 6, GOV,
           desc="OK / DEGRADED / KILLED - the governor both pagers read. "
                "The learning board explains why it moved.")
 
@@ -1298,32 +1401,42 @@ def _author_problem():
                desc="Reason-code volume per family (SZ sizing, PT pretrade, "
                     "CV conviction, ...). One family suddenly dominating is "
                     "a behavior change worth explaining.")
+    # NOTE on all six counters below: they are in-memory and reset on
+    # restart, so a crash-LOOP reads 0 here by construction — each desc
+    # names the tell ("Cycles since restart" resetting).
     stat("Venue rejects", M("liquiditybot_order_venue_rejects"), 4, 4,
          decimals=0, graph="none", size="compact", steps=ZERO_BAD,
          desc="Orders Kraken refused. Zero is normal; a burst usually means "
-              "rate limits or malformed sizes.")
+              "rate limits or malformed sizes. Resets on restart - a "
+              "crash-loop reads 0; cross-check 'Cycles since restart'.")
     stat("Dead-man failures", M("liquiditybot_order_deadman_failures"), 4, 4,
          decimals=0, graph="none", size="compact", steps=ZERO_BAD,
          desc="Failed refreshes of the dead-man cancel timer that flattens "
-              "orders if the bot goes silent.")
+              "orders if the bot goes silent. Resets on restart - a "
+              "crash-loop reads 0; cross-check 'Cycles since restart'.")
     stat("Exit-check failures", M("liquiditybot_exit_eval_failures"), 4, 4,
          decimals=0, graph="none", size="compact", steps=ZERO_BAD,
          desc="Cycles where evaluating an exit crashed. Exits are the one "
-              "thing that must never fail - any number here is urgent.")
+              "thing that must never fail - any number here is urgent. "
+              "Resets on restart; cross-check 'Cycles since restart'.")
     stat("Cycle failures in a row",
          M("liquiditybot_cycle_consecutive_failures"), 4, 4, decimals=0,
          graph="none", size="compact", steps=ZERO_BAD,
          desc="Consecutive whole-cycle crashes. The loop retries, but a "
-              "climb here means it is wedged on something.")
+              "climb here means it is wedged on something. Resets on "
+              "restart - a crash-loop reads 0; cross-check 'Cycles since "
+              "restart'.")
     stat("Model inference faults", M("liquiditybot_ml_infer_faults"), 4, 4,
          decimals=0, graph="none", size="compact", steps=ZERO_BAD,
          desc="Times the model failed to score a candidate and the safe "
-              "default was used instead.")
+              "default was used instead. Resets on restart - a crash-loop "
+              "reads 0; cross-check 'Cycles since restart'.")
     stat("Feature-contract failures", M("liquiditybot_ml_contract_failed"),
          4, 4, decimals=0, graph="none", size="compact", steps=ZERO_BAD,
          desc="Feature rows that violated the model's input contract and "
               "were refused. Rising = the feed and the model disagree "
-              "about the world's shape.")
+              "about the world's shape. Resets on restart - a crash-loop "
+              "reads 0; cross-check 'Cycles since restart'.")
 
     # ---- staleness & feeds -----------------------------------------------
     row("Staleness & feeds")
@@ -1354,10 +1467,14 @@ def _author_problem():
           6, 5, {"1": ("STALE", "red"), "0": ("fresh", "green")},
           desc="Whether any CRITICAL feed aged out. STALE blocks all new "
                "entries at once.")
-    stat("Do the books add up?", M("liquiditybot_equity_drift_pct"), 6, 5,
-         unit="percent", decimals=2, steps=EQ_DRIFT,
-         desc="Drift between reported equity and an independent recompute. "
-              "Near zero means the accounting is telling the truth.")
+    stat("Books cross-check (live mode)", M("liquiditybot_equity_drift_pct"),
+         6, 5, unit="percent", decimals=2, steps=EQ_DRIFT, graph="none",
+         desc="Drift between reported equity and an independent recompute - "
+              "BUT the recompute runs in LIVE mode only. In paper trading "
+              "(dry-run, the current posture) it never runs and this reads "
+              "0.00 by construction: not a passed check, a check that "
+              "never ran. Neutral color on purpose. In live mode, near "
+              "zero means the accounting is telling the truth.")
     state("Telemetry", M("liquiditybot_status_stale"), 6, 5,
           {"1": ("STALE", "red"), "0": ("fresh", "green")},
           desc="Whether the status write has aged past the exporter's "
@@ -1624,21 +1741,22 @@ _ZERO_ANCHOR = re.compile(
 # tests/test_dashboard_no_value.py::test_always_on_set_matches_the_exporter,
 # which recomputes this set by RUNNING collect() on a minimal status.
 _ALWAYS_ON = frozenset({
-    "liquiditybot_audit_dropped_writes", "liquiditybot_audit_tail_truncations",
-    "liquiditybot_entries_enabled", "liquiditybot_fault_count",
-    "liquiditybot_firewall_fault", "liquiditybot_gauges_dropped_nonfinite",
-    "liquiditybot_gross_exposure_usd", "liquiditybot_halted",
+    # SHRUNK 2026-08-17 (29 -> 17): the exporter's presence guards now make
+    # halted / entries_enabled / op_state / fault_count / firewall_fault /
+    # watchdog_* / audit_* conditional on their key or block existing in the
+    # status write, so an old-schema or partial write can no longer export
+    # fabricated healthy zeros. Those families moved to
+    # _NO_VALUE_BY_FAMILY below with "not in this status write" texts.
+    "liquiditybot_gauges_dropped_nonfinite",
+    "liquiditybot_gross_exposure_usd",
     "liquiditybot_haven_info", "liquiditybot_ml_model_info",
     "liquiditybot_ml_retrain_flag", "liquiditybot_ml_use_model",
     "liquiditybot_moomoo_available", "liquiditybot_moomoo_options_available",
-    "liquiditybot_op_state", "liquiditybot_open_risk_usd",
+    "liquiditybot_open_risk_usd",
     "liquiditybot_open_upnl_usd", "liquiditybot_positions_open",
     "liquiditybot_running", "liquiditybot_status_age_sec",
     "liquiditybot_status_malformed", "liquiditybot_status_missing",
-    "liquiditybot_status_stale", "liquiditybot_watchdog_critical_stale",
-    "liquiditybot_watchdog_divergent", "liquiditybot_watchdog_entries_blocked",
-    "liquiditybot_watchdog_stale_assets",
-    "liquiditybot_watchdog_velocity_tripped",
+    "liquiditybot_status_stale",
     "liquiditybot_ws_kraken_connected",
 })
 
@@ -1647,7 +1765,12 @@ _NV_DEFECT = "⚠ no series — exporter/pusher, not the bot"
 
 _NV_NOT_WRITTEN = "not in this cycle's status write"
 _NV_NO_RETRAIN = "awaiting first retrain (no corpus load)"
-_NV_JUDGE = "window filling (<15 model-scored closes)"
+# both-cause phrasing (2026-08-17): the window filling is only ONE reason
+# this family can be absent — a dead judge or exporter renders identically,
+# and text asserting the benign cause alone would soothe over the outage.
+# The floor is config-derived (ml.monitor.min_trades_to_judge), never a
+# literal: a config change must not turn this text into a lie.
+_NV_JUDGE = f"window filling (<{JUDGE_MIN} scored closes) or judge down"
 
 # metric-name PREFIX -> (tier, operator-readable precondition).
 # tier "event"   the series cannot exist until the named event happens
@@ -1682,6 +1805,11 @@ _NO_VALUE_BY_FAMILY = {
     "liquiditybot_ml_dropped_dirty": ("event", _NV_NO_RETRAIN),
     "liquiditybot_ml_dropped_clash": ("event", _NV_NO_RETRAIN),
     "liquiditybot_ml_prior_skew": ("event", _NV_NO_RETRAIN),
+    # load_stats.era_mix_drift: absent when no retrain has run OR when the
+    # mix check itself declined to fire — both-cause text, not one benign
+    # cause (2026-08-17 honesty sweep)
+    "liquiditybot_era_mix_": ("event",
+                              "no retrain or mix check yet - or feed down"),
     # gc_pusher.py:776  `if ls:` gates the WHOLE era block — same root cause
     "liquiditybot_era_": ("event", _NV_NO_RETRAIN),
     # gc_pusher.py:851-852  `bd_n > 0`
@@ -1702,6 +1830,19 @@ _NO_VALUE_BY_FAMILY = {
     # gc_pusher.py ws_kraken block — books/reconnects ride the section
     # (connected itself is always-on and short-circuits before this map)
     "liquiditybot_ws_": ("section", "kraken websocket block not written"),
+    # ---- presence-guarded fault/health family (2026-08-17) --------------
+    # These left _ALWAYS_ON when the exporter gained presence guards: an
+    # absent key/block now emits NO series instead of a fabricated healthy
+    # zero, and these texts say what that absence means.
+    "liquiditybot_halted": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_entries_enabled": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_op_state": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_fault_count": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_firewall_fault": ("section", _NV_NOT_WRITTEN),
+    "liquiditybot_watchdog_": ("section",
+                               "watchdog block not in this status write"),
+    "liquiditybot_audit_": ("section",
+                            "audit counters not in this status write"),
     # gc_pusher.py:510-514 / :956-959  per-code tallies
     "liquiditybot_code_count": ("event", "this reason code has not fired"),
     # gc_pusher.py:423-431 / :411-419 / :402-410  performance ledger slices
@@ -1709,8 +1850,11 @@ _NO_VALUE_BY_FAMILY = {
         ("event", "awaiting first close in this bucket"),
     "liquiditybot_perf_asset_": ("event", "awaiting first close on this asset"),
     "liquiditybot_perf_": ("event", "awaiting first closed trade"),
-    # gc_pusher.py:343-388  aggregated from status.positions (non-hedge)
-    "liquiditybot_position_": ("event", "flat — no open positions"),
+    # gc_pusher.py:343-388  aggregated from status.positions (non-hedge).
+    # Both-cause: a frozen runner stops these series while positions are
+    # still genuinely open (measured 2026-08-15, 5 open / 0 series)
+    "liquiditybot_position_": ("event",
+                               "flat, no open positions - or see Data age"),
     # gc_pusher.py:189-204  graded-evidence ledger, structurally empty
     # before the shadow-grading unlock
     "liquiditybot_thales_rel_": ("event", "no graded THALES evidence yet"),

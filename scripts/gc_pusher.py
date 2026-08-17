@@ -697,10 +697,22 @@ def collect(status_path: str) -> list:
         # ---- fault & health signals (the incidents dashboard) --------------
         # These were tracked internally but never exported; a degrading subsystem
         # showed up only in a log line nobody was watching.
-        m.append(gauge("liquiditybot_halted",
-                       1.0 if s.get("halted") else 0.0, ts=ts))
-        m.append(gauge("liquiditybot_entries_enabled",
-                       1.0 if s.get("entries_enabled") else 0.0, ts=ts))
+        #
+        # PRESENCE-GUARDED (2026-08-17): `1.0 if s.get("halted") else 0.0`
+        # coerced an ABSENT key to the healthy state — a version-skew or
+        # schema-transition write (old runner, partial status) exported
+        # halted=0 / faults=0 and the boards showed a bot that had never
+        # been checked as a bot that had been checked and passed. Absent
+        # key -> NO series -> the panel's honest empty-state text fires
+        # instead, matching the numeric whitelist's isinstance guards.
+        # (Deliberately NOT applied to the DL-6 alarm family running/
+        # status_* — those are synthesized BY this exporter, not read.)
+        if "halted" in s:
+            m.append(gauge("liquiditybot_halted",
+                           1.0 if s.get("halted") else 0.0, ts=ts))
+        if "entries_enabled" in s:
+            m.append(gauge("liquiditybot_entries_enabled",
+                           1.0 if s.get("entries_enabled") else 0.0, ts=ts))
         # ML governor kill-switch level: 0 ok / 1 degraded / 2 model killed
         mon = s.get("monitor") or {}
         if isinstance(mon.get("level"), (int, float)):
@@ -858,18 +870,25 @@ def collect(status_path: str) -> list:
         # SPB-R probe budget (status.ml.probe_budget, spec §8) - see the
         # extracted helper for the emission contract
         m.extend(_probe_budget_metrics(ml.get("probe_budget") or {}, ts))
-        m.append(gauge("liquiditybot_audit_dropped_writes",
-                       float(s.get("audit_dropped_writes") or 0), ts=ts))
-        m.append(gauge("liquiditybot_audit_tail_truncations",
-                       float(s.get("audit_tail_truncations") or 0), ts=ts))
+        # presence-guarded (see the halted/entries_enabled comment above):
+        # an absent counter is an unreported counter, never a zero
+        if "audit_dropped_writes" in s:
+            m.append(gauge("liquiditybot_audit_dropped_writes",
+                           float(s.get("audit_dropped_writes") or 0), ts=ts))
+        if "audit_tail_truncations" in s:
+            m.append(gauge("liquiditybot_audit_tail_truncations",
+                           float(s.get("audit_tail_truncations") or 0), ts=ts))
         # central fault authority: op-state as a severity ladder (0 ARMED nominal,
         # 1 DEGRADED no-new-risk, 2 HALTED flatten-and-stop) + latched-fault count.
-        _fault = s.get("fault") or {}
-        _op = {"ARMED": 0.0, "DEGRADED": 1.0, "HALTED": 2.0}.get(
-            str(_fault.get("state")), -1.0)
-        m.append(gauge("liquiditybot_op_state", _op, ts=ts))
-        m.append(gauge("liquiditybot_fault_count",
-                       float(len(_fault.get("faults") or {})), ts=ts))
+        # Block-presence-guarded: -1 UNKNOWN is for a PRESENT block with an
+        # unrecognized state string; a missing block emits nothing at all.
+        _fault = s.get("fault")
+        if isinstance(_fault, dict):
+            _op = {"ARMED": 0.0, "DEGRADED": 1.0, "HALTED": 2.0}.get(
+                str(_fault.get("state")), -1.0)
+            m.append(gauge("liquiditybot_op_state", _op, ts=ts))
+            m.append(gauge("liquiditybot_fault_count",
+                           float(len(_fault.get("faults") or {})), ts=ts))
         # post-fill mark-out (bps) per asset+horizon — negative = adverse selection
         for asset, hs in (s.get("markout") or {}).get("by_asset", {}).items():
             for hz, rec in (hs or {}).items():
@@ -882,23 +901,28 @@ def collect(status_path: str) -> list:
                        1.0 if mm.get("options_available") else 0.0, ts=ts))
         m.append(gauge("liquiditybot_moomoo_available",
                        1.0 if mm.get("available") else 0.0, ts=ts))
-        # watchdog trips — each blocks new entries
-        wd = s.get("watchdog") or {}
-        for k in ("entries_blocked", "critical_stale", "velocity_tripped"):
-            m.append(gauge(f"liquiditybot_watchdog_{k}",
-                           1.0 if wd.get(k) else 0.0, ts=ts))
-        m.append(gauge("liquiditybot_watchdog_divergent",
-                       float(len(wd.get("divergent") or [])), ts=ts))
-        m.append(gauge("liquiditybot_watchdog_stale_assets",
-                       float(len(wd.get("stale_assets") or [])), ts=ts))
-        # risk firewall: latched fault (1/0) + per-code reject/clamp tallies
-        fw = s.get("firewall") or {}
-        m.append(gauge("liquiditybot_firewall_fault",
-                       1.0 if fw.get("fault") else 0.0, ts=ts))
-        for code, cnt in (fw.get("counters") or {}).items():
-            if isinstance(cnt, (int, float)):
-                m.append(gauge("liquiditybot_firewall_count", cnt,
-                               {"code": str(code)}, ts))
+        # watchdog trips — each blocks new entries. Block-presence-guarded
+        # (see the halted comment): a status write with no watchdog block
+        # must not fabricate five healthy zeros.
+        wd = s.get("watchdog")
+        if isinstance(wd, dict):
+            for k in ("entries_blocked", "critical_stale", "velocity_tripped"):
+                m.append(gauge(f"liquiditybot_watchdog_{k}",
+                               1.0 if wd.get(k) else 0.0, ts=ts))
+            m.append(gauge("liquiditybot_watchdog_divergent",
+                           float(len(wd.get("divergent") or [])), ts=ts))
+            m.append(gauge("liquiditybot_watchdog_stale_assets",
+                           float(len(wd.get("stale_assets") or [])), ts=ts))
+        # risk firewall: latched fault (1/0) + per-code reject/clamp tallies.
+        # Same block-presence guard: absent block, no series.
+        fw = s.get("firewall")
+        if isinstance(fw, dict):
+            m.append(gauge("liquiditybot_firewall_fault",
+                           1.0 if fw.get("fault") else 0.0, ts=ts))
+            for code, cnt in (fw.get("counters") or {}).items():
+                if isinstance(cnt, (int, float)):
+                    m.append(gauge("liquiditybot_firewall_count", cnt,
+                                   {"code": str(code)}, ts))
         # order manager: venue rejects (OM-021) + dead-man refresh failures (OM-050)
         # + execution quality (§3): maker/taker split, rolling slippage, venue RTT.
         # None-valued fields (no fills yet) fail the numeric guard -> not emitted.
