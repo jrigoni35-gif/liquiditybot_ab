@@ -667,6 +667,29 @@ def validate(config: dict) -> list:
     if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
         fatal("ml.label_spread_cap_bps must be >= 0")
 
+    # FW-081 labeler bars-cache staleness threshold coherence (staleness
+    # audit 2026-08-16): the alert fires when an ACTIVE asset's labeler
+    # cache is silent for label_bars_stale_cycles slow-cycles. The derived
+    # threshold must clear 1200s - thin Kraken pairs legitimately omit
+    # empty 5m intervals, and 4 bars is the measured cry-wolf floor the
+    # FW-080 check settled on (latency audit 2026-08-07); an alert below
+    # it would page on quiet listings. Non-positive is nonsense, not a
+    # disable switch (silencing a staleness alarm should be loud: raise
+    # the multiple instead).
+    sbc = float(_f(config, "ml.label_bars_stale_cycles", 240))
+    _slow_s = float(_f(config, "system.polling_interval_sec", 5)) \
+        * float(_f(config, "system.slow_cycle_every_n", 6))
+    if sbc <= 0:
+        fatal(f"ml.label_bars_stale_cycles={sbc} must be > 0 - the FW-081 "
+              f"staleness alert has no off switch by design; raise the "
+              f"multiple instead of zeroing it")
+    elif sbc * _slow_s <= 1200.0:
+        fatal(f"ml.label_bars_stale_cycles={sbc} x slow-cycle "
+              f"{_slow_s:.0f}s = {sbc * _slow_s:.0f}s threshold at or "
+              f"under 1200s - thin Kraken pairs legitimately omit 4 empty "
+              f"5m bars (FW-080 floor, latency audit 2026-08-07); this "
+              f"alert would cry wolf on quiet listings")
+
     # cost-floored barrier geometry (spec D2/D5, 2026-07-27,
     # geometry-alignment task 2, docs/superpowers/specs/
     # 2026-07-27-geometry-alignment-design.md): ml.label_pt_cost_mult floors

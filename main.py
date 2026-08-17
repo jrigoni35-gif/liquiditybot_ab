@@ -486,6 +486,76 @@ def _bar_age_check(bot, asset: str, candles: list, now: float) -> None:
         latched.discard(asset)
 
 
+# FW-081 boot grace: a restart restores the labeler bars cache from the
+# snapshot, and the Kraken candle warmup refills it at most
+# _KR_CANDLE_FETCH_BUDGET assets per slow cycle - so for the first minutes
+# of every boot a legitimately-restored cache can read hours stale. 600s
+# covers the full-universe warmup (15 assets / 3 per ~30s slow cycle plus
+# one candle_refresh_sec cadence) with margin; it is a warmup bound like
+# _STALE_BAR_SEC above, not a tunable (the alert threshold itself is
+# config-lifted: ml.label_bars_stale_cycles).
+_LABEL_BARS_WARMUP_SEC = 600.0
+
+
+def _label_bars_age_check(bot, now: float) -> None:
+    """FW-081: latched once-per-episode staleness alert on the labeler bars
+    cache (ml/history.py CandidateLabeler._bars) for ACTIVE assets only.
+
+    Why FW-080 cannot cover this (staleness audit 2026-08-16): the FW-080
+    check runs inside _augment_view_with_kraken's merge loop, which
+    `continue`s when an asset has NO fresh-enough _kr_candles entry at all -
+    the exact signature of a fetch path that died outright. This check reads
+    the CONSUMER side instead: if an asset is in the live universe
+    (symbol_map) and its labeler cache has stopped accumulating bars past
+    ml.label_bars_stale_cycles slow-cycles, something upstream is dead -
+    symbol mapping, rate-limit starvation, a swallowed fetch exception -
+    regardless of which layer swallowed it. Assets OUTSIDE symbol_map are
+    deliberately not checked: a skimmer-rotated asset's frozen cache is
+    expected (DOT sat 157h stale on 2026-08-16 and that was legitimate
+    rotation, not a defect - the zombie-cache lifecycle is owned elsewhere).
+
+    Same conventions as _bar_age_check above: module-level, duck-typed bot
+    (__new__ stubs lack every attribute this reads - each access degrades to
+    a no-op), latched per asset per stale EPISODE, re-armed on fresh bars,
+    engine `now` only (replay-deterministic), telemetry must never raise.
+    An asset with NO cache entry at all counts as stale-since-boot: after
+    the warmup grace its age is measured from the first check's timestamp,
+    so a feed that never delivers a single bar is still audible."""
+    thresh = float(getattr(bot, "_label_bars_stale_sec", 0.0) or 0.0)
+    if thresh <= 0.0:
+        return                     # unconfigured stub/double: check disabled
+    t0 = getattr(bot, "_label_bars_check_t0", None)
+    if t0 is None:
+        t0 = bot._label_bars_check_t0 = now
+    if now - t0 < min(thresh, _LABEL_BARS_WARMUP_SEC):
+        return                     # boot warmup: restored caches refill first
+    bars = getattr(getattr(bot, "candidates", None), "_bars", None)
+    if not isinstance(bars, dict):
+        return
+    latched = getattr(bot, "_label_bars_latched", None)
+    if latched is None:
+        latched = bot._label_bars_latched = set()
+    for asset in (getattr(bot, "symbol_map", None) or {}):
+        try:
+            ts_list = (bars.get(asset) or {}).get("t") or []
+            last_ts = float(ts_list[-1]) if ts_list else float(t0)
+            age = now - last_ts
+            if age > thresh:
+                if asset not in latched:
+                    latched.add(asset)
+                    log.warning(tag(
+                        Code.FW_LABEL_BARS_STALE,
+                        f"{asset}: labeler bars cache stale {age / 3600.0:.1f}h "
+                        f"(> {thresh:.0f}s) while the asset is ACTIVE - no "
+                        f"new bars are reaching CandidateLabeler.update_candles"
+                        f"; open candidates on this asset cannot ripen "
+                        f"(detection only)"))
+            else:
+                latched.discard(asset)
+        except (TypeError, ValueError, IndexError, AttributeError):
+            continue               # malformed cache row: telemetry never raises
+
+
 def _context_avail_check(bot, avail: dict) -> None:
     """DF-020/DF-021 (owed 41b): latched one-log-per-episode transition
     when feature rows are being built while a context source is dark or
@@ -605,6 +675,13 @@ class LiquidityBot:
         self.slow_every = int(sys_cfg.get("slow_cycle_every_n", 6))
         self.macro_refit_sec = float(sys_cfg.get("macro_refit_minutes", 60)) * 60.0
         self.snapshot_sec = float(sys_cfg.get("snapshot_interval_sec", 30))
+        # FW-081 labeler bars-cache staleness threshold, in SECONDS: a
+        # config-lifted multiple of the slow-cycle interval (the cadence
+        # update_candles actually runs at). Shipped 240 x 30s = 7200s = 2h
+        # = 24 missed 5m bars; coherence-guarded in core/config_guard.py.
+        self._label_bars_stale_sec = float(
+            config.get("ml", {}).get("label_bars_stale_cycles", 240)) \
+            * self.poll_sec * self.slow_every
 
         # --- feeds (injectable for tests) ---
         self.okx = okx or OKXFeed(config["exchanges"]["okx"])
@@ -4225,6 +4302,11 @@ class LiquidityBot:
             if asset in self.symbol_map and v.get("candles"):
                 self.candidates.update_candles(asset, v["candles"])
                 self.thales.observe_candles(asset, v["candles"], now)
+        # FW-081: after the appends above, any ACTIVE asset whose labeler
+        # cache still isn't accumulating is audibly stale (latched, once per
+        # episode). Deliberately BEFORE the halt gate below - telemetry about
+        # a dead feed must not go quiet exactly when the bot is halted.
+        _label_bars_age_check(self, now)
         self.candidates.poll()
 
         # NEW-risk gate: the halt flag OR the central fault authority (DEGRADED/

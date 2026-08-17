@@ -568,6 +568,8 @@
     "label_round_trip_cost_pct": 0.5,
     "label_include_spread": true,
     "label_spread_cap_bps": 60,
+    "label_bars_stale_cycles": 240,
+    "_label_bars_stale_cycles_doc": "FW-081 (staleness audit 2026-08-16): slow-cycles of labeler bars-cache silence on an ACTIVE (symbol_map) asset before main._label_bars_age_check emits its latched once-per-episode WARNING. Threshold seconds = this x polling_interval_sec x slow_cycle_every_n (shipped: 240 x 5s x 6 = 7200s = 2h = 24 missed 5m bars). Detection only - no order, size, or exit decision reads it. Exists because FW-080 goes blind when the fetch path dies outright (no _kr_candles entry -> the merge loop skips the asset before the check runs), which is exactly how a dead feed would present. Rotated-out assets are not checked: their frozen caches are expected (DOT sat 157h stale after legitimate skimmer rotation). Guard: FATAL if the derived threshold is <= 1200s (4 empty 5m bars are legitimate on thin Kraken pairs - the FW-080 floor, latency audit 2026-08-07).",
     "multi_horizon": {
       "_doc": "SHADOW-ONLY: score each candidate at several holding horizons and log the outcome to shadow_path (never the live label/model). Evidence for whether some asset pairs pay over a longer hold than others - promote a horizon feature only once scripts/horizon_report.py shows a per-asset edge. All horizons must be <= label_max_bars.",
       "enabled": true,
