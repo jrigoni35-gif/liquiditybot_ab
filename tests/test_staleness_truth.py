@@ -101,5 +101,16 @@ def test_engine_stamps_book_ts_from_recv_ts_source_contract():
     assert f"bot.{stamp}" in runner_src, (
         "the runner's PAUSED-flatten refresh must use the same stamp or "
         "its books would regress to look-time")
-    assert main_src.count("self.book_ts[asset] = ") == 1, (
-        "a second engine writer of book_ts must adopt the recv_ts stamp")
+    # two engine writers as of the 2026-08-16 broken-exit-path fix: the
+    # fast_cycle universe loop and _refresh_offuniverse_marks (open
+    # positions whose asset rotated out of the universe). The tripwire's
+    # demand — every writer stamps DATA time — is now asserted directly:
+    # each writer site must be the exact recv_ts-or-now form, so a third
+    # writer with a look-time stamp still fails here.
+    n_writers = main_src.count("self.book_ts[asset] = ")
+    assert n_writers == 2, (
+        "engine book_ts writer count changed - the new writer must adopt "
+        "the recv_ts stamp and this pin must name it")
+    assert main_src.count(f"self.{stamp}") == n_writers, (
+        "EVERY engine writer of book_ts must stamp data time "
+        "(recv_ts with the legacy now fallback), not look time")
