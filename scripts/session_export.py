@@ -46,6 +46,15 @@ PORTABLE = [
     # carry: AssetSkimmer.load_active hard-validates on every read, and import
     # is copy-if-absent (a live machine keeps its own fresher file).
     "skimmer_active.json",
+    # append-only RECORDS, not runner state (same class as equity.csv /
+    # audit.jsonl): without them every off-box cohort_eval run degrades to
+    # "MODEL-ERA UNKNOWN" / "FILL-ERA 0/0" / "accrual 0/50" (measured
+    # 2026-08-18) - the era-4 gate, the single number the project waits on,
+    # was unreadable from a phone session. Import files them as reports
+    # under imported_sessions/<label>/; nothing adopts them into a live
+    # ledger, so the one-running-book law (state.json NEVER travels) holds.
+    "fills.csv",
+    "retrain_history.jsonl",
 ]
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}

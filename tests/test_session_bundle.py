@@ -64,6 +64,28 @@ def test_export_manifests_files_and_excludes_live_ledger(tmp_path):
     assert "state.json" not in m["files"]
 
 
+def test_export_carries_fills_and_retrain_ledgers(tmp_path):
+    """fills.csv + retrain_history.jsonl are append-only RECORDS (equity.csv
+    class), added to PORTABLE 2026-08-19: without them every off-box
+    cohort_eval run read MODEL-ERA UNKNOWN / accrual 0/50. Absent files
+    still skip cleanly (fresh box)."""
+    out = _seed_outputs(tmp_path)
+    (out / "fills.csv").write_text(
+        "ts,position_id,side,size,price,fee_usd\n1,p1,buy,1,10,0.01\n",
+        encoding="utf-8")
+    (out / "retrain_history.jsonl").write_text(
+        '{"ts": 1.0, "deployed": true, "selected": "logistic"}\n',
+        encoding="utf-8")
+    dst = tmp_path / "bundle"
+    m = sx.export(str(out), str(dst), "qa")
+    assert "fills.csv" in m["files"] and (dst / "fills.csv").exists()
+    assert "retrain_history.jsonl" in m["files"]
+    # a box without them exports fine (copy-if-present, never required)
+    out2 = _seed_outputs(tmp_path / "b2")
+    m2 = sx.export(str(out2), str(tmp_path / "bundle2"), "qa2")
+    assert "fills.csv" not in m2["files"]
+
+
 def test_import_refuses_tampered_bundle(tmp_path):
     out = _seed_outputs(tmp_path)
     dst = tmp_path / "bundle"

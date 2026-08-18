@@ -454,10 +454,26 @@ def push_pc_status(root: Path = ROOT) -> str:
         _age = push_ts - float(status.get("written_at", 0.0) or 0.0)
     except (TypeError, ValueError):
         _age = -1.0
+    # era-4 gate accrual: the pre-registered n toward the verdict, computed
+    # from fills.csv PC-side because fills never leave the box in real time
+    # (measured 2026-08-18: the project's single most-awaited number was
+    # unreadable off-box). Reuses cohort_eval's own reconstruction so this
+    # can never drift from what the gate itself will count. Fail-safe: any
+    # error -> None, the push itself is untouched.
+    era4: dict = {"accrual_n": None, "target": None}
+    try:
+        from scripts.cohort_eval import ERA4_MIN_N, era4_trips
+        era4["target"] = ERA4_MIN_N
+        fills_p = root / "outputs" / "fills.csv"
+        if fills_p.exists():
+            era4["accrual_n"] = len(era4_trips(str(fills_p)))
+    except Exception as e:                               # noqa: BLE001
+        _log(f"era4 accrual skipped ({e}) - status push unaffected",
+             root=root)
     envelope = {"pushed_at": push_ts, "host": socket.gethostname(),
                 "status_age_sec": round(_age, 1),
                 "status_stale": bool(_age > 300.0 or _age < 0.0),
-                "status": status, "deploy": deploy,
+                "status": status, "deploy": deploy, "era4": era4,
                 "remote_commands": consumed[-20:]}
     deletes = [f"{QUEUE_DIR}/{e['id']}.json" for e in consumed
                if e.get("id")]

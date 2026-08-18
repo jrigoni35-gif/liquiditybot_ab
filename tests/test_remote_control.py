@@ -296,6 +296,33 @@ def test_status_push_publishes_and_gc_consumed_queue(repos):
     assert env["remote_commands"][-1]["id"] == cid
     # the consumed queue file was garbage-collected in the same commit
     assert _branch_file(bare, f"control/queue/{cid}.json") is None
+    # era-4 accrual travels in the envelope (2026-08-19): no fills.csv on
+    # this box -> accrual_n None, target still published, push unharmed
+    assert env["era4"]["target"] == 50
+    assert env["era4"]["accrual_n"] is None
+
+
+def test_status_push_counts_era4_accrual_from_fills(repos):
+    root, bare = repos
+    (root / "outputs").mkdir(exist_ok=True)
+    (root / "outputs" / "status.json").write_text(
+        json.dumps({"equity": 1.0, "written_at": time.time()}),
+        encoding="utf-8")
+    # one fully-closed, entry-opened era-4 round trip in the REAL ledger
+    # schema (core/fill_ledger.COLS), closing after the epoch cut
+    (root / "outputs" / "fills.csv").write_text(
+        "ts,order_id,position_id,purpose,symbol,side,ordertype,post_only,"
+        "attempt,fill_size,fill_price,arrival_ref,slip_bps,fees_delta_usd,"
+        "remaining,reason,exec_era\n"
+        "1786900000,o1,pX,entry,ETH/USD,buy,limit,1,1,1.0,10.0,10.0,0.0,"
+        "0.01,0.0,fill,7-e7d5ca1a\n"
+        "1786903600,o2,pX,exit,ETH/USD,sell,limit,1,1,1.0,10.5,10.5,0.0,"
+        "0.01,0.0,fill,7-e7d5ca1a\n",
+        encoding="utf-8")
+    assert rc.push_pc_status(root=root) == "pushed"
+    env = json.loads(_branch_file(bare, "control/pc_status.json"))
+    assert env["era4"]["accrual_n"] == 1
+    assert env["era4"]["target"] == 50
 
 
 def test_status_push_survives_already_gcd_consumed_delete(repos):
