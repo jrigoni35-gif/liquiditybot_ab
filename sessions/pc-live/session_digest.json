@@ -1,27 +1,27 @@
 {
-  "generated_at": 1787073922.3901336,
+  "generated_at": 1787077523.3641322,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787073921.0,
-    "duration_h": 945.53
+    "end": 1787077517.509,
+    "duration_h": 946.53
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 799.79,
+    "equity_end": 799.84,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": 0.59,
     "fees_paid_total": 3.3653,
     "open_positions": 5,
-    "samples": 202844
+    "samples": 203078
   },
   "activity": {
-    "signal_rows_total": 11248,
+    "signal_rows_total": 11252,
     "live_labeled_trades": 333,
-    "candidate_rows": 10915
+    "candidate_rows": 10919
   },
   "audit": {
     "records": 45580,
@@ -100,14 +100,22 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 21389,
+    "records": 22396,
     "by_level": {
-      "INFO": 21287,
-      "WARNING": 91,
-      "ERROR": 8,
+      "INFO": 22043,
+      "ERROR": 249,
+      "WARNING": 101,
       "CRITICAL": 3
     },
     "top_warnings": [
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        119
+      ],
+      [
+        "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
+        108
+      ],
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
         20
@@ -122,7 +130,7 @@
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Read timed out. (rea",
-        3
+        4
       ],
       [
         "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
@@ -139,23 +147,15 @@
       [
         "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
         3
-      ],
-      [
-        "config: give_back.arm_gain_pct=0.6% arms inside the break-even buffer (86bps) - the locked share of such small moves is fee noise",
-        3
-      ],
-      [
-        "regime.momentum_bear_max=-0.3400 sits within 0.1667 of the achievable TSMOM level -0.3333 (3 lookbacks): the cut is decided by rounding, not",
-        3
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6410,
-      "thin": 2195
+      "spoofy": 6670,
+      "thin": 2239
     },
-    "spoofy_frac": 0.745,
-    "cycles_estimate": 2480,
-    "feed_error_events": 5
+    "spoofy_frac": 0.749,
+    "cycles_estimate": 2594,
+    "feed_error_events": 250
   },
   "model": {
     "monitor_level": 0,
@@ -197,7 +197,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 74% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 75% of classified cycles, which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
