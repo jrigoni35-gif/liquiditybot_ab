@@ -477,11 +477,15 @@ def _bar_age_check(bot, asset: str, candles: list, now: float) -> None:
     if now - bar_ts > _STALE_BAR_SEC:
         if asset not in latched:
             latched.add(asset)
-            log.warning(
-                f"{Code.FW_STALE_BARS.value}: {asset} last committed "
+            # tag() (not a bare f-string) so this logger-only emission
+            # reaches the code_stats frequency ledger — FW-081 below
+            # already counted while this line minted a permanent zero
+            log.warning(tag(
+                Code.FW_STALE_BARS,
+                f"{asset} last committed "
                 f"bar is {now - bar_ts:.0f}s old (> {_STALE_BAR_SEC:.0f}s)"
                 f" - venue bars entering the view are stale; vol/"
-                f"features/sizing read old data (detection only)")
+                f"features/sizing read old data (detection only)"))
     else:
         latched.discard(asset)
 
@@ -580,13 +584,15 @@ def _context_avail_check(bot, avail: dict) -> None:
         return
     bot._ctx_avail_down = down
     if down:
-        log.warning(
-            f"{Code.DF_CONTEXT_DEGRADED.value}: building feature rows "
+        log.warning(tag(
+            Code.DF_CONTEXT_DEGRADED,
+            f"building feature rows "
             f"with degraded context ({', '.join(sorted(down))}) - the "
-            f"affected features read neutral; rows carry avail_* flags")
+            f"affected features read neutral; rows carry avail_* flags"))
     else:
-        log.info(f"{Code.DF_CONTEXT_RECOVERED.value}: all context "
-                 f"sources live again - degradation episode over")
+        log.info(tag(Code.DF_CONTEXT_RECOVERED,
+                     "all context "
+                     "sources live again - degradation episode over"))
 
 
 def _book_imbalance(book: dict) -> float:

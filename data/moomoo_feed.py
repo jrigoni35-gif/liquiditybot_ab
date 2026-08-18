@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from core.codes import Code
+from core.codes import Code, tag
 
 log = logging.getLogger("liquiditybot.data.moomoo")
 
@@ -294,14 +294,16 @@ class MoomooFeed:
         if frozen:
             if not self._frozen:
                 self._frozen = True
-                log.info(f"{Code.DF_QUOTES_FROZEN.value}: moomoo basket "
-                         f"frozen - every per-ticker return matches the "
-                         f"previous poll (closed-market signature); "
-                         f"z-window appends suspended, z holds")
+                log.info(tag(Code.DF_QUOTES_FROZEN,
+                             "moomoo basket "
+                             "frozen - every per-ticker return matches the "
+                             "previous poll (closed-market signature); "
+                             "z-window appends suspended, z holds"))
         else:
             if self._frozen:
-                log.info(f"{Code.DF_QUOTES_RESUMED.value}: moomoo basket "
-                         f"moving again - z-window appends resume")
+                log.info(tag(Code.DF_QUOTES_RESUMED,
+                             "moomoo basket "
+                             "moving again - z-window appends resume"))
             self._frozen = False
             self._ret_hist.append(basket)
         arr = np.array(self._ret_hist, float)

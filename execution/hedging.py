@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from core.codes import Code
+from core.codes import Code, tag
 
 log = logging.getLogger("liquiditybot.execution.hedging")
 
@@ -98,11 +98,12 @@ class HedgeEngine:
         self._unwind_ts[asset] = w
         if len(w) >= self.churn_max_unwinds and asset not in self._latched:
             self._latched[asset] = now
-            log.warning(
-                "%s: hedge churn latch - %d unwinds of %s inside %.0fs; "
-                "re-hedging frozen until estimator warm + %.0fs elapsed "
-                "(unwinds stay allowed)", Code.FW_HEDGE_CHURN_LATCH.value,
-                len(w), asset, self.churn_window_sec, self.churn_window_sec)
+            log.warning(tag(
+                Code.FW_HEDGE_CHURN_LATCH,
+                f"hedge churn latch - {len(w)} unwinds of {asset} inside "
+                f"{self.churn_window_sec:.0f}s; re-hedging frozen until "
+                f"estimator warm + {self.churn_window_sec:.0f}s elapsed "
+                f"(unwinds stay allowed)"))
 
     def _open_blocked(self, asset: str, warm: bool, now: float) -> "str | None":
         """None = open allowed; else the (logged-by-caller) block reason.
@@ -112,9 +113,10 @@ class HedgeEngine:
         if latch_ts is not None:
             if now - latch_ts >= self.churn_window_sec and warm:
                 del self._latched[asset]     # auto-release, logged below
-                log.warning("%s: hedge churn latch RELEASED for %s "
-                            "(window elapsed, estimator warm)",
-                            Code.FW_HEDGE_CHURN_LATCH.value, asset)
+                log.warning(tag(
+                    Code.FW_HEDGE_CHURN_LATCH,
+                    f"hedge churn latch RELEASED for {asset} "
+                    f"(window elapsed, estimator warm)"))
             else:
                 return "churn-latched"
         last = self._last_unwind.get(asset)

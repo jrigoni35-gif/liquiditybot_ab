@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.codes import Code
+from core.codes import Code, tag
 from core.runtime import durable_append
 from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
                          REGIME_LABELS, REGIME_ONE_HOT_FEATURES)
@@ -127,11 +127,12 @@ def _sim_divergence_stat(div_t: list, div_s: list, div_y: list,
     div = sim_live_divergence(div_t, div_s, div_y, dwh * 3600.0)
     div["window_h"] = dwh
     if div["score"] is not None:
-        log.info(
-            "%s: sim-live divergence %.3f over %d shared window(s), "
-            "coverage %.0f%% of candidate rows - detection only",
-            Code.ML_SIM_DIVERGENCE.value, div["score"],
-            div["windows_both"], 100 * div["coverage"])
+        log.info(tag(
+            Code.ML_SIM_DIVERGENCE,
+            f"sim-live divergence {div['score']:.3f} over "
+            f"{div['windows_both']} shared window(s), coverage "
+            f"{100 * div['coverage']:.0f}% of candidate rows - "
+            f"detection only"))
     return div
 
 
@@ -538,12 +539,13 @@ def _era_mix_drift_check(meta: list, tele_cfg: dict) -> dict:
     out["tvd"] = round(tvd, 4)
     if tvd > thresh:
         out["fired"] = True
-        log.warning(
-            "%s: exit-reason mix drift tvd=%.3f over trailing %.0fh "
-            "(%d/%d rows) exceeds %.2f - recent-window reason mix "
-            "diverges from the trailing corpus; detection only, no "
-            "label/weight/row-count change", Code.ML_BARRIER_MIX_DRIFT.value,
-            tvd, win_h, n_recent, len(meta), thresh)
+        log.warning(tag(
+            Code.ML_BARRIER_MIX_DRIFT,
+            f"exit-reason mix drift tvd={tvd:.3f} over trailing "
+            f"{win_h:.0f}h ({n_recent}/{len(meta)} rows) exceeds "
+            f"{thresh:.2f} - recent-window reason mix diverges from the "
+            f"trailing corpus; detection only, no label/weight/row-count "
+            f"change"))
     return out
 
 
@@ -965,12 +967,13 @@ class HistoryStore:
         # misaligned corpus reported a phantom 69-column schema against a
         # true 64. Derived, they cannot drift apart again.
         if _N_LEAD + len(feats) + _N_TRAIL != len(self._header):
-            log.warning(
-                f"{Code.ML_SCHEMA_MISMATCH.value}: refusing to append row "
+            log.warning(tag(
+                Code.ML_SCHEMA_MISMATCH,
+                f"refusing to append row "
                 f"{position_id[:12]} ({asset}): {len(feats)} features vs "
                 f"schema {len(self._header) - _N_LEAD - _N_TRAIL} - stale "
                 f"pre-rotation vector, row would misalign under the "
-                f"current header")
+                f"current header"))
             return
         # finiteness invariant: a NaN/inf slips through float() silently
         # (float('nan') never raises) and poisons the corpus - one non-finite
@@ -985,11 +988,12 @@ class HistoryStore:
                 or not np.isfinite(float(sl_frac))):
             bad = [FEATURE_NAMES[i] for i in np.flatnonzero(~np.isfinite(fa))
                    if i < len(FEATURE_NAMES)]
-            log.warning(
-                f"{Code.ML_DIRTY_LABEL.value}: refusing non-finite {source} "
+            log.warning(tag(
+                Code.ML_DIRTY_LABEL,
+                f"refusing non-finite {source} "
                 f"row {position_id[:12]} ({asset}): "
                 f"{bad or 'pnl/pt_frac/sl_frac'} not finite - label dropped, "
-                f"corpus kept clean")
+                f"corpus kept clean"))
             return
         sg = {}
         src_sg = gate_components if isinstance(gate_components, dict) else {}
@@ -1090,11 +1094,12 @@ class HistoryStore:
             # drops pending vectors, core/persistence.py), so this is a
             # counter, not an alarm - but it must be VISIBLE.
             self.unlabeled_closes = getattr(self, "unlabeled_closes", 0) + 1
-            log.warning(
-                f"{Code.ML_UNLABELED_CLOSE.value}: close "
+            log.warning(tag(
+                Code.ML_UNLABELED_CLOSE,
+                f"close "
                 f"{position_id[:12]} had no pending feature vector - no "
                 f"training row written ({self.unlabeled_closes} so far "
-                f"this process)")
+                f"this process)"))
             return
         probe = False
         cand_id = ""
@@ -1205,11 +1210,12 @@ class HistoryStore:
              "priced": barrier in ("tb_pt", "tb_sl")})
         if len(self._bracket_divergence) > win:
             self._bracket_divergence = self._bracket_divergence[-win:]
-        log.info(
-            f"{Code.ML_BRACKET_DIVERGENCE.value}: {barrier} realized="
+        log.info(tag(
+            Code.ML_BRACKET_DIVERGENCE,
+            f"{barrier} realized="
             f"{realized_ret_pct:+.3f}% counterfactual="
             f"{counterfactual_ret_pct:+.3f}% delta={delta:.3f}pp "
-            f"agree={agree}")
+            f"agree={agree}"))
 
     def bracket_divergence_summary(self) -> dict:
         """ML-082 status surface (T6): {"n", "n_priced", "agree_rate",
@@ -1678,10 +1684,11 @@ class HistoryStore:
                      "that duplicated a real live trade (kept the realized "
                      "label; %d rows remain)", dropped_clash, len(X))
         if dropped_dirty:
-            log.warning("%s: training load skipped %d row(s) with non-finite "
-                        "features/label (legacy/imported dirty data) - %d "
-                        "clean rows remain", Code.ML_DIRTY_LABEL.value,
-                        dropped_dirty, len(X))
+            log.warning(tag(
+                Code.ML_DIRTY_LABEL,
+                f"training load skipped {dropped_dirty} row(s) with "
+                f"non-finite features/label (legacy/imported dirty data) - "
+                f"{len(X)} clean rows remain"))
         # ---- de Prado corrections (config ml.sample_weights; AFML ch.4) ----
         # KNOWN OMISSION vs the book (2026-07-29 literature audit):
         # sequential bootstrap (AFML sec. 4.5) is deliberately not
@@ -1754,12 +1761,12 @@ class HistoryStore:
                 p_all = sum(y) / len(y)
                 if abs(p_recent - p_all) > thresh:
                     skew_flag = True
-                    log.warning(
-                        "%s: trailing %.0fh label prior %.2f skews from "
-                        "corpus prior %.2f (>%.2f) — one-sided batch; watch "
-                        "calibration (detection only, weights untouched)",
-                        Code.ML_PRIOR_SKEW.value, win_h, p_recent, p_all,
-                        thresh)
+                    log.warning(tag(
+                        Code.ML_PRIOR_SKEW,
+                        f"trailing {win_h:.0f}h label prior {p_recent:.2f} "
+                        f"skews from corpus prior {p_all:.2f} "
+                        f"(>{thresh:.2f}) — one-sided batch; watch "
+                        f"calibration (detection only, weights untouched)"))
         # Kish effective sample size over the FINAL weights (Debate-1
         # item D, report-only): ESS = (sum w)^2 / sum(w^2) - the honest
         # "how many independent rows is this really" figure beside
@@ -1798,12 +1805,12 @@ class HistoryStore:
             la = {"n_pairs": n_pairs, "agreement": round(agree, 4),
                   "wilson95": [round(lo, 4), round(hi, 4)]}
             if n_pairs >= int(_tele_cfg.get("lineage_min_pairs", 10)):
-                log.info(
-                    "%s: lineage-twin agreement %.1f%% over %d pairs "
-                    "(Wilson95 [%.2f, %.2f]) - gate-passing signals only; "
-                    "detection-only, weights untouched",
-                    Code.ML_LINEAGE_AGREEMENT.value, 100 * agree, n_pairs,
-                    lo, hi)
+                log.info(tag(
+                    Code.ML_LINEAGE_AGREEMENT,
+                    f"lineage-twin agreement {100 * agree:.1f}% over "
+                    f"{n_pairs} pairs (Wilson95 [{lo:.2f}, {hi:.2f}]) - "
+                    f"gate-passing signals only; detection-only, weights "
+                    f"untouched"))
         else:
             la = {"n_pairs": 0, "agreement": None, "wilson95": None}
         self.last_load_stats["lineage_agreement"] = la
@@ -1824,15 +1831,15 @@ class HistoryStore:
             current_era=triple_barrier_era(
                 getattr(self, "max_bars", _TB_LEGACY_MAX_BARS)))
         if era_excl_stats["active"] and not self._era_exclusion_active_seen:
-            log.info(
-                "%s: era-gated training exclusion ACTIVATED - %d new-era "
-                "row(s) (>= threshold %d) - %d old-era row(s) excluded "
-                "from the training view, including live rows (operator "
-                "decision, docs/quant/2026-07-26_era_exclusion.md)",
-                Code.ML_ERA_EXCLUSION_ACTIVE.value,
-                era_excl_stats["new_era_rows"],
-                era_excl_stats["min_new_era_rows"],
-                era_excl_stats["excluded"]["total"])
+            log.info(tag(
+                Code.ML_ERA_EXCLUSION_ACTIVE,
+                f"era-gated training exclusion ACTIVATED - "
+                f"{era_excl_stats['new_era_rows']} new-era row(s) "
+                f"(>= threshold {era_excl_stats['min_new_era_rows']}) - "
+                f"{era_excl_stats['excluded']['total']} old-era row(s) "
+                f"excluded from the training view, including live rows "
+                f"(operator decision, "
+                f"docs/quant/2026-07-26_era_exclusion.md)"))
         self._era_exclusion_active_seen = era_excl_stats["active"]
         self.last_load_stats["era_exclusion"] = era_excl_stats
         # "rows"/"live_clean" describe what actually feeds the fit (the
@@ -2439,12 +2446,18 @@ class CandidateLabeler:
             total = sum(n for n, _ in evicted.values())
             detail = ", ".join(f"{a} x{n} (oldest {h:.1f}h)"
                                for a, (n, h) in sorted(evicted.items()))
-            log.warning(
-                f"{Code.ML_CAND_ZOMBIE_EVICT.value}: censored {total} "
+            # COUNT SEMANTICS: this tag() bumps ML-085 once per poll that
+            # evicted anything — code_stats counts eviction EPISODES (one
+            # aggregate line per poll, the ML_SCHEMA_MISMATCH precedent),
+            # NOT censored candidates. The per-candidate figure lives in
+            # `total`/`detail` on this line, never in the ledger.
+            log.warning(tag(
+                Code.ML_CAND_ZOMBIE_EVICT,
+                f"censored {total} "
                 f"unresolvable candidate(s) older than the label horizon "
                 f"({self.horizon} bars) + margin ({self.evict_margin_bars} "
                 f"bars) with stale/absent bars - no label row written "
-                f"({detail})")
+                f"({detail})"))
         if written:
             log.info("labeled %d candidate signal(s) via %s",
                      written, self.label_mode)
@@ -2646,11 +2659,12 @@ class CandidateLabeler:
         if ver != FEATURE_SCHEMA_VERSION:
             n = len(d.get("cands", []))
             if n:
-                log.warning(
-                    f"{Code.ML_SCHEMA_MISMATCH.value}: dropped {n} restored "
+                log.warning(tag(
+                    Code.ML_SCHEMA_MISMATCH,
+                    f"dropped {n} restored "
                     f"candidate(s) from feature-schema v{ver} (current "
                     f"v{FEATURE_SCHEMA_VERSION}) - same width, different "
-                    f"meaning; they re-register fresh")
+                    f"meaning; they re-register fresh"))
             d = {**d, "cands": []}
         self._bars = {a: {k: list(v) for k, v in bb.items()}
                     for a, bb in d.get("bars", {}).items()}
@@ -2663,10 +2677,11 @@ class CandidateLabeler:
         want = len(FEATURE_NAMES)
         stale = sum(1 for c in cands if len(c["features"]) != want)
         if stale:
-            log.warning(f"{Code.ML_SCHEMA_MISMATCH.value}: dropped {stale} "
-                        f"restored "
-                        f"candidate(s) with pre-rotation feature width "
-                        f"(current schema: {want} features)")
+            log.warning(tag(Code.ML_SCHEMA_MISMATCH,
+                            f"dropped {stale} "
+                            f"restored "
+                            f"candidate(s) with pre-rotation feature width "
+                            f"(current schema: {want} features)"))
         self._cands = [c for c in cands if len(c["features"]) == want]
         # CAP-SHRINK enforcement (2026-08-16 defect-B fix, owed item 85):
         # register() only holds pool size CONSTANT at the cap (pop-then-
@@ -2678,13 +2693,14 @@ class CandidateLabeler:
         overflow = len(self._cands) - self.max_candidates
         if overflow > 0:
             self._cands = self._cands[:self.max_candidates]
-            log.warning(
-                f"{Code.ML_CAND_RESTORE_TRUNCATED.value}: restored "
+            log.warning(tag(
+                Code.ML_CAND_RESTORE_TRUNCATED,
+                f"restored "
                 f"candidate pool ({overflow + self.max_candidates}) "
                 f"exceeds ml.max_open_candidates "
                 f"({self.max_candidates}) - dropped the {overflow} "
                 f"newest restored candidate(s) (register()'s own at-cap "
-                f"eviction direction)")
+                f"eviction direction)"))
         # RE-MINT restored ids onto THIS launch's salt. A candidate persisted
         # by an earlier process carries either a bare `cand-{seq}` id (pre-salt
         # builds) or a FOREIGN salt; when it finally labels it writes that id

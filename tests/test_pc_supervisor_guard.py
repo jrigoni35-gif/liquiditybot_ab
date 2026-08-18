@@ -209,6 +209,27 @@ def test_job_status_never_raises_and_says_something():
     assert isinstance(s, str) and s
 
 
+# ---- dashboard manifest: a broken deploy disarms LOUDLY ---------------------
+
+def test_dash_manifest_import_failure_warns_once_and_disarms(monkeypatch,
+                                                             tmp_path):
+    # F4 (2026-08-17): the docstring used to claim a directory-glob
+    # fallback that never existed; on ImportError the manifest read []
+    # and auto-import silently DISARMED (empty fingerprint), letting the
+    # boards drift stale with nothing in the log saying why. Planted
+    # import failure -> [] both calls, exactly one WARN, empty
+    # fingerprint, no crash.
+    import sys
+    p = _logged(tmp_path, monkeypatch)
+    monkeypatch.setitem(sys.modules, "grafana_import", None)  # import fails
+    monkeypatch.setattr(sup, "_dash_manifest_warned", False)
+    assert sup._dash_manifest() == []                 # degraded, no crash
+    assert sup._dash_manifest() == []                 # still safe on repeat
+    text = p.read_text(encoding="utf-8")
+    assert text.count("auto-import DISARMED") == 1    # warned exactly once
+    assert sup._dash_fingerprint(tmp_path) == ""      # disarmed = empty fp
+
+
 # ---- runtime lock hardening (the incident's only in-process escape) ---------
 
 def test_read_json_non_utf8_returns_none(tmp_path):

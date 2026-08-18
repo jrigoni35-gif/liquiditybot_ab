@@ -139,9 +139,84 @@ def test_firewall_duplicate_reject_counts_once_end_to_end(tmp_path):
 
 def test_non_canonical_audit_codes_never_pollute_the_tally(tmp_path):
     """Freeform/src-like code strings must not mint fake prefixes in
-    by_prefix() — only canonical 'XX-NNN' values are counted."""
+    by_prefix() — only REGISTERED core/codes.py values are counted."""
     code_stats.reset()
     at = _trail(tmp_path)
     at.log("startup", "not-a-code", "boot", {})
     at.log("startup", "SDX-0001", "wrong shape", {})
     assert code_stats.snapshot() == {}
+
+
+def test_canonical_shaped_unregistered_code_audits_but_never_bumps(tmp_path):
+    """F3 (2026-08-17): SHAPE is not MEMBERSHIP. audit.log('qa_probe',
+    'ZZ-999', ...) used to mint a fake ZZ prefix on the exported ledger
+    (the old guard was a bare XX-NNN regex). The trail must still record
+    the emission — it is the record of what happened — but only codes
+    registered in core/codes.py reach the frequency tally."""
+    import json as _json
+    code_stats.reset()
+    at = _trail(tmp_path)
+    seq = at.log("qa_probe", "ZZ-999", "planted fake-canonical code", {})
+    assert seq == 1                                   # trail took it
+    rec = _json.loads(
+        (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+        .splitlines()[0])
+    assert rec["code"] == "ZZ-999"                    # recorded verbatim
+    v = at.verify()
+    assert v["records"] == 1 and v["tamper"] is False
+    assert "ZZ-999" not in code_stats.snapshot()      # ledger refused it
+    assert "ZZ" not in code_stats.by_prefix()         # no fake prefix minted
+    # a REGISTERED code through the SAME call path still counts in both lanes
+    at.log("qa_probe", Code.ML_DEPLOY, "registered code", {})
+    assert code_stats.snapshot()[Code.ML_DEPLOY.value] == 1
+    assert code_stats.by_prefix()["ML"] == 1
+    assert at.verify()["records"] == 2
+
+
+# --------------------------------------------------------------------------
+# THIRD LANE (F1, 2026-08-17): hand-rolled f"{Code.X.value}: ..." strings
+# fed straight into log.* bypassed BOTH bump lanes — neither tag() nor
+# AuditTrail.log() ever saw the emission, so the code reached the log
+# stream while its ledger counter stayed a permanent zero (FW-080 vs the
+# tag()'d FW-081 was the named asymmetry). Those sites now build their
+# message through tag(). Injection, not inference: drive the REAL
+# converted paths and watch by_prefix move.
+# --------------------------------------------------------------------------
+
+
+def test_logger_only_fw080_emission_reaches_the_ledger():
+    """main._bar_age_check logged FW-080 as a bare f-string — permanent
+    zero. Planted stale bar through the real path -> the ledger moves;
+    the per-asset episode latch means no re-count while stale persists."""
+    from types import SimpleNamespace
+
+    import main as engine
+    code_stats.reset()
+    bot = SimpleNamespace()
+    now = 1_700_000_000.0
+    candles = [{"time": now - 10_000.0}]     # 10000s stale >> 1200s threshold
+    engine._bar_age_check(bot, "BTC", candles, now)
+    assert code_stats.snapshot().get(Code.FW_STALE_BARS.value) == 1
+    assert code_stats.by_prefix().get("FW", 0) >= 1
+    engine._bar_age_check(bot, "BTC", candles, now + 5.0)   # same episode
+    assert code_stats.snapshot()[Code.FW_STALE_BARS.value] == 1
+
+
+def test_logger_only_ml_restore_emission_reaches_the_ledger(tmp_path):
+    """CandidateLabeler.restore's ML-084 width-drop warning was a bare
+    f-string — the drop happened, the counter never moved. Planted
+    wrong-width restored candidate -> ML-084 counts (one bump per
+    aggregate drop line, the same episode semantics ML-085 documents at
+    its poll() site: episodes, not candidates)."""
+    from ml.history import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
+                            CandidateLabeler, HistoryStore)
+    code_stats.reset()
+    lab = CandidateLabeler(HistoryStore(str(tmp_path / "hist.csv")), {})
+    lab.restore({"bars": {}, "seq": 0,
+                 "schema_version": FEATURE_SCHEMA_VERSION,
+                 "cands": [{"features": [0.0] * (len(FEATURE_NAMES) + 1),
+                            "id": "cand-x", "asset": "BTC"}],
+                 "last_reg": {}})
+    assert lab._cands == []                            # the drop happened
+    assert code_stats.snapshot().get(Code.ML_SCHEMA_MISMATCH.value) == 1
+    assert code_stats.by_prefix().get("ML", 0) >= 1

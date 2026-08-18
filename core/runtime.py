@@ -197,10 +197,12 @@ def read_json(path: Path):
 
 
 def _heartbeat_age(rec: dict) -> float:
-    """Seconds since `rec`'s lock heartbeat; +inf when the field is missing,
-    empty, or garbage. Unprovable liveness must read as STALE - a corrupt
-    lock is then reclaimed and rewritten instead of float() raising out of
-    a supervisor/runner loop (same never-raise discipline as read_json)."""
+    """Seconds since `rec`'s lock heartbeat. A missing/empty/zero field
+    coerces to epoch 0, so the age reads as ~the current epoch time (huge,
+    always > stale_after); non-numeric garbage returns +inf. Either way
+    unprovable liveness reads as STALE - a corrupt lock is then reclaimed
+    and rewritten instead of float() raising out of a supervisor/runner
+    loop (same never-raise discipline as read_json)."""
     try:
         return time.time() - float(rec.get("heartbeat", 0) or 0)
     except (TypeError, ValueError):

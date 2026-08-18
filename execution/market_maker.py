@@ -48,7 +48,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from core.codes import Code
+from core.codes import Code, tag
 
 log = logging.getLogger("liquiditybot.execution.market_maker")
 
@@ -117,11 +117,12 @@ class AvellanedaStoikovQuoter:
         fee_floor = fee_bps + self.min_profit_bps
         lo = max(self.min_half_spread_bps, fee_floor)
         if lo > self.min_half_spread_bps and not self._floor_logged:
-            log.warning("%s: config min_half_spread_bps=%.1f is inside the "
-                        "round trip (fee %.1f + margin %.1f) — structural "
-                        "floor %.1fbps enforced",
-                        Code.QT_FEE_FLOOR.value, self.min_half_spread_bps,
-                        fee_bps, self.min_profit_bps, lo)
+            log.warning(tag(
+                Code.QT_FEE_FLOOR,
+                f"config min_half_spread_bps={self.min_half_spread_bps:.1f} "
+                f"is inside the round trip (fee {fee_bps:.1f} + margin "
+                f"{self.min_profit_bps:.1f}) — structural floor {lo:.1f}bps "
+                f"enforced"))
             self._floor_logged = True
         half_bps = float(np.clip(half_bps, lo, max(self.max_half_spread_bps,
                                                    lo)))

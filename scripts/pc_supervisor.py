@@ -432,14 +432,28 @@ def _stamp_due(stamp: Path, period_sec: float) -> bool:
     return True
 
 
+_dash_manifest_warned = False
+
+
 def _dash_manifest() -> list:
     """The import manifest — the EXACT file list grafana_import ships.
-    Falls back to a directory glob only if the import module cannot be
-    loaded (it lives beside this file, so that is a broken deploy)."""
+    Returns [] when the import module cannot be loaded (it lives beside
+    this file, so that is a broken deploy): the fingerprint then reads
+    empty and auto-import DISARMS — warned once per process below, since
+    a silent disarm would let the boards drift stale with nothing in the
+    log saying why. There is no directory-glob fallback: the import child
+    only ever POSTs grafana_import.DASHBOARDS, so a glob here would hash
+    files the child will never ship (see _dash_fingerprint)."""
     try:
         from grafana_import import DASHBOARDS
         return list(DASHBOARDS)
-    except ImportError:
+    except ImportError as e:
+        global _dash_manifest_warned
+        if not _dash_manifest_warned:
+            _dash_manifest_warned = True
+            log(f"WARN: grafana_import module not loadable ({e}) - "
+                "dashboard auto-import DISARMED (broken deploy: it ships "
+                "beside pc_supervisor.py); boards will drift until fixed")
         return []
 
 

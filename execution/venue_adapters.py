@@ -34,7 +34,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from core.codes import Code
+from core.codes import Code, tag
 
 log = logging.getLogger("liquiditybot.execution.venue_adapters")
 
@@ -118,9 +118,10 @@ class VenueAdapter:
         s = os.environ.get(self.secret_env) or None
         self._creds = (k, s) if (k and s) else None
         if self._creds is None:
-            log.warning("%s: %s enabled but credentials unresolved from "
-                        "env (%s/%s)", Code.VN_CREDENTIAL_MISSING.value,
-                        self.name, self.key_env, self.secret_env)
+            log.warning(tag(
+                Code.VN_CREDENTIAL_MISSING,
+                f"{self.name} enabled but credentials unresolved from "
+                f"env ({self.key_env}/{self.secret_env})"))
         return self._creds is not None
 
     @property
@@ -273,9 +274,10 @@ class VenueRegistry:
         for a in adapters.values():
             if a.enabled:
                 a.resolve_credentials()
-                log.info("%s: venue '%s' registered (transport=%s, "
-                         "eligible=%s)", Code.VN_REGISTERED.value, a.name,
-                         a.transport, a.execution_eligible)
+                log.info(tag(
+                    Code.VN_REGISTERED,
+                    f"venue '{a.name}' registered (transport={a.transport}, "
+                    f"eligible={a.execution_eligible})"))
         return reg
 
     def _enforce_invariant(self):
@@ -284,9 +286,11 @@ class VenueRegistry:
         if rogue:
             # defense in depth: the property already forbids this, so
             # reaching here means a subclass lied. Scream and hard-disable.
-            log.critical("%s: non-kraken venues claim execution eligibility "
-                         "%s — force-disabling; Kraken is the sole execution "
-                         "venue", Code.VN_ROGUE_EXECUTION.value, rogue)
+            log.critical(tag(
+                Code.VN_ROGUE_EXECUTION,
+                f"non-kraken venues claim execution eligibility "
+                f"{rogue} — force-disabling; Kraken is the sole execution "
+                f"venue"))
             for name in rogue:
                 self.adapters[name].enabled = False
 

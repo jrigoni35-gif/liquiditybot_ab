@@ -30,21 +30,25 @@ import hashlib
 import json
 import logging
 import os
-import re
 import threading
 import time
 from pathlib import Path
 
 from core import code_stats
+from core.codes import Code
 
 log = logging.getLogger("liquiditybot.core.audit")
 
 _GENESIS = "0" * 16
 
-# Canonical registered-code shape ("XX-NNN", core/codes.py). Only values of
-# this shape reach the frequency tally from log(): src-like or freeform code
-# strings must not mint fake prefixes in code_stats.by_prefix().
-_CANON_CODE = re.compile(r"^[A-Z]{2}-\d{3}$")
+# Registry MEMBERSHIP, not shape (2026-08-17): only code values actually
+# registered in core/codes.py reach the frequency tally from log(). The
+# earlier shape-only regex ("XX-NNN") let any canonical-LOOKING string —
+# audit.log("qa_probe", "ZZ-999", ...) — mint a fake ZZ prefix in
+# code_stats.by_prefix() on the exported ledger (injection-verified).
+# The trail itself stays permissive: it records what happened, whatever
+# the code string; only the frequency ledger is registry-strict.
+_REGISTERED_CODES = frozenset(c.value for c in Code)
 
 
 def _h(payload: str) -> str:
@@ -133,14 +137,17 @@ class AuditTrail:
             counted: bool = False) -> int:
         """Append one chained record. Returns its seq (0 on failure).
 
-        FREQUENCY LANE (2026-08-17): every audited canonical code also bumps
-        core/code_stats.py, so audit-only emissions (ML-*, OM-000/040, FT-*,
-        RP-070/071/072/042, RT-010, CG-000, ...) finally reach the central
-        {code: count} ledger that status.json/by_prefix and the exported
-        liquiditybot_code_count read — before this, only tag() bumped, and
-        those prefixes could never appear on the glass. One EMISSION counts
-        ONCE, guarded two ways against the call sites that already bumped
-        via tag():
+        FREQUENCY LANE (2026-08-17): every audited REGISTERED code (a value
+        of core/codes.py's Code enum — _REGISTERED_CODES above; shape alone
+        is not enough) also bumps core/code_stats.py, so audit-only
+        emissions (ML-*, OM-000/040, FT-*, RP-070/071/072/042, RT-010,
+        CG-000, ...) finally reach the central {code: count} ledger that
+        status.json/by_prefix and the exported liquiditybot_code_count
+        read — before this, only tag() bumped, and those prefixes could
+        never appear on the glass. Non-member code strings (freeform,
+        src-like, or canonical-shaped-but-unregistered) are still written
+        to the trail but never bump. One EMISSION counts ONCE, guarded two
+        ways against the call sites that already bumped via tag():
           * the tag idiom — ``log(src, code, tag(code, detail))`` — is
             detected by the msg carrying the "CODE: " prefix tag() renders,
             and is not re-counted;
@@ -165,7 +172,7 @@ class AuditTrail:
             code_val = getattr(code, "value", None)
             if not isinstance(code_val, str):
                 code_val = str(code)
-            if (not counted and _CANON_CODE.match(code_val)
+            if (not counted and code_val in _REGISTERED_CODES
                     and not str(msg).startswith(code_val + ":")):
                 code_stats.bump(code_val)
             self._seq += 1
