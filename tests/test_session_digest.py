@@ -2,6 +2,7 @@
 and its SD-* detectors. Fixtures are minimal synthetic outputs dirs; the audit
 chain is written through the real AuditTrail so chain verification is exercised."""
 import json
+import time
 from pathlib import Path
 
 from core.audit import AuditTrail
@@ -15,11 +16,16 @@ PM_HEADER = ("ts,position_id,asset,direction,p_win,expected_pct,realized_pct,"
 
 
 def _fixture(tmp: Path, *, spoofy_cycles=0, retrain=0, live_rows=0,
-             candidate_rows=0, postmortems=(), realized_pnl=0.0):
+             candidate_rows=0, postmortems=(), realized_pnl=0.0,
+             events_age_h=0.0):
     """Build a minimal outputs/ dir. `postmortems` is a list of
-    (realized_pct, mae_pct, cause) tuples."""
+    (realized_pct, mae_pct, cause) tuples. Timestamps anchor to NOW (the
+    AuditTrail stamps wall clock, so everything else must live on the same
+    timeline for the recent lens to see it); `events_age_h` pushes the
+    spoofy events into the past to exercise the lens cut."""
     o = tmp / "outputs"
     o.mkdir(parents=True, exist_ok=True)
+    now = time.time()
 
     at = AuditTrail(str(o / "audit.jsonl"))
     at.log("fault", "FT-020", "startup validation passed",
@@ -28,13 +34,15 @@ def _fixture(tmp: Path, *, spoofy_cycles=0, retrain=0, live_rows=0,
         at.log("ml_governor", "ML-032", "retrain requested", {})
 
     ev = []
+    ev_ts = now - events_age_h * 3600.0
     for i in range(spoofy_cycles):
-        ev.append(json.dumps({"ts": 1000.0 + i, "level": "INFO", "logger": "m",
+        ev.append(json.dumps({"ts": ev_ts + i, "level": "INFO", "logger": "m",
                               "msg": f"[btc] liquidity=spoofy spread=0.0bps d={i}"}))
     (o / "events.jsonl").write_text(
         ("\n".join(ev) + "\n") if ev else "", encoding="utf-8")
 
-    eq = ["ts,equity,daily_pnl"] + [f"{1000 + i},10000.00,0.00" for i in range(20)]
+    eq = ["ts,equity,daily_pnl"] + [f"{now - 600 + i:.0f},10000.00,0.00"
+                                    for i in range(20)]
     (o / "equity.csv").write_text("\n".join(eq) + "\n", encoding="utf-8")
 
     state = {"portfolio": {"starting_capital": 10000.0,
@@ -132,3 +140,55 @@ def test_write_digest_persists_both_artifacts(tmp_path):
     reloaded = json.loads(
         (tmp_path / "outputs" / "session_digest.json").read_text(encoding="utf-8"))
     assert reloaded["verdict"] == d["verdict"]
+
+
+def test_recent_lens_ignores_cured_history(tmp_path):
+    """The 2026-08-18 fix: spoofy spam that ended days ago must not keep
+    firing SD-003 every session. Same data, old timestamps -> no verdict;
+    the whole-window tally still records the history (nothing hidden)."""
+    _fixture(tmp_path, spoofy_cycles=15, live_rows=2, events_age_h=200.0)
+    d = build_digest(tmp_path / "outputs")
+    assert SD_LIQUIDITY_VETO not in _ids(d)
+    assert d["events"]["spoofy_frac"] == 1.0          # history still visible
+    assert d["recent"]["events"]["spoofy_frac"] == 0.0  # lens sees it cured
+
+
+def test_recent_lens_still_fires_on_current_conditions(tmp_path):
+    _fixture(tmp_path, spoofy_cycles=15, retrain=60, live_rows=0)
+    d = build_digest(tmp_path / "outputs")
+    ids = _ids(d)
+    assert SD_LIQUIDITY_VETO in ids and SD_MODEL_STARVATION in ids
+    for g in d["diagnostics"]:
+        if g["id"] in (SD_LIQUIDITY_VETO, SD_MODEL_STARVATION, SD_AUDIT_NOISE):
+            assert "last 48h" in g["detail"]          # lens named in the claim
+
+
+def test_recent_lens_disabled_reverts_to_whole_window(tmp_path):
+    # recent_hours<=0 must reproduce the pre-fix behavior exactly
+    _fixture(tmp_path, spoofy_cycles=15, live_rows=2, events_age_h=200.0)
+    d = build_digest(tmp_path / "outputs", recent_hours=0.0)
+    assert d["recent"] == {}
+    assert SD_LIQUIDITY_VETO in _ids(d)               # whole-window fallback
+
+
+def test_trained_champion_is_not_cold(tmp_path):
+    """Judge brier n/a only means a thin recent-close window; a present
+    champion_brier proves a trained model is deployed (measured 2026-08-18:
+    SD-002 called a trained, improving model cold every session)."""
+    o = _fixture(tmp_path, retrain=60, live_rows=3)
+    state = json.loads((o / "state.json").read_text(encoding="utf-8"))
+    state["monitor"]["champion_brier"] = 0.169
+    (o / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    d = build_digest(tmp_path / "outputs")
+    assert d["model"]["cold"] is False
+    assert SD_MODEL_STARVATION not in _ids(d)
+
+
+def test_recent_section_schema_and_md_line(tmp_path):
+    _fixture(tmp_path, spoofy_cycles=12, retrain=6, live_rows=1)
+    d = build_digest(tmp_path / "outputs")
+    rec = d["recent"]
+    assert rec["hours"] == 48.0
+    assert {"records", "dominant_code", "retrain_requests"} <= set(rec["audit"])
+    assert "spoofy_frac" in rec["events"]
+    assert "Recent (48h lens)" in render_markdown(d)

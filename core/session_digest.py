@@ -75,10 +75,16 @@ _ASSET_RE = re.compile(r"^\[(\w+)\]")
 # learning exploration entries, see main.py._exploration_active) fires
 # probabilistically every cycle by construction until explore_until_rows
 # is reached, so it dominating early sessions is expected, not a fault.
-# Excluded from the dominance calculation only; still counted in
-# `records` and still fully present in `top_codes`, so nothing is hidden
-# from the raw breakdown - only the false-positive WARN is suppressed.
-_ROUTINE_NOISE_CODES = {"ML-070"}
+# SZ-051/SZ-052 are the SPB-R probe-budget accounting pair (priced /
+# refunded), documented "informational" in core/codes.py and attached
+# beside every probe by construction - one probe, one or two records -
+# so while exploration runs they dominate exactly as ML-070 does
+# (measured 2026-08-18: SZ-051 41% of the 48h non-routine tally on a
+# healthy run). Excluded from the dominance calculation only; still
+# counted in `records` and still fully present in `top_codes`, so
+# nothing is hidden from the raw breakdown - only the false-positive
+# WARN is suppressed.
+_ROUTINE_NOISE_CODES = {"ML-070", "SZ-051", "SZ-052"}
 
 
 def _read_jsonl(path: Path) -> list:
@@ -131,10 +137,12 @@ def _read_json(path: Path) -> dict:
 
 
 # --------------------------------------------------------------------------
-def _audit_section(records: list, outputs: Path) -> dict:
+def _audit_counts(records: list) -> dict:
+    """Counter-derived audit fields, computable on ANY record slice (whole
+    window or the recent lens). Chain fields live only in _audit_section:
+    integrity is a whole-file property, never a windowed one."""
     codes = Counter(r.get("code") for r in records)
     srcs = Counter(r.get("src") for r in records)
-    total = len(records)
     # dominance is computed on non-routine codes only (see
     # _ROUTINE_NOISE_CODES) so expected-high-frequency background codes
     # can't false-positive SD-004; top_codes/records below stay unfiltered
@@ -143,6 +151,19 @@ def _audit_section(records: list, outputs: Path) -> dict:
     signal_total = sum(signal_codes.values())
     top_code, top_n = (signal_codes.most_common(1)[0]
                        if signal_codes else (None, 0))
+    return {
+        "records": len(records),
+        "signal_records": signal_total,
+        "by_src": dict(srcs.most_common()),
+        "top_codes": codes.most_common(12),
+        "dominant_code": top_code,
+        "dominant_frac": round(top_n / signal_total, 3) if signal_total else 0.0,
+        "retrain_requests": codes.get("ML-032", 0),
+        "kill_switch_events": codes.get("ML-050", 0),
+    }
+
+
+def _audit_section(records: list, outputs: Path) -> dict:
     # chain integrity via the real verifier — and it MUST be verify_chain().
     # Constructing an AuditTrail is a WRITE: its _adopt_tail heals a torn tail
     # by truncating it and appending a newline. This digest runs hourly from
@@ -158,20 +179,14 @@ def _audit_section(records: list, outputs: Path) -> dict:
         chain = verify_chain(str(outputs / "audit.jsonl"))
     except Exception:  # pragma: no cover - verifier must never break the digest
         chain = {"ok": None, "error": "verifier unavailable"}
-    return {
-        "records": total,
-        "signal_records": signal_total,
-        "by_src": dict(srcs.most_common()),
-        "top_codes": codes.most_common(12),
-        "dominant_code": top_code,
-        "dominant_frac": round(top_n / signal_total, 3) if signal_total else 0.0,
-        "retrain_requests": codes.get("ML-032", 0),
-        "kill_switch_events": codes.get("ML-050", 0),
+    out = _audit_counts(records)
+    out.update({
         "chain_ok": chain.get("ok"),
         "chain_first_break": chain.get("first_break"),
         "chain_tamper": chain.get("tamper"),
         "chain_seams": chain.get("seams", 0),
-    }
+    })
+    return out
 
 
 def _events_section(records: list) -> dict:
@@ -283,31 +298,47 @@ def _detectors(digest: dict, config: dict) -> list:
             "fabricated from a ~$0 notional (ml/postmortem.py entry_usd guard); "
             "do NOT let ml/monitor.py train or auto-adjust on these causes")
 
+    # STATE-LIKE detectors (SD-002/003/004) read the RECENT lens, not the
+    # whole run. Measured 2026-08-18: the whole-window lens re-flagged three
+    # CURED conditions every session (SD-002 "cold" while the live model was
+    # trained and improving; SD-003 spoofy 68% and SD-004 SZ-047 63% — both
+    # ZERO in the trailing 48h) — a digest that keeps describing history
+    # teaches the operator to ignore it. Integrity/accounting detectors
+    # (SD-005/006/007/010) stay whole-window: a broken chain or fabricated
+    # postmortem anywhere in the run is always reportable.
+    rec = digest.get("recent") or {}
+    rec_aud = rec.get("audit") or aud
+    rec_evt = rec.get("events") or evt
+    rec_h = rec.get("hours")
+    lens = f"last {rec_h:.0f}h" if rec_h else "whole window"
+
     # SD-002 model starvation loop
-    if model["cold"] and aud.get("retrain_requests", 0) >= 5:
+    if model["cold"] and rec_aud.get("retrain_requests", 0) >= 5:
         add(SD_MODEL_STARVATION, "warn", "model starvation loop",
             f"model is cold (live training rows={model['history_rows']}, "
             f"brier={model['brier']}) yet retrain was requested "
-            f"{aud['retrain_requests']}x  -  with 0 entries there is no new data, "
-            "so retraining can never clear the condition. Seed a model "
-            "(scripts/train_meta.py) or supply history; this loop is also "
-            f"{aud['dominant_frac']:.0%} of the audit trail")
+            f"{rec_aud['retrain_requests']}x ({lens})  -  with 0 entries there "
+            "is no new data, so retraining can never clear the condition. "
+            "Seed a model (scripts/train_meta.py) or supply history")
 
     # SD-003 liquidity veto feed-wide
-    if evt["spoofy_frac"] >= 0.5 and evt["cycles_estimate"] >= 10:
+    if rec_evt.get("spoofy_frac", 0.0) >= 0.5 \
+            and rec_evt.get("cycles_estimate", 0) >= 10:
         add(SD_LIQUIDITY_VETO, "warn", "liquidity vetoed feed-wide",
-            f"liquidity classified 'spoofy' on {evt['spoofy_frac']:.0%} of "
-            "classified cycles, which suppresses sizing/taker on every asset. "
-            "On a near-zero-spread feed this is likely a classifier "
-            "miscalibration, not real spoofing  -  inspect the book source")
+            f"liquidity classified 'spoofy' on {rec_evt['spoofy_frac']:.0%} of "
+            f"classified cycles ({lens}), which suppresses sizing/taker on "
+            "every asset. On a near-zero-spread feed this is likely a "
+            "classifier miscalibration, not real spoofing  -  inspect the "
+            "book source")
 
     # SD-004 audit noise (routine background codes excluded - see
     # _ROUTINE_NOISE_CODES; this now only fires on non-routine dominance)
-    if aud.get("dominant_frac", 0) >= 0.30 and aud.get("signal_records", 0) >= 50:
+    if rec_aud.get("dominant_frac", 0) >= 0.30 \
+            and rec_aud.get("signal_records", 0) >= 50:
         add(SD_AUDIT_NOISE, "warn", "audit trail dominated by one code",
-            f"{aud['dominant_code']} is {aud['dominant_frac']:.0%} of "
-            f"{aud['signal_records']} non-routine records  -  consequential "
-            "dispositions are buried; rate-limit that emitter")
+            f"{rec_aud['dominant_code']} is {rec_aud['dominant_frac']:.0%} of "
+            f"{rec_aud['signal_records']} non-routine records ({lens})  -  "
+            "consequential dispositions are buried; rate-limit that emitter")
 
     # SD-001 no activity
     traded = pnl["open_positions"] or model["history_rows"] or pm["count"] \
@@ -352,7 +383,14 @@ def _detectors(digest: dict, config: dict) -> list:
 def _model_section(state: dict, history_rows: int) -> dict:
     mon = state.get("monitor", {}) if isinstance(state, dict) else {}
     brier = mon.get("brier")
-    cold = (history_rows == 0) or (brier in (None, "n/a"))
+    # "cold" = NO trained model. A live judge brier of n/a only means the
+    # judge's recent-close window is thin; a present champion_brier proves a
+    # trained champion is deployed. The old definition (judge-brier n/a alone
+    # = cold) called a trained, improving model "cold" every session
+    # (measured 2026-08-18: SD-002 fired at 333 live rows, champion 0.169).
+    champion = mon.get("champion_brier")
+    has_champion = isinstance(champion, (int, float)) and champion > 0
+    cold = (history_rows == 0) or (brier in (None, "n/a") and not has_champion)
     return {
         "monitor_level": mon.get("level"),
         "use_model": mon.get("use_model"),
@@ -382,9 +420,16 @@ def _postmortem_section(rows: list) -> dict:
 
 
 def build_digest(outputs_dir: "str | Path" = "outputs",
-                 config: dict | None = None) -> dict:
+                 config: dict | None = None,
+                 recent_hours: float = 48.0) -> dict:
     """Read every telemetry stream under `outputs_dir` and return one
-    reconciled digest dict. Never raises; missing streams degrade to zeros."""
+    reconciled digest dict. Never raises; missing streams degrade to zeros.
+
+    `recent_hours` sizes the RECENT lens the state-like detectors
+    (SD-002/003/004) read; the whole-window sections are unchanged and the
+    cut anchors to the DATA's window end (not wall clock), so an imported or
+    replayed outputs dir windows against its own timeline. <=0 disables the
+    lens (detectors fall back to whole-window, the pre-2026-08-18 behavior)."""
     o = Path(outputs_dir)
     audit = _read_jsonl(o / "audit.jsonl")
     events = _read_jsonl(o / "events.jsonl")
@@ -394,11 +439,24 @@ def build_digest(outputs_dir: "str | Path" = "outputs",
     pm_rows = _read_csv(o / "postmortem_summary.csv")
     portfolio = state.get("portfolio", {}) if isinstance(state, dict) else {}
 
+    win = _window(audit, events, equity_rows)
+    recent: dict = {}
+    if recent_hours > 0 and win.get("end"):
+        cut = float(win["end"]) - recent_hours * 3600.0
+        r_audit = [r for r in audit
+                   if isinstance(r.get("ts"), (int, float)) and r["ts"] >= cut]
+        r_events = [e for e in events
+                    if isinstance(e.get("ts"), (int, float)) and e["ts"] >= cut]
+        recent = {"hours": recent_hours,
+                  "audit": _audit_counts(r_audit),
+                  "events": _events_section(r_events)}
+
     live_rows = sum(1 for r in sig_rows if r.get("source") == "live")
     digest = {
         "generated_at": time.time(),
         "outputs_dir": str(o),
-        "window": _window(audit, events, equity_rows),
+        "window": win,
+        "recent": recent,
         "pnl": _pnl_section(portfolio, equity_rows),
         "activity": {
             "signal_rows_total": len(sig_rows),
@@ -455,6 +513,17 @@ def render_markdown(d: dict) -> str:
         f"retrain_requests {aud['retrain_requests']}",
         f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of classified cycles "
         f"| feed errors {evt['feed_error_events']}",
+    ]
+    rec = d.get("recent") or {}
+    if rec:
+        ra, re_ = rec.get("audit", {}), rec.get("events", {})
+        lines.append(
+            f"- Recent ({rec['hours']:.0f}h lens): {ra.get('records', 0)} audit "
+            f"records | dominant {ra.get('dominant_code')} "
+            f"({ra.get('dominant_frac', 0.0):.0%} of non-routine) | "
+            f"retrain_requests {ra.get('retrain_requests', 0)} | spoofy "
+            f"{re_.get('spoofy_frac', 0.0):.0%}")
+    lines += [
         "",
         "## Diagnostics",
     ]
@@ -466,11 +535,12 @@ def render_markdown(d: dict) -> str:
 
 
 def write_digest(outputs_dir: "str | Path" = "outputs",
-                 config: dict | None = None) -> dict:
+                 config: dict | None = None,
+                 recent_hours: float = 48.0) -> dict:
     """Build the digest and persist it as session_digest.{json,md}. Returns
     the digest dict. Best-effort writes: a write failure is logged, not raised."""
     o = Path(outputs_dir)
-    d = build_digest(o, config)
+    d = build_digest(o, config, recent_hours=recent_hours)
     try:
         o.mkdir(parents=True, exist_ok=True)
         (o / "session_digest.json").write_text(
