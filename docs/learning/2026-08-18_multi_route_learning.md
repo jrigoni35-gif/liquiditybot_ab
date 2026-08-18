@@ -52,6 +52,7 @@ current question is answered.
    third with hard OF-7 guards — and LLM-in-engine stays REJECT
    regardless.
 
-Any statistic the panel's routes report over concurrent trips reports
-effective n, not row count, per the standard applied since 2026-07-29
-(`gate_truth_report`) and 2026-08-15 (`cohort_eval`).
+Effective-n reporting (n_eff, not row count, over concurrent trips) is
+applied by `gate_truth_report` (since 2026-07-29) and `cohort_eval`
+(since 2026-08-15); the other routes do not yet claim it, and their
+SE-bearing figures should be read with that in mind.
