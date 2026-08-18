@@ -645,7 +645,7 @@ static void jstr(std::string& o, const std::string& s) {
     size_t i = 0;
     const size_t n = s.size();
     auto esc = [&o](unsigned cp) {
-        char b[8];
+        char b[16];  // 8 suffices; 16 silences fortify format-truncation under -Werror (review M1)
         if (cp >= 0x10000) {
             unsigned v = cp - 0x10000;
             std::snprintf(b, sizeof b, "\\u%04x", 0xD800 + (v >> 10));

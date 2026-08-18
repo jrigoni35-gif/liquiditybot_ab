@@ -161,7 +161,15 @@ def _log(msg: str, root: Path = ROOT) -> None:
     command ids that no 120s poll could ever emit). Production behavior is
     unchanged via the default."""
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} remote_control: {msg}"
-    print(line, flush=True)
+    # print guarded (security review M3, 2026-08-19): in the headless
+    # sidecar a broken stdout pipe raised OSError out of the ONE _log call
+    # that sits inside push_pc_status's fail-safe handler - the logger
+    # aborting the push it exists to protect. Console output is best-effort
+    # everywhere; the file append below was already guarded.
+    try:
+        print(line, flush=True)
+    except OSError:
+        pass
     try:
         out = root / "outputs"
         out.mkdir(parents=True, exist_ok=True)
