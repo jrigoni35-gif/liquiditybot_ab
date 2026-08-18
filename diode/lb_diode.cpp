@@ -18,7 +18,7 @@
 //     marks joins; equity figures here are double, harness-toleranced).
 //
 // CLI: lb_diode <outputs_dir>. ONE JSON object to stdout (ASCII only,
-// numbers %.10g), exit 0 on success, 2 on unreadable outputs dir.
+// numbers %.17g exact round-trip), exit 0 on success, 2 on unreadable outputs dir.
 // Strict-ingest law: every malformed row is COUNTED, never coerced.
 //
 // Build: g++ -std=c++17 -O2 -Wall -Wextra -Werror -o lb_diode lb_diode.cpp
@@ -453,7 +453,7 @@ static std::vector<Trip> era4_trips(const Csv& fills) {
     std::set<std::string> seen;
     const double cut = std::max(B4_TS, CAPITAL_EPOCH_TS);
     for (const auto& pid : pid_order) {
-        auto legs = by_pid[pid];
+        const auto& legs = by_pid[pid];
         // Python: legs.sort(key=lambda r: _f(r, "ts") or 0.0) — a STABLE
         // sort with unparseable ts keyed as 0.0. A nan key would break the
         // C++ strict-weak-ordering contract, so it is keyed 0.0 as well
@@ -621,15 +621,18 @@ static AuditStats scan_audit(const std::filesystem::path& path) {
 }
 
 // ---------------------------------------------------------------------------
-// S6. Report — one JSON object, ASCII only, numbers via %.10g so the
-// harness parses them losslessly at its 1e-9 tolerance.
+// S6. Report — one JSON object, ASCII only. Numbers print %.17g: the
+// shortest-exact %.10g quantized ~5e-10 RELATIVE, which misses the
+// harness's 1e-9 ABSOLUTE tolerance once |value| >= 10 (review finding,
+// 2026-08-19 — fuzz tripped it at gross ~100%); %.17g round-trips every
+// double exactly, so the tolerance stays absolute and honest.
 // ---------------------------------------------------------------------------
 
 static std::string jnum(double v) {
     if (std::isnan(v)) return "null";                // no NaN in JSON
     if (std::isinf(v)) return v > 0 ? "1e999" : "-1e999";
     char buf[64];
-    std::snprintf(buf, sizeof buf, "%.10g", v);
+    std::snprintf(buf, sizeof buf, "%.17g", v);
     return buf;
 }
 
@@ -697,8 +700,7 @@ static void jstr(std::string& o, const std::string& s) {
     o += '"';
 }
 
-static void emit_ingest_csv(std::string& o, const char* name, const Csv& c,
-                            bool last) {
+static void emit_ingest_csv(std::string& o, const char* name, const Csv& c) {
     o += "\"";
     o += name;
     o += "\": {\"present\": ";
@@ -707,7 +709,7 @@ static void emit_ingest_csv(std::string& o, const char* name, const Csv& c,
     o += ", \"dropped_short\": " + jint(c.dropped_short);
     o += ", \"dropped_long\": " + jint(c.dropped_long);
     o += "}";
-    if (!last) o += ", ";
+    o += ", ";      // every section is followed by another (audit closes the group)
 }
 
 int main(int argc, char** argv) {
@@ -736,9 +738,9 @@ int main(int argc, char** argv) {
     o += "{\"diode\": \"cpp\", \"version\": 1, \"outputs_dir\": ";
     jstr(o, outdir.string());
     o += ", \"ingest\": {";
-    emit_ingest_csv(o, "equity", equity_csv, false);
-    emit_ingest_csv(o, "fills", fills_csv, false);
-    emit_ingest_csv(o, "signal", signal_csv, false);
+    emit_ingest_csv(o, "equity", equity_csv);
+    emit_ingest_csv(o, "fills", fills_csv);
+    emit_ingest_csv(o, "signal", signal_csv);
     o += "\"audit\": {\"present\": ";
     o += audit.present ? "true" : "false";
     o += ", \"records\": " + jint(audit.records);
