@@ -1,5 +1,5 @@
 {
-  "generated_at": 1787025280.9768412,
+  "generated_at": 1787029164.0546455,
   "outputs_dir": "outputs",
   "window": {
     "start": null,
@@ -19,9 +19,9 @@
     "samples": 0
   },
   "activity": {
-    "signal_rows_total": 11067,
+    "signal_rows_total": 11084,
     "live_labeled_trades": 333,
-    "candidate_rows": 10734
+    "candidate_rows": 10751
   },
   "audit": {
     "records": 0,
@@ -56,9 +56,15 @@
     "cold": true
   },
   "postmortems": {
-    "count": 0,
-    "causes": {},
-    "worst_realized_pct": 0.0,
+    "count": 283,
+    "causes": {
+      "underperformance": 214,
+      "cost_overrun": 38,
+      "regime_shift": 18,
+      "alpha_wrong": 10,
+      "whipsaw": 3
+    },
+    "worst_realized_pct": -3.307,
     "impossible_count": 0
   },
   "streams_present": {
@@ -67,7 +73,7 @@
     "equity.csv": false,
     "state.json": false,
     "signal_history.csv": true,
-    "postmortem_summary.csv": false
+    "postmortem_summary.csv": true
   },
   "diagnostics": [
     {
