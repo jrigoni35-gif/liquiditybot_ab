@@ -2,8 +2,10 @@
 scripts/auto_update.py — test-gated self-update for the always-on PC bot.
 
 The operator can't always git-pull the PC by hand (away from home). This pulls
-origin/main and redeploys — but ONLY if the INCOMING code passes the full test
-battery first, so a bad commit can never reach the live trading bot. Run by
+the deploy channel (see _deploy_branch: LB_UPDATE_BRANCH env override →
+config `system.deploy_branch` → the checked-out branch) and redeploys — but
+ONLY if the INCOMING code passes the full test battery first, so a bad commit
+can never reach the live trading bot. Run by
 pc_supervisor.py every LB_AUTO_UPDATE_SEC (default 15 min — the check is a
 bare fetch+compare; the heavy battery only runs when main actually moved, so
 a push lands on the PC within minutes), or by hand:
@@ -22,6 +24,7 @@ Safety rules (why this is safe to run unattended against a live paper bot):
 """
 import json
 import os
+import re
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import time
@@ -41,16 +44,57 @@ OUT = ROOT / "outputs"
 # (observed live 2026-07-21 22:41-22:44, auto_update.log).
 BRANCH = "main"
 
+# Rebindable for tests (LOG_PATH pattern): production reads the repo config.
+CONFIG_PATH = ROOT / "config.json"
+
+# A branch name the updater will accept into git argv. Fixed-argv calls mean
+# no shell injection, but a name starting with '-' would be parsed as a git
+# OPTION, and whitespace/control chars are never a real branch. Conservative
+# on purpose: ordinary release/feature names all pass.
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+
+def _pinned_branch() -> str | None:
+    """The repo-declared deploy channel (config system.deploy_branch), so a
+    box follows the SAME branch everywhere without hands on the machine —
+    the pin travels through the update channel itself. Absent key, unreadable
+    config, or a name that fails _BRANCH_RE -> None (pre-pin behavior).
+    Fail-safe: this can only ever fall back, never wedge the updater."""
+    try:
+        cfg = json.loads(Path(CONFIG_PATH).read_text(encoding="utf-8"))
+        name = cfg.get("system", {}).get("deploy_branch")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(name, str) or not _BRANCH_RE.match(name):
+        return None
+    return name
+
 
 def _deploy_branch() -> str:
-    """The branch this checkout deploys from: the CURRENT branch, so the
-    updater always converges toward what the operator checked out; detached
-    HEAD (or any probe failure) falls back to BRANCH."""
+    """The branch this checkout deploys from, in priority order:
+      1. LB_UPDATE_BRANCH env — per-box operator override (no dirty-tree
+         cost, survives updates; for a box deliberately run off-channel)
+      2. config system.deploy_branch — the repo-declared channel (pinned
+         to main 2026-08-18 so session work merged to main auto-deploys;
+         before the pin a box followed whatever branch it happened to have
+         checked out, so the PC was stuck on a stale claude/* branch)
+      3. the CURRENT branch — pre-pin behavior, kept for a checkout whose
+         config carries no pin
+      4. BRANCH fallback — detached HEAD or any probe failure
+    Names failing _BRANCH_RE are ignored at each step (fall through)."""
+    env = (os.environ.get("LB_UPDATE_BRANCH") or "").strip()
+    if env and _BRANCH_RE.match(env):
+        return env
+    pinned = _pinned_branch()
+    if pinned:
+        return pinned
     rc, name = _git("rev-parse", "--abbrev-ref", "HEAD")
     name = (name or "").strip()
     if rc != 0 or not name or name == "HEAD":
         return BRANCH
     return name
+
+
 # One updater at a time: the supervisor's fast cadence plus a manual run could
 # otherwise stack two 20-min batteries and race the fast-forward. Staleness
 # must outlive the worst case with margin. battery_passes now chains TWO 1200s

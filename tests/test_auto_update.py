@@ -79,7 +79,17 @@ def test_local_is_ancestor_default_preserves_existing_callers():
     assert decide("abc123", "def456", True) == "dirty"
 
 
-def test_deploy_branch_follows_checkout_and_falls_back_detached(monkeypatch):
+def _no_pin(monkeypatch, tmp_path):
+    """Point the updater at a config with NO deploy pin (the repo's real
+    config.json now ships system.deploy_branch, so tests of the lower
+    fallback rungs must isolate from it) and clear the env override."""
+    monkeypatch.setattr(au, "CONFIG_PATH", tmp_path / "absent_config.json")
+    monkeypatch.delenv("LB_UPDATE_BRANCH", raising=False)
+
+
+def test_deploy_branch_follows_checkout_and_falls_back_detached(
+        monkeypatch, tmp_path):
+    _no_pin(monkeypatch, tmp_path)
     monkeypatch.setattr(au, "_git",
                         lambda *a, **k: (0, "claude/some-feature"))
     assert au._deploy_branch() == "claude/some-feature"
@@ -89,8 +99,66 @@ def test_deploy_branch_follows_checkout_and_falls_back_detached(monkeypatch):
     assert au._deploy_branch() == au.BRANCH
 
 
+def test_deploy_branch_config_pin_beats_checkout(monkeypatch, tmp_path):
+    # the repo-declared channel wins over whatever branch the box has
+    # checked out - this is the mechanism that moves the PC to main
+    # without hands on the machine
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"system": {"deploy_branch": "main"}}),
+                   encoding="utf-8")
+    monkeypatch.setattr(au, "CONFIG_PATH", cfg)
+    monkeypatch.delenv("LB_UPDATE_BRANCH", raising=False)
+    monkeypatch.setattr(au, "_git",
+                        lambda *a, **k: (0, "claude/remote-control-e3h815"))
+    assert au._deploy_branch() == "main"
+
+
+def test_deploy_branch_env_override_beats_config_pin(monkeypatch, tmp_path):
+    # a box deliberately run off-channel keeps that choice via env - no
+    # dirty-tree cost (editing tracked config.json would block updates)
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"system": {"deploy_branch": "main"}}),
+                   encoding="utf-8")
+    monkeypatch.setattr(au, "CONFIG_PATH", cfg)
+    monkeypatch.setenv("LB_UPDATE_BRANCH", "release/pinned")
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "whatever"))
+    assert au._deploy_branch() == "release/pinned"
+
+
+def test_deploy_branch_rejects_malformed_names(monkeypatch, tmp_path):
+    # a name starting with '-' would parse as a git OPTION in the updater's
+    # fixed argv; malformed env AND config pins both fall through to the
+    # checkout rung rather than reaching git
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"system": {"deploy_branch": "-upload-pack"}}),
+                   encoding="utf-8")
+    monkeypatch.setattr(au, "CONFIG_PATH", cfg)
+    monkeypatch.setenv("LB_UPDATE_BRANCH", "--force bad name")
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "claude/checkout"))
+    assert au._deploy_branch() == "claude/checkout"
+
+
+def test_deploy_branch_unreadable_config_falls_through(monkeypatch, tmp_path):
+    # corrupt config must never wedge the updater (fail-safe rule): broken
+    # JSON == no pin
+    cfg = tmp_path / "config.json"
+    cfg.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(au, "CONFIG_PATH", cfg)
+    monkeypatch.delenv("LB_UPDATE_BRANCH", raising=False)
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "claude/checkout"))
+    assert au._deploy_branch() == "claude/checkout"
+
+
+def test_shipped_config_pins_main():
+    # the repo's own config.json declares the deploy channel: main. This is
+    # what makes session work merged to main auto-deploy to the PC.
+    shipped = json.loads((au.ROOT / "config.json").read_text(encoding="utf-8"))
+    assert shipped["system"]["deploy_branch"] == "main"
+
+
 def test_update_once_ahead_never_runs_battery_or_restart(tmp_path,
                                                          monkeypatch):
+    _no_pin(monkeypatch, tmp_path)     # this test pins the CHECKOUT rung
     monkeypatch.setattr(au, "OUT", tmp_path)
     calls = []
 

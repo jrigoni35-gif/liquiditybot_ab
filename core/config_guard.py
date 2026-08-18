@@ -29,6 +29,7 @@ Returns a list of (severity, message); severity is "FATAL" or "WARN".
 
 import logging
 import math
+import re
 from typing import Any
 
 from regime.vol_regime import FAST_WARMUP_BARS
@@ -1878,6 +1879,22 @@ def validate(config: dict) -> list:
                   f"2x the lock stale window ({_stale:g}s) - at or below it the "
                   f"heartbeat stops before a peer could even consider the lock "
                   f"stale, so the bound only ever costs availability")
+
+    # system.deploy_branch: the channel scripts/auto_update.py follows. Only
+    # checked when declared (absent key keeps the updater's own
+    # follow-the-checkout behavior). FATAL on a malformed name: the updater
+    # would silently ignore it (its fail-safe) and the box would quietly
+    # follow the checkout while the operator believes it follows the pin —
+    # a divergence nobody sees until a deploy never arrives. Mirror of the
+    # updater's own _BRANCH_RE (leading '-' would parse as a git option).
+    _db_raw = _f(config, "system.deploy_branch", None)
+    if _db_raw is not None and (
+            not isinstance(_db_raw, str)
+            or not re.match(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$", _db_raw)):
+        fatal(f"system.deploy_branch ({_db_raw!r}) must be a plain git "
+              f"branch name ([A-Za-z0-9._/-], no leading '-') - the "
+              f"updater ignores malformed pins and silently falls back "
+              f"to following the checkout")
 
     cfh = int(_f(config, "system.cycle_fail_halt", 10))
     if cfh < 1:
