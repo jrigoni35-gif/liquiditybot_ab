@@ -1099,10 +1099,25 @@ def _author_learning():
          desc="Positive = the model predicts trade outcomes better than "
               "always guessing the long-run average. (Baseline Brier minus "
               "model Brier; higher is better; the pager fires at -0.03.)")
-    stat("Training rows", M("liquiditybot_ml_history_rows"), 4, 6,
+    # RETITLED 2026-08-20 (operator: "old labels are still on grafana, and
+    # im assuming in my bots head"): this tile said "Training rows" while
+    # plotting the RAW all-era archive (11.4k) - the era fence keeps ~90% of
+    # those OUT of training (1,097 loaded at the 08-19 retrain). A title
+    # claiming training-rows on the archive count is the documentation-drift
+    # class: a tile lying about itself. The archive stays panelled - it is
+    # the falsifier population - but under its true name.
+    stat("Corpus rows (all eras, archive)",
+         M("liquiditybot_ml_history_rows"), 4, 6,
          decimals=0, steps=BLUE, graph="none",
-         desc="Rows in the training corpus (raw, before loading filters). "
-              "The 'Corpus growth' chart below carries the 30-day trend.")
+         desc="Every row ever recorded across ALL geometry/fill eras - the "
+              "archive, NOT what the model learns from. The era fence "
+              "excludes old-era rows from training; 'Rows teaching the "
+              "model' beside this is the number in the bot's head.")
+    stat("Rows teaching the model", M("liquiditybot_ml_loaded_rows"), 4, 6,
+         decimals=0, steps=BLUE, graph="none",
+         desc="Rows that SURVIVED loading filters (era fence, hygiene, "
+              "clash drops) at the last retrain - the labels actually in "
+              "the bot's head right now.")
     stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 6,
          decimals=0, graph="none",
          steps=[{"color": "red", "value": None},
@@ -1240,6 +1255,16 @@ def _author_learning():
                desc="Labelled rows by origin - live closes vs simulated "
                     "candidates. Live rows are the gold standard; candidate "
                     "rows fill in while live experience accumulates.")
+    # 2026-08-20: the era split, previously exported but never panelled -
+    # the one chart that answers "are old labels in the bot's head" at a
+    # glance (current-era line vs the retired-era lines the fence excludes).
+    timeseries("Labels by era (fence view)", _pa("liquiditybot_era_rows"),
+               12, 8, legend="{{era}}", decimals=0,
+               desc="Loaded-corpus rows split by label era, as of the last "
+                    "retrain. Only the CURRENT era (triple_barrier_h432) "
+                    "teaches the model; every other line is archive the era "
+                    "fence keeps out of training. Old eras flat + current "
+                    "era climbing = the fence working as designed.")
 
     # ---- what the labels themselves say ----------------------------------
     row("What the labels say")
