@@ -70,6 +70,7 @@ ROUTES: tuple[Route, ...] = (
     Route("fill_hazard", "fill_hazard_report.py", 300),
     Route("defensive_cadence", "defensive_cadence_report.py", 300),
     Route("interpret", "interpret_report.py", 900),
+    Route("ground_truth", "ground_truth_metrics.py", 900),
 )
 
 # Windows: a windowless parent spawning children otherwise pops a console
