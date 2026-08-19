@@ -36,7 +36,13 @@ FILLS = ROOT / "outputs" / "fills.csv"
 OUT = ROOT / "outputs" / "defensive_cadence.md"
 
 CAPITAL_EPOCH_TS = 1786403127.0          # 2026-08-10T23:05:27Z
-CUT7_TS = 1786411630.0                   # 2026-08-11T01:33:50Z (deploy less 800ms is fine at row granularity)
+CUT7_TS = 1786412030.0                   # 2026-08-11T01:33:50Z exactly (e7d5ca1a).
+# owed-78 CLOSED 2026-08-19: the prior constant 1786411630.0 was 400s EARLY
+# (01:27:10Z) while its comment certified 01:33:50Z - every geometry-side
+# split this report cut there included up to 400s of pre-epoch rows, and
+# item 69's split was measured through it. Re-derived three times
+# (catch-up filing x2, tonight's datetime check); vault owed-measurements
+# item 78 records the history.
 H432 = "triple_barrier_h432"
 
 

@@ -468,7 +468,13 @@ def push_pc_status(root: Path = ROOT) -> str:
     # unreadable off-box). Reuses cohort_eval's own reconstruction so this
     # can never drift from what the gate itself will count. Fail-safe: any
     # error -> None, the push itself is untouched.
-    era4: dict = {"accrual_n": None, "target": None}
+    # target = ERA4_MIN_N (50): the FIRST-readout floor, unchanged from the
+    # pre-registration. signed_continue_n: the operator-signed decision table
+    # (docs/quant/2026-08-16_era4_readout_decision_table.md, signed
+    # 2026-08-17T01:00Z) binds branches 1D and 3A to KEEP ACCRUING to n=100
+    # past that first readout - publishing only 50 understated the plausible
+    # wait by 2x (caught 2026-08-19 verifying an off-hand accrual claim).
+    era4: dict = {"accrual_n": None, "target": None, "signed_continue_n": 100}
     try:
         from scripts.cohort_eval import ERA4_MIN_N, era4_trips
         era4["target"] = ERA4_MIN_N

@@ -99,6 +99,11 @@ struct Csv {
     bool dictreader = false;
     long long dropped_short = 0, dropped_long = 0;   // strict mode
     long long short_rows = 0, long_rows = 0;         // dictreader mode
+    // M2 (security review 2026-08-19, v2 item): EOF reached INSIDE an open
+    // quote means one stray '"' swallowed the file remainder into a single
+    // record - Python csv behaves identically so the differential holds,
+    // but "rows: 1" on a million-row ledger must not read as a clean file.
+    bool quote_truncated = false;
     // name -> LAST index: csv.DictReader lets a duplicated column name
     // resolve to the rightmost occurrence (the ml.history "side" lesson).
     std::unordered_map<std::string, size_t> idx;
@@ -113,7 +118,8 @@ static bool read_file(const std::string& path, std::string& out) {
     return true;
 }
 
-static std::vector<std::vector<std::string>> csv_records(const std::string& s) {
+static std::vector<std::vector<std::string>> csv_records(const std::string& s,
+                                                         bool* truncated) {
     std::vector<std::vector<std::string>> recs;
     std::vector<std::string> cur;
     std::string field;
@@ -145,6 +151,7 @@ static std::vector<std::vector<std::string>> csv_records(const std::string& s) {
         else { field += c; rec_has_content = true; ++i; }
     }
     if (rec_has_content || !cur.empty() || !field.empty()) end_record();
+    if (truncated) *truncated = in_quotes;
     return recs;
 }
 
@@ -164,7 +171,7 @@ static Csv load_csv(const std::filesystem::path& path,
     std::string raw;
     if (!read_file(path.string(), raw)) return out;
     out.present = true;
-    auto recs = csv_records(raw);
+    auto recs = csv_records(raw, &out.quote_truncated);
     if (recs.empty()) return out;
     out.header = recs[0];
     for (size_t k = 0; k < out.header.size(); ++k) out.idx[out.header[k]] = k;
@@ -740,6 +747,8 @@ static void emit_ingest_csv(std::string& o, const char* name, const Csv& c) {
         o += ", \"dropped_short\": " + jint(c.dropped_short);
         o += ", \"dropped_long\": " + jint(c.dropped_long);
     }
+    o += ", \"quote_truncated\": ";
+    o += c.quote_truncated ? "true" : "false";
     o += "}";
     o += ", ";      // every section is followed by another (audit closes the group)
 }

@@ -299,6 +299,7 @@ def test_status_push_publishes_and_gc_consumed_queue(repos):
     # era-4 accrual travels in the envelope (2026-08-19): no fills.csv on
     # this box -> accrual_n None, target still published, push unharmed
     assert env["era4"]["target"] == 50
+    assert env["era4"]["signed_continue_n"] == 100   # signed table, 1D/3A bound
     assert env["era4"]["accrual_n"] is None
 
 

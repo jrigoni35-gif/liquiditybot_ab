@@ -283,11 +283,14 @@ def test_strict_ingest_counts_and_equity(diode_bin, fixture_dir):
     # rows KEPT and counted — 12 conforming + torn e2 + wide e3 + two
     # 16-col stale legs g2 = 16 kept, 3 short, 1 long
     assert ing["fills"] == {"present": True, "mode": "dictreader",
-                            "rows": 16, "short_rows": 3, "long_rows": 1}
+                            "rows": 16, "short_rows": 3, "long_rows": 1,
+                            "quote_truncated": False}
     assert ing["equity"] == {"present": True, "mode": "strict", "rows": 4,
-                             "dropped_short": 1, "dropped_long": 0}
+                             "dropped_short": 1, "dropped_long": 0,
+                             "quote_truncated": False}
     assert ing["signal"] == {"present": True, "mode": "strict", "rows": 5,
-                             "dropped_short": 0, "dropped_long": 0}
+                             "dropped_short": 0, "dropped_long": 0,
+                             "quote_truncated": False}
     eq = rep["equity"]
     assert eq["rows"] == 4 and eq["valid"] == 3
     assert abs(eq["start"] - 800.0) < TOL
@@ -316,10 +319,12 @@ def test_empty_outputs_dir_degrades_to_zeros(diode_bin, tmp_path):
     for name in ("equity", "signal"):
         assert rep["ingest"][name] == {"present": False, "mode": "strict",
                                        "rows": 0, "dropped_short": 0,
-                                       "dropped_long": 0}
+                                       "dropped_long": 0,
+                                       "quote_truncated": False}
     assert rep["ingest"]["fills"] == {"present": False, "mode": "dictreader",
                                       "rows": 0, "short_rows": 0,
-                                      "long_rows": 0}
+                                      "long_rows": 0,
+                                      "quote_truncated": False}
     assert rep["ingest"]["audit"] == {"present": False, "records": 0,
                                       "bad_lines": 0}
     assert rep["era4"] == {"accrual_n": 0, "target": ce.ERA4_MIN_N,
@@ -339,3 +344,26 @@ def test_unreadable_outputs_dir_exits_2(diode_bin, tmp_path):
 def test_skip_reason_names_both_compilers():
     # the reason string is what the Windows battery prints; it must say WHY
     assert "g++" in _SKIP_REASON and "clang++" in _SKIP_REASON
+
+
+def test_unterminated_quote_sets_truncation_flag(diode_bin, tmp_path):
+    """M2 (security review 2026-08-19): one stray quote swallows the file
+    remainder into a single record - Python csv does the same, so the
+    differential holds, but the collapse must be FLAGGED, never read as a
+    clean short file. Injection-verified on Windows/WSL 2026-08-19
+    (planted quote -> quote_truncated true, rows 1)."""
+    o = tmp_path / "outputs"
+    o.mkdir()
+    (o / "fills.csv").write_text(
+        "ts,order_id,position_id,purpose,symbol,side,ordertype,post_only,"
+        "attempt,fill_size,fill_price,arrival_ref,slip_bps,fees_delta_usd,"
+        "remaining,reason,exec_era\n"
+        '1786900000,o1,pX,entry,ETH/USD,buy,limit,1,1,1.0,10.0,10.0,0.0,'
+        '0.01,0.0,"swallows the rest\n'
+        "1786903600,o2,pX,exit,ETH/USD,sell,limit,1,1,1.0,10.5,10.5,0.0,"
+        "0.01,0.0,fill,7-e7d5ca1a\n",
+        encoding="utf-8")
+    rep = _run(diode_bin, o)
+    f = rep["ingest"]["fills"]
+    assert f["quote_truncated"] is True
+    assert rep["era4"]["accrual_n"] == 0        # the trip never assembles
