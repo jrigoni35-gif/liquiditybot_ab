@@ -1,165 +1,718 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "Run Bot (dry per config)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["runner.py"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always", "panel": "dedicated" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Stop Bot (graceful, snapshots + cancels)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": [
-                "-c",
-                "import sys; sys.path.insert(0, '.'); from core.runtime import ControlChannel; ControlChannel('outputs/control').send('stop'); print('stop sent - the runner exits after its current cycle.')"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Verify Audit Chain",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": [
-                "-c",
-                "from core.audit import get_audit; print(get_audit().verify())"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Full Test Suite (pytest)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["-m", "pytest", "tests/", "-q"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "group": { "kind": "test", "isDefault": true },
-            "presentation": { "reveal": "always", "panel": "dedicated" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Smoke Test (full check battery)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["scripts/smoke_test.py"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "group": "test",
-            "presentation": { "reveal": "always", "panel": "dedicated" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Assurance Check (invariants)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["scripts/assurance_check.py"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "group": { "kind": "build", "isDefault": true },
-            "presentation": { "reveal": "always", "panel": "dedicated" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Overfit Battery (OF-1..OF-7)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["scripts/overfit_check.py"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always", "panel": "dedicated" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Lint (ruff check)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": [
-                "-m", "ruff", "check",
-                "core", "data", "execution", "ml", "risk", "api", "ui",
-                "tests", "scripts/quant_trials.py", "scripts/overfit_check.py"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Security Scan (bandit)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": [
-                "-m", "bandit",
-                "-c", "pyproject.toml",
-                "-r", ".",
-                "-x", "./.venv,./tests"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Compile All (bytecode sanity)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-            "args": ["-m", "compileall", "-q", ".", "-x", ".venv"],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": { "PYTHONUTF8": "1" }
-            },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
-        },
-        {
-            "label": "Definition of Done (full matrix)",
-            "dependsOrder": "sequence",
-            "dependsOn": [
-                "Full Test Suite (pytest)",
-                "Smoke Test (full check battery)",
-                "Assurance Check (invariants)",
-                "Overfit Battery (OF-1..OF-7)",
-                "Lint (ruff check)",
-                "Security Scan (bandit)",
-                "Compile All (bytecode sanity)"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "Setup (create venv + install deps)",
-            "type": "shell",
-            "command": "${workspaceFolder}\\install.bat",
-            "options": { "cwd": "${workspaceFolder}" },
-            "presentation": { "reveal": "always" },
-            "problemMatcher": []
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bot: run (dry per config)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "runner.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
         }
-    ]
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "detail": "Manual foreground run - the always-on path is install_autostart.bat"
+    },
+    {
+      "label": "Bot: status snapshot",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "import json,os;p='outputs/status.json';d=json.load(open(p,encoding='utf-8')) if os.path.exists(p) else None;m=(d or {}).get('monitor',{});print('no outputs/status.json here - use the Remote console: PC status task') if d is None else (print('mode',d.get('mode'),'|',d.get('runner_state'),'| cycle',d.get('cycle')),print('equity',d.get('equity'),'| daily',d.get('daily_pnl'),'| weekly',d.get('weekly_pnl'),'| dd%',d.get('drawdown_pct')),print('positions',len(d.get('positions') or []),'| open orders',len(d.get('open_orders') or [])),print('monitor L'+str(m.get('level')),'| drift',m.get('drift_share'),'| champion brier',m.get('champion_brier')))"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Key fields from outputs/status.json (the local runner's own report)"
+    },
+    {
+      "label": "Bot: era-4 accrual (n/50)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "import os,sys;sys.path.insert(0,'.');from scripts.cohort_eval import era4_trips,ERA4_MIN_N;p='outputs/fills.csv';print('era-4 accrual: %d / %d'%(len(era4_trips(p)),ERA4_MIN_N)) if os.path.exists(p) else print('no outputs/fills.csv on this machine (the PC owns it; bundles carry a copy)')"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "The pre-registered verdict-gate count, from fills.csv via cohort_eval's own reconstruction"
+    },
+    {
+      "label": "Bot: send control command",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "import sys;sys.path.insert(0,'.');from core.runtime import ControlChannel;cmd=sys.argv[1];ControlChannel('outputs/control').send(cmd);print(cmd,'sent to the LOCAL runner control queue')",
+        "${input:controlCmd}"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Local ControlChannel send - same queue a console operator uses. arm_live is deliberately NOT offered here: going live stays config + restart + the typed phrase"
+    },
+    {
+      "label": "Remote console: send command (via git)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/remote_control.py",
+        "--send",
+        "${input:remoteCmd}"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Queue a command on paper-telemetry for the PC to apply (REMOTE_SAFE_COMMANDS only; expires in 30 min)"
+    },
+    {
+      "label": "Remote console: PC status (via git)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "import json,subprocess,time;subprocess.run(['git','fetch','origin','paper-telemetry'],check=True,capture_output=True);raw=subprocess.run(['git','show','origin/paper-telemetry:control/pc_status.json'],check=True,capture_output=True,text=True).stdout;d=json.loads(raw);s=d['status'];print('pushed %.1f min ago | host'%((time.time()-d['pushed_at'])/60),d.get('host'),'| stale',d.get('status_stale'));print('deploy',(d.get('deploy') or {}).get('head'),'on',((d.get('deploy') or {}).get('auto_update') or {}).get('remote_branch'),'->',((d.get('deploy') or {}).get('auto_update') or {}).get('outcome'));print('era4',d.get('era4'));print('mode',s.get('mode'),'|',s.get('runner_state'),'| equity',s.get('equity'),'| daily',s.get('daily_pnl'));print('positions:',[(p['symbol'],p['direction'],p['upnl_pct']) for p in s.get('positions',[])])"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Fetch paper-telemetry and summarize control/pc_status.json - the off-box view of the live bot"
+    },
+    {
+      "label": "Learning panel (all routes, concurrent)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/learning_panel.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "detail": "Every report-only learning lens at once -> outputs/learning_panel.{md,json}"
+    },
+    {
+      "label": "Learning panel: one route",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/learning_panel.py",
+        "--only",
+        "${input:panelRoute}"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Cohort eval (pre-registered gates)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/cohort_eval.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gate efficacy (does the gate select?)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/gate_efficacy_report.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Lessons digest (per-decision ledger)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/lessons_digest.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Verify audit chain (read-only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "from core.audit import verify_chain;print(verify_chain('outputs/audit.jsonl'))"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "verify_chain, never AuditTrail().verify() - constructing the trail is a WRITE"
+    },
+    {
+      "label": "Bot: stop (graceful)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-c",
+        "import sys;sys.path.insert(0,'.');from core.runtime import ControlChannel;ControlChannel('outputs/control').send('stop');print('stop sent - the runner exits after its current cycle.')"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gate: pytest (full suite)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/",
+        "-q"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Gate: smoke battery",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/smoke_test.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Gate: assurance (invariants)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/assurance_check.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      "label": "Gate: overfit battery (OF-1..7)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/overfit_check.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": [],
+      "detail": "READ THE CORPUS LINE - a green on the SYNTHETIC benchmark validates machinery, not market"
+    },
+    {
+      "label": "Gate: ruff (DoD scope)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "core",
+        "data",
+        "execution",
+        "ml",
+        "risk",
+        "regime",
+        "strategies",
+        "sentiment",
+        "api",
+        "main.py",
+        "runner.py",
+        "tests",
+        "scripts/quant_trials.py",
+        "scripts/overfit_check.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gate: pyright (type ratchet, shipped scope = 0)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "pyright",
+        "core",
+        "data",
+        "execution",
+        "ml",
+        "risk",
+        "regime",
+        "strategies",
+        "sentiment",
+        "api",
+        "main.py",
+        "runner.py"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gate: bandit",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "bandit",
+        "-c",
+        "pyproject.toml",
+        "-r",
+        ".",
+        "-x",
+        "./.venv,./tests"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Gate: compileall",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "compileall",
+        "-q",
+        ".",
+        "-x",
+        ".venv"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Diode: build (g++)",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-o",
+        "outputs/lb_diode",
+        "diode/lb_diode.cpp"
+      ],
+      "windows": {
+        "command": "g++",
+        "args": [
+          "-std=c++17",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-o",
+          "outputs\\lb_diode.exe",
+          "diode\\lb_diode.cpp"
+        ]
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "detail": "Needs a C++17 compiler (MinGW g++ on Windows). The Python DoD does not require this - the diode is an offline referee",
+      "group": "build",
+      "presentation": {
+        "reveal": "always"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Diode: run on outputs/",
+      "type": "shell",
+      "command": "outputs/lb_diode",
+      "args": [
+        "outputs"
+      ],
+      "windows": {
+        "command": "outputs\\lb_diode.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "Diode: build (g++)"
+      ],
+      "detail": "Independent C++ read of the same ground truth - diff its numbers against the Python reports",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Diode: differential harness (C++ vs Python)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "-m",
+        "pytest",
+        "tests/test_cpp_diode.py",
+        "-q"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Skips cleanly when no compiler is installed"
+    },
+    {
+      "label": "Definition of Done (full matrix)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Gate: pytest (full suite)",
+        "Gate: smoke battery",
+        "Gate: assurance (invariants)",
+        "Gate: overfit battery (OF-1..7)",
+        "Gate: ruff (DoD scope)",
+        "Gate: pyright (type ratchet, shipped scope = 0)",
+        "Gate: bandit",
+        "Gate: compileall"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup (create venv + install deps)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "install.sh"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\install.bat",
+        "args": []
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "controlCmd",
+      "type": "pickString",
+      "description": "Command for the LOCAL runner (arm_live deliberately absent)",
+      "options": [
+        "pause",
+        "start",
+        "stop",
+        "step",
+        "snapshot",
+        "entries_on",
+        "entries_off",
+        "flatten_all",
+        "force_dry",
+        "disarm_live",
+        "sim_clear"
+      ],
+      "default": "snapshot"
+    },
+    {
+      "id": "remoteCmd",
+      "type": "pickString",
+      "description": "REMOTE_SAFE_COMMANDS - what the PC will accept over the branch",
+      "options": [
+        "pause",
+        "start",
+        "stop",
+        "entries_on",
+        "entries_off",
+        "force_dry",
+        "flatten_all",
+        "snapshot",
+        "disarm_live"
+      ],
+      "default": "snapshot"
+    },
+    {
+      "id": "panelRoute",
+      "type": "pickString",
+      "description": "Learning-panel route",
+      "options": [
+        "lessons_digest",
+        "asset_learning",
+        "learning_curve",
+        "cohort_eval",
+        "gate_truth",
+        "gate_efficacy",
+        "cost_attribution",
+        "cost_truth",
+        "corpus_linkage",
+        "feature_stability",
+        "horizon",
+        "fill_hazard",
+        "defensive_cadence",
+        "interpret"
+      ],
+      "default": "cohort_eval"
+    }
+  ]
 }
