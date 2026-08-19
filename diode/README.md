@@ -4,7 +4,7 @@
 
 ## Known v2 items
 
-- `truncated_by_quote` counter: a single unterminated quote in a CSV
+- `quote_truncated` flag (emitted per CSV since v2): a single unterminated quote
   collapses the file remainder into one record (Python csv behaves the
   same, so the differential holds) - v1 reports it as low row count, not
   loudly. Security review M2, 2026-08-19.

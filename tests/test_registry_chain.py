@@ -38,8 +38,30 @@ def _rows(reg) -> list:
 
 
 # --- the chain exists ------------------------------------------------------
-def test_rows_carry_seq_and_prev_links():
-    pass
+def test_rows_carry_seq_and_prev_links(tmp_path):
+    # was a bare-pass stub (2026-08-20 test-honesty sweep): a hardening
+    # file's first test asserted nothing. Now pins the actual chain shape.
+    reg = ModelRegistry(str(tmp_path / "models"))
+    reg.note("deployed", "m1", {"a": 1})
+    reg.note("deployed", "m2", {"a": 2})
+    rows = _rows(reg)
+    assert len(rows) == 2
+    assert all("h" in r and "prev" in r for r in rows)
+    assert rows[1]["prev"] == rows[0]["h"]        # each links its predecessor
+    assert rows[0]["prev"] != rows[0]["h"]        # genesis link, not self
+    assert reg.verify_chain()["ok"] is True
+
+
+def test_appended_unchained_row_after_chain_is_tamper(tmp_path):
+    # the 2026-08-20 finding: a well-formed row with no `h` appended after a
+    # real chained row must FAIL, not count as benign 'unchained'.
+    reg = ModelRegistry(str(tmp_path / "models"))
+    reg.note("deployed", "real", {})
+    with open(reg.ledger, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"event": "registered", "model_id": "forged",
+                            "detail": {}}) + "\n")
+    v = reg.verify_chain()
+    assert v["ok"] is False and "unchained row after" in v["reason"]
 
 
 def test_first_row_links_to_genesis(tmp_path):

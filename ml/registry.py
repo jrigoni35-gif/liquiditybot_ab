@@ -186,6 +186,20 @@ class ModelRegistry:
                                 "reason": f"row {rows}: unparseable"}
                     h = rec.get("h")
                     if not h:
+                        # A pre-chain row (no h) is legitimate ONLY as a
+                        # contiguous prefix, before chaining ever started:
+                        # once any row carries h, every later row must too.
+                        # An unchained row AFTER chained>0 is an appended
+                        # forgery (runtime-injection-verified 2026-08-20: a
+                        # well-formed no-h `registered` row pointing at a
+                        # swapped artifact previously passed as ok=True and
+                        # the ML-011 gate then trusted it). Fail closed.
+                        if chained > 0:
+                            return {"ok": False, "rows": rows,
+                                    "chained": chained,
+                                    "reason": f"row {rows}: unchained row "
+                                              f"after the chain began - "
+                                              f"appended without a hash link"}
                         unchained += 1
                         continue
                     if _record_hash(rec) != h:

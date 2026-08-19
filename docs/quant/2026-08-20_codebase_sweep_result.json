@@ -1,0 +1,365 @@
+{
+ "confirmed": [
+  {
+   "file": "execution/inventory.py",
+   "line": 70,
+   "severity": "CRITICAL",
+   "lens": "SABOTEUR+NEW HIRE+SECURITY AUDITOR (all three independently)",
+   "claim": "InventoryManager.inventory_usd() (used by both can_add() and derisk_actions()) sums exposure over state.open_positions() WITHOUT excluding is_hedge positions, directly contradicting the stated invariant in execution/hedging.py ('Hedge positions are tagged is_hedge=True: exempt from profit tiers, excluded from signal-side inventory') and inconsistent with InventoryManager's own same-side COUNT cap at line 95 (`and not getattr(pos, 'is_hedge', False)`) and its stale-purge loop at line 159, both of which DO exclude hedges.",
+   "evidence": "inventory.py:70-79 inventory_usd() loops all open_positions() with only an asset-symbol filter, no is_hedge check. Called from: (1) can_add() at line 103 -> risk/position_sizer.py:603 `add = inventory_mgr.can_add(state, asset, direction, usd, equity, marks)` gates every real entry's size against soft/hard per-asset caps computed from this polluted inv figure; (2) derisk_actions() hard-cap-breach loop at lines 134-155, where by_asset includes hedge positions and the reduction loop (positions.sort(...); for pos in positions: ... ) can select and force-close (up to 100%) a HEDGE position as an 'urgent' hard-cap breach via main.py:2921-2926 _submit_exit(), entirely bypassing HedgeEngine's own coordinated unwind path (correlation check, churn latch/cooldown in execution/hedging.py _record_unwind/_open_blocked). Because derisk_actions' forced exit never calls hedge_engine._record_unwind(), the churn-guard cooldown is never armed, so HedgeEngine can immediately re-open a hedge on the same asset next cycle -- reproducing the exact re-open churn pattern the 2026-08-07 ADA hedge-churn fix (cf454d5) was built to prevent, via a different, uncoordinated code path.",
+   "fix_class": "BOUNDARY",
+   "subsystem": "execution",
+   "verdict": {
+    "survives": true,
+    "reason": "CORE SURVIVES, FRAMING CORRECTED. The claim's headline (\"inventory_usd contradicts the hedging.py invariant\") is overstated: 'excluded from signal-side inventory' is honored inside hedging.py itself (_exposure_by_asset lines 141-155 and net_delta_usd(include_hedges=False) both exclude hedges), the count-cap exclusion at inventory.py:95 is docstring-scoped to the fixation rule only, and including hedges in a SIGNED per-asset USD exposure is defensible risk design \u2014 the can_add 'pollution' is conservative (same-side adds blocked earlier; opposite-side adds are net-reducing by design). What survives verification is the load-bearing half: (1) derisk_actions' hard-cap loop (inventory.py:134-155) can select a hedge (only opposite-of-net positions are skipped) and main.py:2921-2926 force-closes it via _submit_exit with zero hedge coordination; (2) _record_unwind has exactly one call site (hedging.py:223), so a derisk-forced hedge close never arms rehedge_cooldown_sec and never counts toward the FW-070 churn latch \u2014 the latch built for this exact pattern is blind by construction; (3) has_open(asset,'hedge') at main.py:2963 iterates open ORDERS only (order_manager.py:476-479), so a surviving hedge position does not block re-open; net delta back over cap \u2192 hedger re-opens next cycle \u2192 derisk cuts again \u2014 self-sustaining open/cut churn with per-cycle fees, reproducing the cf454d5 ADA incident (-$318) via an unguarded path, and contradicting the standing coordination notice ('re-hedge OPENS require cooldown'). Reachability confirmed on deployed config (config.json:382-395): max_equity_frac 0.5 permits hedges up to 2x the 25% inventory hard cap with no config_guard coherence check (guard checks only (0,1] range at config_guard.py:3230-3235); also reachable at normal hedge sizes when the hedge asset already holds same-direction signal longs (trim-over-hedge only trims shorts when net<0). No test covers the seam (test_hedge_churn.py has zero derisk mentions; 8 suites stub derisk_actions=[]). Not in the known-filed list. Severity held at CRITICAL: compound-precondition reachability argues down, but the consequence is a guard-invisible, self-braking-free reproduction of an incident class this repo fixed at emergency priority, caught independently by SABOTEUR and NEW HIRE lenses. Any fix alters which orders are placed \u2192 BOUNDARY class, era-4 operator adjudication required \u2014 report, do not fix.",
+    "severity": "CRITICAL"
+   }
+  },
+  {
+   "file": "risk/leverage.py",
+   "line": 75,
+   "severity": "CRITICAL",
+   "lens": "SECURITY AUDITOR / SABOTEUR",
+   "claim": "Margin-health veto/scaling fails OPEN (not closed) when the venue's margin-level reading is unavailable, because the sentinel for 'API call failed' is identical to the sentinel for 'no margin in use, fully healthy'.",
+   "evidence": "data/kraken_feed.py:363-370 get_margin_level_pct() returns 0.0 both when get_trade_balance() fails (network/rate-limit/auth error) and when Kraken's own 'ml' field is absent/zero. risk/leverage.py:75 only applies the margin_block_below_pct/margin_scale_below_pct check `elif margin_level_pct > 0:` \u2014 so margin_level_pct==0.0 skips the entire health check and `lev` is left at whatever vol-target/regime/region cap computed (up to region_max_leverage=10x per config.json:416). config.json:415 ships use_margin=true (live), and main.py:6282-6283 only refreshes self.margin_level_pct in live mode (`if not self.dry_run and self.lev_gov.use_margin`), unconditionally overwriting it with the fresh (possibly-0.0-on-failure) read every cycle \u2014 no last-known-good retention, no distinct 'stale/unknown' state. main.py:4660-4663 feeds this value straight into every entry's LeverageGovernor.decide() call, and the resulting allowed_leverage is applied to real Kraken margin orders (execution/order_manager.py:1067-1068 sets `data['leverage']` on submit). A transient TradeBalance failure during exactly the volatile conditions where margin health matters most (Kraken liquidates around 40% per this module's own docstring) silently disables the 150%/200% margin block/scale gate for that cycle instead of failing closed.",
+   "fix_class": "BOUNDARY",
+   "subsystem": "risk-regime-strat",
+   "verdict": {
+    "survives": true,
+    "reason": "Confirmed end-to-end by reading the code: kraken_feed.py:363-370 returns 0.0 for both API failure and absent 'ml'; leverage.py:75 `elif margin_level_pct > 0` skips the 150% block / 200% scale at exactly 0.0 with use_margin=true (config.json:415) leaving lev at up to the 10x region cap; the value flows to real AddOrder leverage (main.py:4976 -> order_manager.py:1067-1068). No last-known-good, no distinct unknown state (main.py:1346, 6282-6283), no compensating guard (the equity-truth check at main.py:6360-6362 also skips itself on the same TradeBalance failure), and no test pins the 0.0+use_margin=True case. One evidence correction that widens the defect: the refresh lives in hourly_cycle (main.py:6253), not per-cycle, so one transient failure poisons the gate for a full hour of entries. Mitigations checked and rejected: the 0.0 sentinel is intentional only for the no-margin-in-use case (Kraken omits 'ml' then) and cannot be distinguished from failure; dry_run gating makes it inert today but it sits on the live safety path one config flip away. Fix is correctly BOUNDARY class (alters live entry decisioning); the era-4 cohort accrues on dry-run fills this path never touches, but that adjudication is the operator's.",
+    "severity": "CRITICAL"
+   }
+  },
+  {
+   "file": "scripts/session_import.py",
+   "line": 326,
+   "severity": "WARNING",
+   "lens": "SECURITY AUDITOR",
+   "claim": "The copy-if-absent hand-off for meta_model.json (lines 326-346) and skimmer_active.json (lines 352-356) uses Path.exists() + shutil.copy2() directly, bypassing the symlink/regular-file check that verify_bundle() applies ONLY to names present in manifest.get('files', {}). The module's own header states 'Manifests are ATTACKER-AUTHORED... scripts/corpus_sync.py imports every bundle at the tip of the telemetry branch UNATTENDED', and verify_bundle() explicitly refuses any listed file that is a symlink for exactly this reason -- but a manifest can simply omit the 'meta_model.json' key from its files map while the bundle directory still physically contains a symlinked meta_model.json.",
+   "evidence": "verify_bundle() only iterates 'for name, meta in files.items()' (line 140) to run the f.is_symlink() check (line 147); a file absent from that map is never checked. run() then does 'model_src = srcp / meta_model.json; if model_src.exists() and not model_dst.exists(): shutil.copy2(model_src, model_dst)' (lines 326-330) and the same pattern for skimmer_active.json (lines 352-355) with follow_symlinks=True default. session_export.py (the honest producer) always lists both files in manifest['files'] when present, so this path is unreachable from a genuine bundle but fully reachable from a hostile one that simply omits the key.",
+   "fix_class": "SAFE_NOW",
+   "failure_scenario": "An attacker (or corrupted process) with push access to the shared paper-telemetry branch -- the exact threat actor this file's docstring names -- crafts sessions/<label>/manifest.json with a files map that omits meta_model.json, but places a symlinked meta_model.json in the bundle pointing at a sensitive local file (e.g. a Kraken key file, .aws/credentials, or any file readable by the bot's OS user). scripts/corpus_sync.py fetches this branch and runs session_import.py --src <bundle> --apply UNATTENDED (hourly, from pc_supervisor's cadence, with LB_NO_CORPUS_SYNC unset -- the default). run() dereferences the symlink via shutil.copy2, copying the target file's real content into outputs/meta_model.json in the live repo. scripts/telemetry_backup.py subsequently commits+pushes outputs (label pc-live, also default-on hourly) back to the SAME durable branch on origin, so the attacker can git fetch the branch and read the exfiltrated file's content back out -- full local-file-disclosure via a channel that requires only telemetry-branch write access, not code-execution trust.",
+   "subsystem": "ops-scripts",
+   "verdict": {
+    "survives": true,
+    "reason": "Real, reachable trust-boundary bypass, with one correction to the finder's framing. verify_bundle()'s is_symlink guard (line 147) only iterates manifest['files']; run()'s copy-if-absent for meta_model.json (326-330) and skimmer_active.json (352-355) use bare .exists()+copy2(follow_symlinks=True), so a hostile bundle that omits those keys from the files map while shipping a symlink of that name bypasses the check. session_export always lists both, so honest bundles are unreachable. CORRECTION: the finder's cited unattended vector (corpus_sync on the PC) is NOT reachable \u2014 it extracts via `git show`->write_bytes, which materializes a git symlink object as a regular text file containing the target path, so copy2 finds no read-through. The reachable unattended vector is .claude/hooks/session-start.sh, which restores bundles via `git archive | tar -x` (materializes real symlinks on the Linux cloud container) and runs session_import --apply on every bundle on each remote SessionStart, with meta_model.json absent in the exact cold/rolled-back scenario the hook targets. copy2 then reads through the symlink into outputs/meta_model.json; both files are in session_export.PORTABLE, so the default-on cloud-mirror telemetry_backup re-exports the read-through content to the paper-telemetry branch => arbitrary-host-file exfiltration (e.g. the 0600 ~/.liquiditybot/gc-token), plus model corruption. Not on the known-filed list. Severity is WARNING not CRITICAL: the sole execution venue (the PC) is provably NOT reachable due to git-show byte semantics; the gap is live only on the cloud dev bench, where trading keys are absent and the bot does not run by default, bounding blast radius. Fix (guard model_src/sk_src with is_symlink before copy) is SAFE_NOW \u2014 does not alter which orders are placed or how they fill.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "main.py",
+   "line": 2793,
+   "severity": "WARNING",
+   "lens": "SABOTEUR",
+   "claim": "The watchdog's PNL-VELOCITY trigger is fed an equity figure computed from tick-quarantined (unconfirmed) marks, so a single fat-finger print on any tracked asset can spuriously trip the velocity halt and fire an operator alert -- exactly the failure mode the tick-quarantine mechanism was built to prevent for stops.",
+   "evidence": "main.py:2794 `equity = self._equity()` calls `self.state.total_equity(self.marks)` (main.py:1605-1607). `self.marks[symbol]` is set unconditionally to the raw jump value returned by `watchdog.filter_mark()` even on a quarantined tick (core/watchdog.py:85-125; main.py:2688-2692 and 2735-2739 write `self.marks[symbol] = mark` regardless of `stop_ok`). That `equity` is then passed straight into `self.watchdog.evaluate(now, ..., equity, ...)` at main.py:2820-2822 with no gating on `_stop_ok`/mark-freshness -- unlike the peak-equity ratchet three lines above it (main.py:2804-2809, `marks_confirmed = all(self._stop_ok...)`) which explicitly defers on an unconfirmed mark before calling `note_equity`. Inside `evaluate()`, `equity` feeds `_equity_hist`/`pnl_velocity_pct` directly (core/watchdog.py:167-193): a fabricated one-cycle equity spike or crater can push `st.pnl_velocity_pct <= -vel_max_drop_pct`, firing `alerts.fire('pnl_velocity', ...)` and latching `velocity_tripped` for `vel_cooldown_sec` (default 1800s), blocking new entries for 30 minutes off a single bad tick that the same-cycle quarantine correctly kept away from stops/tiers/high-water (tests/test_tick_quarantine_exits.py covers only that side of the same defect class, not watchdog.evaluate's equity input).",
+   "fix_class": "BOUNDARY",
+   "subsystem": "core",
+   "verdict": {
+    "survives": true,
+    "reason": "All cited mechanics verified by direct read: quarantined fat-finger mark is stored in self.marks (main.py:2689, watchdog.py:110 returns the anomalous value with stop_ok=False), flows into _equity() via state.total_equity unrealized-PnL marking (core/state.py:236-244), and is passed ungated into watchdog.evaluate (main.py:2820-2822) where it feeds _equity_hist/pnl_velocity_pct (watchdog.py:168-189), tripping the -6% velocity halt (1800s entry block) and firing the pnl_velocity alert \u2014 which, unlike stale_critical, is not even dry_run-gated. The marks_confirmed guard computed three lines above (main.py:2804-2808) gates only note_equity; the adjacent comment (2795-2802) states the exact doctrine violated ('an untrusted mark must not fabricate drawdown'). No other guard covers it; not in the known-filed list nor the vault owed-docket (the 08-17 mark-starvation fix gated the peak ratchet and catastrophe trigger but not evaluate's equity input); tests/test_tick_quarantine_exits.py pins only the stops/high-water side. Reachability requires an open position and print\u00d7notional/equity \u2265 6% \u2014 real for typical 20-50% fat prints, low-frequency. Amendment strengthening the claim: a fake upward print plants a phantom peak persisting in _equity_hist up to vel_window_sec (900s), re-tripping every cycle, so the block can run ~45 min, not 30. Severity: WARNING is honest \u2014 fails safe (entries only, exits untouched), but contradicts explicit in-code doctrine, produces spurious operator alerts, and a spurious mid-accrual entry halt distorts the era-4 cohort. Fix is BOUNDARY-class (changes which entries are blocked \u2192 which orders are placed): report-only, operator adjudication required.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "ml/registry.py",
+   "line": 164,
+   "severity": "WARNING",
+   "lens": "SECURITY AUDITOR",
+   "claim": "verify_chain()/verify() tamper defense can be bypassed by appending a well-formed but UNCHAINED (no h field) fake registered row to registry.jsonl; verify_chain only validates rows carrying an h field and treats any row lacking one as a legitimate pre-chain row regardless of position, so a new unchained row appended after real chained history still yields chain ok True.",
+   "evidence": "verify_chain (lines 164-206): for a row with no h it does unchained+=1; continue unconditionally, never checking whether chained rows already exist before it, so a NEW unchained row appended after genuine chained entries is silently accepted as pre-chain. _last_registered_hash (lines 280-298) then does a plain linear scan for the last event==registered row matching the artifact path with NO check that the row is chained (h present) - it returns the sha256 from an attacker-appended unchained row. verify() (line 240) only refuses when chain.ok is False; with the fake row appended chain.ok stays True, so verify() proceeds and authenticates the forged hash as ok True.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "ml",
+   "verdict": {
+    "survives": true,
+    "reason": "Confirmed by runtime injection, not static inference. Planted a well-formed UNCHAINED (no `h`) `registered` row pointing at a swapped artifact, appended after real chained history: verify_chain returned {ok:True, rows:3, chained:2, unchained:1, \"chain intact\"} and verify() returned ok:True for the attacker artifact (sha 29f39f94...). Mechanism is exactly as claimed. verify_chain (ml/registry.py:187-190) does `unchained+=1; continue` for any h-less row with no positional check, so a post-chain fake row is accepted as pre-chain and chain.ok stays True. verify() (line 258) only refuses on chain.ok is False, then calls _last_registered_hash (280-298) which scans every event==\"registered\" row with NO h-presence check and returns the attacker row's sha256 as `expected`; actual==expected -> ok True. The gate is load-bearing: ml/meta_model.py:82-83 refuses the artifact only when ok is False, so ok=True loads the swapped model with \"verified\" provenance. Not covered by existing tests (test_registry_chain.py covers edit/delete/reorder and a rewritten CHAINED row, never an appended UNCHAINED row). Not in the known-filed exclusion list. This is the exact \"appending a newer row legitimized any swapped artifact\" attack the chain docstring claims to have closed, reopened via the unchained variant. Severity WARNING/SAFE_NOW is correct: requires registry.jsonl write access (the very threat model chaining claims to defeat), impact is model-risk provenance/tamper defense not a live-trading invariant (dry_run/kraken-only/withdrawal untouched; a bad model degrades sizing, does not escape controls), and the fix lives in integrity code without altering order placement or fills.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "risk/protocols.py",
+   "line": 291,
+   "severity": "WARNING",
+   "lens": "NEW HIRE / SABOTEUR",
+   "claim": "CVaR per-asset return-buffer lookup falls back to unanchored substring containment (`asset_symbol in k`), which can silently attribute one asset's realized-return history (and thus its ES-derived entry cap) to a different asset whose key happens to contain it as a substring.",
+   "evidence": "risk/protocols.py:289-295: `buf = self._rets.get(asset_symbol)`; if the exact key is absent it falls back to `for k, v in self._rets.items(): if asset_symbol and asset_symbol in k: buf = v; break` \u2014 an unordered dict scan matching on substring, not equality or a delimiter-aware prefix. With today's config.json trading_pairs (PAXG/ETH/BTC/SUI/ARB/MINA/FLOW) no symbol is a substring of another, so this is currently dormant, but it is a live landmine: adding any asset whose ticker contains an existing one as a substring (e.g. a wrapped/staked variant like WBTC, WETH, or STETH; or two assets sharing a prefix) makes an entry's CVaR cap (`cvar_cap_frac`, feeding `entry_multiplier`'s RP_CVAR_CAP sizing multiplier) silently computed from the WRONG asset's volatility/return distribution, with no error, warning, or test to catch it \u2014 and dict iteration order (insertion order in CPython, but not asserted anywhere) decides which colliding key wins if there are multiple candidates.",
+   "fix_class": "BOUNDARY",
+   "subsystem": "risk-regime-strat",
+   "verdict": {
+    "survives": true,
+    "reason": "Confirmed at risk/protocols.py:289-295 exactly as quoted. Stronger than filed: the substring fallback is exercised in production on every bracket PASS-2 sizing (main.py:4184 omits symbol=, passing bare asset \"ETH\" against pair-keyed _rets, so exact get always misses and the substring scan resolves it) \u2014 only the collision is absent today, not the code path. Dormancy confirmed: no substring collisions in trading_pairs or the auto-promotable variety candidates (config.json:1029). Collision class realistic (Kraken lists WBTC/TBTC/ETHW; repo has history of universe adds). No upstream normalization, no log of the resolved key, no test covers the fallback branch (tests/test_protocols.py uses exact pair keys only). Winner among colliding keys = _rets insertion order from observe()'s marks iteration, asserted nowhere. Not in the known-filed list. BOUNDARY tag correct for the fix: provably behavior-preserving with today's universe, but it edits the entry-sizing path, so era-4 moratorium requires operator adjudication.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "data/webdata_feed.py",
+   "line": 84,
+   "severity": "WARNING",
+   "lens": "SABOTEUR",
+   "claim": "maybe_poll() silently resets fear_greed/btc_dominance/total_mcap_usd to fabricated neutral defaults (not the last-known-good value) whenever the source returns a body that parses as JSON but is empty/malformed-shaped (loads_bounded returns None/{} due to size cap or bad JSON, or 'data'/'rows' comes back empty) -- because that path never raises, so the except-block's explicit 'snap.X = self._snapshot.X' carry-forward (lines 95-97, 120-124) never runs. The freshly constructed WebDataSnapshot(ts=now) at line 77 keeps its class defaults (fear_greed=50.0, btc_dominance=0.0, dominance_delta=0.0, total_mcap_usd=0.0).",
+   "evidence": "Lines 82-97 (Fear&Greed): `if parsed:` at 84 and `if rows:` at 86 gate the real assignment; there is no `else` restoring `self._snapshot.fear_greed`, unlike the `except` block below it (96-97) which does exactly that. Same shape at 100-124 for CoinGecko (`if parsed:` at 103, no else). Compounding: `snap.available = got_any or (now - last_success < 3*poll_sec)` at 132-133 can still read True (freshness grace) even though the value was just silently replaced by a fabricated neutral, so a consumer sees 'available' data that is actually a wrong default. This directly contradicts the module's own stated contract at line 15-16: 'any failure degrades to the last snapshot then to a neutral default' -- the empty/malformed-but-not-exception case skips straight to the neutral default instead of the last snapshot, exactly the ordering the docstring promises NOT to do.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "data-sent-api",
+   "verdict": {
+    "survives": true,
+    "reason": "Verified against code: loads_bounded (core/sanitize.py:70-84) returns None on malformed/oversized/NaN-token JSON instead of raising, so webdata_feed.py:84/:103 take the silent false-branch, the except-block carry-forward (96-97, 122-124) never runs, and line 139 self._snapshot=snap permanently destroys last-known-good (claim understated: subsequent exception polls then carry forward the fabricated defaults). CoinGecko sub-case is worse than claimed \u2014 truthy parse with wrong shape actively writes 0.0 via safe_float defaults (107-112). No guard elsewhere: main.py:4400 gates the fear filter on web.available, which the 3-poll grace keeps True ~30min, so a real fear extreme is masked at 50 while trusted; fear_greed/dominance_delta reach ML extras ungated (main.py:6093-94); the path emits zero log lines. tests/test_visibility.py covers only the raising path. Docstring contract (lines 15-16) directly contradicted. Reachability requires HTTP-200-with-bad-body (raise_for_status covers plain HTTP errors) \u2014 uncommon but real for keyless CDN-fronted APIs; corrupt-input class. Not on the known-and-filed list. Caveat for the fixer: the fix alters feed values feeding entry decisioning during the degraded case, so it sits at the edge of SAFE_NOW \u2014 note for adjudication rather than silent ship, though a 200-bad-body event is almost certainly absent from the accruing window.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "data/_http.py",
+   "line": 138,
+   "severity": "WARNING",
+   "lens": "SABOTEUR",
+   "claim": "The DL-7 body-size guard (lines 143-149) runs AFTER `requests`/urllib3 has already fully downloaded the response body into memory, and is bypassable entirely by omitting/spoofing the Content-Length header -- so the comment's claim ('must not balloon memory or stall the feed thread mid-decode') is not actually enforced.",
+   "evidence": "`resp = self.session.get(url, params=params, timeout=timeout)` at line 138 runs with the default `stream=False`; requests.Session.send() forces `r.content` internally whenever `stream` is falsy, so the full body is already resident in memory by the time execution reaches the length check at lines 144-145 (`int(_hdrs.get('content-length') or 0) > _MAX_BODY_BYTES`). A response with NO Content-Length header (chunked transfer, or a header simply stripped by a compromised/misconfigured proxy sitting in front of OKX/Binance.US/CoinGecko/alternative.me) evaluates the header to 0, so the >16MB check never fires at all and an unbounded body is both downloaded and (for `decode_json=True` callers) handed to `resp.json()`/`loads_bounded` regardless of size -- the opposite of the stated defense.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "data-sent-api",
+   "verdict": {
+    "survives": true,
+    "reason": "CONFIRMED with a scope correction. Prong A verified: data/_http.py:138 uses default stream=False, so requests.Session.send forces r.content \u2014 the entire body is in memory (and the feed thread stalled through the whole download, since requests' timeout is per-read, not total) before the line 144-145 check or even raise_for_status at 139 runs; the DL-7 comment's 'must not balloon memory or stall the feed thread' is unenforced everywhere, and no other repo guard bounds the download (loads_bounded caps only decode of an already-materialized string; webdata_feed.py:50 is bare requests.get().text). Prong B verified but NARROWER than claimed: the absent/chunked Content-Length bypass to unbounded resp.json() applies only to the _get_json callers okx_feed.py:60 and binanceus_feed.py:48 \u2014 Kraken (kraken_feed.py:151) and CoinGecko/alternative.me (webdata_feed.py:83/102) decode via loads_bounded with a 5MB cap, so the finder's venue list overreaches on the decode prong. Aggravators: the DL-7 test (tests/test_data_layer_batch.py:174-188) plants only the declared-header case, so the guard was never shown to fire on the form that bypasses it; docs/SECURITY_AUDIT.md:66's '5 MB cap on all JSON/XML/text responses' is falsified by the OKX/Binance.US resp.json() path; Content-Length is compressed size under gzip, further weakening even the covered case. Not in the known/filed list. Reachability tempered: 4xx/5xx error pages die at raise_for_status (after ballooning memory), so the unbounded-decode scenario needs a 200-status runaway payload or TLS-terminating proxy \u2014 real (the comment's own named threat) but data-layer availability only; no order-path, dry_run, or invariant impact, and the stale-book watchdog bounds downstream damage. WARNING is honest \u2014 a tested, documented defense that fails open on the common no-header case plus false claims in comment and SECURITY_AUDIT.md, caught by SABOTEUR and SECURITY AUDITOR lenses. SAFE_NOW correct: the fix (stream=True + bounded iter_content) alters no order placement or fills.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "main.py",
+   "line": 2674,
+   "severity": "WARNING",
+   "lens": "SABOTEUR",
+   "claim": "fast_cycle's marks/books fetch loop (Ticker batch call + per-asset get_order_book/filter_mark/thales observation) runs completely unwrapped/un-isolated, unlike every other fast_cycle stage below it - a raise here aborts the ENTIRE cycle (cycle_once does not wrap fast_cycle in try/except either, only slow_cycle/hourly_cycle are wrapped) before the per-position stop loop ever runs, and does so WITHOUT incrementing _exit_eval_failures (the telemetry counter every other isolated stage bumps), so the only visible symptom is the generic cycle_fail_streak counter.",
+   "evidence": "main.py:2644-2739 (marks = self.kraken.get_tickers(...) and the per-asset for-loop calling self.kraken.get_order_book/self.watchdog.filter_mark/self.thales.observe_feed_health/observe_fast) have no try/except, in contrast to _step_exec_algos, _apply_sim, orders.poll, watchdog.evaluate, derisk, hedge which are each individually isolated a few lines later in the same function. cycle_once (main.py:6802 self.fast_cycle(now)) also does not wrap this call in try/except (only hourly_cycle at 6796-6801 and slow_cycle at 6809-6813 are wrapped) so a raised exception propagates to runner.py's outer bot.cycle_once(now) try/except (runner.py:1621), which only advances the generic cycle_fail_streak - it does NOT go through _exit_eval_failures, so an operator reading the exit_eval_failures gauge would see 0 even while stops silently stopped evaluating for up to cycle_fail_halt-1 (default 9) consecutive cycles.",
+   "fix_class": "BOUNDARY",
+   "subsystem": "engine-runner",
+   "verdict": {
+    "survives": true,
+    "reason": "Structural claim verified in code: main.py:2674-2739 fetch loop is the only pre-stop stage without try/except+_exit_eval_failures (siblings at 2744/2755/2761/2769/2781 all have it), cycle_once:6802 leaves fast_cycle unwrapped, and runner.py:1621 catch feeds only cycle_fail_streak \u2014 the exit_eval_failures gauge reads 0 for this path, while the wedge alert (runner.py:1452-1457) explicitly tells the operator to check that very gauge. No test pins it (test_exit_starvation.py stubs the fetch benignly; W1-1 list omits the stage). BUT three finder errors: (1) NOT silent \u2014 runner logs a full traceback every failing cycle and latches a CRITICAL cycle_wedged fault + loud alert at cycle_fail_halt (default 10, not 9); (2) duration understated \u2014 the wedge never stops calling cycle_once, so a persistent raise starves stops INDEFINITELY, not <=9 cycles; (3) reachability much narrower than the evidence implies \u2014 all transport/malformed-JSON/error-envelope failures are swallowed to None below fast_cycle (data/_http.py:132-165, core/sanitize.py:67-84), filter_mark verified raise-free; the only concrete uncaught raise is a 200 + valid-JSON non-dict body: AttributeError at data/kraken_feed.py:154 (data.get(\"error\") on a list), also :264 result.items() / :286 result[key] \u2014 venue/proxy-controlled corrupt input, never observed. SABOTEUR and SECURITY AUDITOR both reach that path independently; stop-loop starvation is the codebase's most-protected property (invariant #5), so WARNING stands with corrections. Residual class is author-acknowledged in the alert text but the gauge misdirection is not, and it is not on the known-and-filed list. Minimal fix = isinstance-dict hardening in kraken_feed envelope (SAFE-leaning); any fast_cycle staging change = BOUNDARY adjudication.",
+    "severity": "WARNING"
+   }
+  },
+  {
+   "file": "scripts/remote_control.py",
+   "line": 234,
+   "severity": "NOTE",
+   "lens": "SABOTEUR",
+   "claim": "The exactly-once ledger (outputs/remote_consumed.json) is capped at CONSUMED_CAP=500 entries (_save_consumed trims to entries[-CONSUMED_CAP:]), but a consumed command's queue file on the branch is deleted only when push_pc_status() next runs successfully (its deletes list is built from the CURRENT, already-trimmed consumed list). If push_pc_status is disabled (LB_NO_STATUS_PUSH), keeps failing, or simply hasn't run yet, and >=500 further commands accumulate in the ledger in the meantime, an already-applied command's id falls off the trimmed ledger while its queue file is still present on the branch -- so the next poll_once() sees it as 'fresh' again and re-forwards it to the runner, violating the module's own documented invariant ('EXACTLY-ONCE: ... a command id is forwarded at most once, ever').",
+   "evidence": "_save_consumed (line 234): tmp.write_text(json.dumps(entries[-CONSUMED_CAP:], ...)). poll_once's dedup at line 368: seen = {e.get('id') for e in consumed} -- an id trimmed out of consumed is no longer in seen. push_pc_status's delete computation (lines 440, 492-493): consumed = _load_consumed(root) then deletes built only from currently-retained ids.",
+   "fix_class": "SAFE_NOW",
+   "failure_scenario": "Status push disabled or persistently failing (e.g. offline PC, or LB_NO_STATUS_PUSH=1 set for a stretch) while the operator issues 500+ remote commands (or the same handful retried enough times to accumulate 500 ledger entries) after a flatten_all/pause/etc. was applied and ledgered; once status push resumes and the old entry has already fallen off the ledger tail, poll_once re-forwards the same flatten_all command to the runner a second time, which -- unlike a replay-protected exit action -- can flatten positions the operator never asked about a second time (the exact C-F5 scenario this file's own comments say the ledger exists to prevent).",
+   "subsystem": "ops-scripts",
+   "verdict": {
+    "survives": true,
+    "reason": "Mechanism verified at scripts/remote_control.py:234 (trim), :368 (seen built from retained ledger only), :492-493 (deletes built from retained ledger only); no runner-side id dedup and no test pins the cap. However the claim omits that validate_command re-checks MAX_AGE_SEC=1800 with fresh now on every re-encounter (line 204), so an id resurrected after trim is REJECTED as stale unless the 500 appends happened within 30 minutes of issued_at. Actual re-forward therefore requires push_pc_status dead AND either a ~500-command flood from a repo-write-access actor (already fully trusted per the module's own security model) or >~530 stale undeleted queue files accumulated over months of failed pushes. Outside that window the only symptom is ledger churn (re-reject/re-append noise). Invariant break is real and uncovered elsewhere, but severity WARNING is inflated by the unaccounted 30-min bound and the whitelist-limited blast radius (worst dup: flatten_all within 30 min). Downgrade to NOTE, SAFE_NOW (fix is ledger/GC bookkeeping, not order logic). Caught by SABOTEUR and SECURITY AUDITOR lenses independently, so NOTE ships.",
+    "severity": "NOTE"
+   }
+  },
+  {
+   "file": "tests/test_registry_chain.py",
+   "line": 41,
+   "severity": "NOTE",
+   "lens": "NEW_HIRE+SABOTEUR",
+   "claim": "test_rows_carry_seq_and_prev_links is an empty stub (body is a bare `pass`) that asserts nothing, on the file whose docstring frames these tests as hardening ml/registry.py's ML-011 tamper-detection chain (round-2 2026-08-05 finding: verify() previously accepted a swapped/truncated ledger without an authenticated chain).",
+   "evidence": "Read tests/test_registry_chain.py:41-42 directly: `def test_rows_carry_seq_and_prev_links():` followed by `    pass`. Confirmed via a full-suite AST scan (parsed every tests/test_*.py with ast.parse, walked every FunctionDef named test_*, stripped a leading docstring if present, checked whether the remaining body is empty or pass-only) that this is the ONLY such stub in the entire 353-file tests/ directory - not a systemic pattern, one real defect. It collects and passes under pytest (a bare `pass` body is syntactically valid, no assert, no pytest.mark.skip), so it shows green in CI for a test named as a general invariant on a security-relevant hash-chain surface while checking nothing at all. Sibling tests in the same file (test_first_row_links_to_genesis: row-0-only; test_each_row_links_to_its_predecessor: 3-row chain) do cover seq/prev linkage in narrower forms, so there is no total blind spot today for the exact scenarios those two exercise - but the stub actively misrepresents coverage: a new-hire reading test names as a coverage index would believe a dedicated general-case check exists for 'rows carry seq and prev links' when it does not, and any future regression whose failure mode falls outside the two narrower siblings' specific fixtures (e.g. a seq/prev bug that only manifests at a row count or ordering neither sibling constructs) would pass silently through this named-but-inert gate on the model-provenance tamper-detection surface the file's own docstring calls a citation hazard.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "test-honesty",
+   "verdict": {
+    "survives": true,
+    "reason": "Fact confirmed by direct read and by running pytest: tests/test_registry_chain.py:41-42 is a bare-`pass` stub that collects and PASSES (verified: 9 passed, stub green) while asserting nothing, on the ML-011 registry hash-chain test file. Not on the known-and-filed list. However WARNING is inflated: the invariant the stub names is actually covered by the two siblings (test_first_row_links_to_genesis pins seq==1/prev==GENESIS/h format; test_each_row_links_to_its_predecessor pins seq [1,2,3] and prev==h across a 3-row chain plus verify_chain), and tamper semantics are pinned by four dedicated tests \u2014 so there is no demonstrated detection gap, only coverage misrepresentation (a named green test checking nothing on a security surface). Downgraded to NOTE; NOTE ships per repo law since two lenses independently catch it (NEW HIRE: misleading coverage index on a docstring-declared citation-hazard surface; SABOTEUR: a never-exercising test that always reports green). Fix is SAFE_NOW: implement the general-case assertions or delete the stub.",
+    "severity": "NOTE"
+   }
+  },
+  {
+   "file": "diode/lb_diode.cpp",
+   "line": 544,
+   "severity": "NOTE",
+   "lens": "SABOTEUR+SECURITY AUDITOR",
+   "claim": "The duplicate-fill-signature key is built by string-concatenating (purpose, side, rkey(size), rkey(price)) with raw control bytes 0x1F/0x1E as field/record separators, whereas the pre-registered Python reference (scripts/cohort_eval.py:299-300, 305) uses an actual tuple `(purpose, side, round(sz,6), round(px,4))` as the dict key. If a fills.csv row's `purpose` or `side` text cell itself contains byte 0x1E or 0x1F (a corrupted/torn write, or any adversarially crafted CSV cell -- both are within the file's own stated threat model of 'strict-ingest law: every malformed row is COUNTED, never coerced'), two distinct Python-side signature tuples can collide into the same C++ string, or vice versa. The C++ diode would then dedupe (or fail to dedupe) a trip differently than scripts/cohort_eval.era4_trips, silently diverging accrual_n / gross_pct / net_pct from the Python reference the header (lines 7-11) explicitly claims to mirror 'rule-for-rule' with '1e-9' differential agreement.",
+   "evidence": "diode/lb_diode.cpp lines 544-547 build `sig += purpose; sig += '\\x1f'; sig += side...; sig += rkey(*sz,1e6); sig += '\\x1f'; sig += rkey(*px,1e4); sig += '\\x1e';` versus scripts/cohort_eval.py:299-300 `sig.append((r.get('purpose'), r.get('side'), round(sz,6), round(px,4)))` / `key = tuple(sig)`. No test in tests/test_cpp_diode.py exercises a purpose/side value containing 0x1E or 0x1F (grepped, no hits) -- the collision path is untested and undocumented anywhere in the file's own commentary, unlike the other known, called-out approximations (nan-ts sort key, banker's-vs-away-from-zero rounding) which the code explicitly reasons about and dismisses.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "diode-bridge-docs",
+   "verdict": {
+    "survives": true,
+    "reason": "Mechanism confirmed: C++ CSV reader (lb_diode.cpp:151) and Python csv both pass 0x1F/0x1E through as ordinary cell bytes, rkey outputs never contain them, so purpose/side are real injection channels and a crafted pair (e.g. purpose=\"entry\\x1fsell\",side=\"X\" vs purpose=\"entry\",side=\"sell\\x1fX\", equal sz/px) collides in the C++ string key while staying distinct Python tuples \u2014 C++ drops a trip Python keeps, diverging accrual_n. Corrupt legs bypass the esz/xsz/opened_by filters when the trip also has genuine entry+exit legs. However the offered severity is inflated and half the threat model is refuted: a corrupted/torn write CANNOT trigger it \u2014 a lone random control byte yields a key unique in both representations (identical dedup outcome); only a deliberately crafted colliding pair diverges, and an actor able to craft outputs/fills.csv already owns the ground truth and can forge accrual numbers directly. The diode is DIODE-LAW offline/report-only, never in a decision path, so worst case is a wrong referee report on an attacker-controlled file. It survives as NOTE because the file's own contract (\"rule-for-rule\", 1e-9, documents every other divergence corner: underscores 69-70, banker's rounding 451-456, nan-ts 489-493) makes an undocumented non-injectivity corner a defect by the codebase's own standard, untested in test_cpp_diode.py, and two lenses independently catch it (security auditor: crafted cell across trust boundary; new hire: header's mirror claim conceals an unwritten exception). Fix = document the corner or escape separators in the sig builder; SAFE_NOW classification correct.",
+    "severity": "NOTE"
+   }
+  },
+  {
+   "file": "diode/README.md",
+   "line": 7,
+   "severity": "WARNING",
+   "lens": "NEW HIRE+SABOTEUR",
+   "claim": "README documents the CSV quote-truncation counter under the name `truncated_by_quote`, but the actual JSON field the binary emits (and the only name tests/test_cpp_diode.py asserts against) is `quote_truncated`. Anyone building tooling, alerts, or a manual check against the documented field name will silently get nothing back for a truncated (data-swallowing) CSV -- exactly the failure mode section M2 of the same README paragraph is warning readers to watch for.",
+   "evidence": "diode/README.md line 7: '`truncated_by_quote` counter...'. Actual field: diode/lb_diode.cpp:750 `o += \", \\\"quote_truncated\\\": \";` (struct member diode/lb_diode.cpp:106 `bool quote_truncated`). tests/test_cpp_diode.py uses `quote_truncated` at lines 287,290,293,323,327,368 -- confirming the shipped name, never `truncated_by_quote` anywhere in the codebase.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "diode-bridge-docs",
+   "verdict": {
+    "survives": true,
+    "reason": "Confirmed and amended broader. README diode/README.md:7 names the counter `truncated_by_quote`; the shipped field is `quote_truncated` (lb_diode.cpp:106,750) and all test assertions use the shipped name (tests/test_cpp_diode.py:287,290,293,323,327,368) \u2014 the documented name exists nowhere else in the repo, so tooling built to the doc silently returns nothing on a truncated (data-swallowing) CSV. Git shows the README paragraph (9f6e5ebd, 2026-08-18 23:52Z) predates the implementing commit (694e0a8b, 2026-08-19 01:38Z), which never updated it: the paragraph also still claims 'v1 reports it as low row count, not loudly', now provably false (planted-quote test asserts quote_truncated=true), meaning the security-review M2 record shows the finding open after its remediation shipped. Refutations tried and failed: 'v2-TODO framing means nobody queries the name' actually worsens it (doc affirmatively denies a loud flag that exists); 'placeholder README' \u2014 the M2 line is a dated security-review record; not on the known-and-filed list. Two lenses (NEW HIRE, SECURITY AUDITOR) reach it independently. Docs-only fix: SAFE_NOW, no cohort impact.",
+    "severity": "WARNING"
+   }
+  }
+ ],
+ "unverified_tail": [
+  {
+   "file": "core/audit.py",
+   "line": 175,
+   "severity": "NOTE",
+   "lens": "NEW HIRE",
+   "claim": "AuditTrail.log()'s dedup guard against double-counting a tag()-built message ('CODE: detail') matches any msg that merely starts with 'CODE_VALUE:', not only genuine tag() output, so a call site that hand-writes a similarly-prefixed message without going through codes.tag() silently loses its bump to the code_stats frequency ledger with no error or log line.",
+   "evidence": "core/audit.py:175-177: `if (not counted and code_val in _REGISTERED_CODES and not str(msg).startswith(code_val + \":\")): code_stats.bump(code_val)`. The guard is purely string-shape based -- it cannot distinguish a message that went through `codes.tag()` (core/codes.py:606-619, which already bumped) from one a future call site writes by hand as e.g. `f\"{Code.SZ_060.value}: reason\"` without calling tag(). In the latter case code_stats.bump() is never called from either path, silently undercounting that code's frequency on the Grafana-exported ledger (`liquiditybot_code_count`) with no signal that a bump was skipped -- a maintainability trap for anyone extending a call site 6 months from now without knowing the exact-prefix contract this check depends on.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "core"
+  },
+  {
+   "file": "ml/registry.py",
+   "line": 106,
+   "severity": "NOTE",
+   "lens": "NEW HIRE",
+   "claim": "_tail_link() has the identical blind spot as verify_chain(): it silently adopts an unchained row's absence of h as pre-chain, no link to adopt with no positional or temporal check, so an unchained row appended after real chain history is invisible to the seq/prev bookkeeping - a maintainer six months from now, seeing chain intact from verify_chain, would reasonably but wrongly assume every row after the 2026-08-05 migration is authenticated.",
+   "evidence": "_tail_link (lines 106-132): if not h: continue runs for every row lacking h with no ordinal or timestamp gate distinguishing genuine pre-migration rows from a row injected later without one; the docstring's own stated threat model (anyone with the same write access the artifact itself needs) is not actually closed by this design because that same attacker can simply omit the h field on their forged row and it is treated as harmless legacy data.",
+   "fix_class": "DOCKET",
+   "subsystem": "ml"
+  },
+  {
+   "file": "execution/risk_firewall.py",
+   "line": 402,
+   "severity": "NOTE",
+   "lens": "NEW HIRE + SECURITY AUDITOR",
+   "claim": "_emit()'s audit hash-chain record for a clamped verdict picks its Code by string-matching 'FW-051' in the notes list, so when an exit is BOTH price-collar-clamped AND notional-clamped in the same check() call, the audit trail's code field always reads FW_COLLAR_CLAMP even though FW_NOTIONAL_CLAMP also fired (counters are correct via tag()'s own bump; only the hash-chain record's top-level code is misattributed).",
+   "evidence": "risk_firewall.py:261-309: an exit whose price deviates past the collar (clamped at ~line 278) AND whose resulting notional still exceeds cap (clamped at ~line 302) sets clamped=True twice and appends both a FW-051 and FW-041 tagged note. _emit() at line 407-409 does `Code.FW_COLLAR_CLAMP if any('FW-051' in n for n in notes) else Code.FW_NOTIONAL_CLAMP` -- an operator or script filtering audit.jsonl by code==FW-041 to count/investigate notional clamps will silently miss any exit that was ALSO collar-clamped in the same emission, even though the human-readable msg text contains both.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "execution"
+  },
+  {
+   "file": "api/rest_server.py",
+   "line": 163,
+   "severity": "NOTE",
+   "lens": "SECURITY AUDITOR",
+   "claim": "The optional shared-secret comparison uses plain string `!=`/`==` instead of a constant-time comparison (`hmac.compare_digest`), so `outer.auth_token` is subject to a timing side-channel for any caller that can reach the loopback bind.",
+   "evidence": "rest_server.py:163-166 `outer.auth_token and self.headers.get('X-Auth-Token','') != outer.auth_token` and grpc_server.py:66 `md.get('x-auth-token','') == outer.auth_token` both do byte-by-byte short-circuiting string equality. Threat model is narrowed by the loopback bind and the CSRF checks documented in this same file, but the module's own docstring frames auth_token as a real defense layer ('parity with gRPC'), and any other local process, container/WSL netns sharing localhost, or a future relaxation of the CSRF checks would expose this as a genuine (if slow) secret-recovery channel.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "data-sent-api"
+  },
+  {
+   "file": "data/_http.py",
+   "line": 150,
+   "severity": "NOTE",
+   "lens": "SECURITY AUDITOR",
+   "claim": "`ThrottledRestClient._request`'s decode path calls stdlib `resp.json()` directly (used by OKX and Binance.US via `_get_json`), bypassing `core.sanitize.loads_bounded`'s NaN/Infinity-token rejection that the sanitize module's own docstring describes as universal ('Every feed that pulls from a website or exchange... routes its parsing through here'). Only Kraken's client explicitly re-parses via `loads_bounded(resp.text)`.",
+   "evidence": "data/_http.py:150 `out = resp.json() if decode_json else resp` (no parse_constant guard) vs data/kraken_feed.py:151/197 `data = loads_bounded(resp.text)`. In practice, downstream numeric fields in okx_feed.py/binanceus_feed.py are wrapped in `safe_float`/`clean_book`/`clean_candles`, all of which reject non-finite floats via `math.isfinite`, so a hostile NaN/Infinity JSON token from OKX or Binance.US is neutralized before reaching decision logic -- the gap is a latent trust-boundary inconsistency (a future field read straight off the parsed dict without going through safe_float would not be protected), not a currently-exploitable poisoning path.",
+   "fix_class": "DOCKET",
+   "subsystem": "data-sent-api"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-08-19-cpp-diode.md",
+   "line": 109,
+   "severity": "NOTE",
+   "lens": "NEW HIRE",
+   "claim": "The plan document states 'Numbers printed with `%.10g` (printf) so the harness parses them losslessly at its 1e-9 tolerance' -- but the shipped code deliberately does NOT use %.10g: it uses %.17g, with an in-code comment explaining %.10g was tried and found wrong ('the shortest-exact %.10g quantized ~5e-10 RELATIVE, which misses the harness's 1e-9 ABSOLUTE tolerance once |value| >= 10 (review finding, 2026-08-19 -- fuzz tripped it at gross ~100%)'). A reader of the plan alone (a future contributor reconstructing intent, or writing a second differential tool from the plan) would reproduce the already-disproven %.10g bug.",
+   "evidence": "docs/superpowers/plans/2026-08-19-cpp-diode.md:109 vs diode/lb_diode.cpp:656-667 (comment + `std::snprintf(buf, sizeof buf, \"%.17g\", v)`), and diode/lb_diode.cpp:21 CLI comment already states '%.17g exact round-trip'. Two lenses: NEW HIRE (plan is the design record a newcomer would trust) and the plan's own text is directly contradicted by the shipped, tested, currently-passing implementation -- qualifying the required second signal for a NOTE.",
+   "fix_class": "SAFE_NOW",
+   "subsystem": "diode-bridge-docs"
+  }
+ ],
+ "raw_count": 22,
+ "probed_clean": [
+  {
+   "sub": "core",
+   "clean": [
+    "core/fill_ledger.py: restart-replay dedup key, torn-tail append healing, header-aware ragged-row guard -- traced the (order_id,fill_size,fill_price,remaining) key logic and concurrent/second-run scenarios; no collision or data-loss path found beyond the already-documented guard.",
+    "core/sanitize.py: safe_float/loads_bounded/safe_rss_root/clean_book/clean_candles/drop_forming_candles -- checked NaN/Inf rejection, size caps, crossed-book rejection, OHLC self-consistency, and the committed_upto vs local-clock skew paths; all fail closed as documented.",
+    "core/state.py: PortfolioState equity/PnL accounting (total_equity, record_realized_pnl, record_entry_fee, net_pnl_all_time, drawdown_pct, drawdown_mtm_pct, maybe_close_week/month) -- verified equity identity, fee-leg double-count history already fixed, week/month lazy-adopt avoids phantom rollovers; no new defect found.",
+    "core/precision.py: price_decimals/round_price/fmt_price -- display-only rounding, confirmed engine math never rounds; no defect.",
+    "core/watchdog.py: filter_mark quarantine/confirm/discard state machine traced across 3 scenarios (confirmed same-direction, discarded reversal, sustained partial move) -- the returned mark_for_stops is always the actual subsequent tick, never the quarantined value, so stop evaluation itself is safe; only the equity feed to evaluate() (separately reported) is unprotected.",
+    "core/fault.py: OpState/Severity latch/clear/restore -- verified severity-escalation-only re-latch ordering, RECOVERABLE_FAULTS restore exclusion, and the documented arm()-then-restore() boot order; consistent with the module's own contract."
+   ]
+  },
+  {
+   "sub": "ml",
+   "clean": [
+    "ml/history.py load_training_data: clash dedup, epoch_cfg filter, era_exclusion filter, uniqueness/prior-skew weighting, argsort ordering - no defect found",
+    "ml/history.py CandidateLabeler register/poll/_maybe_evict_zombie/mark_disposition: cap-eviction direction, zombie eviction 3-gate logic - no reachable defect found",
+    "ml/labeling.py triple_barrier / simulate_exit_policy / barrier_geometry: barrier ordering, tier/time-stop/give-back sequencing, cost-floor math - no divergence found",
+    "ml/features.py build_features: feature vector length checked against FEATURE_NAMES; clip ranges cross-checked against ml/contracts.py and found consistent",
+    "ml/calibration.py IsotonicCalibrator/psi/brier_score: PAV pooling, degenerate-decile PSI short-circuit - no defect found",
+    "ml/monitor.py ModelMonitor: escalation/de-escalation streak logic, Wilson bound hit-deficit test, shadow-recovery re-arm gating, should_deploy/reconcile_champion_badge - no residual bug found"
+   ]
+  },
+  {
+   "sub": "execution",
+   "clean": [
+    "execution/order_manager.py: state-machine transition table (_transition/_LEGAL/_TERMINAL), fail-closed submit() validation chain (side/purpose/ordertype, finite price/size, market-order-exit-only invariant OM-011), firewall integration passing ref_price untouched, ordermin floor-up-never-above-requested logic, post-format zero-size guard (OM-013) on both dry and live paths, size adoption from the floored venue string (H2), dry-run fill simulator (_sim_maker_cross/_sim_cross/_passive_poll_prob TTL normalization/_queue_eligible monotonicity), live poll's batched QueryOrders chunking (50-txid cap) and stale-batch handling via _final_reconcile last-look on both cancel_order and timeout paths, cancel_unconfirmed/OM-090 audit trail, userref idempotency (sha256, not salted hash()), segment-price recovery from cumulative averages (avoids basis smear on multi-fill orders), dust-guard on the slippage ledger, fee-reconciliation fail-safe skip conditions.",
+    "execution/hedging.py: churn-guard restart-state persistence (to_dict/from_dict), unwind-vs-open using the SAME dominant-asset correlation pair (the fixed cf454d5 thrash bug), signal-only vs total-net delta split (unwind never gated), trim-over-hedge netting direction (overlap_side matches net sign correctly), churn latch keyed consistently by the hedge instrument's own asset on both record and check paths.",
+    "execution/venue_adapters.py: execution_eligible property structurally requires name=='kraken' AND can_be_execution_eligible (only KrakenAdapter sets it True), _enforce_invariant defense-in-depth force-disable of any rogue eligible adapter, credentials resolved only from env var names never config values.",
+    "execution/routing.py: eligible-venue hard filter requires venue.lower()==EXECUTION_INVARIANT_VENUE in addition to config eligibility and the quote's own execution_eligible flag; staleness gate is a hard cutoff not a score penalty.",
+    "execution/pretrade.py: fail-closed input validation (PT-010) including negative-spread rejection, one-sided-book fail-closed veto for maker pricing, exploration bypass only relaxes the two profit gates (edge/cost ratio, EV floor) and still requires every safety veto (staleness/spread/spoofy/participation/min-order/book-depth) to pass, book_walk_bps fail-closed on empty/thin book (1e6 sentinel) rather than defaulting to zero cost.",
+    "execution/grid_ladder.py: ARM/DISARM hysteresis (p_win_arm > p_win_disarm enforced by config, direction-flip forces retract-then-rearm), fail-closed invalid-input retract, rung price/size monotonicity (deeper rungs strictly further from quote per direction sign)."
+   ]
+  },
+  {
+   "sub": "risk-regime-strat",
+   "clean": [
+    "risk/position_sizer.py: full size() pipeline (fail-closed input validation, p-bar/Kelly math incl. bracket-priced per-trade breakeven, drawdown throttle, multiplier stack ordering, explore-floor-then-caps ordering, inventory/leverage/min-ticket caps) - traced end to end, no reachable wrong-money path found; multiple prior incidents already fixed and documented in-file.",
+    "risk/circuit_breaker.py: trip/reset/restore lifecycle, idempotent is_tripped expiry, snapshot list-capture-before-mutate ordering - no defect found.",
+    "risk/capital_manager.py: pool split (fill vs trade scope), weekly rollover, hard-stop drawdown incl. the documented reserve-phantom-drawdown fix - consistent and already corrected in-file.",
+    "risk/conviction.py: term evaluation order and None-auto-pass symmetry - currently report-only (mode=report shipped default), no live entry impact; cadence-alarm windows are process-local by design.",
+    "risk/stop_placement.py: round_step/nudge_stop_off_round pure functions - bounds and direction-only-widen guarantees verified by inspection, matches test-pinned contract.",
+    "risk/profit_tiers.py: tier trigger/cost-floor/time-stop/break-even/chandelier/give-back/magnet-nudge/conviction-trail composition - extremely heavily audited already (P1/P2/PT-060/EX-1/etc.); traced the ratchet-only invariants and found them upheld."
+   ]
+  },
+  {
+   "sub": "data-sent-api",
+   "clean": [
+    "data/kraken_feed.py: signing (_sign/_private_post), nonce monotonicity under backward clock steps, FORBIDDEN_PRIVATE_ENDPOINTS deny-list enforcement, credential resolution precedence, has_private_credentials/private-secret base64 validation, get_tickers alias-variant mapping (BTC/XBT, DOGE/XDG), pair-meta fallback table, drop_forming_candles committed-boundary math -- all read correct, no bypass found.",
+    "core/sanitize.py: safe_float/clean_book/clean_candles/loads_bounded/safe_rss_root/drop_forming_candles -- finite-value enforcement, crossed-book rejection, OHLC self-consistency check, defusedxml entity-expansion guard all verified logically sound.",
+    "data/ws_feed.py: LiveMarketCache re-sanitizes every read via clean_book (so BinanceUSFeed.get_order_book's ws-first path does NOT bypass sanitization as initially suspected -- WebSocketFeedManager.get_order_book routes through cache.get_book -> clean_book). KrakenV2BookStream verify-before-publish ordering, checksum backoff, staleness gating, ResilientWebSocket's W2-H8(a)/(b) reconnect-vs-clean-close handling all checked, no defect found.",
+    "data/ccxt_feed.py: CCXT-001 credential-key scan flagged as a NOTE-level gap (camelCase 'apiSecret' not normalized to 'api_secret') but downgraded/omitted from findings because __init__ never forwards `cfg` into the ccxt client construction (`klass({'enableRateLimit': True})` is hardcoded), so no credential value is actually transmitted regardless of the scanner's coverage -- inert today, only a latent trap if someone later forwards cfg.",
+    "data/okx_feed.py: ctVal SWAP-contract scaling fail-closed on lookup failure, get_history_candles pagination cursor logic, committed-candle detection via `confirm` field with clock-heuristic fallback, deep-history max_n override to avoid the 2000-bar clean_candles truncation -- all correct.",
+    "data/moomoo_feed.py: TCP pre-probe + async-connect + sync-query-timeout pattern against the known OpenD-hang failure mode, frozen-quote gate (full-basket-repeat detection) correctness, _degrade() clearing all sibling flags, to_dict/from_dict persistence fail-soft behavior -- no defect found."
+   ]
+  },
+  {
+   "sub": "engine-runner",
+   "clean": [
+    "runner.py handle_command dispatch (start/pause/stop/step/snapshot/entries_on/off/arm_live/disarm_live/clear_fault/force_dry/flatten_all/budget_reanchor_week/sim_*): each branch checked against HANDLED_COMMANDS/VALID_COMMANDS parity (command_vocabulary_drift), per-command exception isolation in the main loop (runner.py:1594-1601) confirmed present; sim_* dual-gate (config dry_run AND runtime bot.dry_run) confirmed correct against force_dry's one-way LIVE->DRY flip.",
+    "runner.py _cmd_force_dry: cancel-before-flip ordering, durable sentinel write, stranded-live-position pause+alert path, and getattr-guards for minimal test doubles all read correctly against the documented C2/H4 incidents; no gap found.",
+    "runner.py single-instance lock + heartbeat thread (_heartbeat_loop/_hb_should_refresh/_note_lock_lost/_stop_heartbeat ordering vs .release()): boot-grace vs running-stall bounds, forfeit-exit early-return before normal shutdown (avoids clobbering a live peer's snapshot/status) - logic internally consistent; movement measured via _last_progress_ts stamped at loop top, not written by the heartbeat thread itself.",
+    "runner.py H5 flatten latch (_latch_flatten/_drive_flatten/_refresh_marks_for_flatten/_paused_mark_staleness_note): re-drive-every-tick in both runner states, PAUSED-only mark refresh before re-submit, deadline-based escalation alert - internally consistent; per-position isolation confirmed (try/except inside the for-loop, not around it).",
+    "runner.py build_status: bad_entry guard suppressing fabricated uPnL on entry_price<=0, per-asset venue price rounding (round_price with pair_meta), shallow-copy of last_signals/manip_suspect for the concurrent API-thread read - correctly defensive; no torn-read or wrong-money path found.",
+    "runner.py shutdown path (run()'s finally block): forfeited-duplicate branch correctly skips venue cancel/snapshot/digest (leaves book to live peer); normal-exit branch correctly cancels all venue orders + disarms dead-man BEFORE the final snapshot when live, and fires an alert if positions remain open at shutdown."
+   ]
+  },
+  {
+   "sub": "ops-scripts",
+   "clean": [
+    "scripts/pc_supervisor.py: spawn/breakaway job-object handling, single-instance lock acquire/wait liveness-by-heartbeat-movement, stamp cadence + staggering, child-log rotation, dashboard-import backoff/fingerprint, legacy-task migration CSV parsing, self-restart-on-source-change ordering, OpenD launch throttling -- no exploitable defect found; _spawn's unclosed open() file handle for child stdout was checked and is NOT a leak (CPython refcounting closes it when the local 'out' goes out of scope at function return, since Popen does not retain the reference)",
+    "scripts/remote_control.py: validate_command's id/filename binding, staleness/future-clock bounds, payload size cap, _runner_alive freshness-vs-terminal-state gate, _publish's isolated-worktree + pathspec-only staging (no 'git add -A'), userinfo redaction regex, transient-git-failure-vs-bad-command distinction -- clean aside from the CONSUMED_CAP finding above",
+    "scripts/auto_update.py: fast-forward-only + single-fetch reuse (no TOCTOU between tested worktree commit and the ff-only merge), diverged/ahead ancestor probes, force-kill escalation's pid-identity re-verification (_pid_is_runner) against PID-reuse, single-updater lock sizing vs measured battery duration -- clean aside from the branch-vanished finding above",
+    "scripts/corpus_sync.py: bak-recovery dedup key correctness (verified row[0] is truly position_id against scripts/migrate_history.py's migrate_rows output order), durable_append usage, bundle ordering by manifest created_at_utc, git ls-tree path handling (git itself rejects '..' path components in tree objects, closing the traversal vector) -- clean",
+    "scripts/telemetry_backup.py: bundle_inconsistency + committed_bundle_inconsistency dual sha verification (disk vs staged-commit), shrink guard, non-fast-forward retry-with-refetch loop, .gitattributes -text pin + git-rm-cached-before-add staging, orphan-branch bootstrap -- clean",
+    "scripts/session_export.py: allow-list vs NEVER-list construction, portable-file enumeration -- clean (the vulnerability is on the import/consume side, not export)"
+   ]
+  },
+  {
+   "sub": "test-honesty",
+   "clean": [
+    "conftest.py read in full: outputs/-write guard (sys.addaudithook on open/rename/remove + _no_production_outputs_writes autouse fixture + _sidecar_logs_to_tmp module-attr redirection) is well-built, matches by resolved-path value not module name, normcases for Windows, empty _ALLOWED allowlist by design. No bypass found.",
+    "Searched all of tests/ for hardcoded outputs/ write paths (`open(\"...\", \"w\")` literals, Path(__file__)/_ROOT/_REPO .write_text(...) constructions): zero hits outside the conftest-guarded pattern; the handful of tests referencing outputs/*.csv|jsonl (test_pbo_variants.py, test_audit_runner_state.py, test_qa_isolation.py, test_goals_ledger_contamination.py) only READ or snapshot-compare those paths to prove non-mutation, never write them.",
+    "Searched for @pytest.mark.skip / xfail across all of tests/: zero occurrences - no hidden silently-skipped tests.",
+    "pyproject.toml [tool.pytest.ini_options]: --strict-markers enforced with 'timing' marker registered and documented; test_windows.bat runs both the -n8 'not timing' pass and a serial 'timing' pass, so timing-tagged tests are not silently excluded from the battery.",
+    "AST-scanned every test_*.py for pass-only or empty-body test functions suite-wide: only the one reported finding.",
+    "AST-scanned every test_*.py for test functions with zero assert statements and no `with pytest.raises/warns(...)` block: found 13, all but the reported stub are legitimate implicit-raise-on-failure tests (name pattern '..._never_raises' / '..._is_json_safe' / '..._is_ascii', body calls the function directly or does json.dumps()/str.encode('ascii') so pytest fails naturally on an exception) - inspected all 13 bodies individually, no vacuous test found among them."
+   ]
+  },
+  {
+   "sub": "diode-bridge-docs",
+   "clean": [
+    "diode/lb_diode.cpp era4_trips reconstruction vs scripts/cohort_eval.era4_trips: pid grouping order/falsy-skip semantics, stable sort by ts, _OPEN_PURPOSES entry/hedge matching, cash/fees accumulation, esz/xsz/enot thresholds, |xsz-esz|/esz<=0.02 tolerance, opened_by=='entry' filter, tclose>=cut filter, gross_pct/net_pct formulas, era/stale_legs/prestamp_legs three-way classification (None vs blank vs stamped) -- all read line-by-line against scripts/cohort_eval.py:235-329 and found to match exactly",
+    "wilson() score interval implementation (lb_diode.cpp:580-591) vs scripts/cohort_eval.py:130-143 -- formula-for-formula identical including n==0 zero-triple and clamping",
+    "S0 strict CSV reader vs core/session_digest.py:_read_csv's DictReader drop-malformed law (both short AND long rows dropped in strict mode, matching r.values() None-check and restkey None-check) -- confirmed by reading both implementations",
+    "fills.csv DictReader-mode short/long row handling (the documented v1.1 fix in diode/README.md) -- cross-checked against Python csv.DictReader restval/None semantics in scripts/cohort_eval.py:281-287, consistent",
+    "JSON recursive-descent parser (S1): depth cap (256), UTF-16 surrogate pair decoding, \\uXXXX escapes, control-char rejection in strings, duplicate-key last-wins (jget) -- read fully, no defects found, matches standard JSON semantics Python's json.loads would apply",
+    "jstr() ASCII-only emitter: UTF-8 decode with malformed-byte -> U+FFFD fallback, buffer sizing for \\uXXXX escapes (post M1 fortify fix) -- read fully, correct"
+   ]
+  }
+ ]
+}

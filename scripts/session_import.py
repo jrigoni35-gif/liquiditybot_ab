@@ -325,6 +325,14 @@ def run(src: str, outputs: str, apply: bool,
     # rows); a fresh container consumes the bundled brain immediately.
     model_src = srcp / "meta_model.json"
     model_dst = out / "meta_model.json"
+    # SYMLINK GUARD (2026-08-20 security sweep): bundles are attacker-authored
+    # and corpus_sync imports them UNATTENDED, so the copy-if-absent hand-off
+    # must apply the same is_symlink refusal verify_bundle() gives listed
+    # files - a symlinked meta_model.json/skimmer_active.json would otherwise
+    # let a bundle read an arbitrary local path through copy2.
+    if model_src.is_symlink():
+        print(f"REFUSED: {model_src} is a symlink")
+        return 4
     if model_src.exists() and not model_dst.exists():
         model_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(model_src, model_dst)
@@ -351,6 +359,9 @@ def run(src: str, outputs: str, apply: bool,
     # whatever it reads, so a stale or garbled copy can only shrink to [].
     sk_src = srcp / "skimmer_active.json"
     sk_dst = out / "skimmer_active.json"
+    if sk_src.is_symlink():
+        print(f"REFUSED: {sk_src} is a symlink")
+        return 4
     if sk_src.exists() and not sk_dst.exists():
         shutil.copy2(sk_src, sk_dst)
         print("  skimmer_active.json adopted (promotions apply at next boot)")

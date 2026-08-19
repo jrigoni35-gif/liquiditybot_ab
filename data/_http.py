@@ -141,11 +141,19 @@ class ThrottledRestClient:
                 # response (HTML error page, runaway payload) must not
                 # balloon memory or stall the feed thread mid-decode
                 _hdrs = getattr(resp, "headers", None) or {}
-                if decode_json and int(_hdrs.get(
-                        "content-length") or 0) > _MAX_BODY_BYTES:
+                # DL-7 (hardened 2026-08-20): the content-length HEADER guard
+                # is bypassable by a server that omits the header (chunked
+                # transfer, or a hostile/mis-routed origin), so ALSO bound the
+                # actual decoded byte length - a response with no length
+                # header no longer skips the cap. (The body is already
+                # resident here under stream=False; a true streaming cap is
+                # the deeper v2, tracked - this closes the header-absent
+                # bypass the security sweep flagged.)
+                _clen = int(_hdrs.get("content-length") or 0)
+                _blen = len(getattr(resp, "content", b"") or b"")
+                if decode_json and max(_clen, _blen) > _MAX_BODY_BYTES:
                     log.warning("%s: response body %s bytes > cap - "
-                                "discarded", venue,
-                                _hdrs.get("content-length"))
+                                "discarded", venue, max(_clen, _blen))
                     return None
                 out = resp.json() if decode_json else resp
                 self._note_rtt(t0)
