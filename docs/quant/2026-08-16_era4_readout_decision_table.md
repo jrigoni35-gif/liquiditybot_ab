@@ -409,6 +409,24 @@ Date signed (UTC) : 2026-08-17T01:00Z — operator adjudication recorded
                     live in Claude session 55a25968 (explicit Q&A, each
                     blank answered as a separate question)
 
+RE-RATIFIED (UTC) : 2026-08-19 — the operator, unprompted, did not
+                    recognize this signature ("no i didnt") two days
+                    after giving it. An adversarial provenance review
+                    (same date) located the original per-blank answers
+                    in the session transcript and found the signature
+                    REAL but THIN: 6 of 7 blanks were one-click
+                    "(Recommended)" defaults authored by the asking
+                    agent; the COST_BOUND blank was the operator's own
+                    typed intent ("do it for the most disiplined
+                    agressive profit", verbatim incl. spelling), mapped
+                    to 2D by the agent. Presented with that evidence
+                    and the option to amend or void while amendment was
+                    still lawful (accrual 21/50), the operator chose
+                    "Re-affirm as recorded". All blanks above therefore
+                    stand exactly as first inscribed. Lesson filed:
+                    signature-grade adjudications get typed answers,
+                    not default clicks, from here on.
+
 Scope of this signature (circle or strike):
     [ ] era-4 gate ONLY (ERA4_MIN_N = 50, cohort_eval.py:125)
     [X] era-4 gate AND legacy 2026-08-02 gate (MIN_COHORT_N = 50, :79)
