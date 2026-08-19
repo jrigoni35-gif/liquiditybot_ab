@@ -25,9 +25,16 @@ repeat decay across restarts and make it harder to see.
 """
 import logging
 
-import pandas as pd
+import pytest
 
-from data.moomoo_feed import MoomooFeed
+# pandas is a moomoo-SDK-side dependency, present on the PC but optional
+# everywhere else (engine scope forbids it; the import-integrity law says
+# absent third-party deps must skip, never break collection - an unguarded
+# module-scope import here interrupted the whole suite on pandas-less
+# environments, which is the deploy-gate self-bricking shape).
+pd = pytest.importorskip("pandas")
+
+from data.moomoo_feed import MoomooFeed  # noqa: E402
 
 
 def _snap_df(last_by_code: dict, prev: float = 100.0) -> pd.DataFrame:

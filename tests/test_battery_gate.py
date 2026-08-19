@@ -16,9 +16,22 @@ Two pins:
      line - the construct is banned in the matrix (same spirit as the
      AST append-mode gate: the CLASS is fenced, not the instance).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
+
+# Every pin here is a pin on WINDOWS cmd.exe semantics (start /wait,
+# ERRORLEVEL, .bat parsing) - the battery these gates protect only runs
+# on Windows. On POSIX there is no cmd.exe and nothing to pin: skip the
+# module, never fail collection-by-environment (the suite must stay
+# runnable on pandas-less/cmd-less dev containers; the PC deploy gate
+# still exercises all of it).
+if os.name != "nt":
+    pytest.skip("cmd.exe semantics - Windows-only pins",
+                allow_module_level=True)
 
 _BAT = Path(__file__).resolve().parents[1] / "test_windows.bat"
 

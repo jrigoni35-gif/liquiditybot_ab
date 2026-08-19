@@ -17,8 +17,11 @@ never block the spawn - an unrotated log is an inconvenience, an
 unspawned runner is an outage.
 """
 import importlib
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -65,6 +68,9 @@ def test_generations_shift_and_retention_is_bounded(tmp_path, monkeypatch):
     assert not (tmp_path / "runner.log.3").exists()
 
 
+@pytest.mark.skipif(os.name != "nt", reason=(
+    "pins WINDOWS rename-refusal: POSIX happily renames an open file, so "
+    "the held-handle fallback this guards is unreachable there"))
 def test_open_handle_skips_rotation_never_raises(tmp_path, monkeypatch):
     """The outage guard: a held handle (Windows rename refusal) must fall
     back to appending, not propagate into the spawn path."""
