@@ -92,8 +92,13 @@ static std::optional<double> py_float(const std::string& raw) {
 struct Csv {
     bool present = false;
     std::vector<std::string> header;
-    std::vector<std::vector<std::string>> rows;   // width == header only
-    long long dropped_short = 0, dropped_long = 0;
+    // strict mode: width == header only. dictreader mode (fills.csv):
+    // variable width - short rows KEPT with absent trailing fields, long
+    // rows KEPT with extras unaddressable; counted, never dropped.
+    std::vector<std::vector<std::string>> rows;
+    bool dictreader = false;
+    long long dropped_short = 0, dropped_long = 0;   // strict mode
+    long long short_rows = 0, long_rows = 0;         // dictreader mode
     // name -> LAST index: csv.DictReader lets a duplicated column name
     // resolve to the rightmost occurrence (the ml.history "side" lesson).
     std::unordered_map<std::string, size_t> idx;
@@ -143,8 +148,19 @@ static std::vector<std::vector<std::string>> csv_records(const std::string& s) {
     return recs;
 }
 
-static Csv load_csv(const std::filesystem::path& path) {
+// dictreader=true mirrors Python csv.DictReader for streams whose Python
+// reference PROCESSES nonconforming rows instead of dropping them.
+// fills.csv is the one such stream: rows written by a binary whose COLS
+// predate the exec_era stamp are 16-wide by DESIGN, and cohort_eval's
+// stale-binary classification keys on that field being ABSENT (None) vs
+// blank ("") - dropping them undercounted the era-4 accrual 16 vs 21 on
+// the first real-data differential (2026-08-19, the lattice's first
+// finding). Strict mode stays the rule for equity/signal, whose Python
+// reference (the digest's _read_csv drop-malformed law) drops.
+static Csv load_csv(const std::filesystem::path& path,
+                    bool dictreader = false) {
     Csv out;
+    out.dictreader = dictreader;
     std::string raw;
     if (!read_file(path.string(), raw)) return out;
     out.present = true;
@@ -154,18 +170,27 @@ static Csv load_csv(const std::filesystem::path& path) {
     for (size_t k = 0; k < out.header.size(); ++k) out.idx[out.header[k]] = k;
     const size_t width = out.header.size();
     for (size_t k = 1; k < recs.size(); ++k) {
-        if (recs[k].size() < width) ++out.dropped_short;
-        else if (recs[k].size() > width) ++out.dropped_long;
-        else out.rows.push_back(std::move(recs[k]));
+        if (dictreader) {
+            if (recs[k].size() < width) ++out.short_rows;
+            else if (recs[k].size() > width) ++out.long_rows;
+            out.rows.push_back(std::move(recs[k]));
+        } else {
+            if (recs[k].size() < width) ++out.dropped_short;
+            else if (recs[k].size() > width) ++out.dropped_long;
+            else out.rows.push_back(std::move(recs[k]));
+        }
     }
     return out;
 }
 
-// Column absent from the header behaves like Python's r.get(name) -> None.
+// Column absent from the header behaves like Python's r.get(name) -> None;
+// in dictreader mode a SHORT row's missing trailing field is equally None
+// (DictReader restval) - the bounds check is that semantic, not paranoia.
 static const std::string* cell(const Csv& c, const std::vector<std::string>& row,
                                const char* name) {
     auto it = c.idx.find(name);
     if (it == c.idx.end()) return nullptr;
+    if (it->second >= row.size()) return nullptr;
     return &row[it->second];
 }
 
@@ -705,9 +730,16 @@ static void emit_ingest_csv(std::string& o, const char* name, const Csv& c) {
     o += name;
     o += "\": {\"present\": ";
     o += c.present ? "true" : "false";
-    o += ", \"rows\": " + jint(static_cast<long long>(c.rows.size()));
-    o += ", \"dropped_short\": " + jint(c.dropped_short);
-    o += ", \"dropped_long\": " + jint(c.dropped_long);
+    o += ", \"mode\": \"";
+    o += c.dictreader ? "dictreader" : "strict";
+    o += "\", \"rows\": " + jint(static_cast<long long>(c.rows.size()));
+    if (c.dictreader) {
+        o += ", \"short_rows\": " + jint(c.short_rows);
+        o += ", \"long_rows\": " + jint(c.long_rows);
+    } else {
+        o += ", \"dropped_short\": " + jint(c.dropped_short);
+        o += ", \"dropped_long\": " + jint(c.dropped_long);
+    }
     o += "}";
     o += ", ";      // every section is followed by another (audit closes the group)
 }
@@ -725,7 +757,8 @@ int main(int argc, char** argv) {
     }
 
     const Csv equity_csv = load_csv(outdir / "equity.csv");
-    const Csv fills_csv = load_csv(outdir / "fills.csv");
+    const Csv fills_csv = load_csv(outdir / "fills.csv",
+                                   /*dictreader=*/true);
     const Csv signal_csv = load_csv(outdir / "signal_history.csv");
     const AuditStats audit = scan_audit(outdir / "audit.jsonl");
 

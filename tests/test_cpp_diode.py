@@ -124,13 +124,25 @@ def _write_fills(path):
         w = csv.writer(fh)
         w.writerow(COLS)
         w.writerows(rows)
-        # (e2) torn short row, own pid: C++ drops+counts it; Python
-        # None-fills and the trip dies on the fill_size parse — both agree
+        # (e2) torn short row, own pid: BOTH None-fill (C++ dictreader
+        # mode mirrors DictReader restval) and the trip dies on the
+        # absent fill_size — both agree; C++ counts it in short_rows
         fh.write("1786530000,oT,pT,entry,ETH/USD\n")
-        # (e3) over-wide row, own pid, entry-only: C++ drops+counts;
-        # Python keeps it but the trip never closes — both agree
+        # (e3) over-wide row, own pid, entry-only: both keep it (extras
+        # unaddressable) and the trip never closes — both agree; C++
+        # counts it in long_rows
         w.writerow(_fill(1786540000, "oL1", "pL", "entry", "buy",
                          2.0, 3.0, 0.01) + ["extra-field"])
+        # (g2) STALE-BINARY trip: two 16-column legs (no exec_era field
+        # at all — the pre-stamp writer's schema), forming a VALID
+        # era-4 entry-opened trip. The 2026-08-19 real-data differential
+        # caught v1 dropping these (16 vs 21 accrued): DictReader keeps
+        # them with exec_era=None -> stale_legs, and the accrual counts
+        # the trip. The era4 differential below arbitrates via Python.
+        fh.write("1786800000,oS1,pS,entry,ETH/USD,buy,limit,1,1,3.0,4.0,"
+                 "4.0,0.0,0.02,0.0,fill\n")
+        fh.write("1786803600,oS2,pS,exit,ETH/USD,sell,limit,1,1,3.0,4.1,"
+                 "4.1,0.0,0.02,0.0,fill\n")
 
 
 def _write_equity(path):
@@ -216,10 +228,10 @@ def test_era4_matches_python_reference(diode_bin, fixture_dir):
     # trivially-empty comparison "pass": pA and pE accrue; pB (hedge-opened),
     # pC (pre-epoch), pD (duplicate of pA) and pF (signature consumed by
     # pre-epoch pC before the epoch filter ran) all stay out
-    assert [t["pid"] for t in py_trips] == ["pA", "pE"]
+    assert [t["pid"] for t in py_trips] == ["pA", "pE", "pS"]
 
     e4 = rep["era4"]
-    assert e4["accrual_n"] == len(py_trips) == 2
+    assert e4["accrual_n"] == len(py_trips) == 3
     assert e4["target"] == ce.ERA4_MIN_N
     assert len(e4["trips"]) == len(py_trips)
     for c_t, p_t in zip(e4["trips"], py_trips):
@@ -240,7 +252,7 @@ def test_era4_matches_python_reference(diode_bin, fixture_dir):
     assert abs(e4["gross_median_pct"] - g[n // 2]) < TOL
     assert abs(e4["net_mean_pct"] - sum(nt) / n) < TOL
     assert abs(e4["net_median_pct"] - nt[n // 2]) < TOL
-    assert e4["n_pos_gross"] == sum(1 for v in g if v > 0) == 1
+    assert e4["n_pos_gross"] == sum(1 for v in g if v > 0) == 2
     assert e4["tclose_min"] == min(t["t"] for t in py_trips)
     assert e4["tclose_max"] == max(t["t"] for t in py_trips)
 
@@ -267,11 +279,14 @@ def test_wilson_and_corpus_match_python_reference(diode_bin, fixture_dir):
 def test_strict_ingest_counts_and_equity(diode_bin, fixture_dir):
     rep = _run(diode_bin, fixture_dir)
     ing = rep["ingest"]
-    assert ing["fills"] == {"present": True, "rows": 12,
-                            "dropped_short": 1, "dropped_long": 1}
-    assert ing["equity"] == {"present": True, "rows": 4,
+    # fills reads in dictreader mode (the stale-binary law): short/long
+    # rows KEPT and counted — 12 conforming + torn e2 + wide e3 + two
+    # 16-col stale legs g2 = 16 kept, 3 short, 1 long
+    assert ing["fills"] == {"present": True, "mode": "dictreader",
+                            "rows": 16, "short_rows": 3, "long_rows": 1}
+    assert ing["equity"] == {"present": True, "mode": "strict", "rows": 4,
                              "dropped_short": 1, "dropped_long": 0}
-    assert ing["signal"] == {"present": True, "rows": 5,
+    assert ing["signal"] == {"present": True, "mode": "strict", "rows": 5,
                              "dropped_short": 0, "dropped_long": 0}
     eq = rep["equity"]
     assert eq["rows"] == 4 and eq["valid"] == 3
@@ -298,9 +313,13 @@ def test_empty_outputs_dir_degrades_to_zeros(diode_bin, tmp_path):
     out.mkdir()
     rep = _run(diode_bin, out)
     assert rep["diode"] == "cpp" and rep["version"] == 1
-    for name in ("equity", "fills", "signal"):
-        assert rep["ingest"][name] == {"present": False, "rows": 0,
-                                       "dropped_short": 0, "dropped_long": 0}
+    for name in ("equity", "signal"):
+        assert rep["ingest"][name] == {"present": False, "mode": "strict",
+                                       "rows": 0, "dropped_short": 0,
+                                       "dropped_long": 0}
+    assert rep["ingest"]["fills"] == {"present": False, "mode": "dictreader",
+                                      "rows": 0, "short_rows": 0,
+                                      "long_rows": 0}
     assert rep["ingest"]["audit"] == {"present": False, "records": 0,
                                       "bad_lines": 0}
     assert rep["era4"] == {"accrual_n": 0, "target": ce.ERA4_MIN_N,
