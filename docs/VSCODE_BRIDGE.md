@@ -115,6 +115,31 @@ a *hard failure*:
 > converts it into "limit reached, resets at &lt;time&gt;". No local file
 > changes this; it is account-level.
 
+## The free tier (provisioned 2026-08-20)
+
+`docs/LOCAL_LLM_SETUP.md` describes a local-LLM companion — an MCP bridge
+from Claude Code to a local Ollama model, deliberately outside the trading
+loop. It is now **provisioned**, so mechanical work (summarising a report,
+free-form questions) can run at zero subscription cost:
+
+- Ollama `0.32.15`, model `qwen2.5:7b-instruct` (4.7 GB), 100% GPU.
+- Coexistence vars set so it stays a companion, not a serving cluster:
+  `OLLAMA_KEEP_ALIVE=5m`, `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_NUM_PARALLEL=1`
+  — VRAM returns to the box 5 minutes after last use.
+- `fastmcp` lives in `~/.venvs/llm-bridge`, **never** the bot's frozen
+  `.venv` (design law); verified absent from the bot venv.
+- Registered **user-scope** as `local-llm` — never project scope, because
+  cloud sessions have no local endpoint to reach.
+
+Measured end-to-end through the real bridge code: cold call 58.5 s
+(includes the 4.7 GB load), warm call **0.3 s**.
+
+The bridge report's `local tier` line re-derives this. Two gotchas worth
+knowing: Ollama runs as a **tray app, not a service**, so `setx` changes
+need a quit/relaunch to take effect — and killing the tray does not always
+bring the *server* back with it (observed once; `ollama serve` starts it).
+Auto-start on login comes from `Ollama.lnk` in the Startup folder.
+
 ## What the bridge cannot see
 
 Stated in the report itself on every run, and repeated here because a

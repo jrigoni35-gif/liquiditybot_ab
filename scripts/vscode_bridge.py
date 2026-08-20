@@ -454,6 +454,10 @@ def session_state(repo: Path) -> dict[str, Any]:
 # Measured on this box 2026-08-20: 336 installed skills = ~42K tokens/request.
 # Past this threshold the catalog is paying real rent, so say so.
 SKILL_CATALOG_WARN_TOKENS = 8_000
+# Probe budget for the local model endpoint. Generous enough that a busy or
+# cold-starting server is not misreported as DOWN, short enough that a truly
+# absent endpoint does not stall the report.
+LOCAL_LLM_TIMEOUT_S = 6.0
 CHARS_PER_TOKEN = 3.6  # conservative; the report states the divisor it used
 
 
@@ -512,8 +516,55 @@ def _billing_posture() -> dict[str, Any]:
     return out
 
 
+def _local_llm() -> dict[str, Any]:
+    """Is the free/local tier actually provisioned, or only documented?
+
+    Checked by REACHING THE ENDPOINT, not by looking for a binary: a running
+    server is the only thing that makes this tier usable, and the bridge
+    speaks to any OpenAI-compatible URL, so the binary's presence proves
+    nothing either way.
+    """
+    base = os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    want = os.environ.get("LOCAL_LLM_MODEL", "qwen2.5:7b-instruct")
+    out: dict[str, Any] = {"base_url": base, "want_model": want, "reachable": False, "models": []}
+    try:
+        import urllib.error
+        import urllib.request
+
+        # A 2s budget produced ONE false DOWN shortly after the server was first
+        # installed (2026-08-20). Repeat probes -- including during a 4.7 GB model
+        # pull, and through the same interpreter that failed -- answer in ~0.03s,
+        # and no proxy was involved, so "busy" and "proxied" are both ruled out.
+        # Cause not isolated beyond first-request cold start; the budget is
+        # deliberately generous rather than tuned to a cause we cannot name.
+        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=LOCAL_LLM_TIMEOUT_S) as r:  # noqa: S310
+            payload = json.loads(r.read().decode("utf-8", "replace"))
+        out["reachable"] = True
+        out["models"] = sorted({m.get("id", "") for m in (payload.get("data") or []) if m.get("id")})
+    except Exception as exc:  # noqa: BLE001 - any failure means "not usable", and why
+        out["error"] = f"{type(exc).__name__}: {exc}"[:160]
+    return out
+
+
 def spend_posture() -> dict[str, Any]:
     findings: list[tuple[str, str]] = []
+
+    llm = _local_llm()
+    if llm["reachable"]:
+        has = any(llm["want_model"].split(":")[0] in m for m in llm["models"])
+        findings.append(
+            (OK, f"local model tier UP at {llm['base_url']} ({len(llm['models'])} model(s))")
+            if has
+            else (WARN, f"local endpoint up at {llm['base_url']} but '{llm['want_model']}' not among {llm['models']}")
+        )
+    else:
+        findings.append(
+            (
+                INFO,
+                f"local model tier DOWN ({llm['base_url']}) -- the free tier for mechanical work is "
+                f"unavailable, so everything bills the subscription. {llm.get('error', '')}",
+            )
+        )
 
     cat = _skill_catalog()
     if cat["approx_tokens"] > SKILL_CATALOG_WARN_TOKENS:
@@ -567,7 +618,7 @@ def spend_posture() -> dict[str, Any]:
             )
         )
 
-    return {"skills": cat, "effort": effort, "model": model, "billing": bill, "findings": findings}
+    return {"skills": cat, "effort": effort, "model": model, "billing": bill, "local_llm": llm, "findings": findings}
 
 
 # ------------------------------------------------------------------ report
@@ -662,6 +713,8 @@ def render(data: dict[str, Any]) -> str:
     if b.get("readable"):
         add(f"  plan          : {b.get('org_type')} ({b.get('rate_limit_tier')})")
         add(f"  extra usage   : enabled={b.get('extra_usage_enabled')} reason={b.get('extra_usage_disabled_reason')}")
+    ll = sp["local_llm"]
+    add(f"  local tier    : {'UP' if ll['reachable'] else 'DOWN'} @ {ll['base_url']} models={ll['models'] or '-'}")
 
     add("")
     add("FINDINGS")
