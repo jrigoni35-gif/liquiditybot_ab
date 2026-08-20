@@ -54,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -446,6 +447,129 @@ def session_state(repo: Path) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------ spend posture
+
+# A skill catalog is a FIXED COST: every skill's name+description is injected
+# into the system prompt on EVERY request, whether or not it is ever invoked.
+# Measured on this box 2026-08-20: 336 installed skills = ~42K tokens/request.
+# Past this threshold the catalog is paying real rent, so say so.
+SKILL_CATALOG_WARN_TOKENS = 8_000
+CHARS_PER_TOKEN = 3.6  # conservative; the report states the divisor it used
+
+
+def _skill_catalog() -> dict[str, Any]:
+    """Measure what the installed skill catalog costs per request."""
+    active_dir = _config_dir() / "skills"
+    parked_dir = _config_dir() / "skills-disabled"
+
+    def describe(d: Path) -> int:
+        f = d / "SKILL.md"
+        if not f.is_file():
+            return 0
+        try:
+            txt = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return 0
+        end = txt.find("\n---", 3)
+        fm = txt[3:end] if txt.startswith("---") and end > 0 else txt[:600]
+        m = re.search(r"^description:[ \t]*(.*(?:\n[ \t]+.*)*)", fm, re.M)
+        return len(d.name) + len(m.group(1).strip() if m else "")
+
+    active = [d for d in active_dir.iterdir() if d.is_dir()] if active_dir.is_dir() else []
+    parked = [d for d in parked_dir.iterdir() if d.is_dir()] if parked_dir.is_dir() else []
+    chars = sum(describe(d) for d in active)
+    return {
+        "active": len(active),
+        "parked": len(parked),
+        "chars": chars,
+        "approx_tokens": int(chars / CHARS_PER_TOKEN),
+        "active_names": sorted(d.name for d in active),
+    }
+
+
+def _billing_posture() -> dict[str, Any]:
+    """The two fields that decide whether you hit a HARD error or a soft wait.
+
+    Read-only, and deliberately narrow: never touch primaryApiKey or any other
+    credential material living in the same file.
+    """
+    p = _home() / ".claude.json"
+    out: dict[str, Any] = {"readable": False}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return out
+    oa = d.get("oauthAccount") or {}
+    out.update(
+        {
+            "readable": True,
+            "extra_usage_enabled": oa.get("hasExtraUsageEnabled"),
+            "extra_usage_disabled_reason": d.get("cachedExtraUsageDisabledReason"),
+            "org_type": oa.get("organizationType"),
+            "rate_limit_tier": oa.get("organizationRateLimitTier"),
+        }
+    )
+    return out
+
+
+def spend_posture() -> dict[str, Any]:
+    findings: list[tuple[str, str]] = []
+
+    cat = _skill_catalog()
+    if cat["approx_tokens"] > SKILL_CATALOG_WARN_TOKENS:
+        findings.append(
+            (
+                BAD,
+                f"{cat['active']} active skills cost ~{cat['approx_tokens']:,} tokens of system "
+                f"prompt on EVERY request (chars/{CHARS_PER_TOKEN}). This is a fixed toll paid "
+                "whether or not a skill is used. Park the ones you don't use into "
+                "~/.claude/skills-disabled/ -- moving a directory is the whole mechanism, and "
+                "moving it back restores the skill.",
+            )
+        )
+    else:
+        findings.append(
+            (OK, f"skill catalog lean: {cat['active']} active (~{cat['approx_tokens']:,} tok), {cat['parked']} parked")
+        )
+
+    settings = _read_json(_config_dir() / "settings.json") or {}
+    effort = settings.get("effortLevel")
+    if effort in {"xhigh", "max"}:
+        findings.append(
+            (
+                WARN,
+                f"effortLevel='{effort}' is above the documented default ('high'), which the API "
+                "docs call the usual sweet spot for quality vs token efficiency. Output tokens "
+                "bill several times input, so effort is a direct multiplier on spend.",
+            )
+        )
+    model = settings.get("model")
+    if isinstance(model, str) and ("opus" in model or "fable" in model or "[1m]" in model):
+        findings.append(
+            (
+                INFO,
+                f"model='{model}' is a premium tier and/or the long-context variant. Deliberate is "
+                "fine -- but on a subscription with no credit headroom it drains the allowance "
+                "fastest. `/model sonnet` per-session is the cheap escape hatch.",
+            )
+        )
+
+    bill = _billing_posture()
+    if bill.get("extra_usage_disabled_reason") == "out_of_credits":
+        findings.append(
+            (
+                BAD,
+                "extra usage is OUT OF CREDITS. Past the included allowance this surfaces as a HARD "
+                "'credit balance too low' error (often followed by repeated login prompts), not a "
+                "graceful wait. Turning extra usage OFF at claude.ai converts that hard failure "
+                "into 'limit reached, resets at <time>'. That switch is account-level -- no local "
+                "file changes it.",
+            )
+        )
+
+    return {"skills": cat, "effort": effort, "model": model, "billing": bill, "findings": findings}
+
+
 # ------------------------------------------------------------------ report
 
 
@@ -529,9 +653,19 @@ def render(data: dict[str, Any]) -> str:
         age_min = (_t.time() - g["last_fetch_epoch"]) / 60.0
         add(f"  NOTE: ahead/behind is as of the last fetch, {age_min:.0f} min ago. This script never fetches.")
 
+    sp = data["spend"]
+    add("")
+    add("SPEND POSTURE (what every request costs before you type anything)")
+    add(f"  skill catalog : {sp['skills']['active']} active (~{sp['skills']['approx_tokens']:,} tok/request), {sp['skills']['parked']} parked")
+    add(f"  effort / model: {sp['effort']} / {sp['model']}")
+    b = sp["billing"]
+    if b.get("readable"):
+        add(f"  plan          : {b.get('org_type')} ({b.get('rate_limit_tier')})")
+        add(f"  extra usage   : enabled={b.get('extra_usage_enabled')} reason={b.get('extra_usage_disabled_reason')}")
+
     add("")
     add("FINDINGS")
-    all_f = list(v["findings"]) + list(g["findings"])
+    all_f = list(v["findings"]) + list(g["findings"]) + list(sp["findings"])
     if not all_f:
         add("  none -- but read the 'could not see' list in this script's docstring before calling that clean.")
     order = {BAD: 0, WARN: 1, INFO: 2, OK: 3}
@@ -565,11 +699,12 @@ def main(argv: list[str] | None = None) -> int:
         "surfaces": surfaces(skip_auth=args.no_auth),
         "vscode": vscode_wiring(probe_wsl=args.probe_wsl),
         "session": session_state(repo),
+        "spend": spend_posture(),
     }
 
     if args.json:
         # Findings are (severity, message) tuples -- make them explicit in JSON.
-        for section in ("vscode", "session"):
+        for section in ("vscode", "session", "spend"):
             data[section] = dict(data[section])
             data[section]["findings"] = [{"severity": s, "message": m} for s, m in data[section]["findings"]]
         print(json.dumps(data, indent=2, default=str))

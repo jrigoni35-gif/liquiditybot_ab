@@ -88,6 +88,33 @@ contents are secret material *and* they do not answer the question.
 
 ---
 
+## Spend posture — the toll you pay before typing anything
+
+The bridge also reports what each request costs *at rest*, because the
+biggest cost on this box was invisible: **every installed skill injects
+its name and description into the system prompt on every request,
+whether or not it is ever used.** Measured 2026-08-20: 336 installed
+skills = **~42,000 tokens per request**. Parking the unused ones into
+`~/.claude/skills-disabled/` cut that to ~875.
+
+Moving a directory is the entire mechanism — moving it back restores the
+skill. Nothing is deleted, and skills provided by *plugins* (the
+superpowers set: `systematic-debugging`, `test-driven-development`,
+`using-git-worktrees`, …) live outside `~/.claude/skills/` and are
+unaffected either way.
+
+The report also names `effortLevel` above the documented default
+(`high`), a premium/long-context `model`, and the one account-level
+state that decides whether exhausting your allowance is a *soft wait* or
+a *hard failure*:
+
+> **`extra usage enabled` + `out_of_credits` = hard failure.** Past the
+> included allowance you get `credit balance too low` — frequently
+> followed by repeated login prompts, which is why this looks like an
+> auth bug and isn't one. Turning extra usage **off** at claude.ai
+> converts it into "limit reached, resets at &lt;time&gt;". No local file
+> changes this; it is account-level.
+
 ## What the bridge cannot see
 
 Stated in the report itself on every run, and repeated here because a
