@@ -1,61 +1,61 @@
 {
-  "generated_at": 1787189186.0150442,
+  "generated_at": 1787192785.9794712,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787189172.0,
-    "duration_h": 977.54
+    "end": 1787192784.588,
+    "duration_h": 978.55
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 376,
-      "signal_records": 214,
+      "records": 397,
+      "signal_records": 209,
       "by_src": {
-        "exploration": 176,
-        "ml_governor": 91,
-        "order_manager": 47,
+        "exploration": 202,
+        "ml_governor": 89,
+        "order_manager": 46,
         "long_book": 25,
         "conviction": 12,
         "exit": 11,
-        "startup": 7,
-        "fault": 7
+        "startup": 6,
+        "fault": 6
       },
       "top_codes": [
         [
           "ML-070",
-          76
+          89
         ],
         [
           "SZ-051",
-          75
+          88
         ],
         [
           "OM-000",
-          31
+          30
         ],
         [
           "ML-031",
-          27
+          28
         ],
         [
           "ML-016",
-          18
+          17
         ],
         [
           "ML-042",
-          18
+          17
         ],
         [
           "OM-040",
           16
         ],
         [
-          "ML-041",
-          14
+          "SZ-049",
+          13
         ],
         [
-          "SZ-049",
+          "ML-041",
           13
         ],
         [
@@ -72,19 +72,27 @@
         ]
       ],
       "dominant_code": "OM-000",
-      "dominant_frac": 0.145,
+      "dominant_frac": 0.144,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 1897,
+      "records": 2589,
       "by_level": {
-        "INFO": 1885,
-        "WARNING": 12
+        "INFO": 2574,
+        "WARNING": 15
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+          3
+        ],
+        [
+          "turbulence spike: 31.8 (p96)",
+          2
+        ],
+        [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           2
         ],
         [
@@ -114,22 +122,14 @@
         [
           "source unavailable (ReadTimeout): https://news.google.com/rss/search?q=%22Vitalik+Buterin%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&",
           1
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          1
-        ],
-        [
-          "turbulence spike: 31.8 (p96)",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 643,
-        "thin": 280
+        "spoofy": 886,
+        "thin": 398
       },
-      "spoofy_frac": 0.697,
-      "cycles_estimate": 325,
+      "spoofy_frac": 0.69,
+      "cycles_estimate": 444,
       "feed_error_events": 1
     }
   },
@@ -143,19 +143,19 @@
     "realized_pnl_total": 6.81,
     "fees_paid_total": 4.368,
     "open_positions": 0,
-    "samples": 210388
+    "samples": 210626
   },
   "activity": {
-    "signal_rows_total": 12741,
+    "signal_rows_total": 12744,
     "live_labeled_trades": 343,
-    "candidate_rows": 12398
+    "candidate_rows": 12401
   },
   "audit": {
-    "records": 45864,
-    "signal_records": 28074,
+    "records": 45891,
+    "signal_records": 28075,
     "by_src": {
-      "exploration": 40564,
-      "ml_governor": 1535,
+      "exploration": 40590,
+      "ml_governor": 1536,
       "order_manager": 1517,
       "long_book": 956,
       "startup": 314,
@@ -174,11 +174,11 @@
       ],
       [
         "ML-070",
-        10114
+        10127
       ],
       [
         "SZ-051",
-        7585
+        7598
       ],
       [
         "OM-000",
@@ -190,7 +190,7 @@
       ],
       [
         "ML-031",
-        587
+        588
       ],
       [
         "OM-040",
@@ -227,14 +227,22 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 1897,
+    "records": 2589,
     "by_level": {
-      "INFO": 1885,
-      "WARNING": 12
+      "INFO": 2574,
+      "WARNING": 15
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+        3
+      ],
+      [
+        "turbulence spike: 31.8 (p96)",
+        2
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
@@ -264,22 +272,14 @@
       [
         "source unavailable (ReadTimeout): https://news.google.com/rss/search?q=%22Vitalik+Buterin%22+%28bitcoin+OR+crypto+OR+ethereum+OR+markets%29&",
         1
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        1
-      ],
-      [
-        "turbulence spike: 31.8 (p96)",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 643,
-      "thin": 280
+      "spoofy": 886,
+      "thin": 398
     },
-    "spoofy_frac": 0.697,
-    "cycles_estimate": 325,
+    "spoofy_frac": 0.69,
+    "cycles_estimate": 444,
     "feed_error_events": 1
   },
   "model": {
@@ -316,7 +316,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 70% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 69% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
