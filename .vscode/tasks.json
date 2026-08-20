@@ -621,6 +621,57 @@
       "detail": "Skips cleanly when no compiler is installed"
     },
     {
+      "label": "Bridge: what am I attached to? (auth + session)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/vscode_bridge.py",
+        "--repo",
+        "${workspaceFolder}"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Which Claude binary, is it authenticated (asks the binary, not a file), which extensions/WSL wiring, and what this worktree is mid-change. Read-only, offline."
+    },
+    {
+      "label": "Bridge: full probe (wakes WSL, slower)",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/vscode_bridge.py",
+        "--repo",
+        "${workspaceFolder}",
+        "--probe-wsl"
+      ],
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": [],
+      "detail": "Same report, but also verifies the configured WSL claude binary actually exists (starts a stopped distro)"
+    },
+    {
       "label": "Definition of Done (full matrix)",
       "dependsOrder": "sequence",
       "dependsOn": [
