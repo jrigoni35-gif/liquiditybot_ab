@@ -168,21 +168,27 @@ paths `pathlib`, encodings explicit, and suites green under
 - Deliverable = clean zip (no `.venv`, no `__pycache__`) rebuilt from a
   tree that just passed the full matrix, verified by fresh-extract run.
 
-## ACTIVE COORDINATION NOTICE (2026-08-07 — remove when stale)
+## SESSION BRIDGE (read `docs/HANDOFF.md` before acting)
 
-Auto-delivered to every Claude session in this repo. Current facts:
+Auto-delivered to every Claude session in this repo.
 
-- The ADA hedge-churn fix (147 unwind/re-open laps, -$318, cold-corr
-  flap) is DONE and DEPLOYED: merged at `cf454d5`, running on the PC
-  (20:03Z bundle). Full story + resolution:
-  `docs/quant/2026-08-07_ada_hedge_churn_HANDOFF.md`. **Do NOT
-  re-implement it.** If you touch `execution/hedging.py` for any other
-  reason, rebase on `cf454d5` first.
-- Hedge unwinds are NEVER gated; re-hedge OPENS require warm correlation
-  evidence + cooldown; FW-070 latch auto-releases. Keep that shape.
-- pyright shipped scope is back at ZERO (3 errors from the 08-06 audit
-  landing fixed in `cf454d5`). Keep the ratchet at zero.
-- Coordination rule while multiple Claude sessions share this repo: one
-  session owns `main` fast-forwards at a time; pull --rebase before any
-  push; a gate's release condition must never depend on the thing it
-  blocks (4 incidents this week share that shape).
+**This file is the LAW; `docs/HANDOFF.md` is the STATE.** Read the
+handoff first: it carries the live gate count, the open adjudication
+docket with authority pointers, what is currently blocked, and — most
+importantly — a RECENTLY SETTLED table so you do not re-litigate a
+decision that was already made with evidence, or re-implement a fix
+that already shipped. Update it at the end of any session that changes
+state; its own contract section says how. Static architecture lives in
+`docs/ONBOARDING.md`.
+
+Durable coordination rules (these do not expire):
+
+- One session owns `main` fast-forwards at a time; `pull --rebase`
+  before any push. A PC-side commit that never reaches `main` wedges
+  the deploy updater into `diverged`, which no battery can clear.
+- A gate's release condition must never depend on the thing it blocks
+  (four separate incidents share that shape).
+- Hedge unwinds are NEVER gated; re-hedge OPENS require warm
+  correlation evidence + cooldown; the FW-070 latch auto-releases.
+  Keep that shape (ADA hedge-churn resolution, `cf454d5`).
+- pyright shipped scope stays at ZERO. Keep the ratchet there.
