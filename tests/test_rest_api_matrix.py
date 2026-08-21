@@ -291,3 +291,31 @@ def test_token_compare_is_constant_time():
         "non-ASCII must compare cleanly, not raise (the encode() guard)"
     assert "hmac.compare_digest" in inspect.getsource(rest_mod)
     assert "_token_ok(" in inspect.getsource(grpc_mod)
+
+
+def test_token_ok_actually_calls_compare_digest(monkeypatch):
+    """MUTATION-RESISTANT pin (adversarial review 2026-08-21, W4).
+
+    The getsource() greps in the test above are satisfied by the string
+    appearing in a COMMENT, and every functional assertion there passes
+    identically under a plain `==` - verified by building an in-memory
+    module whose body was `return str(a) == str(b)`; it passed the whole
+    pin. So the security property the helper exists for could be deleted
+    with the suite green. This pins the property itself: patch
+    compare_digest to a sentinel and require _token_ok to route through
+    it. An implementation that short-circuits with `==` never calls the
+    sentinel and fails here."""
+    import hmac as hmac_mod
+
+    from api.rest_server import _token_ok
+    calls = []
+
+    def _sentinel(a, b):
+        calls.append((a, b))
+        raise RuntimeError("sentinel-reached")
+
+    monkeypatch.setattr(hmac_mod, "compare_digest", _sentinel)
+    with pytest.raises(RuntimeError, match="sentinel-reached"):
+        _token_ok("secret-1", "secret-1")
+    assert len(calls) == 1, "the helper must delegate to compare_digest"
+    assert all(isinstance(x, bytes) for x in calls[0]),         "both sides must be encoded before compare_digest (non-ASCII guard)"

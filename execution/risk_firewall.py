@@ -44,7 +44,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Optional, Tuple
 
-from core.audit import get_audit
+from core.audit import _REGISTERED_CODES, get_audit
 from core.codes import Code, tag
 
 log = logging.getLogger("liquiditybot.execution.risk_firewall")
@@ -406,18 +406,28 @@ class RiskFirewall:
             # summarizes the same emission(s)
             # a dual-clamped exit (collar AND notional in one check()) gets
             # ONE record whose top-level code prefers FW-051, so code-field
-            # filters over audit.jsonl would miss the FW-041. "codes"
-            # carries every tag prefix riding this emission (2026-08-19
-            # sweep tail; runtime-verified dual-clamp record).
+            # filters over audit.jsonl would miss the FW-041. "codes" is
+            # EVERY REGISTERED CODE riding this emission - not only the
+            # clamps: an advisory that also appended a note (FW-030
+            # duplicate-exit, FW-021 rate-override) rides along too, and
+            # codes[0] is therefore NOT necessarily the primary clamp.
+            # Read it as a set, never positionally.
+            # Membership-filtered against the Code registry (adversarial
+            # review 2026-08-21, N3): the split is prose-scraping, so
+            # "stale book at 12:30 UTC" minted a fake "stale book at 12"
+            # code into a hash-chained record that verify_chain still
+            # returns ok=True on and that can never be corrected in place.
+            # All seven appenders route through tag() today - this keeps
+            # that latent rather than trusting it.
             get_audit().log("firewall", Code.FW_COLLAR_CLAMP
                             if any("FW-051" in n for n in notes)
                             else Code.FW_NOTIONAL_CLAMP,
                             "; ".join(notes),
                             {"pair": pair, "side": side, "purpose": purpose,
                              "px": price, "sz": size, "seq": seq,
-                             "codes": list(dict.fromkeys(
+                             "codes": [c for c in dict.fromkeys(
                                  n.split(":", 1)[0] for n in notes
-                                 if ":" in n))},
+                                 if ":" in n) if c in _REGISTERED_CODES]},
                             counted=True)
         return FirewallVerdict(allowed=True, price=price, size=size,
                                disposition=disp, clamped=clamped,

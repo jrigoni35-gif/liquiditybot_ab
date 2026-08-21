@@ -222,3 +222,50 @@ def test_nan_token_body_is_rejected_whole():
     out = client._request("http://x", None, logging.getLogger("t"),
                           "TEST", 5.0, decode_json=True)
     assert out == {"code": "0", "data": []}       # finite JSON unchanged
+
+
+def test_real_response_decode_paths(monkeypatch):
+    """Closes the N6 gap (adversarial review 2026-08-21): every other fake
+    in this suite is a SimpleNamespace with a hardcoded .text and NO
+    encoding attribute, so the resp.json()->resp.text switch and the
+    BOM/charset handling it introduced were exercised by no test at all.
+    This uses a REAL requests.Response through the REAL client."""
+    import codecs
+    import json as _json
+    import logging
+    import types
+
+    import requests
+
+    from data._http import ThrottledRestClient
+
+    def _resp(body: bytes, ctype="application/json"):
+        r = requests.Response()
+        r.status_code = 200
+        r._content = body
+        r.headers["Content-Type"] = ctype
+        return r
+
+    def _run(resp):
+        c = ThrottledRestClient(rate_limit_per_sec=1000)
+        c.session = types.SimpleNamespace(get=lambda *a, **k: resp)
+        log = logging.getLogger("test.venue")
+        return c, c._request("https://v/x?q=1", None, log, "VENUE", 5, True)
+
+    # 1. a leading UTF-8 BOM must still decode (stdlib json rejects it raw;
+    #    simplejson accepted it, so this was a silent regression)
+    _, out = _run(_resp(codecs.BOM_UTF8 + _json.dumps({"a": 1}).encode()))
+    assert out == {"a": 1}, "BOM body must decode, not vanish"
+
+    # 2. NaN token stays rejected, and the rejection must NOT be booked as
+    #    a successful transport recovery
+    c, out = _run(_resp(b'{"px": NaN}'))
+    assert out is None
+    assert c.retries_recovered == 0, "a discarded body is not a recovery"
+
+    # 3. non-ASCII string fields survive byte-identical when no charset is
+    #    declared (resp.json() sniffed via guess_json_utf; resp.text needs
+    #    the explicit utf-8 default this module now sets)
+    payload = {"title": "café naïve ✓"}
+    _, out = _run(_resp(_json.dumps(payload).encode("utf-8")))
+    assert out == payload, "venue string fields must not mojibake"

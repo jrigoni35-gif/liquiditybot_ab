@@ -77,8 +77,18 @@ def loads_bounded(text: str | None, max_bytes: int = MAX_RESPONSE_BYTES):
     def _no_constants(tok):
         raise ValueError(f"non-finite JSON constant '{tok}' rejected")
 
+    # W2 (adversarial review 2026-08-21): stdlib json REJECTS a leading
+    # UTF-8 BOM ("Unexpected UTF-8 BOM") where simplejson accepted it. A
+    # CDN/proxy/captive-portal rewrite is the realistic source, and the
+    # rejection is permanent and per-poll, so a venue would silently drop
+    # out of the composite feed forever. Strip it; a BOM carries no JSON
+    # meaning. NOTE: parse_constant catches only the bare NaN/Infinity
+    # TOKENS - IEEE overflow (1e400 -> inf) still parses to a non-finite
+    # float here and always did (verified identical pre-change), so
+    # downstream is_finite/safe_float guards remain load-bearing. This
+    # boundary is not sufficient on its own.
     try:
-        return json.loads(text, parse_constant=_no_constants)
+        return json.loads(text.lstrip("﻿"), parse_constant=_no_constants)
     except (ValueError, TypeError) as e:
         log.warning(f"rejected malformed/hostile JSON: {e}")
         return None

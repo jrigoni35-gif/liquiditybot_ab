@@ -166,8 +166,37 @@ class ThrottledRestClient:
                 # on any problem, which is exactly this method's failure
                 # value. Explicit max_bytes keeps the DL-7 16MB cap
                 # (loads_bounded's own default is tighter).
+                if decode_json and not getattr(resp, "encoding", None):
+                    # N4: resp.json() sniffed the charset via
+                    # guess_json_utf(content); resp.text falls back to
+                    # charset_normalizer and decodes with errors="replace",
+                    # which mojibaked string fields under an odd
+                    # Content-Type. JSON is UTF-8 by RFC 8259 - say so
+                    # rather than letting a statistical guesser decide.
+                    # getattr/try: test doubles here are SimpleNamespace
+                    # with a hardcoded .text and no encoding slot at all
+                    # (which is exactly why the suite never exercised this
+                    # path - adversarial review N6).
+                    try:
+                        resp.encoding = "utf-8"
+                    except (AttributeError, TypeError):
+                        pass
                 out = (loads_bounded(resp.text, max_bytes=_MAX_BODY_BYTES)
                        if decode_json else resp)
+                if decode_json and out is None:
+                    # W1 (adversarial review 2026-08-21, found independently
+                    # by all three personas): loads_bounded never RAISES, so
+                    # a rejected/undecodable body used to fall through this
+                    # success tail - booking a latency sample for a request
+                    # that yielded no data, incrementing retries_recovered,
+                    # and logging "retry recovered" for a payload that was
+                    # discarded. The only trace was a sanitize warning naming
+                    # neither venue nor URL, across three feeds sharing one
+                    # client. Pre-change resp.json() raised into the except
+                    # below and named both. Restore that alarm.
+                    log.error("%s: undecodable/hostile body from %s "
+                              "- discarded", venue, url.split("?")[0])
+                    return None
                 self._note_rtt(t0)
                 if attempt:
                     self.retries_recovered += 1
@@ -195,7 +224,8 @@ class ThrottledRestClient:
                   log: logging.Logger, venue: str,
                   timeout: float = 10) -> Optional[Any]:
         """Throttled GET returning decoded JSON, or None on any
-        transport/decode failure (requests>=2.27 JSONDecodeError is a
-        RequestException, so one except covers both)."""
+        transport/decode failure. NOTE: decode failures no longer raise
+        (loads_bounded returns None); they are logged and returned at the
+        parse site above, so the except below covers TRANSPORT only."""
         return self._request(url, params, log, venue, timeout,
                              decode_json=True)
