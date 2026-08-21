@@ -2,14 +2,14 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-21 06:28 UTC (1006.59h, ~1068 cycles)
+- Window: 2026-07-10 07:53 UTC -> 2026-08-21 07:28 UTC (1007.59h, ~1187 cycles)
 - Equity: $25,000.00 -> $805.04 (range $99,208.70) | realized PnL $6.96 | fees $4.58
-- Activity: 0 open | 346 live labeled trades | 13075 candidates | 290 postmortems
+- Activity: 0 open | 346 live labeled trades | 13177 candidates | 290 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 346 | cold=False
-- Audit: 54692 records (28309 non-routine) | dominant SZ-047 (79% of non-routine) | chain_ok=False (tamper=False, seams=8) | retrain_requests 131
-- Liquidity: spoofy 59% of classified cycles | feed errors 1
-- Recent (48h lens): 9058 audit records | dominant LB-010 (16% of non-routine) | retrain_requests 8 | spoofy 59%
+- Audit: 55092 records (28321 non-routine) | dominant SZ-047 (79% of non-routine) | chain_ok=False (tamper=False, seams=8) | retrain_requests 131
+- Liquidity: spoofy 60% of classified cycles | feed errors 1
+- Recent (48h lens): 9458 audit records | dominant LB-010 (16% of non-routine) | retrain_requests 8 | spoofy 60%
 
 ## Diagnostics
-- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 59% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
+- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 60% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
 - [INFO] **SD-010 audit writer seam(s)**  -  8 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
