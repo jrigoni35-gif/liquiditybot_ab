@@ -270,3 +270,24 @@ def test_declared_length_shorter_than_body_truncates_never_leaks():
         finally:
             conn.close()
         assert sent == []
+
+
+def test_token_compare_is_constant_time():
+    """Sweep-tail fix (2026-08-19): both control surfaces compare the
+    shared secret via hmac.compare_digest (through _token_ok), not
+    short-circuiting == — a timing side-channel for anything reaching the
+    loopback bind. Functional auth behavior (correct/wrong/missing token)
+    is pinned by the matrix tests above; this pins the helper's contract
+    and that both surfaces route through it."""
+    import inspect
+
+    import api.grpc_server as grpc_mod
+    import api.rest_server as rest_mod
+    from api.rest_server import _token_ok
+    assert _token_ok("secret-1", "secret-1")
+    assert not _token_ok("secret-1", "secret-2")
+    assert not _token_ok("", "secret-1")
+    assert _token_ok("åß∂", "åß∂"), \
+        "non-ASCII must compare cleanly, not raise (the encode() guard)"
+    assert "hmac.compare_digest" in inspect.getsource(rest_mod)
+    assert "_token_ok(" in inspect.getsource(grpc_mod)

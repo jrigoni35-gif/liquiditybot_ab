@@ -29,11 +29,15 @@ class _FlakySession:
             raise self._exc
 
         class R:
+            # the real requests.Response surface the client reads: decode
+            # goes through loads_bounded(resp.text) since the 2026-08-19
+            # sanitize-boundary fix (resp.json() is no longer called)
+            text = '{"ok": true}'
+            content = b'{"ok": true}'
+            headers = {"content-length": "12"}
+
             def raise_for_status(self):
                 pass
-
-            def json(self):
-                return {"ok": True}
         return R()
 
 

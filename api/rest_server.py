@@ -44,6 +44,7 @@ Endpoints:
                        Content-Type: application/json (required)
 """
 
+import hmac
 import json
 import logging
 import threading
@@ -67,6 +68,17 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # a non-browser client (curl, requests, the checkin scripts) — allowed, because
 # a non-browser client already has whatever host access it needs.
 _SAFE_FETCH_SITE = {"same-origin", "none"}
+
+
+def _token_ok(candidate, expected) -> bool:
+    """Constant-time shared-secret compare (2026-08-19 sweep tail): plain
+    `==`/`!=` short-circuits per byte, a timing side-channel for anything
+    that can reach the loopback bind. encode() both sides — compare_digest
+    raises TypeError on non-ASCII str, and a header value is not
+    guaranteed ASCII. Shared with the gRPC surface."""
+    return hmac.compare_digest(
+        str(candidate).encode("utf-8", "surrogateescape"),
+        str(expected).encode("utf-8", "surrogateescape"))
 
 # Body-handling bounds (2026-08-07, xdist-flake root cause). DRAIN cap:
 # _deny reads at most this much unconsumed request body before closing,
@@ -160,9 +172,9 @@ class RestStatusServer:
                     return False
                 if not self._same_site():
                     return False
-                if outer.auth_token and \
-                        self.headers.get("X-Auth-Token", "") != \
-                        outer.auth_token:
+                if outer.auth_token and not _token_ok(
+                        self.headers.get("X-Auth-Token", ""),
+                        outer.auth_token):
                     self._deny(401, "bad or missing X-Auth-Token")
                     return False
                 return True

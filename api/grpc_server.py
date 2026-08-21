@@ -13,7 +13,7 @@ the moomoo optional-SDK pattern.
 import json
 import logging
 
-from api.rest_server import ALLOWED_CONTROL
+from api.rest_server import ALLOWED_CONTROL, _token_ok
 
 log = logging.getLogger("liquiditybot.api.grpc")
 
@@ -63,7 +63,9 @@ class GrpcStatusServer:
                 if not outer.auth_token:
                     return True
                 md = dict(context.invocation_metadata() or ())
-                return md.get("x-auth-token", "") == outer.auth_token
+                # constant-time, shared with REST (2026-08-19 sweep tail)
+                return _token_ok(md.get("x-auth-token", ""),
+                                 outer.auth_token)
 
             def GetStatus(self, request, context):
                 if not self._authed(context):

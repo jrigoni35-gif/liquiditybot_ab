@@ -88,8 +88,10 @@ def _fill(ts, oid, pid, purpose, side, size, price, fee, era=_ERA):
 
 def _write_fills(path):
     """The differential fills fixture. Integer ts (exact under the diode's
-    %.10g) and sizes/prices far from the round(.,6)/round(.,4) tie cases,
-    per the plan's llround-vs-banker's note."""
+    %.17g — the plan said %.10g, disproven by fuzz 2026-08-19, see the
+    lb_diode.cpp S6 comment) and sizes/prices far from the
+    round(.,6)/round(.,4) tie cases, per the plan's llround-vs-banker's
+    note."""
     rows = [
         # (a) valid entry-opened era-4 round trip — exit row FIRST in file
         # order so the stable ts-sort is what reconstructs the trip

@@ -150,7 +150,12 @@ class AuditTrail:
         ways against the call sites that already bumped via tag():
           * the tag idiom — ``log(src, code, tag(code, detail))`` — is
             detected by the msg carrying the "CODE: " prefix tag() renders,
-            and is not re-counted;
+            and is not re-counted. The guard is string-shape only: a
+            hand-written msg with that literal prefix that never went
+            through tag() is ALSO treated as already-counted and bumps
+            in NEITHER lane (injection-verified 2026-08-19) — always
+            build prefixed msgs through tag(), never format the prefix
+            by hand;
           * ``counted=True`` is for call sites whose SAME emission already
             tag()'d the code into a DIFFERENT string (risk_firewall's
             reject/clamp paths build reasons/notes with tag() and audit a

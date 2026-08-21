@@ -99,6 +99,22 @@ def test_tag_idiom_both_lanes_call_site_counts_once(tmp_path):
     assert code_stats.snapshot()[Code.LB_ADD_PLACED.value] == 1
 
 
+def test_hand_rolled_prefix_without_tag_bumps_nowhere(tmp_path):
+    """Sweep-tail pin (2026-08-19, injection-verified): the tag-idiom
+    guard is string-shape only. A hand-written f"{code.value}: ..." msg
+    that never called tag() is mistaken for already-counted and bumps in
+    NEITHER lane — a silent zero on the exported ledger. This pin makes
+    any future change to that contract a deliberate, reviewed decision;
+    the fix for a call site that trips it is to build the msg through
+    tag(), never to loosen the guard (see the F1/F2 history above)."""
+    code_stats.reset()
+    at = _trail(tmp_path)
+    at.log("future_site", Code.ML_DEPLOY,
+           f"{Code.ML_DEPLOY.value}: hand-written, not via tag()", {})
+    assert code_stats.snapshot() == {}, \
+        "documented trap: hand-rolled prefix loses the bump entirely"
+
+
 def test_counted_true_suppresses_the_audit_bump(tmp_path):
     """risk_firewall's reject/clamp sites tag() the code into a DIFFERENT
     string (reasons/notes) and audit a summary msg — they pass counted=True
@@ -133,6 +149,36 @@ def test_firewall_duplicate_reject_counts_once_end_to_end(tmp_path):
         assert code_stats.snapshot().get(Code.FW_DUPLICATE.value) == 1, \
             "duplicate reject must count ONCE (tag lane), not twice " \
             "(tag + audit)"
+    finally:
+        audit_mod._AUDIT = prior
+
+
+def test_dual_clamped_exit_record_carries_both_codes(tmp_path):
+    """Sweep-tail fix (2026-08-19): one exit can be BOTH collar-clamped
+    (FW-051) and notional-clamped (FW-041) in a single check(); the audit
+    record's top-level code prefers FW-051, so the record's data.codes
+    list must carry every clamp that fired — or code==FW-041 filters over
+    audit.jsonl silently miss dual-clamped exits. The clamps themselves
+    (px/sz) are pinned too: this fix must never move them."""
+    import json as _json
+
+    import core.audit as audit_mod
+    from core.audit import configure_audit
+    from execution.risk_firewall import RiskFirewall
+    prior = audit_mod._AUDIT
+    configure_audit(str(tmp_path / "audit.jsonl"), fsync=False)
+    try:
+        fw = RiskFirewall({})
+        v = fw.check(pair="BTC/USD", side="sell", purpose="exit",
+                     price=200.0, size=1000.0, ref_price=100.0,
+                     equity=1e9, now=1000.0)
+        assert v.allowed and v.clamped
+        assert any("FW-051" in r for r in v.reasons)
+        assert any("FW-041" in r for r in v.reasons)
+        rec = _json.loads((tmp_path / "audit.jsonl")
+                          .read_text(encoding="utf-8").splitlines()[-1])
+        assert rec["code"] == "FW-051"                  # pick unchanged
+        assert rec["data"]["codes"] == ["FW-051", "FW-041"]
     finally:
         audit_mod._AUDIT = prior
 

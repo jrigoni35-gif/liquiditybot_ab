@@ -64,6 +64,27 @@ def test_appended_unchained_row_after_chain_is_tamper(tmp_path):
     assert v["ok"] is False and "unchained row after" in v["reason"]
 
 
+def test_append_past_forgery_still_condemned(tmp_path):
+    """_tail_link deliberately links PAST a no-`h` row (nothing to adopt),
+    so a legitimate append lands cleanly after a forged row — verify_chain
+    must still condemn the ledger at the forgery (injection-verified
+    2026-08-19: the append-past-forgery sequence)."""
+    reg = ModelRegistry(str(tmp_path / "models"))
+    reg.note("deployed", "real-1", {})
+    reg.note("deployed", "real-2", {})
+    with open(reg.ledger, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"event": "registered", "model_id": "forged",
+                            "detail": {}}) + "\n")
+    reg.note("deployed", "real-3", {})            # links past the forgery
+    rows = _rows(reg)
+    linked = [r for r in rows if r.get("h")]
+    assert linked[-1]["prev"] == linked[-2]["h"], \
+        "the post-forgery append must link from the last REAL row"
+    v = reg.verify_chain()
+    assert v["ok"] is False and "unchained row after" in v["reason"], \
+        "a ledger holding a post-chain forgery stays condemned forever"
+
+
 def test_first_row_links_to_genesis(tmp_path):
     reg = _reg(tmp_path)
     reg.register(str(_artifact(tmp_path)), {"kind": "gbt"})

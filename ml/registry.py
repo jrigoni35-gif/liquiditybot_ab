@@ -124,7 +124,11 @@ class ModelRegistry:
                         continue
                     h = rec.get("h")
                     if not h:
-                        continue            # pre-chain row: no link to adopt
+                        # no link to adopt: a genuine pre-chain row, OR a
+                        # post-chain forgery — linking PAST it is fine
+                        # because verify_chain condemns the ledger at that
+                        # row either way (injection-verified 2026-08-19)
+                        continue
                     seq = int(rec.get("seq", seq) or seq)
                     prev = str(h)
         except OSError:

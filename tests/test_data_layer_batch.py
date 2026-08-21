@@ -186,3 +186,39 @@ def test_oversize_body_is_discarded():
     out = client._request("http://x", None, logging.getLogger("t"),
                           "TEST", 5.0, decode_json=True)
     assert out is None
+
+
+def test_nan_token_body_is_rejected_whole():
+    """Sweep-tail fix (2026-08-19): whether resp.json() accepts NaN was
+    decided by ACCIDENT — this box's requests finds simplejson (via
+    moomoo_api, allow_nan=False) while stdlib json parses NaN happily.
+    The shared decode boundary now parses via loads_bounded, which
+    rejects NaN/Infinity tokens BY DESIGN, uniformly with the
+    Kraken/webdata paths."""
+    import logging
+
+    from data._http import ThrottledRestClient
+    client = ThrottledRestClient.__new__(ThrottledRestClient)
+    client.transport_retries = 0
+    client._throttle = lambda: None
+    client._note_rtt = lambda t0: None
+
+    def _resp(body):
+        return SimpleNamespace(
+            headers={"content-length": str(len(body))},
+            content=body.encode(), text=body,
+            raise_for_status=lambda: None)
+
+    poisoned = '{"code": "0", "data": [{"px": NaN, "sz": Infinity}]}'
+    client.session = SimpleNamespace(
+        get=lambda url, params, timeout: _resp(poisoned))
+    out = client._request("http://x", None, logging.getLogger("t"),
+                          "TEST", 5.0, decode_json=True)
+    assert out is None, "non-finite JSON tokens must reject whole-payload"
+
+    good = '{"code": "0", "data": []}'
+    client.session = SimpleNamespace(
+        get=lambda url, params, timeout: _resp(good))
+    out = client._request("http://x", None, logging.getLogger("t"),
+                          "TEST", 5.0, decode_json=True)
+    assert out == {"code": "0", "data": []}       # finite JSON unchanged

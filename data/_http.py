@@ -22,6 +22,8 @@ from typing import Any, Optional
 import requests
 from requests.adapters import HTTPAdapter
 
+from core.sanitize import loads_bounded
+
 _MAX_BODY_BYTES = 16 * 1024 * 1024   # feeds return KBs; 16MB = something is wrong
 
 
@@ -155,7 +157,17 @@ class ThrottledRestClient:
                     log.warning("%s: response body %s bytes > cap - "
                                 "discarded", venue, max(_clen, _blen))
                     return None
-                out = resp.json() if decode_json else resp
+                # sanitize-boundary parse (2026-08-19 sweep tail): stdlib
+                # resp.json() accepts NaN/Infinity tokens — and whether it
+                # does is BACKEND-dependent (this box's requests picks up
+                # simplejson via moomoo_api, which rejects them by
+                # accident). loads_bounded rejects them by design,
+                # uniformly with the Kraken/webdata paths; it returns None
+                # on any problem, which is exactly this method's failure
+                # value. Explicit max_bytes keeps the DL-7 16MB cap
+                # (loads_bounded's own default is tighter).
+                out = (loads_bounded(resp.text, max_bytes=_MAX_BODY_BYTES)
+                       if decode_json else resp)
                 self._note_rtt(t0)
                 if attempt:
                     self.retries_recovered += 1

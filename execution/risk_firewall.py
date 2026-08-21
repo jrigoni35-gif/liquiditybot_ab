@@ -404,12 +404,20 @@ class RiskFirewall:
             # emission point above (the FW-051/041 clamps plus any riding
             # exit notes) and is already in the tally — this audit record
             # summarizes the same emission(s)
+            # a dual-clamped exit (collar AND notional in one check()) gets
+            # ONE record whose top-level code prefers FW-051, so code-field
+            # filters over audit.jsonl would miss the FW-041. "codes"
+            # carries every tag prefix riding this emission (2026-08-19
+            # sweep tail; runtime-verified dual-clamp record).
             get_audit().log("firewall", Code.FW_COLLAR_CLAMP
                             if any("FW-051" in n for n in notes)
                             else Code.FW_NOTIONAL_CLAMP,
                             "; ".join(notes),
                             {"pair": pair, "side": side, "purpose": purpose,
-                             "px": price, "sz": size, "seq": seq},
+                             "px": price, "sz": size, "seq": seq,
+                             "codes": list(dict.fromkeys(
+                                 n.split(":", 1)[0] for n in notes
+                                 if ":" in n))},
                             counted=True)
         return FirewallVerdict(allowed=True, price=price, size=size,
                                disposition=disp, clamped=clamped,
