@@ -1,20 +1,20 @@
 {
-  "generated_at": 1787329749.9941118,
+  "generated_at": 1787333349.514039,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787329741.132,
-    "duration_h": 1016.59
+    "end": 1787333340.0,
+    "duration_h": 1017.59
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 11645,
-      "signal_records": 367,
+      "records": 11876,
+      "signal_records": 374,
       "by_src": {
-        "exploration": 11284,
-        "long_book": 206,
-        "ml_governor": 104,
+        "exploration": 11508,
+        "long_book": 214,
+        "ml_governor": 103,
         "order_manager": 34,
         "conviction": 9,
         "exit": 6,
@@ -24,38 +24,38 @@
       "top_codes": [
         [
           "ML-070",
-          5634
+          5746
         ],
         [
           "SZ-051",
-          5633
+          5745
         ],
         [
           "LB-010",
-          95
+          99
         ],
         [
           "LB-050",
-          94
+          98
         ],
         [
           "ML-031",
-          46
+          47
         ],
         [
           "OM-000",
           18
         ],
         [
+          "OM-040",
+          16
+        ],
+        [
           "ML-016",
-          17
+          16
         ],
         [
           "ML-042",
-          17
-        ],
-        [
-          "OM-040",
           16
         ],
         [
@@ -67,35 +67,35 @@
           11
         ],
         [
-          "LB-000",
+          "ML-032",
           8
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.259,
-      "retrain_requests": 7,
+      "dominant_frac": 0.265,
+      "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 24092,
+      "records": 25175,
       "by_level": {
-        "INFO": 23870,
-        "WARNING": 216,
-        "CRITICAL": 4,
+        "INFO": 24947,
+        "WARNING": 221,
+        "CRITICAL": 5,
         "ERROR": 2
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          104
+          106
         ],
         [
           "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          23
+          24
         ],
         [
           "turbulence spike: 49.9 (p98)",
-          16
+          17
         ],
         [
           "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -111,7 +111,11 @@
         ],
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
+          4
+        ],
+        [
+          "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          2
         ],
         [
           "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -120,18 +124,14 @@
         [
           "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
           1
-        ],
-        [
-          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3742,
-        "thin": 2427
+        "spoofy": 3978,
+        "thin": 2452
       },
-      "spoofy_frac": 0.607,
-      "cycles_estimate": 2251,
+      "spoofy_frac": 0.619,
+      "cycles_estimate": 2369,
       "feed_error_events": 3
     }
   },
@@ -145,21 +145,21 @@
     "realized_pnl_total": 6.96,
     "fees_paid_total": 4.5756,
     "open_positions": 0,
-    "samples": 219566
+    "samples": 219804
   },
   "activity": {
-    "signal_rows_total": 13908,
+    "signal_rows_total": 13952,
     "live_labeled_trades": 346,
-    "candidate_rows": 13562
+    "candidate_rows": 13606
   },
   "audit": {
-    "records": 57443,
-    "signal_records": 28412,
+    "records": 57677,
+    "signal_records": 28422,
     "by_src": {
-      "exploration": 51806,
-      "ml_governor": 1624,
+      "exploration": 52030,
+      "ml_governor": 1626,
       "order_manager": 1545,
-      "long_book": 1162,
+      "long_book": 1170,
       "startup": 315,
       "fault": 296,
       "conviction": 271,
@@ -176,11 +176,11 @@
       ],
       [
         "ML-070",
-        15730
+        15842
       ],
       [
         "SZ-051",
-        13200
+        13312
       ],
       [
         "OM-000",
@@ -188,11 +188,11 @@
       ],
       [
         "LB-010",
-        732
+        736
       ],
       [
         "ML-031",
-        625
+        626
       ],
       [
         "OM-040",
@@ -221,7 +221,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.784,
-    "retrain_requests": 132,
+    "retrain_requests": 133,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -229,25 +229,25 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 24092,
+    "records": 25175,
     "by_level": {
-      "INFO": 23870,
-      "WARNING": 216,
-      "CRITICAL": 4,
+      "INFO": 24947,
+      "WARNING": 221,
+      "CRITICAL": 5,
       "ERROR": 2
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        104
+        106
       ],
       [
         "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        23
+        24
       ],
       [
         "turbulence spike: 49.9 (p98)",
-        16
+        17
       ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -263,7 +263,11 @@
       ],
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
+        4
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        2
       ],
       [
         "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -272,18 +276,14 @@
       [
         "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
         1
-      ],
-      [
-        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3742,
-      "thin": 2427
+      "spoofy": 3978,
+      "thin": 2452
     },
-    "spoofy_frac": 0.607,
-    "cycles_estimate": 2251,
+    "spoofy_frac": 0.619,
+    "cycles_estimate": 2369,
     "feed_error_events": 3
   },
   "model": {
@@ -320,7 +320,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 61% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 62% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
