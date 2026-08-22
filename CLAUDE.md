@@ -181,6 +181,67 @@ that already shipped. Update it at the end of any session that changes
 state; its own contract section says how. Static architecture lives in
 `docs/ONBOARDING.md`.
 
+## THE MINDSET: the instrument is the first suspect
+
+Standing orientation for every session. Not a procedure — `the-method`
+in the vault holds the procedure. This is where to point suspicion
+FIRST, and it is earned from repeated measurement, not taste.
+
+**The asymmetry that generates every recurrence.** The decision path is
+the most-governed code here: hard invariants, the era-4 moratorium,
+pre-registered gates, a hash-chained audit, the overfit battery,
+adversarial review. The measurement plane that observes it is the
+LEAST-governed: it is SAFE class by construction, so it ships freely,
+often unreviewed, and its failures are silent by nature — a wrong
+number looks exactly like a right one. **The code that tells you
+whether the governed code works is the code nothing governs.** That is
+structural, not accidental; SAFE class exists so measurement can move
+fast, and this is the bill.
+
+**So: when a measurement surprises you, the highest-prior explanation
+is that the instrument is wrong — not that the market did something
+exotic.** Verify the instrument before you build a theory on its
+output. Measured recurrences, all the same shape (a confident
+instrument, wrong, with nothing flagging it):
+
+- `cost_attribution.py` hard-codes a fee schedule STRUCK 2026-08-07 and
+  asserts using it is "the conservative check" — inverted at the true
+  tier. A false safety claim shipped inside a running instrument.
+- The session digest reported cured conditions (spoofy 68%, SZ-047
+  spam) as CURRENT for weeks, because its lens was the whole run.
+- A "constant-time comparison" test pin was satisfied by the string
+  appearing in a COMMENT; an `==` implementation passed it.
+- The manip detector scores an honest market maker byte-identically to
+  a layering attacker (0.949/79/spoofy both).
+- `manip_suspect` on the board has no smoothing (lag-1 autocorr 0.06);
+  a single read was taken for a trend that measured rho=+0.007.
+- The overfit battery silently substitutes a SYNTHETIC corpus and still
+  prints green — the corpus line is the only tell.
+
+**Operating consequences, binding:**
+
+1. A surprising number gets its INSTRUMENT verified before it gets a
+   theory. Cheapest check first, always.
+2. An instrument's output is a claim about the INSTRUMENT until
+   corroborated by a second route — cross-implementation, injection, or
+   an independent derivation. One number from one tool is a hypothesis.
+3. "0 findings" and "the scan is broken" are the SAME OBSERVATION until
+   separated. Say which one you established.
+4. Confident tone is not provenance. A report that reads settled and
+   cites nothing is the most dangerous artifact in the repo.
+5. **This applies to the referees too.** The lattice, the C++ diode,
+   the agent panels are instruments and get the same suspicion — on
+   2026-08-21 the diode disagreed with Python 16 vs 21 accrued trips
+   and THE DIODE WAS WRONG (its ingest was stricter than the
+   pre-registered reference). A referee that disagrees is not
+   automatically right; it is automatically INTERESTING.
+6. The market is allowed to be boring. Prefer the explanation that
+   makes the market ordinary and the apparatus fallible, because that
+   is the one the record keeps vindicating.
+
+Full concept + citations: vault `wiki/concepts/the-method.md` and
+`wiki/concepts/observational-equivalence.md`.
+
 Durable coordination rules (these do not expire):
 
 - One session owns `main` fast-forwards at a time; `pull --rebase`
