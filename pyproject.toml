@@ -37,7 +37,20 @@ markers = [
 ]
 
 [tool.ruff.lint]
-# Defaults (E4,E7,E9,F) plus a curated breadth bump:
+# PINNED EXPLICITLY, not extended (2026-08-22). This was
+# `extend-select = ["B", "C901"]`, which extends whatever the INSTALLED
+# ruff happens to default to - and ruff broadened its defaults, so on
+# ruff 0.16.3 the Definition-of-Done line reported **958 errors on an
+# unmodified tree** (UP045/RUF059/I001/BLE001/... none of them selected
+# here, none of them a regression). A gate that is red for reasons no
+# change caused is not a gate: the next session either "fixes" 958
+# findings or learns to ignore the line, and both destroy the signal.
+# The rule SET below is exactly the documented policy this file has always
+# described; only the coupling to upstream defaults is gone. Verified
+# green over the full DoD scope at the moment of the pin.
+# Pinned by tests/test_lint_gate_pin.py.
+select = ["E4", "E7", "E9", "F", "B", "C901"]
+# The policy, unchanged - defaults (E4,E7,E9,F) plus a curated breadth bump:
 #   B    - bugbear: real bug classes (B905 zip strict, B904 raise-from,
 #          B007 unused loop vars); the tree is clean under it.
 #   C901 - mccabe complexity CEILING, set at 40: freezes the current worst
@@ -47,7 +60,9 @@ markers = [
 # ML house style and the gRPC servicer method names are proto-mandated.
 # No formatter adoption either - a reformat-everything diff would destroy
 # git blame and review discipline.
-extend-select = ["B", "C901"]
+# Widening this list is a real decision: run the new rule over the whole
+# DoD scope FIRST and read what it actually flags. Do not add a rule and
+# a per-file waiver in the same commit.
 
 [tool.ruff.lint.mccabe]
 max-complexity = 40

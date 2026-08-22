@@ -52,9 +52,9 @@ class Route:
     timeout_sec: float
 
 
-# Every entry here is one of the ~14 existing report-only lenses (each
-# documents SAFE/report-only in its own module docstring). No-arg invocation
-# is each tool's documented default — this orchestrator adds no flags.
+# Every entry here is an existing report-only lens (each documents
+# SAFE/report-only in its own module docstring). No-arg invocation is each
+# tool's documented default — this orchestrator adds no flags.
 ROUTES: tuple[Route, ...] = (
     Route("lessons_digest", "lessons_digest.py", 300),
     Route("asset_learning", "asset_learning_report.py", 300),
@@ -71,6 +71,7 @@ ROUTES: tuple[Route, ...] = (
     Route("defensive_cadence", "defensive_cadence_report.py", 300),
     Route("interpret", "interpret_report.py", 900),
     Route("ground_truth", "ground_truth_metrics.py", 900),
+    Route("walkforward_lab", "walkforward_lab.py", 300),
 )
 
 # Windows: a windowless parent spawning children otherwise pops a console

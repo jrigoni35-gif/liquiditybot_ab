@@ -16,11 +16,25 @@ Two pins:
      line - the construct is banned in the matrix (same spirit as the
      AST append-mode gate: the CLASS is fenced, not the instance).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _BAT = Path(__file__).resolve().parents[1] / "test_windows.bat"
+
+# The three cmd-semantics pins below execute `cmd.exe`. Windows is the
+# target runtime and they run there; on a Linux analyst box they FAILED
+# with FileNotFoundError, which reads identically to the defect they
+# guard — a false red that trains the reader to ignore the battery.
+# Skipped off-Windows, never skipped ON Windows, so the pin keeps its
+# whole force where the battery actually gates. The static pin below
+# (test_matrix_splits_timing_family_into_a_serial_pass) reads the .bat as
+# text and runs everywhere.
+_needs_cmd = pytest.mark.skipif(
+    os.name != "nt", reason="pins Windows cmd.exe semantics; cmd.exe absent")
 
 
 def _run_bat(tmp_path: Path, body: str) -> int:
@@ -37,6 +51,7 @@ def _run_bat(tmp_path: Path, body: str) -> int:
         timeout=60).returncode  # nosec B603 B607 - fixed argv, no shell
 
 
+@_needs_cmd
 def test_start_wait_or_operator_misses_child_failure(tmp_path):
     """The defect, pinned: || after start /b /wait sees the LAUNCH, not
     the child - an exit-1 child yields outer exit 0."""
@@ -47,6 +62,7 @@ def test_start_wait_or_operator_misses_child_failure(tmp_path):
                      "revisit the matrix gates with this new semantics")
 
 
+@_needs_cmd
 def test_if_errorlevel_catches_child_failure(tmp_path):
     """The fix, pinned: if errorlevel 1 reads the awaited child's code."""
     rc = _run_bat(tmp_path,
@@ -56,6 +72,7 @@ def test_if_errorlevel_catches_child_failure(tmp_path):
     assert rc == 7
 
 
+@_needs_cmd
 def test_if_errorlevel_passes_child_success(tmp_path):
     rc = _run_bat(tmp_path,
                   f'start /b /wait "" "{sys.executable}" -c '

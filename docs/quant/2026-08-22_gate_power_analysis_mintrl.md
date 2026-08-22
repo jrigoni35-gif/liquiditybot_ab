@@ -1,5 +1,18 @@
 # Gate power analysis — MinTRL / PSR on the era-4 cohort
 
+> **SUPERSEDED IN PART, 2026-08-22 (same day).** Finding 1 below — "the
+> gross edge is already statistically established" — is **WITHDRAWN**. It
+> was computed on nominal n=33; the cohort's average-uniqueness effective n
+> is **9.92**, against a gross MinTRL requirement of 9.94. On the sample
+> size the cohort actually carries, the gross leg is **precisely
+> undetermined**, not established. The closed forms in this memo are
+> correct and reproduce exactly from an independent code path; only the
+> sample-size basis was wrong. See
+> `2026-08-22_walkforward_resampling_tranche2.md` and
+> `scripts/walkforward_lab.py` (WF-4b). The caveats section below already
+> flagged nominal-vs-effective n as the optimistic bound — it was right,
+> and the headline should have deferred to it.
+
 *Operator request 2026-08-22: backtest and walk-forward work using the
 formulas that most improve edge measurement. This applies Bailey &
 López de Prado's Probabilistic Sharpe Ratio and Minimum Track Record
@@ -31,9 +44,14 @@ MinTRL    = 1 + [1 − γ₃·SR + (γ₄−1)/4·SR²] · ( Z_α / (SR − SR*)
 | NET at true fees, maker/maker (×1.60) | +0.1094% | +0.0401 | — | — | 0.5919 | **1,603 trades** |
 | NET at true fees, maker/taker (×1.85) | **−0.0556%** | −0.0204 | — | — | 0.4548 | **INFINITE** |
 
-Booked round-trip cost reconstructs to **67.04 bps**, independently
-confirming `cost_truth_report`'s measured 66.76 bps — the two routes
-agree, so the fee arithmetic below rests on measurement, not assumption.
+Booked round-trip cost reconstructs to **67.04 bps** against
+`cost_truth_report`'s 66.76 bps. ~~Independently confirming~~ — **corrected
+2026-08-22**: the two routes are NOT independent. `cost_truth_report`
+derives its number as *configured 65.00 + overrun 1.76*, and the booked
+fees here are booked FROM that same configured stack. The agreement shows
+booking matches configuration; it says nothing about the venue's real cost,
+and `[1] OM-080 has never fired (n_records=0)` in that same report says so
+directly. See tranche 2.
 True-fee rows scale the booked fee by Kraken T1 (40/80) over configured
 (25/40).
 

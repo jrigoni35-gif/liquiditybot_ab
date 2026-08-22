@@ -17,6 +17,7 @@ never block the spawn - an unrotated log is an inconvenience, an
 unspawned runner is an outage.
 """
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -67,13 +68,29 @@ def test_generations_shift_and_retention_is_bounded(tmp_path, monkeypatch):
 
 def test_open_handle_skips_rotation_never_raises(tmp_path, monkeypatch):
     """The outage guard: a held handle (Windows rename refusal) must fall
-    back to appending, not propagate into the spawn path."""
+    back to appending, not propagate into the spawn path.
+
+    PLATFORM-SPLIT, not platform-skipped. The contract that matters —
+    rotation NEVER raises into the spawn path — is asserted on every
+    platform, because that is the outage this guard exists to prevent and
+    it is not a Windows fact. Only the *observable outcome* differs: NT
+    refuses the rename while the handle is open, so the log survives in
+    place; POSIX renames happily, so it rotates. Asserting the NT outcome
+    on Linux failed here for a reason that has nothing to do with the
+    guard, and a red that means "wrong OS" is indistinguishable from a red
+    that means "the spawn path can now die".
+    """
     m = _mod(tmp_path, monkeypatch)
     p = tmp_path / "runner.log"
     p.write_bytes(b"x" * 2048)
     with open(p, "a", encoding="utf-8"):          # simulate the live child
-        m._rotate_child_log(p)                    # must not raise
-    assert p.exists(), "with a held handle the file must survive in place"
+        m._rotate_child_log(p)                    # must not raise — all OSes
+    if os.name == "nt":
+        assert p.exists(), "with a held handle the file must survive in place"
+    else:
+        assert (tmp_path / "runner.log.1").exists(), (
+            "POSIX renames across an open handle, so rotation must have "
+            "proceeded — if it did not, the guard is over-refusing")
 
 
 def test_rotation_wired_into_spawn(tmp_path, monkeypatch):
