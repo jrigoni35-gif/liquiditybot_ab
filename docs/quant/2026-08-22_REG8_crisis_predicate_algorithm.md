@@ -1,152 +1,201 @@
-# REG-8 (pre-registered 2026-08-22): the crisis predicate, rebuilt
+# REG-8 v2 (pre-registered 2026-08-22): dissolve the crisis gate
 
-*Supersedes REG-6 (momentum-sign split — its discriminator was falsified
-by its own pre-registered evidence). Derived from the three-agent audit:
-`2026-08-22_crisis_block_synthesis.md`. Phase 0 is SAFE and shippable
-now; Phase 1 is BOUNDARY class and adjudicated at the era-4 readout with
-Phase 0's evidence in hand. Parameter VALUES are deliberately absent —
-see §5.*
+*Supersedes REG-6 (momentum-sign split — discriminator falsified by its
+own pre-registered evidence) and REG-8 v1 (three new gates — rejected by
+operator directive 2026-08-22: "integrate it all into the system instead
+of adding more gates; minimize additional complexity; make the
+foundation we have more complex and consistent within its own
+development"). Evidence: `2026-08-22_crisis_block_synthesis.md`.*
 
-## 1. The root cause, stated once
+## 1. Root cause (unchanged from v1 — this part held)
 
-Every measured defect is one category error:
-
-> **A self-normalizing RANK is being used as an ABSOLUTE threshold for a
+> **A self-normalizing RANK is used as an ABSOLUTE threshold for a
 > binary safety gate.**
 
-`turbulence_pct` is a rank within its own rolling 250-return window. A
-rank always has a top 5%. It therefore *cannot* express "this period is
-calm" — measured firing rate on stationary Gaussian returns with no
-regime change at all: **7.0%**. Everything else follows:
+`turbulence_pct` is a rank inside its own rolling 250-return window. A
+rank always has a top 5%, so it can never say "calm" — measured firing
+on stationary Gaussian returns with no regime change: **7.0%**. And
+Mahalanobis distance measures **atypicality**, which is why a correlated
+−3σ crash reads 80.0 and *never fires* while 6-up/6-down with zero net
+move fires *100%*. The estimator is faithful (Spearman +0.970 vs
+oracle). The predicate is wrong.
 
-| observed defect | consequence of the category error |
-|---|---|
-| fires ~7% on pure noise | a rank has no absolute zero |
-| correlated −3σ crash reads 80.0, **never fires** | Mahalanobis distance measures *atypicality*, and a correlated crash is the *typical* covariance direction |
-| 6 up / 6 down, zero net move, fires 100% | maximal atypicality, zero danger |
-| one asset +5σ blacks out 12 assets | a market-wide scalar answering a per-asset question |
-| PAXG (10th pct vol, +0.03%) marked crisis | same |
+## 2. What v1 got wrong
 
-The estimator is fine (Spearman +0.970 vs oracle). The **predicate**
-built on it is wrong.
+v1 answered a bad predicate by adding three better ones. That is the
+wrong instinct in a system whose own law warns against re-tangling what
+is separated: it grows the gate count, adds a fourth place where
+"should we trade" is decided, and leaves the defective path in place
+beside its replacement. **The correct move is a deletion plus two
+re-routings** into machinery that already exists and already does this
+job continuously.
 
-## 2. The algorithm
+## 3. The design: one deletion, two re-routings, zero new gates
 
-Decompose the single conflated question into three orthogonal ones and
-give each its proportionate authority.
+### 3.1 DELETE — the turbulence → crisis branch
+
+`regime/macro_regime.py:441-442` currently reads:
 
 ```
-INPUTS
-  per asset a:   ret_a      recent return
-                 sigma_a    own realized vol (absolute)
-                 volpct_a   own vol rank
-  market-wide:   turb_pct   Mahalanobis rank  (estimator UNCHANGED)
-
-DERIVED
-  stress   = median_a( |ret_a| / sigma_ref_a )     # ABSOLUTE, scale-free
-  breadth− = frac_a( ret_a < -k * sigma_a )        # how many actually fall
-  breadth+ = frac_a( ret_a > +k * sigma_a )
-
-GATE 1 — the real crash guard  (currently MISSING; a correlated crash
-                                does not fire today)
-  CRISIS_DOWN := breadth− >= B_down  AND  stress >= S_crisis
-    -> allow_new = False              # block new risk, exits unaffected
-
-GATE 2 — turbulence is a MODIFIER, never a gate
-  TURBULENT   := turb_pct >= T_hi    AND  stress >= S_floor
-    -> size_mult *= shrink_turb ; require higher conviction
-    -> NEVER sets allow_new = False on its own
-    # the stress floor is what kills "6 up / 6 down, zero net move"
-
-GATE 3 — per-asset extremes stay PER ASSET (no broadcast)
-  for each a:  if volpct_a >= V_hi:  size_mult_a *= shrink_a
+crisis  if  own vol_percentile >= crisis_vol_pct
+        OR  turbulence_pct     >= crisis_vol_pct     <-- DELETE this clause
 ```
 
-**Invariants this must preserve** (non-negotiable, inherited):
-- Exits are ALWAYS allowed. Every gate above restricts new risk only.
-- `force_dry`, `arm_live`, the withdrawal deny-list, Kraken-sole-venue:
-  untouched.
-- One config key per statistic. Today `crisis_vol_pct` gates *two
-  unrelated statistics* (per-asset Parkinson rank AND cross-asset
-  Mahalanobis rank); REG-8 splits them permanently.
+Deleting the second clause removes, in one edit: the ~7%-by-construction
+firing, the sign-blindness, the all-or-nothing broadcast, and the
+one-constant-two-statistics conflation. Crisis reverts to what it can
+honestly assert — *this asset's own volatility is extreme* — which is a
+per-asset statement the label was always able to make.
 
-## 3. Why this resolves each finding
+**Complexity ledger: predicates −1, config keys −0, new modules 0.**
 
-| finding | resolved by |
-|---|---|
-| fires ~7% on noise | Gate 1 requires ABSOLUTE stress; a rank alone can no longer fire anything |
-| crash never fires | Gate 1 keys on breadth− + magnitude, which is exactly a crash |
-| zero-net-move false fire | Gate 2's `S_floor` |
-| one asset blacks out twelve | Gate 3 is per-asset; Gate 2 only shrinks size |
-| sign-blindness | Gate 1 is explicitly directional (breadth−), and it is directional on *realized returns*, not on the `mom_dir` feature REG-6 proposed — which the evidence falsified |
-| duplicated 95 literal | one key per statistic, config-lifted, guard-bounded |
+### 3.2 ROUTE — turbulence becomes governor UNCERTAINTY, not a veto
 
-## 4. Phase 0 — SAFE NOW (no decision reach, ship without adjudication)
+Atypical co-movement is not danger; it is **the covariance structure
+being unlike the one the model was fitted on**. That is an epistemic
+statement about model trust, and this repo already has the organ for it:
+`ml/monitor.py`'s `shrinkage` (base 0.35, ceiling 0.70) and
+`kelly_mult` (floor 0.40), consumed at `main.py:4585`.
 
-1. **Export `turbulence_pct` to the `status.json` schema.** Today
-   `grep -rn "turbulence" core/ api/` returns nothing: the one number
-   that can sideline the entire book reaches no operator surface.
-2. **Stamp `CorrState`** with timestamp, sample count, staleness flag;
-   register a reason code for a held reading (five early returns
-   currently hold the prior value silently).
-3. **`config_guard` coverage** for `regime.crisis_vol_pct` and the
-   `correlation` block; collapse the duplicated `95` at
+```
+turbulence high  ->  monitor.shrinkage ↑ toward its EXISTING ceiling
+                 ->  kelly_mult ↓ toward its EXISTING floor
+                 ->  sizing shrinks smoothly, everywhere, all at once
+```
+
+This is the "throughout the network" instruction taken literally: the
+signal stops being a switch at one point in the pipeline and becomes a
+**continuous confidence term that every sizing decision already reads**.
+It also finally makes the drift/uncertainty machinery see a real
+covariance-regime input, which it has never had.
+
+**Complexity ledger: new consumers 0 — `shrinkage` already exists, is
+already bounded, already logged, already on the board.**
+
+### 3.3 ROUTE — real danger goes to the risk ladder, which already stops
+
+The genuine crash signal (many assets falling together, in absolute
+terms) does **not** need a new hard stop: the hard stops already exist
+and are already hard — `capital_management.hard_stop_drawdown_pct`, the
+daily loss limit, the circuit breaker, the FW kill switches, and
+`RiskProtocolStack` (`risk/protocols.py:133`) with its CVaR / gap /
+budget / heat protocols.
+
+The defect is not a missing guard. **The defect is that breadth and
+absolute stress never reach the guard that exists** — they get spent on
+a regime *label* instead.
+
+```
+breadth of assets falling, in ABSOLUTE sigma terms
+        ->  an input to RiskProtocolStack (a portfolio-risk fact,
+            which is what that stack is for)
+        ->  existing heat / CVaR / budget protocols respond with the
+            responses they ALREADY implement, up to and including the
+            hard stops they already own
+```
+
+A correlated crash then does what it never did before: it reaches the
+risk ladder. Not because a new gate was built, but because the signal
+was finally delivered to the right address.
+
+**Complexity ledger: new gates 0, new hard stops 0, new stack members 0.**
+
+### 3.4 KEEP — per-asset extremes stay where they are
+
+Own-asset volatility already flows to per-asset sizing. Nothing to add.
+
+### Net effect
+
+| | before | after |
+|---|---|---|
+| places "should we trade" is gated on turbulence | 1 (binary, feed-wide) | **0** |
+| new gates introduced | — | **0** |
+| new modules / stack members | — | **0** |
+| signals reaching machinery that already existed | 0 | 2 |
+| predicate clauses in `_ensemble_label` | 2 | **1** |
+
+The foundation gets deeper — the governor learns about covariance
+regime, the risk stack learns about breadth — while the surface gets
+simpler.
+
+## 4. What stays invariant
+
+- Exits ALWAYS allowed. Every path above restricts new risk only.
+- `dry_run` default, `arm_live` never remote, Kraken sole venue,
+  withdrawal deny-list: untouched.
+- `force_dry` one-way. Hysteresis semantics unchanged for the labels
+  that survive.
+- One config key per statistic — the deletion in §3.1 ends
+  `crisis_vol_pct` gating two unrelated statistics without adding a key.
+
+## 5. No parameter values here — deliberately
+
+The mapping curves (turbulence → shrinkage, breadth → protocol input)
+carry no numbers in this document. Fitting them against the single
+episode that motivated the rewrite is the OF-4 overfit the law forbids.
+They must be config-lifted with `config_guard` bounds, derived from a
+stated principle rather than this episode, and calibrated in shadow.
+
+## 6. Pre-registered acceptance criteria (unchanged from v1 — still binding)
+
+Executable against the injection harness the audit already built:
+
+1. **Noise floor** — on stationary-Gaussian injection (today: 7.0%
+   firing), turbulence-driven *entry suppression* < 0.5%.
+2. **Crash sensitivity** — all-assets −3σ injection (today: reads 80.0,
+   never fires) must now reach the risk ladder and reduce exposure.
+3. **False-fire rejection** — 6-up/6-down zero-net-move (today: fires
+   100%) must produce at most a shrinkage nudge, never a block.
+4. **Broadcast elimination** — one asset at +5σ restricts at most that
+   asset.
+5. **No blind widening** — over the shadow window, entries admitted
+   under REG-8 must not have worse counterfactual net expectancy than
+   the admitted baseline, on **effective n**, not row count.
+6. **Live agreement** — any period where REG-8 is *more* permissive
+   during genuine drawdown is a BLOCKING finding.
+
+## 7. Phase 0 — SAFE NOW, ships without adjudication
+
+1. Export `turbulence_pct` (+ breadth) to the `status.json` schema —
+   today `grep -rn "turbulence" core/ api/` returns nothing.
+2. Stamp `CorrState` with timestamp / sample count / staleness flag and
+   register a reason code for a held reading.
+3. `config_guard` coverage for `regime.crisis_vol_pct` and the
+   `correlation` block; collapse the duplicate `95` literal at
    `correlation.py:335` to a single config read.
-4. **SHADOW EVALUATOR (the load-bearing one).** Compute the REG-8
-   predicate every cycle *alongside* the live one, log both verdicts and
-   their disagreements, and **act on neither**. This is measurement, not
-   decisioning — it is moratorium-independent, and it converts Phase 1
-   from an argument into a dataset.
+4. **Shadow evaluator** — compute the REG-8 routing beside the live
+   predicate every cycle, log both and their disagreement, **act on
+   neither**. Measurement only; it converts Phase 1 from an argument
+   into a dataset.
 
-## 5. Parameters are NOT specified here — deliberately
+## 8. Phase 1 — BOUNDARY
 
-No values for `B_down`, `S_crisis`, `T_hi`, `S_floor`, `V_hi`,
-`shrink_*` appear in this document. Choosing them now, against the one
-episode that motivated the rewrite, is precisely the overfit this repo
-forbids (OF-4: never tune to a backtest peak). They must be:
+The deletion and the two re-routings change which orders are placed:
+operator adjudication, new execution era, accrual reset, full DoD
+matrix, C++ diode era constants re-pinned. Batch with SWEEP-0/1
+(CRITICAL), ALGO-5, REG-7, LS-1/LS-2 — one boundary, one docket.
 
-- config-lifted with `config_guard` bounds (FATAL on incoherent
-  combinations), never literals in a decision path;
-- derived from a stated principle (e.g. `S_crisis` from the drawdown the
-  risk ladder already treats as material), not fitted to 2026-08-20;
-- calibrated in SHADOW mode across at least one non-crisis regime and
-  one genuine stress episode.
+## 9. Vault consistency (`llm-wiki`)
 
-## 6. Pre-registered acceptance criteria for Phase 1
+The vault is the knowledge brain; this repo holds code and dated
+measurements. Entries this change touches, to keep the two consistent:
 
-REG-8 ships only if, on shadow data collected before the decision:
-
-1. **Noise floor**: on the stationary-Gaussian injection harness that
-   measured today's 7.0%, REG-8's `CRISIS_DOWN` fires **< 0.5%**.
-2. **Crash sensitivity**: on the all-assets −3σ injection that today
-   reads 80.0 and never fires, REG-8 **does** fire.
-3. **False-fire rejection**: on the 6-up/6-down zero-net-move injection
-   that today fires 100%, REG-8 **does not** fire.
-4. **Broadcast elimination**: on the one-asset +5σ injection, at most
-   that asset is restricted; the other eleven stay tradeable.
-5. **No blind widening**: over the shadow window, REG-8 must not admit
-   entries whose counterfactual net expectancy is worse than the
-   admitted baseline, measured on **effective n**, not row count.
-6. **Live agreement**: disagreement between live and shadow predicates
-   is reported per regime, and any period where REG-8 is *more*
-   permissive during genuine drawdown is a BLOCKING finding.
-
-Criteria 1–4 are executable against the injection harness the audit
-already built (`/tmp/turb/`, to be re-homed under `tests/` as part of
-Phase 0). They are pass/fail, decided before the data.
-
-## 7. Cost of Phase 1, named
-
-New execution era, accrual resets, full DoD matrix, and the C++ diode's
-era constants re-pinned. Batch with the standing docket (SWEEP-0/1
-CRITICAL, ALGO-5, LS-1/LS-2) — one boundary, one docket, per the
-generational rule.
-
-## 8. What the evidence says about urgency
-
-The block costs **+0.7pp against a time-matched control at n_eff 11.89**
-— i.e. nothing measurable. So the case for REG-8 is **not** "we are
-losing money while blocked." It is that **the crash guard does not guard
-against crashes**, and that a rank-based gate will re-fire on noise
-roughly 7% of the time forever. Phase 0 is urgent (the number is
-invisible); Phase 1 is important but not rushed.
+- `concepts/the-method` — **add the sixth recurrence**: a confident
+  instrument, faithful in isolation, wrong at its consumer. Distinct
+  from the prior five because the estimator was *correct* and the wiring
+  was not. Also the first time the instrument was audited *before* the
+  theory was built on it, and the audit inverted the conclusion.
+- `concepts/observational-equivalence` — the sharpest example yet:
+  "correlated crash" and "correlated melt-up" are byte-identical to a
+  dispersion statistic, and 6-up/6-down with zero net move is
+  indistinguishable from a real event.
+- `concepts/referee-lattice` — this finding came from the lattice
+  working as designed (three blind analysts, instrument-first ordering),
+  and is its first inverted conclusion.
+- **new** `concepts/rank-vs-absolute` — the general lesson: a
+  self-normalizing statistic can never express "nothing is happening,"
+  so it must never be the sole term in a binary safety gate. This
+  generalizes beyond turbulence to every percentile-based threshold in
+  the repo (`vol_percentile`, `turbulence_pct`, and any future rank).
+- `sources/session-20260822-crisis-block` — the three agent reports and
+  this design, cited by date.
