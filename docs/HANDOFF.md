@@ -34,17 +34,16 @@ In VS Code: **Tasks: Run Task** → `Remote console: PC status (via git)`,
 
 ---
 
-## AS OF 2026-08-22T01:10Z — verify before citing
+## AS OF 2026-08-22T15:00Z — verify before citing
 
 | fact | value | re-derive with |
 |---|---|---|
-| era-4 accrual (THE gate) | **33 / 50** | `scripts/cohort_eval.py` or pc_status `era4` |
-| deployed head on the PC | **current**, auto-update following `main` | pc_status `deploy` |
-| equity / net all-time | $805.04 / **+$5.04** | pc_status `status.equity` |
-| corpus | ~14,000 rows (346 live) | pc_status `status.ml` |
-| mode | DRY_RUN, monitor L0 | pc_status |
-| **432-cohort gate** | **READ OUT: INCONCLUSIVE** at 51/50, mean net −0.749% | `scripts/cohort_eval.py` |
-| **era-4 interim** | gross +1.18%, net +0.51%, **effective n 9.9 of 33** | `scripts/cohort_eval.py` |
+| era-4 accrual (THE gate) | 33 / 50 — **STALLED 48h+** | `scripts/cohort_eval.py` or pc_status `era4` |
+| deployed head on the PC | `7a63ad1c`, outcome **current** (dirty-block cleared 08-22) | pc_status `deploy` |
+| equity / net all-time | $805.04 / +$5.04 (high-water) | pc_status `status.equity` |
+| corpus | 14,465 rows (346 live — live labels flat: entries blocked) | pc_status `status.ml` |
+| calibration gap | 0.0138 (best on record) | pc_status `status.ml.retrain_calib_gap` |
+| regime | **all 12 assets `crisis`** on the shared turbulence scalar | pc_status `status.regimes` |
 
 **Accrual pace ≈ 3–7 closes/day → readout roughly late August.** That
 date is an estimate, not a commitment; the gate fires on n, never on a
@@ -77,7 +76,8 @@ cohort-resetting, none shippable mid-era.**
 | id | one line | authority |
 |---|---|---|
 | ALGO-5 | stop widths + time-decay ladder at ~30 uncensored paths | CLAUDE.md (pre-named) |
-| REG-6 | `crisis` is direction-blind; split `crisis_up`/`crisis_down`, 3 tiers | `docs/quant/2026-08-20_REG6_directional_crisis_prereg.md` |
+| ~~REG-6~~ **SUPERSEDED** | momentum-sign split — **discriminator FALSIFIED** (`crisis_down` longs 91.3% > `crisis_up` 78.4%); scope must be rewritten before adjudication | `docs/quant/2026-08-22_crisis_block_synthesis.md` |
+| **TURB-1** | the crisis trigger is DEFECTIVE AS DEPLOYED: fires ~7% by construction on stationary noise, measures co-movement atypicality not stress (a correlated crash never fires; one decoupling asset blacks out the book), broadcast as one scalar | `docs/quant/2026-08-22_turbulence_instrument_verification.md` |
 | REG-7 | taxonomy vs measured occupancy: retire extinct `bull_volatile`, split `range`, rename `bear`→`drift_down` | `docs/quant/2026-08-20_REG7_taxonomy_occupancy_prereg.md` |
 | SWEEP-0 | **CRITICAL** `derisk_actions` can force-close a HEDGE with zero hedge coordination (no cooldown arm, no FW-070) | `docs/quant/2026-08-20_codebase_sweep_docket.md` |
 | SWEEP-1 | **CRITICAL** margin-health veto FAILS OPEN | same |
@@ -128,7 +128,8 @@ entries. One event never decides.
 
 ## WATCH LIST (check these, don't assume)
 
-- Crisis-window labels from 2026-08-20 resolving — they arm REG-6.
+- **Whether `turbulence_pct` decays below 0.95** — the book reopens on its own if it does. Pinned at the series ceiling 0.984 for 23-30h as of 08-22; historical N=1, no base rate to forecast it.
+- SAFE-NOW observability backlog from TURB-1 (turbulence absent from `status.json` entirely; silent stale-hold; no config_guard coverage) — see the synthesis doc's disposition section.
 - Champion Brier / calibration gap after each retrain: a base-rate
   regime shift moves both honestly (see the settled entry below).
   Escalate only if degradation persists a full barrier horizon *after*
@@ -150,6 +151,7 @@ entries. One event never decides.
 | "fees are 10x the gross edge" (2026-08-21) | **REFUTED by its own instrument.** The `+0.0733%` gross was equal-weighted; dollar-weighted is −0.0062%, median −0.0282%, day-clustered t≈1.0, and dropping 5 of 434 trades flips it. The ratio divided by a number whose CI contains zero. `cost_attribution.py` now prints all of that and refuses the framing | `scripts/cost_attribution.py` §1b |
 | manip detector harming P&L | **REFUTED.** Deleting the gate entirely = ≈3.4 more entries at −$0.151 each ≈ **−$0.51**. 99.6% of vetoes are FLOW+MINA; BTC has **zero**. Real defect is observational: honest maker and layering attacker score byte-identically | `wiki/concepts/observational-equivalence` |
 | Multi-agent "hive mind" | ships as a **lattice**, not a mesh: blind analysts → consensus diff → operator head → one learner. No evaluator ever feeds the learner. | `docs/quant/2026-08-19_referee_lattice.md` |
+| Crisis block / "copious volatile data" (08-22) | Three-agent audit: instrument DEFECTIVE as deployed, block costs **+0.7pp vs a fair control**, n_eff **11.89** not 1,485. The 08-21 read of this data was too generous. | `docs/quant/2026-08-22_crisis_block_synthesis.md` |
 | ADA hedge churn (08-07) | DONE and deployed at `cf454d5`. Unwinds never gated; re-hedge opens need warm correlation + cooldown. | `docs/quant/2026-08-07_ada_hedge_churn_HANDOFF.md` |
 
 ---
