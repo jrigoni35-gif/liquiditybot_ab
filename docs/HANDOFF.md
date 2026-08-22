@@ -34,16 +34,17 @@ In VS Code: **Tasks: Run Task** → `Remote console: PC status (via git)`,
 
 ---
 
-## AS OF 2026-08-20T21:48Z — verify before citing
+## AS OF 2026-08-22T01:10Z — verify before citing
 
 | fact | value | re-derive with |
 |---|---|---|
-| era-4 accrual (THE gate) | 30 / 50 | `scripts/cohort_eval.py` or pc_status `era4` |
-| deployed head on the PC | `318835c6`, outcome **dirty** | pc_status `deploy` |
-| `main` head | `f669e7e9` | `git log origin/main -1` |
-| equity / net all-time | $804.89 / +$4.89 | pc_status `status.equity` |
-| corpus | 13,152 rows (343 live) | pc_status `status.ml` |
+| era-4 accrual (THE gate) | **33 / 50** | `scripts/cohort_eval.py` or pc_status `era4` |
+| deployed head on the PC | **current**, auto-update following `main` | pc_status `deploy` |
+| equity / net all-time | $805.04 / **+$5.04** | pc_status `status.equity` |
+| corpus | ~14,000 rows (346 live) | pc_status `status.ml` |
 | mode | DRY_RUN, monitor L0 | pc_status |
+| **432-cohort gate** | **READ OUT: INCONCLUSIVE** at 51/50, mean net −0.749% | `scripts/cohort_eval.py` |
+| **era-4 interim** | gross +1.18%, net +0.51%, **effective n 9.9 of 33** | `scripts/cohort_eval.py` |
 
 **Accrual pace ≈ 3–7 closes/day → readout roughly late August.** That
 date is an estimate, not a commitment; the gate fires on n, never on a
@@ -86,6 +87,9 @@ cohort-resetting, none shippable mid-era.**
 | ATTR-1 | sentiment feed read 0.002-flat through the most newsworthy policy day of the quarter | `docs/quant/2026-08-20_event_record_surge_outlier.md` |
 | ATTR-2 | no liquidation/OI awareness; context calendar knows only *scheduled* events | same |
 
+| **FEE-1** | **configured fees are ~half the venue's real bottom tier** (Kraken T1 = 40/80, config = 25/40). Worth **−$4.04 of the accrued +$5.04** in the cohort window. Writing the true number produces a **config_guard FATAL** — the bot will not start, because exploration `p_win 0.700` falls below the net-Kelly breakeven `0.833` | `raw/quant/` cost-stack report; injection-verified |
+| **FEE-2** | at true fees the entry bar moves **p 0.690 → 0.834** (+14.3 pts), so the probe lane that generates 85% of the cohort stops clearing by construction | same |
+| **FEE-3** | OM-080 fee reconciliation has **never fired** — the account's actual tier row is unverified. One read-only `TradeVolume` call settles it; needs the first real credential on the box, so scope query-only and prefer post-readout | `execution/order_manager.py:767` |
 **REG-6's tier is decided by evidence already in flight**: the ~1,132
 probe/candidate decisions logged inside the 2026-08-20 crisis window
 resolve one barrier horizon later. Run `gate_efficacy` over
@@ -115,28 +119,12 @@ entries. One event never decides.
 
 ## IN FLIGHT / BLOCKED
 
-- **PC deploy pipeline is blocked — two causes stacked** (observed
-  2026-08-20, VS Code status bar `claude/claude-rc-f3heik*  3↓ 1↑`):
-  1. *dirty tree* — the updater never fast-forwards across uncommitted
-     changes (it will not clobber operator edits). Current outcome:
-     `dirty`.
-  2. *a local commit that never reached origin* (`1↑`). Once (1) is
-     cleared this becomes the blocker: with a PC-side commit absent
-     from `origin/main`, HEAD is not an ancestor of `origin/main` and
-     `origin/main` is not an ancestor of HEAD, so the W1-7 guard
-     reports **`diverged`** and correctly refuses forever — a
-     fast-forward is impossible no matter how many batteries pass.
-
-  Resolution order on the box: handle the uncommitted files (discard a
-  regenerated artifact — prime suspect
-  `docs/grafana/liquiditybot_learning.json` — or commit a real edit),
-  then `git pull --rebase origin claude/claude-rc-f3heik` to replay the
-  local commit on top of the 3 incoming ones, then push. The commit
-  must also reach `main` (the pinned deploy channel) before the updater
-  can move. There is deliberately no remote command for any of this.
-  Trading is unaffected throughout.
-
----
+- **Deploy pipeline: UNBLOCKED 2026-08-21.** The blocker was never a stray
+  artifact — it was 15 files of finished sweep-tail work staged and never
+  committed. Verified (3881 pass, clean cloud review) and landed as
+  `eeff0f7a`; the updater now follows `main` and reads `current`.
+- **Cost-stack diagnosis: COMPLETE, fixes PARTIAL.** SAFE items shipped
+  (see below). Every fee-constant item is BOUNDARY and waits for readout.
 
 ## WATCH LIST (check these, don't assume)
 
@@ -159,6 +147,8 @@ entries. One event never decides.
 | BTC/ETH +11%/+20% surge (08-20) | operator-adjudicated OUTLIER; bot measured it perfectly, cannot attribute it; no corpus surgery | `docs/quant/2026-08-20_event_record_surge_outlier.md` |
 | C++ diode 16-vs-21 accrual disagreement | diode's strict ingest was stricter than the pre-registered reference; fills now mirror DictReader; **full agreement at 1e-9** | `diode/README.md` |
 | Deploy channel | pinned to `main` via `system.deploy_branch`; per-box override is `LB_UPDATE_BRANCH`, never a config edit on the box | `scripts/auto_update.py` |
+| "fees are 10x the gross edge" (2026-08-21) | **REFUTED by its own instrument.** The `+0.0733%` gross was equal-weighted; dollar-weighted is −0.0062%, median −0.0282%, day-clustered t≈1.0, and dropping 5 of 434 trades flips it. The ratio divided by a number whose CI contains zero. `cost_attribution.py` now prints all of that and refuses the framing | `scripts/cost_attribution.py` §1b |
+| manip detector harming P&L | **REFUTED.** Deleting the gate entirely = ≈3.4 more entries at −$0.151 each ≈ **−$0.51**. 99.6% of vetoes are FLOW+MINA; BTC has **zero**. Real defect is observational: honest maker and layering attacker score byte-identically | `wiki/concepts/observational-equivalence` |
 | Multi-agent "hive mind" | ships as a **lattice**, not a mesh: blind analysts → consensus diff → operator head → one learner. No evaluator ever feeds the learner. | `docs/quant/2026-08-19_referee_lattice.md` |
 | ADA hedge churn (08-07) | DONE and deployed at `cf454d5`. Unwinds never gated; re-hedge opens need warm correlation + cooldown. | `docs/quant/2026-08-07_ada_hedge_churn_HANDOFF.md` |
 

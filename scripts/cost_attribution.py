@@ -21,11 +21,19 @@ numbers if fills.csv has moved):
      at taker rates" was WRONG: it compared against Kraken's 26 bps rather
      than against the bot's own 25 bps maker rate, so maker fills looked
      like taker fills. The flag works; the constants are what is high.
-  1. Both constants exceed Kraken base tier (16/26). Round trip costs
-     0.667% measured, against 0.520% at Kraken taker/taker and 0.320% at
-     maker/maker.
-  3. Section 3 computes it. The short version: the fee is not the only
-     problem, but it is the larger one by an order of magnitude.
+  1. SUPERSEDED 2026-08-22 - this line said "both constants exceed Kraken
+     base tier (16/26)". It is BACKWARDS. 16/26 was a schedule this
+     project struck on 2026-08-07; Kraken Tier 1 (this account, spot
+     volume $0) is 40/80 bps, so the configured 25/40 is x0.542 of the
+     venue - UNDERSTATED, the dangerous direction, which makes every
+     counterfactual on this page optimistic. See the constants block.
+  3. Section 3 computes it. SUPERSEDED: the old summary here said fees
+     beat the gross gap "by an order of magnitude". That ratio divides
+     by a quantity indistinguishable from zero - the equal-weighted mean
+     gross sits inside 2x its day-clustered SE, its median is NEGATIVE,
+     and dropping 5 of 434 trades flips it. Section 1b prints all of
+     that now. Report cost ABSOLUTELY; never as a multiple of an edge
+     whose interval contains zero.
 
 TWO DISCIPLINES THIS TOOL ENFORCES.
 
@@ -71,10 +79,31 @@ ROOT = Path(__file__).resolve().parents[1]
 # tests/test_opening_leg_pin.py.
 _OPEN_PURPOSES = ("entry", "hedge")
 
-# Kraken Pro base (highest) tier, 30-day volume < $10k, as of 2026-08.
-# Lower tiers only reduce these, so using base is the conservative check.
-KRAKEN_MAKER_BPS = 16.0
-KRAKEN_TAKER_BPS = 26.0
+# Kraken spot TIER 1 (the ENTRY tier - $0+ volume), verified 2026-08-21.
+#
+# CORRECTED 2026-08-22 (focused-fix cost-stack diagnosis). This file
+# previously carried 16.0/26.0 with the note "lower tiers only reduce
+# these, so using base is the conservative check". BOTH halves were
+# wrong and the error ran in the FLATTERING direction:
+#   * 16/26 is a schedule this project STRUCK on 2026-08-07. Kraken's
+#     cross-platform tier change took effect 2026-07-09; Tier 1 is
+#     40/80 bps. Secondary fee blogs still publish 0.25/0.40 as
+#     "current", which is the live re-contamination vector that has now
+#     put this same wrong number back into the codebase three times.
+#   * The conservatism claim INVERTS at the true schedule. Tier 1 is the
+#     MOST expensive row, not the cheapest: higher volume buys you DOWN
+#     (T5 = 15/30). Benchmarking against 16/26 understated venue cost by
+#     x0.65 when the account actually sits at x1.979 of configured.
+# Understating cost makes every counterfactual optimistic, which is the
+# dangerous direction - see this file's own closing note.
+#
+# NOT independently reconciled: OM-080 (execution/order_manager.py:767)
+# has never fired on this box, so no venue measurement of the ACCOUNT's
+# actual row exists. These constants settle the SCHEDULE, never the ROW.
+KRAKEN_T1_MAKER_BPS = 40.0      # $0+        - this account (spot vol $0)
+KRAKEN_T1_TAKER_BPS = 80.0
+KRAKEN_T5_MAKER_BPS = 15.0      # deep-tier floor, for the headroom row
+KRAKEN_T5_TAKER_BPS = 30.0
 
 
 def _f(v):
@@ -114,6 +143,7 @@ def load(path, tol=0.02):
     # avoid. The fill pattern is the identity.
     for fills in by_pid.values():
         cash = fees = ez = xz = notional = 0.0
+        t_close = None
         sig, ok = [], True
         maker_n = taker_n = 0
         for r in fills:
@@ -134,6 +164,9 @@ def load(path, tol=0.02):
                 maker_n += 1
             else:
                 taker_n += 1
+            _rt = _f(r.get("ts"))
+            if _rt is not None and (t_close is None or _rt > t_close):
+                t_close = _rt
             sig.append((r.get("purpose"), r.get("side"),
                         round(sz, 6), round(px, 4)))
         if not ok:
@@ -154,6 +187,7 @@ def load(path, tol=0.02):
             continue
         seen.add(key)
         out.append({"notional": notional, "gross": cash, "fees": fees,
+                    "t_close": t_close,
                     "gross_pct": 100.0 * cash / notional,
                     "fees_pct": 100.0 * fees / notional,
                     "maker_fills": maker_n, "taker_fills": taker_n,
@@ -199,8 +233,10 @@ def main() -> int:
     # --- Round trip = entry leg + exit leg, so 2x the per-leg rate.
     schedules = {
         "configured (25/40)": None,          # measured, filled below
-        "Kraken taker/taker (26/26)": 2 * KRAKEN_TAKER_BPS / 100.0,
-        "Kraken maker/maker (16/16)": 2 * KRAKEN_MAKER_BPS / 100.0,
+        "Kraken T1 maker/taker (40/80)": (KRAKEN_T1_MAKER_BPS
+                                          + KRAKEN_T1_TAKER_BPS) / 100.0,
+        "Kraken T1 maker/maker (40/40)": 2 * KRAKEN_T1_MAKER_BPS / 100.0,
+        "Kraken T5 maker/maker (15/15)": 2 * KRAKEN_T5_MAKER_BPS / 100.0,
         "zero fees": 0.0,
     }
     schedules["configured (25/40)"] = mean_c
@@ -269,9 +305,66 @@ def main() -> int:
     else:
         print("   -> post_only IS booking a different rate (%.1f vs %.1f)."
               % (m1, m0))
-    print("   Kraken base tier for reference: maker %.0f / taker %.0f bps"
-          % (KRAKEN_MAKER_BPS, KRAKEN_TAKER_BPS))
+    print("   Kraken TIER 1 (this account, spot vol $0): maker %.0f / "
+          "taker %.0f bps  -> configured 25/40 is x%.3f of venue"
+          % (KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS,
+             65.0 / (KRAKEN_T1_MAKER_BPS + KRAKEN_T1_TAKER_BPS)))
+    print("   NOT venue-reconciled: OM-080 has never fired on this box,")
+    print("   so the account's actual ROW is unverified (schedule only).")
     print("   observed rates: %s" % rate_hist.most_common(4))
+
+    # --- 1b. DISPERSION. Added 2026-08-22 after this tool's own headline
+    # --- ("mean gross +0.0733% (POSITIVE)") was taken for an edge and
+    # --- built into a session-long thesis. The mean was equal-weighted,
+    # --- its median sat NEGATIVE two sections away, and no interval was
+    # --- printed anywhere. A point estimate with no dispersion beside it
+    # --- invites over-reading; print the disagreement instead.
+    tot_notional = sum(t["notional"] for t in trades)
+    dw_gross = 100.0 * sum(t["gross"] for t in trades) / tot_notional
+    dw_fees = 100.0 * sum(t["fees"] for t in trades) / tot_notional
+    sd = (sum((x - mean_g) ** 2 for x in g) / (n - 1)) ** 0.5 if n > 1 else 0.0
+    # day-cluster: trips held CONCURRENTLY share one market path, so an
+    # iid SE over-counts independent observations (de Prado concurrency).
+    days = defaultdict(list)
+    for t in trades:
+        days[int((t["t_close"] or 0) // 86400)].append(t["gross_pct"])
+    gsum = [sum(v) for v in days.values()]
+    gcnt = [len(v) for v in days.values()]
+    G = len(days)
+    if G > 1 and sum(gcnt):
+        dmean = sum(gsum) / sum(gcnt)
+        num = sum((gs - gc * dmean) ** 2 for gs, gc in zip(gsum, gcnt, strict=True))
+        se_clu = (num ** 0.5) / sum(gcnt)
+    else:
+        se_clu = 0.0
+    se_iid = sd / (n ** 0.5) if n else 0.0
+    srt = sorted(trades, key=lambda t: t["gross_pct"], reverse=True)
+    drop5 = [t["gross_pct"] for t in srt[5:]]
+    mean_drop5 = sum(drop5) / len(drop5) if drop5 else 0.0
+
+    print("")
+    print("1b. DISPERSION - read this BEFORE the mean below")
+    print("   mean gross (equal-weighted) %+.4f%%   median %+.4f%%"
+          % (mean_g, med_g))
+    print("   DOLLAR-WEIGHTED gross       %+.4f%%   ($%+.2f on $%.2f)"
+          % (dw_gross, sum(t["gross"] for t in trades), tot_notional))
+    print("   dollar-weighted fees        %+.4f%%" % dw_fees)
+    print("   sd %.4f | SE iid %.4f t=%.3f | SE day-clustered %.4f t=%.3f (G=%d)"
+          % (sd, se_iid, (mean_g / se_iid) if se_iid else 0.0,
+             se_clu, (mean_g / se_clu) if se_clu else 0.0, G))
+    print("   drop top 5 of %d trades -> mean %+.4f%%" % (n, mean_drop5))
+    for lo, hi, lbl in ((0.0, 100.0, "  <$100"), (100.0, float("inf"), " >=$100")):
+        b = [t for t in trades if lo <= t["notional"] < hi]
+        if b:
+            bn = sum(t["notional"] for t in b)
+            print("   %s n=%-4d %5.1f%% of notional  mean %+.4f%%  dw %+.4f%%"
+                  % (lbl, len(b), 100.0 * bn / tot_notional,
+                     sum(t["gross_pct"] for t in b) / len(b),
+                     100.0 * sum(t["gross"] for t in b) / bn))
+    if se_clu and abs(mean_g) < 2.0 * se_clu:
+        print("   ** the equal-weighted mean is INSIDE 2x its clustered SE:")
+        print("   ** not distinguishable from zero. Do NOT quote a")
+        print("   ** 'fees vs gross' RATIO - the denominator contains zero.")
 
     print("\n2. WHAT EACH SCHEDULE IS WORTH (mean gross %+.4f%%)" % mean_g)
     for k, v in schedules.items():
