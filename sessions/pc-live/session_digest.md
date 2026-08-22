@@ -2,13 +2,13 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-22 13:29 UTC (1037.6h, ~2084 cycles)
+- Window: 2026-07-10 07:53 UTC -> 2026-08-22 14:29 UTC (1038.61h, ~2202 cycles)
 - Equity: $25,000.00 -> $805.04 (range $99,208.70) | realized PnL $6.96 | fees $4.58
 - Activity: 0 open | 346 live labeled trades | 14118 candidates | 290 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 346 | cold=False
-- Audit: 63403 records (28628 non-routine) | dominant SZ-047 (78% of non-routine) | chain_ok=False (tamper=False, seams=8) | retrain_requests 136
+- Audit: 63788 records (28637 non-routine) | dominant SZ-047 (78% of non-routine) | chain_ok=False (tamper=False, seams=8) | retrain_requests 136
 - Liquidity: spoofy 63% of classified cycles | feed errors 3
-- Recent (48h lens): 13662 audit records | dominant LB-010 (33% of non-routine) | retrain_requests 8 | spoofy 63%
+- Recent (48h lens): 13722 audit records | dominant LB-010 (33% of non-routine) | retrain_requests 8 | spoofy 63%
 
 ## Diagnostics
 - [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 63% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
