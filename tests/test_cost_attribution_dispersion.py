@@ -44,6 +44,22 @@ def test_tier1_is_the_expensive_row_not_the_conservative_one():
     assert ca.KRAKEN_T1_TAKER_BPS > ca.KRAKEN_T5_TAKER_BPS
 
 
+# Every early exit this tool can print on a corpus it cannot analyse:
+# cost_attribution.py:205 (no fills FILE) and :225 (fills, but no closed
+# trips). A guard naming only one of them is not a guard — the deploy
+# battery runs the suite in a CLEAN detached worktree with no outputs/,
+# so the file-absent path is the one it always takes. Measured
+# 2026-08-22: the PC's updater reported outcome=rejected with this test
+# named in battery_detail, and the box sat at 7a63ad1c refusing every
+# deploy until the second message was added here.
+_EMPTY_CORPUS = ("no closed positions", "no fills at")
+
+
+def _degraded(out: str) -> bool:
+    """True when the tool could not analyse anything — nothing to assert."""
+    return any(msg in out for msg in _EMPTY_CORPUS)
+
+
 def _run():
     p = subprocess.run(  # noqa: S603
         [sys.executable, str(ROOT / "scripts" / "cost_attribution.py")],
@@ -57,7 +73,7 @@ def test_dispersion_is_printed_before_the_mean():
     The section must exist AND precede the schedule table, because reading
     order is what actually failed here."""
     out = _run()
-    if "no closed positions" in out:
+    if _degraded(out):
         return                      # empty corpus: nothing to disperse
     assert "1b. DISPERSION" in out
     assert "DOLLAR-WEIGHTED gross" in out
@@ -71,7 +87,7 @@ def test_ratio_framing_is_refused_when_the_edge_contains_zero():
     """The specific error to prevent: quoting 'fees are Nx the gross edge'
     when the denominator is not distinguishable from zero."""
     out = _run()
-    if "no closed positions" in out or "INSIDE 2x" not in out:
+    if _degraded(out) or "INSIDE 2x" not in out:
         return                      # only asserts when the guard fires
     assert "Do NOT quote a" in out
     assert "denominator contains zero" in out
