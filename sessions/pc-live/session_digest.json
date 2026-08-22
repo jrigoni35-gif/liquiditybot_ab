@@ -1,20 +1,20 @@
 {
-  "generated_at": 1787416205.1292634,
+  "generated_at": 1787419805.005844,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787416190.0,
-    "duration_h": 1040.6
+    "end": 1787419803.0,
+    "duration_h": 1041.61
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 13962,
-      "signal_records": 526,
+      "records": 13858,
+      "signal_records": 524,
       "by_src": {
-        "exploration": 13436,
+        "exploration": 13334,
         "long_book": 370,
-        "ml_governor": 114,
+        "ml_governor": 112,
         "order_manager": 28,
         "conviction": 9,
         "exit": 3,
@@ -24,11 +24,11 @@
       "top_codes": [
         [
           "SZ-051",
-          6713
+          6662
         ],
         [
           "ML-070",
-          6713
+          6662
         ],
         [
           "LB-010",
@@ -44,15 +44,15 @@
         ],
         [
           "ML-016",
-          20
+          19
         ],
         [
           "ML-042",
-          20
+          19
         ],
         [
           "ML-041",
-          17
+          16
         ],
         [
           "OM-000",
@@ -72,67 +72,23 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.337,
-      "retrain_requests": 7,
+      "dominant_frac": 0.338,
+      "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 28190,
+      "records": 1375,
       "by_level": {
-        "INFO": 28024,
-        "WARNING": 160,
-        "ERROR": 3,
-        "CRITICAL": 3
+        "INFO": 1375
       },
-      "top_warnings": [
-        [
-          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          77
-        ],
-        [
-          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          18
-        ],
-        [
-          "turbulence spike: 39.2 (p97)",
-          16
-        ],
-        [
-          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          7
-        ],
-        [
-          "turbulence spike: 49.9 (p98)",
-          4
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "ML-074: trailing 24h label prior 0.68 skews from corpus prior 0.29 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
-          2
-        ],
-        [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          1
-        ],
-        [
-          "durable append failed (outputs\\equity.csv) - record lost, the action it describes is unaffected",
-          1
-        ]
-      ],
+      "top_warnings": [],
       "liquidity_tally": {
-        "spoofy": 4539,
-        "thin": 2977
+        "thin": 153,
+        "spoofy": 152
       },
-      "spoofy_frac": 0.604,
-      "cycles_estimate": 2439,
-      "feed_error_events": 3
+      "spoofy_frac": 0.498,
+      "cycles_estimate": 84,
+      "feed_error_events": 0
     }
   },
   "pnl": {
@@ -145,21 +101,21 @@
     "realized_pnl_total": 6.96,
     "fees_paid_total": 4.5756,
     "open_positions": 0,
-    "samples": 225261
+    "samples": 225499
   },
   "activity": {
-    "signal_rows_total": 14467,
+    "signal_rows_total": 14476,
     "live_labeled_trades": 346,
-    "candidate_rows": 14121
+    "candidate_rows": 14130
   },
   "audit": {
-    "records": 64688,
-    "signal_records": 28655,
+    "records": 65060,
+    "signal_records": 28665,
     "by_src": {
-      "exploration": 58808,
-      "ml_governor": 1679,
+      "exploration": 59170,
+      "ml_governor": 1681,
       "order_manager": 1545,
-      "long_book": 1350,
+      "long_book": 1358,
       "startup": 315,
       "fault": 296,
       "conviction": 271,
@@ -176,11 +132,11 @@
       ],
       [
         "ML-070",
-        19231
+        19412
       ],
       [
         "SZ-051",
-        16701
+        16882
       ],
       [
         "OM-000",
@@ -188,11 +144,11 @@
       ],
       [
         "LB-010",
-        826
+        830
       ],
       [
         "ML-031",
-        649
+        650
       ],
       [
         "OM-040",
@@ -207,12 +163,12 @@
         313
       ],
       [
-        "FT-020",
-        295
+        "LB-050",
+        297
       ],
       [
-        "LB-050",
-        293
+        "FT-020",
+        295
       ],
       [
         "ML-016",
@@ -221,7 +177,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.777,
-    "retrain_requests": 136,
+    "retrain_requests": 137,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -229,62 +185,18 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 28190,
+    "records": 1375,
     "by_level": {
-      "INFO": 28024,
-      "WARNING": 160,
-      "ERROR": 3,
-      "CRITICAL": 3
+      "INFO": 1375
     },
-    "top_warnings": [
-      [
-        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        77
-      ],
-      [
-        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        18
-      ],
-      [
-        "turbulence spike: 39.2 (p97)",
-        16
-      ],
-      [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        7
-      ],
-      [
-        "turbulence spike: 49.9 (p98)",
-        4
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "ML-074: trailing 24h label prior 0.68 skews from corpus prior 0.29 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
-        2
-      ],
-      [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        1
-      ],
-      [
-        "durable append failed (outputs\\equity.csv) - record lost, the action it describes is unaffected",
-        1
-      ]
-    ],
+    "top_warnings": [],
     "liquidity_tally": {
-      "spoofy": 4539,
-      "thin": 2977
+      "thin": 153,
+      "spoofy": 152
     },
-    "spoofy_frac": 0.604,
-    "cycles_estimate": 2439,
-    "feed_error_events": 3
+    "spoofy_frac": 0.498,
+    "cycles_estimate": 84,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
@@ -317,16 +229,10 @@
   },
   "diagnostics": [
     {
-      "id": "SD-003",
-      "severity": "warn",
-      "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 60% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
-    },
-    {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 34% of 526 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 524 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
@@ -335,5 +241,5 @@
       "detail": "8 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
-  "verdict": "SD-003 liquidity vetoed feed-wide"
+  "verdict": "SD-004 audit trail dominated by one code"
 }
