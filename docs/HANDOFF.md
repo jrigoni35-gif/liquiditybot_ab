@@ -73,6 +73,16 @@ means one execution-era reset instead of seven). Each item below alters
 entry decisioning, geometry, fills, or model schema — **all
 cohort-resetting, none shippable mid-era.**
 
+**BOUNDARY PRINCIPLE (2026-08-22, measured):** the regime-invariant
+edge is the **cost-aware rejection stack** — `SZ-030` net-Kelly f*<=0
+and `SZ-046` held 6.0% / 16.0% at identical n and identical separation
+straight through the 08-20 melt-up, while every admission-side number
+moved with the tape (admitted 24.7% -> 35.8%). Boundary #6 PROTECTS
+SZ-030 / SZ-023-derived-bar / SZ-046 and spends its budget on the
+volatile side. Deletions of rules shown to measure the wrong thing rank
+above additions. Authority:
+`docs/quant/2026-08-22_boundary_around_the_invariant_edge.md`.
+
 | id | one line | authority |
 |---|---|---|
 | ALGO-5 | stop widths + time-decay ladder at ~30 uncensored paths | CLAUDE.md (pre-named) |
