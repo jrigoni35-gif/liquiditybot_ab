@@ -27,6 +27,7 @@ shipped members below. Registry-hygiene pass 2026-08-17):
   RC  scripts.remote_control (git command-bus dispositions)
   XV  execution-truth harness (replay gate + fill-model calibration)
   LT  regime.liquidity_regime (asset liquidity-tier isolation)
+  CR  regime.correlation (cross-asset turbulence reading provenance)
   GL  execution.grid_ladder (logistic-armed grid entry ladder)
   HG  execution.hedging / main._hedge_actions (hedge-open new-risk gate)
   CV  risk.conviction (Compounder Phase A conviction formula)
@@ -462,6 +463,28 @@ class Code(str, Enum):
                                      # the tier scales the executability floors
                                      # (depth / spread) so a low-volume asset is
                                      # judged on its own scale, never ETH/BTC's
+
+    # ---- cross-asset correlation / turbulence (CR) — regime/correlation.py
+    CR_TURBULENCE_HELD = "CR-010"    # update_turbulence could not recompute
+                                     # (one of five early returns: too few
+                                     # usable assets, no / bad day step, too
+                                     # few shared daily bars, too few
+                                     # returns) and the PREVIOUS reading
+                                     # stands. That scalar feeds
+                                     # regime/macro_regime.py's crisis
+                                     # clause, so a held value keeps gating
+                                     # the whole book while looking fresh
+                                     # (2026-08-22 turbulence verification,
+                                     # D6: no timestamp, no sample count,
+                                     # no flag, no code existed). Latched:
+                                     # ONE emission per hold episode - the
+                                     # hourly recompute would otherwise
+                                     # reprise SZ-047 (63% of a 35,530-line
+                                     # audit trail). The live reason rides
+                                     # status.correlation.hold_reason.
+    CR_TURBULENCE_FRESH = "CR-011"   # a recompute succeeded after a CR-010
+                                     # episode: reading live again, stamped
+                                     # with computed_at + sample_count
 
     # ---- logistic-armed grid entry ladder (GL) — execution/grid_ladder.py -
     GL_PLANNED = "GL-000"            # ladder planned: N decay-sized maker rungs

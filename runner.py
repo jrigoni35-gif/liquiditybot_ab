@@ -1251,6 +1251,23 @@ class BotRunner:
             "signals": dict(getattr(bot, "last_signals", {})),
             "exec_algos": bot.algo.status() if hasattr(bot, "algo") else {},
             "regimes": regimes,
+            # cross-asset turbulence WITH its provenance (2026-08-22
+            # verification, D7: `grep -rn "turbulence" core/ api/` returned
+            # nothing - the scalar that can set macro=crisis on every asset
+            # at once reached no operator surface at all). stale/hold_reason
+            # say whether this reading was recomputed or held (CR-010), and
+            # computed_at/sample_count say when and on how many returns, so
+            # a frozen crisis value is finally distinguishable from a live
+            # one. Report-only: nothing reads these keys back.
+            "correlation": {
+                "turbulence": round(_cst.turbulence, 3),
+                "turbulence_pct": round(_cst.turbulence_pct, 2),
+                "computed_at": round(float(_cst.computed_at), 3),
+                "sample_count": int(_cst.sample_count),
+                "stale": bool(_cst.stale),
+                "hold_reason": str(_cst.hold_reason),
+            } if (_cst := getattr(getattr(bot, "corr", None), "state", None)
+                  ) is not None else {},
             "haven": haven_state,
             "sentiment": {"score": round(sent.score, 3),
                           "fear": sent.fear_spike,

@@ -15,11 +15,13 @@ Cross-asset structure monitoring:
 """
 
 import logging
+import time
 from dataclasses import dataclass, field
 from itertools import combinations
 
 import numpy as np
 
+from core.codes import Code, tag
 from core.sanitize import safe_float
 
 log = logging.getLogger("liquiditybot.regime.correlation")
@@ -43,6 +45,26 @@ class CorrState:
     # reports warm-assumed so their behavior stays byte-identical.
     # Populated by CorrelationEngine.update_intraday with real counts.
     samples: dict = field(default_factory=dict)
+    # --- turbulence provenance (2026-08-22 instrument verification, D6) --
+    # update_turbulence has FIVE early returns that leave the previous
+    # turbulence/turbulence_pct standing. Before these fields a held
+    # reading was byte-identical to a freshly computed one: no age, no
+    # sample count, no flag, no code - a feed outage could freeze the
+    # scalar (possibly at a crisis value) with nothing surfacing it.
+    # APPENDED with defaults: every pre-existing constructor, stub and
+    # restored snapshot builds the legacy state (computed_at 0.0 =
+    # "never computed", stale False, no hold reason) unchanged.
+    computed_at: float = 0.0     # wall-clock epoch of the last SUCCESSFUL
+                                 # turbulence computation; 0.0 = never
+    sample_count: int = 0        # shared daily bars behind that reading,
+                                 # counted as RETURNS (R.shape[0]) - the
+                                 # percentile denominator, and the unit the
+                                 # >= 40 floor below is stated in. The
+                                 # joined bar count is exactly one higher.
+    stale: bool = False          # True when the last update HELD the prior
+                                 # reading instead of recomputing it
+    hold_reason: str = ""        # which early return held it (slug; see
+                                 # CorrelationEngine._hold_turbulence)
 
     _WARM_ASSUMED = 10**9      # legacy sentinel: warmth was never tracked
 
@@ -96,7 +118,15 @@ class _EwmaCov:
 
 
 class CorrelationEngine:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, crisis_pct: float | None = None):
+        """`config` is the `correlation` block. `crisis_pct` is the ONE
+        crisis percentile the system decides on (`regime.crisis_vol_pct`,
+        read by regime/macro_regime.py) - passed in, never re-declared:
+        the operator warning below used to carry its own hardcoded 95, a
+        second copy of that threshold, so editing the config silently
+        desynchronised the log from the decision (2026-08-22 turbulence
+        verification, §4). The default reproduces the shipped value for
+        every caller that does not supply it."""
         cfg = config or {}
         self.fast = _EwmaCov(float(cfg.get("lambda_fast", 0.94)))
         self.slow = _EwmaCov(float(cfg.get("lambda_slow", 0.997)))
@@ -126,6 +156,14 @@ class CorrelationEngine:
         # once on the False->True TRANSITION; the ongoing state stays
         # visible at DEBUG and in st.shifted/st.corr_shift for status.
         self._was_shifted = False
+        self.crisis_pct = float(95.0 if crisis_pct is None else crisis_pct)
+        # turbulence hold latch: the held/recovered codes fire ONLY on the
+        # state TRANSITION, never per cycle. update_turbulence runs hourly
+        # per asset-universe refresh and a feed outage persists for hours,
+        # so a per-cycle emission would repeat the SZ-047 failure (one code
+        # at 63% of a 35,530-record audit trail). The CURRENT reason stays
+        # continuously readable on state.stale/state.hold_reason.
+        self._turb_held = False
 
     # --- per-cycle intraday returns (5m cadence) -----------------------
     def _stage_intraday(self, closes: dict, bar_ts) -> dict:
@@ -255,6 +293,35 @@ class CorrelationEngine:
         return self.state
 
     # --- daily turbulence (Kritzman-Li) --------------------------------
+    def _hold_turbulence(self, reason: str) -> CorrState:
+        """Stamp the reading as HELD and return it unchanged.
+
+        Every early return in update_turbulence leaves the PREVIOUS
+        turbulence scalar standing - which is the right behavior (a
+        half-joined day is worse than yesterday's number), but before
+        this it was indistinguishable from a fresh computation. The
+        scalar reaches regime/macro_regime.py's crisis clause, so a feed
+        outage could hold it at a crisis value indefinitely with nothing
+        surfacing it (2026-08-22 verification, D6).
+
+        `reason` is a short stable slug naming WHICH early return held
+        it: few_assets / no_step / bad_step / few_shared_bars /
+        few_returns. The code fires on the TRANSITION only.
+        """
+        st = self.state
+        st.stale = True
+        st.hold_reason = reason
+        if not self._turb_held:
+            self._turb_held = True
+            log.warning(tag(
+                Code.CR_TURBULENCE_HELD,
+                f"turbulence held ({reason}) - the previous reading "
+                f"(t={st.turbulence:.1f}, p{st.turbulence_pct:.0f}, "
+                f"n={st.sample_count}) stands and is being consumed as "
+                f"if fresh; one log per hold episode, live state on "
+                f"status.correlation.stale/hold_reason"))
+        return st
+
     def update_turbulence(self, daily_candles_by_asset: dict) -> CorrState:
         """daily_candles_by_asset: asset -> list of daily candle dicts
         (oldest-first, each carrying its bar-open `time`).
@@ -284,7 +351,7 @@ class CorrelationEngine:
             if len(by_ts) >= 60:
                 prepped[asset] = by_ts
         if len(prepped) < 2:
-            return self.state
+            return self._hold_turbulence("few_assets")
         # 2. one shared day lattice. Venues label the same trading day at
         #    different hours (OKX "1D" rolls 00:00 Hong Kong = 16:00 UTC,
         #    Kraken interval=1440 rolls 00:00 UTC), so an exact-timestamp
@@ -300,11 +367,11 @@ class CorrelationEngine:
             if d:
                 steps.append(d[len(d) // 2])
         if not steps:
-            return self.state
+            return self._hold_turbulence("no_step")
         steps.sort()
         step = steps[len(steps) // 2]
         if step <= 0:
-            return self.state
+            return self._hold_turbulence("bad_step")
         keyed = {a: {round(t / step): px for t, px in by_ts.items()}
                  for a, by_ts in prepped.items()}
         assets = sorted(keyed)
@@ -313,7 +380,7 @@ class CorrelationEngine:
             log.debug("turbulence: only %d shared daily bars across %d "
                     "assets - holding the previous reading",
                     len(shared), len(assets))
-            return self.state
+            return self._hold_turbulence("few_shared_bars")
         days = shared[-(self.turb_lookback + 1):]
         R = np.column_stack([
             np.diff(np.log(np.maximum(
@@ -321,7 +388,7 @@ class CorrelationEngine:
             for a in assets
         ])                                            # (len(days)-1, A)
         if R.shape[0] < 40:
-            return self.state
+            return self._hold_turbulence("few_returns")
         mu = R.mean(axis=0)
         cov = np.cov(R, rowvar=False)
         cov += np.eye(cov.shape[0]) * (np.trace(cov) / cov.shape[0]) * 0.05  # shrink
@@ -332,7 +399,22 @@ class CorrelationEngine:
         d = np.einsum("ij,jk,ik->i", R - mu, inv, R - mu)  # Mahalanobis^2 series
         self.state.turbulence = float(d[-1])
         self.state.turbulence_pct = float((d < d[-1]).mean() * 100.0)
-        if self.state.turbulence_pct >= 95:
+        # provenance stamp: this pass RECOMPUTED the scalar. wall clock,
+        # telemetry only - no decision reads it (same lane as the
+        # engine's _mark_wall_ts freshness stamps).
+        self.state.computed_at = float(time.time())
+        self.state.sample_count = int(R.shape[0])
+        if self._turb_held:
+            self._turb_held = False
+            log.info(tag(
+                Code.CR_TURBULENCE_FRESH,
+                f"turbulence recomputed after a hold "
+                f"({self.state.sample_count} returns across "
+                f"{len(assets)} assets) - reading is live again"))
+        self.state.stale = False
+        self.state.hold_reason = ""
+        if self.state.turbulence_pct >= self.crisis_pct:
             log.warning(f"turbulence spike: {self.state.turbulence:.1f} "
-                        f"(p{self.state.turbulence_pct:.0f})")
+                        f"(p{self.state.turbulence_pct:.0f} >= "
+                        f"p{self.crisis_pct:.0f})")
         return self.state

@@ -2577,6 +2577,64 @@ def validate(config: dict) -> list:
               f"{mom_bear} must be in [-1, 0) and momentum_bull_min="
               f"{mom_bull} in (0, 1] (TSMOM score is a mean of signs)")
 
+    # --- crisis percentile + the correlation/turbulence block -------------
+    # Both were entirely unguarded (2026-08-22 turbulence verification, §4):
+    # zero occurrences of crisis_vol_pct / turbulence / correlation. in this
+    # file, while the neighbouring regime.momentum_* and all of vol_regime.*
+    # are bounded. crisis_vol_pct is the ONE constant that decides
+    # regime/macro_regime.py's crisis label, which sets allow_new: False for
+    # the whole book, so a value outside the percentile domain is not a
+    # shading error - it is an always-on or never-on safety gate.
+    crisis_pct = float(_f(config, "regime.crisis_vol_pct", 95.0))
+    if not (0.0 < crisis_pct <= 100.0):
+        fatal(f"regime.crisis_vol_pct={crisis_pct} is not a percentile - it "
+              f"is compared against vol_percentile and turbulence_pct, both "
+              f"0-100 ranks, so <= 0 labels EVERY asset crisis (allow_new: "
+              f"False feed-wide) and > 100 can never fire")
+    bull_vol_pct = float(_f(config, "regime.bull_volatile_vol_pct", 70.0))
+    if crisis_pct <= bull_vol_pct:
+        warn(f"regime.crisis_vol_pct={crisis_pct} sits at/below "
+             f"bull_volatile_vol_pct={bull_vol_pct} - the crisis cut must be "
+             f"the more extreme of the two or the volatile band is dead "
+             f"config that crisis always swallows first")
+
+    # correlation block: EWMA decay pair + the turbulence window. The
+    # lookback bound is not a taste call - regime/correlation.py takes
+    # days = shared[-(lookback + 1):] and then hard-floors the return
+    # matrix at 40 rows, so any lookback under 40 makes that floor
+    # unreachable and the index NEVER recomputes (it would hold its
+    # initial 50.0 forever while reading as a live number).
+    turb_lb = _f(config, "correlation.turbulence_lookback_days", 250)
+    try:
+        turb_lb = int(turb_lb)
+    except (TypeError, ValueError):
+        fatal(f"correlation.turbulence_lookback_days ({turb_lb!r}) is not an "
+              f"integer number of days")
+        turb_lb = 250
+    if turb_lb < 40:
+        fatal(f"correlation.turbulence_lookback_days={turb_lb} is below the "
+              f"40-return floor regime/correlation.py enforces - the "
+              f"turbulence index could never recompute, and a permanently "
+              f"held reading is indistinguishable from a live one at the "
+              f"crisis comparison")
+    lam_fast = float(_f(config, "correlation.lambda_fast", 0.94))
+    lam_slow = float(_f(config, "correlation.lambda_slow", 0.997))
+    for _name, _lam in (("lambda_fast", lam_fast), ("lambda_slow", lam_slow)):
+        if not (0.0 < _lam < 1.0):
+            fatal(f"correlation.{_name}={_lam} must be in (0, 1) - it is a "
+                  f"RiskMetrics EWMA decay; outside that the estimator "
+                  f"either never updates or never forgets")
+    if lam_fast >= lam_slow:
+        warn(f"correlation.lambda_fast={lam_fast} >= lambda_slow={lam_slow} "
+             f"- the fast estimator must decay FASTER (smaller lambda) or "
+             f"the fast-minus-slow correlation shift signal is inverted/dead")
+    shift_thr = float(_f(config, "correlation.shift_threshold", 0.25))
+    if not (0.0 < shift_thr <= 2.0):
+        warn(f"correlation.shift_threshold={shift_thr} is outside (0, 2] - "
+             f"the shift is a difference of two correlations, so <= 0 marks "
+             f"the book shifted on every update and > 2 can never fire "
+             f"(telemetry/logging only, hence WARN not FATAL)")
+
     # --- liquidity regime: whiplash detector coherence --------------------
     # whiplash is the std of an imbalance ratio clamped to [0, 3], so it is
     # structurally bounded by 1.5. Outside (0, 1.5) the detector is not a

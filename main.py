@@ -783,7 +783,14 @@ class LiquidityBot:
         _lr = config.get("liquidity_regime", {})
         self._wl_p95 = float(_lr.get("whiplash_healthy_p95", 1.27))
         self._wl_thr = float(_lr.get("imbalance_whiplash_threshold", 1.45))
-        self.corr = CorrelationEngine(config.get("correlation", {}))
+        # crisis_pct is taken from the MACRO ENGINE's own attribute, not
+        # re-read from config: regime/macro_regime.py is what actually
+        # decides on regime.crisis_vol_pct, and correlation.py's
+        # operator warning used to carry a second hardcoded copy of it
+        # (2026-08-22 turbulence verification, §4). One quantity, one
+        # derivation - the warning cannot desynchronise from the gate.
+        self.corr = CorrelationEngine(config.get("correlation", {}),
+                                      crisis_pct=self.macro.crisis_vol_pct)
         self.fv = FairValueEngine(config.get("fair_value", {}))
         self.quoter = AvellanedaStoikovQuoter(config.get("market_maker", {}))
         self.inventory = InventoryManager(config.get("inventory", {}))
