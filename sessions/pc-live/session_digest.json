@@ -1,34 +1,32 @@
 {
-  "generated_at": 1787430609.6773372,
+  "generated_at": 1787434211.4385087,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787430600.0,
-    "duration_h": 1044.61
+    "end": 1787434210.59,
+    "duration_h": 1045.61
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 13880,
-      "signal_records": 524,
+      "records": 13869,
+      "signal_records": 519,
       "by_src": {
-        "exploration": 13356,
-        "long_book": 370,
-        "ml_governor": 112,
+        "exploration": 13350,
+        "long_book": 367,
+        "ml_governor": 114,
         "order_manager": 28,
-        "conviction": 9,
-        "exit": 3,
-        "startup": 1,
-        "fault": 1
+        "conviction": 7,
+        "exit": 3
       },
       "top_codes": [
         [
           "SZ-051",
-          6673
+          6670
         ],
         [
           "ML-070",
-          6673
+          6670
         ],
         [
           "LB-010",
@@ -40,19 +38,19 @@
         ],
         [
           "ML-031",
-          47
+          46
         ],
         [
           "ML-016",
-          19
+          20
         ],
         [
           "ML-042",
-          19
+          20
         ],
         [
           "ML-041",
-          17
+          18
         ],
         [
           "OM-000",
@@ -67,25 +65,25 @@
           10
         ],
         [
-          "LB-000",
+          "LB-021",
           8
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.338,
+      "dominant_frac": 0.341,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 5398,
+      "records": 6796,
       "by_level": {
-        "INFO": 5390,
-        "WARNING": 8
+        "INFO": 6782,
+        "WARNING": 14
       },
       "top_warnings": [
         [
           "turbulence spike: 39.2 (p97)",
-          3
+          4
         ],
         [
           "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -102,14 +100,34 @@
         [
           "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
+        ],
+        [
+          "ML-080: exit-reason mix drift tvd=0.577 over trailing 24h (520/14390 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+          1
+        ],
+        [
+          "auto-retrain: 4215 rows (42 new)",
+          1
+        ],
+        [
+          "control: stop  -> ok (runner=RUNNING)",
+          1
+        ],
+        [
+          "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'LTC/USD', 'DOGE/USD', 'DOT/USD', 'LINK/USD']",
+          1
+        ],
+        [
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 797,
-        "thin": 422
+        "spoofy": 1026,
+        "thin": 514
       },
-      "spoofy_frac": 0.654,
-      "cycles_estimate": 407,
+      "spoofy_frac": 0.666,
+      "cycles_estimate": 520,
       "feed_error_events": 0
     }
   },
@@ -123,21 +141,21 @@
     "realized_pnl_total": 6.96,
     "fees_paid_total": 4.5756,
     "open_positions": 0,
-    "samples": 226209
+    "samples": 226437
   },
   "activity": {
-    "signal_rows_total": 14539,
+    "signal_rows_total": 14562,
     "live_labeled_trades": 346,
-    "candidate_rows": 14193
+    "candidate_rows": 14216
   },
   "audit": {
-    "records": 66070,
-    "signal_records": 28695,
+    "records": 66415,
+    "signal_records": 28706,
     "by_src": {
-      "exploration": 60150,
-      "ml_governor": 1687,
+      "exploration": 60484,
+      "ml_governor": 1690,
       "order_manager": 1545,
-      "long_book": 1382,
+      "long_book": 1390,
       "startup": 315,
       "fault": 296,
       "conviction": 271,
@@ -154,11 +172,11 @@
       ],
       [
         "ML-070",
-        19902
+        20069
       ],
       [
         "SZ-051",
-        17372
+        17539
       ],
       [
         "OM-000",
@@ -166,7 +184,7 @@
       ],
       [
         "LB-010",
-        842
+        846
       ],
       [
         "ML-031",
@@ -186,7 +204,7 @@
       ],
       [
         "LB-050",
-        309
+        313
       ],
       [
         "FT-020",
@@ -194,7 +212,7 @@
       ],
       [
         "ML-016",
-        277
+        278
       ]
     ],
     "dominant_code": "SZ-047",
@@ -207,15 +225,15 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 5398,
+    "records": 6796,
     "by_level": {
-      "INFO": 5390,
-      "WARNING": 8
+      "INFO": 6782,
+      "WARNING": 14
     },
     "top_warnings": [
       [
         "turbulence spike: 39.2 (p97)",
-        3
+        4
       ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -232,21 +250,41 @@
       [
         "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.577 over trailing 24h (520/14390 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 4215 rows (42 new)",
+        1
+      ],
+      [
+        "control: stop  -> ok (runner=RUNNING)",
+        1
+      ],
+      [
+        "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'LTC/USD', 'DOGE/USD', 'DOT/USD', 'LINK/USD']",
+        1
+      ],
+      [
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 797,
-      "thin": 422
+      "spoofy": 1026,
+      "thin": 514
     },
-    "spoofy_frac": 0.654,
-    "cycles_estimate": 407,
+    "spoofy_frac": 0.666,
+    "cycles_estimate": 520,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.21887257040722363,
+    "champion_brier": 0.21608863667204717,
     "brier": "n/a",
     "history_rows": 346,
     "cold": false
@@ -276,13 +314,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 65% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 67% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 34% of 524 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 519 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
