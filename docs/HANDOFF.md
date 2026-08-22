@@ -83,6 +83,17 @@ volatile side. Deletions of rules shown to measure the wrong thing rank
 above additions. Authority:
 `docs/quant/2026-08-22_boundary_around_the_invariant_edge.md`.
 
+**LOOP ALIGNMENT (2026-08-22):** the operator->bot->market->analysis loop
+is structurally sound and internally consistent, and mis-anchored at ONE
+point: decision-side (`pretrade.*_fee_bps` -> SZ-030 / derived p-bar) and
+booking-side (`order_manager.*_fee_bps`) read the SAME understated
+constant, so the loop cannot self-detect it — only the independent
+measurement route (`cost_truth_report`) could, and did. Protecting the
+veto RULES does not mean freezing their COST ANCHOR; correcting it makes
+them stricter, which is the safe direction. Boundary #6 order: FEE-1+FEE-2
+bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
+`docs/quant/2026-08-22_loop_alignment_audit.md`.
+
 | id | one line | authority |
 |---|---|---|
 | ALGO-5 | stop widths + time-decay ladder at ~30 uncensored paths | CLAUDE.md (pre-named) |
