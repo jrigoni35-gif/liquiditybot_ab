@@ -1,20 +1,20 @@
 {
-  "generated_at": 1787423406.2814925,
+  "generated_at": 1787427007.9479053,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787423395.0,
-    "duration_h": 1042.61
+    "end": 1787427006.0,
+    "duration_h": 1043.61
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 13801,
-      "signal_records": 521,
+      "records": 13806,
+      "signal_records": 524,
       "by_src": {
-        "exploration": 13280,
+        "exploration": 13282,
         "long_book": 370,
-        "ml_governor": 109,
+        "ml_governor": 112,
         "order_manager": 28,
         "conviction": 9,
         "exit": 3,
@@ -24,11 +24,11 @@
       "top_codes": [
         [
           "SZ-051",
-          6635
+          6636
         ],
         [
           "ML-070",
-          6635
+          6636
         ],
         [
           "LB-010",
@@ -44,15 +44,15 @@
         ],
         [
           "ML-016",
-          18
+          19
         ],
         [
           "ML-042",
-          18
+          19
         ],
         [
           "ML-041",
-          16
+          17
         ],
         [
           "OM-000",
@@ -72,32 +72,40 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.34,
+      "dominant_frac": 0.338,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 2697,
+      "records": 3968,
       "by_level": {
-        "INFO": 2695,
-        "WARNING": 2
+        "INFO": 3962,
+        "WARNING": 6
       },
       "top_warnings": [
         [
           "turbulence spike: 39.2 (p97)",
-          1
+          2
         ],
         [
           "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          2
+        ],
+        [
+          "ML-080: exit-reason mix drift tvd=0.596 over trailing 24h (529/14348 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+          1
+        ],
+        [
+          "auto-retrain: 4173 rows (33 new)",
           1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 358,
-        "thin": 240
+        "spoofy": 579,
+        "thin": 327
       },
-      "spoofy_frac": 0.599,
-      "cycles_estimate": 188,
+      "spoofy_frac": 0.639,
+      "cycles_estimate": 289,
       "feed_error_events": 0
     }
   },
@@ -111,21 +119,21 @@
     "realized_pnl_total": 6.96,
     "fees_paid_total": 4.5756,
     "open_positions": 0,
-    "samples": 225735
+    "samples": 225973
   },
   "activity": {
-    "signal_rows_total": 14497,
+    "signal_rows_total": 14504,
     "live_labeled_trades": 346,
-    "candidate_rows": 14151
+    "candidate_rows": 14158
   },
   "audit": {
-    "records": 65381,
-    "signal_records": 28674,
+    "records": 65703,
+    "signal_records": 28686,
     "by_src": {
-      "exploration": 59482,
-      "ml_governor": 1682,
+      "exploration": 59792,
+      "ml_governor": 1686,
       "order_manager": 1545,
-      "long_book": 1366,
+      "long_book": 1374,
       "startup": 315,
       "fault": 296,
       "conviction": 271,
@@ -142,11 +150,11 @@
       ],
       [
         "ML-070",
-        19568
+        19723
       ],
       [
         "SZ-051",
-        17038
+        17193
       ],
       [
         "OM-000",
@@ -154,11 +162,11 @@
       ],
       [
         "LB-010",
-        834
+        838
       ],
       [
         "ML-031",
-        651
+        652
       ],
       [
         "OM-040",
@@ -174,7 +182,7 @@
       ],
       [
         "LB-050",
-        301
+        305
       ],
       [
         "FT-020",
@@ -182,11 +190,11 @@
       ],
       [
         "ML-016",
-        276
+        277
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.777,
+    "dominant_frac": 0.776,
     "retrain_requests": 137,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -195,34 +203,42 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 2697,
+    "records": 3968,
     "by_level": {
-      "INFO": 2695,
-      "WARNING": 2
+      "INFO": 3962,
+      "WARNING": 6
     },
     "top_warnings": [
       [
         "turbulence spike: 39.2 (p97)",
-        1
+        2
       ],
       [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        2
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.596 over trailing 24h (529/14348 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 4173 rows (33 new)",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 358,
-      "thin": 240
+      "spoofy": 579,
+      "thin": 327
     },
-    "spoofy_frac": 0.599,
-    "cycles_estimate": 188,
+    "spoofy_frac": 0.639,
+    "cycles_estimate": 289,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.2212267565669152,
+    "champion_brier": 0.21887257040722363,
     "brier": "n/a",
     "history_rows": 346,
     "cold": false
@@ -252,13 +268,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 60% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 64% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 34% of 521 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 524 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
