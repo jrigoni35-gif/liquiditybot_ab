@@ -436,10 +436,25 @@ def test_log_honors_root_and_never_touches_the_repo_log(tmp_path):
     assert after == before, "test logging leaked into the production log"
 
 
-def test_runner_down_note_lands_in_the_caller_root(repos):
+def test_runner_down_note_lands_in_the_caller_root(repos, tmp_path,
+                                                   monkeypatch):
     """The whole poll path must be root-scoped, not just _log: the
-    runner-down branch is the exact line that flooded the real log."""
+    runner-down branch is the exact line that flooded the real log.
+
+    rc.OUT IS REDIRECTED TO A TEMP DIR, and that is load-bearing. This test
+    previously read the LIVE outputs/remote_control.log as its "production
+    log" control, then asserted it was unchanged across the poll. But
+    pc_supervisor spawns remote_control.py --poll every REMOTE_CMD_SEC=120s
+    against that very file, so the assertion raced the running bot and failed
+    whenever an ~8 minute suite straddled a write (observed 2026-08-23: log
+    mtime 16:57:12 on a 120s cadence, one failure in 3991). Reading live
+    mutable state as a fixture is the defect - USAGE.md rule (c). The INTENT
+    (poll_once must not write into rc.OUT) is preserved exactly; only the
+    file it is checked against is now one nothing else can touch."""
     root, _ = repos
+    fake_out = tmp_path / "prod_outputs"
+    fake_out.mkdir()
+    monkeypatch.setattr(rc, "OUT", fake_out)
     rc.send_command("pause", root=root)
     (root / "outputs" / "status.json").write_text(
         json.dumps({"written_at": time.time() - 900}), encoding="utf-8")

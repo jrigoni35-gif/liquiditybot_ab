@@ -2111,8 +2111,22 @@ class LiquidityBot:
             # scalped, the ground truth the manip gate tries to pre-empt.
             _mk = getattr(self, "markout", None)
             if _mk is not None:
+                # mid AT FILL, from the SAME trusted-mark source the horizons
+                # resolve against, so the decomposition is apples-to-apples.
+                # Gated on freshness: a stale mark yields NO decomposition
+                # (mid0=None) rather than a wrong one - markout_bps is
+                # unaffected either way. Without this the spread-capture term
+                # cannot be separated from alpha and a maker's captured
+                # half-spread reads as predictive edge (see markout.py).
+                _mid0 = None
+                try:
+                    if self._mark_fresh(order.symbol, now):
+                        _mid0 = self.marks.get(order.symbol)
+                except Exception:       # noqa: BLE001 - telemetry, never fatal
+                    _mid0 = None
                 _mk.record_fill(order.symbol, self._asset_of(order.symbol),
-                                order.side, event.fill_price, now)
+                                order.side, event.fill_price, now,
+                                mid_at_fill=_mid0)
             fee_seen_delta = order.fees_usd - order.meta.get("_fees_seen", 0.0)
             pos.fees_paid_usd += fee_seen_delta
             pos.entry_fees_usd += fee_seen_delta

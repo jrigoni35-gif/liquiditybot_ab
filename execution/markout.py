@@ -23,6 +23,44 @@ This module takes NO trading decision — it is measurement only, surfaced in
 status.json and as metrics. It reads only the trusted mark handed in by the
 caller (an is_fresh predicate defers measurement on a stale/dark feed rather
 than fabricating a mark-out off a frozen price).
+
+=== DECOMPOSITION (2026-08-23) — READ THIS BEFORE CALLING markout_bps AN EDGE
+
+markout_bps above is the SUM of two things that mean opposite-ly different
+things, and for a PASSIVE fill the first one dominates:
+
+    markout   = sgn*(mid_fill - fill_price)/fill_price     SPREAD CAPTURE
+              + sgn*(mark     - mid_fill  )/mid_fill       ALPHA
+              (an identity, up to the differing denominators)
+
+SPREAD CAPTURE is fixed at the instant of fill and carries NO forward
+information. A maker who buys at the bid has the mid sitting half a spread
+above their price *by construction* - that is revenue for providing
+liquidity, and it is real, but it is not prediction. Measured in a synthetic
+market with PROVABLY ZERO alpha (driftless random walk, 6000 paths): the
+shipped fill rule reported markout -0.484/-0.492/-0.467 bps at 1/6/12 steps
+with t=-36.7, and a price-time-priority rule reported +0.451/+0.398/+0.504
+with t=+11.0. Both are exactly -/+ the half-spread. NEITHER is alpha; there
+was none to find. Flatness across horizons is likewise NOT diagnostic - both
+rules are flat in a market with no alpha at all.
+
+ALPHA is the mid-to-mid remainder, and it is the half worth watching.
+
+WHAT THIS DOES AND DOES NOT FIX - stated because the first version of this
+note overclaimed it. Planting a KNOWN alpha (+0.06 bps/step) in the same
+harness: the estimator has real power (recovers it, t up to 13.9) but is NOT
+fill-rule invariant - at horizon 6 the true 0.360 came back as 0.275 under
+the crossing rule and 0.740 under price-time priority. Removing the spread
+term does NOT remove FILL-TIME SELECTION: each fill rule fills at
+systematically different moments, and with drift, when you fill determines
+your forward window.
+
+So: alpha_bps is strictly better than markout_bps as an edge proxy, and it is
+still NOT a clean one. Treat a nonzero alpha_bps as a hypothesis to verify by
+another route, never as a measured edge.
+
+Populated only when the caller passes mid_at_fill to record_fill(); absent
+otherwise, and markout_bps is unchanged either way.
 """
 import logging
 from collections import defaultdict, deque
@@ -45,14 +83,29 @@ class MarkoutTracker:
                                     if float(h) > 0.0})
         self.window = int(cfg.get("window", 200))       # rolling obs per bucket
         self.grace_sec = float(cfg.get("grace_sec", 15.0))  # wait for a fresh mark
-        self._pending: deque = deque()   # [symbol, asset, sgn, price, t0, done set]
+        # [symbol, asset, sgn, price, t0, done set, mid_at_fill|None]
+        self._pending: deque = deque()
         self._obs: dict = defaultdict(lambda: deque(maxlen=self.window))  # (asset,h)->bps
+        # ALPHA: the mid-to-mid component, populated only when the caller
+        # supplies mid_at_fill. See the DECOMPOSITION note in the module
+        # docstring. It removes the SPREAD term exactly; it does NOT remove
+        # fill-time selection, and is therefore better than markout_bps as an
+        # edge proxy without being a clean one. (An earlier draft of this
+        # comment claimed invariance - measured false, and left corrected
+        # rather than deleted.)
+        self._alpha: dict = defaultdict(lambda: deque(maxlen=self.window))
+        self._scap: dict = defaultdict(lambda: deque(maxlen=self.window))
 
     # ------------------------------------------------------------------
     def record_fill(self, symbol: str, asset: str, side: str,
-                    price: float, now: float):
+                    price: float, now: float, mid_at_fill: float | None = None):
         """Enqueue a NEW-risk fill for mark-out measurement. `side` is the
-        ORDER side ('buy'/'sell'); a buy is a long entry, a sell a short."""
+        ORDER side ('buy'/'sell'); a buy is a long entry, a sell a short.
+
+        `mid_at_fill` is OPTIONAL and backward-compatible (None -> only
+        markout_bps is produced, exactly as before). Supplying it unlocks the
+        decomposition documented at the top of this module, which is the only
+        way to tell captured spread apart from predictive edge."""
         if not self.enabled or not self.horizons_sec:
             return
         try:
@@ -61,8 +114,15 @@ class MarkoutTracker:
             return
         if not (price > 0.0):
             return
+        try:
+            mid0 = float(mid_at_fill) if mid_at_fill is not None else None
+        except (TypeError, ValueError):
+            mid0 = None
+        if mid0 is not None and not (mid0 > 0.0):
+            mid0 = None
         sgn = 1.0 if side == "buy" else -1.0
-        self._pending.append([symbol, asset, sgn, price, float(now), set()])
+        self._pending.append([symbol, asset, sgn, price, float(now), set(),
+                              mid0])
 
     def poll(self, marks: dict, now: float, is_fresh=None):
         """Resolve due horizons against the trusted mark. `is_fresh(symbol,
@@ -74,7 +134,7 @@ class MarkoutTracker:
         last_h = self.horizons_sec[-1]
         still: deque = deque()
         for rec in self._pending:
-            symbol, asset, sgn, price, t0, done = rec
+            symbol, asset, sgn, price, t0, done, mid0 = rec
             age = now - t0
             for h in self.horizons_sec:
                 if h in done or age < h:
@@ -83,6 +143,16 @@ class MarkoutTracker:
                 fresh = is_fresh is None or bool(is_fresh(symbol, now))
                 if mark and mark > 0.0 and fresh:
                     self._obs[(asset, h)].append(sgn * (mark - price) / price * 1e4)
+                    if mid0:
+                        # SPREAD CAPTURE is fixed at the instant of fill and
+                        # carries no forward information at all; ALPHA is the
+                        # mid-to-mid remainder. Splitting them is the only way
+                        # to stop a maker's captured half-spread reading as
+                        # predictive edge on the summary line.
+                        self._scap[(asset, h)].append(
+                            sgn * (mid0 - price) / price * 1e4)
+                        self._alpha[(asset, h)].append(
+                            sgn * (mark - mid0) / mid0 * 1e4)
                     done.add(h)
                 elif age >= h + self.grace_sec:
                     done.add(h)                 # gave up: no fresh mark in time
@@ -101,8 +171,16 @@ class MarkoutTracker:
             if not dq:
                 continue
             key = str(int(h))
-            out["by_asset"].setdefault(asset, {})[key] = {
-                "markout_bps": round(sum(dq) / len(dq), 2), "n": len(dq)}
+            cell = {"markout_bps": round(sum(dq) / len(dq), 2), "n": len(dq)}
+            # Appended, never substituted: markout_bps keeps its meaning and
+            # its place, so every existing reader and dashboard is unchanged.
+            sc = self._scap.get((asset, h))
+            al = self._alpha.get((asset, h))
+            if sc and al:
+                cell["spread_capture_bps"] = round(sum(sc) / len(sc), 2)
+                cell["alpha_bps"] = round(sum(al) / len(al), 2)
+                cell["decomposed_n"] = len(al)
+            out["by_asset"].setdefault(asset, {})[key] = cell
             pooled[h].extend(dq)
         for h, vals in pooled.items():
             out["overall"][str(int(h))] = {
@@ -135,8 +213,9 @@ class MarkoutTracker:
         return {
             "pending": [
                 {"symbol": symbol, "asset": asset, "sgn": sgn,
-                 "price": price, "t0": t0, "done": sorted(done)}
-                for symbol, asset, sgn, price, t0, done in self._pending
+                 "price": price, "t0": t0, "done": sorted(done),
+                 "mid0": mid0}
+                for symbol, asset, sgn, price, t0, done, mid0 in self._pending
             ],
             "obs": {f"{asset}{_OBS_KEY_SEP}{h}": list(dq)
                     for (asset, h), dq in self._obs.items() if dq},
@@ -158,7 +237,12 @@ class MarkoutTracker:
                 self._pending.append([
                     str(p["symbol"]), str(p["asset"]), float(p["sgn"]),
                     float(p["price"]), float(p["t0"]),
-                    set(p.get("done", []))])
+                    set(p.get("done", [])),
+                    # absent in snapshots written before the decomposition
+                    # landed: an old file restores with mid0=None and simply
+                    # produces no alpha for those in-flight fills.
+                    (float(p["mid0"]) if p.get("mid0") is not None
+                     else None)])
         except (KeyError, TypeError, ValueError):
             log.warning("markout pending section malformed - skipped")
         try:
