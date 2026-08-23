@@ -57,9 +57,20 @@ def test_verify_chain_is_read_only(tmp_path):
     assert p.read_bytes() == before                        # untouched
 
 
-def test_adopt_truncates_malformed_seq_without_raising(tmp_path):
-    # a parseable final record with a non-int seq (null) must not TypeError out
-    # of construction (log()'s never-raise contract) — it's truncated (A2-F6).
+def test_adopt_preserves_malformed_seq_without_raising(tmp_path):
+    # A parseable final record with a non-int seq (null) must not TypeError out
+    # of construction — that is log()'s never-raise contract, and it is the
+    # ONLY contract this test ever had (A2-F6).
+    #
+    # 2026-08-23: this test previously asserted `tail_truncations == 1` and
+    # `verify()["ok"] is True` — i.e. it REQUIRED the record be destroyed so
+    # the chain would read clean. That encoded the defect. A crash mid-append
+    # cannot produce a COMPLETE json object; only a writer or an editor can.
+    # So a complete-but-altered record is tamper evidence, and the old path
+    # erased it (and, via a backwards walk, every altered record before it)
+    # at construction — flipping verify()'s tamper bit True -> False against
+    # the production trail on every restart. The never-raise contract is
+    # kept below; the truncation was the mechanism, never the requirement.
     p = tmp_path / "a.jsonl"
     a = AuditTrail(str(p))
     for i in range(3):
@@ -67,9 +78,65 @@ def test_adopt_truncates_malformed_seq_without_raising(tmp_path):
     with open(p, "a", encoding="utf-8") as f:
         f.write('{"seq": null, "prev": "x", "h": "y"}\n')  # complete JSON, bad seq
     b = AuditTrail(str(p))                                  # must not raise
-    assert b.tail_truncations == 1
-    assert b.log("qa", Code.FW_FAULT_DEGRADED, "next", {}) == 4   # resumed clean
-    assert b.verify()["ok"] is True
+    assert b.tail_truncations == 0        # NOT truncated - it is evidence
+    assert b.tail_anomalies == 1          # counted and surfaced instead
+    # the bot still starts and the chain still advances: preserving evidence
+    # must never wedge the writer (deadlock discipline - a guard's release
+    # may not depend on the thing it blocks).
+    assert b.log("qa", Code.FW_FAULT_DEGRADED, "next", {}) == 4
+    assert b.verify()["ok"] is False      # the break stays visible, forever
+    assert sum(1 for _ in p.open()) == 5  # nothing erased
+
+
+def test_construction_never_flips_the_tamper_bit(tmp_path):
+    """THE REGRESSION PIN. Constructing an AuditTrail must never turn a
+    tamper=True trail into tamper=False.
+
+    Corpus deliberately uses FOUR altered records, not one: the defect was a
+    backwards walk, so a single-record corpus cannot distinguish "classified
+    correctly" from "erased one and stopped". The pre-existing guard test
+    used a hash-only tamper (seq stayed an int) and therefore never entered
+    the truncation branch at all - a corpus that could not fail.
+    """
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(6):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {})
+    lines = p.read_text(encoding="utf-8").splitlines()
+    out = []
+    for i, ln in enumerate(lines):
+        if i >= 2:
+            rec = json.loads(ln)
+            rec["seq"] = None                 # complete, parseable, altered
+            ln = json.dumps(rec)
+        out.append(ln)
+    p.write_text("\n".join(out) + "\n", encoding="utf-8")
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        json.loads(ln)                        # every line is still valid JSON
+
+    before = verify_chain(str(p))
+    assert before["tamper"] is True
+
+    b = AuditTrail(str(p))                    # construction only, no log()
+    after = verify_chain(str(p))
+    assert after["tamper"] is True, "construction erased tamper evidence"
+    assert sum(1 for _ in p.open()) == 6, "construction deleted records"
+    assert b.tail_truncations == 0
+    assert b.tail_anomalies == 4              # all four, not just the last
+
+
+def test_torn_tail_truncates_at_most_the_final_line(tmp_path):
+    """A crash mid-append tears exactly ONE line. Two torn lines must not
+    licence erasing both - the second is not crash-explicable."""
+    p = tmp_path / "a.jsonl"
+    a = AuditTrail(str(p))
+    for i in range(3):
+        a.log("qa", Code.FW_FAULT_DEGRADED, f"rec {i}", {})
+    with open(p, "a", encoding="utf-8") as f:
+        f.write('{"seq": 4, "hal\n{"seq": 5, "brok\n')
+    b = AuditTrail(str(p))
+    assert b.tail_truncations == 1            # one, never a backwards sweep
+    assert sum(1 for _ in p.open()) == 4      # 3 good + 1 surviving torn line
 
 
 def test_missing_trailing_newline_is_repaired_not_concatenated(tmp_path):

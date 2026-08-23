@@ -914,6 +914,15 @@ def collect(status_path: str) -> list:
         if "audit_tail_truncations" in s:
             m.append(gauge("liquiditybot_audit_tail_truncations",
                            float(s.get("audit_tail_truncations") or 0), ts=ts))
+        # Complete-but-altered records at the trail's tail. A crash CANNOT
+        # produce one (it tears bytes, it does not emit valid JSON with a bad
+        # seq), so nonzero means SOMETHING EDITED THE TRAIL. Distinct from
+        # truncations above, which are benign unclean stops. Kept separate
+        # deliberately: collapsing the two is what let construction erase
+        # tamper evidence in the first place (core/audit.py _parse_record).
+        if "audit_tail_anomalies" in s:
+            m.append(gauge("liquiditybot_audit_tail_anomalies",
+                           float(s.get("audit_tail_anomalies") or 0), ts=ts))
         # central fault authority: op-state as a severity ladder (0 ARMED nominal,
         # 1 DEGRADED no-new-risk, 2 HALTED flatten-and-stop) + latched-fault count.
         # Block-presence-guarded: -1 UNKNOWN is for a PRESENT block with an

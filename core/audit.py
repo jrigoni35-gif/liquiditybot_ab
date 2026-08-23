@@ -32,6 +32,7 @@ import logging
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 from core import code_stats
@@ -40,6 +41,13 @@ from core.codes import Code
 log = logging.getLogger("liquiditybot.core.audit")
 
 _GENESIS = "0" * 16
+
+# How many trailing lines _adopt_tail keeps in memory. Only the tail is
+# ever adoptable, and a crash tears exactly one line, so this is far
+# wider than any real recovery needs - it exists to bound memory on a
+# multi-MB trail, not to tune behaviour. An altered run deeper than this
+# is still PRESERVED on disk; only the anomaly COUNT saturates.
+_ADOPT_WINDOW = 512
 
 # Registry MEMBERSHIP, not shape (2026-08-17): only code values actually
 # registered in core/codes.py reach the frequency tally from log(). The
@@ -53,6 +61,31 @@ _REGISTERED_CODES = frozenset(c.value for c in Code)
 
 def _h(payload: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _parse_record(raw):
+    """Classify one line into the only two things it can be.
+
+    Returns (record, int_seq). The pair distinguishes THREE states, and
+    keeping them apart is the whole point:
+      (None, None)  TORN      - not JSON. Only a crash mid-append does this,
+                                and only to the final line. Safe to truncate.
+      (rec, None)   ALTERED   - complete, parseable JSON whose seq is not an
+                                int. Our writer never emits that, and a crash
+                                cannot produce it. This is TAMPER EVIDENCE.
+      (rec, int)    GOOD      - adoptable.
+    Collapsing ALTERED into TORN is what let construction erase evidence.
+    """
+    try:
+        rec = json.loads(raw)
+    except (ValueError, TypeError):
+        return None, None
+    if not isinstance(rec, dict):
+        return None, None
+    try:
+        return rec, int(rec.get("seq", 0))
+    except (ValueError, TypeError):
+        return rec, None
 
 
 class AuditTrail:
@@ -69,6 +102,9 @@ class AuditTrail:
         self._synced = False     # tail re-adopted at first write, see log()
         self.dropped = 0
         self.tail_truncations = 0    # torn final lines recovered (unclean stops)
+        # complete, parseable records at the tail that a crash CANNOT explain.
+        # Preserved on disk, never truncated - see _adopt_tail's class split.
+        self.tail_anomalies = 0
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._adopt_tail()
@@ -91,46 +127,81 @@ class AuditTrail:
         tamper evidence and is left for verify() to surface."""
         if not self.path.exists():
             return
-        while True:
-            last_off, last = None, None
-            with open(self.path, "rb") as f:
-                off = 0
-                for raw in f:
-                    if raw.strip():
-                        last_off, last = off, raw.strip()
-                    off += len(raw)
-            if last is None:
-                return                       # empty file: stay at genesis
-            try:
-                rec = json.loads(last)
-                seq = int(rec.get("seq", 0))    # TypeError on a null/dict seq
-            except (ValueError, TypeError):
-                # torn OR malformed final line (bad bytes, or a non-int seq our
-                # writer never produces): drop it and re-examine the new tail.
-                # int() is INSIDE the guard so a malformed record can't raise
-                # out of log()'s first-write re-adopt (its "never raises"
-                # contract) — it was previously outside and could TypeError.
-                with open(self.path, "r+b") as f:
-                    f.truncate(last_off)
-                self.tail_truncations += 1
-                log.warning("audit: truncated a torn/malformed final line at "
-                            "byte %d so the chain resumes cleanly", last_off)
-                continue
-            self._seq = max(self._seq, seq)
-            self._prev = str(rec.get("h", _GENESIS))
-            # repair a missing trailing newline: if a crash dropped only the
-            # final '\n' but kept the record bytes, the next append would
-            # concatenate onto it into one line that a LATER _adopt_tail reads
-            # as unparseable and truncates — silently destroying BOTH records.
-            try:
-                with open(self.path, "rb") as f:
-                    f.seek(-1, 2)
-                    if f.read(1) != b"\n":
-                        with open(self.path, "ab") as af:
-                            af.write(b"\n")
-            except OSError:
-                pass
+        # BOUNDED. The live trail is tens of MB (23.2MB / 68k records as of
+        # 2026-08-23) and this runs at startup AND again at log()'s first
+        # write. Holding every line cost 1353ms / 32.6MB peak when measured;
+        # only the TAIL is ever adoptable, so keep a fixed window. Scanning
+        # is O(file) I/O with NO parsing - parsing happens below, and stops
+        # at the first good record (normally the very first one examined).
+        entries: deque = deque(maxlen=_ADOPT_WINDOW)
+        with open(self.path, "rb") as f:
+            off = 0
+            for raw in f:
+                if raw.strip():
+                    entries.append((off, raw.strip()))
+                off += len(raw)
+        if not entries:
+            return                           # empty file: stay at genesis
+
+        # A crash mid-append can only ever tear the FINAL line, and only by
+        # leaving bytes that are not JSON. Truncate exactly that, exactly
+        # once. The old code caught TypeError from int(seq) in the SAME
+        # handler and then `continue`d, so a COMPLETE, parseable record whose
+        # seq was null/dict was reclassified as torn and erased - and the
+        # loop walked backwards erasing the whole altered tail. Construction
+        # alone flipped verify()'s tamper bit True -> False and destroyed the
+        # evidence, on every restart, against the production trail.
+        last_off, last = entries[-1]
+        if _parse_record(last)[0] is None:
+            with open(self.path, "r+b") as f:
+                f.truncate(last_off)
+            self.tail_truncations += 1
+            log.warning("audit: truncated a torn final line at byte %d so "
+                        "the chain resumes cleanly", last_off)
+            entries.pop()
+            if not entries:
+                return
+
+        # Adopt from the last COMPLETE record carrying an int seq. Anything
+        # after it stays on disk: an altered record is tamper evidence, and
+        # destroying evidence to make the chain tidy is the failure this
+        # method exists to avoid. verify() will report the break, forever.
+        # STOPS at the first good record: one parse in the normal case, and
+        # at most one per altered record otherwise. Do NOT scan for a global
+        # max seq - that parsed all 68k records on every startup.
+        adopted, adopted_seq, altered = None, 0, 0
+        for _off, raw in reversed(entries):
+            rec, seq = _parse_record(raw)
+            if rec is not None and seq is not None:
+                adopted, adopted_seq = rec, seq
+                break
+            altered += 1
+        if altered:
+            self.tail_anomalies += altered
+            log.error("audit: %d complete-but-altered record(s) at the tail "
+                      "- PRESERVED, not truncated. A crash cannot produce a "
+                      "complete record with a bad seq; verify() reports the "
+                      "break and the tamper bit stays set.", altered)
+        if adopted is None:
+            # nothing adoptable. Stay at genesis rather than erase: the next
+            # append seams visibly, which verify() surfaces, and every byte
+            # already on disk survives for an operator to read.
             return
+        self._seq = max(self._seq, adopted_seq)
+        self._prev = str(adopted.get("h", _GENESIS))
+        # repair a missing trailing newline: if a crash dropped only the
+        # final '\n' but kept the record bytes, the next append would
+        # concatenate onto it into one line that a LATER _adopt_tail reads
+        # as unparseable and truncates — silently destroying BOTH records.
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    with open(self.path, "ab") as af:
+                        af.write(b"\n")
+        except OSError:
+            pass
+        return
 
     # ------------------------------------------------------------------
     def log(self, src: str, code, msg: str, data: dict | None = None, *,

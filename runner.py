@@ -1350,6 +1350,13 @@ class BotRunner:
             # torn final lines recovered on adoption (unclean stops). Rising ->
             # the process is being killed mid-write repeatedly.
             "audit_tail_truncations": getattr(get_audit(), "tail_truncations", 0),
+            # complete, parseable records at the tail that a crash CANNOT
+            # explain (our writer never emits a non-int seq). PRESERVED on
+            # disk rather than truncated, because destroying them is what
+            # used to flip verify()'s tamper bit True -> False on restart.
+            # Nonzero here means SOMETHING EDITED THE TRAIL: read it, do not
+            # clear it. verify_chain() names the break.
+            "audit_tail_anomalies": getattr(get_audit(), "tail_anomalies", 0),
             # per-position exit/stop evaluations that RAISED and were isolated
             # (one bad position no longer starves the rest of the book's
             # stops). Rising -> a position is wedging its own escape path.

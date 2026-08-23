@@ -816,6 +816,17 @@ def tick() -> None:
     if (not os.environ.get("LB_NO_CORPUS_SYNC")
             and _corpus_sync_due()):
         _spawn([PY, "scripts/corpus_sync.py"], own_log=False)
+        # LEDGER CONTINUITY, checked at the moment of risk rather than on a
+        # clock. A rotation is the event that can punch a hole in the fills
+        # ledger - the 2026-08-01 hole (102 order_ids, found 21 days late by
+        # accident) was created by one and nothing was watching. corpus_sync
+        # is the recovery step, so continuity is asserted immediately after
+        # it. Report-only: appends one verdict line to
+        # outputs/ledger_continuity.jsonl, repairs nothing. Its verdict
+        # re-derives the cohort boundary from scripts/cohort_eval.py every
+        # run, so it never caches a conclusion that was true in August.
+        if not os.environ.get("LB_NO_LEDGER_CHECK"):
+            _spawn([PY, "scripts/ledger_continuity.py"], own_log=False)
     # corpus EXPORT: the PC is THE bot, so ITS file is the canonical
     # learning corpus — checkpoint it durably under its own label (the
     # cloud sidecar's mirror bundle must never shadow this one)
