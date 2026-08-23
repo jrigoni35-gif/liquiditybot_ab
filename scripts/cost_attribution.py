@@ -79,7 +79,20 @@ ROOT = Path(__file__).resolve().parents[1]
 # tests/test_opening_leg_pin.py.
 _OPEN_PURPOSES = ("entry", "hedge")
 
-# Kraken spot TIER 1 (the ENTRY tier - $0+ volume), verified 2026-08-21.
+# Kraken spot TIER 1 (the ENTRY tier - $0+ volume).
+#
+# PROVENANCE UPGRADED 2026-08-22: previously second-hand (agent summaries
+# agreeing with a vault record). Now confirmed by a FIRST-PARTY fetch of
+# kraken.com/features/fee-schedule. Published spot schedule at that read:
+#     $0+      0.40 / 0.80      <- this account (spot volume $0, dry-run)
+#     $2.5K+   0.30 / 0.60
+#     $10K+    0.22 / 0.38
+#     $25K+    0.20 / 0.35
+#     $50K+    0.15 / 0.30
+#     $100K+   0.12 / 0.25
+# Note what this table does NOT contain: neither the configured 25/40 nor
+# the struck 16/26 matches ANY row. Both are schedules that no longer
+# exist, which is why re-deriving from a blog keeps reintroducing them.
 #
 # CORRECTED 2026-08-22 (focused-fix cost-stack diagnosis). This file
 # previously carried 16.0/26.0 with the note "lower tiers only reduce
