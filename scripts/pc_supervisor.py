@@ -93,9 +93,15 @@ except ValueError:
 # path at all — only the cloud mirror pushed bundles, so 54% of the
 # learning data existed on exactly one disk. LB_NO_TELEM_BACKUP=1 disables.
 try:
+    VAULT_GUARD_SEC = float(os.environ.get("LB_VAULT_GUARD_SEC", "21600"))
     TELEM_BACKUP_SEC = float(os.environ.get("LB_TELEM_BACKUP_SEC", "3600"))
 except ValueError:
+    # BOTH must be reassigned: a bad LB_VAULT_GUARD_SEC used to leave the
+    # first name unbound while only the second was repaired, which is a
+    # NameError in the supervisor loop rather than a fallback.
+    VAULT_GUARD_SEC = 21600.0
     TELEM_BACKUP_SEC = 3600.0
+_VAULT_GUARD_STAMP = OUT / ".vault_guard_stamp"
 _TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
 # rotation-hazard fast path (task-rotation-report.md): ml/history.py's
@@ -830,6 +836,17 @@ def tick() -> None:
     # corpus EXPORT: the PC is THE bot, so ITS file is the canonical
     # learning corpus — checkpoint it durably under its own label (the
     # cloud sidecar's mirror bundle must never shadow this one)
+    # VAULT GUARD, rooted 2026-08-23. It shipped that morning scanning the
+    # knowledge base every Claude session reads BEFORE deriving anything, and
+    # nothing invoked it - making it an instance of the very finding it was
+    # written up alongside ("an unrooted guard is worth zero no matter how
+    # well written"). Report-only: it prints, appends nothing, repairs
+    # nothing, and its exit code is not consulted here - the value is that a
+    # HIGH lands in outputs/ where an operator and the log can see it.
+    # 6h cadence: the vault changes at session scale, not at tick scale.
+    if (not os.environ.get("LB_NO_VAULT_GUARD")
+            and _stamp_due(_VAULT_GUARD_STAMP, VAULT_GUARD_SEC)):
+        _spawn([PY, "scripts/vault_guard.py"], own_log=False)
     if (not os.environ.get("LB_NO_TELEM_BACKUP")
             and _stamp_due(_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC)):
         _spawn([PY, "scripts/telemetry_backup.py", "--once",

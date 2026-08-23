@@ -273,6 +273,116 @@ def battery_passes(worktree: Path) -> bool:
         log("replay gate advisory verdict FAIL — NOT blocking the update; "
             "pytest above is the determinism gate")
         _BATTERY_DETAIL = ""            # advisory: this is not a rejection
+    return _dod_gates(worktree, py)
+
+
+# CLAUDE.md's Definition of done names EIGHT commands. Until 2026-08-23 this
+# battery ran exactly ONE of them (pytest), so the law mandated a matrix that
+# the only automated admission path never executed. Measured, not guessed:
+# deleting `and liq_label != "spoofy"` from execution/tactics.py made
+# assurance_check FAIL rc=1 while this battery still returned 130/130 green.
+#
+# THE SPLIT BELOW IS THE WHOLE DESIGN, and it is dictated by a lesson this
+# file has already lived TWICE (the replay gate, 2026-07-21/22; conftest's
+# outputs guard, 2026-08-01, ~19h frozen): A GATE WHOSE RELEASE DEPENDS ON THE
+# THING IT BLOCKS REFUSES THE FIX THAT WOULD REPAIR IT.
+#
+#   HARD  - pure functions of the INCOMING CODE. A commit that repairs a ruff
+#           error passes ruff; a commit that repairs a smoke failure passes
+#           smoke. These can never refuse their own repair, so they may veto.
+#           (smoke_test verified corpus-INDEPENDENT: 219/0 inside a bare
+#           `git worktree add --detach`, identical to the live tree.)
+#   ADVISORY - corpus-dependent. If the CORPUS degrades, no code change
+#           repairs it, so a blocking verdict would refuse every update
+#           forever. This is exactly the demand refused as OBJ-16. They run,
+#           they are logged, they never veto.
+#
+# A MISSING TOOL IS ALWAYS ADVISORY. "ruff is not installed" is not a finding
+# about the incoming code, and treating it as one is how the replay gate
+# bricked deploys ("could not run - refusing the update"). Only a real
+# FINDING may block.
+_HARD_GATES = (
+    ("ruff", ["-m", "ruff", "check", "core", "data", "execution", "ml",
+              "risk", "regime", "strategies", "sentiment", "api", "main.py",
+              "runner.py"]),
+    ("compileall", ["-m", "compileall", "-q", "core", "data", "execution",
+                    "ml", "risk", "regime", "strategies", "sentiment", "api",
+                    "main.py", "runner.py"]),
+    ("bandit", ["-m", "bandit", "-c", "pyproject.toml", "-q", "-r",
+                "core", "data", "execution", "ml", "risk", "api"]),
+    ("smoke", ["scripts/smoke_test.py"]),
+    # assurance_check contains BOTH code-dependent checks (the taker ladder
+    # must stay suppressed in spoofy liquidity) and corpus-dependent ones
+    # (signal_history coherence). Blocking on the whole thing would make a
+    # corpus outage refuse every deploy; not blocking at all would let a code
+    # defect through, which is the exact hole this fix exists to close.
+    # So it runs TWICE, and the split falls out of the very bug that was
+    # found: with NO corpus the corpus section goes VACUOUS, which leaves
+    # precisely the code-dependent subset - a pure function of the incoming
+    # code, and therefore safe to veto. LB_OUTPUTS is cleared below so an
+    # inherited value cannot smuggle a corpus into the blocking run.
+    ("assurance-code", ["scripts/assurance_check.py"]),
+)
+# Same binaries, corpus PINNED to the live tree: this pair exists to report
+# what the blocking run deliberately could not see. Never vetoes.
+_ADVISORY_GATES = (
+    ("assurance-corpus", ["scripts/assurance_check.py"]),
+    ("overfit", ["scripts/overfit_check.py"]),
+)
+_MISSING_TOOL = ("no module named", "modulenotfounderror",
+                 "is not recognized", "cannot find")
+
+
+def _run_gate(worktree: Path, py: str, argv: list, env: dict, secs: int):
+    """(rc, tail, could_not_run). could_not_run is NEVER a rejection."""
+    try:
+        p = subprocess.run([py, *argv], cwd=str(worktree),  # nosec B603
+                           capture_output=True, encoding="utf-8",
+                           errors="replace", timeout=secs, env=env,
+                           creationflags=_NOWIN)
+    except Exception as e:                       # noqa: BLE001
+        return 1, f"could not run: {e}", True
+    # getattr, not attribute access: a real CompletedProcess under
+    # capture_output always carries both streams, but the suite's process
+    # doubles do not all define stderr, and a gate that AttributeErrors is a
+    # gate that refuses every update. Same shape as the resp.encoding fix in
+    # data/_http.py - never assume a double has the full surface.
+    blob = (getattr(p, "stdout", "") or "") + (getattr(p, "stderr", "") or "")
+    tail = (blob.strip().splitlines() or ["(no output)"])[-1][:160]
+    missing = any(m in blob.lower() for m in _MISSING_TOOL)
+    return p.returncode, tail, missing
+
+
+def _dod_gates(worktree: Path, py: str) -> bool:
+    global _BATTERY_DETAIL
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+           "LB_ALLOW_OUTPUT_WRITES": "1"}
+    # The blocking run must be a pure function of the INCOMING CODE, so an
+    # LB_OUTPUTS inherited from the supervisor's environment must not smuggle
+    # a live corpus into it - that would reintroduce exactly the
+    # corpus-dependence that makes a blocking verdict able to refuse its own
+    # fix. Popped, not merely left unset.
+    env.pop("LB_OUTPUTS", None)
+    for name, argv in _HARD_GATES:
+        rc, tail, missing = _run_gate(worktree, py, argv, env, 900)
+        if missing:
+            log(f"DoD {name}: TOOL UNAVAILABLE ({tail}) - advisory, not "
+                f"blocking (a missing tool is not a finding)")
+            continue
+        log(f"DoD {name} rc={rc}: {tail}")
+        if rc != 0:
+            _BATTERY_DETAIL = f"DoD {name}: {tail}"
+            return False
+    # CORPUS PINNED, NOT ASSUMED. The worktree is a bare checkout with no
+    # outputs/, so assurance_check's corpus section would pass VACUOUSLY and
+    # contribute to a green that never read a corpus (proven: 48/0 in a real
+    # worktree, vs 49/0 with the live corpus). Point it at the live tree, the
+    # same way _replay_gate_passes points the replay gate at live recordings.
+    adv_env = {**env, "LB_OUTPUTS": str(OUT.resolve())}
+    for name, argv in _ADVISORY_GATES:
+        rc, tail, missing = _run_gate(worktree, py, argv, adv_env, 1800)
+        verdict = "TOOL UNAVAILABLE" if missing else f"rc={rc}"
+        log(f"DoD {name} (ADVISORY, corpus={OUT.resolve()}) {verdict}: {tail}")
     return True
 
 

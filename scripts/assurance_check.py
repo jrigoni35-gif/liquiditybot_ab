@@ -321,9 +321,20 @@ def main():
     # and reported as a trend, never a failure.
     import csv as _csv
     import time as _time
-    hist_path = os.path.join("outputs", "signal_history.csv")
+    # CORPUS IS PINNED, NOT ASSUMED (2026-08-23). The path was relative, so
+    # running this from a bare git worktree - which is exactly how the deploy
+    # battery would run it - found no outputs/ and passed the whole section
+    # VACUOUSLY, printing "ok" and contributing to a 48/0 green that had never
+    # read a corpus. Proven in a real `git worktree add --detach`. LB_OUTPUTS
+    # lets a caller point this at the LIVE corpus (the same trick
+    # auto_update._replay_gate_passes already uses with --recording-dir), and
+    # the vacuous branch now NAMES itself so the degraded form can never be
+    # mistaken for the verified one on a summary line.
+    _out_dir = os.environ.get("LB_OUTPUTS") or "outputs"
+    hist_path = os.path.join(_out_dir, "signal_history.csv")
     if not os.path.exists(hist_path):
-        check("signal_history absent -> vacuously coherent", True)
+        check(f"signal_history ABSENT at {hist_path} -> section VACUOUS "
+              f"(this green proves nothing about any corpus)", True)
     else:
         bad_order = bad_finite = future = fallback = total = 0
         horizon = _time.time() + 600.0     # small skew allowance

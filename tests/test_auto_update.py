@@ -466,6 +466,13 @@ def test_battery_downgrades_the_outputs_guard_so_it_cannot_veto_a_deploy(
         stderr = ""
 
     def fake_run(argv, **kw):
+        # ALL calls are recorded, not just the last. Since 2026-08-23 the
+        # battery runs the DoD gates after pytest (ruff/compileall/bandit/
+        # smoke hard, assurance+overfit advisory), so a single-slot capture
+        # silently ends up holding overfit_check and the pytest assertion
+        # below reads as a regression when nothing regressed.
+        seen.setdefault("envs", []).append(kw.get("env") or {})
+        seen.setdefault("argvs", []).append(argv)
         seen["env"] = kw.get("env") or {}
         seen["argv"] = argv
         return _P()
@@ -473,8 +480,14 @@ def test_battery_downgrades_the_outputs_guard_so_it_cannot_veto_a_deploy(
     monkeypatch.setattr(au.subprocess, "run", fake_run)
     monkeypatch.setattr(au, "_replay_gate_passes", lambda *a, **k: True)
     assert au.battery_passes(tmp_path) is True
-    assert seen["env"].get("LB_ALLOW_OUTPUT_WRITES") == "1", (
+    flat = [" ".join(str(a) for a in av) for av in seen["argvs"]]
+    pytest_calls = [c for c in flat if "pytest" in c]
+    # intent 1, unchanged: the outputs-write guard runs in WARN mode, so a
+    # test-hygiene failure can never veto a deploy
+    assert pytest_calls, "the battery must still run the real pytest battery"
+    idx = flat.index(pytest_calls[0])
+    assert seen["envs"][idx].get("LB_ALLOW_OUTPUT_WRITES") == "1", (
         "the deploy battery must run with the outputs-write guard in "
         "warn mode - a test-hygiene failure must never block a deploy")
-    # and it must still be the real pytest battery, not a stubbed-out gate
-    assert "pytest" in " ".join(str(a) for a in seen["argv"])
+    # intent 2, unchanged: it is the real pytest battery, not a stubbed gate
+    assert "tests/" in pytest_calls[0]
