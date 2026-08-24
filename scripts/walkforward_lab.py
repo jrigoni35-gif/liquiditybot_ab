@@ -71,14 +71,24 @@ from scripts.cohort_eval import (ERA4_MIN_N,  # noqa: E402
 # BOOKED fee of each trip, so it rescales measurement rather than assuming a
 # per-trade cost. FEE-3 (one read-only TradeVolume call) is what would
 # replace "published" with "measured" here.
-# The multipliers are EXACT ratios of published-tier stacks over the
-# configured stack, not rounded conveniences: both-legs-maker is 80/50 and
-# maker-in/taker-out is 120/65. (The tranche-1 memo printed the latter as
-# "x1.85"; the arithmetic there used 120/65 = 1.84615, which is what is
-# reproduced here - the label was the rounding, not the number.)
+# The hypothetical-mix multipliers are EXACT ratios of published-tier
+# stacks over the configured stack: both-legs-maker is 80/50 and
+# maker-in/taker-out is 120/65.
+#
+# "T1 measured mix" is different in kind: it is the POPULATION-average
+# repricing ratio from the exact per-leg count (448 maker + 674 taker
+# fills; booked $384.18 -> true $760.13, dc107ce3, 2026-08-23) - a
+# measurement, not a scenario. Applied here as a uniform per-trip
+# multiplier it is still approximate (each trip's own maker/taker mix
+# varies around the population average); the exact per-trip repricing
+# lives in cohort_eval's true-fee section. Tier provenance: first-party
+# fetch of Kraken's published schedule 2026-08-22
+# (scripts/cost_attribution.py:82-90) - the ACCOUNT row via TradeVolume
+# (OM-080/FEE-3) remains unfired.
 FEE_ANCHORS = (
     ("configured 25/40", 1.0),
     ("T1 both-maker 40/40", 80.0 / 50.0),
+    ("T1 measured mix x1.979", 760.13 / 384.18),
     ("T1 maker-in/taker-out", 120.0 / 65.0),
 )
 
@@ -753,8 +763,10 @@ def render(res: dict) -> None:
     print("\nCAVEATS")
     print("  * Report-only. Decides no gate, moves no threshold, and does")
     print("    NOT move MIN_COHORT_N - a measurement standard, not a knob.")
-    print("  * The T1 anchors rescale a BOOKED fee by Kraken's PUBLISHED")
-    print("    bottom tier. This account's tier is unverified (FEE-3).")
+    print("  * The T1 anchors rescale a BOOKED fee by Kraken's published")
+    print("    bottom tier (first-party fetch 2026-08-22). 'measured mix'")
+    print("    uses the exact population leg count (dc107ce3); the account")
+    print("    ROW via TradeVolume (FEE-3/OM-080) is still unfired.")
     print("  * The stationary bootstrap handles SEQUENTIAL dependence only.")
     print("    WF-2b/WF-5 compose it with concurrency by a normal-SE")
     print("    approximation - conservative by construction, but an")

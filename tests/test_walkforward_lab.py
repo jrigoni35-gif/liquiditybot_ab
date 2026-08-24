@@ -188,6 +188,9 @@ def test_fee_anchors_are_exact_tier_ratios_not_rounded_conveniences():
     assert d["configured 25/40"] == 1.0
     assert math.isclose(d["T1 both-maker 40/40"], 80.0 / 50.0)
     assert math.isclose(d["T1 maker-in/taker-out"], 120.0 / 65.0)
+    # the measured-mix anchor is dollars-over-dollars from the exact leg
+    # count (dc107ce3), not a scenario ratio - pin the provenance numbers
+    assert math.isclose(d["T1 measured mix x1.979"], 760.13 / 384.18)
 
 
 def test_net_at_is_linear_in_the_multiplier():
