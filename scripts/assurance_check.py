@@ -377,6 +377,43 @@ def main():
         print(f"        legacy sig-fallback rows: {fallback}/{total} "
               f"(informational trend - loader substitutes ts)")
 
+    # --- [12] INSTRUMENT CONTRACT ------------------------------------
+    # The measurement plane is SAFE class, which is a PERMISSION and not a
+    # contract - CLAUDE.md's own words, and 2026-08-23 collected the bill in
+    # one session. These two clauses are PURE FUNCTIONS OF THE INCOMING CODE,
+    # so they can never refuse the commit that repairs them and are safe to
+    # veto a deploy. C3 (one-population) is deliberately NOT run here: it
+    # reads status.json, and reading live mutable state inside a blocking
+    # gate is itself one of the defects the contract exists to stop.
+    print("\n[12] instrument contract (measurement plane)")
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "instrument_contract",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "instrument_contract.py"))
+        _ic = _ilu.module_from_spec(_spec)          # type: ignore[arg-type]
+        _spec.loader.exec_module(_ic)               # type: ignore[union-attr]
+    except Exception as _e:                          # noqa: BLE001
+        # TOOL UNAVAILABLE IS NOT A FINDING about the incoming code. Treating
+        # it as one is how the replay gate bricked deploys (2026-07-21/22).
+        print(f"  skip  instrument_contract unavailable ({str(_e)[:70]}) "
+              f"- advisory, not a finding")
+    else:
+        _c1 = _ic.check_rootedness()
+        check("every DoD-named gate is executed by the battery",
+              not _c1["missing"])
+        if _c1["missing"]:
+            print(f"        NAMED BUT NEVER RUN: {', '.join(_c1['missing'])}")
+        _c2 = _ic.check_self_tests(timeout=60)
+        _weak = [r["file"] for r in _c2["instruments"] if not r["ok"]]
+        check("every --self-test has a negative arm and reports a rate",
+              not _weak)
+        if _weak:
+            print(f"        null-arm-only self-tests: {', '.join(_weak)}")
+            print("        (a null arm shows it does not cry wolf, never "
+                  "that it can detect anything)")
+
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 

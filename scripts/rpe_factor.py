@@ -289,12 +289,30 @@ def self_test() -> int:
         r2 = build(p2, "model", 0.1, None)
         moved_negative = r2["mean_delta"] < -1e-9
 
-        ok = exact_zero and moved_negative
+        # MAGNITUDE, not just sign (strengthened 2026-08-23). Checking only
+        # that delta "went negative" is the same weakness as validating an
+        # estimator on a null arm alone: it shows the instrument MOVES, never
+        # that it moves by the RIGHT amount. Here the planted value is exact
+        # and computable, so recovery is checkable:
+        #   row0 unchanged           -> delta 0
+        #   row1 realized -sl_frac (-0.01), but p=1.0 claims E=+pt_frac
+        #        (+0.02)             -> delta = -0.01 - 0.02 = -0.03
+        #   mean over the two rows                        = -0.015
+        pt1 = float(_SELFTEST_ROWS[1]["pt_frac"])
+        sl1 = float(_SELFTEST_ROWS[1]["sl_frac"])
+        expected = (0.0 + (-sl1 - pt1)) / 2.0
+        recovered = r2["mean_delta"]
+        magnitude_ok = abs(recovered - expected) < 1e-9
+
+        ok = exact_zero and moved_negative and magnitude_ok
         print("SELF-TEST %s" % ("PASS" if ok else "FAIL"))
-        print("  perfect prediction -> mean delta %+.9f (want 0)"
-              % r1["mean_delta"])
-        print("  planted over-claim -> mean delta %+.9f (want < 0)"
-              % r2["mean_delta"])
+        print("  NULL CONTROL  perfect prediction -> mean delta %+.9f "
+              "(must be 0)" % r1["mean_delta"])
+        print("  POWER ARM     planted over-claim -> recovered %+.9f vs "
+              "planted %+.9f  (%d/1 recovered)"
+              % (recovered, expected, int(magnitude_ok)))
+        print("  (a null arm alone proves the estimator does not cry wolf;")
+        print("   only the power arm shows it can measure anything)")
     return 0 if ok else 1
 
 
