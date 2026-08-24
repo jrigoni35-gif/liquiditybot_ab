@@ -123,7 +123,13 @@ def test_history_header_contract_is_stable(tmp_path):
                 *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
                 "entry_price", "exit_price",
                 "avail_web", "avail_equity", "avail_options",
-                "quotes_frozen"]
+                "quotes_frozen",
+                # label_ret_pct joined 2026-08-24 (schema 94): the labeled
+                # outcome's realized return in percent - before it,
+                # _emit_label computed BarrierOutcome.ret_pct and discarded
+                # it, so no candidate label could ever be re-adjudicated at
+                # a corrected cost. "" = UNKNOWN, appended last.
+                "label_ret_pct"]
     assert hs._header == expected
 
 

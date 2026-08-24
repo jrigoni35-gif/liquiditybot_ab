@@ -88,7 +88,8 @@ def test_legacy_csv_migrates_pt_sl_frac_with_zero_default(tmp_path):
     # like everything above so the next trailing bump shifts nothing here
     iep = h.index("entry_price")
     assert h[iep:iep + 2] == ["entry_price", "exit_price"]
-    assert h[-4:] == ["avail_web", "avail_equity", "avail_options",
+    assert h[-1] == "label_ret_pct"        # schema 94 (2026-08-24)
+    assert h[-5:-1] == ["avail_web", "avail_equity", "avail_options",
                       "quotes_frozen"]
     for row in rows:
         assert len(row) == len(h)                  # full current width

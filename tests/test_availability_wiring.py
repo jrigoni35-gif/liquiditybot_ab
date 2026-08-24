@@ -121,7 +121,10 @@ def test_frozen_counts_as_degraded(caplog):
 # ------------------------------------------------------------ corpus rows
 def test_header_ends_with_avail_columns(tmp_path):
     hs = HistoryStore(str(tmp_path / "h.csv"))
-    assert hs._header[-len(AVAIL_COLS):] == list(AVAIL_COLS)
+    # label_ret_pct (schema 94, 2026-08-24) appended after the avail
+    # block - append-at-END discipline, so avail is now second-to-last.
+    assert hs._header[-1] == "label_ret_pct"
+    assert hs._header[-1 - len(AVAIL_COLS):-1] == list(AVAIL_COLS)
 
 
 def test_live_row_roundtrips_avail_flags(tmp_path):

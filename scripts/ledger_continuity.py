@@ -127,9 +127,44 @@ def scan(outputs: Path) -> dict:
             sources.append({"file": str(b.relative_to(outputs)), "orphans": n})
     orphans = list(seen.values())
 
+    # GHOST POSITIONS - traded but never labeled (added 2026-08-24, measured
+    # instance: 34 ETH positions in the 08-01/02 window, full entry+exit
+    # fill sequences, exec_era blank, no corpus row under ANY source - the
+    # stale-binary signature). A position that filled but produced no
+    # training label is a leak this file's fills-vs-fills reconciliation
+    # cannot see, so fills are reconciled against the LABEL corpus too.
+    # Closed = has entry AND exit purpose fills; grace excludes positions
+    # still inside the label horizon. Report-only, like everything here.
+    ghosts: list[str] = []
+    corpus_p = outputs / "signal_history.csv"
+    if corpus_p.exists():
+        labeled = {r.get("position_id") for r in _rows(corpus_p)
+                   if r.get("position_id")}
+        by_pid: dict = {}
+        for r in live:
+            pid = r.get("position_id")
+            if not pid:
+                continue
+            d = by_pid.setdefault(pid, {"entry": False, "exit": False,
+                                        "last_ts": 0.0})
+            purpose = (r.get("purpose") or "").lower()
+            if purpose == "entry":
+                d["entry"] = True
+            elif purpose == "exit":
+                d["exit"] = True
+            d["last_ts"] = max(d["last_ts"], _f(r, TS))
+        import time as _time
+        grace = 48 * 3600.0
+        ghosts = sorted(pid for pid, d in by_pid.items()
+                        if d["entry"] and d["exit"]
+                        and pid not in labeled
+                        and d["last_ts"] > 0
+                        and _time.time() - d["last_ts"] > grace)
+
     boundary, why = _boundary()
     if boundary is None:
-        return {"ok": False, "why": why, "orphans": len(orphans)}
+        return {"ok": False, "why": why, "orphans": len(orphans),
+                "ghost_positions": len(ghosts)}
 
     inside = [r for r in orphans if _f(r, TS) >= boundary]
     outside = [r for r in orphans if _f(r, TS) < boundary]
@@ -171,6 +206,8 @@ def scan(outputs: Path) -> dict:
         "fee_bps_reconstructed": round(fee_all, 3),
         "fee_bps_delta": round(abs(fee_all - fee_live), 3),
         "contaminating": bool(inside),
+        "ghost_positions": len(ghosts),
+        "ghost_sample": ghosts[:10],
     }
 
 
@@ -185,7 +222,7 @@ def append_history(outputs: Path, res: dict) -> None:
     rec = {k: res.get(k) for k in (
         "read_at", "live_rows", "live_keys", "orphans_total",
         "orphans_inside_cohort", "boundary_iso", "fee_bps_delta",
-        "contaminating")}
+        "contaminating", "ghost_positions")}
     try:
         with (outputs / "ledger_continuity.jsonl").open(
                 "a", encoding="utf-8") as f:
@@ -241,6 +278,19 @@ def _render(r: dict) -> None:
     else:
         print("No orphaned fills. The ledger is whole with respect to every")
         print("backup on disk.")
+    g = r.get("ghost_positions", 0)
+    print("")
+    print("GHOST POSITIONS (traded but never labeled - closed >48h, no")
+    print("corpus row under any source)")
+    if g:
+        print("  *** %d position(s): filled on the venue, invisible to" % g)
+        print("  *** training. Known cause on record: a stale binary's book")
+        print("  *** (34 measured in the 08-01/02 window). Investigate any")
+        print("  *** NEW one - it is a label leak, not history.")
+        for pid in r.get("ghost_sample", []):
+            print("      %s" % pid[:16])
+    else:
+        print("  none - every closed position produced a label row.")
     print("")
     print("WHAT THIS CANNOT SEE: only rows that survived into a BACKUP. A row")
     print("lost before any rotation leaves no artifact and no trace here.")

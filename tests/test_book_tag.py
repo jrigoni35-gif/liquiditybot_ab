@@ -86,7 +86,10 @@ def test_history_header_ends_with_label_era(tmp_path):
     assert h.index("label_era") < h.index("pt_frac") < h.index("sg_flow")
     # 41b (2026-08-08): the 4 avail_* bookkeeping columns trail the price
     # pair - the price anchor is no longer last, relative order preserved
-    assert h[-4:] == ["avail_web", "avail_equity", "avail_options",
+    # schema 94 (2026-08-24): label_ret_pct is the new tail; the avail
+    # block is one slot earlier. Same additive pattern as ever.
+    assert h[-1] == "label_ret_pct"
+    assert h[-5:-1] == ["avail_web", "avail_equity", "avail_options",
                       "quotes_frozen"]
     assert h.index("entry_price") + 1 == h.index("exit_price")
     assert h.index("exit_price") + 1 == h.index("avail_web")
@@ -164,14 +167,19 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     # price pair; a caller that never heard of `avail` (this one) writes
     # all four BLANK = unknown - "" and never "0", because "0" would
     # claim the feed was measured down.
+    # extended again (label_ret_pct, schema 94, 2026-08-24): the labeled
+    # outcome magnitude trails everything; a caller that never heard of it
+    # (this one) writes BLANK = UNKNOWN - never 0.0, because a fabricated
+    # zero is indistinguishable from a genuine zero-return outcome.
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
                 "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
-                *(["0.0000"] * 7), "0", "0", "", "", "", ""]
+                *(["0.0000"] * 7), "0", "0", "", "", "", "", ""]
     assert row == expected
-    assert header[-1] == "quotes_frozen"
+    assert header[-1] == "label_ret_pct"   # schema 94
+    assert header[-2] == "quotes_frozen"
     assert len(row) == len(header)
 
 

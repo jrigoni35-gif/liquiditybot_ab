@@ -308,7 +308,23 @@ _N_LEAD = 3
 # degraded-context rows offline, deliberately.
 AVAIL_COLS = ("avail_web", "avail_equity", "avail_options",
               "quotes_frozen")
-_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS)
+# label_ret_pct (schema 93->94, 2026-08-24): the labeled outcome's REALIZED
+# RETURN in PERCENT, net of the cost basis used AT LABEL TIME. Before this
+# column, _emit_label computed BarrierOutcome.ret and then wrote a literal
+# 0.0 into net_pnl_usd for every candidate row - the corpus kept 1 bit of a
+# real-valued outcome, so labels could never be re-adjudicated at a corrected
+# cost (measured 2026-08-24: 5,923 of 5,945 active-era rows with the
+# magnitude destroyed; the 218 tb_time "wins" minted at the 0.5% label cost
+# are retroactively unanswerable at the venue-true ~1.2%). COST BASIS
+# DIFFERS BY SOURCE and consumers must not pool blindly: candidate rows are
+# net of label_round_trip_cost_pct (+ capped spread); live rows are net of
+# BOOKED fees (net_pnl_usd / entry_usd). "" = UNKNOWN (rows written before
+# this column, or paths that cannot compute it) - same convention as
+# AVAIL_COLS, never a zero. BOOKKEEPING ONLY - never a feature (the feature
+# ledger stays closed per the 2026-08-08 DoF adjudication); it exists so
+# boundary #5's cost correction CAN reprice labels going forward instead of
+# facing a corpus that forgot its own outcomes.
+_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS) + 1
 
 # Cap on the candidate `disp` column. See CandidateLabeler.mark_disposition
 # for the measurement that moved it off 40 (which amputated the bracket
@@ -767,7 +783,8 @@ class HistoryStore:
                         "barrier", "probe", "disp", "candidate_id", "book",
                         "label_era", "pt_frac", "sl_frac",
                         *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
-                        "entry_price", "exit_price", *AVAIL_COLS]
+                        "entry_price", "exit_price", *AVAIL_COLS,
+                        "label_ret_pct"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -947,7 +964,8 @@ class HistoryStore:
                     pt_frac: float = 0.0, sl_frac: float = 0.0,
                     gate_components: "dict | None" = None,
                     entry_price: float = 0.0, exit_price: float = 0.0,
-                    avail: "dict | None" = None):
+                    avail: "dict | None" = None,
+                    label_ret_pct: "float | None" = None):
         # avail (owed 41b): context-availability flags captured at SIGNAL
         # time (main._feature_extras "avail" dict, keys web/equity/options/
         # frozen). Falsy -> all AVAIL_COLS written blank = UNKNOWN (legacy
@@ -1016,7 +1034,13 @@ class HistoryStore:
                f"{entry_price:.10g}", f"{exit_price:.10g}",
                *(["", "", "", ""] if not avail else
                  [str(int(bool(avail.get(k, False))))
-                  for k in ("web", "equity", "options", "frozen")])]
+                  for k in ("web", "equity", "options", "frozen")]),
+               # "" = UNKNOWN, never 0.0 - a zero here would be
+               # indistinguishable from a genuine zero-return outcome,
+               # which is the exact ambiguity this column exists to end.
+               ("" if label_ret_pct is None
+                or not np.isfinite(float(label_ret_pct))
+                else f"{float(label_ret_pct):.6f}")]
         # torn-tail heal + fsync (2026-08-06). This is the ground-truth
         # training corpus and the highest-value append-only file in the
         # repo: a kill mid-row welded the fragment to the NEXT row, and
@@ -1124,8 +1148,14 @@ class HistoryStore:
             asset, direction, feats = entry
             sig_ts = None
         label = int(net_pnl_usd > 0)
+        # label_ret_pct for a LIVE row: the realized return in percent, net
+        # of BOOKED fees (net_pnl_usd already is). Guarded: entry_usd == 0
+        # (pre-upgrade snapshot shapes) writes "" = UNKNOWN, never a fake 0.
+        _ret_pct = (net_pnl_usd / entry_usd * 100.0
+                    if entry_usd and entry_usd > 0 else None)
         self._append_row(position_id, asset, direction, feats, label,
                         net_pnl_usd, "live", signal_ts=sig_ts,
+                        label_ret_pct=_ret_pct,
                         barrier=barrier or "realized",
                         probe="1" if probe else "0", disp="entered",
                         candidate_id=cand_id or "", book=book or "5m",
@@ -2581,6 +2611,23 @@ class CandidateLabeler:
 
     def _emit_label(self, cand: dict, out, entry_price: float = 0.0,
                     exit_price: float = 0.0) -> int:
+        # label_ret_pct = out.ret_pct: the labeler's own realized return in
+        # percent. Until 2026-08-24 this value was computed and then
+        # DISCARDED - the 0.0 below is net_pnl_usd (dollars, genuinely
+        # unknown for a candidate) and used to be the row's only outcome
+        # magnitude, so the corpus kept 1 bit of a real-valued outcome and
+        # no label could ever be re-adjudicated at a corrected cost. The 0.0
+        # stays (it is not a lie about dollars we never had); the return now
+        # survives beside it.
+        # UNIT TRAP inherited from BarrierOutcome.ret_pct (2026-07-29 audit):
+        # triple_barrier writes it NET of cost_pct; the exit-policy sim
+        # writes it GROSS (cost applies only inside its label test). Stored
+        # verbatim - consumers normalizing across labelers must add back the
+        # row's cost basis first, exactly as ml/labeling.py:58-62 warns.
+        # THE FIELD NAME IS ret_pct, NOT ret - the first cut of this fix
+        # read getattr(out, "ret", None), which is ALWAYS None, so the
+        # column stayed blank while every direct-kwarg test passed; only the
+        # through-the-real-caller pin caught it.
         self.store._append_row(cand["id"], cand["asset"],
                             cand["direction"], cand["features"],
                             out.label, 0.0, "candidate",
@@ -2591,7 +2638,8 @@ class CandidateLabeler:
                             sl_frac=float(getattr(out, "sl_frac", 0.0) or 0.0),
                             gate_components=cand.get("gate_components"),
                             entry_price=entry_price, exit_price=exit_price,
-                            avail=cand.get("avail"))
+                            avail=cand.get("avail"),
+                            label_ret_pct=getattr(out, "ret_pct", None))
         if self._on_label is not None:
             try:
                 self._on_label(cand.get("gates"), out.label)

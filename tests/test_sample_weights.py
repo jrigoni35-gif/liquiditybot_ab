@@ -69,9 +69,11 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     _ip = header.index("entry_price")
     assert header[_ip:_ip + 2] == ["entry_price", "exit_price"]
     assert row[_ip:_ip + 2] == ["0", "0"]  # candidate path: no price supplied
-    assert header[-4:] == ["avail_web", "avail_equity", "avail_options",
+    assert header[-1] == "label_ret_pct"   # schema 94 (2026-08-24)
+    assert header[-5:-1] == ["avail_web", "avail_equity", "avail_options",
                            "quotes_frozen"]
-    assert row[-4:] == ["", "", "", ""]    # unmeasured -> blank UNKNOWN
+    assert row[-5:] == ["", "", "", "", ""]  # unmeasured -> blank UNKNOWN
+    # (4 avail flags + label_ret_pct, all UNKNOWN on this path)
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -108,7 +110,7 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
         _ip = hdr.index("entry_price")
         assert tail[_ip:_ip + 2] == ["0", "0"]  # live close: no price yet
         # a caller that never measured availability writes blank UNKNOWN
-        assert tail[-4:] == ["", "", "", ""]
+        assert tail[-5:] == ["", "", "", "", ""]
 
 
 # ---- average uniqueness ----------------------------------------------------

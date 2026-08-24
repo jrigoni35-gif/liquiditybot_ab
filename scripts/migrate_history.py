@@ -186,7 +186,16 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     r.get("avail_web") or "",
                     r.get("avail_equity") or "",
                     r.get("avail_options") or "",
-                    r.get("quotes_frozen") or ""])
+                    r.get("quotes_frozen") or "",
+                    # label_ret_pct joined 2026-08-24 (schema 94): the
+                    # labeled outcome's realized return in percent. Same
+                    # idempotence precedent - a migrated row's real value
+                    # passes through UNCHANGED; a row that predates the
+                    # column pads "" = UNKNOWN. NEVER "0": the old defect
+                    # was precisely a fabricated 0.0 standing in for an
+                    # outcome nobody kept, and a migration that re-minted
+                    # zeros would rebuild it for the whole legacy corpus.
+                    r.get("label_ret_pct") or ""])
     return out, padded
 
 
