@@ -1,10 +1,10 @@
 {
-  "generated_at": 1787639525.0034208,
+  "generated_at": 1787643126.1900935,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787639521.0,
-    "duration_h": 1102.64
+    "end": 1787643119.0,
+    "duration_h": 1103.64
   },
   "recent": {
     "hours": 48.0,
@@ -12,8 +12,8 @@
       "records": 338,
       "signal_records": 238,
       "by_src": {
-        "exploration": 122,
-        "ml_governor": 116,
+        "exploration": 121,
+        "ml_governor": 117,
         "order_manager": 34,
         "long_book": 29,
         "conviction": 24,
@@ -53,12 +53,12 @@
           22
         ],
         [
-          "SZ-049",
+          "ML-041",
           21
         ],
         [
-          "ML-041",
-          21
+          "SZ-049",
+          20
         ],
         [
           "LB-010",
@@ -75,26 +75,27 @@
       ],
       "dominant_code": "ML-031",
       "dominant_frac": 0.176,
-      "retrain_requests": 7,
+      "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 4810,
+      "records": 5733,
       "by_level": {
-        "INFO": 4773,
-        "WARNING": 37
+        "INFO": 5692,
+        "WARNING": 40,
+        "CRITICAL": 1
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          24
-        ],
-        [
-          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          2
+          26
         ],
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
+        ],
+        [
+          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
           2
         ],
         [
@@ -127,37 +128,37 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 1004,
-        "thin": 857
+        "spoofy": 1205,
+        "thin": 1041
       },
-      "spoofy_frac": 0.539,
-      "cycles_estimate": 593,
+      "spoofy_frac": 0.537,
+      "cycles_estimate": 701,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 25000.0,
-    "equity_end": 804.66,
+    "equity_end": 804.47,
     "equity_min": 791.33,
     "equity_max": 100000.03,
     "equity_range": 99208.7,
     "realized_pnl_total": 5.22,
     "fees_paid_total": 6.2482,
     "open_positions": 4,
-    "samples": 239931
+    "samples": 240169
   },
   "activity": {
-    "signal_rows_total": 16508,
+    "signal_rows_total": 16523,
     "live_labeled_trades": 359,
-    "candidate_rows": 16149
+    "candidate_rows": 16164
   },
   "audit": {
-    "records": 68435,
-    "signal_records": 29074,
+    "records": 68437,
+    "signal_records": 29076,
     "by_src": {
       "exploration": 62180,
-      "ml_governor": 1835,
+      "ml_governor": 1837,
       "order_manager": 1612,
       "long_book": 1454,
       "startup": 318,
@@ -192,7 +193,7 @@
       ],
       [
         "ML-031",
-        703
+        704
       ],
       [
         "OM-040",
@@ -221,7 +222,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.766,
-    "retrain_requests": 146,
+    "retrain_requests": 147,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -229,22 +230,23 @@
     "chain_seams": 8
   },
   "events": {
-    "records": 4810,
+    "records": 5733,
     "by_level": {
-      "INFO": 4773,
-      "WARNING": 37
+      "INFO": 5692,
+      "WARNING": 40,
+      "CRITICAL": 1
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        24
-      ],
-      [
-        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        2
+        26
       ],
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        3
+      ],
+      [
+        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
         2
       ],
       [
@@ -277,11 +279,11 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1004,
-      "thin": 857
+      "spoofy": 1205,
+      "thin": 1041
     },
-    "spoofy_frac": 0.539,
-    "cycles_estimate": 593,
+    "spoofy_frac": 0.537,
+    "cycles_estimate": 701,
     "feed_error_events": 0
   },
   "model": {
