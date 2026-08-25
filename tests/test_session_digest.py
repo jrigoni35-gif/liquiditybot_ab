@@ -192,3 +192,105 @@ def test_recent_section_schema_and_md_line(tmp_path):
     assert {"records", "dominant_code", "retrain_requests"} <= set(rec["audit"])
     assert "spoofy_frac" in rec["events"]
     assert "Recent (48h lens)" in render_markdown(d)
+
+
+# ---------------------------------------------------------------------------
+# capital-epoch equity lens + chain headline word (2026-08-25)
+# ---------------------------------------------------------------------------
+def _equity_csv(o: Path, values, start_ts=None):
+    now = start_ts or time.time() - len(values) * 15
+    rows = ["ts,equity,daily_pnl"] + [
+        f"{now + i * 15:.0f},{v:.2f},0.00" for i, v in enumerate(values)]
+    (o / "equity.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_equity_headline_reads_the_current_epoch_not_the_lifetime(tmp_path):
+    """The false alarm this fixes: a series holding four capital resets
+    reported '$25,000 -> $803 (range $99,208)' as if one book lost 97%.
+    The equity_* keys must describe the slice after the LAST reset; the
+    lifetime extremes stay available but labelled."""
+    o = _fixture(tmp_path)
+    _equity_csv(o, [25000.0, 24990.0, 100000.0, 99999.0,
+                    800.0, 801.0, 803.0, 802.0])
+    d = build_digest(tmp_path / "outputs")
+    pnl = d["pnl"]
+    assert pnl["capital_epochs"] == 3
+    assert pnl["equity_start"] == 800.0
+    assert pnl["equity_max"] == 803.0
+    assert pnl["equity_range"] == 3.0            # NOT 99,200
+    assert pnl["lifetime_equity_max"] == 100000.0
+    assert pnl["lifetime_equity_range"] == 99200.0
+    md = render_markdown(d)
+    assert "current capital epoch" in md
+    assert "$800.00 -> $802.00" in md
+    assert "3 epochs lifetime" in md
+
+
+def test_single_epoch_series_is_unchanged_and_unannotated(tmp_path):
+    """No reset -> the keys mean exactly what they always meant, and the
+    headline does not grow an epochs clause for a series with one book."""
+    o = _fixture(tmp_path)
+    _equity_csv(o, [10000.0, 10010.0, 9990.0, 10005.0])
+    d = build_digest(tmp_path / "outputs")
+    pnl = d["pnl"]
+    assert pnl["capital_epochs"] == 1
+    assert pnl["equity_start"] == pnl["lifetime_equity_start"] == 10000.0
+    assert pnl["equity_range"] == pnl["lifetime_equity_range"] == 20.0
+    assert "epochs lifetime" not in render_markdown(d)
+
+
+def test_market_moves_do_not_mint_epochs(tmp_path):
+    """A 30% drawdown inside one book is a market event, not a reset —
+    the threshold is per-SAMPLE (seconds apart), where real resets moved
+    83-530% and the worst transient bad read moved 0.8%."""
+    o = _fixture(tmp_path)
+    _equity_csv(o, [10000.0, 9000.0, 7000.0, 8000.0, 9500.0])
+    d = build_digest(tmp_path / "outputs")
+    assert d["pnl"]["capital_epochs"] == 1
+    assert d["pnl"]["equity_range"] == 3000.0
+
+
+def test_flat_epoch_after_reset_fires_sd008(tmp_path):
+    """SD-008 was structurally dead after any reset: the lifetime range
+    stayed inflated by history, so a flatlined book never read as flat.
+    On the epoch lens it fires."""
+    from core.session_digest import SD_FLAT_EQUITY
+    o = _fixture(tmp_path)
+    _equity_csv(o, [25000.0, 24990.0] + [800.0] * 12)
+    d = build_digest(tmp_path / "outputs")
+    assert d["pnl"]["equity_range"] == 0.0
+    assert SD_FLAT_EQUITY in _ids(d)
+
+
+def test_chain_word_names_every_state_and_never_cries_wolf():
+    """Display layer only — the JSON keys are untouched (checkin.py reads
+    them). The word must alarm ONLY on the alarm class: benign seams read
+    'chain_ok=False' in the headline for weeks while the same report
+    classified them benign eight lines down."""
+    from core.session_digest import _chain_word
+    assert _chain_word({"chain_ok": True}) == "OK"
+    seam = _chain_word({"chain_ok": False, "chain_tamper": False,
+                        "chain_seams": 8})
+    assert "SEAMS(8" in seam and "benign" in seam and "False" not in seam
+    tam = _chain_word({"chain_ok": False, "chain_tamper": True,
+                       "chain_first_break": 41})
+    assert tam == "TAMPER(first_break=41)"
+    torn = _chain_word({"chain_ok": False, "chain_tamper": False,
+                        "chain_seams": 0, "chain_torn_tail": True})
+    assert "TORN_TAIL" in torn and "benign" in torn
+    # unreadable outranks the tamper bit verify_chain sets alongside it:
+    # "the stream is missing" and "a record was edited" are different
+    # operator actions and must not share a word
+    unread = _chain_word({"chain_ok": False, "chain_tamper": True,
+                          "chain_error": "unreadable"})
+    assert unread == "UNREADABLE(unreadable)"
+    assert _chain_word({"chain_ok": None}) == "UNVERIFIED"
+
+
+def test_chain_word_reaches_the_rendered_headline(tmp_path):
+    _fixture(tmp_path)
+    d = build_digest(tmp_path / "outputs")
+    assert d["audit"]["chain_ok"] is True
+    md = render_markdown(d)
+    assert "chain=OK" in md
+    assert "chain_ok=" not in md

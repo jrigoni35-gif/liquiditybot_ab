@@ -185,6 +185,13 @@ def _audit_section(records: list, outputs: Path) -> dict:
         "chain_first_break": chain.get("first_break"),
         "chain_tamper": chain.get("tamper"),
         "chain_seams": chain.get("seams", 0),
+        # additive passthroughs so the headline can name the two states that
+        # are neither OK nor tamper: a benign torn tail, and a file the
+        # verifier could not read at all (verify_chain reports the latter as
+        # tamper=True; "the stream is missing" and "a record was edited" are
+        # different operator actions and deserve different words)
+        "chain_torn_tail": chain.get("torn_tail", False),
+        "chain_error": chain.get("error"),
     })
     return out
 
@@ -221,11 +228,52 @@ def _events_section(records: list) -> dict:
     }
 
 
+# A capital reset (scripts/reset_paper_capital.py) is a step discontinuity,
+# not a market move: consecutive equity samples arrive seconds apart, so a
+# jump of half the book between two of them is an operator action. Measured
+# on the live ledger 2026-08-23: the four real resets moved -83%, +530%,
+# +301% and -99% sample-to-sample, while the worst transient bad read moved
+# 0.8%. The threshold sits between those populations with an order of
+# magnitude of clearance on each side.
+_EPOCH_JUMP_FRAC = 0.5
+
+
 def _pnl_section(portfolio: dict, equity_rows: list) -> dict:
+    """Equity stats on the CURRENT CAPITAL EPOCH, with lifetime kept aside.
+
+    The whole-file read this replaces produced the digest's worst false
+    alarm: "$25,000 -> $803.87 (range $99,208.70)" — a 97% wipeout headline
+    over a series that actually contains four paper-capital resets and a
+    current epoch quietly holding +0.3%. Same instrument-lens disease the
+    recent-hours windowing fixed for the audit counts (a lens spanning the
+    whole run reports cured history as current state); this is the equity
+    row's turn.
+
+    The `equity_*` keys now describe the slice after the LAST reset — the
+    only span over which start/min/max/range are statements about one book.
+    Lifetime extremes stay available under `lifetime_*`, labelled as what
+    they are. SD-008 (flat equity) inherits the epoch lens for free, which
+    also un-breaks it: on the lifetime lens a post-reset flatline could
+    never fire, because the range was permanently inflated by history.
+    """
     eq_vals = [_f(r.get("equity")) for r in equity_rows if r.get("equity")]
-    start = eq_vals[0] if eq_vals else _f(portfolio.get("starting_capital"))
-    end = eq_vals[-1] if eq_vals else start
-    lo, hi = (min(eq_vals), max(eq_vals)) if eq_vals else (start, end)
+    life_start = eq_vals[0] if eq_vals else _f(portfolio.get("starting_capital"))
+    life_lo, life_hi = ((min(eq_vals), max(eq_vals)) if eq_vals
+                        else (life_start, life_start))
+    # last reset = last consecutive pair jumping more than the threshold
+    epoch_first = 0
+    for i in range(1, len(eq_vals)):
+        prev = eq_vals[i - 1]
+        if prev > 0 and abs(eq_vals[i] - prev) / prev > _EPOCH_JUMP_FRAC:
+            epoch_first = i
+    epoch = eq_vals[epoch_first:]
+    epochs = 1 + sum(
+        1 for i in range(1, len(eq_vals))
+        if eq_vals[i - 1] > 0
+        and abs(eq_vals[i] - eq_vals[i - 1]) / eq_vals[i - 1] > _EPOCH_JUMP_FRAC)
+    start = epoch[0] if epoch else life_start
+    end = epoch[-1] if epoch else start
+    lo, hi = (min(epoch), max(epoch)) if epoch else (start, end)
     return {
         "starting_capital": _f(portfolio.get("starting_capital")),
         "equity_start": round(start, 2),
@@ -233,6 +281,12 @@ def _pnl_section(portfolio: dict, equity_rows: list) -> dict:
         "equity_min": round(lo, 2),
         "equity_max": round(hi, 2),
         "equity_range": round(hi - lo, 2),
+        "capital_epochs": epochs,
+        "epoch_samples": len(epoch),
+        "lifetime_equity_start": round(life_start, 2),
+        "lifetime_equity_min": round(life_lo, 2),
+        "lifetime_equity_max": round(life_hi, 2),
+        "lifetime_equity_range": round(life_hi - life_lo, 2),
         "realized_pnl_total": round(_f(portfolio.get("realized_pnl_total")), 2),
         "fees_paid_total": round(_f(portfolio.get("fees_paid_total")), 4),
         "open_positions": len(portfolio.get("positions") or []),
@@ -481,6 +535,37 @@ def build_digest(outputs_dir: "str | Path" = "outputs",
     return digest
 
 
+def _chain_word(aud: dict) -> str:
+    """One word the operator can trust at a glance — display only, the JSON
+    keys (`chain_ok`/`chain_tamper`/`chain_seams`) are untouched and
+    scripts/checkin.py keeps reading those.
+
+    The old headline printed `chain_ok=False (tamper=False, seams=8)` at the
+    top of every digest for a condition the SAME report classifies as benign
+    eight lines later (SD-010). A field that reads as an alarm every day is
+    unreadable on the one day it matters; SD-007's own comment makes exactly
+    this argument for the detector, and the headline was undoing it.
+
+      UNREADABLE(err)        the file could not be opened at all
+      TAMPER(first_break=N)  an edited/removed record — the real alarm
+      OK                     clean verify
+      SEAMS(n, benign)       hash-valid concurrent-writer fork(s) only
+      TORN_TAIL(...)         crashed final append, nothing valid after
+      UNVERIFIED             verifier unavailable
+    """
+    if aud.get("chain_error"):
+        return f"UNREADABLE({aud['chain_error']})"
+    if aud.get("chain_tamper"):
+        return f"TAMPER(first_break={aud.get('chain_first_break')})"
+    if aud.get("chain_ok"):
+        return "OK"
+    if aud.get("chain_seams"):
+        return f"SEAMS({aud['chain_seams']}, benign)"
+    if aud.get("chain_torn_tail"):
+        return "TORN_TAIL(benign crash-append)"
+    return "UNVERIFIED"
+
+
 def render_markdown(d: dict) -> str:
     pnl, aud, evt, mdl = d["pnl"], d["audit"], d["events"], d["model"]
     win = d["window"]
@@ -495,9 +580,13 @@ def render_markdown(d: dict) -> str:
         "",
         f"- Window: {_ts(win['start'])} -> {_ts(win['end'])} "
         f"({win['duration_h']}h, ~{evt['cycles_estimate']} cycles)",
-        f"- Equity: ${pnl['equity_start']:,.2f} -> ${pnl['equity_end']:,.2f} "
-        f"(range ${pnl['equity_range']:,.2f}) | realized PnL "
-        f"${pnl['realized_pnl_total']:,.2f} | fees ${pnl['fees_paid_total']:,.2f}",
+        f"- Equity (current capital epoch): ${pnl['equity_start']:,.2f} -> "
+        f"${pnl['equity_end']:,.2f} (range ${pnl['equity_range']:,.2f})"
+        + (f" | {pnl['capital_epochs']} epochs lifetime, range "
+           f"${pnl['lifetime_equity_range']:,.2f}"
+           if pnl.get('capital_epochs', 1) > 1 else "")
+        + f" | realized PnL ${pnl['realized_pnl_total']:,.2f} "
+        f"| fees ${pnl['fees_paid_total']:,.2f}",
         f"- Activity: {pnl['open_positions']} open | "
         f"{d['activity']['live_labeled_trades']} live labeled trades | "
         f"{d['activity']['candidate_rows']} candidates | "
@@ -508,8 +597,7 @@ def render_markdown(d: dict) -> str:
         f"- Audit: {aud['records']} records ({aud['signal_records']} "
         f"non-routine) | dominant {aud['dominant_code']} "
         f"({aud['dominant_frac']:.0%} of non-routine) | "
-        f"chain_ok={aud['chain_ok']} (tamper={aud.get('chain_tamper')}, "
-        f"seams={aud.get('chain_seams', 0)}) | "
+        f"chain={_chain_word(aud)} | "
         f"retrain_requests {aud['retrain_requests']}",
         f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of classified cycles "
         f"| feed errors {evt['feed_error_events']}",
