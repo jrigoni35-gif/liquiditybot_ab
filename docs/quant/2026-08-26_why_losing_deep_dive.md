@@ -47,8 +47,13 @@ net-negative *before* fee truth. SUI and ADA gross positive but fee-eaten
 
 `tb_sl` stops: −$6.23 on 14 trips (the loss channel). `tier trail`:
 +$4.04 on 24 (the earn channel). `tb_time` timeouts: +$1.11 gross →
-−$0.21 net — pure fee churn. The exit-asymmetry finding stands: median
-loss exceeds worst adverse excursion, i.e. **cost, not stop placement**.
+−$0.21 net — fee churn on 19% of trips. **Amended by the same-day
+validation (rows 6b/6c below):** the stop channel's dollars are 78%
+genuine adverse price movement, so "cost, not stop placement" was too
+strong — the correct statement is that BOTH are true: stops fire on real
+moves, AND 79% of losers (Wilson [60%,91%]) still lose more than the
+worst the price ever went against them, because the ~0.65% fee rides on
+top of every loss and MAE's poll-cadence sampling understates depth.
 
 ### Ticket size
 
@@ -100,6 +105,10 @@ Effective n 21.5 of 54 (uniqueness 0.399): the book pays 54 tuitions for
 | 3 alt tail | majors−alts +1.69% CI[+0.20,+3.36], d=0.70; but the grouping was chosen AFTER seeing the data, and deflated p≈0.08 | POST-HOC — pre-register the split for the next era; do not act on this p |
 | 4 geometry | TRUE cost = 68% of mean gross win, CI[48%,103%] | direction solid; magnitude uncertain by 2× |
 | 5 ticket size | fee bps size-invariant (65.2 vs 64.8); split confounded with probe/conviction | **REFUTED as stated** (see above) |
+| 6 exits: stops-vs-trail split | none possible — grouping by exit reason selects on the outcome (stopped trades lose by definition) | DESCRIPTIVE only, no causal content |
+| 6b stop-channel composition | pooled tb_sl loss = 78% price movement, 22% fees | **AMENDS the "cost, not placement" line**: stops fire on real adverse moves; cost is the minority of that channel's dollars |
+| 6c loss > own MAE | 19/24 joined losers (79%, Wilson [60%,91%]) lost more than the worst the price ever went; median excess +0.742% | REAL — every loser pays ~fee (0.65%) on top of its price move, plus MAE poll-cadence under-sampling; consistent with 6b, both are true at once |
+| 6d timeout churn | n=10 (19% of trips), mean net −0.624% CI[−1.06,−0.11], p=0.009 raw / ≈0.07 deflated | semi-mechanical (tb_time selects small-move trades, so net≈−fee by construction); the actionable number is the 19% RATE |
 
 Five claims at α=0.05 ⇒ Bonferroni bar 0.01: only the arithmetic claims
 (1, 4's direction) and claim 2-at-raw-SE clear it; claim 2 after honest
