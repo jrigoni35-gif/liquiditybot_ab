@@ -1,21 +1,21 @@
 {
-  "generated_at": 1787733179.7018707,
+  "generated_at": 1787736780.985808,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787733174.0,
-    "duration_h": 1128.65
+    "end": 1787736771.0,
+    "duration_h": 1129.65
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 431,
-      "signal_records": 323,
+      "records": 435,
+      "signal_records": 327,
       "by_src": {
         "exploration": 131,
         "ml_governor": 108,
-        "long_book": 77,
-        "conviction": 61,
+        "long_book": 79,
+        "conviction": 63,
         "order_manager": 38,
         "exit": 9,
         "startup": 3,
@@ -25,7 +25,7 @@
       "top_codes": [
         [
           "LB-010",
-          55
+          57
         ],
         [
           "SZ-051",
@@ -48,12 +48,12 @@
           25
         ],
         [
-          "SZ-049",
-          23
+          "CV-000",
+          24
         ],
         [
-          "CV-000",
-          22
+          "SZ-049",
+          23
         ],
         [
           "ML-016",
@@ -73,78 +73,40 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.17,
+      "dominant_frac": 0.174,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 24647,
+      "records": 285,
       "by_level": {
-        "INFO": 24393,
-        "WARNING": 246,
-        "CRITICAL": 4,
-        "ERROR": 4
+        "INFO": 282,
+        "WARNING": 3
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          144
-        ],
-        [
-          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          22
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          5
-        ],
-        [
-          "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           3
-        ],
-        [
-          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'DOGE/USD', 'XRP/USD', 'ADA/USD', 'DOT/USD']",
-          2
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
-        ],
-        [
-          "ML-032 RETRAIN REQUESTED: input drift on 30% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          2
-        ],
-        [
-          "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
-          2
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 5120,
-        "thin": 4509
+        "spoofy": 61,
+        "thin": 57
       },
-      "spoofy_frac": 0.532,
-      "cycles_estimate": 2824,
-      "feed_error_events": 2
+      "spoofy_frac": 0.517,
+      "cycles_estimate": 41,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 802.84,
+    "equity_end": 802.35,
     "equity_min": 797.61,
     "equity_max": 806.91,
     "equity_range": 9.3,
     "capital_epochs": 5,
-    "epoch_samples": 78281,
+    "epoch_samples": 78518,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -152,22 +114,22 @@
     "realized_pnl_total": 5.15,
     "fees_paid_total": 6.7072,
     "open_positions": 5,
-    "samples": 246072
+    "samples": 246309
   },
   "activity": {
-    "signal_rows_total": 17165,
+    "signal_rows_total": 17197,
     "live_labeled_trades": 363,
-    "candidate_rows": 16802
+    "candidate_rows": 16834
   },
   "audit": {
-    "records": 68683,
-    "signal_records": 29270,
+    "records": 68695,
+    "signal_records": 29282,
     "by_src": {
       "exploration": 62242,
-      "ml_governor": 1890,
+      "ml_governor": 1894,
       "order_manager": 1628,
-      "long_book": 1513,
-      "conviction": 345,
+      "long_book": 1517,
+      "conviction": 349,
       "startup": 320,
       "fault": 301,
       "exit": 267,
@@ -195,11 +157,11 @@
       ],
       [
         "LB-010",
-        927
+        931
       ],
       [
         "ML-031",
-        719
+        720
       ],
       [
         "OM-040",
@@ -219,10 +181,10 @@
       ],
       [
         "ML-016",
-        317
+        318
       ],
       [
-        "FT-020",
+        "ML-041",
         300
       ]
     ],
@@ -238,68 +200,30 @@
     "chain_error": null
   },
   "events": {
-    "records": 24647,
+    "records": 285,
     "by_level": {
-      "INFO": 24393,
-      "WARNING": 246,
-      "CRITICAL": 4,
-      "ERROR": 4
+      "INFO": 282,
+      "WARNING": 3
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        144
-      ],
-      [
-        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        22
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        5
-      ],
-      [
-        "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         3
-      ],
-      [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "skimmer: universe widened for this boot: 7 core + promoted ['SOL/USD', 'DOGE/USD', 'XRP/USD', 'ADA/USD', 'DOT/USD']",
-        2
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 30% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        2
-      ],
-      [
-        "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
-        2
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5120,
-      "thin": 4509
+      "spoofy": 61,
+      "thin": 57
     },
-    "spoofy_frac": 0.532,
-    "cycles_estimate": 2824,
-    "feed_error_events": 2
+    "spoofy_frac": 0.517,
+    "cycles_estimate": 41,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.22249734591296097,
+    "champion_brier": 0.23839348422388268,
     "brier": "n/a",
     "history_rows": 363,
     "cold": false
@@ -329,7 +253,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 53% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 52% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
