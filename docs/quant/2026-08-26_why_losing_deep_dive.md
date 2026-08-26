@@ -79,8 +79,33 @@ Effective n 21.5 of 54 (uniqueness 0.399): the book pays 54 tuitions for
    round trip = cost is 60% of a gross win. ALGO-5 (pre-named) widens to
    4.8%; the power analysis independently demands gross ≥2.37%/trip for a
    significant CONTINUE at true fees — only wider geometry gets there.
-5. **$18 tickets** — a sizing/consolidation decision (CONC-1 territory,
-   also cohort-resetting).
+5. ~~**$18 tickets** — the fee floor eats them alive~~ **WITHDRAWN
+   (same-day statistical validation).** Kraken fees are proportional:
+   median booked round trip is 65.2 bps on <$20 tickets vs 64.8 bps on
+   larger — there is no fee floor penalizing small tickets. And the
+   small-vs-large net split is 100% confounded with probe/conviction
+   (the ≥$20 trips ARE the 5 conviction trades). The true ticket-size
+   issue is economic — absolute dollars too small to compound or to buy
+   labels quickly — not a per-trade loss mechanism. The dive's original
+   #5 was a plausible mechanism stated without a measurement; the
+   measurement refuted it.
+
+## Statistical validation (same day, bootstrap B=20k, seed 7)
+
+| claim | test | verdict |
+|---|---|---|
+| 1 fee constant | none needed — arithmetic on a measured ×1.979 | REAL, conditional on the tier row (FEE-3 unverified) |
+| 2 probe tuition | probe net at TRUE fees −1.051% CI[−1.65,−0.40], p≈0.001 raw, **p≈0.027 after ×1.58 concurrency deflation** | REAL at true fees (conditional on claim 1); NOT yet resolvable at booked fees alone (p=0.11) |
+| 2b conviction>probe | +2.52%/trip, d=1.03 (large), CI[−0.59,+5.80], p=0.062 | UNDERPOWERED — needs ~16 conviction trades for 80% power, have 5. Directional only |
+| 3 alt tail | majors−alts +1.69% CI[+0.20,+3.36], d=0.70; but the grouping was chosen AFTER seeing the data, and deflated p≈0.08 | POST-HOC — pre-register the split for the next era; do not act on this p |
+| 4 geometry | TRUE cost = 68% of mean gross win, CI[48%,103%] | direction solid; magnitude uncertain by 2× |
+| 5 ticket size | fee bps size-invariant (65.2 vs 64.8); split confounded with probe/conviction | **REFUTED as stated** (see above) |
+
+Five claims at α=0.05 ⇒ Bonferroni bar 0.01: only the arithmetic claims
+(1, 4's direction) and claim 2-at-raw-SE clear it; claim 2 after honest
+concurrency deflation clears 0.05, not 0.01. The ranking's spine — fees
+plus probe tuition — stands; the asset and ticket stories were weaker
+than the prose implied.
 
 ## What is NOT wrong
 
