@@ -238,6 +238,22 @@ instrument, wrong, with nothing flagging it):
 6. The market is allowed to be boring. Prefer the explanation that
    makes the market ordinary and the apparatus fallible, because that
    is the one the record keeps vindicating.
+7. **Reading discipline (2026-08-27, every rule bought by a same-day
+   measured misread — postmortem in docs/quant/):** (a) a ratio or
+   share is not a number until its DENOMINATOR and NETTING are read
+   from the code that computes it (spoofy_frac counts non-liquid
+   cycles only; realized is post-close-fee while fees are both legs;
+   bandit rolls up severity AND confidence). (b) A summary field is a
+   pointer, not an authority — act on the signed document it
+   summarizes (`signed_continue_n` binds two arms; the fired arm
+   lived in the decision table). (c) A series that crosses a schema
+   change or corpus reset is not one series. (d) An exit code that
+   passed through a pipe belongs to the filter, and a green whose
+   runtime is implausible for its corpus is unread. (e) Deflations
+   (effective n, concurrency) apply to the claims you like at the
+   same rate as the claims you doubt. Session-side ad-hoc extraction
+   snippets are the least-governed instruments in the room — the
+   asymmetry above applies to THEM first.
 
 Full concept + citations: vault `wiki/concepts/the-method.md` and
 `wiki/concepts/observational-equivalence.md`.
