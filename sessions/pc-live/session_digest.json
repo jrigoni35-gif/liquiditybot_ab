@@ -1,21 +1,21 @@
 {
-  "generated_at": 1787823225.2305877,
+  "generated_at": 1787826826.5723882,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787823215.0,
-    "duration_h": 1153.67
+    "end": 1787826825.0,
+    "duration_h": 1154.67
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 653,
-      "signal_records": 506,
+      "records": 654,
+      "signal_records": 517,
       "by_src": {
-        "exploration": 173,
-        "long_book": 173,
-        "conviction": 142,
-        "ml_governor": 109,
+        "long_book": 179,
+        "exploration": 162,
+        "conviction": 144,
+        "ml_governor": 113,
         "order_manager": 41,
         "exit": 11,
         "startup": 2,
@@ -24,19 +24,19 @@
       "top_codes": [
         [
           "LB-010",
-          147
+          153
         ],
         [
           "CV-030",
-          103
+          105
         ],
         [
           "SZ-051",
-          67
+          62
         ],
         [
           "ML-070",
-          67
+          62
         ],
         [
           "CV-000",
@@ -52,36 +52,36 @@
         ],
         [
           "SZ-049",
-          25
+          24
         ],
         [
           "ML-016",
-          23
+          24
         ],
         [
           "ML-042",
+          24
+        ],
+        [
+          "ML-041",
           23
         ],
         [
           "OM-000",
           22
-        ],
-        [
-          "ML-041",
-          22
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.291,
-      "retrain_requests": 6,
+      "dominant_frac": 0.296,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 17809,
+      "records": 18801,
       "by_level": {
-        "INFO": 17685,
-        "WARNING": 121,
-        "CRITICAL": 3
+        "INFO": 18673,
+        "WARNING": 124,
+        "CRITICAL": 4
       },
       "top_warnings": [
         [
@@ -105,6 +105,14 @@
           2
         ],
         [
+          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
+          2
+        ],
+        [
+          "ML-032 RETRAIN REQUESTED: input drift on 32% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          2
+        ],
+        [
           "ML-080: exit-reason mix drift tvd=0.376 over trailing 24h (586/17074 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
           1
         ],
@@ -115,34 +123,26 @@
         [
           "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
-        ],
-        [
-          "POSTMORTEM DOGE/USD 0310be6f: underperformance \u2014 realized +0.18% vs expected +0.65% -> outputs\\postmortems\\20260826_095223_DOGE_0310be6f.md",
-          1
-        ],
-        [
-          "ML-080: exit-reason mix drift tvd=0.364 over trailing 24h (614/17103 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3400,
-        "thin": 2710
+        "spoofy": 3518,
+        "thin": 2828
       },
-      "spoofy_frac": 0.556,
-      "cycles_estimate": 2365,
+      "spoofy_frac": 0.554,
+      "cycles_estimate": 2483,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 803.42,
+    "equity_end": 802.24,
     "equity_min": 797.61,
     "equity_max": 806.91,
     "equity_range": 9.3,
     "capital_epochs": 5,
-    "epoch_samples": 84208,
+    "epoch_samples": 84446,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -150,22 +150,22 @@
     "realized_pnl_total": 3.61,
     "fees_paid_total": 7.4849,
     "open_positions": 3,
-    "samples": 251999
+    "samples": 252237
   },
   "activity": {
-    "signal_rows_total": 18232,
+    "signal_rows_total": 18272,
     "live_labeled_trades": 371,
-    "candidate_rows": 17861
+    "candidate_rows": 17901
   },
   "audit": {
-    "records": 69100,
-    "signal_records": 29592,
+    "records": 69113,
+    "signal_records": 29605,
     "by_src": {
       "exploration": 62353,
-      "ml_governor": 1954,
+      "ml_governor": 1959,
       "order_manager": 1654,
-      "long_book": 1627,
-      "conviction": 439,
+      "long_book": 1633,
+      "conviction": 441,
       "startup": 320,
       "fault": 301,
       "exit": 275,
@@ -193,11 +193,11 @@
       ],
       [
         "LB-010",
-        1026
+        1032
       ],
       [
         "ML-031",
-        738
+        739
       ],
       [
         "OM-040",
@@ -209,7 +209,7 @@
       ],
       [
         "ML-016",
-        331
+        332
       ],
       [
         "LB-050",
@@ -221,12 +221,12 @@
       ],
       [
         "ML-041",
-        313
+        314
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.753,
-    "retrain_requests": 153,
+    "dominant_frac": 0.752,
+    "retrain_requests": 154,
     "kill_switch_events": 3,
     "chain_ok": false,
     "chain_first_break": null,
@@ -236,11 +236,11 @@
     "chain_error": null
   },
   "events": {
-    "records": 17809,
+    "records": 18801,
     "by_level": {
-      "INFO": 17685,
-      "WARNING": 121,
-      "CRITICAL": 3
+      "INFO": 18673,
+      "WARNING": 124,
+      "CRITICAL": 4
     },
     "top_warnings": [
       [
@@ -264,6 +264,14 @@
         2
       ],
       [
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps']",
+        2
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 32% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        2
+      ],
+      [
         "ML-080: exit-reason mix drift tvd=0.376 over trailing 24h (586/17074 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
         1
       ],
@@ -274,29 +282,21 @@
       [
         "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
-      ],
-      [
-        "POSTMORTEM DOGE/USD 0310be6f: underperformance \u2014 realized +0.18% vs expected +0.65% -> outputs\\postmortems\\20260826_095223_DOGE_0310be6f.md",
-        1
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.364 over trailing 24h (614/17103 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3400,
-      "thin": 2710
+      "spoofy": 3518,
+      "thin": 2828
     },
-    "spoofy_frac": 0.556,
-    "cycles_estimate": 2365,
+    "spoofy_frac": 0.554,
+    "cycles_estimate": 2483,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.25257290773245367,
+    "champion_brier": 0.2530854135172634,
     "brier": "n/a",
     "history_rows": 371,
     "cold": false
@@ -326,7 +326,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 56% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 55% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
