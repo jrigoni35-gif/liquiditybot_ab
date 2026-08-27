@@ -91,8 +91,16 @@ def prepare_replay_config(config: dict) -> dict:
     return cfg
 
 
-def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
-    """Drive the engine through one recorded session; return the summary."""
+def run_replay(config: dict, recording: str, quiet: bool = True, *,
+               mutate_bot=None) -> dict:
+    """Drive the engine through one recorded session; return the summary.
+
+    mutate_bot: optional callable invoked with the constructed LiquidityBot
+    after init and before the first cycle — the sanctioned strategy-injection
+    seam (the overfit_check make_offline_recording precedent). Default None
+    is byte-identical to the pre-hook behavior; pinned by
+    tests/test_replay_mutate_hook.py.
+    """
     cfg = prepare_replay_config(config)
 
     players = load_session(recording)
@@ -102,6 +110,8 @@ def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
                        binanceus=players.get("binanceus"),
                        kraken=players.get("kraken"),
                        resume=False)
+    if mutate_bot is not None:
+        mutate_bot(bot)
     if quiet:
         logging.getLogger("liquiditybot").setLevel(logging.WARNING)
 
@@ -132,6 +142,9 @@ def run_replay(config: dict, recording: str, quiet: bool = True) -> dict:
         "exit_orders": len(closed),
         "open_positions_end": bot.state.open_position_count(),
         "labeled_rows": bot.history.row_count(),
+        # per-run QA fills ledger — read it BEFORE the next run: successive
+        # runs share the per-pid QA dir and prepare_replay_config unlinks it
+        "fills_ledger_path": cfg["system"]["fills_ledger_path"],
     }
 
 
