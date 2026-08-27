@@ -30,6 +30,12 @@ class LedgerInvalid(ValueError):
 
 def append_rows(rows: list, ledger_path: Path) -> None:
     ledger_path = Path(ledger_path)
+    # Validate every row BEFORE opening the file: a batch is all-or-nothing,
+    # so a missing-column row anywhere must not leave earlier rows flushed.
+    for r in rows:
+        missing = set(LEDGER_COLUMNS) - set(r)
+        if missing:
+            raise LedgerInvalid(f"row missing columns: {sorted(missing)}")
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     new = not ledger_path.exists()
     with open(ledger_path, "a", newline="", encoding="utf-8") as fh:
@@ -37,9 +43,6 @@ def append_rows(rows: list, ledger_path: Path) -> None:
         if new:
             w.writeheader()
         for r in rows:
-            missing = set(LEDGER_COLUMNS) - set(r)
-            if missing:
-                raise LedgerInvalid(f"row missing columns: {sorted(missing)}")
             w.writerow({k: r[k] for k in LEDGER_COLUMNS})
 
 
@@ -50,8 +53,15 @@ def _coerce(r: dict) -> dict:
     out["cycles"] = int(r["cycles"])
     out["entries"] = int(r["entries"])
     out["exits"] = int(r["exits"])
-    out["count"] = int(r.get("count") or 1)
-    out["degenerate"] = str(r["degenerate"]).strip().lower() == "true"
+    raw_count = r["count"]
+    if raw_count is None:
+        raise ValueError("count missing (truncated row)")
+    out["count"] = int(raw_count) if str(raw_count).strip() != "" else 1
+    deg_raw = str(r["degenerate"]).strip().lower()
+    if deg_raw not in ("true", "false"):
+        raise ValueError(
+            f"degenerate must be 'true' or 'false', got {r['degenerate']!r}")
+    out["degenerate"] = deg_raw == "true"
     for k in ("gross_pct", "net_pct"):
         out[k] = float(r[k]) if str(r[k]).strip() != "" else None
     for k in ("sr", "max_dd", "n_eff"):
@@ -98,7 +108,9 @@ def write_meta(ledger_path: Path, attempted: int, accepted: int,
                refused: int, notes: list) -> None:
     meta = {"schema_version": SCHEMA_VERSION, "attempted": attempted,
             "accepted": accepted, "refused": refused, "notes": list(notes)}
-    Path(ledger_path).with_suffix(".meta.json").write_text(
+    ledger_path = Path(ledger_path)
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.with_suffix(".meta.json").write_text(
         json.dumps(meta, indent=1), encoding="utf-8")
 
 

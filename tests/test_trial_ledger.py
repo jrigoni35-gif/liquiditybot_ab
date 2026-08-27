@@ -5,6 +5,8 @@ MEASURED trial count from it under a ratchet. Rows must be complete and
 enum-legal or the reader refuses loudly (OF-5 then falls back, also
 loudly). sr/max_dd/n_eff are nullable by design in v0.1 (spec: sr stays
 empty behind TRIPS_FLOOR=20)."""
+import csv
+import json
 import sys
 from pathlib import Path
 
@@ -60,7 +62,71 @@ def test_meta_counters(tmp_path):
     append_rows([_row()], p)
     write_meta(p, attempted=4, accepted=1, refused=3,
                notes=["determinism refused 3 rows"])
-    import json
     meta = json.loads((p.with_suffix(".meta.json")).read_text(encoding="utf-8"))
     assert meta["attempted"] == 4 and meta["refused"] == 3
     assert meta["schema_version"] == SCHEMA_VERSION
+
+
+def test_sr_max_dd_n_eff_round_trip_to_none(tmp_path):
+    # nullable-SR-behind-TRIPS_FLOOR contract: '' in CSV -> None after read.
+    p = tmp_path / "trial_ledger.csv"
+    append_rows([_row(sr="", max_dd="", n_eff="")], p)
+    rows = read_ledger(p)
+    assert rows[0]["sr"] is None
+    assert rows[0]["max_dd"] is None
+    assert rows[0]["n_eff"] is None
+
+
+def test_invalid_fee_anchor_battery_raises(tmp_path):
+    p = tmp_path / "trial_ledger.csv"
+    append_rows([_row(source="battery", fee_anchor="unbooked")], p)
+    with pytest.raises(LedgerInvalid):
+        read_ledger(p)
+
+
+def test_append_rows_atomic_on_mid_batch_invalid(tmp_path):
+    # finding 1: a missing-column row mid-batch must not leave earlier
+    # rows of that same batch flushed to disk, and must not touch
+    # pre-existing ledger content either.
+    p = tmp_path / "trial_ledger.csv"
+    append_rows([_row()], p)
+    before = p.read_text(encoding="utf-8")
+    bad = _row(strategy_id="incomplete", seed=3)
+    del bad["count"]
+    with pytest.raises(LedgerInvalid):
+        append_rows([_row(strategy_id="buy_hold", seed=2), bad], p)
+    assert p.read_text(encoding="utf-8") == before
+
+
+def test_write_meta_creates_missing_parent_dir(tmp_path):
+    # finding 2: the all-refused case the sidecar exists to record can
+    # land on a fresh tree with no ledger directory yet.
+    p = tmp_path / "fresh" / "tree" / "trial_ledger.csv"
+    assert not p.parent.exists()
+    write_meta(p, attempted=3, accepted=0, refused=3, notes=["all refused"])
+    meta_path = p.with_suffix(".meta.json")
+    assert meta_path.exists()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["attempted"] == 3 and meta["accepted"] == 0
+
+
+@pytest.mark.parametrize("bad_value", ["garbage", "1"])
+def test_degenerate_invalid_value_raises(tmp_path, bad_value):
+    p = tmp_path / "trial_ledger.csv"
+    append_rows([_row(degenerate=bad_value)], p)
+    with pytest.raises(LedgerInvalid):
+        read_ledger(p)
+
+
+def test_count_truncated_row_raises(tmp_path):
+    # finding 4: a row truncated mid-write (fewer fields than the
+    # header) makes DictReader yield restval=None for "count", the
+    # trailing column -- distinct from a present-but-blank field.
+    p = tmp_path / "trial_ledger.csv"
+    row = _row()
+    with open(p, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(LEDGER_COLUMNS)
+        w.writerow([row[c] for c in LEDGER_COLUMNS[:-1]])  # omit "count"
+    with pytest.raises(LedgerInvalid):
+        read_ledger(p)
