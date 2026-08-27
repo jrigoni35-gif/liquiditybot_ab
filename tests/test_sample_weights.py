@@ -69,11 +69,17 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     _ip = header.index("entry_price")
     assert header[_ip:_ip + 2] == ["entry_price", "exit_price"]
     assert row[_ip:_ip + 2] == ["0", "0"]  # candidate path: no price supplied
-    assert header[-1] == "label_ret_pct"   # schema 94 (2026-08-24)
-    assert header[-5:-1] == ["avail_web", "avail_equity", "avail_options",
+    assert header[-1] == "control_arm"   # schema 95 (2026-08-27, sandbox)
+    assert header[-2] == "label_ret_pct"   # schema 94 (2026-08-24)
+    assert header[-6:-2] == ["avail_web", "avail_equity", "avail_options",
                            "quotes_frozen"]
-    assert row[-5:] == ["", "", "", "", ""]  # unmeasured -> blank UNKNOWN
+    assert row[-6:-1] == ["", "", "", "", ""]  # unmeasured -> blank UNKNOWN
     # (4 avail flags + label_ret_pct, all UNKNOWN on this path)
+    # control_arm is NEVER blank for a new row (asset + signal_ts=999_000.0
+    # are always present) - computed through the real function, not a
+    # hardcoded hash literal.
+    assert row[-1] == ("1" if mh._control_arm_tag("BTC", 999_000.0)
+                       else "0")
 
 
 def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
@@ -110,7 +116,12 @@ def test_live_close_writes_realized_barrier(tmp_path, monkeypatch):
         _ip = hdr.index("entry_price")
         assert tail[_ip:_ip + 2] == ["0", "0"]  # live close: no price yet
         # a caller that never measured availability writes blank UNKNOWN
-        assert tail[-5:] == ["", "", "", "", ""]
+        # (4 avail flags + label_ret_pct); control_arm (schema 95) is
+        # NEVER blank for a new row - asset + the captured signal_ts
+        # (frozen 1_000_000.0) are always present.
+        assert tail[-6:-1] == ["", "", "", "", ""]
+        assert tail[-1] == ("1" if mh._control_arm_tag("ETH", 1_000_000.0)
+                            else "0")
 
 
 # ---- average uniqueness ----------------------------------------------------

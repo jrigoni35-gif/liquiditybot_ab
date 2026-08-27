@@ -18,6 +18,7 @@ bootstrap     - cold-start dataset built by replaying EMA-cross
 """
 
 import csv
+import hashlib
 import math
 import os
 import logging
@@ -324,7 +325,73 @@ AVAIL_COLS = ("avail_web", "avail_equity", "avail_options",
 # ledger stays closed per the 2026-08-08 DoF adjudication); it exists so
 # boundary #5's cost correction CAN reprice labels going forward instead of
 # facing a corpus that forgot its own outcomes.
-_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS) + 1
+# control_arm (SANDBOX PROTOTYPE, schema 94->95, 2026-08-27): a
+# deterministic, SEEDLESS 5% stratification tag written at candidate/live
+# signal time. THE DEFECT THIS CURES AT THE ROOT: gate_efficacy_report's
+# baseline arm is the 2026-07-20 migration-backfilled blank-disposition
+# cohort, frozen since (0 rows since, zero label_era overlap with current
+# veto cohorts - a94b5751 shipped a CONFOUNDED_BASELINE refusal rather than
+# a fix). A frozen baseline can never be re-earned; only a corpus that goes
+# on minting fresh, unvetoed rows can. This column is that corpus, going
+# forward: CONTROL_ARM_FRACTION of every new row is tagged so a future
+# comparator has an ERA-CURRENT baseline instead of a frozen artifact.
+# See CONTROL_ARM_FRACTION / _control_arm_tag below for the exact rule.
+# "1"/"0" on every NEW row - unlike label_ret_pct there is no "cannot
+# compute" case, since asset + signal time are always present in
+# _append_row, so a new row is never blank. "" is reserved for rows
+# written before this column existed (migrate_history.py pads "", never
+# backfills - retroactively computing a value for a pre-existing row would
+# claim it was drawn under a control-arm design that did not exist yet;
+# see that script's own comment for the full argument). BOOKKEEPING ONLY:
+# written HERE and read by NO decision code anywhere in this tree - not a
+# veto input, not a sizing input, not an order input. NOT added to
+# FEATURE_NAMES, NOT a trainer input (2026-08-08 DoF adjudication keeps
+# the feature ledger closed; the model freeze is untouched). The consumer
+# that would READ this column (an era-current baseline arm inside
+# gate_efficacy_report.py) does not exist yet - deliberately out of scope
+# here (that script is concurrently edited elsewhere); see the TODO in
+# this change's report.
+_N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS) + 1 + 1
+
+# CONTROL_ARM_FRACTION: 5% carve-out. Chosen (not fitted) to keep the arm
+# small enough not to materially dent aggregate label/candidate throughput
+# (a 5% haircut) while still accruing a usable contemporaneous n within
+# weeks rather than months at the feed's current candidate rate. A prior on
+# acceptable throughput cost, not a tuned constant - liftable to
+# config.json once the operator has real accrual-rate evidence to tune
+# against (no fitted-looking literals in decision paths per CLAUDE.md; this
+# literal is not IN a decision path - it never influences one - but is kept
+# named and documented to the same standard regardless).
+CONTROL_ARM_FRACTION = 0.05
+
+# CONTROL_ARM_BUCKET_SECONDS: the tag is computed from the signal
+# timestamp FLOORED to this many seconds, not the raw timestamp. A retried
+# or re-evaluated candidate for the same asset within one bucket must land
+# in the SAME arm - the raw (sub-second-unique) timestamp would let a
+# single underlying market episode split across both arms on a retry,
+# which is contamination, not an independent draw. One hour is coarser
+# than the feed's typical per-asset candidate inter-arrival (single-digit
+# minutes) and finer than a trading day, so distinct market regimes still
+# draw independently.
+CONTROL_ARM_BUCKET_SECONDS = 3600
+
+
+def _control_arm_tag(asset: str, ts: float) -> bool:
+    """Deterministic, SEEDLESS control-arm membership for one row.
+
+    sha256(asset|bucket) -> first 8 hex chars as an unsigned int,
+    normalized to [0, 1), compared to CONTROL_ARM_FRACTION. No RNG, no
+    process state, no call-order dependence: the same (asset, ts) lands in
+    the same arm on any machine, forever - the property an evidentiary
+    control arm needs, and one a numpy/random seed cannot give (a seeded
+    draw's result depends on how many prior draws preceded it, which a
+    corpus replay can never reproduce exactly).
+    """
+    bucket = int(float(ts)) // CONTROL_ARM_BUCKET_SECONDS
+    digest = hashlib.sha256(f"{asset}|{bucket}".encode()).hexdigest()
+    frac = int(digest[:8], 16) / 0xFFFFFFFF
+    return frac < CONTROL_ARM_FRACTION
+
 
 # Cap on the candidate `disp` column. See CandidateLabeler.mark_disposition
 # for the measurement that moved it off 40 (which amputated the bracket
@@ -784,7 +851,7 @@ class HistoryStore:
                         "label_era", "pt_frac", "sl_frac",
                         *[f"sg_{k}" for k in SG_COMPONENT_KEYS],
                         "entry_price", "exit_price", *AVAIL_COLS,
-                        "label_ret_pct"]
+                        "label_ret_pct", "control_arm"]
         # disp: the signal's final DISPOSITION - "entered", "confirmed"
         # (candidate never taken), or a veto code (capped / SZ-* / pretrade).
         # Closes the loop on the unbiased candidate sample: gate and
@@ -1022,11 +1089,17 @@ class HistoryStore:
                 v = 0.0
             sg[k] = v if np.isfinite(v) else 0.0
         now = time.time()
+        # The candidate's own signal-time anchor, shared by the signal_ts
+        # column AND the control-arm tag below - a row's arm assignment
+        # must be derived from the SAME timestamp its lineage is keyed on,
+        # never recomputed from a second call to time.time() that could
+        # tick between the two uses.
+        row_ts = signal_ts if signal_ts else now
         row = [position_id, asset, direction,
                *[f"{v:.6f}" for v in feats],
                label, f"{pnl_usd:.2f}", source,
                f"{now:.0f}",
-               f"{signal_ts if signal_ts else now:.0f}",
+               f"{row_ts:.0f}",
                barrier, probe, disp, candidate_id, book,
                self._row_era(barrier),
                f"{pt_frac:.6f}", f"{sl_frac:.6f}",
@@ -1040,7 +1113,10 @@ class HistoryStore:
                # which is the exact ambiguity this column exists to end.
                ("" if label_ret_pct is None
                 or not np.isfinite(float(label_ret_pct))
-                else f"{float(label_ret_pct):.6f}")]
+                else f"{float(label_ret_pct):.6f}"),
+               # control_arm: always computable for a new row (asset +
+               # row_ts are both always present) - see _control_arm_tag.
+               "1" if _control_arm_tag(asset, row_ts) else "0"]
         # torn-tail heal + fsync (2026-08-06). This is the ground-truth
         # training corpus and the highest-value append-only file in the
         # repo: a kill mid-row welded the fragment to the NEXT row, and

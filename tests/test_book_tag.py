@@ -88,8 +88,11 @@ def test_history_header_ends_with_label_era(tmp_path):
     # pair - the price anchor is no longer last, relative order preserved
     # schema 94 (2026-08-24): label_ret_pct is the new tail; the avail
     # block is one slot earlier. Same additive pattern as ever.
-    assert h[-1] == "label_ret_pct"
-    assert h[-5:-1] == ["avail_web", "avail_equity", "avail_options",
+    # schema 95 (2026-08-27, sandbox prototype): control_arm is the new
+    # tail; label_ret_pct and the avail block each shift one slot earlier.
+    assert h[-1] == "control_arm"
+    assert h[-2] == "label_ret_pct"
+    assert h[-6:-2] == ["avail_web", "avail_equity", "avail_options",
                       "quotes_frozen"]
     assert h.index("entry_price") + 1 == h.index("exit_price")
     assert h.index("exit_price") + 1 == h.index("avail_web")
@@ -171,15 +174,25 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
     # outcome magnitude trails everything; a caller that never heard of it
     # (this one) writes BLANK = UNKNOWN - never 0.0, because a fabricated
     # zero is indistinguishable from a genuine zero-return outcome.
+    # extended again (control_arm, schema 95, 2026-08-27, sandbox
+    # prototype): unlike every column above, this one is NEVER blank for a
+    # new row - asset + signal_ts (1000.0 here) are always present, so
+    # _append_row always computes a real "1"/"0" via _control_arm_tag. The
+    # expected value is derived through the REAL function, not a hardcoded
+    # hash literal - the value itself is not what this test protects; byte-
+    # identical WIRING is.
+    expected_arm = "1" if history_mod._control_arm_tag("BTC", 1000.0) else "0"
     expected = ["pid-1", "BTC", "long",
                 *[f"{v:.6f}" for v in feats],
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
                 "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
-                *(["0.0000"] * 7), "0", "0", "", "", "", "", ""]
+                *(["0.0000"] * 7), "0", "0", "", "", "", "", "",
+                expected_arm]
     assert row == expected
-    assert header[-1] == "label_ret_pct"   # schema 94
-    assert header[-2] == "quotes_frozen"
+    assert header[-1] == "control_arm"   # schema 95
+    assert header[-2] == "label_ret_pct"
+    assert header[-3] == "quotes_frozen"
     assert len(row) == len(header)
 
 

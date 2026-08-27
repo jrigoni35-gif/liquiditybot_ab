@@ -128,8 +128,18 @@ def test_history_header_contract_is_stable(tmp_path):
                 # outcome's realized return in percent - before it,
                 # _emit_label computed BarrierOutcome.ret_pct and discarded
                 # it, so no candidate label could ever be re-adjudicated at
-                # a corrected cost. "" = UNKNOWN, appended last.
-                "label_ret_pct"]
+                # a corrected cost. "" = UNKNOWN, appended last (until the
+                # next bump below).
+                "label_ret_pct",
+                # control_arm joined 2026-08-27 (schema 95, sandbox
+                # prototype): deterministic 5% signal-time stratification
+                # tag (ml/history.py CONTROL_ARM_FRACTION) - cures the
+                # frozen-baseline defect (gate_efficacy_report's baseline
+                # arm has been n=0 since 2026-07-20) by minting a fresh
+                # contemporaneous control cohort going forward. "1"/"0" on
+                # every new row, "" for rows written before this column -
+                # appended last.
+                "control_arm"]
     assert hs._header == expected
 
 

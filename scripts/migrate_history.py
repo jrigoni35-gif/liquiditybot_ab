@@ -195,7 +195,24 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     # was precisely a fabricated 0.0 standing in for an
                     # outcome nobody kept, and a migration that re-minted
                     # zeros would rebuild it for the whole legacy corpus.
-                    r.get("label_ret_pct") or ""])
+                    r.get("label_ret_pct") or "",
+                    # control_arm joined 2026-08-27 (schema 95, sandbox
+                    # prototype - control-arm stratification tag): a
+                    # deterministic 5% signal-time stratification tag (see
+                    # CONTROL_ARM_FRACTION / _control_arm_tag in
+                    # ml/history.py). Same idempotence precedent as every
+                    # column above - an already-migrated row's real "1"/"0"
+                    # passes through UNCHANGED. A row that predates the
+                    # column pads "" = not-designated, NEVER "0": this tag
+                    # is deterministic from (asset, signal_ts), and a
+                    # migration pass has both inputs available, but
+                    # BACKFILLING one anyway would claim the row was drawn
+                    # under a control-arm design that did not exist at
+                    # write time - the same "retroactive designation is not
+                    # the same fact as a contemporaneous one" argument the
+                    # column exists to enforce going forward. "" is the
+                    # honest read for every row this script can migrate.
+                    r.get("control_arm") or ""])
     return out, padded
 
 

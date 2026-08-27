@@ -41,9 +41,15 @@ def _read(p: Path):
 
 def test_schema_ends_with_label_ret_pct(tmp_path):
     """Append-at-END discipline: the column must be LAST so every consumer
-    written against the old width still parses by position."""
+    written against the old width still parses by position.
+
+    control_arm (schema 95, 2026-08-27, sandbox prototype) has since been
+    appended AFTER this one - label_ret_pct is now second-to-last, same
+    append-at-END discipline one bump later (see
+    tests/test_control_arm_tag.py for that column's own pins)."""
     store, _ = _store(tmp_path)
-    assert store._header[-1] == "label_ret_pct"
+    assert store._header[-2] == "label_ret_pct"
+    assert store._header[-1] == "control_arm"
 
 
 def test_candidate_ret_survives_the_write(tmp_path):
@@ -137,7 +143,13 @@ def test_old_schema_file_rotates_and_recovers_without_row_loss(tmp_path):
     (root / "outputs").mkdir(exist_ok=True)
     p = root / "outputs" / "signal_history.csv"
     probe = HistoryStore(str(p))
-    old_header = [c for c in probe._header if c != "label_ret_pct"]
+    # exclude BOTH bumps since this fixture: a genuinely pre-94 file
+    # predates label_ret_pct AND control_arm (schema 95, 2026-08-27,
+    # sandbox prototype) - filtering only one would leave a phantom
+    # column in old_header that the literal rows below were never written
+    # to carry, corrupting the fixture rather than exercising the hazard.
+    old_header = [c for c in probe._header
+                 if c not in ("label_ret_pct", "control_arm")]
     p.unlink(missing_ok=True)     # probe does not create the file eagerly
     feats = ["0.000000"] * len(FEATURE_NAMES)
     with p.open("w", newline="", encoding="utf-8") as f:
@@ -168,6 +180,12 @@ def test_old_schema_file_rotates_and_recovers_without_row_loss(tmp_path):
     # merged short rows read as UNKNOWN (None/""), never a fabricated value
     assert all(r.get("label_ret_pct") in ("", None) for r in old)
     assert new[0]["label_ret_pct"] == "1.500000"
+    # control_arm: legacy rows predate the column entirely (not even a
+    # migration pass ran here - recover_local_baks merges raw stranded
+    # rows) - UNKNOWN, never a fabricated arm assignment. The new row
+    # always gets a real "1"/"0" (asset+signal_ts=9.0 were both supplied).
+    assert all(r.get("control_arm") in ("", None) for r in old)
+    assert new[0]["control_arm"] in ("0", "1")
 
 
 # --- the ghost-position check (ledger_continuity) -----------------------
