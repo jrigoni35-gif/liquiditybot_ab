@@ -58,8 +58,12 @@ def append_rows(rows: list, ledger_path: Path) -> None:
     for r in rows:
         w.writerow([r[k] for k in LEDGER_COLUMNS])
     body = body_buf.getvalue()
-    durable_append(Path(ledger_path), lambda f: f.write(body),
-                   header=header_buf.getvalue())
+    ok = durable_append(Path(ledger_path), lambda f: f.write(body),
+                        header=header_buf.getvalue())
+    if not ok:
+        raise LedgerInvalid(
+            f"durable_append failed for {ledger_path} - batch NOT written "
+            f"(file locked or unwritable)")
 
 
 def _coerce(r: dict) -> dict:

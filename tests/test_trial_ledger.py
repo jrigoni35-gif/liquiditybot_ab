@@ -132,6 +132,30 @@ def test_count_truncated_row_raises(tmp_path):
         read_ledger(p)
 
 
+def test_append_rows_raises_on_durable_append_failure(tmp_path, monkeypatch):
+    # F1: durable_append never raises -- it returns False on OSError (a
+    # file locked by e.g. Excel on the Windows target) and merely logs.
+    # append_rows previously ignored that return, so a locked ledger
+    # silently dropped the whole batch while write_meta still reported
+    # it accepted. It must now raise instead of reading failure as
+    # success. durable_append is imported locally inside append_rows
+    # (`from core.runtime import durable_append`), so patch it on
+    # core.runtime -- a module-level patch on scripts.trial_ledger would
+    # not be seen by that fresh per-call import.
+    import core.runtime as runtime_mod
+    monkeypatch.setattr(runtime_mod, "durable_append", lambda *a, **k: False)
+    p = tmp_path / "trial_ledger.csv"
+    with pytest.raises(LedgerInvalid, match="durable_append failed"):
+        append_rows([_row()], p)
+    assert not p.exists()
+
+
+def test_count_blank_string_defaults_to_one(tmp_path):
+    p = tmp_path / "trial_ledger.csv"
+    append_rows([_row(count="")], p)
+    assert read_ledger(p)[0]["count"] == 1
+
+
 def test_harvest_counts_and_absent(tmp_path):
     from scripts.trial_ledger import harvest
     out = tmp_path / "outputs"
