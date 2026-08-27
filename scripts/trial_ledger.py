@@ -114,13 +114,74 @@ def write_meta(ledger_path: Path, attempted: int, accepted: int,
         json.dumps(meta, indent=1), encoding="utf-8")
 
 
+def _harvest_row(strategy_id: str, count: int) -> dict:
+    return {"schema_version": SCHEMA_VERSION, "strategy_id": strategy_id,
+            "source": "harvest", "seed": 0, "fee_anchor": "n/a",
+            "harness_profile": "n/a", "cycles": 0, "entries": 0, "exits": 0,
+            "gross_pct": "", "net_pct": "", "sr": "", "max_dd": "",
+            "n_eff": "", "degenerate": False, "exit_profile": "n/a",
+            "count": count}
+
+
+def harvest(outputs_dir: Path) -> tuple:
+    """Count trials ALREADY evaluated by historical search tools.
+
+    Objective-only sources: these yield N, never SR dispersion (spec
+    [SEV-3]). An absent source is returned in `absent` and NEVER counted
+    as zero trials — absence of a record is not a record of absence.
+    Static sources (geometry grid, OF-3 model space) are read from the
+    module constants that define them, so they track code, not memory.
+    """
+    outputs_dir = Path(outputs_dir)
+    rows, absent = [], []
+
+    ts = outputs_dir / "tune_search_state.json"
+    if ts.exists():
+        try:
+            state = json.loads(ts.read_text(encoding="utf-8"))
+            n = len(state.get("evaluated") or [])
+            if n:
+                rows.append(_harvest_row("tune_search", n))
+        except (OSError, json.JSONDecodeError):
+            absent.append("tune_search_state.json (unreadable)")
+    else:
+        absent.append("tune_search_state.json")
+
+    sweeps = sorted((outputs_dir / "sweeps").glob("sweep_*.csv"))
+    if sweeps:
+        for sw in sweeps:
+            with open(sw, newline="", encoding="utf-8") as fh:
+                n = sum(1 for _ in csv.DictReader(fh))
+            if n:
+                rows.append(_harvest_row(f"sweep:{sw.name}", n))
+    else:
+        absent.append("sweeps/*.csv")
+
+    from scripts.geometry_search import HORIZON_BARS, SL_PCT, TP_PCT
+    rows.append(_harvest_row("geometry_search_grid",
+                             len(TP_PCT) * len(SL_PCT) * len(HORIZON_BARS)))
+
+    from ml.overfit import _BASE_ORDER
+    rows.append(_harvest_row("of3_model_space", len(_BASE_ORDER)))
+    return rows, absent
+
+
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--ledger", default="outputs/trial_ledger.csv")
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--harvest", action="store_true",
+                    help="append harvest rows from outputs/ search records")
     ns = ap.parse_args()
     p = Path(ns.ledger)
+    if ns.harvest:
+        rows, absent = harvest(Path("outputs"))
+        append_rows(rows, p)
+        for a in absent:
+            print(f"harvest source ABSENT (not zero): {a}")
+        print(f"harvested {sum(r['count'] for r in rows)} trials "
+              f"from {len(rows)} sources -> {p}")
     if not p.exists():
         print(f"no ledger at {p} (ABSENT, not zero trials)")
         return 0

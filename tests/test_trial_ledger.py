@@ -130,3 +130,30 @@ def test_count_truncated_row_raises(tmp_path):
         w.writerow([row[c] for c in LEDGER_COLUMNS[:-1]])  # omit "count"
     with pytest.raises(LedgerInvalid):
         read_ledger(p)
+
+
+def test_harvest_counts_and_absent(tmp_path):
+    from scripts.trial_ledger import harvest
+    out = tmp_path / "outputs"
+    (out / "sweeps").mkdir(parents=True)
+    (out / "sweeps" / "sweep_1.csv").write_text(
+        "position_sizer.kelly_fraction,realized_pnl\n0.1,-1\n0.2,2\n0.3,0\n",
+        encoding="utf-8")
+    (out / "tune_search_state.json").write_text(
+        '{"evaluated": [{"theta": [1], "objective": 0.1},'
+        ' {"theta": [2], "objective": 0.2}]}', encoding="utf-8")
+    rows, absent = harvest(out)
+    by_id = {r["strategy_id"]: r["count"] for r in rows}
+    assert by_id["sweep:sweep_1.csv"] == 3
+    assert by_id["tune_search"] == 2
+    assert by_id["geometry_search_grid"] == 48   # static, from module constants
+    assert by_id["of3_model_space"] == 9         # ml/overfit._BASE_ORDER
+    assert absent == []
+
+
+def test_harvest_reports_absent_sources(tmp_path):
+    from scripts.trial_ledger import harvest
+    rows, absent = harvest(tmp_path / "outputs")   # dir doesn't exist
+    ids = {r["strategy_id"] for r in rows}
+    assert ids == {"geometry_search_grid", "of3_model_space"}
+    assert set(absent) == {"tune_search_state.json", "sweeps/*.csv"}
