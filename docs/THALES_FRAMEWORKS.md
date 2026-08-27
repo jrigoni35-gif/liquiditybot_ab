@@ -1,5 +1,8 @@
 # THALES vs. freqtrade / Hummingbot — footprint reference
 
+> **Registry (2026-08-27):** each footprint here has a governed entry in
+> `docs/thales/REGISTRY.md` (contract: `docs/thales/README.md`).
+
 What predictable behaviours the two most-deployed open-source retail
 bots leave in **public market data** when run on or near their
 documented defaults, which THALES detector recognises each, and whether
