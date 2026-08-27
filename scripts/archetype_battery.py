@@ -276,3 +276,164 @@ def tape_coherence(recording_path: str) -> dict:
             and len(set(end_times)) == len(end_times),
             "distinct_series": len(series),
             "max_venue_gap_bps": max(gaps) if gaps else 0.0}
+
+
+# ---------------------------------------------------------------- archetypes
+# Entries ONLY (spec [SEV-5]): every rung exits through the deployed
+# machinery; exit_profile="deployed" on every row. Each factory returns a
+# FRESH closure so grid anchors / clocks / EMAs never leak across runs.
+# The engine may SHADE the confidence downstream — it is an input, not a
+# pass-through.
+from strategies.signal_gates import SignalResult  # noqa: E402
+
+
+def _no_signal(asset: str) -> "SignalResult":
+    return SignalResult(symbol=f"{asset}/USD", direction=None,
+                        confidence=0.0, size=0.0, all_confirmed=False,
+                        gates_passed={})
+
+
+def _sig(asset: str, direction: str, conf: float) -> "SignalResult":
+    return SignalResult(symbol=f"{asset}/USD", direction=direction,
+                        confidence=conf, size=0.0, all_confirmed=True,
+                        gates_passed={"archetype": True})
+
+
+def _closes(view: dict) -> list:
+    return [c["close"] for c in (view.get("candles") or [])]
+
+
+def _random_entry(seed: int, p_fire: float = 0.06):
+    rng = np.random.default_rng(seed * 1009 + 1)
+
+    def fn(asset, view):
+        if not _closes(view):
+            return _no_signal(asset)
+        if rng.random() < p_fire:
+            return _sig(asset, "long" if rng.random() < 0.5 else "short", 0.8)
+        return _no_signal(asset)
+    return fn
+
+
+def _buy_hold(seed: int):
+    fired = set()
+
+    def fn(asset, view):
+        if asset in fired or not _closes(view):
+            return _no_signal(asset)
+        fired.add(asset)
+        return _sig(asset, "long", 0.9)
+    return fn
+
+
+def _naive_grid(seed: int, levels: int = 5, spacing_pct: float = 0.8):
+    anchors = {}
+
+    def fn(asset, view):
+        closes = _closes(view)
+        if not closes:
+            return _no_signal(asset)
+        px = closes[-1]
+        if asset not in anchors:
+            anchors[asset] = px
+            return _no_signal(asset)
+        drop_pct = (anchors[asset] - px) / anchors[asset] * 100.0
+        rung = int(drop_pct // spacing_pct)
+        if 1 <= rung <= levels:
+            anchors[asset] = px            # re-arm below the fill (grid-bot)
+            return _sig(asset, "long", 0.7)
+        return _no_signal(asset)
+    return fn
+
+
+def _clockwork_dca(seed: int, every_n_calls: int = 12):
+    calls = {}
+
+    def fn(asset, view):
+        if not _closes(view):
+            return _no_signal(asset)
+        calls[asset] = calls.get(asset, 0) + 1
+        if calls[asset] % every_n_calls == 0:
+            return _sig(asset, "long", 0.7)
+        return _no_signal(asset)
+    return fn
+
+
+def _momentum_chaser(seed: int, k: int = 12):
+    def fn(asset, view):
+        closes = _closes(view)
+        if len(closes) < k + 1:
+            return _no_signal(asset)
+        ret = closes[-1] / closes[-1 - k] - 1.0
+        if abs(ret) < 0.001:
+            return _no_signal(asset)
+        return _sig(asset, "long" if ret > 0 else "short", 0.75)
+    return fn
+
+
+def _stop_herder(seed: int, proximity_pct: float = 0.25):
+    def fn(asset, view):
+        closes = _closes(view)
+        if not closes:
+            return _no_signal(asset)
+        px = closes[-1]
+        step = 10 ** max(0, len(str(int(px))) - 2)     # 2 leading digits
+        dist = abs(px - round(px / step) * step) / px * 100.0
+        if dist <= proximity_pct:
+            return _sig(asset, "long", 0.7)
+        return _no_signal(asset)
+    return fn
+
+
+def _vol_trend(seed: int, fast: int = 8, slow: int = 24,
+               max_bar_vol: float = 0.006):
+    def _ema(xs, n):
+        a = 2.0 / (n + 1.0)
+        e = xs[0]
+        for x in xs[1:]:
+            e = a * x + (1 - a) * e
+        return e
+
+    def fn(asset, view):
+        closes = _closes(view)
+        if len(closes) < slow + 2:
+            return _no_signal(asset)
+        rets = [closes[i] / closes[i - 1] - 1.0 for i in range(1, len(closes))]
+        vol = float(np.std(rets[-slow:]))
+        if vol > max_bar_vol:
+            return _no_signal(asset)              # vol gate: stand down
+        f, s = _ema(closes[-slow:], fast), _ema(closes[-slow:], slow)
+        if abs(f / s - 1.0) < 0.0008:
+            return _no_signal(asset)
+        return _sig(asset, "long" if f > s else "short", 0.8)
+    return fn
+
+
+ARCHETYPES = {
+    "random_entry": _random_entry,
+    "buy_hold": _buy_hold,
+    "naive_grid": _naive_grid,
+    "clockwork_dca": _clockwork_dca,
+    "momentum_chaser": _momentum_chaser,
+    "stop_herder": _stop_herder,
+    "vol_trend": _vol_trend,
+    "deployed": None,          # the measured member: no patch
+}
+
+
+def oracle_factory(world: "PriceWorld", horizon_bars: int = 12):
+    """Test-only planted edge: reads the world's FUTURE price. Exists so
+    the battery's validation can prove the pipeline ranks a real edge
+    first (the-method injection obligation). Never in ARCHETYPES."""
+    def fn(asset, view):
+        closes = _closes(view)
+        if not closes:
+            return _no_signal(asset)
+        px = closes[-1]
+        arr = world._px[asset]
+        i = int(np.argmin(np.abs(arr - px)))
+        fut = world.price(asset, min(i + horizon_bars, world.bars - 1))
+        if abs(fut / px - 1.0) < 0.0005:
+            return _no_signal(asset)
+        return _sig(asset, "long" if fut > px else "short", 0.95)
+    return fn

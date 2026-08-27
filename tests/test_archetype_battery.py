@@ -33,3 +33,64 @@ def test_tapes_differ_across_seeds(tmp_path):
     from scripts.archetype_battery import PriceWorld
     w1, w2 = PriceWorld(1, 200, 300), PriceWorld(2, 200, 300)
     assert w1.price("ETH", 150) != w2.price("ETH", 150)
+
+
+def _view(closes, mark):
+    return {"candles": [{"time": float(i), "open": c, "high": c, "low": c,
+                         "close": c, "volume": 1.0}
+                        for i, c in enumerate(closes)],
+            "mark_price": mark}
+
+
+def test_archetypes_registry_shape():
+    from scripts.archetype_battery import ARCHETYPES
+    assert set(ARCHETYPES) == {"random_entry", "buy_hold", "naive_grid",
+                               "clockwork_dca", "momentum_chaser",
+                               "stop_herder", "vol_trend", "deployed"}
+    assert ARCHETYPES["deployed"] is None
+
+
+def test_rungs_emit_valid_signalresults_and_never_raise():
+    from scripts.archetype_battery import ARCHETYPES
+    closes = [100 + 0.3 * i for i in range(60)]
+    for name, factory in ARCHETYPES.items():
+        if factory is None:
+            continue
+        fn = factory(seed=7)
+        r = fn("ETH", _view(closes, closes[-1]))
+        assert r.symbol == "ETH/USD"
+        assert r.direction in ("long", "short", None)
+        assert (r.direction is None) == (r.all_confirmed is False)
+        r2 = fn("ETH", _view([], 100.0))     # empty candles never raise
+        assert r2.direction is None
+
+
+def test_momentum_flips_with_the_tape():
+    from scripts.archetype_battery import ARCHETYPES
+    up = ARCHETYPES["momentum_chaser"](seed=1)("ETH",
+        _view([100 + i for i in range(30)], 130.0))
+    dn = ARCHETYPES["momentum_chaser"](seed=1)("ETH",
+        _view([130 - i for i in range(30)], 100.0))
+    assert up.direction == "long" and dn.direction == "short"
+
+
+def test_state_is_fresh_per_factory_call():
+    from scripts.archetype_battery import ARCHETYPES
+    closes = [100.0] * 40
+    a = ARCHETYPES["clockwork_dca"](seed=2)
+    b = ARCHETYPES["clockwork_dca"](seed=2)
+    va = [a("ETH", _view(closes, 100.0)).direction for _ in range(6)]
+    vb = [b("ETH", _view(closes, 100.0)).direction for _ in range(6)]
+    assert va == vb                      # same seed, same fresh sequence
+
+
+def test_oracle_sees_the_future(tmp_path):
+    from scripts.archetype_battery import PriceWorld, oracle_factory
+    w = PriceWorld(5, bars=200)
+    fn = oracle_factory(w, horizon_bars=12)
+    i = 140
+    view = _view([w.price("ETH", j) for j in range(i - 40, i + 1)],
+                 w.price("ETH", i))
+    r = fn("ETH", view)
+    future_up = w.price("ETH", i + 12) > w.price("ETH", i)
+    assert r.direction == ("long" if future_up else "short")
