@@ -4,8 +4,8 @@
 
 - Window: n/a -> n/a (0.0h, ~0 cycles)
 - Equity (current capital epoch): $0.00 -> $0.00 (range $0.00) | realized PnL $0.00 | fees $0.00
-- Activity: 0 open | 367 live labeled trades | 17201 candidates | 0 postmortems
-- Model: level None | use_model=None | brier n/a | history_rows 367 | cold=True
+- Activity: 0 open | 371 live labeled trades | 17589 candidates | 0 postmortems
+- Model: level None | use_model=None | brier n/a | history_rows 371 | cold=True
 - Audit: 0 records (0 non-routine) | dominant None (0% of non-routine) | chain=UNREADABLE(unreadable) | retrain_requests 0
 - Liquidity: spoofy 0% of classified cycles | feed errors 0
 
