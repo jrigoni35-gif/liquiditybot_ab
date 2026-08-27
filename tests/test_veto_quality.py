@@ -114,6 +114,57 @@ def test_flags_require_effective_n_on_both_sides():
         assert r["anti_selective"] is False and r["selective"] is False
 
 
+# ---------------------------------------------------------------------------
+# era-confound guard (2026-08-27) — the SZ-021/frozen-baseline defect,
+# INJECTED: a code whose rows share zero `label_era` with the baseline
+# must refuse a significance verdict even when its point estimate would
+# otherwise read disjoint; a code that DOES share the baseline's era must
+# still get the normal verdict (this fix must not blanket-suppress).
+# ---------------------------------------------------------------------------
+def _era_row(disp, label, ts, era, span=600.0):
+    r = _row(disp, label, ts, span)
+    r["label_era"] = era
+    return r
+
+
+def test_disjoint_label_era_yields_confounded_verdict():
+    """INJECTION: SZ-321's 40 rows are 100% `triple_barrier_h432`; the
+    baseline is 100% `legacy`. Zero era overlap. At 80% win rate vs a 25%
+    baseline this WOULD read disjoint-CI 'ANTI-SELECTIVE' under the old
+    disp-only comparison (the exact SZ-021 shape, docs/HANDOFF.md REG-6,
+    2026-08-27 caveat) — the fix must refuse the verdict instead."""
+    t = 1_786_500_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("SZ-321", 1 if i < 32 else 0, t + (100 + i) * 3600,
+                      "triple_barrier_h432") for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-321"]
+    assert r["era_overlap"] == 0.0
+    assert r["comparison"] == "CONFOUNDED_BASELINE"
+    assert r["anti_selective"] is False and r["selective"] is False
+    # rates/CIs are still reported, not suppressed by the confound guard
+    assert r["n"] == 40 and abs(r["rate"] - 0.80) < 1e-9
+    assert r["lo"] is not None and r["hi"] is not None
+
+
+def test_same_era_corpus_still_yields_normal_verdicts():
+    """Control for the injection above: code and baseline SHARE a
+    label_era, so the ordinary significance machinery must still fire —
+    this guard may only suppress the disjoint-era case, not every
+    verdict."""
+    t = 1_786_600_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("SZ-322", 0, t + (100 + i) * 3600, "legacy")
+             for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-322"]
+    assert r["era_overlap"] == 1.0
+    assert r["comparison"] == "selective"
+    assert r["selective"] is True and r["anti_selective"] is False
+
+
 def test_code_regex_contains_no_control_bytes():
     """The \\x08 incident, pinned at byte level: shell-mangled escapes
     became literal backspaces inside the regex, matched nothing, and were

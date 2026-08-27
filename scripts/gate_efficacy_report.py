@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.gate_truth_report import effective_n  # noqa: E402
+from ml.history import label_era_of  # noqa: E402
 
 # WHY THIS ONE. Three effective-n implementations exist in the repo and
 # they answer different questions:
@@ -70,6 +71,51 @@ ADMITTED = {"entered", "capped"}
 # Blank disposition = registered but never reached a gate verdict; it is the
 # closest thing to an unconditional sample and serves as the baseline.
 BASELINE = ""
+
+# ERA-CONFOUND GUARD (2026-08-27). The 2026-07-20 migration backfilled
+# `disp=""` onto every pre-existing row without touching what LABEL
+# DEFINITION produced it - BASELINE above is frozen at that instant (0
+# rows since, 84.1% `legacy` + 15.9% `exit_sim`, zero `triple_barrier*` -
+# vault wiki/synthesis/open-contradictions-register.md, 2026-08-15 OPEN
+# item). A code whose own rows are drawn entirely from an era the
+# baseline never touches (SZ-021: 100% `triple_barrier_h432`, measured
+# 2026-08-27) is not being compared to an alternative population - it is
+# being compared to a different label definition from a different
+# calendar month, and a disjoint-CI "significant" verdict there does not
+# survive a same-window comparator (docs/HANDOFF.md REG-6 UPDATE,
+# 2026-08-27 caveat: [0.439,0.580] vs a contemporaneous [0.369,0.514]
+# overlaps). ERA_OVERLAP_FLOOR is a POLICY floor, not fitted to any
+# corpus: below it, no significance claim is rendered regardless of how
+# wide the gap between the point estimates looks.
+ERA_OVERLAP_FLOOR = 0.05
+
+
+def _row_era(r: dict) -> str:
+    """Which label-definition era one row belongs to - same precedence
+    `ml.history._row_label_era` and `migrate_history.py`'s migration
+    both use (persisted `label_era` column first, `barrier`-derived
+    fallback for a row written before the column existed): duplicated as
+    this 2-line glue, not re-implemented, because the classification
+    itself (`label_era_of`) is imported from ml.history so it cannot
+    silently drift from the writer's own definition."""
+    persisted = (r.get("label_era") or "").strip()
+    return persisted if persisted else label_era_of(r.get("barrier") or "")
+
+
+def _era_mix(rows: list) -> Counter:
+    return Counter(_row_era(r) for r in rows)
+
+
+def _era_overlap_frac(mix: Counter, base_eras: set) -> float:
+    """Fraction of a sample's OWN rows drawn from a label_era the
+    baseline sample ALSO has at least one row in. 0.0 means the two
+    samples never share a label definition at all, regardless of n on
+    either side - the case this guard exists for."""
+    n = sum(mix.values())
+    if not n:
+        return 0.0
+    return sum(c for e, c in mix.items() if e in base_eras) / n
+
 
 # "SZ-023: p 0.28 below bar 0.55" -> (0.28, 0.55). The gate writes its own
 # inputs into the disposition string, which makes calibration recoverable
@@ -188,6 +234,7 @@ def efficacy(rows: list, min_n: int) -> dict:
             by[(r.get("disp") or "").strip()].append(r)
 
     base = _stat(by.get(BASELINE, []))
+    base_eras = set(_era_mix(by.get(BASELINE, [])))
     adm = _stat([r for d, v in by.items() if d in ADMITTED for r in v])
     out = {"baseline": base, "admitted": adm,
            "separation": adm["rate"] - base["rate"] if base["n"] else None,
@@ -199,14 +246,23 @@ def efficacy(rows: list, min_n: int) -> dict:
         # A veto is GOOD when what it rejected loses more than baseline.
         s["disposition"] = d or "(baseline)"
         s["vs_baseline"] = s["rate"] - base["rate"] if base["n"] else None
+        s["era_overlap"] = _era_overlap_frac(_era_mix(v), base_eras)
+        # CONFOUNDED_BASELINE: this sample's own rows barely or never
+        # share a label_era with the baseline sample, so no disjoint-CI
+        # claim about it means anything - checked BEFORE anti_selective
+        # below, which it short-circuits.
+        confounded = bool(base["n"] and d and d not in ADMITTED
+                          and s["era_overlap"] < ERA_OVERLAP_FLOOR)
+        s["confounded_baseline"] = confounded
         # ANTI-SELECTIVE is a significance claim (disjoint intervals), so
-        # it is asserted only where BOTH samples have an effective n: a
-        # flag that survives on nominal n alone stops being raised.
+        # it is asserted only where BOTH samples have an effective n AND
+        # an era-comparable baseline: a flag that survives on nominal n
+        # alone, or on a disjoint-era baseline, stops being raised.
         s["anti_selective"] = bool(
-            base["n"] and d and d not in ADMITTED
+            base["n"] and d and d not in ADMITTED and not confounded
             and s["neff_ok"] and base["neff_ok"] and s["lo"] > base["hi"])
         s["anti_selective_nominal"] = bool(
-            base["n"] and d and d not in ADMITTED
+            base["n"] and d and d not in ADMITTED and not confounded
             and s["lo_nom"] > base["hi_nom"])
         out["dispositions"].append(s)
 
@@ -223,6 +279,7 @@ def efficacy(rows: list, min_n: int) -> dict:
     # (admitted / baseline / "capped") are not vetoes and stay out.
     code_re = re.compile(r"([A-Z]{2}-\d{3})")
     pooled = defaultdict(lambda: [0.0, 0.0, 0.0, 0])   # n, wins, n_eff, variants
+    era_mix_by_code: "defaultdict[str, Counter]" = defaultdict(Counter)
     for d, v in by.items():
         mcode = code_re.search(d or "")
         if not mcode or d in ADMITTED:
@@ -233,6 +290,7 @@ def efficacy(rows: list, min_n: int) -> dict:
         agg[1] += st["wins"]
         agg[2] += st["n_eff"] if st["n_eff"] else 0.0
         agg[3] += 1
+        era_mix_by_code[mcode.group(1)].update(_era_mix(v))
     out["by_code"] = []
     for code, (n, wins, n_eff, variants) in sorted(
             pooled.items(), key=lambda kv: -kv[1][0]):
@@ -245,20 +303,48 @@ def efficacy(rows: list, min_n: int) -> dict:
         else:
             lo, hi = wilson(wins, n)
             neff_ok = False
+        era_overlap = _era_overlap_frac(era_mix_by_code[code], base_eras)
+        # CONFOUNDED_BASELINE (2026-08-27): this is the SZ-021 defect - a
+        # code whose rows share zero (or near-zero) label_era with the
+        # frozen baseline is being compared to a different label
+        # definition from a different calendar window, not an
+        # alternative population. `anti_selective`/`selective` are
+        # forced False here, so the existing Grafana gauges
+        # (`liquiditybot_veto_anti_selective`/`_selective`) read the
+        # conservative "not proven" 0.0 with NO KEY RENAMED; `era_overlap`
+        # and `comparison` are new fields EXTENDING the payload for a
+        # reader who wants to distinguish "not significant" from
+        # "unmeasurable against this baseline". Rates/CIs are still
+        # reported below, unsuppressed.
+        confounded = bool(base["n"] and era_overlap < ERA_OVERLAP_FLOOR)
+        if not base["n"]:
+            comparison = "no_baseline"
+        elif confounded:
+            comparison = "CONFOUNDED_BASELINE"
+        elif neff_ok and base["neff_ok"] and lo > base["hi"]:
+            comparison = "anti_selective"
+        elif neff_ok and base["neff_ok"] and hi < base["lo"]:
+            comparison = "selective"
+        else:
+            comparison = "not_significant"
         out["by_code"].append({
             "code": code, "n": int(n), "wins": int(wins),
             "rate": rate, "n_eff": n_eff if n_eff > 0 else None,
             "neff_ok": neff_ok, "lo": lo, "hi": hi, "variants": variants,
             "vs_baseline": rate - base["rate"] if base["n"] else None,
-            # same significance discipline as per-disposition: the flag is
-            # only raised where both intervals run on effective n
+            "era_overlap": era_overlap,
+            "comparison": comparison,
+            # same significance discipline as per-disposition, PLUS the
+            # era-overlap guard: the flag is only raised where both
+            # intervals run on effective n AND the baseline shares at
+            # least ERA_OVERLAP_FLOOR of this code's own label_era mix
             "anti_selective": bool(
-                base["n"] and neff_ok and base["neff_ok"]
+                base["n"] and neff_ok and base["neff_ok"] and not confounded
                 and lo > base["hi"]),
             # a veto EARNS ITS KEEP when what it rejected wins
             # significantly LESS than baseline (disjoint below)
             "selective": bool(
-                base["n"] and neff_ok and base["neff_ok"]
+                base["n"] and neff_ok and base["neff_ok"] and not confounded
                 and hi < base["lo"]),
         })
     return out
@@ -392,9 +478,16 @@ def render(eff: dict, cal: list, conc: dict) -> str:
           "| 95% CI (nominal n) | vs baseline | |",
           "|---|---:|---:|---:|---|---|---:|---|"]
     for d in eff["dispositions"]:
-        flag = " **ANTI-SELECTIVE**" if d.get("anti_selective") else ""
-        if not flag and d.get("anti_selective_nominal"):
+        if d.get("confounded_baseline"):
+            flag = (" (baseline CONFOUNDED - "
+                    f"{d['era_overlap']:.0%} label_era overlap, no "
+                    "significance claim made)")
+        elif d.get("anti_selective"):
+            flag = " **ANTI-SELECTIVE**"
+        elif d.get("anti_selective_nominal"):
             flag = " (anti-selective on nominal n ONLY - withdrawn)"
+        else:
+            flag = ""
         vs = f"{d['vs_baseline']:+.1%}" if d["vs_baseline"] is not None else "-"
         L.append(f"| `{d['disposition'][:52]}` | {d['n']} "
                  f"| {_neff_cell(d)} | {d['rate']:.1%} "

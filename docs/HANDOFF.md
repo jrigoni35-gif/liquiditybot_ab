@@ -130,6 +130,32 @@ still one event. Also measured: SZ-030 net-Kelly EARNS ITS KEEP (0.060
 [0.040, 0.089]); SZ-023 pooled across 87 variants sits AT baseline (0.278
 [0.257, 0.299], n_eff 1,721) - the deployed bar neither saves nor costs.
 
+**REG-6 CAVEAT (2026-08-27, era-confound):** the baseline these numbers
+compare against is **frozen** - every blank-`disp` row is a
+2026-07-20-migration backfill onto pre-existing rows, 0 rows since,
+label_era mix 84.1% `legacy` / 15.9% `exit_sim`, **zero `triple_barrier*`
+rows**. SZ-021's own population is **100% `triple_barrier_h432`** - zero
+`label_era` overlap with the baseline it was scored against. Against a
+**contemporaneous, same-window comparator** instead (everything else the
+pipeline saw in SZ-021's own active window, `signal_ts` 2026-08-19T22:10 -
+2026-08-25T01:35, n=1,772, rate 0.440 [0.369, 0.514]), SZ-021's interval
+[0.439, 0.580] **overlaps** - "significant" does not survive. `SZ-023`
+(quoted above as "sits AT baseline") is now separately measurable as the
+**same defect**: pooled `label_era` overlap with baseline is 0.8% (below
+the 5% floor `gate_efficacy_report.ERA_OVERLAP_FLOOR` now enforces), so
+its "AT baseline" read is *also* confounded, not confirmed. **Direction
+is unresolved, not refuted** - both readings above stay on the record;
+neither the frozen-baseline "significant" verdict nor a clean "not
+significant" verdict is established, because the comparator itself was
+the wrong population. `gate_efficacy_report.py` now refuses to render
+`anti_selective`/`selective` at all when a code's own rows share less
+than 5% `label_era` overlap with the baseline sample (`ERA_OVERLAP_FLOOR`)
+- the `by_code` JSON and the Per-rule markdown table both carry
+`comparison: "CONFOUNDED_BASELINE"` for SZ-021, SZ-023, and every other
+disjoint-era code instead; rates/CIs stay printed, unsuppressed. Vault:
+`wiki/synthesis/open-contradictions-register.md` (2026-08-15 OPEN item,
+2026-08-27 addition).
+
 **REG-6's tier is decided by evidence already in flight**: the ~1,132
 probe/candidate decisions logged inside the 2026-08-20 crisis window
 resolve one barrier horizon later. Run `gate_efficacy` over
