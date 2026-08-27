@@ -750,9 +750,6 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # T3.6a: "the ladder treats it as the next-complex step") — a no-op
     # when experiment_bases is empty, which is exactly the byte-identity
     # baseline.
-    _BASE_ORDER = ("logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
-                  "gbt_d3_lr10", "gbt_d4_lr05", "gbt_mono", "mlp_small",
-                  "adaptive_gbt")
     order = []
     for k in _BASE_ORDER:
         if k in names:
