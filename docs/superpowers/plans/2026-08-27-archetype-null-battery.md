@@ -1562,3 +1562,47 @@ git push -u origin claude/remote-control-hds2hd
 1. **Spec coverage:** ledger+meta counters (T2), harvest/absent-not-zero (T3), OF-5 ratchet + source line (T4), rebuilt tape + coherence self-check (T5), entries-only rungs + fresh state + oracle (T6), harness profiles + fee anchors incl. the FEE-1 FATAL guard + determinism+cycles + activity floor + audit isolation + report (T7), INDEX/HANDOFF + full matrix (T8). SPA/percentile, measured-var, ML features: spec non-goals — no tasks, correct. `sr` nullable behind TRIPS_FLOOR=20: constant in T2, dormant by construction ✓.
 2. **Placeholder scan:** none — every step carries code or exact commands.
 3. **Type consistency:** `run_replay(..., mutate_bot=)` (T1) is what T7 calls; `append_rows/read_ledger/measured_trials/write_meta` signatures match between T2/T3/T4/T7; `ARCHETYPES` keys in T6 = the set T7 iterates and the T6 test pins; `resolve_dsr_trials` consumes T2's reader; summary keys used in `_summary_to_row` are exactly Task 1's produced set.
+
+---
+
+## Post-review addendum (final whole-branch review, 2026-08-27)
+
+**Verdict: MERGE-READY WITH FOLLOWUPS.** Full suite on the final tip:
+4,092 passed / 4 skipped / rc=0. F1 (silent append loss on OSError)
+fixed same-session (`b50f6ada`). Filed followups, owner = next SAFE
+session; none blocks the first production battery run except as noted:
+
+- F2: per-run exception containment in `run_battery` (one mid-grid
+  exception currently loses accumulated rows; rows append only at end)
+  + nonzero exit on refusals.
+- F3: `write_meta` gains "harness profiles seen, generator provenance".
+- F4: runtime `tape_coherence` print/abort in `record_tape` (spec
+  clause; currently test-pinned only).
+- F5: `random_entry` p_fire into the harness-profile record + post-hoc
+  rate-matching vs the deployed member; document the contrast with
+  `random_entry_control.py`.
+- F6: all-degenerate battery run must refuse to feed OF-5 (live clause
+  when SR wakes in v1).
+- F7: `--harvest` idempotence (re-run doubles harvest N).
+- F8: venue-noise `hash()` is PYTHONHASHSEED-salted — swap for crc32;
+  until then tapes are reproducible within-process only.
+- F9: pid-suffix the `archetype_tape` QA tag (one battery at a time
+  until then).
+- F10: meta sidecar overwrites while CSV accumulates (counters diverge
+  after run 2).
+- F11: `resolve_dsr_trials` also catch `csv.Error`.
+- F12 (disclosure): `run_battery` as a library does not self-isolate
+  the audit singleton — isolation lives in CLI `main()` and the test
+  fixture; never import-and-call it from an engine process.
+- T7b residue: postmortem `report_dir`/`summary_path` share the
+  per-combo unlink gap.
+- Accepted-as-is with reasons on the record: archetype fidelity
+  nuances (grid gap-miss, vol_trend EMA approx 0.37%, stop_herder
+  scale asymmetry), TRIPS_FLOOR dormant by design, cosmetic nits.
+
+**Operator run instructions (first production run):** from the repo
+root on the PC: `python scripts/archetype_battery.py` then
+`python scripts/trial_ledger.py --report`; read the printed wall time,
+refusal/degenerate counts, and the next `overfit_check` run's
+"OF-5 trials:" world line. Run from repo root (OF-5 resolves the
+ledger at repo-root/outputs; the CLI defaults are CWD-relative).
