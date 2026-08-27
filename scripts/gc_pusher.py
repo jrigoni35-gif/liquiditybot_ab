@@ -1280,6 +1280,19 @@ def _run_veto_quality():
                 continue
             vals["anti"] = 1.0 if r.get("anti_selective") else 0.0
             vals["good"] = 1.0 if r.get("selective") else 0.0
+            # C5 (2026-08-27 fix-wave): the report's own era-confound
+            # guard (CONFOUNDED_BASELINE / PARTIAL_OVERLAP) was invisible
+            # on glass — anti/good both read the same conservative 0.0
+            # whether a code is genuinely not-significant or its
+            # comparison is simply unmeasurable against this baseline.
+            # EXTENDS the payload only; anti/good/rate/lo/hi/n_eff keys
+            # are untouched.
+            vals["confounded"] = 1.0 if r.get("comparison") in (
+                "CONFOUNDED_BASELINE", "PARTIAL_OVERLAP") else 0.0
+            eo = r.get("era_overlap")
+            if (isinstance(eo, (int, float)) and not isinstance(eo, bool)
+                    and math.isfinite(float(eo))):
+                vals["era_overlap"] = float(eo)
             out.append((code, vals))
         return (tuple(b), out) if out else None
     except Exception:
@@ -1315,6 +1328,10 @@ def _veto_quality_metrics(now: float) -> list:
             m.append(gauge("liquiditybot_veto_cf_neff", v["n_eff"], lab, now))
         m.append(gauge("liquiditybot_veto_anti_selective", v["anti"], lab, now))
         m.append(gauge("liquiditybot_veto_selective", v["good"], lab, now))
+        m.append(gauge("liquiditybot_veto_confounded", v["confounded"], lab, now))
+        if "era_overlap" in v:
+            m.append(gauge("liquiditybot_veto_era_overlap", v["era_overlap"],
+                           lab, now))
     return m
 
 

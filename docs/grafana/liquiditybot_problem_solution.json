@@ -3866,7 +3866,7 @@
       "id": 52,
       "type": "stat",
       "title": "Anti-selective gates",
-      "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that was SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline.",
+      "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n, era-COMPARABLE codes only - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that read SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline. SUPERSEDED 2026-08-27: that comparison is CONFOUNDED_BASELINE (zero label_era overlap with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), so this tile now reads zero for SZ-021 by construction, not because the question was resolved - see 'Confounded verdicts' below for the codes this tile cannot speak to.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3995,6 +3995,74 @@
             "uid": "grafanacloud-prom"
           },
           "expr": "max(liquiditybot_veto_baseline_rate{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 54,
+      "type": "stat",
+      "title": "Confounded verdicts",
+      "description": "How many veto codes read CONFOUNDED_BASELINE or PARTIAL_OVERLAP (gate_efficacy_report's era-confound guard, 2026-08-27): their own label_era mix shares too little (or a minority) of the baseline's, so a disjoint-CI verdict there would compare two different label definitions, not two populations - no anti-selective/selective claim is rendered for them. A zero on 'Anti-selective gates' next to a nonzero here means 'unmeasured', not 'safe'.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 79
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "veto-quality collector not published yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(liquiditybot_veto_confounded)",
           "instant": true,
           "range": false,
           "legendFormat": ""

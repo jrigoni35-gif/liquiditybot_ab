@@ -1803,10 +1803,16 @@ def _author_problem():
          no_value="veto-quality collector not published yet",
          desc="How many veto codes are rejecting candidates that go on "
               "to win SIGNIFICANTLY more than baseline (disjoint Wilson "
-              "intervals on effective n - gate_efficacy_report's own "
-              "bar). Anything above zero names a gate doing measurable "
-              "harm; as of 2026-08-26 that was SZ-021 (crisis), whose "
-              "vetoed candidates won at 0.51 against a 0.27 baseline.")
+              "intervals on effective n, era-COMPARABLE codes only - "
+              "gate_efficacy_report's own bar). Anything above zero "
+              "names a gate doing measurable harm; as of 2026-08-26 that "
+              "read SZ-021 (crisis), whose vetoed candidates won at 0.51 "
+              "against a 0.27 baseline. SUPERSEDED 2026-08-27: that "
+              "comparison is CONFOUNDED_BASELINE (zero label_era overlap "
+              "with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), "
+              "so this tile now reads zero for SZ-021 by construction, "
+              "not because the question was resolved - see 'Confounded "
+              "verdicts' below for the codes this tile cannot speak to.")
     stat("Candidate baseline win rate",
          M("liquiditybot_veto_baseline_rate"), 8, 4,
          unit="percentunit", decimals=1, steps=BLUE, graph="none",
@@ -1814,6 +1820,26 @@ def _author_problem():
          desc="The un-gated candidate win rate the bars above are judged "
               "against (Wilson band on effective n rides the exporter as "
               "veto_baseline_lo/hi).")
+    # C5 (2026-08-27 fix-wave): the era-confound guard's own verdict
+    # ("cannot be measured against this baseline") was invisible on
+    # glass - a zero on "Anti-selective gates" above reads identically
+    # whether a gate is proven safe or simply unmeasurable. This tile
+    # separates the two, mirroring gate_efficacy_report's own
+    # comparison in {CONFOUNDED_BASELINE, PARTIAL_OVERLAP}.
+    stat("Confounded verdicts",
+         'sum(liquiditybot_veto_confounded)', 8, 4, decimals=0,
+         graph="none",
+         steps=[{"color": "text", "value": None}],
+         no_value="veto-quality collector not published yet",
+         desc="How many veto codes read CONFOUNDED_BASELINE or "
+              "PARTIAL_OVERLAP (gate_efficacy_report's era-confound "
+              "guard, 2026-08-27): their own label_era mix shares too "
+              "little (or a minority) of the baseline's, so a "
+              "disjoint-CI verdict there would compare two different "
+              "label definitions, not two populations - no "
+              "anti-selective/selective claim is rendered for them. A "
+              "zero on 'Anti-selective gates' next to a nonzero here "
+              "means 'unmeasured', not 'safe'.")
 
 
 _TAGS = ["liquiditybot", "trading", "paper-trading"]

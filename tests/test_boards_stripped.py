@@ -300,6 +300,12 @@ _PROBLEM_PANELS = frozenset({
      ("liquiditybot_veto_anti_selective",)),
     (53, "Candidate baseline win rate", "stat",
      ("liquiditybot_veto_baseline_rate",)),
+    # era-confound visibility (2026-08-27 fix-wave, C5): distinguishes
+    # "not significant" from "unmeasurable against this baseline" on
+    # glass, mirroring gate_efficacy_report's own CONFOUNDED_BASELINE /
+    # PARTIAL_OVERLAP comparison states.
+    (54, "Confounded verdicts", "stat",
+     ("liquiditybot_veto_confounded",)),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
@@ -436,6 +442,25 @@ def _alert_rule_facts(yaml_name):
         f"{yaml_name}: extracted ZERO numeric thresholds from expression "
         "lines — same degradation as above, for the firing lines.")
     return metrics, thresholds
+
+
+def test_anti_selective_desc_carries_the_confound_caveat():
+    """C6 (2026-08-27 fix-wave): the 'Anti-selective gates' description
+    asserted a bare, undated 'SZ-021 won at 0.51 against a 0.27 baseline'
+    claim that the SAME DAY's era-confound guard made false (that
+    comparison is now CONFOUNDED_BASELINE, docs/HANDOFF.md REG-6
+    CAVEAT). Pins BOTH sides staying on record - the 08-26 read is not
+    deleted, and the 08-27 supersession is not silently omitted - so a
+    future desc rewrite cannot drop the caveat without going red here."""
+    d = _shipped(PROBLEMS)
+    hits = [p for p in _all_panels(d) if p.get("title") == "Anti-selective gates"]
+    assert hits, f"{PROBLEMS}: no panel titled 'Anti-selective gates'"
+    desc = hits[0].get("description", "")
+    assert "2026-08-26" in desc, f"desc lost the dated 08-26 read: {desc!r}"
+    assert "SUPERSEDED 2026-08-27" in desc, (
+        f"desc lost the 08-27 confound caveat: {desc!r}")
+    assert "CONFOUNDED_BASELINE" in desc, (
+        f"desc does not name the actual verdict: {desc!r}")
 
 
 def test_problem_board_mirrors_both_pager_conditions():

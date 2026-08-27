@@ -165,6 +165,177 @@ def test_same_era_corpus_still_yields_normal_verdicts():
     assert r["selective"] is True and r["anti_selective"] is False
 
 
+# ---------------------------------------------------------------------------
+# fix-wave (2026-08-27): C1 weighted overlap, C2 admitted-vs-baseline guard,
+# C4 nominal-n disclosure, C7 per-disposition comparison field, I1 cross-
+# variant pooling regression, I5 _row_era precedence pin
+# ---------------------------------------------------------------------------
+def test_single_baseline_row_cannot_unfire_the_guard_via_membership():
+    """C1(i): the FIRST cut of the era-confound guard checked SET
+    membership ('does the baseline have ANY row of this era'), so ONE
+    contaminating baseline row bought a code full (1.0) overlap. The
+    weighted (histogram-intersection) overlap fixes this: a baseline
+    era carried by 1 row out of 101 contributes almost nothing."""
+    t = 1_786_700_000.0
+    rows = [_era_row("", 1 if i < 25 else 0, t + i * 3600, "legacy")
+            for i in range(100)]
+    rows.append(_era_row("", 1, t + 100 * 3600, "triple_barrier_h432"))
+    rows += [_era_row("SZ-501", 1 if i < 35 else 0, t + (200 + i) * 3600,
+                      "triple_barrier_h432") for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-501"]
+    assert r["era_overlap"] < ger.ERA_OVERLAP_FLOOR, r["era_overlap"]
+    assert r["comparison"] == "CONFOUNDED_BASELINE"
+    assert r["anti_selective"] is False
+
+
+def test_majority_incomparable_sample_does_not_print_unflagged_verdict():
+    """C1(ii): a sample that is 93%+ drawn from an era the baseline
+    never touches used to clear the flat 0.05 floor on its own small
+    shared-era slice alone (40/600 = 6.7%) and print an unflagged
+    verdict. ERA_OVERLAP_MAJORITY catches what the floor alone could
+    not: PARTIAL_OVERLAP, not a silent pass-through."""
+    t = 1_786_800_000.0
+    rows = [_era_row("", 1 if i < 3 else 0, t + i * 3600, "legacy")
+            for i in range(10)]
+    rows += [_era_row("SZ-502", 1 if i < 3 else 0, t + (20 + i) * 3600,
+                      "legacy") for i in range(4)]
+    rows += [_era_row("SZ-502", 1 if i < 50 else 0, t + (30 + i) * 3600,
+                      "triple_barrier_h432") for i in range(56)]
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-502"]
+    assert ger.ERA_OVERLAP_FLOOR <= r["era_overlap"] < ger.ERA_OVERLAP_MAJORITY, \
+        r["era_overlap"]
+    assert r["comparison"] == "PARTIAL_OVERLAP"
+    assert r["anti_selective"] is False and r["selective"] is False
+
+
+def test_by_code_distinguishes_uncomputable_neff_from_a_vetted_null():
+    """C4: 'not_significant' used to mean two different epistemic states
+    under one string - an honest effective-n-vetted overlap, and 'n_eff
+    was not computable at all, this is the raw nominal-n fallback'.
+    SZ-503's rows carry no ts/signal_ts at all, so n_eff is uncomputable
+    on the code side while the era is fully comparable (era_overlap
+    1.0) - isolating the neff axis from the era axis."""
+    t = 1_786_900_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    for i in range(40):
+        rows.append({"disp": "SZ-503", "label": str(1 if i < 15 else 0),
+                     "label_era": "legacy"})
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-503"]
+    assert r["era_overlap"] == 1.0
+    assert r["neff_ok"] is False
+    assert r["comparison"] == "not_significant_nominal_n"
+    assert r["anti_selective"] is False and r["selective"] is False
+
+
+def test_admitted_vs_baseline_headline_is_era_gated():
+    """C2: the file's most prominent claim ('Does the gate select?')
+    used to skip the era-confound guard entirely - the exact defect
+    species the guard exists to catch, unfixed in the one place a
+    reader looks first."""
+    t = 1_787_000_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("entered", 1 if i < 5 else 0, t + (100 + i) * 3600,
+                      "triple_barrier_h432") for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    assert eff["admitted_era_overlap"] == 0.0
+    assert eff["admitted_comparison"] == "CONFOUNDED_BASELINE"
+    md = ger.render(eff, [], ger.concentration(rows))
+    assert "baseline CONFOUNDED" in md
+    for stale in ("significance NOT assessed",
+                  "separation is significant on effective n",
+                  "adverse separation is SIGNIFICANT",
+                  "not significant at this effective sample size"):
+        assert stale not in md, f"neff-branch text leaked through: {stale!r}"
+
+
+def test_admitted_vs_baseline_headline_stays_normal_when_comparable():
+    """Control for the injection above: admitted set SHARES a label_era
+    with baseline, so the ordinary significance machinery must still
+    render - this guard may only suppress the disjoint-era case."""
+    t = 1_787_100_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("entered", 1 if i < 30 else 0, t + (100 + i) * 3600,
+                      "legacy") for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    assert eff["admitted_comparison"] not in ("CONFOUNDED_BASELINE",
+                                              "PARTIAL_OVERLAP")
+    md = ger.render(eff, [], ger.concentration(rows))
+    assert "baseline CONFOUNDED" not in md
+    assert "baseline PARTIAL OVERLAP" not in md
+
+
+def test_per_disposition_rows_carry_the_comparison_field():
+    """C7: HANDOFF overclaimed the per-rule markdown table already
+    carried `comparison: "CONFOUNDED_BASELINE"` (it only ever emitted
+    prose; per-disposition dicts had confounded_baseline/era_overlap
+    but no `comparison`). Per-disposition rows now carry the SAME
+    vocabulary by_code has always had."""
+    t = 1_787_200_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("SZ-504", 1 if i < 32 else 0, t + (100 + i) * 3600,
+                      "triple_barrier_h432") for i in range(40)]
+    eff = ger.efficacy(rows, 30)
+    d = next(x for x in eff["dispositions"] if x["disposition"] == "SZ-504")
+    assert d["comparison"] == "CONFOUNDED_BASELINE"
+    assert d["confounded_baseline"] is True
+
+
+def test_cross_variant_era_pooling_is_additive_not_last_write_wins():
+    """I1: `era_mix_by_code[...].update(...)` accumulates a code's era
+    mix ACROSS its parametrized variants; a regression to plain `=`
+    would silently keep only the LAST-processed variant's mix. Two
+    variants of the SAME code in DIFFERENT eras, 30 rows each - only
+    correctly-summed pooling reads era_overlap exactly 0.5
+    (COMPARABLE); a last-write-wins bug reads whichever variant is
+    processed last (here: 0.0, CONFOUNDED)."""
+    t = 1_787_300_000.0
+    rows = [_era_row("", 1 if i < 10 else 0, t + i * 3600, "legacy")
+            for i in range(40)]
+    rows += [_era_row("SZ-601: p 0.10 below bar 0.50",
+                      1 if i < 5 else 0, t + (100 + i) * 3600, "legacy")
+             for i in range(30)]
+    rows += [_era_row("SZ-601: p 0.40 below bar 0.50",
+                      1 if i < 25 else 0, t + (200 + i) * 3600,
+                      "triple_barrier_h432") for i in range(30)]
+    eff = ger.efficacy(rows, 30)
+    r = {x["code"]: x for x in eff["by_code"]}["SZ-601"]
+    assert abs(r["era_overlap"] - 0.5) < 1e-9, r["era_overlap"]
+    assert r["comparison"] not in ("CONFOUNDED_BASELINE", "PARTIAL_OVERLAP")
+
+
+def test_row_era_precedence_matches_ml_history_except_the_documented_gap():
+    """I5: `_row_era`'s precedence (persisted column first, barrier-
+    derived fallback second) must track `ml.history._row_label_era`'s
+    own precedence - drift in either order would silently mis-tag rows.
+    The ONE documented, deliberate divergence (C3: a fallback-derived
+    bare "triple_barrier" routes to "unknown" here, because this file
+    cannot see which horizon produced it) is asserted explicitly, not
+    left as an accident of behavior a future reader has to rediscover."""
+    from ml.history import _row_label_era
+
+    persisted_row = {"label_era": "triple_barrier_h999", "barrier": "tb_pt"}
+    assert ger._row_era(persisted_row) == _row_label_era(persisted_row) \
+        == "triple_barrier_h999"
+
+    unambiguous_fallback = {"barrier": "sl"}      # exit_sim, unambiguous
+    assert ger._row_era(unambiguous_fallback) == \
+        _row_label_era(unambiguous_fallback) == "exit_sim"
+
+    ambiguous_fallback = {"barrier": "tb_sl"}     # bare triple_barrier
+    assert _row_label_era(ambiguous_fallback) == "triple_barrier"
+    assert ger._row_era(ambiguous_fallback) == "unknown", (
+        "documented divergence from ml.history: gate_efficacy_report "
+        "cannot horizon-qualify a fallback-derived bare 'triple_barrier', "
+        "so it routes to LABEL_ERA_UNKNOWN instead of trusting it")
+
+
 def test_code_regex_contains_no_control_bytes():
     """The \\x08 incident, pinned at byte level: shell-mangled escapes
     became literal backspaces inside the regex, matched nothing, and were
@@ -196,8 +367,45 @@ def _fake_report(monkeypatch, payload, rc=0):
 _GOOD = {"efficacy": {
     "baseline": {"rate": 0.25, "lo": 0.18, "hi": 0.33},
     "by_code": [{"code": "SZ-777", "rate": 0.45, "lo": 0.32, "hi": 0.58,
-                 "n_eff": 41.0, "anti_selective": True, "selective": False}],
+                 "n_eff": 41.0, "anti_selective": True, "selective": False,
+                 "comparison": "anti_selective", "era_overlap": 0.87}],
 }}
+
+_CONFOUNDED = {"efficacy": {
+    "baseline": {"rate": 0.25, "lo": 0.18, "hi": 0.33},
+    "by_code": [{"code": "SZ-021", "rate": 0.51, "lo": 0.44, "hi": 0.58,
+                 "n_eff": 189.0, "anti_selective": False, "selective": False,
+                 "comparison": "CONFOUNDED_BASELINE", "era_overlap": 0.0}],
+}}
+
+
+def test_collector_exports_confounded_gauge_and_era_overlap(monkeypatch):
+    """C5: the era-confound guard's own verdict was invisible on glass -
+    a code reading CONFOUNDED_BASELINE and a code reading a genuine
+    not-significant null both exported anti=0.0/good=0.0 identically.
+    The new gauge distinguishes them without renaming anything."""
+    _fake_report(monkeypatch, _CONFOUNDED)
+    out = gp._veto_quality_metrics(time.time())
+    names = {m["name"] for m in out}
+    assert "liquiditybot_veto_confounded" in names
+    assert "liquiditybot_veto_era_overlap" in names
+    confounded = [m for m in out
+                 if m["name"] == "liquiditybot_veto_confounded"][0]
+    assert confounded["gauge"]["dataPoints"][0]["asDouble"] == 1.0
+    overlap = [m for m in out
+              if m["name"] == "liquiditybot_veto_era_overlap"][0]
+    assert overlap["gauge"]["dataPoints"][0]["asDouble"] == 0.0
+    anti = [m for m in out
+           if m["name"] == "liquiditybot_veto_anti_selective"][0]
+    assert anti["gauge"]["dataPoints"][0]["asDouble"] == 0.0
+
+
+def test_collector_confounded_gauge_reads_zero_for_a_clean_verdict(monkeypatch):
+    _fake_report(monkeypatch, _GOOD)
+    out = gp._veto_quality_metrics(time.time())
+    confounded = [m for m in out
+                 if m["name"] == "liquiditybot_veto_confounded"][0]
+    assert confounded["gauge"]["dataPoints"][0]["asDouble"] == 0.0
 
 
 def test_collector_exports_baseline_band_and_per_code_gauges(monkeypatch):

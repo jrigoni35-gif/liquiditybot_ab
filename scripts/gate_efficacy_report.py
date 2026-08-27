@@ -47,7 +47,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.gate_truth_report import effective_n  # noqa: E402
-from ml.history import label_era_of  # noqa: E402
+from ml.history import (  # noqa: E402
+    label_era_of, LABEL_ERA_TRIPLE_BARRIER, LABEL_ERA_UNKNOWN,
+)
 
 # WHY THIS ONE. Three effective-n implementations exist in the repo and
 # they answer different questions:
@@ -72,22 +74,42 @@ ADMITTED = {"entered", "capped"}
 # closest thing to an unconditional sample and serves as the baseline.
 BASELINE = ""
 
-# ERA-CONFOUND GUARD (2026-08-27). The 2026-07-20 migration backfilled
-# `disp=""` onto every pre-existing row without touching what LABEL
-# DEFINITION produced it - BASELINE above is frozen at that instant (0
-# rows since, 84.1% `legacy` + 15.9% `exit_sim`, zero `triple_barrier*` -
-# vault wiki/synthesis/open-contradictions-register.md, 2026-08-15 OPEN
-# item). A code whose own rows are drawn entirely from an era the
-# baseline never touches (SZ-021: 100% `triple_barrier_h432`, measured
+# ERA-CONFOUND GUARD (2026-08-27, hardened 2026-08-27 fix-wave). The
+# 2026-07-20 migration backfilled `disp=""` onto every pre-existing row
+# without touching what LABEL DEFINITION produced it - BASELINE above is
+# frozen at that instant (0 rows since, 84.1% `legacy` + 15.9%
+# `exit_sim`, zero `triple_barrier*` - vault
+# wiki/synthesis/open-contradictions-register.md, 2026-08-15 OPEN item).
+# A code whose own rows are drawn entirely from an era the baseline
+# never touches (SZ-021: 100% `triple_barrier_h432`, measured
 # 2026-08-27) is not being compared to an alternative population - it is
 # being compared to a different label definition from a different
 # calendar month, and a disjoint-CI "significant" verdict there does not
 # survive a same-window comparator (docs/HANDOFF.md REG-6 UPDATE,
 # 2026-08-27 caveat: [0.439,0.580] vs a contemporaneous [0.369,0.514]
-# overlaps). ERA_OVERLAP_FLOOR is a POLICY floor, not fitted to any
-# corpus: below it, no significance claim is rendered regardless of how
-# wide the gap between the point estimates looks.
+# overlaps).
+#
+# TWO FAILURE MODES the first cut of this guard (a MEMBERSHIP-SET check:
+# "does this era appear ANYWHERE in the baseline, at any count") missed,
+# both fixed by switching to a WEIGHTED (histogram-intersection) overlap
+# below:
+#   (i)  a single contaminating baseline row of a code's own era used to
+#        read as FULL overlap (1.0) - membership doesn't care that the
+#        baseline held that era ONCE in thousands of rows.
+#   (ii) the 0.05 floor was a cliff on a fraction that could itself be
+#        inflated the same way, so a sample that was 94.9% drawn from an
+#        era the baseline never touches could still clear 0.05 (this
+#        code's own SHARE of a scarce shared era) and print an unflagged
+#        "significant" verdict on a mostly-incomparable sample.
+# ERA_OVERLAP_FLOOR/_MAJORITY are POLICY floors, not fitted to any
+# corpus: below FLOOR, no significance claim is rendered at all; between
+# FLOOR and MAJORITY the baseline speaks to a MINORITY of this sample's
+# own evidence (PARTIAL_OVERLAP - still no claim, but distinguished from
+# fully confounded for a reader who wants to see how close it came); at
+# or above MAJORITY the sample is COMPARABLE and ordinary significance
+# discipline applies.
 ERA_OVERLAP_FLOOR = 0.05
+ERA_OVERLAP_MAJORITY = 0.5
 
 
 def _row_era(r: dict) -> str:
@@ -97,24 +119,109 @@ def _row_era(r: dict) -> str:
     fallback for a row written before the column existed): duplicated as
     this 2-line glue, not re-implemented, because the classification
     itself (`label_era_of`) is imported from ml.history so it cannot
-    silently drift from the writer's own definition."""
+    silently drift from the writer's own definition.
+
+    A row with NO persisted `label_era` whose barrier falls back to the
+    bare, un-suffixed `LABEL_ERA_TRIPLE_BARRIER` is AMBIGUOUS on this
+    axis alone: `label_era_of` is a pure function of the barrier STRING
+    ("tb_pt"/"tb_sl"/"tb_time") and cannot see which `label_max_bars`
+    horizon produced it (this repo's per-row schema carries no horizon
+    column - verified against the live corpus header, 2026-08-27), and
+    the 2026-07-31 era-deadlock fix
+    (`ml.history.triple_barrier_era`'s docstring) exists BECAUSE two
+    different horizons once silently shared that one unqualified name.
+    A fallback-derived bare "triple_barrier" is therefore routed to
+    `LABEL_ERA_UNKNOWN` rather than trusted at face value. A row that
+    DOES carry a persisted `label_era` (the normal case - every row in
+    the live corpus has one as of 2026-08-27) is returned verbatim,
+    horizon-qualified or not, and is unaffected by this rule."""
     persisted = (r.get("label_era") or "").strip()
-    return persisted if persisted else label_era_of(r.get("barrier") or "")
+    if persisted:
+        return persisted
+    derived = label_era_of(r.get("barrier") or "")
+    return LABEL_ERA_UNKNOWN if derived == LABEL_ERA_TRIPLE_BARRIER else derived
 
 
 def _era_mix(rows: list) -> Counter:
     return Counter(_row_era(r) for r in rows)
 
 
-def _era_overlap_frac(mix: Counter, base_eras: set) -> float:
-    """Fraction of a sample's OWN rows drawn from a label_era the
-    baseline sample ALSO has at least one row in. 0.0 means the two
-    samples never share a label definition at all, regardless of n on
-    either side - the case this guard exists for."""
+def _era_overlap_frac(mix: Counter, base_mix: Counter) -> float:
+    """Weighted (histogram-intersection) overlap between a sample's own
+    label_era mix and the baseline's: sum_e min(p_sample(e), p_base(e))
+    over eras e, bounded [0, 1]. Weighting by each side's OWN proportion
+    (not membership) is what fixes both failure modes in the comment
+    above - a baseline era carried by one row in thousands contributes
+    a near-zero p_base(e), so a code cannot buy full "overlap" just
+    because the baseline happens to contain a single row of its era.
+
+    `LABEL_ERA_UNKNOWN` rows are excluded from the numerator on BOTH
+    sides (an unclassifiable row is not evidence of a SHARED label
+    definition, so it earns no overlap credit) but stay in the sample's
+    own denominator `n` below, so they correctly DILUTE the overlap
+    fraction rather than silently vanishing from it.
+
+    Weighting by raw row count, not by n_eff (effective/uniqueness-
+    weighted count), was considered and deliberately not used: era
+    membership is a population-DEFINITION question (which label rule
+    produced this row), independent of how much INDEPENDENT evidence
+    the row separately contributes once admitted - conflating the two
+    corrections would make a large but low-uniqueness shared era read
+    as thin overlap for the wrong reason."""
     n = sum(mix.values())
-    if not n:
+    nb = sum(base_mix.values())
+    if not n or not nb:
         return 0.0
-    return sum(c for e, c in mix.items() if e in base_eras) / n
+    return sum(min(c / n, base_mix.get(e, 0) / nb)
+               for e, c in mix.items() if e != LABEL_ERA_UNKNOWN)
+
+
+def _era_state(overlap: float, base_n: int) -> str:
+    """CONFOUNDED_BASELINE below the floor, PARTIAL_OVERLAP between the
+    floor and the majority line, COMPARABLE at or above it. Meaningful
+    only when there IS a baseline; callers gate `base_n` separately
+    (a code with a nonexistent baseline is not "comparable", it simply
+    has nothing to be confounded against)."""
+    if not base_n:
+        return "COMPARABLE"
+    if overlap < ERA_OVERLAP_FLOOR:
+        return "CONFOUNDED_BASELINE"
+    if overlap < ERA_OVERLAP_MAJORITY:
+        return "PARTIAL_OVERLAP"
+    return "COMPARABLE"
+
+
+def _comparison(base_n: int, is_veto: bool, era_state: str,
+                neff_ok_both: bool, lo, hi, base_lo, base_hi) -> str:
+    """Single significance-verdict vocabulary shared by every comparison
+    site (per-disposition, by_code pooling, and the admitted-vs-baseline
+    headline) so the three surfaces cannot silently diverge on what
+    "significant" means. EXTEND this vocabulary, never repurpose an
+    existing value - gc_pusher and the vault both key off these
+    strings.
+
+    `not_significant_nominal_n` is distinct from `not_significant`: the
+    latter means both sides had a computable effective n AND their
+    Wilson intervals still overlapped (an honest, effective-n-vetted
+    null); the former means n_eff was NOT computable on at least one
+    side, so whatever interval produced "no disjoint claim" here is the
+    nominal-n fallback, not a vetted one - mirrors the per-disposition
+    `anti_selective_nominal` distinction at the boolean level."""
+    if not base_n:
+        return "no_baseline"
+    if not is_veto:
+        return "not_applicable"
+    if era_state == "CONFOUNDED_BASELINE":
+        return "CONFOUNDED_BASELINE"
+    if era_state == "PARTIAL_OVERLAP":
+        return "PARTIAL_OVERLAP"
+    if not neff_ok_both:
+        return "not_significant_nominal_n"
+    if lo > base_hi:
+        return "anti_selective"
+    if hi < base_lo:
+        return "selective"
+    return "not_significant"
 
 
 # "SZ-023: p 0.28 below bar 0.55" -> (0.28, 0.55). The gate writes its own
@@ -234,10 +341,22 @@ def efficacy(rows: list, min_n: int) -> dict:
             by[(r.get("disp") or "").strip()].append(r)
 
     base = _stat(by.get(BASELINE, []))
-    base_eras = set(_era_mix(by.get(BASELINE, [])))
-    adm = _stat([r for d, v in by.items() if d in ADMITTED for r in v])
+    base_era_mix = _era_mix(by.get(BASELINE, []))
+    adm_rows = [r for d, v in by.items() if d in ADMITTED for r in v]
+    adm = _stat(adm_rows)
+    # C2 (2026-08-27 fix-wave): the "Does the gate select?" headline is
+    # this file's most prominent claim and used to skip the era-confound
+    # guard entirely - the exact defect species the guard exists to
+    # catch, unfixed in the one place a reader looks first.
+    adm_era_overlap = _era_overlap_frac(_era_mix(adm_rows), base_era_mix)
+    adm_era_state = _era_state(adm_era_overlap, base["n"])
     out = {"baseline": base, "admitted": adm,
            "separation": adm["rate"] - base["rate"] if base["n"] else None,
+           "admitted_era_overlap": adm_era_overlap,
+           "admitted_comparison": _comparison(
+               base["n"], True, adm_era_state,
+               adm["neff_ok"] and base["neff_ok"], adm["lo"], adm["hi"],
+               base["lo"], base["hi"]),
            "dispositions": []}
     for d, v in sorted(by.items(), key=lambda kv: -len(kv[1])):
         if len(v) < min_n:
@@ -246,24 +365,35 @@ def efficacy(rows: list, min_n: int) -> dict:
         # A veto is GOOD when what it rejected loses more than baseline.
         s["disposition"] = d or "(baseline)"
         s["vs_baseline"] = s["rate"] - base["rate"] if base["n"] else None
-        s["era_overlap"] = _era_overlap_frac(_era_mix(v), base_eras)
-        # CONFOUNDED_BASELINE: this sample's own rows barely or never
-        # share a label_era with the baseline sample, so no disjoint-CI
-        # claim about it means anything - checked BEFORE anti_selective
-        # below, which it short-circuits.
-        confounded = bool(base["n"] and d and d not in ADMITTED
-                          and s["era_overlap"] < ERA_OVERLAP_FLOOR)
-        s["confounded_baseline"] = confounded
+        is_veto = bool(d and d not in ADMITTED)
+        s["era_overlap"] = _era_overlap_frac(_era_mix(v), base_era_mix)
+        # CONFOUNDED_BASELINE / PARTIAL_OVERLAP: this sample's own rows
+        # barely, partially, or never share a label_era with the
+        # baseline sample, so no disjoint-CI claim about it means
+        # anything - checked BEFORE anti_selective below, which either
+        # state short-circuits.
+        era_state = _era_state(s["era_overlap"], base["n"]) if is_veto else "COMPARABLE"
+        s["confounded_baseline"] = bool(is_veto and era_state == "CONFOUNDED_BASELINE")
+        s["partial_overlap"] = bool(is_veto and era_state == "PARTIAL_OVERLAP")
+        comparable = era_state == "COMPARABLE"
         # ANTI-SELECTIVE is a significance claim (disjoint intervals), so
         # it is asserted only where BOTH samples have an effective n AND
         # an era-comparable baseline: a flag that survives on nominal n
-        # alone, or on a disjoint-era baseline, stops being raised.
+        # alone, or on a disjoint/partial-era baseline, stops being
+        # raised.
         s["anti_selective"] = bool(
-            base["n"] and d and d not in ADMITTED and not confounded
+            base["n"] and is_veto and comparable
             and s["neff_ok"] and base["neff_ok"] and s["lo"] > base["hi"])
         s["anti_selective_nominal"] = bool(
-            base["n"] and d and d not in ADMITTED and not confounded
+            base["n"] and is_veto and comparable
             and s["lo_nom"] > base["hi_nom"])
+        # C7 (2026-08-27 fix-wave): per-disposition rows now carry the
+        # SAME `comparison` vocabulary by_code has always emitted, so a
+        # reader (or a doc) does not have to reconstruct the verdict
+        # from confounded_baseline/era_overlap booleans by hand.
+        s["comparison"] = _comparison(
+            base["n"], is_veto, era_state, s["neff_ok"] and base["neff_ok"],
+            s["lo"], s["hi"], base["lo"], base["hi"])
         out["dispositions"].append(s)
 
     # BY-CODE POOLING (2026-08-26, telemetry precision pass). The
@@ -303,30 +433,27 @@ def efficacy(rows: list, min_n: int) -> dict:
         else:
             lo, hi = wilson(wins, n)
             neff_ok = False
-        era_overlap = _era_overlap_frac(era_mix_by_code[code], base_eras)
-        # CONFOUNDED_BASELINE (2026-08-27): this is the SZ-021 defect - a
-        # code whose rows share zero (or near-zero) label_era with the
-        # frozen baseline is being compared to a different label
-        # definition from a different calendar window, not an
-        # alternative population. `anti_selective`/`selective` are
-        # forced False here, so the existing Grafana gauges
+        era_overlap = _era_overlap_frac(era_mix_by_code[code], base_era_mix)
+        # CONFOUNDED_BASELINE / PARTIAL_OVERLAP (2026-08-27, hardened in
+        # the fix-wave): this is the SZ-021 defect - a code whose rows
+        # share little or no label_era with the frozen baseline is being
+        # compared to a different label definition from a different
+        # calendar window, not an alternative population.
+        # `anti_selective`/`selective` are forced False for either
+        # state, so the existing Grafana gauges
         # (`liquiditybot_veto_anti_selective`/`_selective`) read the
         # conservative "not proven" 0.0 with NO KEY RENAMED; `era_overlap`
-        # and `comparison` are new fields EXTENDING the payload for a
-        # reader who wants to distinguish "not significant" from
-        # "unmeasurable against this baseline". Rates/CIs are still
+        # and `comparison` EXTEND the payload for a reader who wants to
+        # distinguish "not significant" (effective-n-vetted null),
+        # "not_significant_nominal_n" (n_eff was not computable - see
+        # `_comparison`'s docstring), and "unmeasurable against this
+        # baseline" (fully or partially confounded). Rates/CIs are still
         # reported below, unsuppressed.
-        confounded = bool(base["n"] and era_overlap < ERA_OVERLAP_FLOOR)
-        if not base["n"]:
-            comparison = "no_baseline"
-        elif confounded:
-            comparison = "CONFOUNDED_BASELINE"
-        elif neff_ok and base["neff_ok"] and lo > base["hi"]:
-            comparison = "anti_selective"
-        elif neff_ok and base["neff_ok"] and hi < base["lo"]:
-            comparison = "selective"
-        else:
-            comparison = "not_significant"
+        era_state = _era_state(era_overlap, base["n"])
+        comparable = era_state == "COMPARABLE"
+        comparison = _comparison(base["n"], True, era_state,
+                                 neff_ok and base["neff_ok"], lo, hi,
+                                 base["lo"], base["hi"])
         out["by_code"].append({
             "code": code, "n": int(n), "wins": int(wins),
             "rate": rate, "n_eff": n_eff if n_eff > 0 else None,
@@ -336,15 +463,15 @@ def efficacy(rows: list, min_n: int) -> dict:
             "comparison": comparison,
             # same significance discipline as per-disposition, PLUS the
             # era-overlap guard: the flag is only raised where both
-            # intervals run on effective n AND the baseline shares at
-            # least ERA_OVERLAP_FLOOR of this code's own label_era mix
+            # intervals run on effective n AND the baseline is COMPARABLE
+            # (era_overlap at or above ERA_OVERLAP_MAJORITY)
             "anti_selective": bool(
-                base["n"] and neff_ok and base["neff_ok"] and not confounded
+                base["n"] and neff_ok and base["neff_ok"] and comparable
                 and lo > base["hi"]),
             # a veto EARNS ITS KEEP when what it rejected wins
             # significantly LESS than baseline (disjoint below)
             "selective": bool(
-                base["n"] and neff_ok and base["neff_ok"] and not confounded
+                base["n"] and neff_ok and base["neff_ok"] and comparable
                 and hi < base["lo"]),
         })
     return out
@@ -450,29 +577,47 @@ def render(eff: dict, cal: list, conc: dict) -> str:
         verdict = ("the gate selects WINNERS" if s > 0 else
                    "**the gate selects AGAINST itself**")
         L.append(f"- separation: **{s:+.1%}** - {verdict}")
-        nom_disjoint = (a["n"] and b["n"]
-                        and (a["lo_nom"] > b["hi_nom"]
-                             or a["hi_nom"] < b["lo_nom"]))
-        if not (a["neff_ok"] and b["neff_ok"]):
-            L.append("- **significance NOT assessed**: effective n is not "
-                     "computable for at least one side, so no disjointness "
-                     "claim is made here (a claim that would rest on "
-                     "nominal n is not made at all)")
-        elif a["lo"] > b["hi"]:
-            L.append("- separation is significant on effective n "
-                     "(intervals disjoint)")
-        elif a["hi"] < b["lo"]:
-            L.append("- **adverse separation is SIGNIFICANT** on effective "
-                     "n (intervals disjoint) - the admitted set is "
-                     "reliably worse than taking no view at all")
+        cmp = eff.get("admitted_comparison")
+        # C2 (2026-08-27 fix-wave): the era-confound guard now covers
+        # this headline too - checked BEFORE the neff-based significance
+        # branches below, same precedence as the by_code/per-disposition
+        # guard.
+        if cmp == "CONFOUNDED_BASELINE":
+            L.append("- **baseline CONFOUNDED** - the admitted set shares "
+                     f"only {eff['admitted_era_overlap']:.0%} label_era "
+                     "overlap with the baseline sample, so no "
+                     "significance claim is made here")
+        elif cmp == "PARTIAL_OVERLAP":
+            L.append("- **baseline PARTIAL OVERLAP** - the admitted set "
+                     f"shares only {eff['admitted_era_overlap']:.0%} "
+                     "label_era overlap with the baseline sample "
+                     "(majority of the admitted evidence is drawn from an "
+                     "era the baseline can't speak to); no significance "
+                     "claim is made here")
         else:
-            L.append("- not significant at this effective sample size; "
-                     "intervals overlap"
-                     + (" - NOTE: this comparison WOULD read 'significant "
-                        "(intervals disjoint)' on nominal row counts. It "
-                        "does not survive the label-overlap deflation, so "
-                        "the claim is withdrawn."
-                        if nom_disjoint else ""))
+            nom_disjoint = (a["n"] and b["n"]
+                            and (a["lo_nom"] > b["hi_nom"]
+                                 or a["hi_nom"] < b["lo_nom"]))
+            if not (a["neff_ok"] and b["neff_ok"]):
+                L.append("- **significance NOT assessed**: effective n is not "
+                         "computable for at least one side, so no disjointness "
+                         "claim is made here (a claim that would rest on "
+                         "nominal n is not made at all)")
+            elif a["lo"] > b["hi"]:
+                L.append("- separation is significant on effective n "
+                         "(intervals disjoint)")
+            elif a["hi"] < b["lo"]:
+                L.append("- **adverse separation is SIGNIFICANT** on effective "
+                         "n (intervals disjoint) - the admitted set is "
+                         "reliably worse than taking no view at all")
+            else:
+                L.append("- not significant at this effective sample size; "
+                         "intervals overlap"
+                         + (" - NOTE: this comparison WOULD read 'significant "
+                            "(intervals disjoint)' on nominal row counts. It "
+                            "does not survive the label-overlap deflation, so "
+                            "the claim is withdrawn."
+                            if nom_disjoint else ""))
     L += ["", "## Per-rule", "",
           "| disposition | n | n_eff | win rate | 95% CI (n_eff) "
           "| 95% CI (nominal n) | vs baseline | |",
@@ -482,6 +627,10 @@ def render(eff: dict, cal: list, conc: dict) -> str:
             flag = (" (baseline CONFOUNDED - "
                     f"{d['era_overlap']:.0%} label_era overlap, no "
                     "significance claim made)")
+        elif d.get("partial_overlap"):
+            flag = (" (baseline PARTIAL - "
+                    f"{d['era_overlap']:.0%} label_era overlap, majority "
+                    "incomparable, no significance claim made)")
         elif d.get("anti_selective"):
             flag = " **ANTI-SELECTIVE**"
         elif d.get("anti_selective_nominal"):

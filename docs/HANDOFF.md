@@ -77,11 +77,16 @@ cohort-resetting, none shippable mid-era.**
 edge is the **cost-aware rejection stack** — `SZ-030` net-Kelly f*<=0
 and `SZ-046` held 6.0% / 16.0% at identical n and identical separation
 straight through the 08-20 melt-up, while every admission-side number
-moved with the tape (admitted 24.7% -> 35.8%). Boundary #6 PROTECTS
+moved with the tape (admitted 24.7% -> 35.8%). Boundary #5 PROTECTS
 SZ-030 / SZ-023-derived-bar / SZ-046 and spends its budget on the
 volatile side. Deletions of rules shown to measure the wrong thing rank
 above additions. Authority:
 `docs/quant/2026-08-22_boundary_around_the_invariant_edge.md`.
+(numbering corrected 2026-08-27 fix-wave, I2: this section originally
+said "#6" while `scripts/fee_reprice.py`'s docstring, commit `ca55e2ba`,
+and the later WHY-1 entry above all name the SAME fee-truth cut
+"boundary #5" - reconciled to the one the shipped code and the later
+entry use.)
 
 **LOOP ALIGNMENT (2026-08-22):** the operator->bot->market->analysis loop
 is structurally sound and internally consistent, and mis-anchored at ONE
@@ -90,9 +95,10 @@ booking-side (`order_manager.*_fee_bps`) read the SAME understated
 constant, so the loop cannot self-detect it — only the independent
 measurement route (`cost_truth_report`) could, and did. Protecting the
 veto RULES does not mean freezing their COST ANCHOR; correcting it makes
-them stricter, which is the safe direction. Boundary #6 order: FEE-1+FEE-2
+them stricter, which is the safe direction. Boundary #5 order: FEE-1+FEE-2
 bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
-`docs/quant/2026-08-22_loop_alignment_audit.md`.
+`docs/quant/2026-08-22_loop_alignment_audit.md`. (numbering corrected
+2026-08-27, same reconciliation as above.)
 
 | id | one line | authority |
 |---|---|---|
@@ -150,11 +156,43 @@ significant" verdict is established, because the comparator itself was
 the wrong population. `gate_efficacy_report.py` now refuses to render
 `anti_selective`/`selective` at all when a code's own rows share less
 than 5% `label_era` overlap with the baseline sample (`ERA_OVERLAP_FLOOR`)
-- the `by_code` JSON and the Per-rule markdown table both carry
-`comparison: "CONFOUNDED_BASELINE"` for SZ-021, SZ-023, and every other
-disjoint-era code instead; rates/CIs stay printed, unsuppressed. Vault:
+- the `by_code` **and** per-disposition **JSON** both carry a
+`comparison: "CONFOUNDED_BASELINE"` field for SZ-021, SZ-023, and every
+other disjoint-era code instead (**correction, 2026-08-27 fix-wave**:
+this sentence previously claimed the Per-rule **markdown** table also
+carried the literal `comparison` field - it does not and never has;
+markdown renders the SAME verdict as prose in the flag column instead,
+e.g. `(baseline CONFOUNDED - 0% label_era overlap, no significance claim
+made)`); rates/CIs stay printed, unsuppressed. Vault:
 `wiki/synthesis/open-contradictions-register.md` (2026-08-15 OPEN item,
 2026-08-27 addition).
+
+**REG-6 CAVEAT, fix-wave hardening (2026-08-27, ~22:48 UTC, live corpus
+re-run):** the guard above used SET-membership overlap ("does the
+baseline have any row of this era, at any count"), which had two holes:
+a single contaminating baseline row bought a code full credit, and a
+code that was 90%+ drawn from an era the baseline never touches could
+still clear the flat 5% floor on its own small shared-era slice alone.
+Replaced with WEIGHTED (histogram-intersection) overlap plus a 50%
+majority line (`ERA_OVERLAP_MAJORITY`; `PARTIAL_OVERLAP` between the two
+floors, `gate_efficacy_report.py`). Re-running against the live corpus
+under the hardened guard surfaces a finding NOT anticipated when this
+CAVEAT was first written: **every current `by_code` row, and the
+admitted-vs-baseline headline itself, now reads CONFOUNDED_BASELINE or
+PARTIAL_OVERLAP - none clears to a full "COMPARABLE" verdict**, including
+`SZ-030` (previously the one clean "selective, earns its keep" read:
+membership-overlap reported 0.685, weighted overlap is **0.159** -
+`PARTIAL_OVERLAP`) and the admitted-set headline (weighted overlap
+**0.159**, `PARTIAL_OVERLAP`). This is the guard working as intended, not
+over-tuned: baseline's own composition (84.1% `legacy`, 15.9% `exit_sim`,
+zero `triple_barrier*`) caps every code's MAXIMUM possible weighted
+overlap near 0.159 (baseline's own `exit_sim` share) unless a code is
+itself majority-`legacy` - which no currently active veto code is. The
+frozen 2026-07-20 baseline cannot honestly vouch for ANY of today's
+corpus, not just SZ-021/SZ-023; the report now says so instead of
+printing partial confidence. **Not fixed here** (out of this fix-wave's
+scope): the structural remedy is a live/contemporaneous baseline, the
+same recommendation the original CAVEAT already named.
 
 **REG-6's tier is decided by evidence already in flight**: the ~1,132
 probe/candidate decisions logged inside the 2026-08-20 crisis window
@@ -222,6 +260,7 @@ entries. One event never decides.
 | DoD ruff line red on an untouched tree (08-22) | **The gate, not the code.** `extend-select` inherited ruff's defaults; ruff broadened them, so 0.16.3 reported **958 errors** across the shipped scope with zero changes — all of them rules this project never selected. Rule set is now pinned explicitly (`select = [E4,E7,E9,F,B,C901]`), tree verified green, pin tested. **Do not 'fix' those 958 findings; they were never in scope.** | `pyproject.toml`, `tests/test_lint_gate_pin.py` |
 | 4 suite reds on an untouched tree, cloud box (08-22) | **Wrong OS, not wrong code.** 3 `test_battery_gate` pins exec `cmd.exe` (absent on Linux); `test_child_log_rotation`'s held-handle assertion encodes NT rename refusal. Reproduced on clean HEAD in a detached worktree before touching anything. cmd pins now `skipif(os.name != 'nt')` — **unskipped on Windows, where the battery gates**; the rotation test is platform-SPLIT, not skipped: never-raises is asserted everywhere, only the outcome branches | `tests/test_battery_gate.py`, `tests/test_child_log_rotation.py` |
 | Digest false alarms: equity + chain headline (08-25) | **Fixed, display-honest.** `_pnl_section` read the whole equity.csv across 4 capital resets — the "$25,000 → $803 (range $99,208)" headline was a lens artifact, same family as the audit-count windowing. `equity_*` keys are now CURRENT-EPOCH (reset = >50% sample-to-sample jump; real resets moved 83–530%, worst transient 0.8%), `lifetime_*` added; SD-008 un-broke as a side effect (lifetime range kept it permanently dead post-reset). Headline chain field now prints a word per state (OK/SEAMS/TAMPER/TORN_TAIL/UNREADABLE) instead of `chain_ok=False` for benign seams — JSON keys untouched, checkin.py unaffected | `core/session_digest.py`, `tests/test_session_digest.py` |
+| `label_ret_pct` schema 93→94 (08-24, commit `8a9cc087`) | Candidate/live rows now carry a real-valued outcome instead of the destroyed `net_pnl_usd=0.0` for 5,923 rows; UNKNOWN (`""`) never a fabricated 0. **Correction (2026-08-27, I3):** the commit message overclaims its own verification — says "13 new pins" (re-derived by counting `+def test_` in the diff: **12**) and lists `tests/test_migrate_history.py` among updated pins (zero diff there; the diff only touches `tests/test_history_migration.py` — likely confusion between the two similarly-named files). History is pushed, not amended; this row is the correction of record so the false tally cannot be cited as settled. | `ml/history.py`, `tests/test_label_ret_persistence.py` |
 
 ---
 
