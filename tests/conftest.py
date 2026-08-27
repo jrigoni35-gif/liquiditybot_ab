@@ -111,6 +111,11 @@ _REDIRECTED_PATH_ATTRS = (
     # tests/test_corpus_rotation_marker.py::
     # test_tick_spawns_corpus_sync_immediately_on_marker caught it.
     "_VAULT_GUARD_STAMP",
+    # SHADOW_WEIGHTS_PATH (scripts/shadow_gate_weights.py, sandbox
+    # prototype, 2026-08-27): the sidecar's own output path constant -
+    # registered on introduction per this file's own rule above, not
+    # discovered later as an unregistered-stamp defect.
+    "SHADOW_WEIGHTS_PATH",
 )
 
 # Modules that must be PRESENT in sys.modules for the scan below to find
