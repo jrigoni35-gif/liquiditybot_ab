@@ -86,7 +86,8 @@ def prepare_replay_config(config: dict) -> dict:
                   cfg["system"]["monthly_ledger_path"],
                   cfg["system"]["fills_ledger_path"],
                   cfg["ml"]["history_path"],
-                  cfg["ml"]["multi_horizon"]["shadow_path"]):
+                  cfg["ml"]["multi_horizon"]["shadow_path"],
+                  cfg["ml"]["postmortem"]["paths_path"]):
         Path(stale).unlink(missing_ok=True)
     return cfg
 
