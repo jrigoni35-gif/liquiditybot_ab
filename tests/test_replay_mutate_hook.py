@@ -30,6 +30,7 @@ def test_default_mutate_bot_is_inert_and_deterministic(tmp_path):
     ok, diff = determinism_ok(a, b, keys=_DETERMINISM_KEYS + ("cycles",))
     assert ok, diff
     assert "fills_ledger_path" in a and a["fills_ledger_path"].endswith(".csv")
+    assert "entry_fees" in a
 
 
 def test_mutate_bot_receives_the_constructed_bot(tmp_path):

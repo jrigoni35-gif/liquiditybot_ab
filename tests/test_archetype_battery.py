@@ -97,13 +97,28 @@ def test_oracle_sees_the_future(tmp_path):
 
 
 def test_battery_end_to_end_pins(tmp_path):
-    """One compact battery run pins four spec properties at once:
+    """One compact battery run pins five spec properties at once:
     (a) LIVENESS — the oracle member records >=1 entry (a tape that
         cannot host a trade is a red suite, not a quiet zero) [SEV-1];
     (b) ORACLE RANKS FIRST among members by net_pct (injection duty);
     (c) AUDIT ISOLATION — the production audit trail gains zero bytes;
-    (d) LEDGER/META — rows appended, attempted/refused counters written.
-    Small grid (2 tapes x subset) to stay test-budget honest."""
+    (d) LEDGER/META — rows appended, attempted/refused counters written,
+        and the meta sidecar's counters agree with run_battery's own
+        return value (attempted == accepted + refused, both routes);
+    (e) DEPLOYED COVERAGE — the no-factory "deployed" member (real,
+        unmodified gate stack) is measured under BOTH default harness
+        profiles, not just the archetypes.
+    Grid: 8 tapes x subset — widened from 2 (still seconds, well inside
+    test budget). At 2 tapes random_entry/buy_hold NEVER cleared MIN_TRIPS
+    on either seed (both are limit-order archetypes measured against a
+    short, low-vol synthetic tape — a real fill is rare per attempt, not
+    absent by construction), leaving oracle the ONLY non-degenerate member
+    and making "oracle ranks first" vacuously true over a population of
+    one — exactly the silently-confident-instrument shape CLAUDE.md's
+    mindset section warns about. Verified empirically (not assumed): at
+    8 tapes buy_hold clears MIN_TRIPS on seed 7, giving the rank pin a
+    genuine (deterministic, seed-pinned) competitor without touching any
+    decisioning/order-lifecycle code — see (b)'s len(mean_net) guard."""
     import os
     from pathlib import Path as P
 
@@ -117,8 +132,9 @@ def test_battery_end_to_end_pins(tmp_path):
     members = {"random_entry": ARCHETYPES["random_entry"],
                "buy_hold": ARCHETYPES["buy_hold"],
                "oracle": lambda seed: oracle_factory(
-                   PriceWorld(seed, bars=200))}
-    res = run_battery(tapes=2, cycles=48, out_dir=tmp_path / "bat",
+                   PriceWorld(seed, bars=200)),
+               "deployed": None}
+    res = run_battery(tapes=8, cycles=48, out_dir=tmp_path / "bat",
                       ledger_path=tmp_path / "trial_ledger.csv",
                       members=members)
     rows = read_ledger(tmp_path / "trial_ledger.csv")
@@ -126,16 +142,30 @@ def test_battery_end_to_end_pins(tmp_path):
     oracle_rows = [r for r in rows if r["strategy_id"] == "oracle"
                    and not r["degenerate"]]
     assert oracle_rows, "oracle degenerate on every tape — tape cannot host a trade"
+    # (e) deployed rides both default HARNESS_PROFILES (members passed
+    # explicitly, profiles=None -> HARNESS_PROFILES applies to every
+    # member including the no-factory one) — rows exist regardless of
+    # whether the short tape gave deployed a live trade (degenerate is a
+    # flag on the row, not a reason to skip appending it).
+    deployed_profiles = {r["harness_profile"] for r in rows
+                         if r["strategy_id"] == "deployed"}
+    assert deployed_profiles == {"native", "neutral-admission"}, deployed_profiles
     by_member = {}
     for r in rows:
         if r["net_pct"] is not None and not r["degenerate"]:
             by_member.setdefault(r["strategy_id"], []).append(r["net_pct"])
     mean_net = {k: sum(v) / len(v) for k, v in by_member.items()}
+    assert len(mean_net) >= 2, "need a competitor for the rank pin"
     assert max(mean_net, key=mean_net.get) == "oracle", mean_net
     after = prod_audit.stat().st_size if prod_audit.exists() else -1
     assert after == before, "battery wrote the PRODUCTION audit trail"
-    meta = (tmp_path / "trial_ledger.meta.json")
-    assert meta.exists()
+    meta_path = tmp_path / "trial_ledger.meta.json"
+    assert meta_path.exists()
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["attempted"] == res["attempted"]
+    assert meta["accepted"] == res["rows"]
+    assert meta["refused"] == res["refused"]
+    assert res["attempted"] == res["rows"] + res["refused"]
     assert os.path.getsize(res["report_path"]) > 0
 
 

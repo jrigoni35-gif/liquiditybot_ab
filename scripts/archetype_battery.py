@@ -490,12 +490,23 @@ def _overlay(base_cfg: dict, overrides: dict) -> dict:
 def _summary_to_row(member, profile, anchor, seed, s) -> dict:
     start = 10_000.0
     entries = int(s["entries_filled"])
+    # All-in fee netting: realized is post-exit-fee only (core/state.py
+    # record_realized_pnl nets the exit leg; entry fees hit cash straight
+    # via record_entry_fee and never touch realized_pnl_total), while fees
+    # carries BOTH legs. True net all-in nets the entry leg too, same
+    # convention as core/state.PortfolioState.realized_net_all_in():
+    # realized - entry_fees. True gross adds back the exit leg only:
+    # exit_fees = fees - entry_fees, so gross = realized + fees - entry_fees.
+    # CLAUDE.md reading-discipline 7(a): a ratio's netting is not read
+    # until it's read from the code that computes it.
+    net_pct = round((s["realized_pnl"] - s["entry_fees"]) / start * 100, 4)
+    gross_pct = round(
+        (s["realized_pnl"] + s["fees"] - s["entry_fees"]) / start * 100, 4)
     return {"schema_version": SCHEMA_VERSION, "strategy_id": member,
             "source": "battery", "seed": seed, "fee_anchor": anchor,
             "harness_profile": profile, "cycles": int(s["cycles"]),
             "entries": entries, "exits": int(s["exit_orders"]),
-            "gross_pct": round((s["realized_pnl"] + s["fees"]) / start * 100, 4),
-            "net_pct": round(s["realized_pnl"] / start * 100, 4),
+            "gross_pct": gross_pct, "net_pct": net_pct,
             "sr": "", "max_dd": "", "n_eff": "",
             "degenerate": entries < MIN_TRIPS, "exit_profile": "deployed",
             "count": 1}
@@ -534,6 +545,23 @@ def run_battery(tapes: int, cycles: int, out_dir: Path, ledger_path: Path,
     # tape actually advanced.
     base["system"]["polling_interval_sec"] = BAR_SEC
     base["capital_management"]["starting_capital_usd"] = 10_000
+    # QA-ISOLATION FIX (found adding the "deployed" member — fix round 1,
+    # 2026-08-27): ml.postmortem.paths_path has no config.json default and
+    # is missing from qa_redirect_paths's canonical list (report_dir and
+    # summary_path in the same ml.postmortem block ARE redirected; this
+    # third sidecar was not) — exactly the "hardest ones to see" class that
+    # function's own docstring names two other instances of (fills.csv,
+    # retrain_history): the code silently falls back to the hardcoded
+    # production path outputs/trade_paths.csv whenever the key is unset.
+    # No archetype member's minimal injected SignalResult ever drove a full
+    # entry->exit thesis through PostmortemEngine, so this never tripped
+    # until the unmodified "deployed" member's first real close did —
+    # caught by tests/conftest.py's _no_production_outputs_writes fixture.
+    # Canonical fix is qa_redirect_paths (scripts/smoke_test.py, outside
+    # this task's file scope); redirected locally here in the meantime, to
+    # the same throwaway out_dir every other battery artifact already uses.
+    base.setdefault("ml", {}).setdefault("postmortem", {})["paths_path"] = \
+        str(out_dir / "trade_paths.csv")
 
     tapes_paths = {s: record_tape(s, cycles, out_dir / "tapes")
                    for s in range(1, tapes + 1)}
@@ -542,8 +570,15 @@ def run_battery(tapes: int, cycles: int, out_dir: Path, ledger_path: Path,
     notes = []
     cycles_seen = {}
     for member, factory in members.items():
-        for profile, prof_over in (profiles.items()
-                                   if factory is not None or True else []):
+        for profile, prof_over in profiles.items():
+            # Live for custom `profiles=` callers only: with the default
+            # HARNESS_PROFILES (both names always in the tuple) this never
+            # fires. A caller who passes a `profiles` dict keyed by novel
+            # names still runs every factory member under them, but the
+            # no-factory "deployed" member (mut stays None -> the real,
+            # unmodified gate stack) is pinned to the two pre-registered
+            # profiles only, so it never gets measured under an ad-hoc
+            # harness overlay that was never adjudicated for it.
             if factory is None and profile not in ("native",
                                                    "neutral-admission"):
                 continue
