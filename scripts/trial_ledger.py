@@ -9,6 +9,7 @@ v0.1: per-run SR is undefined below TRIPS_FLOOR=20 uncensored trips.
 Report-only; never touches config or engine state.
 """
 import csv
+import io
 import json
 import sys
 from pathlib import Path
@@ -29,21 +30,36 @@ class LedgerInvalid(ValueError):
 
 
 def append_rows(rows: list, ledger_path: Path) -> None:
-    ledger_path = Path(ledger_path)
-    # Validate every row BEFORE opening the file: a batch is all-or-nothing,
-    # so a missing-column row anywhere must not leave earlier rows flushed.
+    """Append-invariant gate: routed through core.runtime.durable_append
+    (crash-safe - torn-tail isolation + fsync) instead of a bare
+    open(path, "a") - this ledger is a durable measurement artifact OF-5
+    trusts, not a throwaway log.
+
+    Rows are rendered with plain csv.writer into an in-memory buffer using
+    the SAME default 'excel' dialect (comma delimiter, \\r\\n terminator,
+    QUOTE_MINIMAL) the old csv.DictWriter used, in the same LEDGER_COLUMNS
+    order DictWriter would reorder to - byte-identical output, so on-disk
+    format and read_ledger are unchanged. durable_append writes `header`
+    only on a genuinely new/empty file (never mid-file), matching the old
+    `if new: w.writeheader()` - see its docstring for why size-0 must
+    count as new."""
+    from core.runtime import durable_append
+    # Validate every row BEFORE building any write: a batch is
+    # all-or-nothing, so a missing-column row anywhere must not leave
+    # earlier rows of the same batch flushed, nor touch existing content.
     for r in rows:
         missing = set(LEDGER_COLUMNS) - set(r)
         if missing:
             raise LedgerInvalid(f"row missing columns: {sorted(missing)}")
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    new = not ledger_path.exists()
-    with open(ledger_path, "a", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(LEDGER_COLUMNS))
-        if new:
-            w.writeheader()
-        for r in rows:
-            w.writerow({k: r[k] for k in LEDGER_COLUMNS})
+    header_buf = io.StringIO(newline="")
+    csv.writer(header_buf).writerow(LEDGER_COLUMNS)
+    body_buf = io.StringIO(newline="")
+    w = csv.writer(body_buf)
+    for r in rows:
+        w.writerow([r[k] for k in LEDGER_COLUMNS])
+    body = body_buf.getvalue()
+    durable_append(Path(ledger_path), lambda f: f.write(body),
+                   header=header_buf.getvalue())
 
 
 def _coerce(r: dict) -> dict:
