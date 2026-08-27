@@ -424,7 +424,11 @@ ARCHETYPES = {
 def oracle_factory(world: "PriceWorld", horizon_bars: int = 12):
     """Test-only planted edge: reads the world's FUTURE price. Exists so
     the battery's validation can prove the pipeline ranks a real edge
-    first (the-method injection obligation). Never in ARCHETYPES."""
+    first (the-method injection obligation). Never in ARCHETYPES.
+
+    Assumes view candle closes are bit-exact world prices (true for
+    World-venue tapes); nearest-price self-location is unreliable under
+    noise — pass an explicit bar index before wiring any noisy feed."""
     def fn(asset, view):
         closes = _closes(view)
         if not closes:
