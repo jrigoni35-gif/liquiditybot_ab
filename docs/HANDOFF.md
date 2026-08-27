@@ -117,6 +117,19 @@ bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
 | **FEE-1** | **configured fees are ~half the venue's real bottom tier** (Kraken T1 = 40/80, config = 25/40). Worth **−$4.04 of the accrued +$5.04** in the cohort window. Writing the true number produces a **config_guard FATAL** — the bot will not start, because exploration `p_win 0.700` falls below the net-Kelly breakeven `0.833` | `raw/quant/` cost-stack report; injection-verified |
 | **FEE-2** | at true fees the entry bar moves **p 0.690 → 0.834** (+14.3 pts), so the probe lane that generates 85% of the cohort stops clearing by construction | same |
 | **FEE-3** | OM-080 fee reconciliation has **never fired** — the account's actual tier row is unverified. One read-only `TradeVolume` call settles it; needs the first real credential on the box, so scope query-only and prefer post-readout | `execution/order_manager.py:767` |
+**REG-6 UPDATE (2026-08-26, veto-quality instrument):** the pre-registered
+readout condition now has its number. Pooled by code with effective-n
+Wilson intervals (`gate_efficacy_report` `by_code`, on glass via
+`liquiditybot_veto_cf_rate`): SZ-021 crisis vetoes are **ANTI-SELECTIVE at
+significance** - vetoed candidates won 0.509 [0.439, 0.580] vs baseline
+0.265 [0.192, 0.354], n=2,032 (n_eff 189). Disjoint intervals, the
+instrument's own bar. CAVEAT the pre-registration requires: this is the
+LABEL win rate, not net-of-costs - the "above baseline net of costs" arm
+needs the cost overlay before it opens the probe tier, and one melt-up is
+still one event. Also measured: SZ-030 net-Kelly EARNS ITS KEEP (0.060
+[0.040, 0.089]); SZ-023 pooled across 87 variants sits AT baseline (0.278
+[0.257, 0.299], n_eff 1,721) - the deployed bar neither saves nor costs.
+
 **REG-6's tier is decided by evidence already in flight**: the ~1,132
 probe/candidate decisions logged inside the 2026-08-20 crisis window
 resolve one barrier horizon later. Run `gate_efficacy` over

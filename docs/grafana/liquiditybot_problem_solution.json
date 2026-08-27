@@ -3603,6 +3603,406 @@
       "transparent": true
     },
     {
+      "id": 50,
+      "type": "timeseries",
+      "title": "Veto pressure (per hour)",
+      "description": "The same checks as the cumulative panel, as vetoes in the trailing hour - the line on top is the check killing entries right now, no slope-reading required. A restart dents one sample, not the view. Empty means: this reason code has not fired.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 71
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "showPoints": "auto",
+            "spanNulls": 300000,
+            "pointSize": 5,
+            "axisPlacement": "auto",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "decimals": 0,
+          "noValue": "this reason code has not fired",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-023 · win-prob below bar"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5E5CE6"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-022 · direction blocked"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#40CBE0"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-045 · manipulation suspected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9F0A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PT-040 · EV negative after fill odds"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#BF5AF2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PT-041 · edge/cost below minimum"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8E8E93"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-023\"}[1h]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-023 · win-prob below bar"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-022\"}[1h]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-022 · direction blocked"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-045\"}[1h]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "SZ-045 · manipulation suspected"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-040\"}[1h]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "PT-040 · EV negative after fill odds"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-041\"}[1h]))",
+          "instant": false,
+          "range": true,
+          "legendFormat": "PT-041 · edge/cost below minimum"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 51,
+      "type": "bargauge",
+      "title": "Were the vetoes right?",
+      "description": "Counterfactual win rate of what each gate REJECTED (every veto is labeled; this is the corpus answering back), pooled per code with effective-n intervals. Read against the candidate baseline (liquiditybot_veto_baseline_rate): BELOW baseline = the veto selects real losers and earns its keep (SZ-030 net-Kelly is the house example); AT baseline = the gate is not selecting on outcome at all; ABOVE = anti-selective - it rejects candidates that win MORE than average. Counts without this column flattered every gate equally.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 71
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "noValue": "veto-quality collector not published yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_veto_cf_rate{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Anti-selective gates",
+      "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that was SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 71
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "veto-quality collector not published yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "sum(liquiditybot_veto_anti_selective)",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Candidate baseline win rate",
+      "description": "The un-gated candidate win rate the bars above are judged against (Wilson band on effective n rides the exporter as veto_baseline_lo/hi).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 79
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "veto-quality collector not published yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_veto_baseline_rate{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ],
+      "transparent": true
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -3611,7 +4011,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 72
+        "y": 84
       },
       "transparent": true,
       "options": {

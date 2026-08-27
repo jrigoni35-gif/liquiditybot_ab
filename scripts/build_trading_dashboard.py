@@ -1754,6 +1754,67 @@ def _author_problem():
               "era and needs operator adjudication. This panel measures; "
               "it must never be used to tune them mid-cohort.")
 
+    # ---- precision companions (2026-08-26, "make this more precisely
+    # measured"). The cumulative panel above answers WHICH check fires;
+    # these answer the two questions it structurally cannot: how hard is
+    # each gate firing NOW (a slope read off a cumulative line is an eye
+    # exercise), and - from the labeled counterfactual corpus - was the
+    # gate RIGHT. cf_rate is the win rate of what the gate REJECTED, so
+    # below-baseline = the veto selected real losers = earning its keep;
+    # above-baseline = anti-selective, the SZ-023 defect class of
+    # 2026-08-01. The flags carry gate_efficacy_report's own significance
+    # discipline (disjoint Wilson intervals on EFFECTIVE n), pooled
+    # per code across parametrized disposition variants.
+    _cdr = ('max(delta(liquiditybot_code_count_detail'
+            '{{job="liquiditybot",code="{c}"}}[1h]))')
+    timeseries("Veto pressure (per hour)",
+               _cdr.format(c="SZ-023"), 8, 8, decimals=0,
+               legend=CODE_LABELS["SZ-023"],
+               extra=[(_cdr.format(c=c), CODE_LABELS[c])
+                      for c in ("SZ-022", "SZ-045", "PT-040", "PT-041")],
+               colors={CODE_LABELS["SZ-023"]: INDIGO,
+                       CODE_LABELS["SZ-022"]: CAT_TEAL,
+                       CODE_LABELS["SZ-045"]: ORANGE_HEX,
+                       CODE_LABELS["PT-040"]: CAT_PURPLE,
+                       CODE_LABELS["PT-041"]: GRAY_HEX},
+               desc="The same checks as the cumulative panel, as vetoes "
+                    "in the trailing hour - the line on top is the check "
+                    "killing entries right now, no slope-reading "
+                    "required. A restart dents one sample, not the view.")
+    bargauge("Were the vetoes right?", _pa("liquiditybot_veto_cf_rate"),
+             8, 8, legend="{{code}}", decimals=2, mn=0, mx=1,
+             unit="percentunit", steps=BLUE,
+             desc="Counterfactual win rate of what each gate REJECTED "
+                  "(every veto is labeled; this is the corpus answering "
+                  "back), pooled per code with effective-n intervals. "
+                  "Read against the candidate baseline "
+                  "(liquiditybot_veto_baseline_rate): BELOW baseline = "
+                  "the veto selects real losers and earns its keep "
+                  "(SZ-030 net-Kelly is the house example); AT baseline "
+                  "= the gate is not selecting on outcome at all; ABOVE "
+                  "= anti-selective - it rejects candidates that win "
+                  "MORE than average. Counts without this column "
+                  "flattered every gate equally.")
+    stat("Anti-selective gates",
+         'sum(liquiditybot_veto_anti_selective)', 8, 4, decimals=0,
+         graph="none",
+         steps=[{"color": "green", "value": None},
+                {"color": "red", "value": 1}],
+         no_value="veto-quality collector not published yet",
+         desc="How many veto codes are rejecting candidates that go on "
+              "to win SIGNIFICANTLY more than baseline (disjoint Wilson "
+              "intervals on effective n - gate_efficacy_report's own "
+              "bar). Anything above zero names a gate doing measurable "
+              "harm; as of 2026-08-26 that was SZ-021 (crisis), whose "
+              "vetoed candidates won at 0.51 against a 0.27 baseline.")
+    stat("Candidate baseline win rate",
+         M("liquiditybot_veto_baseline_rate"), 8, 4,
+         unit="percentunit", decimals=1, steps=BLUE, graph="none",
+         no_value="veto-quality collector not published yet",
+         desc="The un-gated candidate win rate the bars above are judged "
+              "against (Wilson band on effective n rides the exporter as "
+              "veto_baseline_lo/hi).")
+
 
 _TAGS = ["liquiditybot", "trading", "paper-trading"]
 _NAV = [("⌘ Command", "liquiditybot-trading"),
@@ -1978,6 +2039,11 @@ _NV_JUDGE = f"window filling (<{JUDGE_MIN} scored closes) or judge down"
 # Every string restates the ACTUAL guard in scripts/gc_pusher.py; the
 # file:line of each guard is in the comment beside it.
 _NO_VALUE_BY_FAMILY = {
+    # gc_pusher.py _veto_quality_metrics: cached subprocess over
+    # gate_efficacy_report --json every 30 min; drops (never re-serves) on
+    # any failure, and the baseline band is all-or-nothing with the codes
+    "liquiditybot_veto_": ("event",
+                           "veto-quality collector not published yet"),
     # ---- event-gated ----------------------------------------------------
     # order_manager.py:730-731  "maker_share": ... if fills else None
     "liquiditybot_order_maker_share": ("event", "awaiting first fill"),

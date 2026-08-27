@@ -1237,6 +1237,87 @@ def _cohort_metrics(now: float) -> list:
             gauge("liquiditybot_cohort_min_n", vals[1], ts=now)]
 
 
+VETO_SCRIPT = _REPO_ROOT / "scripts" / "gate_efficacy_report.py"
+VETO_MIN_INTERVAL_SEC = 1800.0     # corpus moves slowly; 30 min matches cohort
+VETO_TIMEOUT_SEC = 60.0
+_veto_cache: dict = {"next_attempt": 0.0, "values": None}
+
+
+def _run_veto_quality():
+    """Per-code veto counterfactuals from gate_efficacy_report --json, or
+    None on ANY failure. Exports only the by_code pooled table (plus the
+    baseline band): the counts panel already says how often each gate
+    fired; these say whether what it rejected went on to win. Same
+    fail-shape as _run_cohort_eval: absent is the honest form of a value
+    that cannot be re-derived."""
+    try:
+        proc = subprocess.run(  # nosec B603 - fixed argv, our own script
+            [sys.executable, str(VETO_SCRIPT), "--json"],
+            cwd=str(_REPO_ROOT), capture_output=True,
+            timeout=VETO_TIMEOUT_SEC)
+        if proc.returncode != 0:
+            return None
+        eff = (json.loads(proc.stdout.decode("utf-8", errors="replace"))
+               .get("efficacy") or {})
+        base, codes = eff.get("baseline") or {}, eff.get("by_code") or []
+        out = []
+        b = []
+        for k in ("rate", "lo", "hi"):
+            v = base.get(k)
+            if not (isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and math.isfinite(float(v))):
+                return None          # a quality table with no baseline band
+            b.append(float(v))       # is unreadable — all or nothing
+        for r in codes:
+            code = r.get("code")
+            vals = {}
+            for k in ("rate", "lo", "hi", "n_eff"):
+                v = r.get(k)
+                if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                        and math.isfinite(float(v))):
+                    vals[k] = float(v)
+            if not isinstance(code, str) or "rate" not in vals:
+                continue
+            vals["anti"] = 1.0 if r.get("anti_selective") else 0.0
+            vals["good"] = 1.0 if r.get("selective") else 0.0
+            out.append((code, vals))
+        return (tuple(b), out) if out else None
+    except Exception:
+        return None
+
+
+def _veto_quality_metrics(now: float) -> list:
+    """Counterfactual quality per veto code, beside the raw counters the
+    'Why entries die' panel plots. Cached and dropped-on-failure exactly
+    like _cohort_metrics (the docstring there owns the argument). The
+    anti/selective flags carry gate_efficacy's OWN significance
+    discipline — disjoint Wilson intervals on EFFECTIVE n — so a flag
+    here is a claim the instrument already defends, not a re-derivation.
+    """
+    if now >= _veto_cache["next_attempt"]:
+        _veto_cache["next_attempt"] = now + VETO_MIN_INTERVAL_SEC
+        _veto_cache["values"] = _run_veto_quality()
+    vals = _veto_cache["values"]
+    if not vals:
+        return []
+    (b_rate, b_lo, b_hi), codes = vals
+    m = [gauge("liquiditybot_veto_baseline_rate", b_rate, ts=now),
+         gauge("liquiditybot_veto_baseline_lo", b_lo, ts=now),
+         gauge("liquiditybot_veto_baseline_hi", b_hi, ts=now)]
+    for code, v in codes:
+        lab = {"code": code}
+        m.append(gauge("liquiditybot_veto_cf_rate", v["rate"], lab, now))
+        if "lo" in v:
+            m.append(gauge("liquiditybot_veto_cf_lo", v["lo"], lab, now))
+        if "hi" in v:
+            m.append(gauge("liquiditybot_veto_cf_hi", v["hi"], lab, now))
+        if "n_eff" in v:
+            m.append(gauge("liquiditybot_veto_cf_neff", v["n_eff"], lab, now))
+        m.append(gauge("liquiditybot_veto_anti_selective", v["anti"], lab, now))
+        m.append(gauge("liquiditybot_veto_selective", v["good"], lab, now))
+    return m
+
+
 def collect_aux(now: float | None = None) -> list:
     """The ledger-derived batch pushed beside collect()'s status batch.
     Each helper already returns [] on its own failure; this wrapper
@@ -1244,7 +1325,8 @@ def collect_aux(now: float | None = None) -> list:
     cost the status batch (main() pushes both as one list)."""
     now = time.time() if now is None else now
     out: list = []
-    for fn in (_orphan_ratio_metrics, _lineage_metrics, _cohort_metrics):
+    for fn in (_orphan_ratio_metrics, _lineage_metrics, _cohort_metrics,
+               _veto_quality_metrics):
         try:
             out.extend(fn(now))
         except Exception:

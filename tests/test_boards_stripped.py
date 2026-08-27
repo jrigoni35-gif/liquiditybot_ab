@@ -289,6 +289,17 @@ _PROBLEM_PANELS = frozenset({
     (49, "Timeout-cancel share", "stat",
      ("liquiditybot_order_terminal_orders",
       "liquiditybot_order_timeout_cancels")),
+    # precision companions (2026-08-26): rate view of the same counters,
+    # plus the labeled counterfactual verdict per veto code (gc_pusher
+    # _veto_quality_metrics <- gate_efficacy_report by_code pooling)
+    (50, "Veto pressure (per hour)", "timeseries",
+     ("liquiditybot_code_count_detail",)),
+    (51, "Were the vetoes right?", "bargauge",
+     ("liquiditybot_veto_cf_rate",)),
+    (52, "Anti-selective gates", "stat",
+     ("liquiditybot_veto_anti_selective",)),
+    (53, "Candidate baseline win rate", "stat",
+     ("liquiditybot_veto_baseline_rate",)),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})

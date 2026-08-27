@@ -209,6 +209,58 @@ def efficacy(rows: list, min_n: int) -> dict:
             base["n"] and d and d not in ADMITTED
             and s["lo_nom"] > base["hi_nom"])
         out["dispositions"].append(s)
+
+    # BY-CODE POOLING (2026-08-26, telemetry precision pass). The
+    # disposition STRING fragments one gate into dozens of rows — SZ-023
+    # alone parametrizes into "p 0.28 below bar 0.63", "p 0.51 below bar
+    # 0.69", ... — which is the right granularity for calibration reading
+    # but the wrong one for a dashboard asking "is this GATE earning its
+    # keep". Dispositions PARTITION the labeled corpus (each row carries
+    # exactly one), so pooling a code's variants is summing disjoint
+    # samples: n, wins and effective-n all add, and the Wilson interval is
+    # re-evaluated at the pooled effective n exactly as _stat does per
+    # disposition. Rows whose disposition carries no SZ-*/PT-* token
+    # (admitted / baseline / "capped") are not vetoes and stay out.
+    code_re = re.compile(r"([A-Z]{2}-\d{3})")
+    pooled = defaultdict(lambda: [0.0, 0.0, 0.0, 0])   # n, wins, n_eff, variants
+    for d, v in by.items():
+        mcode = code_re.search(d or "")
+        if not mcode or d in ADMITTED:
+            continue
+        st = _stat(v)
+        agg = pooled[mcode.group(1)]
+        agg[0] += st["n"]
+        agg[1] += st["wins"]
+        agg[2] += st["n_eff"] if st["n_eff"] else 0.0
+        agg[3] += 1
+    out["by_code"] = []
+    for code, (n, wins, n_eff, variants) in sorted(
+            pooled.items(), key=lambda kv: -kv[1][0]):
+        if n < min_n:
+            continue
+        rate = wins / n if n else 0.0
+        if n_eff > 0:
+            lo, hi = wilson(rate * n_eff, n_eff)
+            neff_ok = True
+        else:
+            lo, hi = wilson(wins, n)
+            neff_ok = False
+        out["by_code"].append({
+            "code": code, "n": int(n), "wins": int(wins),
+            "rate": rate, "n_eff": n_eff if n_eff > 0 else None,
+            "neff_ok": neff_ok, "lo": lo, "hi": hi, "variants": variants,
+            "vs_baseline": rate - base["rate"] if base["n"] else None,
+            # same significance discipline as per-disposition: the flag is
+            # only raised where both intervals run on effective n
+            "anti_selective": bool(
+                base["n"] and neff_ok and base["neff_ok"]
+                and lo > base["hi"]),
+            # a veto EARNS ITS KEEP when what it rejected wins
+            # significantly LESS than baseline (disjoint below)
+            "selective": bool(
+                base["n"] and neff_ok and base["neff_ok"]
+                and hi < base["lo"]),
+        })
     return out
 
 
