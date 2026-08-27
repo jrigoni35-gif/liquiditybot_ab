@@ -12,8 +12,10 @@ reseed, drift-vs-history divergence tripping the watchdog). One
 PriceWorld per seed drives ALL venues; candles are a rolling window
 whose times advance with the replay clock.
 """
+import copy
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -441,3 +443,191 @@ def oracle_factory(world: "PriceWorld", horizon_bars: int = 12):
             return _no_signal(asset)
         return _sig(asset, "long" if fut > px else "short", 0.95)
     return fn
+
+
+# ---------------------------------------------------------------- runner
+from core.replay_gate import _DETERMINISM_KEYS, determinism_ok  # noqa: E402
+from scripts.replay import run_replay, set_dotted  # noqa: E402
+from scripts.trial_ledger import (SCHEMA_VERSION, append_rows,  # noqa: E402
+                                  write_meta)
+
+MIN_TRIPS = 1          # activity floor (spec [SEV-1]): entries < this -> degenerate
+
+# Pre-registered harness profiles (spec §2). neutral-admission exists
+# because archetypes cannot clear the deployed admission stack (SZ-023
+# derived bar ~0.69 vs cold prior 0.62). These are THROWAWAY replay-config
+# overrides — never a real config change — and the profile name rides on
+# every ledger row so the report can say strategy∘harness out loud.
+HARNESS_PROFILES = {
+    "native": {},
+    "neutral-admission": {
+        "ml.cold_start_prior_p": 0.90,          # clears the derived bar
+        "position_sizer.entry_cooldown_min": 0,
+        "ml.exploration.enabled": False,         # no probe lane noise
+    },
+}
+
+# Fee anchors (spec §2). The true anchor carries the staged exploration
+# p_win: FEE-1 measured that true fees + shipped exploration p_win FATAL
+# config_guard at boot ("the bot will not start") — 0.85 is the staged
+# boundary value, applied to the throwaway config only.
+FEE_ANCHORS = {
+    "booked": {},
+    "true": {"pretrade.maker_fee_bps": 40, "pretrade.taker_fee_bps": 80,
+             "order_manager.maker_fee_bps": 40,
+             "order_manager.taker_fee_bps": 80,
+             "ml.exploration.p_win": 0.85},
+}
+
+
+def _overlay(base_cfg: dict, overrides: dict) -> dict:
+    cfg = copy.deepcopy(base_cfg)
+    for dotted, val in overrides.items():
+        set_dotted(cfg, dotted, json.dumps(val))
+    return cfg
+
+
+def _summary_to_row(member, profile, anchor, seed, s) -> dict:
+    start = 10_000.0
+    entries = int(s["entries_filled"])
+    return {"schema_version": SCHEMA_VERSION, "strategy_id": member,
+            "source": "battery", "seed": seed, "fee_anchor": anchor,
+            "harness_profile": profile, "cycles": int(s["cycles"]),
+            "entries": entries, "exits": int(s["exit_orders"]),
+            "gross_pct": round((s["realized_pnl"] + s["fees"]) / start * 100, 4),
+            "net_pct": round(s["realized_pnl"] / start * 100, 4),
+            "sr": "", "max_dd": "", "n_eff": "",
+            "degenerate": entries < MIN_TRIPS, "exit_profile": "deployed",
+            "count": 1}
+
+
+def run_battery(tapes: int, cycles: int, out_dir: Path, ledger_path: Path,
+                members: dict | None = None,
+                profiles: dict | None = None) -> dict:
+    """The grid: members x tapes x anchors under each harness profile.
+    Never a silent zero: degenerate rows are flagged and counted;
+    determinism refusals are counted; both land in the meta sidecar."""
+    from main import load_config
+    members = dict(ARCHETYPES if members is None else members)
+    profiles = dict(HARNESS_PROFILES if profiles is None
+                    else profiles) or {"neutral-admission":
+                                       HARNESS_PROFILES["neutral-admission"]}
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = load_config(str(Path(__file__).resolve().parents[1] / "config.json"))
+    # CONTROLLER CORRECTION A: record_tape's _battery_config pins the
+    # kraken universe to the two world-backed assets (main.py builds
+    # self.symbol_map from exchanges.kraken.trading_pairs — main.py:1241;
+    # left at the config.json default 7 pairs, a replay engine would query
+    # 5 assets the tape never recorded and exhaust immediately). base here
+    # is a SEPARATE load_config call for the replay side of the grid and
+    # does not go through _battery_config, so the restriction must be
+    # repeated here.
+    base["exchanges"]["kraken"]["trading_pairs"] = ["ETH/USD", "BTC/USD"]
+    # CONTROLLER CORRECTION B: data/replay.py's contract is "replay with
+    # the same cadence settings the recording was made with" — the tape
+    # was recorded at BAR_SEC(300) (one cycle == one world bar), not the
+    # config default 5. A cadence mismatch does not desync which frames
+    # play back (FeedPlayer keys on call signature, not on t), but it
+    # desyncs every elapsed-time-gated decision inside the engine
+    # (cooldowns, exploration/EMA decay, hedge timers) from the bars the
+    # tape actually advanced.
+    base["system"]["polling_interval_sec"] = BAR_SEC
+    base["capital_management"]["starting_capital_usd"] = 10_000
+
+    tapes_paths = {s: record_tape(s, cycles, out_dir / "tapes")
+                   for s in range(1, tapes + 1)}
+
+    rows, refused, attempted = [], 0, 0
+    notes = []
+    cycles_seen = {}
+    for member, factory in members.items():
+        for profile, prof_over in (profiles.items()
+                                   if factory is not None or True else []):
+            if factory is None and profile not in ("native",
+                                                   "neutral-admission"):
+                continue
+            for anchor, fee_over in FEE_ANCHORS.items():
+                for seed, rec in tapes_paths.items():
+                    attempted += 1
+                    cfg = _overlay(_overlay(base, prof_over), fee_over)
+                    mut = None
+                    if factory is not None:
+                        fn = factory(seed)
+                        mut = (lambda f: (lambda bot: setattr(
+                            bot.gates, "evaluate_asset",
+                            lambda a, v: f(a, v))))(fn)
+                    s = run_replay(cfg, rec, quiet=True, mutate_bot=mut)
+                    if seed == 1:
+                        fn2 = factory(seed) if factory is not None else None
+                        mut2 = None if fn2 is None else (
+                            lambda f: (lambda bot: setattr(
+                                bot.gates, "evaluate_asset",
+                                lambda a, v: f(a, v))))(fn2)
+                        s2 = run_replay(cfg, rec, quiet=True, mutate_bot=mut2)
+                        ok, diff = determinism_ok(
+                            s, s2, keys=_DETERMINISM_KEYS + ("cycles",))
+                        if not ok:
+                            refused += 1
+                            notes.append(f"determinism refused "
+                                         f"{member}/{profile}/{anchor}: {diff}")
+                            continue
+                    key = (seed, anchor, profile)
+                    if key in cycles_seen and cycles_seen[key] != s["cycles"]:
+                        refused += 1
+                        notes.append(f"cycles mismatch {member} on tape "
+                                     f"{seed}: {s['cycles']} != "
+                                     f"{cycles_seen[key]}")
+                        continue
+                    cycles_seen.setdefault(key, s["cycles"])
+                    rows.append(_summary_to_row(member, profile, anchor,
+                                                seed, s))
+
+    append_rows(rows, ledger_path)
+    deg = sum(1 for r in rows if r["degenerate"])
+    write_meta(ledger_path, attempted=attempted, accepted=len(rows),
+               refused=refused, notes=notes)
+    report = out_dir / "archetype_battery.md"
+    lines = [f"# archetype battery — {len(rows)} rows "
+             f"(attempted {attempted}, refused {refused}, degenerate {deg})",
+             f"corpus: {tapes} tapes x {cycles} cycles x "
+             f"{len(members)} members x {len(FEE_ANCHORS)} anchors "
+             f"[population measures strategy∘harness]", ""]
+    for r in sorted(rows, key=lambda r: (r["strategy_id"], r["seed"])):
+        lines.append(f"- {r['strategy_id']:16} s{r['seed']} "
+                     f"{r['fee_anchor']:6} {r['harness_profile']:18} "
+                     f"entries={r['entries']:3} net={r['net_pct']}% "
+                     f"{'DEGENERATE' if r['degenerate'] else ''}")
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"rows": len(rows), "attempted": attempted, "refused": refused,
+            "degenerate": deg, "report_path": str(report)}
+
+
+def main() -> int:
+    import argparse
+    import tempfile
+
+    # keep synthetic dispositions/models out of the production trail —
+    # the sweep.py precedent, mandatory (spec [SEV-4])
+    from core.audit import configure_audit
+    from ml.registry import configure_registry
+    tmp = Path(tempfile.gettempdir())
+    configure_audit(tmp / "liqbot_battery_audit.jsonl")
+    configure_registry(tmp / "liqbot_battery_models")
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tapes", type=int, default=6)
+    ap.add_argument("--cycles", type=int, default=240)
+    ap.add_argument("--out", default="outputs/archetype_battery")
+    ap.add_argument("--ledger", default="outputs/trial_ledger.csv")
+    ns = ap.parse_args()
+    t0 = time.time()
+    res = run_battery(ns.tapes, ns.cycles, Path(ns.out), Path(ns.ledger))
+    print(f"battery: {res['rows']} rows, refused {res['refused']}, "
+          f"degenerate {res['degenerate']} in {time.time() - t0:.0f}s "
+          f"-> {res['report_path']}")
+    return 0 if res["rows"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

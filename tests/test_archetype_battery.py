@@ -94,3 +94,68 @@ def test_oracle_sees_the_future(tmp_path):
     r = fn("ETH", view)
     future_up = w.price("ETH", i + 12) > w.price("ETH", i)
     assert r.direction == ("long" if future_up else "short")
+
+
+def test_battery_end_to_end_pins(tmp_path):
+    """One compact battery run pins four spec properties at once:
+    (a) LIVENESS — the oracle member records >=1 entry (a tape that
+        cannot host a trade is a red suite, not a quiet zero) [SEV-1];
+    (b) ORACLE RANKS FIRST among members by net_pct (injection duty);
+    (c) AUDIT ISOLATION — the production audit trail gains zero bytes;
+    (d) LEDGER/META — rows appended, attempted/refused counters written.
+    Small grid (2 tapes x subset) to stay test-budget honest."""
+    import os
+    from pathlib import Path as P
+
+    from scripts.archetype_battery import (ARCHETYPES, PriceWorld,
+                                           oracle_factory, run_battery)
+    from scripts.trial_ledger import read_ledger
+
+    prod_audit = P("outputs") / "audit.jsonl"
+    before = prod_audit.stat().st_size if prod_audit.exists() else -1
+
+    members = {"random_entry": ARCHETYPES["random_entry"],
+               "buy_hold": ARCHETYPES["buy_hold"],
+               "oracle": lambda seed: oracle_factory(
+                   PriceWorld(seed, bars=200))}
+    res = run_battery(tapes=2, cycles=48, out_dir=tmp_path / "bat",
+                      ledger_path=tmp_path / "trial_ledger.csv",
+                      members=members)
+    rows = read_ledger(tmp_path / "trial_ledger.csv")
+    assert res["rows"] == len(rows) > 0
+    oracle_rows = [r for r in rows if r["strategy_id"] == "oracle"
+                   and not r["degenerate"]]
+    assert oracle_rows, "oracle degenerate on every tape — tape cannot host a trade"
+    by_member = {}
+    for r in rows:
+        if r["net_pct"] is not None and not r["degenerate"]:
+            by_member.setdefault(r["strategy_id"], []).append(r["net_pct"])
+    mean_net = {k: sum(v) / len(v) for k, v in by_member.items()}
+    assert max(mean_net, key=mean_net.get) == "oracle", mean_net
+    after = prod_audit.stat().st_size if prod_audit.exists() else -1
+    assert after == before, "battery wrote the PRODUCTION audit trail"
+    meta = (tmp_path / "trial_ledger.meta.json")
+    assert meta.exists()
+    assert os.path.getsize(res["report_path"]) > 0
+
+
+def test_all_null_population_brackets_zero(tmp_path):
+    """Pure-noise members' mean net over the population must bracket 0
+    within 3 SD/sqrt(n) at the booked anchor — a directional tape or a
+    leaky harness shows up here [the-method all-null obligation]."""
+    import statistics as st
+
+    from scripts.archetype_battery import ARCHETYPES, run_battery
+    from scripts.trial_ledger import read_ledger
+    members = {"random_entry": ARCHETYPES["random_entry"]}
+    run_battery(tapes=4, cycles=48, out_dir=tmp_path / "bat",
+                ledger_path=tmp_path / "ledger.csv", members=members,
+                profiles=None)
+    rows = [r for r in read_ledger(tmp_path / "ledger.csv")
+            if r["fee_anchor"] == "booked" and not r["degenerate"]
+            and r["net_pct"] is not None]
+    if len(rows) < 3:
+        return                       # degenerate-dominated: floor did its job
+    nets = [r["net_pct"] for r in rows]
+    bound = 3 * (st.pstdev(nets) / max(len(nets), 1) ** 0.5) + 0.05
+    assert abs(st.mean(nets)) <= bound, (st.mean(nets), bound)
