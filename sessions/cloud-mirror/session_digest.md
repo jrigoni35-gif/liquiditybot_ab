@@ -1,13 +1,14 @@
 # Session digest
 
-**Verdict: SD-007 audit chain broken**
+**Verdict: SD-000 no anomalies detected**
 
-- Window: n/a -> n/a (0.0h, ~0 cycles)
+- Window: 2026-08-27 14:16 UTC -> 2026-08-27 14:17 UTC (0.0h, ~0 cycles)
 - Equity (current capital epoch): $0.00 -> $0.00 (range $0.00) | realized PnL (post-close-fee) $0.00 | fees (all legs) $0.00
-- Activity: 0 open | 371 live labeled trades | 17632 candidates | 0 postmortems
+- Activity: 0 open | 371 live labeled trades | 17661 candidates | 0 postmortems
 - Model: level None | use_model=None | brier n/a | history_rows 371 | cold=True
-- Audit: 0 records (0 non-routine) | dominant None (0% of non-routine) | chain=UNREADABLE(unreadable) | retrain_requests 0
+- Audit: 20 records (20 non-routine) | dominant LB-010 (20% of non-routine) | chain=OK | retrain_requests 0
 - Liquidity: spoofy 0% of non-liquid cycles | feed errors 0
+- Recent (48h lens): 20 audit records | dominant LB-010 (20% of non-routine) | retrain_requests 0 | spoofy 0% (non-liquid)
 
 ## Diagnostics
-- [ERR]  **SD-007 audit chain broken**  -  hash chain first breaks at record None  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point
+- [INFO] **SD-000 no anomalies detected**  -  all detectors passed

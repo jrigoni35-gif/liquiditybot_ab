@@ -1,12 +1,64 @@
 {
-  "generated_at": 1787839918.327493,
+  "generated_at": 1787843997.5829072,
   "outputs_dir": "outputs",
   "window": {
-    "start": null,
-    "end": null,
+    "start": 1787840215.885,
+    "end": 1787840233.753,
     "duration_h": 0.0
   },
-  "recent": {},
+  "recent": {
+    "hours": 48.0,
+    "audit": {
+      "records": 20,
+      "signal_records": 20,
+      "by_src": {
+        "long_book": 12,
+        "exploration": 4,
+        "startup": 2,
+        "fault": 2
+      },
+      "top_codes": [
+        [
+          "LB-010",
+          4
+        ],
+        [
+          "CX-030",
+          4
+        ],
+        [
+          "LB-050",
+          4
+        ],
+        [
+          "SZ-049",
+          4
+        ],
+        [
+          "CG-000",
+          2
+        ],
+        [
+          "FT-020",
+          2
+        ]
+      ],
+      "dominant_code": "LB-010",
+      "dominant_frac": 0.2,
+      "retrain_requests": 0,
+      "kill_switch_events": 0
+    },
+    "events": {
+      "records": 0,
+      "by_level": {},
+      "top_warnings": [],
+      "liquidity_tally": {},
+      "spoofy_frac": 0.0,
+      "liq_lens": "non_liquid_cycles_only",
+      "cycles_estimate": 0,
+      "feed_error_events": 0
+    }
+  },
   "pnl": {
     "starting_capital": 0.0,
     "equity_start": 0.0,
@@ -26,25 +78,55 @@
     "samples": 0
   },
   "activity": {
-    "signal_rows_total": 18003,
+    "signal_rows_total": 18032,
     "live_labeled_trades": 371,
-    "candidate_rows": 17632
+    "candidate_rows": 17661
   },
   "audit": {
-    "records": 0,
-    "signal_records": 0,
-    "by_src": {},
-    "top_codes": [],
-    "dominant_code": null,
-    "dominant_frac": 0.0,
+    "records": 20,
+    "signal_records": 20,
+    "by_src": {
+      "long_book": 12,
+      "exploration": 4,
+      "startup": 2,
+      "fault": 2
+    },
+    "top_codes": [
+      [
+        "LB-010",
+        4
+      ],
+      [
+        "CX-030",
+        4
+      ],
+      [
+        "LB-050",
+        4
+      ],
+      [
+        "SZ-049",
+        4
+      ],
+      [
+        "CG-000",
+        2
+      ],
+      [
+        "FT-020",
+        2
+      ]
+    ],
+    "dominant_code": "LB-010",
+    "dominant_frac": 0.2,
     "retrain_requests": 0,
     "kill_switch_events": 0,
-    "chain_ok": false,
+    "chain_ok": true,
     "chain_first_break": null,
-    "chain_tamper": true,
+    "chain_tamper": false,
     "chain_seams": 0,
     "chain_torn_tail": false,
-    "chain_error": "unreadable"
+    "chain_error": null
   },
   "events": {
     "records": 0,
@@ -72,7 +154,7 @@
     "impossible_count": 0
   },
   "streams_present": {
-    "audit.jsonl": false,
+    "audit.jsonl": true,
     "events.jsonl": false,
     "equity.csv": false,
     "state.json": false,
@@ -81,11 +163,11 @@
   },
   "diagnostics": [
     {
-      "id": "SD-007",
-      "severity": "error",
-      "title": "audit chain broken",
-      "detail": "hash chain first breaks at record None  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point"
+      "id": "SD-000",
+      "severity": "info",
+      "title": "no anomalies detected",
+      "detail": "all detectors passed"
     }
   ],
-  "verdict": "SD-007 audit chain broken"
+  "verdict": "SD-000 no anomalies detected"
 }
