@@ -32,6 +32,10 @@ python scripts/learning_panel.py         # -> outputs/learning_panel.{md,json}
 In VS Code: **Tasks: Run Task** → `Remote console: PC status (via git)`,
 `Bot: era-4 accrual (n/50)`, `Learning panel (all routes, concurrent)`.
 
+Topical routing: `docs/INDEX.md` — issue-labeled router to the prepared
+documents and instruments per issue (FEES, EXPLORATION, ERA4-GATE, …).
+It labels and points, never substitutes; primary sources always win.
+
 ---
 
 ## AS OF 2026-08-22T15:00Z — verify before citing
