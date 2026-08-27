@@ -627,17 +627,17 @@ def resolve_dsr_trials(configured: int, ledger_path) -> tuple:
     every OF-5 green names the world it ran in."""
     from pathlib import Path as _P
 
-    from scripts.trial_ledger import (LedgerInvalid, measured_trials,
-                                      read_ledger)
+    from scripts.trial_ledger import measured_trials, read_ledger
     p = _P(ledger_path)
     if not p.exists():
         return configured, (f"OF-5 trials: assumed N={configured} "
                             f"(no ledger at {p}; var=SR^2 fallback)")
     try:
         m = measured_trials(read_ledger(p))
-    except LedgerInvalid as e:
-        return configured, (f"OF-5 trials: ledger INVALID ({e}); assumed "
-                            f"N={configured}, var=SR^2 fallback")
+    except (OSError, ValueError) as e:
+        return configured, (f"OF-5 trials: ledger INVALID or unreadable "
+                            f"({e}); assumed N={configured}, "
+                            f"var=SR^2 fallback")
     measured = int(m["n_trials"])
     if measured > configured:
         return measured, (f"OF-5 trials: measured N={measured} from ledger "
@@ -1038,7 +1038,7 @@ def main() -> int:
     _dsr_trials, _dsr_src = resolve_dsr_trials(
         _dsr_trials, Path(__file__).resolve().parents[1] /
         "outputs" / "trial_ledger.csv")
-    print(f"  --    {_dsr_src}")
+    info(_dsr_src)
 
     def _dsr_of(r):
         # UNIT NOTE (2026-07-29 audit): r is per-trade USD PnL, so this is

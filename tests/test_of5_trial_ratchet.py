@@ -52,3 +52,19 @@ def test_invalid_ledger_falls_back_loudly(tmp_path):
     n, line = resolve_dsr_trials(7, p)
     assert n == 7
     assert "INVALID" in line
+
+
+def test_unreadable_ledger_falls_back_loudly(tmp_path):
+    p = tmp_path / "trial_ledger.csv"
+    p.write_bytes(b"\xff\xfe\x00garbage")
+    n, line = resolve_dsr_trials(7, p)
+    assert n == 7
+    assert "INVALID" in line or "unreadable" in line
+
+
+def test_directory_ledger_falls_back_loudly(tmp_path):
+    p = tmp_path / "trial_ledger.csv"
+    p.mkdir()
+    n, line = resolve_dsr_trials(7, p)
+    assert n == 7
+    assert "INVALID" in line or "unreadable" in line
