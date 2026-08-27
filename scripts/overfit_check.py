@@ -619,6 +619,33 @@ def regime_diagnostic(gaps: dict, X: np.ndarray, y: np.ndarray,
                  f"OOF evidence, not scored")
 
 
+def resolve_dsr_trials(configured: int, ledger_path) -> tuple:
+    """TRIALS-1 ratchet (spec 2026-08-27 [SEV-2]): the measured trial
+    ledger can only DEEPEN the DSR deflation, never relax it below the
+    configured floor. Absent/invalid ledger ≡ legacy behavior, loudly.
+    Returns (n_trials_eff, source_line) — main() prints the line so
+    every OF-5 green names the world it ran in."""
+    from pathlib import Path as _P
+
+    from scripts.trial_ledger import (LedgerInvalid, measured_trials,
+                                      read_ledger)
+    p = _P(ledger_path)
+    if not p.exists():
+        return configured, (f"OF-5 trials: assumed N={configured} "
+                            f"(no ledger at {p}; var=SR^2 fallback)")
+    try:
+        m = measured_trials(read_ledger(p))
+    except LedgerInvalid as e:
+        return configured, (f"OF-5 trials: ledger INVALID ({e}); assumed "
+                            f"N={configured}, var=SR^2 fallback")
+    measured = int(m["n_trials"])
+    if measured > configured:
+        return measured, (f"OF-5 trials: measured N={measured} from ledger "
+                          f"({m['by_source']}); var=SR^2 fallback (v0.1)")
+    return configured, (f"OF-5 trials: measured N={measured} < configured; "
+                        f"ratchet holds configured {configured}")
+
+
 # ---------------------------------------------------------------------------
 def main() -> int:
     # OF-4 replays construct full bots that audit their dispositions and
@@ -1007,6 +1034,11 @@ def main() -> int:
                           .get("dsr_n_trials", 7))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         _dsr_trials = 7
+
+    _dsr_trials, _dsr_src = resolve_dsr_trials(
+        _dsr_trials, Path(__file__).resolve().parents[1] /
+        "outputs" / "trial_ledger.csv")
+    print(f"  --    {_dsr_src}")
 
     def _dsr_of(r):
         # UNIT NOTE (2026-07-29 audit): r is per-trade USD PnL, so this is
