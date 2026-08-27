@@ -36,7 +36,21 @@ selection pool; no rung is ever promoted by argmax.
 - Read API validates schema; invalid ledger → loud OF-5 fallback.
 
 ### 2. `scripts/archetype_battery.py` — population runner
-- **Tape generator, rebuilt** [SEV-1] — self-contained in this script
+- **Tape generator, rebuilt** [SEV-1] — the defect is verified, not
+  carried (2026-08-27, second route): all 10 `get_market_data` frames
+  in a fresh `make_offline_recording` tape return candles stamped
+  `time=(0..119)` — the history clock NEVER advances — and the
+  normalized candle shape is byte-identical across calls
+  (`smoke_test.py:409-415` re-seeds `default_rng(hash(asset)%1000)`
+  per call), so momentum/EMA/vol are constants; meanwhile the shared
+  `prices` dict drifts per cycle while candle history rebuilds at
+  ~+4.9% above it, and the watchdog hard-returns on the resulting
+  divergence (`main.py:4497-4500`, logged 184-280bps). This is also
+  WHY OF-4's plateau gate is inert (CLAUDE.md: "inert whenever the
+  replay recording opens no positions") — the rebuilt tape is the
+  missing precondition for a documented degraded gate to fire again,
+  which raises this component's value beyond the battery. Rebuilt
+  generator, self-contained in this script
   (does NOT touch smoke_test mocks): one price process per asset
   drives ALL mock venues (per-venue microstructure noise bounded well
   inside the watchdog divergence gate); candle history ROLLS with
