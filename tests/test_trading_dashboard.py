@@ -319,10 +319,33 @@ def _aux_emitted(tmp_path, monkeypatch) -> set:
     cohort.write_text(
         'import json; print(json.dumps({"era4": {"n": 3, "min_n": 50}}))',
         encoding="utf-8")
+    # veto-quality subprocess (5e785c16, "the veto counters learn whether
+    # the vetoes were right"): _run_veto_quality shells out to VETO_SCRIPT
+    # for real, same as COHORT_SCRIPT above. A fresh checkout has no gate/
+    # audit history for scripts/gate_efficacy_report.py to compute a
+    # baseline band from, so the un-rebound real script returns None and
+    # the whole liquiditybot_veto_* family silently vanishes from the
+    # emitted universe — caught by two independent fresh-worktree runs
+    # (test_dashboard_no_value::test_every_map_key_names_a_real_exporter_
+    # family and this module's test_every_query_hits_an_emitted_metric).
+    # Fixture shape matches gate_efficacy_report.py --json's
+    # {"efficacy": {"baseline": {...}, "by_code": [...]}} contract exactly
+    # (scripts/gc_pusher.py:_run_veto_quality reads it).
+    veto = tmp_path / "fixture_gate_efficacy_report.py"
+    veto.write_text(
+        'import json; print(json.dumps({"efficacy": {"baseline": '
+        '{"rate": 0.5, "lo": 0.4, "hi": 0.6}, "by_code": [{"code": '
+        '"SZ-030", "rate": 0.5, "lo": 0.4, "hi": 0.6, "n_eff": 10.0, '
+        '"anti_selective": False, "selective": True, "comparison": "OK", '
+        '"era_overlap": 1.0}]}}))',
+        encoding="utf-8")
     monkeypatch.setattr(gp, "RETRAIN_HISTORY_PATH", retrain)
     monkeypatch.setattr(gp, "MODEL_REGISTRY_PATH", registry)
     monkeypatch.setattr(gp, "COHORT_SCRIPT", cohort)
     monkeypatch.setattr(gp, "_cohort_cache",
+                        {"next_attempt": 0.0, "values": None})
+    monkeypatch.setattr(gp, "VETO_SCRIPT", veto)
+    monkeypatch.setattr(gp, "_veto_cache",
                         {"next_attempt": 0.0, "values": None})
     return {m["name"] for m in gp.collect_aux(1000.0)}
 

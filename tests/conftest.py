@@ -101,6 +101,16 @@ _REDIRECTED_PATH_ATTRS = (
     "_TELEM_BACKUP_STAMP", "_CORPUS_SYNC_STAMP", "_CORPUS_ROTATION_MARKER",
     "_PROMPT_SWEEP_STAMP", "_TASK_MIGRATE_STAMP", "_OPEND_STAMP",
     "_DASH_IMPORT_STAMP",
+    # 10th leak-class instance (2026-08-27, fix-wave 2): pc_supervisor's
+    # vault-guard cadence stamp shipped alongside its 2026-08-23 spawn
+    # wiring without joining this list, unlike every sibling cadence stamp
+    # above. A fresh worktree has no outputs/.vault_guard_stamp on disk, so
+    # sup.tick()'s _stamp_due(_VAULT_GUARD_STAMP, ...) call (the read side,
+    # not the vault_guard.py spawn itself, which _tick_env already mocks)
+    # touches the real repo tree the instant a test drives tick() -
+    # tests/test_corpus_rotation_marker.py::
+    # test_tick_spawns_corpus_sync_immediately_on_marker caught it.
+    "_VAULT_GUARD_STAMP",
 )
 
 # Modules that must be PRESENT in sys.modules for the scan below to find
