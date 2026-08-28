@@ -36,6 +36,11 @@ In VS Code: **Tasks: Run Task** → `Remote console: PC status (via git)`,
 
 ## AS OF 2026-08-22T15:00Z — verify before citing
 
+**CURRENCY NOTE 2026-08-28:** the table below predates the era-4 READOUT
+(WHY-1, n=54) and the 2026-08-27/28 session — re-derive every row. Freshest
+session state: `docs/quant/2026-08-28_session_synthesis_T5.md` (T5) and the
+vault source page `session-20260827-sdd-verification-and-era-confound`.
+
 | fact | value | re-derive with |
 |---|---|---|
 | era-4 accrual (THE gate) | 33 / 50 — **STALLED 48h+** | `scripts/cohort_eval.py` or pc_status `era4` |
@@ -204,6 +209,9 @@ entries. One event never decides.
 
 ---
 
+**DOCKET ADDITIONS 2026-08-28 (adjudicate with the boundary bundle):**
+GB-1 `give_back.arm_gain_pct=0.6` arms inside the 86bps break-even buffer and boundary #5 widens that to 166bps without touching it — bundle with ALGO-5. CTRL-1 control-arm stratification tag + shadow gate-weight learner (sandbox `sandbox/control-arm-shadow-weights` @ `11eafb97`+`f0f3c370`; REBASE+RETEST required — base is stale): the only route to a live in-era veto comparator; schema 94→95, cohort-resetting, operator-only. CFG-B config BOUNDARY class from the 08-28 audit (fee stack, use_margin value) — in the audit report.
+
 ## STANDING FENCES (why your change may be refused)
 
 - **Era-4 moratorium** — anything touching entry decisioning, sizing,
@@ -260,6 +268,11 @@ entries. One event never decides.
 | DoD ruff line red on an untouched tree (08-22) | **The gate, not the code.** `extend-select` inherited ruff's defaults; ruff broadened them, so 0.16.3 reported **958 errors** across the shipped scope with zero changes — all of them rules this project never selected. Rule set is now pinned explicitly (`select = [E4,E7,E9,F,B,C901]`), tree verified green, pin tested. **Do not 'fix' those 958 findings; they were never in scope.** | `pyproject.toml`, `tests/test_lint_gate_pin.py` |
 | 4 suite reds on an untouched tree, cloud box (08-22) | **Wrong OS, not wrong code.** 3 `test_battery_gate` pins exec `cmd.exe` (absent on Linux); `test_child_log_rotation`'s held-handle assertion encodes NT rename refusal. Reproduced on clean HEAD in a detached worktree before touching anything. cmd pins now `skipif(os.name != 'nt')` — **unskipped on Windows, where the battery gates**; the rotation test is platform-SPLIT, not skipped: never-raises is asserted everywhere, only the outcome branches | `tests/test_battery_gate.py`, `tests/test_child_log_rotation.py` |
 | Digest false alarms: equity + chain headline (08-25) | **Fixed, display-honest.** `_pnl_section` read the whole equity.csv across 4 capital resets — the "$25,000 → $803 (range $99,208)" headline was a lens artifact, same family as the audit-count windowing. `equity_*` keys are now CURRENT-EPOCH (reset = >50% sample-to-sample jump; real resets moved 83–530%, worst transient 0.8%), `lifetime_*` added; SD-008 un-broke as a side effect (lifetime range kept it permanently dead post-reset). Headline chain field now prints a word per state (OK/SEAMS/TAMPER/TORN_TAIL/UNREADABLE) instead of `chain_ok=False` for benign seams — JSON keys untouched, checkin.py unaffected | `core/session_digest.py`, `tests/test_session_digest.py` |
+| Veto-efficacy instrument era-confound (08-27/28) | **Fixed + hardened, then honestly silent.** Frozen baseline (84% legacy, 0 rows since 07-20) confounded every comparison; `a94b5751` refuses (CONFOUNDED_BASELINE), `62ab10c0` hardens (weighted overlap + majority floor + PARTIAL_OVERLAP + UNKNOWN excluded + headline guarded), `0084c16d` gives the admitted headline its own vocabulary (`selects_winners`/`adverse_selection`). Consequence: EVERY row now reads confounded/partial until a live comparator exists — the control-arm sandbox is the cure, awaiting adjudication | `scripts/gate_efficacy_report.py`, T5 doc |
+| Main-inherited fresh-checkout suite reds (08-28) | 10th leak-class stamp registered, veto fixture rebound, boundary5 stager pinned; fresh-worktree acceptance green; fee-recon flake triple-checked unreproducible (serial scope) | `0257fd59`, vault `concepts/host-state-dependent-green` |
+| config.json full audit (08-28) | 758 keys, 0 FATAL, guard injection-proven; SAFE batch applied (5 doc drifts, dead keys, 2 knob lifts runtime-proven byte-equal); BOUNDARY items docketed, not touched | `cd84c2aa`, audit report in session raw/ |
+| Research corpus citation integrity (08-28) | 5 graded folders live-search verified: 19 defects + 19 overreach corrected in place, 0 hallucinated sources; conduct review PASS | `f17e28b5`, `docs/research/*` |
+| C++ diode on this box (08-28) | **PERMANENTLY 8-skip under Smart App Control** — SAC blocks locally-built unsigned binaries; signed-compiler route exhausted (LLVM installed+parked, BuildTools installed). Diode verification belongs to the fresh-worktree CI leg or an operator SAC decision (irreversible) | T5 §5, ledger |
 | `label_ret_pct` schema 93→94 (08-24, commit `8a9cc087`) | Candidate/live rows now carry a real-valued outcome instead of the destroyed `net_pnl_usd=0.0` for 5,923 rows; UNKNOWN (`""`) never a fabricated 0. **Correction (2026-08-27, I3):** the commit message overclaims its own verification — says "13 new pins" (re-derived by counting `+def test_` in the diff: **12**) and lists `tests/test_migrate_history.py` among updated pins (zero diff there; the diff only touches `tests/test_history_migration.py` — likely confusion between the two similarly-named files). History is pushed, not amended; this row is the correction of record so the false tally cannot be cited as settled. | `ml/history.py`, `tests/test_label_ret_persistence.py` |
 
 ---
