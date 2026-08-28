@@ -206,7 +206,7 @@ class ResilientWebSocket:
     def available() -> bool:
         """True when the optional `websockets` package is importable."""
         try:
-            import websockets  # noqa: F401
+            import websockets  # type: ignore[import-not-found]  # noqa: F401  # optional dep; absence = feature off
             return True
         except Exception:
             return False
@@ -255,7 +255,7 @@ class ResilientWebSocket:
     async def _reader(self):
         import asyncio
 
-        import websockets
+        import websockets  # type: ignore[import-not-found]  # optional dep; start() is gated on available()
         attempt = 0
         while not self._stop.is_set():
             # W2-H8(a): did WE end this connection (stop / resync), or did the

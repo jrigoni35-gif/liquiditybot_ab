@@ -12,9 +12,13 @@ here is the point: a restored `_last_per` lets the FIRST post-restart
 poll classify a still-closed market as frozen (no append), where a
 clean boot would have re-seeded the empty window with the frozen quote.
 """
-import pandas as pd
+import pytest
 
-from data.moomoo_feed import MoomooFeed
+# Optional third-party dep: skip, never break collection (see the note in
+# tests/test_feed_freeze_gate.py - same law, same fix).
+pd = pytest.importorskip("pandas")
+
+from data.moomoo_feed import MoomooFeed  # noqa: E402
 
 
 def _snap_df(last_by_code: dict, prev: float = 100.0) -> pd.DataFrame:
