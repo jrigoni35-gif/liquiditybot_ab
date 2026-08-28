@@ -454,8 +454,9 @@ from scripts.trial_ledger import (SCHEMA_VERSION, append_rows,  # noqa: E402
 MIN_TRIPS = 1          # activity floor (spec [SEV-1]): entries < this -> degenerate
 
 # Pre-registered harness profiles (spec §2). neutral-admission exists
-# because archetypes cannot clear the deployed admission stack (SZ-023
-# derived bar ~0.69 vs cold prior 0.62). These are THROWAWAY replay-config
+# because archetypes cannot clear the deployed admission stack (the SZ-023
+# derived bar is fee-anchored: 0.690 at the booked anchor, 0.8335 at true —
+# the 0.90 prior clears both). These are THROWAWAY replay-config
 # overrides — never a real config change — and the profile name rides on
 # every ledger row so the report can say strategy∘harness out loud.
 HARNESS_PROFILES = {
@@ -467,15 +468,33 @@ HARNESS_PROFILES = {
     },
 }
 
-# Fee anchors (spec §2). The true anchor carries the staged exploration
-# p_win: FEE-1 measured that true fees + shipped exploration p_win FATAL
-# config_guard at boot ("the bot will not start") — 0.85 is the staged
-# boundary value, applied to the throwaway config only.
+# Fee anchors (spec §2) — CUT-PROOF since 2026-08-28: each anchor pins the
+# FULL boundary-5 fee environment explicitly (the 7-key MOVES list in
+# scripts/boundary5_stage.py, the authoritative definition of what a
+# fee-truth cut moves), in BOTH directions. "booked" used to be {} —
+# "inherit the live config" — which was correct only while config.json
+# still booked 25/40: cut #8 (2026-08-28) put 40/80 + p_win 0.85 into the
+# live base, silently collapsing booked==true AND raising the pretrade
+# cost stack until every archetype entry died PT-041 (measured: edge
+# 145.5bps < 1.30x cost 135.3bps at p_win 0.90; the derived sizer bar
+# rose 0.690 -> 0.8335 the same way). A harness must never inherit
+# decision knobs from the mutable live config: these overlays are the
+# anchor DEFINITIONS, applied to the throwaway replay config only, and a
+# future boundary cut moves neither of them. Each anchor carries its own
+# coherent exploration p_win (FEE-1: true fees + p_win 0.70 FATAL
+# config_guard's net-Kelly check; 0.85 is the staged boundary value).
 FEE_ANCHORS = {
-    "booked": {},
+    "booked": {"pretrade.maker_fee_bps": 25, "pretrade.taker_fee_bps": 40,
+               "order_manager.maker_fee_bps": 25,
+               "order_manager.taker_fee_bps": 40,
+               "profit_taking.est_fee_bps": 40,
+               "ml.label_round_trip_cost_pct": 0.5,
+               "ml.exploration.p_win": 0.70},
     "true": {"pretrade.maker_fee_bps": 40, "pretrade.taker_fee_bps": 80,
              "order_manager.maker_fee_bps": 40,
              "order_manager.taker_fee_bps": 80,
+             "profit_taking.est_fee_bps": 80,
+             "ml.label_round_trip_cost_pct": 1.2,
              "ml.exploration.p_win": 0.85},
 }
 
