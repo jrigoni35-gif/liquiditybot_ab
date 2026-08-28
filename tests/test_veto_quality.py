@@ -457,6 +457,44 @@ def test_collector_confounded_gauge_reads_zero_for_a_clean_verdict(monkeypatch):
     assert confounded["gauge"]["dataPoints"][0]["asDouble"] == 0.0
 
 
+_WITH_ADMITTED = {"efficacy": {
+    "baseline": {"rate": 0.25, "lo": 0.18, "hi": 0.33},
+    "admitted_era_overlap": 0.42,
+    "admitted_comparison": "PARTIAL_OVERLAP",
+    "by_code": [{"code": "SZ-030", "rate": 0.06, "lo": 0.03, "hi": 0.10,
+                 "n_eff": 30.0, "anti_selective": False, "selective": True,
+                 "comparison": "PARTIAL_OVERLAP", "era_overlap": 0.16}],
+}}
+
+
+def test_collector_exports_admitted_era_overlap_when_present(monkeypatch):
+    """ERA-8 fix-wave: the admitted-vs-baseline headline
+    (gate_efficacy_report's `admitted_era_overlap`, computed alongside
+    `admitted_comparison`) reaches glass as its own gauge, extend-only —
+    no existing key renamed, by_code unaffected."""
+    _fake_report(monkeypatch, _WITH_ADMITTED)
+    out = gp._veto_quality_metrics(time.time())
+    names = {m["name"] for m in out}
+    assert "liquiditybot_admitted_era_overlap" in names
+    dp = [m for m in out
+          if m["name"] == "liquiditybot_admitted_era_overlap"][0]
+    assert dp["gauge"]["dataPoints"][0]["asDouble"] == 0.42
+    # by_code table is untouched by the extension
+    assert "liquiditybot_veto_cf_rate" in names
+
+
+def test_collector_omits_admitted_era_overlap_when_absent(monkeypatch):
+    """MUTATION-style negative: a payload identical to _GOOD except it
+    never carries the top-level admitted_era_overlap field must NOT
+    fabricate the gauge. Proves the guard actually gates on presence
+    rather than always emitting (the failure this test would catch:
+    hardcoding a 0.0 fallback instead of skipping the gauge)."""
+    _fake_report(monkeypatch, _GOOD)
+    out = gp._veto_quality_metrics(time.time())
+    names = {m["name"] for m in out}
+    assert "liquiditybot_admitted_era_overlap" not in names
+
+
 def test_collector_exports_baseline_band_and_per_code_gauges(monkeypatch):
     _fake_report(monkeypatch, _GOOD)
     out = gp._veto_quality_metrics(time.time())

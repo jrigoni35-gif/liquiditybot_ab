@@ -1294,7 +1294,19 @@ def _run_veto_quality():
                     and math.isfinite(float(eo))):
                 vals["era_overlap"] = float(eo)
             out.append((code, vals))
-        return (tuple(b), out) if out else None
+        # ERA-8 fix-wave (2026-08-28): the admitted-vs-baseline headline
+        # (gate_efficacy_report.py's `admitted_era_overlap`, computed at
+        # :365-371) was never lifted out of `eff` — only the by_code table
+        # left this function. EXTEND-ONLY: a new optional field on the
+        # existing return shape, never a renamed key. Absent/non-finite
+        # stays None (the honest "not computed" case), never fails the
+        # by_code batch that already shipped.
+        admitted_overlap = None
+        aeo = eff.get("admitted_era_overlap")
+        if (isinstance(aeo, (int, float)) and not isinstance(aeo, bool)
+                and math.isfinite(float(aeo))):
+            admitted_overlap = float(aeo)
+        return (tuple(b), out, admitted_overlap) if out else None
     except Exception:
         return None
 
@@ -1313,10 +1325,16 @@ def _veto_quality_metrics(now: float) -> list:
     vals = _veto_cache["values"]
     if not vals:
         return []
-    (b_rate, b_lo, b_hi), codes = vals
+    (b_rate, b_lo, b_hi), codes, admitted_overlap = vals
     m = [gauge("liquiditybot_veto_baseline_rate", b_rate, ts=now),
          gauge("liquiditybot_veto_baseline_lo", b_lo, ts=now),
          gauge("liquiditybot_veto_baseline_hi", b_hi, ts=now)]
+    # ERA-8 fix-wave: the admitted-vs-baseline headline, so the operator
+    # board can show it beside the per-code comparability bars instead of
+    # only living in the markdown report. New metric, nothing renamed.
+    if admitted_overlap is not None:
+        m.append(gauge("liquiditybot_admitted_era_overlap",
+                       admitted_overlap, ts=now))
     for code, v in codes:
         lab = {"code": code}
         m.append(gauge("liquiditybot_veto_cf_rate", v["rate"], lab, now))

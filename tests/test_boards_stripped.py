@@ -95,7 +95,10 @@ _COMMAND_HERO_PANELS = frozenset({
     (1, "Equity", "stat", ("liquiditybot_equity",)),
     (2, "Today", "stat", ("liquiditybot_daily_pnl",)),
     (3, "This week", "stat", ("liquiditybot_weekly_pnl",)),
-    (4, "All time", "stat", ("liquiditybot_net_pnl_all_time",)),
+    # RETITLED (STREAM 7c, 2026-08-28 audit top-5 #2): metric unchanged,
+    # title no longer claims a lifetime figure the epoch-reanchored
+    # starting_capital does not support.
+    (4, "Since capital epoch", "stat", ("liquiditybot_net_pnl_all_time",)),
     (5, "Drawdown", "stat", ("liquiditybot_drawdown_pct",)),
     (6, "Equity", "timeseries", ("liquiditybot_equity",)),
     (7, "Open positions", "stat", ("liquiditybot_positions_open",)),
@@ -104,36 +107,28 @@ _COMMAND_HERO_PANELS = frozenset({
     (10, "Entries", "stat", ("liquiditybot_entries_enabled",)),
     (11, "Halt", "stat", ("liquiditybot_halted",)),
     (12, "Data age", "stat", ("liquiditybot_status_age_sec",)),
-    # liveness group - restored after review; see the generator's comment on
-    # why a frozen runner otherwise reads as a calm, profitable book
+    # liveness group. STREAM 7c (2026-08-28 audit): the "Telemetry"
+    # STALE/fresh tile MERGED into Data age's own desc above (audit
+    # MERGE 14->12) - one fact, one tile - so the group is now three.
     (13, "Runner", "stat", ("liquiditybot_running",)),
-    (14, "Telemetry", "stat", ("liquiditybot_status_stale",)),
-    (15, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
-    (16, "Op state", "stat", ("liquiditybot_op_state",)),
-    # posture tile (2026-08-17): the bot's own mode report, presence-
-    # guarded from birth — LIVE can never render from silence. Its
-    # insertion beside Op state renumbers everything below by one.
-    (17, "Paper / Live", "stat", ("liquiditybot_dry_run",)),
-    (18, "Positions", "row", ()),
-    (19, "Open positions", "table",
+    (14, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
+    (15, "Op state", "stat", ("liquiditybot_op_state",)),
+    (16, "Paper / Live", "stat", ("liquiditybot_dry_run",)),
+    (17, "Positions", "row", ()),
+    (18, "Open positions", "table",
      ("liquiditybot_position_age_hours", "liquiditybot_position_conviction",
       "liquiditybot_position_notional_usd", "liquiditybot_position_r_multiple",
       "liquiditybot_position_stop_dist_pct", "liquiditybot_position_upnl_pct",
       "liquiditybot_position_upnl_usd")),
-    # activity & budget (2026-08-17, vault docket D1/55's panel half)
-    (20, "Activity & budget", "row", ()),
-    (21, "Exposure by asset", "piechart",
-     ("liquiditybot_position_notional_usd",)),
-    (22, "Fill mix", "piechart",
+    # activity & budget. STREAM 7c (2026-08-28 audit): Exposure-by-asset
+    # REMOVED (redundant with the positions table one row up), Daily/
+    # Weekly loss budget gauges and Size taper REMOVED (canonical home =
+    # PROBLEMS "Risk brakes", live there once), Fills so far REMOVED
+    # (folded into Fill mix's own two-slice legend).
+    (19, "Activity & budget", "row", ()),
+    (20, "Fill mix", "piechart",
      ("liquiditybot_order_maker_fills", "liquiditybot_order_taker_fills")),
-    (23, "Daily loss budget used", "gauge",
-     ("liquiditybot_rp_daily_budget_used_frac",)),
-    (24, "Weekly loss budget used", "gauge",
-     ("liquiditybot_rp_weekly_budget_used_frac",)),
-    (25, "Fills so far", "stat",
-     ("liquiditybot_order_maker_fills", "liquiditybot_order_taker_fills")),
-    (26, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
-    (27, "Profit pools", "stat",
+    (21, "Profit pools", "stat",
      ("liquiditybot_reserve", "liquiditybot_savings")),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
@@ -155,48 +150,49 @@ _LEARNING_PANELS = frozenset({
     (8, 'Is it getting smarter?', 'row', ()),
     (9, 'Prediction error - model vs naive vs champion', 'timeseries', ('liquiditybot_ml_baseline_brier', 'liquiditybot_ml_brier', 'liquiditybot_ml_champion_brier')),
     (10, 'Trades the judge has scored', 'stat', ('liquiditybot_ml_window_trades',)),
-    (11, 'Hit rate vs claimed probability', 'timeseries', ('liquiditybot_ml_avg_p', 'liquiditybot_ml_hit_rate', 'liquiditybot_ml_hit_rate_lcb')),
+    # STREAM 7c (2026-08-28 audit MERGE 13->11): Calibration gap now rides
+    # as a fourth line on this panel instead of its own timeseries.
+    (11, 'Hit rate vs claimed probability', 'timeseries', ('liquiditybot_ml_avg_p', 'liquiditybot_ml_calibration_gap', 'liquiditybot_ml_hit_rate', 'liquiditybot_ml_hit_rate_lcb')),
     (12, 'Feature drift share', 'timeseries', ('liquiditybot_ml_drift_share',)),
-    (13, 'Calibration gap', 'timeseries', ('liquiditybot_ml_calibration_gap',)),
-    (14, 'Is the pipeline filling?', 'row', ()),
-    (15, 'Raw training rows collected', 'gauge', ('liquiditybot_ml_history_rows',)),
-    (16, 'Rows the trainer actually used (as of last retrain)', 'gauge', ('liquiditybot_ml_loaded_rows',)),
-    (17, 'New-era rows toward re-arm', 'gauge', ('liquiditybot_era_excl_new_rows',)),
-    (18, 'Labels per day', 'stat', ('liquiditybot_probe_budget_live_labels_per_day_7d',)),
-    (19, 'Labels in the last 24h', 'stat', ('liquiditybot_probe_budget_labels_24h',)),
-    (20, 'Label uniqueness', 'stat', ('liquiditybot_ml_mean_uniqueness',)),
-    (21, 'Corpus growth', 'timeseries', ('liquiditybot_ml_history_rows', 'liquiditybot_ml_live_clean')),
-    (22, 'Where labels come from', 'timeseries', ('liquiditybot_ml_labels',)),
-    (23, 'Labels by era (fence view)', 'timeseries', ('liquiditybot_era_rows',)),
-    (24, 'What the labels say', 'row', ()),
-    (25, "How this era's trades ended", 'piechart', ('liquiditybot_era_reason_rows',)),
-    (26, 'Label rate this era', 'stat', ('liquiditybot_era_label_rate',)),
-    (27, 'Corpus drift distance', 'stat', ('liquiditybot_era_mix_tvd',)),
-    (28, 'Corpus matches live?', 'stat', ('liquiditybot_era_mix_alarm',)),
-    (29, 'Rows excluded from training', 'stat', ('liquiditybot_era_excl_dropped',)),
-    (30, 'Which model is driving', 'row', ()),
-    (31, 'Deployed model over time', 'timeseries', ('liquiditybot_ml_model_info',)),
-    (32, 'Retrain queued', 'stat', ('liquiditybot_ml_retrain_flag',)),
-    (33, 'Retrain failures', 'stat', ('liquiditybot_ml_retrain_failures',)),
-    (34, 'Model fallbacks', 'stat', ('liquiditybot_ml_model_fallbacks',)),
-    (35, 'Model lifecycle events', 'bargauge', ('liquiditybot_ml_lineage_events',)),
-    (36, 'Is the model orphaned?', 'stat', ('liquiditybot_ml_orphan_ratio',)),
-    (37, 'The verdict clock', 'row', ()),
-    (38, 'Era-4 verdict progress', 'bargauge', ('liquiditybot_cohort_closes', 'liquiditybot_cohort_min_n')),
-    (39, 'The cost of learning', 'row', ()),
-    (40, 'Probe tokens in the tank', 'gauge', ('liquiditybot_probe_budget_tokens',)),
-    (41, 'Tuition spent in 24h', 'stat', ('liquiditybot_probe_budget_tuition_24h_usd',)),
-    (42, 'Tuition cap', 'stat', ('liquiditybot_probe_budget_tuition_cap_usd',)),
-    (43, 'Unlock ETA', 'stat', ('liquiditybot_probe_budget_unlock_eta_days',)),
-    (44, 'Probes open now', 'stat', ('liquiditybot_probe_budget_open_probes',)),
-    (45, 'Denied - budget empty', 'stat', ('liquiditybot_probe_budget_denied_exhausted_24h',)),
-    (46, 'Probe governor', 'stat', ('liquiditybot_probe_budget_governor_factor',)),
-    (47, 'Refunds in 24h', 'stat', ('liquiditybot_probe_budget_refunds_24h',)),
-    (48, 'Gate learning', 'row', ()),
-    (49, 'Learned gate weights', 'bargauge', ('liquiditybot_gate_weight',)),
-    (50, 'Is any gate lying?', 'bargauge', ('liquiditybot_gate_divergence',)),
-    (51, 'Labeled rows feeding the gates', 'stat', ('liquiditybot_gate_labeled',)),
-    (52, 'Base win rate the gates see', 'stat', ('liquiditybot_gate_base_rate',)),
+    (13, 'Is the pipeline filling?', 'row', ()),
+    # STREAM 7c: the raw/loaded gauges (old ids 15/16) MERGED into ids
+    # 2/3's own descriptions above (same metrics, same 640-floor caveat
+    # prose, one tile each instead of two).
+    (14, 'New-era rows toward re-arm', 'gauge', ('liquiditybot_era_excl_new_rows',)),
+    (15, 'Labels per day', 'stat', ('liquiditybot_probe_budget_live_labels_per_day_7d',)),
+    (16, 'Label uniqueness', 'stat', ('liquiditybot_ml_mean_uniqueness',)),
+    # STREAM 7c (audit MERGE 22->21): Where-labels-come-from rides as a
+    # third target instead of its own panel.
+    (17, 'Corpus growth', 'timeseries', ('liquiditybot_ml_history_rows', 'liquiditybot_ml_labels', 'liquiditybot_ml_live_clean')),
+    (18, 'Labels by era (fence view)', 'timeseries', ('liquiditybot_era_rows',)),
+    (19, 'What the labels say', 'row', ()),
+    (20, "How this era's trades ended", 'piechart', ('liquiditybot_era_reason_rows',)),
+    (21, 'Label rate this era', 'stat', ('liquiditybot_era_label_rate',)),
+    (22, 'Corpus drift distance', 'stat', ('liquiditybot_era_mix_tvd',)),
+    (23, 'Rows excluded from training', 'stat', ('liquiditybot_era_excl_dropped',)),
+    (24, 'Which model is driving', 'row', ()),
+    (25, 'Deployed model over time', 'timeseries', ('liquiditybot_ml_model_info',)),
+    (26, 'Retrain queued', 'stat', ('liquiditybot_ml_retrain_flag',)),
+    (27, 'Retrain failures', 'stat', ('liquiditybot_ml_retrain_failures',)),
+    (28, 'Model fallbacks', 'stat', ('liquiditybot_ml_model_fallbacks',)),
+    (29, 'Model lifecycle events', 'bargauge', ('liquiditybot_ml_lineage_events',)),
+    (30, 'Is the model orphaned?', 'stat', ('liquiditybot_ml_orphan_ratio',)),
+    (31, 'The verdict clock', 'row', ()),
+    (32, 'Era-4 verdict progress', 'bargauge', ('liquiditybot_cohort_closes', 'liquiditybot_cohort_min_n')),
+    (33, 'The cost of learning', 'row', ()),
+    (34, 'Probe tokens in the tank', 'gauge', ('liquiditybot_probe_budget_tokens',)),
+    # STREAM 7c (audit MERGE 42->41): Tuition cap folded into this desc.
+    (35, 'Tuition spent in 24h', 'stat', ('liquiditybot_probe_budget_tuition_24h_usd',)),
+    (36, 'Unlock ETA', 'stat', ('liquiditybot_probe_budget_unlock_eta_days',)),
+    (37, 'Probes open now', 'stat', ('liquiditybot_probe_budget_open_probes',)),
+    (38, 'Denied - budget empty', 'stat', ('liquiditybot_probe_budget_denied_exhausted_24h',)),
+    (39, 'Probe governor', 'stat', ('liquiditybot_probe_budget_governor_factor',)),
+    # STREAM 7c: Refunds in 24h REMOVED (audit: "not actionable").
+    (40, 'Gate learning', 'row', ()),
+    (41, 'Learned gate weights', 'bargauge', ('liquiditybot_gate_weight',)),
+    # STREAM 7c (audit MERGE 52->50): Base win rate folded into this desc.
+    (42, 'Is any gate lying?', 'bargauge', ('liquiditybot_gate_divergence',)),
+    (43, 'Labeled rows feeding the gates', 'stat', ('liquiditybot_gate_labeled',)),
     (990, '', 'marcusolsson-dynamictext-panel', ()),
 })
 _LEARNING_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
@@ -216,14 +212,17 @@ _PROBLEM_PANELS = frozenset({
     (7, "What the pager watches", "row", ()),
     (8, "Model worse than naive by", "stat",
      ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
-    # the judge-window disambiguator (2026-08-17): the tile that says
-    # whether an empty Brier tile means "filling" or "judge dead"
+    # the judge-window disambiguator: the tile that says whether an empty
+    # Brier tile means "filling" or "judge dead"
     (9, "Trades the judge has scored", "stat",
      ("liquiditybot_ml_window_trades",)),
     (10, "Drift stuck while degraded", "stat",
      ("liquiditybot_ml_drift_share", "liquiditybot_monitor_level")),
     (11, "Model governor", "stat", ("liquiditybot_monitor_level",)),
     (12, "Faults & rejections", "row", ()),
+    # FIXED (STREAM 7c, 2026-08-28 audit top-5 #4): filtered to actual
+    # trip codes (code=~"FW-.*"); the unfiltered form also plotted four
+    # always-present lifecycle counters under a "by code" title.
     (13, "Firewall trips by code", "timeseries",
      ("liquiditybot_firewall_count",)),
     (14, "Decisions by family", "timeseries", ("liquiditybot_code_count",)),
@@ -234,78 +233,83 @@ _PROBLEM_PANELS = frozenset({
      ("liquiditybot_exit_eval_failures",)),
     (18, "Cycle failures in a row", "stat",
      ("liquiditybot_cycle_consecutive_failures",)),
-    (19, "Model inference faults", "stat", ("liquiditybot_ml_infer_faults",)),
-    (20, "Feature-contract failures", "stat",
-     ("liquiditybot_ml_contract_failed",)),
-    (21, "Staleness & feeds", "row", ()),
-    (22, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
-    (23, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
-    (24, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
-    (25, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
-    (26, "Stale assets", "stat", ("liquiditybot_watchdog_stale_assets",)),
-    (27, "Diverging feeds", "stat", ("liquiditybot_watchdog_divergent",)),
-    (28, "Critical data stale", "stat",
-     ("liquiditybot_watchdog_critical_stale",)),
-    # renamed from "Do the books add up?" (2026-08-17): the recompute runs
-    # in LIVE mode only — on a dry-run bot the old title over a green 0.00
-    # rendered a check that never ran as a check that passed. Gated later
-    # the same day on the bot's own mode report (`and dry_run == 0`): in
-    # paper mode the expression returns EMPTY and the tile shows its
-    # honest no_value text instead of the initializer 0.00.
-    (29, "Books cross-check (live mode)", "stat",
+    # MERGED (audit id=19+20): one tile, two series.
+    (19, "Model & feature faults", "bargauge",
+     ("liquiditybot_ml_contract_failed", "liquiditybot_ml_infer_faults")),
+    (20, "Staleness & feeds", "row", ()),
+    (21, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
+    (22, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
+    (23, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
+    (24, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
+    # MERGED (audit id=26+27+28, "the watchdog trio"): one bargauge.
+    (25, "Feed watchdog", "bargauge",
+     ("liquiditybot_watchdog_critical_stale", "liquiditybot_watchdog_divergent",
+      "liquiditybot_watchdog_stale_assets")),
+    # renamed from "Do the books add up?" — the recompute runs in LIVE
+    # mode only — on a dry-run bot the old title over a green 0.00
+    # rendered a check that never ran as a check that passed. Gated on
+    # the bot's own mode report (`and dry_run == 0`): in paper mode the
+    # expression returns EMPTY and the tile shows its honest no_value
+    # text instead of the initializer 0.00.
+    (26, "Books cross-check (live mode)", "stat",
      ("liquiditybot_dry_run", "liquiditybot_equity_drift_pct")),
-    (30, "Telemetry", "stat", ("liquiditybot_status_stale",)),
-    (31, "Runner", "stat", ("liquiditybot_running",)),
-    (32, "Risk brakes", "row", ()),
-    (33, "Daily loss budget used", "gauge",
+    # MERGED (STREAM 7c, audit): "Telemetry" folded into id=6 Data age.
+    (27, "Runner", "stat", ("liquiditybot_running",)),
+    (28, "Risk brakes", "row", ()),
+    (29, "Daily loss budget used", "gauge",
      ("liquiditybot_rp_daily_budget_used_frac",)),
-    (34, "Weekly loss budget used", "gauge",
+    (30, "Weekly loss budget used", "gauge",
      ("liquiditybot_rp_weekly_budget_used_frac",)),
-    (35, "Drawdown vs the hard stop", "timeseries",
+    (31, "Drawdown vs the hard stop", "timeseries",
      ("liquiditybot_rp_drawdown_mtm_pct", "liquiditybot_rp_hard_stop_dd_pct")),
-    (36, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
-    (37, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
-    (38, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
-    (39, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
-    (40, "Circuit-breaker cooldown left", "bargauge",
+    (32, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
+    (33, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
+    (34, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
+    (35, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
+    (36, "Circuit-breaker cooldown left", "bargauge",
      ("liquiditybot_cb_paused_hours_left",)),
-    (41, "Loss streak by asset", "bargauge",
+    (37, "Loss streak by asset", "bargauge",
      ("liquiditybot_perf_asset_cur_loss_streak",)),
-    (42, "Audit & self-health", "row", ()),
-    (43, "Audit writes dropped", "stat",
+    (38, "Audit & self-health", "row", ()),
+    (39, "Audit writes dropped", "stat",
      ("liquiditybot_audit_dropped_writes",)),
-    (44, "Audit tail truncations", "stat",
+    (40, "Audit tail truncations", "stat",
      ("liquiditybot_audit_tail_truncations",)),
-    (45, "Bad values dropped by exporter", "stat",
+    (41, "Bad values dropped by exporter", "stat",
      ("liquiditybot_gauges_dropped_nonfinite",)),
-    (46, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
-    # the entry/order funnel (2026-08-17 code-emission funnel audit):
-    # liquiditybot_code_count_detail finally consumed by a panel, and the
-    # OM-040 timeout-cancel share of clean terminals on glass (report-only;
-    # the TTL/maker-offset levers it informs are era-4 fenced)
-    (47, "Why entries die", "row", ()),
-    (48, "Why entries die", "timeseries",
-     ("liquiditybot_code_count_detail",)),
-    (49, "Timeout-cancel share", "stat",
+    (42, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
+    # the entry/order funnel: liquiditybot_code_count_detail consumed by a
+    # panel, and the OM-040 timeout-cancel share of clean terminals on
+    # glass (report-only; the TTL/maker-offset levers it informs are
+    # execution-geometry fenced). STREAM 7c (2026-08-28 audit + operator
+    # instruction "keep per-hour, drop cumulative"): the cumulative
+    # "Why entries die" timeseries is RETIRED — its own per-hour
+    # companion (below) answers the same question with no slope-reading,
+    # and is now the sole "why" chart with a roster fixed to the codes
+    # that actually fire (SZ-021/SZ-030/SZ-049 in, never-fired PT-040/
+    # PT-041 out).
+    (43, "Why entries die", "row", ()),
+    (44, "Timeout-cancel share", "stat",
      ("liquiditybot_order_terminal_orders",
       "liquiditybot_order_timeout_cancels")),
-    # precision companions (2026-08-26): rate view of the same counters,
-    # plus the labeled counterfactual verdict per veto code (gc_pusher
-    # _veto_quality_metrics <- gate_efficacy_report by_code pooling)
-    (50, "Veto pressure (per hour)", "timeseries",
+    (45, "Why entries die (per hour)", "timeseries",
      ("liquiditybot_code_count_detail",)),
-    (51, "Were the vetoes right?", "bargauge",
+    (46, "Were the vetoes right?", "bargauge",
      ("liquiditybot_veto_cf_rate",)),
-    (52, "Anti-selective gates", "stat",
+    (47, "Anti-selective gates", "stat",
      ("liquiditybot_veto_anti_selective",)),
-    (53, "Candidate baseline win rate", "stat",
+    (48, "Candidate baseline win rate", "stat",
      ("liquiditybot_veto_baseline_rate",)),
-    # era-confound visibility (2026-08-27 fix-wave, C5): distinguishes
-    # "not significant" from "unmeasurable against this baseline" on
-    # glass, mirroring gate_efficacy_report's own CONFOUNDED_BASELINE /
-    # PARTIAL_OVERLAP comparison states.
-    (54, "Confounded verdicts", "stat",
-     ("liquiditybot_veto_confounded",)),
+    # MUTATED (STREAM 7c, 2026-08-28 — the audit's one permitted new
+    # element, landed as a mutation of the existing "Confounded verdicts"
+    # tile): per-code label-era overlap bargauge at the report's own
+    # 0.05/0.5 policy thresholds, plus the admitted-vs-baseline headline
+    # (liquiditybot_admitted_era_overlap, EXTEND-ONLY exporter addition)
+    # riding as an extra bar. Replaces a bare count with which codes and
+    # how far from readable.
+    (49, "Verdict comparability (label-era overlap vs baseline)",
+     "bargauge",
+     ("liquiditybot_admitted_era_overlap", "liquiditybot_veto_era_overlap")),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
@@ -504,8 +508,18 @@ def test_mirror_tiles_carry_the_rules_own_thresholds():
         assert hits, f"{board}: no panel titled {title!r}"
         return hits[0]
 
-    for board, title in ((PROBLEMS, "Model worse than naive by"),
-                         (EXECUTION, "Brier gap vs baseline")):
+    # EXECUTION is retired to its stripped form (STREAM 7c, 2026-08-28
+    # audit): its mirror duty moved entirely to PROBLEMS
+    # ("Model worse than naive by"), proven independently by
+    # test_problem_board_mirrors_both_pager_conditions. Only check the
+    # EXECUTION copy when it exists — the stripped form has no panels to
+    # carry a threshold, by design, not by regression.
+    checks = [(PROBLEMS, "Model worse than naive by")]
+    exec_shipped = _shipped(EXECUTION)
+    if frozenset(_identity(p) for p in _all_panels(exec_shipped)) != \
+            _EXEC_STRIPPED_PANELS:
+        checks.append((EXECUTION, "Brier gap vs baseline"))
+    for board, title in checks:
         p = _panel(board, title)
         steps = (p["fieldConfig"]["defaults"]["thresholds"]["steps"])
         vals = {s.get("value") for s in steps}
@@ -572,6 +586,34 @@ def test_learning_era_panels_query_the_config_derived_era():
         assert f'era="{expected}"' in e, (
             f"era panel queries {e!r}, not the config-derived era "
             f"{expected!r}")
+
+
+def test_confound_thresholds_track_the_reports_policy_constants():
+    """The 'Verdict comparability' bargauge's thresholds (ERA_OVERLAP_FLOOR
+    /ERA_OVERLAP_MAJORITY) must equal scripts/gate_efficacy_report.py's
+    OWN policy floors (:111-112) — not re-derived, not hand-copied and
+    left to drift. Same cross-check idiom as
+    test_learning_era_panels_query_the_config_derived_era: the generator
+    keeps a light-dependency local copy (the TB_ERA/JUDGE_MIN precedent),
+    and a TEST — not the generator's own import graph — proves it tracks
+    the real constant."""
+    import scripts.gate_efficacy_report as ger
+    assert gen.ERA_OVERLAP_FLOOR == ger.ERA_OVERLAP_FLOOR
+    assert gen.ERA_OVERLAP_MAJORITY == ger.ERA_OVERLAP_MAJORITY
+    steps = gen.ERA_OVERLAP_STEPS
+    vals = {s["value"] for s in steps if s["value"] is not None}
+    assert ger.ERA_OVERLAP_FLOOR in vals and ger.ERA_OVERLAP_MAJORITY in vals
+    d = _shipped(PROBLEMS)
+    got = frozenset(_identity(p) for p in _all_panels(d))
+    if got == _PROBLEM_STRIPPED_PANELS:
+        pytest.skip("problems board is in the fully-stripped form")
+    hits = [p for p in _all_panels(d)
+            if p.get("title", "").startswith("Verdict comparability")]
+    assert hits, f"{PROBLEMS}: no 'Verdict comparability' panel"
+    shipped_steps = hits[0]["fieldConfig"]["defaults"]["thresholds"]["steps"]
+    shipped_vals = {s["value"] for s in shipped_steps if s["value"] is not None}
+    assert ger.ERA_OVERLAP_FLOOR in shipped_vals
+    assert ger.ERA_OVERLAP_MAJORITY in shipped_vals
 
 
 def test_absence_never_borrows_a_verdict_color():

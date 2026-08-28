@@ -501,7 +501,7 @@
       "id": 6,
       "type": "stat",
       "title": "Data age",
-      "description": "Seconds since the bot last wrote its status. Past 5 minutes every tile on this board describes the past - read it first.",
+      "description": "Seconds since the bot last wrote its status. Past 5 minutes every tile on this board describes the past - read it first. Subsumes the separate Telemetry STALE/fresh tile (merged 2026-08-28): the exporter itself marks the whole batch STALE past 120s (STALE_AFTER_SEC), tighter than this tile's own 300s red line.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -932,7 +932,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "Firewall trips by code",
-      "description": "Cumulative trips per firewall code - FW-070/080/081 are the data-staleness family. A step up is one new trip; codes are decoded in core/codes.py. Empty means: no firewall trip recorded.",
+      "description": "Cumulative trips per firewall CODE only (lifecycle counters screened/accepted/accepted_modified/rejected excluded by the code=~\"FW-.*\" filter) - FW-070/080/081 are the data-staleness family. A step up is one new trip; codes are decoded in core/codes.py. Empty means: no firewall trip recorded.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -993,7 +993,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_firewall_count{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_firewall_count{job=\"liquiditybot\",code=~\"FW-.*\"}",
           "instant": false,
           "range": true,
           "legendFormat": "{{code}}"
@@ -1364,16 +1364,16 @@
     },
     {
       "id": 19,
-      "type": "stat",
-      "title": "Model inference faults",
-      "description": "Times the model failed to score a candidate and the safe default was used instead. Resets on restart - a crash-loop reads 0; cross-check 'Cycles since restart'.",
+      "type": "bargauge",
+      "title": "Model & feature faults",
+      "description": "Inference faults: times the model failed to score a candidate and the safe default was used instead. Feature-contract failures: rows that violated the model's input contract and were refused - rising means the feed and the model disagree about the world's shape. Both reset on restart - a crash-loop reads 0; cross-check 'Cycles since restart'.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 8,
         "x": 16,
         "y": 22
       },
@@ -1381,6 +1381,9 @@
         "defaults": {
           "unit": "",
           "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1394,23 +1397,18 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
+          "min": 0,
           "noValue": "not in this cycle's status write"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 12,
-          "valueSize": 24
-        },
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1429,71 +1427,10 @@
           "expr": "max(liquiditybot_ml_infer_faults{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 20,
-      "type": "stat",
-      "title": "Feature-contract failures",
-      "description": "Feature rows that violated the model's input contract and were refused. Rising = the feed and the model disagree about the world's shape. Resets on restart - a crash-loop reads 0; cross-check 'Cycles since restart'.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 22
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              },
-              {
-                "color": "#FF453A",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "noValue": "not in this cycle's status write"
+          "legendFormat": "inference faults"
         },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 12,
-          "valueSize": 24
-        },
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -1501,13 +1438,13 @@
           "expr": "max(liquiditybot_ml_contract_failed{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
+          "legendFormat": "feature-contract failures"
         }
       ],
       "transparent": true
     },
     {
-      "id": 21,
+      "id": 20,
       "type": "row",
       "title": "Staleness & feeds",
       "collapsed": false,
@@ -1523,7 +1460,7 @@
       }
     },
     {
-      "id": 22,
+      "id": 21,
       "type": "stat",
       "title": "Feed latency",
       "description": "Round-trip time fetching market data. Slow feeds mean stale decisions.",
@@ -1599,7 +1536,7 @@
       "transparent": true
     },
     {
-      "id": 23,
+      "id": 22,
       "type": "stat",
       "title": "Price marks age",
       "description": "Age of the prices used to value open positions. Old marks mean the P&L numbers are guesses.",
@@ -1675,7 +1612,7 @@
       "transparent": true
     },
     {
-      "id": 24,
+      "id": 23,
       "type": "stat",
       "title": "Kraken feed",
       "description": "The live price stream. REST means degraded (polling) marks, not an outage.",
@@ -1760,7 +1697,7 @@
       "transparent": true
     },
     {
-      "id": 25,
+      "id": 24,
       "type": "stat",
       "title": "Feed reconnects",
       "description": "Times the websocket dropped and re-dialed since restart. A climb means an unstable link.",
@@ -1836,24 +1773,27 @@
       "transparent": true
     },
     {
-      "id": 26,
-      "type": "stat",
-      "title": "Stale assets",
-      "description": "Assets whose market data has aged past the watchdog's limit. Their entries are blocked until data freshens.",
+      "id": 25,
+      "type": "bargauge",
+      "title": "Feed watchdog",
+      "description": "Stale assets: market data aged past the watchdog's limit, entries blocked until it freshens. Diverging feeds: two data sources disagree about the price, the bot refuses to trade what it cannot price. Critical data stale: any CRITICAL feed aged out (1=STALE), blocking all new entries at once. All zero is the healthy state.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 16,
-        "y": 27
+        "w": 12,
+        "x": 0,
+        "y": 32
       },
       "fieldConfig": {
         "defaults": {
           "unit": "",
           "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1867,23 +1807,18 @@
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
+          "min": 0,
           "noValue": "watchdog block not in this status write"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 14,
-          "valueSize": 34
-        },
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1902,71 +1837,10 @@
           "expr": "max(liquiditybot_watchdog_stale_assets{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 27,
-      "type": "stat",
-      "title": "Diverging feeds",
-      "description": "Assets where two data sources disagree about the price. The bot refuses to trade what it cannot price.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 27
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              },
-              {
-                "color": "#FF453A",
-                "value": 1
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "noValue": "watchdog block not in this status write"
+          "legendFormat": "stale assets"
         },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 14,
-          "valueSize": 34
-        },
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -1974,84 +1848,10 @@
           "expr": "max(liquiditybot_watchdog_divergent{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 28,
-      "type": "stat",
-      "title": "Critical data stale",
-      "description": "Whether any CRITICAL feed aged out. STALE blocks all new entries at once.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 0,
-        "y": 32
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "1": {
-                  "text": "STALE",
-                  "color": "#FF453A",
-                  "index": 0
-                },
-                "0": {
-                  "text": "fresh",
-                  "color": "#30D158",
-                  "index": 1
-                }
-              }
-            }
-          ],
-          "noValue": "watchdog block not in this status write"
+          "legendFormat": "diverging feeds"
         },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 14,
-          "valueSize": 34
-        },
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
         {
-          "refId": "A",
+          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -2059,13 +1859,13 @@
           "expr": "max(liquiditybot_watchdog_critical_stale{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
-          "legendFormat": ""
+          "legendFormat": "critical data stale (1=STALE)"
         }
       ],
       "transparent": true
     },
     {
-      "id": 29,
+      "id": 26,
       "type": "stat",
       "title": "Books cross-check (live mode)",
       "description": "Drift between reported equity and an independent recompute. The recompute runs in LIVE mode only, so in paper trading this tile is EMPTY by construction - the expression filters on the bot's own mode report, and absence here is the paper-mode truth, not a fault. In live mode, near zero means the accounting is telling the truth.",
@@ -2076,7 +1876,7 @@
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 6,
+        "x": 12,
         "y": 32
       },
       "fieldConfig": {
@@ -2141,92 +1941,7 @@
       "transparent": true
     },
     {
-      "id": 30,
-      "type": "stat",
-      "title": "Telemetry",
-      "description": "Whether the status write has aged past the exporter's threshold. STALE = do not trust the numbers anywhere.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 32
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "1": {
-                  "text": "STALE",
-                  "color": "#FF453A",
-                  "index": 0
-                },
-                "0": {
-                  "text": "fresh",
-                  "color": "#30D158",
-                  "index": 1
-                }
-              }
-            }
-          ],
-          "noValue": "⚠ no series — exporter/pusher, not the bot"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 14,
-          "valueSize": 34
-        },
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_status_stale{job=\"liquiditybot\"})",
-          "instant": true,
-          "range": false,
-          "legendFormat": ""
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 31,
+      "id": 27,
       "type": "stat",
       "title": "Runner",
       "description": "Is the bot's own loop alive. STOPPED means everything else shown is the last known state, not the current one.",
@@ -2311,7 +2026,7 @@
       "transparent": true
     },
     {
-      "id": 32,
+      "id": 28,
       "type": "row",
       "title": "Risk brakes",
       "collapsed": false,
@@ -2327,7 +2042,7 @@
       }
     },
     {
-      "id": 33,
+      "id": 29,
       "type": "gauge",
       "title": "Daily loss budget used",
       "description": "How much of today's allowed loss is spent. At 100% new trades stop until the day rolls over - the lockout state this board exists to explain.",
@@ -2397,7 +2112,7 @@
       "transparent": true
     },
     {
-      "id": 34,
+      "id": 30,
       "type": "gauge",
       "title": "Weekly loss budget used",
       "description": "Same as the daily budget, over the trading week. NOTE: a capital sweep can inflate this falsely - see the budget_reanchor_week control verb.",
@@ -2467,7 +2182,7 @@
       "transparent": true
     },
     {
-      "id": 35,
+      "id": 31,
       "type": "timeseries",
       "title": "Drawdown vs the hard stop",
       "description": "The drawdown the catastrophe stop actually watches, against the line where it fires and flattens everything. Empty means: risk-protocol stack not reporting.",
@@ -2580,7 +2295,7 @@
       "transparent": true
     },
     {
-      "id": 36,
+      "id": 32,
       "type": "stat",
       "title": "Size taper",
       "description": "Multiplier on every new position's size. 1.00 full size; lower means the risk stack is shrinking trades.",
@@ -2656,7 +2371,7 @@
       "transparent": true
     },
     {
-      "id": 37,
+      "id": 33,
       "type": "stat",
       "title": "Drawdown throttle",
       "description": "Extra size cut applied while climbing out of a drawdown. 1.00 means no throttle.",
@@ -2732,7 +2447,7 @@
       "transparent": true
     },
     {
-      "id": 38,
+      "id": 34,
       "type": "stat",
       "title": "Portfolio heat",
       "description": "Total risk on the book if every stop filled, as a share of equity. The stack caps this near 35%.",
@@ -2808,7 +2523,7 @@
       "transparent": true
     },
     {
-      "id": 39,
+      "id": 35,
       "type": "stat",
       "title": "Assets circuit-broken",
       "description": "Assets benched for repeated losses. They sit out until their cooldown ends.",
@@ -2880,7 +2595,7 @@
       "transparent": true
     },
     {
-      "id": 40,
+      "id": 36,
       "type": "bargauge",
       "title": "Circuit-breaker cooldown left",
       "description": "Hours each benched asset still has to sit out. Empty with the tile at zero means nothing is benched - the good state.",
@@ -2945,7 +2660,7 @@
       "transparent": true
     },
     {
-      "id": 41,
+      "id": 37,
       "type": "bargauge",
       "title": "Loss streak by asset",
       "description": "Consecutive losses per asset right now. Streaks are what trip the circuit breaker.",
@@ -3018,7 +2733,7 @@
       "transparent": true
     },
     {
-      "id": 42,
+      "id": 38,
       "type": "row",
       "title": "Audit & self-health",
       "collapsed": false,
@@ -3034,7 +2749,7 @@
       }
     },
     {
-      "id": 43,
+      "id": 39,
       "type": "stat",
       "title": "Audit writes dropped",
       "description": "Audit-trail records that could not be written. The hash chain must never lose a link - any number here is urgent.",
@@ -3106,7 +2821,7 @@
       "transparent": true
     },
     {
-      "id": 44,
+      "id": 40,
       "type": "stat",
       "title": "Audit tail truncations",
       "description": "Times a partial line was cut from the audit tail on recovery. Expected zero outside crash recovery.",
@@ -3178,7 +2893,7 @@
       "transparent": true
     },
     {
-      "id": 45,
+      "id": 41,
       "type": "stat",
       "title": "Bad values dropped by exporter",
       "description": "NaN/Infinity values the telemetry exporter refused to push. Rising means something upstream is emitting garbage.",
@@ -3250,7 +2965,7 @@
       "transparent": true
     },
     {
-      "id": 46,
+      "id": 42,
       "type": "stat",
       "title": "Cycles since restart",
       "description": "Decision cycles since the runner last started - a restart shows as this resetting to zero (lifetime total: liquiditybot_cycle_lifetime).",
@@ -3318,7 +3033,7 @@
       "transparent": true
     },
     {
-      "id": 47,
+      "id": 43,
       "type": "row",
       "title": "Why entries die",
       "collapsed": false,
@@ -3334,203 +3049,10 @@
       }
     },
     {
-      "id": 48,
-      "type": "timeseries",
-      "title": "Why entries die",
-      "description": "The recurring 'why has the bot opened nothing for 38 hours?' question, answered on glass: how often each of the top entry-killing checks said no. Win-prob below bar (SZ-023) is the model not believing in the trade; direction blocked (SZ-022) is the regime playbook; manipulation suspected (SZ-045) is a painted book; the PT-040 family is the EV gate ruling the trade cannot beat its own costs. Counts are cumulative since the last restart - read the SLOPE: the line climbing fastest is the check killing entries right now, and a restart resets all lines to zero. Empty means: this reason code has not fired.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "grafanacloud-prom"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 16,
-        "x": 0,
-        "y": 63
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 18,
-            "gradientMode": "opacity",
-            "showPoints": "auto",
-            "spanNulls": 300000,
-            "pointSize": 5,
-            "axisPlacement": "auto",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisSoftMin": 0
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "decimals": 0,
-          "noValue": "this reason code has not fired",
-          "min": 0
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "SZ-023 · win-prob below bar"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#5E5CE6"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "SZ-022 · direction blocked"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#40CBE0"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "SZ-045 · manipulation suspected"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#FF9F0A"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PT-040 · EV negative after fill odds"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#BF5AF2"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "PT-041 · edge/cost below minimum"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#8E8E93"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "min",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-023\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "SZ-023 · win-prob below bar"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-022\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "SZ-022 · direction blocked"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-045\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "SZ-045 · manipulation suspected"
-        },
-        {
-          "refId": "D",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-040\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "PT-040 · EV negative after fill odds"
-        },
-        {
-          "refId": "E",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "grafanacloud-prom"
-          },
-          "expr": "max(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-041\"})",
-          "instant": false,
-          "range": true,
-          "legendFormat": "PT-041 · edge/cost below minimum"
-        }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 49,
+      "id": 44,
       "type": "stat",
       "title": "Timeout-cancel share",
-      "description": "Of the orders that finished cleanly since restart, the share that died as OM-040 timeout-cancels - the resting maker order sat out its whole lifetime without filling - instead of filling (OM-000). A 48h audit measured 68%: two of every three orders were never trades. REPORT-ONLY: the levers this number informs - the resting-order lifetime (order_manager.order_timeout_sec) and how far from the touch entries rest (grid_ladder.spacing_vol_mult / min_spacing_bps) - are execution geometry, FENCED by the era-4 accrual moratorium: moving them mints a new execution era and needs operator adjudication. This panel measures; it must never be used to tune them mid-cohort.",
+      "description": "Of the orders that finished cleanly since restart, the share that died as OM-040 timeout-cancels - the resting maker order sat out its whole lifetime without filling - instead of filling (OM-000). A 48h audit measured 68% AS OF 2026-08-17 - RE-DERIVE before citing, do not treat as current: query the same two counters over a fresh window. REPORT-ONLY: the levers this number informs - the resting-order lifetime (order_manager.order_timeout_sec) and how far from the touch entries rest (grid_ladder.spacing_vol_mult / min_spacing_bps) - are execution geometry, FENCED by the accrual moratorium: moving them mints a new execution era and needs operator adjudication. This panel measures; it must never be used to tune them mid-cohort.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3538,7 +3060,7 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 16,
+        "x": 0,
         "y": 63
       },
       "fieldConfig": {
@@ -3603,10 +3125,10 @@
       "transparent": true
     },
     {
-      "id": 50,
+      "id": 45,
       "type": "timeseries",
-      "title": "Veto pressure (per hour)",
-      "description": "The same checks as the cumulative panel, as vetoes in the trailing hour - the line on top is the check killing entries right now, no slope-reading required. A restart dents one sample, not the view. Empty means: this reason code has not fired.",
+      "title": "Why entries die (per hour)",
+      "description": "Vetoes in the trailing hour for the five checks that actually fire (roster fixed 2026-08-28 - SZ-021/SZ-030/SZ-049 added, the never-fired PT-040/PT-041 dropped). The line on top is the check killing entries right now, no slope-reading required, and a restart dents one sample, not the view. ERA-8 REALITY: the book is EXPECTED quiet (derived entry bar 0.8335 since cut #8's fee-truth cut, era 8-ca55e2ba) - flat or low lines here are the strategy's honest position at true costs, not a fault; cross-check Data age/Runner before reading a quiet board as broken telemetry. Empty means: this reason code has not fired.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3614,8 +3136,8 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 0,
-        "y": 71
+        "x": 8,
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3676,7 +3198,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "SZ-045 · manipulation suspected"
+              "options": "SZ-021 · regime blocked"
             },
             "properties": [
               {
@@ -3691,7 +3213,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "PT-040 · EV negative after fill odds"
+              "options": "SZ-030 · no edge after costs"
             },
             "properties": [
               {
@@ -3706,7 +3228,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "PT-041 · edge/cost below minimum"
+              "options": "SZ-049 · probe budget exhausted"
             },
             "properties": [
               {
@@ -3765,10 +3287,10 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-045\"}[1h]))",
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-021\"}[1h]))",
           "instant": false,
           "range": true,
-          "legendFormat": "SZ-045 · manipulation suspected"
+          "legendFormat": "SZ-021 · regime blocked"
         },
         {
           "refId": "D",
@@ -3776,10 +3298,10 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-040\"}[1h]))",
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-030\"}[1h]))",
           "instant": false,
           "range": true,
-          "legendFormat": "PT-040 · EV negative after fill odds"
+          "legendFormat": "SZ-030 · no edge after costs"
         },
         {
           "refId": "E",
@@ -3787,19 +3309,19 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"PT-041\"}[1h]))",
+          "expr": "max(delta(liquiditybot_code_count_detail{job=\"liquiditybot\",code=\"SZ-049\"}[1h]))",
           "instant": false,
           "range": true,
-          "legendFormat": "PT-041 · edge/cost below minimum"
+          "legendFormat": "SZ-049 · probe budget exhausted"
         }
       ],
       "transparent": true
     },
     {
-      "id": 51,
+      "id": 46,
       "type": "bargauge",
       "title": "Were the vetoes right?",
-      "description": "Counterfactual win rate of what each gate REJECTED (every veto is labeled; this is the corpus answering back), pooled per code with effective-n intervals. Read against the candidate baseline (liquiditybot_veto_baseline_rate): BELOW baseline = the veto selects real losers and earns its keep (SZ-030 net-Kelly is the house example); AT baseline = the gate is not selecting on outcome at all; ABOVE = anti-selective - it rejects candidates that win MORE than average. Counts without this column flattered every gate equally.",
+      "description": "Counterfactual win rate of what each gate REJECTED (every veto is labeled; this is the corpus answering back), pooled per code with effective-n intervals. Read against the candidate baseline (liquiditybot_veto_baseline_rate): BELOW baseline = the veto selects real losers and earns its keep; AT baseline = the gate is not selecting on outcome at all; ABOVE = anti-selective - it rejects candidates that win MORE than average. FIXED 2026-08-28: a bar here is only trustworthy for a code reading COMPARABLE on 'Verdict comparability' below (era_overlap >= 0.5) - as of 2026-08-27 every code read CONFOUNDED_BASELINE or PARTIAL_OVERLAP there, so no code's bar is currently a proven example of either earning its keep or misfiring; read both panels together before citing one.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3807,8 +3329,8 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 8,
-        "y": 71
+        "x": 16,
+        "y": 63
       },
       "fieldConfig": {
         "defaults": {
@@ -3863,10 +3385,10 @@
       "transparent": true
     },
     {
-      "id": 52,
+      "id": 47,
       "type": "stat",
       "title": "Anti-selective gates",
-      "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n, era-COMPARABLE codes only - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that read SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline. SUPERSEDED 2026-08-27: that comparison is CONFOUNDED_BASELINE (zero label_era overlap with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), so this tile now reads zero for SZ-021 by construction, not because the question was resolved - see 'Confounded verdicts' below for the codes this tile cannot speak to.",
+      "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n, era-COMPARABLE codes only - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that read SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline. SUPERSEDED 2026-08-27: that comparison is CONFOUNDED_BASELINE (zero label_era overlap with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), so this tile now reads zero for SZ-021 by construction, not because the question was resolved. The live per-code lens is 'Verdict comparability (label-era overlap vs baseline)' below - read that bargauge before trusting a zero here as a clean verdict rather than an unmeasured one.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -3874,7 +3396,7 @@
       "gridPos": {
         "h": 4,
         "w": 8,
-        "x": 16,
+        "x": 0,
         "y": 71
       },
       "fieldConfig": {
@@ -3885,7 +3407,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#30D158",
+                "color": "text",
                 "value": null
               },
               {
@@ -3935,7 +3457,7 @@
       "transparent": true
     },
     {
-      "id": 53,
+      "id": 48,
       "type": "stat",
       "title": "Candidate baseline win rate",
       "description": "The un-gated candidate win rate the bars above are judged against (Wilson band on effective n rides the exporter as veto_baseline_lo/hi).",
@@ -3946,8 +3468,8 @@
       "gridPos": {
         "h": 4,
         "w": 8,
-        "x": 0,
-        "y": 79
+        "x": 8,
+        "y": 71
       },
       "fieldConfig": {
         "defaults": {
@@ -4003,50 +3525,346 @@
       "transparent": true
     },
     {
-      "id": 54,
-      "type": "stat",
-      "title": "Confounded verdicts",
-      "description": "How many veto codes read CONFOUNDED_BASELINE or PARTIAL_OVERLAP (gate_efficacy_report's era-confound guard, 2026-08-27): their own label_era mix shares too little (or a minority) of the baseline's, so a disjoint-CI verdict there would compare two different label definitions, not two populations - no anti-selective/selective claim is rendered for them. A zero on 'Anti-selective gates' next to a nonzero here means 'unmeasured', not 'safe'.",
+      "id": 49,
+      "type": "bargauge",
+      "title": "Verdict comparability (label-era overlap vs baseline)",
+      "description": "Per-code label-era overlap of what each veto rejected against the frozen baseline, plus the admitted-vs-baseline headline as one more bar. Thresholds are gate_efficacy_report.py's OWN policy floors (ERA_OVERLAP_FLOOR/ERA_OVERLAP_MAJORITY, :111-112), not fitted to this data: red <0.05 = CONFOUNDED_BASELINE (this code's label_era mix shares almost none of the baseline's - no anti-selective/selective claim is measurable), yellow <0.5 = PARTIAL_OVERLAP (a minority of the baseline is drawn from this code's era - read with caution), green >=0.5 = COMPARABLE (the comparison is trustworthy). As of 2026-08-27 every code read red or yellow - 'Anti-selective gates' and 'Were the vetoes right?' above are reading an unmeasured population, not a clean one, until a bar here crosses green.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
       },
       "gridPos": {
-        "h": 4,
-        "w": 8,
-        "x": 8,
-        "y": 79
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 75
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "",
-          "decimals": 0,
+          "unit": "percentunit",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "text",
+                "color": "#FF453A",
                 "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 0.05
+              },
+              {
+                "color": "#30D158",
+                "value": 0.5
               }
             ]
           },
-          "color": {
-            "mode": "thresholds"
-          },
+          "min": 0,
+          "max": 1,
           "noValue": "veto-quality collector not published yet"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-000"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-000 · entry approved"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-010"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-010 · invalid inputs"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-020"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-020 · cooldown active"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-021"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-021 · regime blocked"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-022"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-022 · direction blocked"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-023"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-023 · win-prob below bar"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-030"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-030 · no edge after costs"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-031"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-031 · size multiplier zero"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-040"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-040 · inventory cap"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-041"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-041 · leverage cap"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-042"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-042 · below min ticket"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-043"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-043 · asset crowded"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-044"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-044 · exploration floor sized"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-045"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-045 · manipulation suspected"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-046"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-046 · circuit breaker paused"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-047"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-047 · probe throttled"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-048"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-048 · drought floor probe"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-049"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-049 · probe budget exhausted"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-050"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-050 · drawdown throttle"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-051"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-051 · probe priced (admitted)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-052"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-052 · probe cost refunded"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-053"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-053 · probe tuition governor"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-060"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-060 · inventory aggression scaled"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SZ-061"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SZ-061 · inventory skew scaled"
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "textMode": "auto",
-        "wideLayout": true,
-        "text": {
-          "titleSize": 14,
-          "valueSize": 34
-        },
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -4062,10 +3880,21 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "sum(liquiditybot_veto_confounded)",
+          "expr": "liquiditybot_veto_era_overlap{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
-          "legendFormat": ""
+          "legendFormat": "{{code}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_admitted_era_overlap{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "admitted (headline)"
         }
       ],
       "transparent": true

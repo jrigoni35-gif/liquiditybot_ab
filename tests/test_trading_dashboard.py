@@ -332,12 +332,18 @@ def _aux_emitted(tmp_path, monkeypatch) -> set:
     # {"efficacy": {"baseline": {...}, "by_code": [...]}} contract exactly
     # (scripts/gc_pusher.py:_run_veto_quality reads it).
     veto = tmp_path / "fixture_gate_efficacy_report.py"
+    # admitted_era_overlap (ERA-8 fix-wave, 2026-08-28): the admitted-vs-
+    # baseline headline lifted alongside by_code so
+    # liquiditybot_admitted_era_overlap is in this fixture's emittable
+    # universe — without it the "Verdict comparability" panel's extra
+    # target would read as querying a metric gc_pusher never emits.
     veto.write_text(
         'import json; print(json.dumps({"efficacy": {"baseline": '
-        '{"rate": 0.5, "lo": 0.4, "hi": 0.6}, "by_code": [{"code": '
-        '"SZ-030", "rate": 0.5, "lo": 0.4, "hi": 0.6, "n_eff": 10.0, '
-        '"anti_selective": False, "selective": True, "comparison": "OK", '
-        '"era_overlap": 1.0}]}}))',
+        '{"rate": 0.5, "lo": 0.4, "hi": 0.6}, "admitted_era_overlap": '
+        '0.42, "admitted_comparison": "PARTIAL_OVERLAP", "by_code": '
+        '[{"code": "SZ-030", "rate": 0.5, "lo": 0.4, "hi": 0.6, '
+        '"n_eff": 10.0, "anti_selective": False, "selective": True, '
+        '"comparison": "OK", "era_overlap": 1.0}]}}))',
         encoding="utf-8")
     monkeypatch.setattr(gp, "RETRAIN_HISTORY_PATH", retrain)
     monkeypatch.setattr(gp, "MODEL_REGISTRY_PATH", registry)

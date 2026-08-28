@@ -642,6 +642,20 @@ HEAT = [{"color": "green", "value": None},
 OM_TIMEOUT_SHARE = [{"color": "text", "value": None},
                     {"color": "yellow", "value": 0.4},
                     {"color": "red", "value": 0.6}]
+# ERA-8 fix-wave (2026-08-28): the confound-visibility mutation's own
+# thresholds. MUST equal scripts/gate_efficacy_report.py's
+# ERA_OVERLAP_FLOOR/ERA_OVERLAP_MAJORITY (that file's own docstring at
+# :104: "POLICY floors, not fitted to any data") — not imported directly
+# (the TB_ERA/JUDGE_MIN precedent keeps this generator's own dependency
+# surface light), cross-checked instead by
+# tests/test_boards_stripped.py::test_confound_thresholds_track_the_reports_policy_constants.
+# LOWER overlap is WORSE (less comparable), so red anchors the bottom:
+# <0.05 CONFOUNDED_BASELINE, <0.5 PARTIAL_OVERLAP, >=0.5 COMPARABLE.
+ERA_OVERLAP_FLOOR = 0.05
+ERA_OVERLAP_MAJORITY = 0.5
+ERA_OVERLAP_STEPS = [{"color": "red", "value": None},
+                     {"color": "yellow", "value": ERA_OVERLAP_FLOOR},
+                     {"color": "green", "value": ERA_OVERLAP_MAJORITY}]
 
 ON_OFF = {"1": ("YES", "green"), "0": ("NO", "#8E8E93")}
 UP_DOWN = {"1": ("RUNNING", "green"), "0": ("STOPPED", "red")}
@@ -808,19 +822,22 @@ _BRAIN_GUIDE = (
 def _author_command():
     """THE LIQUIDITY BOARD - the at-a-glance read, before any deep dive.
 
-    Deliberately small. The deep boards stay EMPTY until the new
-    configuration has produced enough data to justify a panel; this one
-    answers only "where does the account stand right now".
-
     ACCURACY RULE for anything added here: every expression below queries a
     metric that scripts/gc_pusher.py was VERIFIED to emit, by running
     gc_pusher.collect() against the live outputs/status.json and reading the
-    value back (2026-08-15). Three plausible-looking names were REJECTED by
-    that check - liquiditybot_open_positions, _win_rate and _cash do not
-    exist; the real ones are _positions_open, and win rate / cash are not
-    exported at all. A panel whose metric was never emitted renders "No
-    data", which is indistinguishable from a broken exporter. Do not add a
-    panel here from memory of another board - re-run the check.
+    value back. A panel whose metric was never emitted renders "No data",
+    which is indistinguishable from a broken exporter. Do not add a panel
+    here from memory of another board - re-run the check.
+
+    STREAM 7c REBUILD (2026-08-28, `scratchpad/sdd/grafana-audit.md`): fewer,
+    better panels — every FIX/MERGE/REMOVE verdict applied. Six panels
+    retired (Telemetry state folded into Data age's own numeric threshold;
+    Exposure-by-asset pie removed as a redundant view of the positions
+    table one row up; Daily/Weekly loss budget and Size taper removed as
+    duplicates of the PROBLEMS board's canonical risk-brakes home; Fills so
+    far folded into Fill mix's own two-slice legend) — 25 data panels down
+    to 19, per the audit's proposed information hierarchy (this board stays
+    the ALIVE/SAFE-posture read; PROBLEMS owns the risk-brake deep dive).
     """
     # Staleness scale for a 30s push cadence (GC_PERIOD_SEC): two missed
     # pushes is noise, a minute is worth noticing, five minutes means the
@@ -835,23 +852,46 @@ def _author_command():
          desc="Account equity, marked to market. PAPER account - the bot "
               "runs dry_run and places no real order.")
     # NOTE: no explicit no_value= anywhere on this board. The generator
-    # already assigns empty-state text from _ALWAYS_ON / _NO_VALUE_BY_FAMILY
-    # (:1137-1190), and that registry restates the ACTUAL guard in
-    # scripts/gc_pusher.py per metric family. A hand-written string here
-    # OVERRIDES it - which is how "Open positions" first shipped saying
-    # "flat" when its series was missing. positions_open has been
-    # presence-guarded since guard batch 2 (2026-08-17): its absence means
-    # the status write carried no positions key OR the exporter is down -
-    # either way "flat" would read a defect as a truthful empty book. Let
-    # the registry answer; it knows the guards and I do not.
+    # already assigns empty-state text from _ALWAYS_ON / _NO_VALUE_BY_FAMILY,
+    # and that registry restates the ACTUAL guard in scripts/gc_pusher.py
+    # per metric family. A hand-written string here OVERRIDES it - which is
+    # how "Open positions" first shipped saying "flat" when its series was
+    # missing. Let the registry answer; it knows the guards and I do not.
     stat("Today", M("liquiditybot_daily_pnl"), 5, 6, unit=USD, decimals=2,
          steps=PNL, desc="P&L since midnight, realized plus unrealized.")
     stat("This week", M("liquiditybot_weekly_pnl"), 5, 6, unit=USD,
-         decimals=2, steps=PNL)
-    stat("All time", M("liquiditybot_net_pnl_all_time"), 4, 6, unit=USD,
-         decimals=2, steps=PNL)
+         decimals=2, steps=PNL,
+         desc="P&L over the trading week. A capital sweep (savings/reserve "
+              "skim) can read as a false weekly loss here - the RP-041 "
+              "family; see the budget_reanchor_week control verb if a drop "
+              "coincides with a sweep rather than a losing run.")
+    # RETITLED 2026-08-28 (audit top-5 #2): the metric is equity minus
+    # STARTING capital, and starting_capital is RE-ANCHORED at every
+    # capital-epoch reset (savings/reserve sweeps mint a new epoch) - so
+    # "All time" claimed a lifetime figure while showing a since-epoch one,
+    # the exact digest false-alarm shape. Metric name unchanged (extend,
+    # never rename); only the title and desc now say what it actually is.
+    stat("Since capital epoch", M("liquiditybot_net_pnl_all_time"), 4, 6,
+         unit=USD, decimals=2, steps=PNL,
+         desc="Equity minus starting_capital, where starting_capital is "
+              "RE-ANCHORED at each capital-epoch reset (a savings/reserve "
+              "sweep mints a new epoch) - this is since-the-last-epoch "
+              "P&L, not a lifetime total, despite the metric's own name "
+              "(liquiditybot_net_pnl_all_time, kept for compatibility).")
+    # FIXED 2026-08-28 (audit top-5 #1, FIX(verify) resolved by reading
+    # core/state.py directly): the desc used to claim "peak-to-trough,
+    # percent of peak equity", which is what drawdown_mtm_pct computes
+    # (core/state.py:343-353). THIS metric is state.drawdown_pct()
+    # (core/state.py:327-332): starting_capital minus cash+savings, as a
+    # percent of starting_capital - not a peak, not mark-to-market, and
+    # blind to unrealized loss. The two are genuinely different numbers.
     stat("Drawdown", M("liquiditybot_drawdown_pct"), 4, 6, unit="percent",
-         decimals=2, steps=DD, desc="Peak-to-trough, percent of peak equity.")
+         decimals=2, steps=DD,
+         desc="Percent below STARTING (capital-epoch) equity, cash+savings "
+              "basis only - blind to unrealized P&L. NOT peak-to-trough and "
+              "NOT mark-to-market. The drawdown the catastrophe hard stop "
+              "actually watches is the MTM peak-to-trough figure on the "
+              "Problems board ('Drawdown vs the hard stop').")
 
     # ---- the one chart: equity is the only trend worth a glance ----------
     timeseries("Equity", M("liquiditybot_equity"), 24, 7, unit=USD,
@@ -869,58 +909,70 @@ def _author_command():
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 5, 5,
           mx=100.0, unit="percent", decimals=1, steps=BUDGET,
           desc="Notional at risk as a percent of equity.")
+    # FIXED 2026-08-28 (audit top-5 #3): FEE-1 (config fees ~half the
+    # venue's real bottom tier, 25/40 vs Kraken T1 40/80) is RESOLVED, not
+    # merely caveated - cut #8 (exec_era 8-ca55e2ba, 2026-08-28T03:14:13Z)
+    # moved both the pricing and booking sides to venue-true 40/80 bps.
+    # Fees booked BEFORE that cut in this cumulative total still carry the
+    # old understated schedule; cost_truth_report remains the independent
+    # cross-check for anyone auditing pre-cut history.
     stat("Fees paid", M("liquiditybot_fees_total"), 4, 5, unit=USD,
          decimals=2, graph="none", size="compact", steps=GRN,
          desc="Cumulative simulated fees. At this account size fees are the "
-              "binding constraint, so they belong on the front page.")
+              "binding constraint, so they belong on the front page. "
+              "Venue-true since cut #8 (era 8-ca55e2ba, 2026-08-28): "
+              "Kraken Tier-1 40/80 bps on both pricing and booking - the "
+              "FEE-1 understatement is shipped, not merely a caveat.")
     state("Entries", M("liquiditybot_entries_enabled"), 4, 5, ON_OFF,
           desc="Whether the bot may OPEN new positions. Exits are always "
                "allowed regardless of this.")
     state("Halt", M("liquiditybot_halted"), 3, 5, HALT,
           desc="Circuit breaker. 'clear' is the healthy state.")
+    # FIXED 2026-08-28 (audit top-5, MERGE 14->12): the separate
+    # "Telemetry" state tile (STALE/fresh) restated exactly what this
+    # numeric age already says with thresholds - one fact, two tiles. The
+    # exporter's OWN staleness flag (liquiditybot_status_stale) fires at
+    # STALE_AFTER_SEC=120s (scripts/gc_pusher.py), tighter than this
+    # tile's 300s red line, so status_stale=1 is already visible here
+    # before this tile turns red.
     stat("Data age", M("liquiditybot_status_age_sec"), 4, 5, unit="s",
          decimals=0, graph="none", size="compact", steps=age_steps,
          desc="Seconds since the RUNNER last wrote outputs/status.json "
               "(gc_pusher.py: now - status['written_at']) - the age of the "
               "bot's own write, NOT of the push. If this climbs, every other "
-              "number on this board is a fossil - read it FIRST.")
+              "number on this board is a fossil - read it FIRST. Subsumes "
+              "the separate Telemetry STALE/fresh tile (merged 2026-08-28): "
+              "the exporter itself marks the whole batch STALE past 120s, "
+              "tighter than this tile's own 300s red line.")
 
     # ---- liveness: WHOSE silence is it? ---------------------------------
-    # These four exist because of a measured failure mode, not for symmetry.
-    # When the runner freezes, gc_pusher.collect() drops from 792 series to
-    # FIVE - running / status_age_sec / status_malformed / status_missing /
-    # status_stale. Every money tile above then renders its LAST value
-    # forever (stat panels reduce lastNotNull over the window), so a frozen
-    # bot reads as a calm, profitable book. The pre-strip board carried
-    # `running` and `status_stale`; deleting them removed the only controls
-    # that made that state visible, and these tiles put them back. They are
-    # also the ONLY way to tell the two silences apart:
-    #   runner frozen  -> Runner STOPPED / Telemetry STALE, age climbing
-    #   pusher dead    -> every tile including these goes to its noValue text
-    state("Runner", M("liquiditybot_running"), 5, 5, UP_DOWN,
+    # These exist because of a measured failure mode, not for symmetry.
+    # When the runner freezes, gc_pusher.collect() drops from hundreds of
+    # series to FIVE - running / status_age_sec / status_malformed /
+    # status_missing / status_stale. Every money tile above then renders
+    # its LAST value forever (stat panels reduce lastNotNull over the
+    # window), so a frozen bot reads as a calm, profitable book. Retiled
+    # 5/5/5/4 -> 6/6/6/6 (2026-08-28) after the Telemetry tile's removal
+    # left this line four tiles instead of five, still evenly filling 24
+    # columns.
+    state("Runner", M("liquiditybot_running"), 6, 5, UP_DOWN,
           desc="Is the bot's own loop alive. STOPPED here means every money "
                "tile above is a fossil, however healthy it looks.")
-    state("Telemetry", M("liquiditybot_status_stale"), 5, 5,
-          {"1": ("STALE", "red"), "0": ("fresh", "green")},
-          desc="Whether the status write has aged past the exporter's "
-               "staleness threshold. STALE = do not trust the numbers.")
-    state("Kraken feed", M("liquiditybot_ws_kraken_connected"), 5, 5, WS,
+    state("Kraken feed", M("liquiditybot_ws_kraken_connected"), 6, 5, WS,
           desc="Kraken websocket. REST means degraded marks, not an outage.")
-    state("Op state", M("liquiditybot_op_state"), 5, 5, OPSTATE,
+    state("Op state", M("liquiditybot_op_state"), 6, 5, OPSTATE,
           desc="Overall operating state. Distinct from the Halt tile: that "
                "is the circuit breaker alone, this is the whole posture.")
-    # posture tile (2026-08-17): the mode the bot ITSELF reports
-    # (liquiditybot_dry_run, born presence-guarded — an absent mode key
-    # emits NO series, so this tile can never render LIVE from silence;
-    # the registry's "state unknown" text answers instead). PAPER is the
-    # expected steady state and reads calm blue; LIVE is EXTRAORDINARY
-    # on this bot (dry_run defaults true; the only road to live is
-    # config + restart + typed ARM LIVE) and earns the red accent — not
-    # "unsafe", "look up from the coffee". -1 is the exporter's sentinel
-    # for a mode string it does not recognize. The liveness line above
-    # was retiled 6/6/6/6 -> 5/5/5/5+4 to seat this beside Op state;
-    # identities unchanged.
-    state("Paper / Live", M("liquiditybot_dry_run"), 4, 5,
+    # posture tile: the mode the bot ITSELF reports (liquiditybot_dry_run,
+    # born presence-guarded — an absent mode key emits NO series, so this
+    # tile can never render LIVE from silence; the registry's "state
+    # unknown" text answers instead). PAPER is the expected steady state
+    # and reads calm blue; LIVE is EXTRAORDINARY on this bot (dry_run
+    # defaults true; the only road to live is config + restart + typed ARM
+    # LIVE) and earns the red accent — not "unsafe", "look up from the
+    # coffee". -1 is the exporter's sentinel for a mode string it does not
+    # recognize.
+    state("Paper / Live", M("liquiditybot_dry_run"), 6, 5,
           {"1": ("PAPER", "blue"), "0": ("LIVE", "red"),
            "-1": ("unknown", GRAY_HEX)},
           desc="Which mode the bot itself reports. PAPER: dry-run, no real "
@@ -955,141 +1007,92 @@ def _author_command():
                "emptiness appears when the runner freezes, because every "
                "liquiditybot_position_* series stops being emitted while the "
                "positions are still genuinely open (measured 2026-08-15 - 5 "
-               "open, 0 series). Read the Runner and Telemetry tiles before "
-               "concluding anything from an empty table.")
+               "open, 0 series). Read the Runner and Data age tiles before "
+               "concluding anything from an empty table. ERA-8: this book "
+               "is EXPECTED quiet (derived entry bar 0.8335, conviction "
+               "entries effectively stopped at true costs) - an empty table "
+               "now is the strategy's honest position, not a fault; read "
+               "Runner/Data age to tell that apart from a frozen bot.")
 
     # ---- activity & budget: what the bot is DOING with the book ----------
-    # Added 2026-08-17 (vault docket D1/55, panel half): live posture beyond
-    # the hero - where the risk sits, how it fills, and how much of the loss
-    # budget is spent. Appended AFTER the table so ids 1-18 stay stable.
+    # STREAM 7c (2026-08-28): Exposure-by-asset removed (the positions
+    # table one row up already shows notional per symbol - a pie of the
+    # same handful of slices answered nothing new). Daily/weekly loss
+    # budget gauges and Size taper removed - they duplicated the Problems
+    # board's canonical "Risk brakes" row byte-for-byte; live there once.
+    # Fills so far folded into Fill mix's own legend (both slices sum to
+    # the same total the removed stat showed).
     row("Activity & budget")
-    donut("Exposure by asset",
-          [(_pa("liquiditybot_position_notional_usd"), "{{symbol}}")],
-          8, 7, colors={}, unit=USD, decimals=2,
-          desc="How the money at risk is split across assets right now. One "
-               "big slice is concentration; many thin slices is spread.")
     donut("Fill mix",
           [(M("liquiditybot_order_maker_fills"), "maker (earned the spread)"),
            (M("liquiditybot_order_taker_fills"), "taker (paid the spread)")],
-          8, 7, colors={"maker (earned the spread)": GREEN,
+          12, 7, colors={"maker (earned the spread)": GREEN,
                         "taker (paid the spread)": ORANGE_HEX},
           unit="", decimals=0,
           desc="Of all fills since restart, how many were patient maker "
                "orders vs paying the spread to cross. Mostly-maker is the "
-               "cheap, healthy shape at this account size.")
-    gauge("Daily loss budget used",
-          M("liquiditybot_rp_daily_budget_used_frac"), 4, 7, mn=0, mx=1,
-          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
-          desc="How much of today's allowed loss is already spent. At 100% "
-               "the bot stops opening new trades until the day rolls over.")
-    gauge("Weekly loss budget used",
-          M("liquiditybot_rp_weekly_budget_used_frac"), 4, 7, mn=0, mx=1,
-          unit="percentunit", decimals=0, steps=FRAC_BUDGET,
-          desc="Same idea as the daily budget, over the trading week.")
-    stat("Fills so far", f'{M("liquiditybot_order_maker_fills")} + '
-         f'{M("liquiditybot_order_taker_fills")}', 8, 5, decimals=0,
-         graph="none", size="compact", steps=BLUE,
-         desc="Order fills since the bot last restarted (maker plus taker).")
-    stat("Size taper", M("liquiditybot_rp_taper_mult"), 8, 5, decimals=2,
-         graph="none", size="compact", steps=MULT_LOW_BAD,
-         desc="Multiplier applied to every new position's size. 1.00 is "
-              "full size; lower means the risk stack is shrinking trades.")
+               "cheap, healthy shape at this account size. Total fills = "
+               "the two slice values summed (the separate 'Fills so far' "
+               "tile was folded in here 2026-08-28); read them off the "
+               "legend or hover tooltip.")
     stat("Profit pools", f'{M("liquiditybot_savings")} + '
-         f'{M("liquiditybot_reserve")}', 8, 5, unit=USD, decimals=2,
-         graph="none", size="compact", steps=GRN,
+         f'{M("liquiditybot_reserve")}', 12, 7, unit=USD, decimals=2,
+         graph="none", steps=GRN,
          desc="Money skimmed out of the trading float into the savings and "
               "reserve pools. It counts in equity but is no longer at risk.")
 
 
 def _author_execution():
-    """MODEL HEALTH - and it exists for one measured reason.
+    """RETIRED to its stripped form, STREAM 7c (2026-08-28 audit).
 
-    docs/grafana/liquiditybot_brier_alert.yaml fires on
-    liquiditybot_ml_brier - liquiditybot_ml_baseline_brier > 0.03, and
-    liquiditybot_drift_alert.yaml on _ml_drift_share / _monitor_level.
-    After the 2026-08-15 strip NONE of those four was on any board, so the
-    only way to learn the model had degraded was to receive the page.
-
-    Worse, measured 2026-08-16 against Prometheus: ml_brier and
-    ml_baseline_brier last carried data 2026-08-06 21:42 (234 h earlier),
-    and their FINAL observed values were 0.1133 and 0.0586 - a gap of
-    0.0547, i.e. the alert condition was BREACHED at the last observation.
-    The series then went absent and the rule's `noDataState: OK` returned
-    it to green. The alert is correctly configured (absence really is not
-    its job), but the practical effect is a gate that has read healthy for
-    ten days because its corpus is empty rather than because the model is.
-
-    So this board shows the alert's OWN CONDITION as a number, plus the
-    inputs, plus their honest empty-state text. "window filling (<15
-    model-scored closes)" on screen is not the same thing as green, and
-    that distinction is the entire point of rebuilding this board first.
+    The audit's measurement (`scripts/gate_efficacy_report.py --json` +
+    `test_problem_board_mirrors_both_pager_conditions`): every metric the
+    two alert rules fire on (liquiditybot_ml_brier / _ml_baseline_brier /
+    _ml_drift_share / _monitor_level) is ALREADY on the PROBLEMS board's
+    "What the pager watches" row, as the SAME arithmetic the rules run —
+    proven independently, not asserted. This board's six data panels were
+    a byte-for-byte second copy of that row. Fewer, better panels: the
+    board file and uid are KEPT (nav link, `test_expected_boards_present`,
+    `_EXEC_STRIPPED_PANELS`), only the content is gone — exactly the
+    2026-08-15 strip's own precedent, applied to a board that turned out
+    to duplicate rather than originate its content. To rebuild, write
+    factory calls back into this stub; nothing else has to be restored
+    first.
     """
-    row("Model health - what the alerts watch")
-
-    # The alert condition itself, rendered — the same arithmetic as the
-    # REPO's copy of the rule. Scope stated honestly (2026-08-17): the
-    # LIVE instance's rule can drift from the repo copy without anything
-    # here noticing, and an absent series holds the alert green
-    # (noDataState: OK) while this tile falls to its empty-state text.
-    gap = (f'max(liquiditybot_ml_brier{JOB}) '
-           f'- max(liquiditybot_ml_baseline_brier{JOB})')
-    stat("Brier gap vs baseline", gap, 5, 6, unit="short", decimals=4,
-         size="hero", steps=GAP_BAD_POS,
-         desc="model Brier MINUS baseline Brier - the firing condition of "
-              "the REPO's copy of liquiditybot_brier_alert.yaml (> 0.03). "
-              "The live instance's rule can drift from that copy, and an "
-              "ABSENT series holds the alert green while this tile shows "
-              "its empty-state text. Last real reading 2026-08-06: 0.0547 "
-              "- already over the line.")
-    stat("Model Brier", M("liquiditybot_ml_brier"), 4, 6, unit="short",
-         decimals=4, steps=BRIER,
-         desc="Lower is better; 0.25 is the coin-flip line.")
-    stat("Baseline Brier", M("liquiditybot_ml_baseline_brier"), 4, 6,
-         unit="short", decimals=4, steps=GRN,
-         desc="What a no-skill reference scores on the same closes.")
-    stat("Champion Brier", M("liquiditybot_ml_champion_brier"), 4, 6,
-         unit="short", decimals=4, steps=BRIER,
-         desc="The DEPLOYED model's Brier. Above 0.25 means the champion "
-              "is worse than a coin on its own scored closes.")
-    # decimals=1, not 3: percentunit multiplies by 100, so a 0.250 share
-    # rendered at 3dp reads "25.000%" - fraction-era precision on a
-    # proportion. tests/test_dashboard_hig.py::
-    # test_percentunit_shares_are_not_over_precise pins the ceiling at 2.
-    stat("Drift share", M("liquiditybot_ml_drift_share"), 4, 6,
-         unit="percentunit", decimals=1, steps=DRIFT,
-         desc="Feature-drift share; the input to liquiditybot_drift_alert.")
-    state("Monitor", M("liquiditybot_monitor_level"), 3, 6, GOV,
-          desc="ML monitor level. OK / DEGRADED / KILLED.")
 
 
 def _author_learning():
     """THE LEARNING BOARD - is the bot getting smarter, on a 30-day clock.
 
-    Built 2026-08-17 for the operator's three-link workflow: this is the
-    long-term read, so the board ships with a 30-day default range and every
-    trend panel is meant to be judged across weeks, not scrapes. Layout
-    follows the LEARNING BRAIN decision ladder (supply -> corpus -> quality
-    -> governor): the pipeline rows answer "is there anything to learn
-    from", the quality rows answer "is it learning", and the collapsed rows
-    price what the learning costs. Every metric was verified against
-    gc_pusher.collect() on 2026-08-17 (the ACCURACY RULE in
+    Long-term read: ships with a 30-day default range, every trend panel
+    judged across weeks, not scrapes. Layout follows the LEARNING BRAIN
+    decision ladder (supply -> corpus -> quality -> governor). Every
+    metric verified against gc_pusher.collect() (the ACCURACY RULE in
     _author_command applies here verbatim).
 
-    THE INSTANT-TILE IDIOM (2026-08-17, board-wide on THIS board): every
-    stat tile here is graph="none", i.e. an INSTANT query. A range-queried
-    stat reduces lastNotNull over the DASHBOARD WINDOW, and this board's
-    window is 30 days - a dead producer would render its final value, in
-    its healthy color, for a month before the noValue text could fire.
-    That is the same fossil mechanism the command board's liveness group
+    STREAM 7c REBUILD (2026-08-28, `scratchpad/sdd/grafana-audit.md`):
+    nine duplicate/near-duplicate panels retired — 45 data panels down to
+    36. Calibration gap folded onto Hit-rate-vs-claimed as a third line;
+    Where-labels-come-from folded onto Corpus growth as an extra series;
+    the raw/loaded gauges (15/16) and the era-mix-alarm state (28) merged
+    into their stat-tile twins' descriptions, keeping every caveat that
+    made the merged-away panel worth having; Labels-in-24h, Tuition-cap,
+    Refunds-in-24h, and Base-win-rate-the-gates-see removed as
+    context/duplicate reads folded into a surviving neighbor's desc.
+
+    THE INSTANT-TILE IDIOM (board-wide on THIS board): every stat tile
+    here is graph="none", i.e. an INSTANT query. A range-queried stat
+    reduces lastNotNull over the DASHBOARD WINDOW, and this board's window
+    is 30 days - a dead producer would render its final value, in its
+    healthy color, for a month before the noValue text could fire. That
+    is the same fossil mechanism the command board's liveness group
     narrates, stretched 30x - and the exact Brier-incident shape
     (ab8ee2b4: last real reading a breach, then ten silent green days).
     An instant query falls off within Prometheus' ~5m lookback, so
     absence becomes visible at the same speed the Data age tile turns
     yellow. Sparklines are given up on tiles ONLY: every trend worth
     seeing has a dedicated timeseries panel, whose bounded spanNulls
-    already draws outages as holes. The 24h boards (command/problems)
-    keep sparkline stats - their exposure is bounded to a day and each
-    carries the liveness group.
+    already draws outages as holes.
     """
     # ---- hero: the verdict tiles ----------------------------------------
     gap_good = (f'max(liquiditybot_ml_baseline_brier{JOB}) '
@@ -1101,23 +1104,36 @@ def _author_learning():
               "model Brier; higher is better; the pager fires at -0.03.)")
     # RETITLED 2026-08-20 (operator: "old labels are still on grafana, and
     # im assuming in my bots head"): this tile said "Training rows" while
-    # plotting the RAW all-era archive (11.4k) - the era fence keeps ~90% of
-    # those OUT of training (1,097 loaded at the 08-19 retrain). A title
-    # claiming training-rows on the archive count is the documentation-drift
-    # class: a tile lying about itself. The archive stays panelled - it is
-    # the falsifier population - but under its true name.
+    # plotting the RAW all-era archive - the era fence keeps most of those
+    # OUT of training. A title claiming training-rows on the archive count
+    # is the documentation-drift class: a tile lying about itself. The
+    # archive stays panelled - it is the falsifier population - but under
+    # its true name. MERGED 2026-08-28 (audit id=2<-15): the raw-training-
+    # rows GAUGE plotted the SAME metric a second time; its 640-floor
+    # caveat prose (the overfit battery's real-data reference line) is
+    # folded in below rather than lost.
     stat("Corpus rows (all eras, archive)",
          M("liquiditybot_ml_history_rows"), 4, 6,
          decimals=0, steps=BLUE, graph="none",
          desc="Every row ever recorded across ALL geometry/fill eras - the "
               "archive, NOT what the model learns from. The era fence "
               "excludes old-era rows from training; 'Rows teaching the "
-              "model' beside this is the number in the bot's head.")
+              "model' beside this is the number in the bot's head. The "
+              "overfit battery's real-data floor for LOADED rows is 640 - "
+              "read the battery's own summary line for which corpus it "
+              "ran on, never this count.")
+    # MERGED 2026-08-28 (audit id=3<-16): same story as above, for the
+    # loaded-rows gauge.
     stat("Rows teaching the model", M("liquiditybot_ml_loaded_rows"), 4, 6,
          decimals=0, steps=BLUE, graph="none",
          desc="Rows that SURVIVED loading filters (era fence, hygiene, "
               "clash drops) at the last retrain - the labels actually in "
-              "the bot's head right now.")
+              "the bot's head right now. Read beside 'Corpus rows (all "
+              "eras, archive)': the gap is what hygiene and the era fence "
+              "ate. 640 is the overfit battery's real-data floor for this "
+              "count as a REFERENCE scale, not a success line - the "
+              "battery's own summary line is the authority, never this "
+              "tile.")
     stat("Clean live labels", M("liquiditybot_ml_live_clean"), 4, 6,
          decimals=0, graph="none",
          steps=[{"color": "red", "value": None},
@@ -1164,64 +1180,36 @@ def _author_learning():
               f"Brier tiles wake at {JUDGE_MIN}. Zero or absent here while "
               f"Brier numbers sit unchanged means the judge is dead, not "
               f"the model healthy.")
+    # MERGED 2026-08-28 (audit id=13->11): "Calibration gap" was a second
+    # timeseries restating the visible distance between this panel's
+    # actual/claimed lines. Rides in as a fourth line instead.
     timeseries("Hit rate vs claimed probability",
                M("liquiditybot_ml_hit_rate"), 6, 8, unit="percentunit",
                legend="actual win rate", decimals=1,
                extra=[(M("liquiditybot_ml_avg_p"), "claimed probability"),
                       (M("liquiditybot_ml_hit_rate_lcb"),
-                       "conservative floor")],
+                       "conservative floor"),
+                      (M("liquiditybot_ml_calibration_gap"),
+                       "calibration gap")],
                colors={"actual win rate": GREEN,
                        "claimed probability": INDIGO,
-                       "conservative floor": GRAY_HEX},
+                       "conservative floor": GRAY_HEX,
+                       "calibration gap": ORANGE_HEX},
                desc="If the model claims 65% and wins 45%, its sizing is "
                     "built on a lie. Honest = the claimed line hugging the "
                     "actual line; on small samples trust the conservative "
-                    "floor.")
+                    "floor. 'calibration gap' is the distance between "
+                    "claimed and reality plotted directly - small is "
+                    "honest, widening turns into sizing errors because "
+                    "position size reads these probabilities literally.")
     timeseries("Feature drift share", M("liquiditybot_ml_drift_share"), 6, 8,
                unit="percentunit", legend="drift share", decimals=1,
                desc="Share of the model's inputs that look different from "
                     "what it trained on. High AND stuck means the market "
                     "moved and the model has not.")
-    timeseries("Calibration gap", M("liquiditybot_ml_calibration_gap"), 6, 8,
-               unit="percentunit", legend="gap", decimals=1,
-               desc="Distance between claimed probabilities and reality. "
-                    "Small is honest; widening turns into sizing errors, "
-                    "because position size reads these probabilities "
-                    "literally.")
 
     # ---- supply: is there anything to learn from? ------------------------
     row("Is the pipeline filling?")
-    # The filter story, in two gauges (companion added 2026-08-17 when
-    # liquiditybot_ml_loaded_rows landed): RAW is every row ever recorded;
-    # LOADED is what the last retrain's corpus load actually kept
-    # (ml/history.py rows=len(w) via ml.load_stats.rows). The 640 mark on
-    # BOTH is the overfit battery's real-data floor for LOADED rows — a
-    # REFERENCE scale, not a success line (no green step: crossing 640
-    # means the battery can leave its synthetic benchmark, not that the
-    # model is un-overfit; the floor is a measurement standard, never a
-    # tunable). Row widths retiled 6/6/4/4/4 -> 8s so the mandated
-    # companion sits beside its raw twin on a full 24-col line; panel
-    # identities (id/title/type/query) unchanged by the retile.
-    gauge("Raw training rows collected",
-          M("liquiditybot_ml_history_rows"), 8, 6, mn=0, mx=640, unit="",
-          decimals=0, steps=[{"color": "blue", "value": None}],
-          desc="Every row ever recorded, BEFORE the loading filters "
-               "(hygiene drops, era exclusion, uniqueness weighting) that "
-               "decide what training actually sees. The 640 mark is the "
-               "overfit battery's real-data floor for LOADED rows - read "
-               "the battery's own summary line for which corpus it ran on, "
-               "never this gauge.")
-    gauge("Rows the trainer actually used (as of last retrain)",
-          M("liquiditybot_ml_loaded_rows"), 8, 6, mn=0, mx=640, unit="",
-          decimals=0, steps=[{"color": "blue", "value": None}],
-          desc="Rows that SURVIVED the loading filters at the last retrain "
-               "- what training actually saw. Read beside the raw gauge: "
-               "the gap between them is what hygiene and the era fence ate. "
-               "The 640 mark is the overfit battery's real-data floor as a "
-               "REFERENCE scale, not a success line: crossing it means the "
-               "battery can run on real data, not that the model is "
-               "un-overfit - read the battery's own summary line, never "
-               "this gauge.")
     gauge("New-era rows toward re-arm", M("liquiditybot_era_excl_new_rows"),
           8, 6, mn=0, mx=150, unit="", decimals=0,
           steps=[{"color": "blue", "value": None},
@@ -1229,42 +1217,44 @@ def _author_learning():
           desc="Rows collected under the CURRENT trading geometry. Old-era "
                "rows sit out of training until this reaches the re-arm line "
                "(liquiditybot_era_excl_min_rows, default 150).")
+    # MERGED 2026-08-28 (audit id=19->18): "Labels in the last 24h" was the
+    # same floor read over a shorter, noisier window.
     stat("Labels per day",
          M("liquiditybot_probe_budget_live_labels_per_day_7d"), 8, 6,
          decimals=1, steps=PROBE_LABELS, graph="none",
          desc="7-day average of live labels earned per day. Under 3 a day "
-              "the corpus fills slower than the floor pace.")
-    stat("Labels in the last 24h", M("liquiditybot_probe_budget_labels_24h"),
-         8, 6, decimals=0, steps=PROBE_LABELS, graph="none",
-         desc="Labels earned in the last day - today's pace against the "
-              "same 3-a-day floor.")
+              "the corpus fills slower than the floor pace. A closer, "
+              "noisier 24h reading lives at liquiditybot_probe_budget_"
+              "labels_24h if today's pace specifically matters.")
     stat("Label uniqueness", M("liquiditybot_ml_mean_uniqueness"), 8, 6,
          decimals=1, steps=HIGH_GOOD, graph="none",
          desc="How independent the labels are - overlapping trades share "
               "evidence, so 100 rows at 0.05 uniqueness carry about 5 rows "
               "of real information. As of the last retrain's corpus load.")
+    # MERGED 2026-08-28 (audit id=22->21): "Where labels come from" plotted
+    # the SAME corpus-fill question from a second angle (origin instead of
+    # cleanliness) - rides in as a third target instead of a second panel.
     timeseries("Corpus growth", M("liquiditybot_ml_history_rows"), 12, 8,
                legend="all rows", decimals=0,
-               extra=[(M("liquiditybot_ml_live_clean"), "clean live rows")],
+               extra=[(M("liquiditybot_ml_live_clean"), "clean live rows"),
+                      (_pa("liquiditybot_ml_labels"), "{{source}}")],
                colors={"all rows": CAT_TEAL, "clean live rows": GREEN},
                desc="The corpus filling over the month. Both flat: the bot "
                     "is not closing trades. All-rows climbing while "
-                    "clean-live stays flat: hygiene is eating the rows.")
-    timeseries("Where labels come from", _pa("liquiditybot_ml_labels"),
-               12, 8, legend="{{source}}", decimals=0,
-               desc="Labelled rows by origin - live closes vs simulated "
-                    "candidates. Live rows are the gold standard; candidate "
-                    "rows fill in while live experience accumulates.")
+                    "clean-live stays flat: hygiene is eating the rows. "
+                    "The by-source lines split labelled rows by origin - "
+                    "live closes (gold standard) vs simulated candidates "
+                    "(fill in while live experience accumulates).")
     # 2026-08-20: the era split, previously exported but never panelled -
     # the one chart that answers "are old labels in the bot's head" at a
     # glance (current-era line vs the retired-era lines the fence excludes).
     timeseries("Labels by era (fence view)", _pa("liquiditybot_era_rows"),
                12, 8, legend="{{era}}", decimals=0,
                desc="Loaded-corpus rows split by label era, as of the last "
-                    "retrain. Only the CURRENT era (triple_barrier_h432) "
-                    "teaches the model; every other line is archive the era "
-                    "fence keeps out of training. Old eras flat + current "
-                    "era climbing = the fence working as designed.")
+                    "retrain. Only the CURRENT era teaches the model; every "
+                    "other line is archive the era fence keeps out of "
+                    "training. Old eras flat + current era climbing = the "
+                    "fence working as designed.")
 
     # ---- what the labels themselves say ----------------------------------
     row("What the labels say")
@@ -1292,17 +1282,18 @@ def _author_learning():
          desc="Share of current-era rows that earned a definite win/loss "
               "verdict (the rest timed out unresolved or are still open). "
               "As of the last retrain's corpus load.")
+    # MERGED 2026-08-28 (audit id=28->27): "Corpus matches live?" state
+    # tile thresholded the SAME tvd value this stat already shows raw -
+    # the 0.3/0.5 thresholds below already say DRIFTED in color.
     stat("Corpus drift distance", M("liquiditybot_era_mix_tvd"), 4, 8,
          decimals=2, steps=DRIFT, graph="none",
          desc="How different the whole training corpus looks from recent "
-              "live trading (0 = identical, 1 = nothing in common). As of "
-              "the last retrain's corpus load.")
-    state("Corpus matches live?", M("liquiditybot_era_mix_alarm"), 4, 8,
-          ERA_MIX,
-          desc="DRIFTED means the model is learning mostly from a market "
-               "that no longer exists - treat its opinions with suspicion "
-               "until the mix re-aligns. As of the last retrain's corpus "
-               "load.")
+              "live trading (0 = identical, 1 = nothing in common) - "
+              "yellow at 0.3, red at 0.5 (DRIFTED, liquiditybot_era_mix_"
+              "alarm's own line): the model is learning mostly from a "
+              "market that no longer exists, treat its opinions with "
+              "suspicion until the mix re-aligns. As of the last retrain's "
+              "corpus load.")
     stat("Rows excluded from training", M("liquiditybot_era_excl_dropped"),
          4, 8, decimals=0, steps=BLUE, graph="none",
          desc="Old-geometry rows the era fence keeps OUT of training so "
@@ -1328,10 +1319,10 @@ def _author_learning():
          decimals=0, graph="none", steps=ZERO_BAD,
          desc="Times inference fell back to the safe default instead of "
               "the deployed model.")
-    # lifecycle + orphan (2026-08-17): the first panels on any board fed by
-    # gc_pusher's LEDGER-derived aux batch rather than status.json — their
-    # families are declared above and the board coverage gates include
-    # collect_aux() on fixture ledgers (the aux section header's contract).
+    # lifecycle + orphan: the panels fed by gc_pusher's LEDGER-derived aux
+    # batch rather than status.json — their families are declared above
+    # and the board coverage gates include collect_aux() on fixture
+    # ledgers (the aux section header's contract).
     bargauge("Model lifecycle events", _pa("liquiditybot_ml_lineage_events"),
              16, 6, legend="{{event}}", decimals=0, steps=BLUE, mn=0,
              desc="Lifetime counts from the model registry ledger: models "
@@ -1365,31 +1356,23 @@ def _author_learning():
 
     # ---- the verdict clock -----------------------------------------------
     # COUNT ONLY, by law: gc_pusher._run_cohort_eval never parses the
-    # gross/net means (era-4 moratorium — the accruing gate numbers are
+    # gross/net means (accrual moratorium — the accruing gate numbers are
     # not a trend), so a count and its floor are the only things that CAN
     # render here; keep it that way. The target comes from the metric
-    # (liquiditybot_cohort_min_n), never a hardcoded 50: the signed
-    # readout table's 3A path moves it to 100, and a literal would turn
-    # this panel into a lie the day that lands. Two-bar comparison (the
-    # bargauge factory's ranked-comparison idiom, shared auto scale)
-    # instead of a gauge with a config-from-query max: that
-    # transformation's JSON shape is unverifiable against this instance
-    # and fails SILENT (a wrong shape leaves a static max in force),
-    # which for THIS panel would render "target reached" against a stale
-    # floor — the exact lie the panel exists to prevent.
+    # (liquiditybot_cohort_min_n), never a hardcoded literal.
     row("The verdict clock")
     bargauge("Era-4 verdict progress", M("liquiditybot_cohort_closes"),
              24, 5, legend="closed trades counted", decimals=0, steps=BLUE,
              mn=0,
              extra=[(M("liquiditybot_cohort_min_n"),
                      "pre-registered target")],
-             desc="Closed trades counted toward the pre-registered era-4 "
-                  "verdict, against the target the readout needs - the "
-                  "target is read from the bot, never hardcoded. The gate "
-                  "DECIDES nothing until the target is reached, and the "
-                  "accruing win/loss numbers are deliberately on no board: "
-                  "reading them early is how a verdict gets tuned instead "
-                  "of measured. Count refreshes about every 30 minutes.")
+             desc="Closed trades counted toward the pre-registered verdict, "
+                  "against the target the readout needs - the target is "
+                  "read from the bot, never hardcoded. The gate DECIDES "
+                  "nothing until the target is reached, and the accruing "
+                  "win/loss numbers are deliberately on no board: reading "
+                  "them early is how a verdict gets tuned instead of "
+                  "measured. Count refreshes about every 30 minutes.")
 
     # ---- the price of tuition (collapsed: read on demand) ----------------
     row("The cost of learning", collapsed=True)
@@ -1401,14 +1384,15 @@ def _author_learning():
           desc="Small exploratory trades are paid for in tokens; an empty "
                "tank means no new probes until it refills (capacity: "
                "liquiditybot_probe_budget_capacity).")
+    # MERGED 2026-08-28 (audit id=42->41): "Tuition cap" was a static ceiling
+    # this spend is judged against, not its own reading.
     stat("Tuition spent in 24h",
          M("liquiditybot_probe_budget_tuition_24h_usd"), 5, 6, unit=USD,
          decimals=2, steps=GRN, graph="none",
          desc="What the probes cost in the last day - the price paid for "
-              "the labels they earned.")
-    stat("Tuition cap", M("liquiditybot_probe_budget_tuition_cap_usd"), 4, 6,
-         unit=USD, decimals=2, steps=GRN, graph="none",
-         desc="The most the bot may spend on learning per day.")
+              "the labels they earned. Judged against the daily cap "
+              "(liquiditybot_probe_budget_tuition_cap_usd) - the most the "
+              "bot may spend on learning per day.")
     stat("Unlock ETA", M("liquiditybot_probe_budget_unlock_eta_days"), 4, 6,
          unit="suffix:d", decimals=1, steps=PROBE_ETA, graph="none",
          desc="Projected days until enough current-era labels exist to "
@@ -1429,10 +1413,6 @@ def _author_learning():
          8, 5, decimals=2, steps=PROBE_GOV, graph="none",
          desc="Throttle on probe spending (1.00 full speed, 0.25 floor). It "
               "backs off when tuition outruns the labels earned.")
-    stat("Refunds in 24h", M("liquiditybot_probe_budget_refunds_24h"), 8, 5,
-         decimals=0, steps=BLUE, graph="none",
-         desc="Probes whose token cost was refunded - scratched before "
-              "risking anything.")
 
     # ---- learned gate weights (collapsed: read on demand) ----------------
     row("Gate learning", collapsed=True)
@@ -1440,31 +1420,47 @@ def _author_learning():
              legend="{{gate}}", decimals=2, steps=BLUE, mn=0, mx=1,
              desc="How much say each entry gate has earned from labelled "
                   "outcomes. A gate near zero is being ignored.")
+    # MERGED 2026-08-28 (audit id=52->50): "Base win rate the gates see"
+    # is context, not its own verdict.
     bargauge("Is any gate lying?", _pa("liquiditybot_gate_divergence"),
              12, 8, legend="{{gate}}", decimals=2, steps=DRIFT, mn=0,
              desc="Gap between what a gate predicts and what actually "
-                  "happens (divergence from the base rate). High means that "
-                  "gate's opinion is misleading right now.")
+                  "happens (divergence from the base rate,"
+                  " liquiditybot_gate_base_rate — the long-run average "
+                  "win rate the gates are judged against). High means "
+                  "that gate's opinion is misleading right now.")
     stat("Labeled rows feeding the gates", M("liquiditybot_gate_labeled"),
          12, 5, decimals=0, steps=BLUE, graph="none",
          desc="Sample size behind the two panels above - small numbers "
               "mean noisy weights.")
-    stat("Base win rate the gates see", M("liquiditybot_gate_base_rate"),
-         12, 5, unit="percentunit", decimals=1, steps=GRN, graph="none",
-         desc="The long-run average win rate the gates are judged against.")
 
 
 def _author_problem():
     """THE PROBLEMS BOARD - what needs attention. Looking empty is GOOD.
 
-    Rebuilt 2026-08-17 from the stripped state. Reading order is the
-    reading order of an incident: posture hero (is anything on fire), the
-    two pager conditions AS THE SAME ARITHMETIC THE RULES RUN (the
-    execution board's lesson: a rule whose inputs are on no board is
-    discovered by being paged), then fault tallies, staleness, the risk
-    brakes, and the audit trail's own health. Every metric verified against
-    gc_pusher.collect() 2026-08-17; the ACCURACY RULE in _author_command
-    applies verbatim.
+    Reading order is the reading order of an incident: posture hero (is
+    anything on fire), the two pager conditions AS THE SAME ARITHMETIC THE
+    RULES RUN (the execution board's lesson: a rule whose inputs are on no
+    board is discovered by being paged), then fault tallies, staleness,
+    the risk brakes, and the audit trail's own health. Every metric
+    verified against gc_pusher.collect(); the ACCURACY RULE in
+    _author_command applies verbatim.
+
+    STREAM 7c REBUILD (2026-08-28, `scratchpad/sdd/grafana-audit.md`):
+    48 data panels down to 43 (the audit's own header claimed "47 data" —
+    recounted directly against the shipped pin list and corrected here;
+    the instrument-suspicion doctrine applies to audits too). Telemetry
+    folded into Data age; Model-inference/Feature-contract faults merged
+    into one two-series tile; the stale/diverging/critical watchdog trio
+    merged into one tile; Firewall-trips-by-code now FILTERS to actual
+    trip codes instead of plotting the always-present lifecycle counters
+    under a "by code" title; the cumulative "Why entries die" timeseries
+    is retired in favor of its own per-hour companion (a slope read off a
+    cumulative line was the thing the per-hour panel existed to remove);
+    the veto-quality roster now charts the codes that actually fire
+    (SZ-021/SZ-030/SZ-049 in, never-fired PT-040/PT-041 out); and
+    "Confounded verdicts" is MUTATED into the confound-visibility bargauge
+    the audit named as the one permitted new element.
     """
     # ---- hero: is anything on fire? --------------------------------------
     state("Overall posture", M("liquiditybot_op_state"), 5, 6, OPSTATE,
@@ -1490,7 +1486,10 @@ def _author_problem():
          decimals=0, graph="none", size="compact", steps=AGE_STEPS,
          desc="Seconds since the bot last wrote its status. Past 5 minutes "
               "every tile on this board describes the past - read it "
-              "first.")
+              "first. Subsumes the separate Telemetry STALE/fresh tile "
+              "(merged 2026-08-28): the exporter itself marks the whole "
+              "batch STALE past 120s (STALE_AFTER_SEC), tighter than this "
+              "tile's own 300s red line.")
 
     # ---- the pager's own arithmetic --------------------------------------
     row("What the pager watches")
@@ -1527,11 +1526,23 @@ def _author_problem():
 
     # ---- faults & rejections ---------------------------------------------
     row("Faults & rejections")
-    timeseries("Firewall trips by code", _pa("liquiditybot_firewall_count"),
+    # FIXED 2026-08-28 (audit top-5 #4): liquiditybot_firewall_count also
+    # carries FOUR always-present lifecycle counters (screened/accepted/
+    # accepted_modified/rejected, execution/risk_firewall.py:131-132) on
+    # the SAME metric name — the unfiltered query plotted those, not trip
+    # codes, under a "by code" title, and made the honest-empty noValue
+    # text ("no firewall trip recorded") unreachable. code=~"FW-.*"
+    # restores the actual trip-code view and lets that noValue text fire
+    # again when nothing has tripped.
+    timeseries("Firewall trips by code",
+               'liquiditybot_firewall_count{job="liquiditybot",'
+               'code=~"FW-.*"}',
                12, 8, legend="{{code}}", decimals=0,
-               desc="Cumulative trips per firewall code - FW-070/080/081 "
-                    "are the data-staleness family. A step up is one new "
-                    "trip; codes are decoded in core/codes.py.")
+               desc="Cumulative trips per firewall CODE only (lifecycle "
+                    "counters screened/accepted/accepted_modified/rejected "
+                    "excluded by the code=~\"FW-.*\" filter) - FW-070/080/"
+                    "081 are the data-staleness family. A step up is one "
+                    "new trip; codes are decoded in core/codes.py.")
     timeseries("Decisions by family", _pa("liquiditybot_code_count"), 12, 8,
                legend="{{prefix}}", decimals=0,
                desc="Reason-code volume per family (SZ sizing, PT pretrade, "
@@ -1562,17 +1573,20 @@ def _author_problem():
               "climb here means it is wedged on something. Resets on "
               "restart - a crash-loop reads 0; cross-check 'Cycles since "
               "restart'.")
-    stat("Model inference faults", M("liquiditybot_ml_infer_faults"), 4, 4,
-         decimals=0, graph="none", size="compact", steps=ZERO_BAD,
-         desc="Times the model failed to score a candidate and the safe "
-              "default was used instead. Resets on restart - a crash-loop "
-              "reads 0; cross-check 'Cycles since restart'.")
-    stat("Feature-contract failures", M("liquiditybot_ml_contract_failed"),
-         4, 4, decimals=0, graph="none", size="compact", steps=ZERO_BAD,
-         desc="Feature rows that violated the model's input contract and "
-              "were refused. Rising = the feed and the model disagree "
-              "about the world's shape. Resets on restart - a crash-loop "
-              "reads 0; cross-check 'Cycles since restart'.")
+    # MERGED 2026-08-28 (audit id=19+20): both answer "is inference
+    # rejecting the world" - one tile, two bars, instead of two tiles.
+    bargauge("Model & feature faults", M("liquiditybot_ml_infer_faults"),
+             8, 4, legend="inference faults", decimals=0, steps=ZERO_BAD,
+             mn=0,
+             extra=[(M("liquiditybot_ml_contract_failed"),
+                     "feature-contract failures")],
+             desc="Inference faults: times the model failed to score a "
+                  "candidate and the safe default was used instead. "
+                  "Feature-contract failures: rows that violated the "
+                  "model's input contract and were refused - rising means "
+                  "the feed and the model disagree about the world's "
+                  "shape. Both reset on restart - a crash-loop reads 0; "
+                  "cross-check 'Cycles since restart'.")
 
     # ---- staleness & feeds -----------------------------------------------
     row("Staleness & feeds")
@@ -1591,18 +1605,22 @@ def _author_problem():
          decimals=0, graph="none", steps=RECONNECTS,
          desc="Times the websocket dropped and re-dialed since restart. A "
               "climb means an unstable link.")
-    stat("Stale assets", M("liquiditybot_watchdog_stale_assets"), 4, 5,
-         decimals=0, graph="none", steps=ZERO_BAD,
-         desc="Assets whose market data has aged past the watchdog's "
-              "limit. Their entries are blocked until data freshens.")
-    stat("Diverging feeds", M("liquiditybot_watchdog_divergent"), 4, 5,
-         decimals=0, graph="none", steps=ZERO_BAD,
-         desc="Assets where two data sources disagree about the price. "
-              "The bot refuses to trade what it cannot price.")
-    state("Critical data stale", M("liquiditybot_watchdog_critical_stale"),
-          6, 5, {"1": ("STALE", "red"), "0": ("fresh", "green")},
-          desc="Whether any CRITICAL feed aged out. STALE blocks all new "
-               "entries at once.")
+    # MERGED 2026-08-28 (audit id=26+27+28, "the watchdog trio"): one
+    # bargauge answers "which feed problem" at a glance instead of three
+    # tiles read separately.
+    bargauge("Feed watchdog", M("liquiditybot_watchdog_stale_assets"), 12, 5,
+             legend="stale assets", decimals=0, steps=ZERO_BAD, mn=0,
+             extra=[(M("liquiditybot_watchdog_divergent"),
+                     "diverging feeds"),
+                    (M("liquiditybot_watchdog_critical_stale"),
+                     "critical data stale (1=STALE)")],
+             desc="Stale assets: market data aged past the watchdog's "
+                  "limit, entries blocked until it freshens. Diverging "
+                  "feeds: two data sources disagree about the price, the "
+                  "bot refuses to trade what it cannot price. Critical "
+                  "data stale: any CRITICAL feed aged out (1=STALE), "
+                  "blocking all new entries at once. All zero is the "
+                  "healthy state.")
     # gated on the mode the bot itself reports (2026-08-17): the equity
     # recompute runs in LIVE mode only (main.py gates it on `not
     # dry_run`), so in paper mode the exported 0.00 is an initializer,
@@ -1623,10 +1641,9 @@ def _author_problem():
               "on the bot's own mode report, and absence here is the "
               "paper-mode truth, not a fault. In live mode, near zero "
               "means the accounting is telling the truth.")
-    state("Telemetry", M("liquiditybot_status_stale"), 6, 5,
-          {"1": ("STALE", "red"), "0": ("fresh", "green")},
-          desc="Whether the status write has aged past the exporter's "
-               "threshold. STALE = do not trust the numbers anywhere.")
+    # MERGED 2026-08-28 (audit: command 14->12 precedent applied here too):
+    # the separate Telemetry STALE/fresh tile folded into "Data age"'s own
+    # desc above - one fact, one tile.
     state("Runner", M("liquiditybot_running"), 6, 5, UP_DOWN,
           desc="Is the bot's own loop alive. STOPPED means everything "
                "else shown is the last known state, not the current one.")
@@ -1713,29 +1730,11 @@ def _author_problem():
     # nothing on the glass), and 68% of terminal orders in a 48h window
     # were OM-040 timeout-cancels with no panel saying so.
     row("Why entries die")
-    _cd = ('max(liquiditybot_code_count_detail'
-           '{{job="liquiditybot",code="{c}"}})')
-    timeseries("Why entries die",
-               _cd.format(c="SZ-023"), 16, 8, decimals=0,
-               legend=CODE_LABELS["SZ-023"],
-               extra=[(_cd.format(c=c), CODE_LABELS[c])
-                      for c in ("SZ-022", "SZ-045", "PT-040", "PT-041")],
-               colors={CODE_LABELS["SZ-023"]: INDIGO,
-                       CODE_LABELS["SZ-022"]: CAT_TEAL,
-                       CODE_LABELS["SZ-045"]: ORANGE_HEX,
-                       CODE_LABELS["PT-040"]: CAT_PURPLE,
-                       CODE_LABELS["PT-041"]: GRAY_HEX},
-               desc="The recurring 'why has the bot opened nothing for 38 "
-                    "hours?' question, answered on glass: how often each of "
-                    "the top entry-killing checks said no. Win-prob below "
-                    "bar (SZ-023) is the model not believing in the trade; "
-                    "direction blocked (SZ-022) is the regime playbook; "
-                    "manipulation suspected (SZ-045) is a painted book; the "
-                    "PT-040 family is the EV gate ruling the trade cannot "
-                    "beat its own costs. Counts are cumulative since the "
-                    "last restart - read the SLOPE: the line climbing "
-                    "fastest is the check killing entries right now, and a "
-                    "restart resets all lines to zero.")
+    # REMOVED 2026-08-28 (audit: id=48 MERGE->50, operator instruction
+    # "keep per-hour, drop cumulative"): the cumulative timeseries required
+    # reading a SLOPE to find which check is firing hardest right now; the
+    # per-hour companion below answers that directly, no slope-reading
+    # required, and is now the sole "why entries die" chart.
     stat("Timeout-cancel share",
          f'{M("liquiditybot_order_timeout_cancels")} / '
          f'({M("liquiditybot_order_terminal_orders")} > 0)',
@@ -1744,15 +1743,17 @@ def _author_problem():
          desc="Of the orders that finished cleanly since restart, the share "
               "that died as OM-040 timeout-cancels - the resting maker "
               "order sat out its whole lifetime without filling - instead "
-              "of filling (OM-000). A 48h audit measured 68%: two of every "
-              "three orders were never trades. REPORT-ONLY: the levers "
-              "this number informs - the resting-order lifetime "
-              "(order_manager.order_timeout_sec) and how far from the "
-              "touch entries rest (grid_ladder.spacing_vol_mult / "
-              "min_spacing_bps) - are execution geometry, FENCED by the "
-              "era-4 accrual moratorium: moving them mints a new execution "
-              "era and needs operator adjudication. This panel measures; "
-              "it must never be used to tune them mid-cohort.")
+              "of filling (OM-000). A 48h audit measured 68% AS OF "
+              "2026-08-17 - RE-DERIVE before citing, do not treat as "
+              "current: query the same two counters over a fresh window. "
+              "REPORT-ONLY: the levers this number informs - the "
+              "resting-order lifetime (order_manager.order_timeout_sec) "
+              "and how far from the touch entries rest "
+              "(grid_ladder.spacing_vol_mult / min_spacing_bps) - are "
+              "execution geometry, FENCED by the accrual moratorium: "
+              "moving them mints a new execution era and needs operator "
+              "adjudication. This panel measures; it must never be used "
+              "to tune them mid-cohort.")
 
     # ---- precision companions (2026-08-26, "make this more precisely
     # measured"). The cumulative panel above answers WHICH check fires;
@@ -1765,22 +1766,40 @@ def _author_problem():
     # 2026-08-01. The flags carry gate_efficacy_report's own significance
     # discipline (disjoint Wilson intervals on EFFECTIVE n), pooled
     # per code across parametrized disposition variants.
+    # FIXED 2026-08-28 (audit top-5 #5 + operator instruction): the
+    # roster now charts the codes that ACTUALLY fire. The audit's
+    # full-corpus league table (18,588 signal_history rows, double-
+    # derived against a 23.5MB audit-trail window): SZ-023 ~4.8k,
+    # SZ-022 ~3.0k, SZ-021 2,032 (#3), SZ-030 1,052 (#4) - none of them
+    # PT-040/PT-041, which read ZERO in both routes. This panel is now
+    # the SOLE "why entries die" chart (the cumulative twin retired
+    # above): per-hour vetoes need no slope-reading to see which check
+    # is killing entries right now, and a restart dents one sample, not
+    # the view.
     _cdr = ('max(delta(liquiditybot_code_count_detail'
             '{{job="liquiditybot",code="{c}"}}[1h]))')
-    timeseries("Veto pressure (per hour)",
+    timeseries("Why entries die (per hour)",
                _cdr.format(c="SZ-023"), 8, 8, decimals=0,
                legend=CODE_LABELS["SZ-023"],
                extra=[(_cdr.format(c=c), CODE_LABELS[c])
-                      for c in ("SZ-022", "SZ-045", "PT-040", "PT-041")],
+                      for c in ("SZ-022", "SZ-021", "SZ-030", "SZ-049")],
                colors={CODE_LABELS["SZ-023"]: INDIGO,
                        CODE_LABELS["SZ-022"]: CAT_TEAL,
-                       CODE_LABELS["SZ-045"]: ORANGE_HEX,
-                       CODE_LABELS["PT-040"]: CAT_PURPLE,
-                       CODE_LABELS["PT-041"]: GRAY_HEX},
-               desc="The same checks as the cumulative panel, as vetoes "
-                    "in the trailing hour - the line on top is the check "
-                    "killing entries right now, no slope-reading "
-                    "required. A restart dents one sample, not the view.")
+                       CODE_LABELS["SZ-021"]: ORANGE_HEX,
+                       CODE_LABELS["SZ-030"]: CAT_PURPLE,
+                       CODE_LABELS["SZ-049"]: GRAY_HEX},
+               desc="Vetoes in the trailing hour for the five checks that "
+                    "actually fire (roster fixed 2026-08-28 - SZ-021/"
+                    "SZ-030/SZ-049 added, the never-fired PT-040/PT-041 "
+                    "dropped). The line on top is the check killing "
+                    "entries right now, no slope-reading required, and a "
+                    "restart dents one sample, not the view. ERA-8 "
+                    "REALITY: the book is EXPECTED quiet (derived entry "
+                    "bar 0.8335 since cut #8's fee-truth cut, era "
+                    "8-ca55e2ba) - flat or low lines here are the "
+                    "strategy's honest position at true costs, not a "
+                    "fault; cross-check Data age/Runner before reading a "
+                    "quiet board as broken telemetry.")
     bargauge("Were the vetoes right?", _pa("liquiditybot_veto_cf_rate"),
              8, 8, legend="{{code}}", decimals=2, mn=0, mx=1,
              unit="percentunit", steps=BLUE,
@@ -1789,16 +1808,27 @@ def _author_problem():
                   "back), pooled per code with effective-n intervals. "
                   "Read against the candidate baseline "
                   "(liquiditybot_veto_baseline_rate): BELOW baseline = "
-                  "the veto selects real losers and earns its keep "
-                  "(SZ-030 net-Kelly is the house example); AT baseline "
-                  "= the gate is not selecting on outcome at all; ABOVE "
-                  "= anti-selective - it rejects candidates that win "
-                  "MORE than average. Counts without this column "
-                  "flattered every gate equally.")
+                  "the veto selects real losers and earns its keep; AT "
+                  "baseline = the gate is not selecting on outcome at "
+                  "all; ABOVE = anti-selective - it rejects candidates "
+                  "that win MORE than average. FIXED 2026-08-28: a bar "
+                  "here is only trustworthy for a code reading COMPARABLE "
+                  "on 'Verdict comparability' below (era_overlap >= 0.5) "
+                  "- as of 2026-08-27 every code read CONFOUNDED_BASELINE "
+                  "or PARTIAL_OVERLAP there, so no code's bar is "
+                  "currently a proven example of either earning its keep "
+                  "or misfiring; read both panels together before citing "
+                  "one.")
     stat("Anti-selective gates",
          'sum(liquiditybot_veto_anti_selective)', 8, 4, decimals=0,
          graph="none",
-         steps=[{"color": "green", "value": None},
+         # FIXED 2026-08-28 (audit top-5 #6, id=52): base was "green",
+         # so the vacuous-green zero (every code CONFOUNDED/PARTIAL,
+         # gate_efficacy_report.py's own bar) painted an all-clear its
+         # own desc retracted below. Neutral "text": this tile now reads
+         # neither verdict on absence/zero, only a real positive count
+         # reads red.
+         steps=[{"color": "text", "value": None},
                 {"color": "red", "value": 1}],
          no_value="veto-quality collector not published yet",
          desc="How many veto codes are rejecting candidates that go on "
@@ -1811,8 +1841,11 @@ def _author_problem():
               "comparison is CONFOUNDED_BASELINE (zero label_era overlap "
               "with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), "
               "so this tile now reads zero for SZ-021 by construction, "
-              "not because the question was resolved - see 'Confounded "
-              "verdicts' below for the codes this tile cannot speak to.")
+              "not because the question was resolved. The live per-code "
+              "lens is 'Verdict comparability (label-era overlap vs "
+              "baseline)' below - read that bargauge before trusting a "
+              "zero here as a clean verdict rather than an unmeasured "
+              "one.")
     stat("Candidate baseline win rate",
          M("liquiditybot_veto_baseline_rate"), 8, 4,
          unit="percentunit", decimals=1, steps=BLUE, graph="none",
@@ -1820,26 +1853,38 @@ def _author_problem():
          desc="The un-gated candidate win rate the bars above are judged "
               "against (Wilson band on effective n rides the exporter as "
               "veto_baseline_lo/hi).")
-    # C5 (2026-08-27 fix-wave): the era-confound guard's own verdict
-    # ("cannot be measured against this baseline") was invisible on
-    # glass - a zero on "Anti-selective gates" above reads identically
-    # whether a gate is proven safe or simply unmeasurable. This tile
-    # separates the two, mirroring gate_efficacy_report's own
-    # comparison in {CONFOUNDED_BASELINE, PARTIAL_OVERLAP}.
-    stat("Confounded verdicts",
-         'sum(liquiditybot_veto_confounded)', 8, 4, decimals=0,
-         graph="none",
-         steps=[{"color": "text", "value": None}],
-         no_value="veto-quality collector not published yet",
-         desc="How many veto codes read CONFOUNDED_BASELINE or "
-              "PARTIAL_OVERLAP (gate_efficacy_report's era-confound "
-              "guard, 2026-08-27): their own label_era mix shares too "
-              "little (or a minority) of the baseline's, so a "
-              "disjoint-CI verdict there would compare two different "
-              "label definitions, not two populations - no "
-              "anti-selective/selective claim is rendered for them. A "
-              "zero on 'Anti-selective gates' next to a nonzero here "
-              "means 'unmeasured', not 'safe'.")
+    # MUTATED 2026-08-28 (the audit's one permitted new element, applied
+    # as a mutation of this existing panel rather than a new one): a bare
+    # count of confounded codes said HOW MANY without saying WHICH or how
+    # FAR from readable. Per-code bargauge over the report's own
+    # era-overlap fraction, thresholded at the report's own policy floors
+    # (never tuned to this data), plus the admitted-vs-baseline headline
+    # riding in as one more bar - an EXTEND-ONLY exporter addition
+    # (liquiditybot_admitted_era_overlap, gc_pusher.py, nothing renamed)
+    # so the admitted comparison reaches glass without a second panel.
+    bargauge("Verdict comparability (label-era overlap vs baseline)",
+             _pa("liquiditybot_veto_era_overlap"), 24, 8,
+             legend="{{code}}", decimals=2, mn=0, mx=1,
+             unit="percentunit", steps=ERA_OVERLAP_STEPS,
+             decode_family="SZ",
+             extra=[(M("liquiditybot_admitted_era_overlap"),
+                     "admitted (headline)")],
+             desc="Per-code label-era overlap of what each veto rejected "
+                  "against the frozen baseline, plus the admitted-vs-"
+                  "baseline headline as one more bar. Thresholds are "
+                  "gate_efficacy_report.py's OWN policy floors "
+                  "(ERA_OVERLAP_FLOOR/ERA_OVERLAP_MAJORITY, :111-112), "
+                  "not fitted to this data: red <0.05 = "
+                  "CONFOUNDED_BASELINE (this code's label_era mix shares "
+                  "almost none of the baseline's - no anti-selective/"
+                  "selective claim is measurable), yellow <0.5 = "
+                  "PARTIAL_OVERLAP (a minority of the baseline is drawn "
+                  "from this code's era - read with caution), green "
+                  ">=0.5 = COMPARABLE (the comparison is trustworthy). As "
+                  "of 2026-08-27 every code read red or yellow - "
+                  "'Anti-selective gates' and 'Were the vetoes right?' "
+                  "above are reading an unmeasured population, not a "
+                  "clean one, until a bar here crosses green.")
 
 
 _TAGS = ["liquiditybot", "trading", "paper-trading"]
@@ -2070,6 +2115,12 @@ _NO_VALUE_BY_FAMILY = {
     # any failure, and the baseline band is all-or-nothing with the codes
     "liquiditybot_veto_": ("event",
                            "veto-quality collector not published yet"),
+    # ERA-8 fix-wave (2026-08-28): the admitted-vs-baseline headline rides
+    # the SAME _run_veto_quality cache and fails closed the same way —
+    # distinct family from liquiditybot_veto_ only because the metric
+    # name itself doesn't share that prefix.
+    "liquiditybot_admitted_": ("event",
+                               "veto-quality collector not published yet"),
     # ---- event-gated ----------------------------------------------------
     # order_manager.py:730-731  "maker_share": ... if fills else None
     "liquiditybot_order_maker_share": ("event", "awaiting first fill"),
