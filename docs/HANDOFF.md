@@ -83,6 +83,19 @@ means 5% of new rows are TAGGED, not 5% of trades are unguarded. The
 `gate_efficacy_report` consumer that would turn those rows into a live
 era-current baseline is **not built yet** (see CTRL-2 on the docket).
 
+**The 94→95 rotation FIRED LIVE at 2026-08-28T03:50:41Z and is verified
+clean — do not re-derive this.** The write-path rotation ran on the first
+real label append (not at init: the 2026-07-11 discipline held), and
+`corpus_sync` recovered within ~3s off the `.corpus_rotated` marker rather
+than waiting out the hourly cadence. Row count double-derived three ways
+and agreeing: 18,657 rows in `signal_history.bak_1787889040.recovered` + 1
+new append = **18,658** in the live corpus = 18,658 in `status.json`.
+**Zero rows lost.** Legacy rows carry `control_arm = ""` (UNKNOWN), never a
+fabricated `0` — a blank means "written before the design existed", a `0`
+means "actually drawn into the majority arm", and conflating them would
+poison every comparison the arm exists to enable. Control-arm accrual is
+live at **n=1**.
+
 ---
 
 ## AS OF 2026-08-22T15:00Z — verify before citing
