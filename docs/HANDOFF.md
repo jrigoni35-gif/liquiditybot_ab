@@ -60,9 +60,12 @@ first observed RUNNING at 03:14:51Z. **Cut #8 instant =
 2026-08-28T03:14:13Z.** Corroborated by the new process's own startup log:
 `runner starting: DRY … fees=40/80bps` and
 `sizer payoff … net of 1.20% rt cost (net p(win) breakeven 0.833) …
-p(win) bar=0.833 (derived, floor 0.55)`. **OWED: the vault's
-`wiki/synthesis/comparability-boundaries.md` row for cut #8** — this
-session minted the era but has not yet filed the table row.
+p(win) bar=0.833 (derived, floor 0.55)`. *(The vault's
+`wiki/synthesis/comparability-boundaries.md` row 8 was FILED same session
+— prestige filing, deploy-instant 03:14:13Z; the OWED is discharged.
+Control-arm rotation verified live 03:50:41Z: 18,658 rows zero-loss,
+accrual at n=1. Grafana boards rebuilt to era-8 semantics in `034e6aa6`:
+123→98 data panels, execution board retired, confound bargauge live.)*
 
 **What to expect, so it is not misread as a fault:** the derived entry bar
 is now **0.8335** (was 0.6902). Model confidences run 0.60–0.77, so
