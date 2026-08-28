@@ -163,6 +163,7 @@ _KNOWN_LEAK_KEYS = [
     "ml.history_path",
     "ml.model_path",
     "ml.multi_horizon.shadow_path",
+    "ml.postmortem.paths_path",
 ]
 
 

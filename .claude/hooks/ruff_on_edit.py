@@ -26,8 +26,14 @@ def main() -> int:
     if not f.endswith(".py") or not os.path.exists(f):
         return 0
     root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    py = os.path.join(root, ".venv", "Scripts", "python.exe")
-    if not os.path.exists(py):
+    # both venv layouts: Windows (Scripts/python.exe) and POSIX (bin/python).
+    # The nt-only path made this hook silently inert on the cloud boxes —
+    # found 2026-08-27 while tracing why wired guards never fired.
+    py = next((p for p in (
+        os.path.join(root, ".venv", "Scripts", "python.exe"),
+        os.path.join(root, ".venv", "bin", "python"),
+    ) if os.path.exists(p)), None)
+    if py is None:
         return 0                      # missing tool is not a finding
     try:
         r = subprocess.run([py, "-m", "ruff", "check", f],

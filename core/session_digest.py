@@ -22,7 +22,7 @@ recurring condition has a durable name across sessions:
   SD-001 no_activity        ran a meaningful window with zero entries/fills
   SD-002 model_starvation    model cold (0 training rows) AND retraining
                              requested repeatedly -> a loop that cannot close
-  SD-003 liquidity_veto      liquidity classified 'spoofy' most cycles ->
+  SD-003 liquidity_veto      liquidity 'spoofy' most NON-LIQUID cycles ->
                              sizing/taker suppressed feed-wide
   SD-004 audit_noise         a single reason code dominates the audit trail
   SD-005 stream_inconsistency postmortem realized% contradicts the equity/
@@ -222,7 +222,15 @@ def _events_section(records: list) -> dict:
         "by_level": dict(levels.most_common()),
         "top_warnings": warn_err.most_common(10),
         "liquidity_tally": dict(liq.most_common()),
+        # DENOMINATOR (2026-08-27): liquidity_regime logs the liquidity=
+        # line ONLY when label != "liquid" (liquidity_regime.py:358), so
+        # this is the spoofy share of NON-LIQUID (degraded) cycles, not of
+        # all cycles. A 54% here is compatible with 1/12 assets spoofy in
+        # the same status snapshot — which is exactly how it misread a
+        # session on 2026-08-27. Key name kept for consumers; the lens key
+        # and every rendered string now say what the denominator is.
         "spoofy_frac": round(spoofy / liq_total, 3) if liq_total else 0.0,
+        "liq_lens": "non_liquid_cycles_only",
         "cycles_estimate": max(per_asset_cycles.values()) if per_asset_cycles else 0,
         "feed_error_events": feed_errors,
     }
@@ -287,6 +295,12 @@ def _pnl_section(portfolio: dict, equity_rows: list) -> dict:
         "lifetime_equity_min": round(life_lo, 2),
         "lifetime_equity_max": round(life_hi, 2),
         "lifetime_equity_range": round(life_hi - life_lo, 2),
+        # NETTING (2026-08-27): the runner's realized accumulator is net of
+        # the CLOSING fee leg only (runner.py, _record_realized) while
+        # fees_paid_total carries BOTH legs. Ratioing these two lines
+        # double-counts the close leg — a "fees 1.7x realized" was misread
+        # from exactly this juxtaposition on 2026-08-27. Keys unchanged;
+        # the rendered labels now carry the netting.
         "realized_pnl_total": round(_f(portfolio.get("realized_pnl_total")), 2),
         "fees_paid_total": round(_f(portfolio.get("fees_paid_total")), 4),
         "open_positions": len(portfolio.get("positions") or []),
@@ -380,10 +394,12 @@ def _detectors(digest: dict, config: dict) -> list:
             and rec_evt.get("cycles_estimate", 0) >= 10:
         add(SD_LIQUIDITY_VETO, "warn", "liquidity vetoed feed-wide",
             f"liquidity classified 'spoofy' on {rec_evt['spoofy_frac']:.0%} of "
-            f"classified cycles ({lens}), which suppresses sizing/taker on "
-            "every asset. On a near-zero-spread feed this is likely a "
-            "classifier miscalibration, not real spoofing  -  inspect the "
-            "book source")
+            f"NON-LIQUID cycles ({lens}; liquid cycles are unlogged, so this "
+            "is a share of degraded cycles, not of all cycles - cross-check "
+            "status regimes for absolute prevalence). Spoofy suppresses "
+            "sizing/taker on the affected asset. On a near-zero-spread feed "
+            "this is likely a classifier miscalibration, not real spoofing "
+            " -  inspect the book source")
 
     # SD-004 audit noise (routine background codes excluded - see
     # _ROUTINE_NOISE_CODES; this now only fires on non-routine dominance)
@@ -585,8 +601,8 @@ def render_markdown(d: dict) -> str:
         + (f" | {pnl['capital_epochs']} epochs lifetime, range "
            f"${pnl['lifetime_equity_range']:,.2f}"
            if pnl.get('capital_epochs', 1) > 1 else "")
-        + f" | realized PnL ${pnl['realized_pnl_total']:,.2f} "
-        f"| fees ${pnl['fees_paid_total']:,.2f}",
+        + f" | realized PnL (post-close-fee) ${pnl['realized_pnl_total']:,.2f} "
+        f"| fees (all legs) ${pnl['fees_paid_total']:,.2f}",
         f"- Activity: {pnl['open_positions']} open | "
         f"{d['activity']['live_labeled_trades']} live labeled trades | "
         f"{d['activity']['candidate_rows']} candidates | "
@@ -599,7 +615,7 @@ def render_markdown(d: dict) -> str:
         f"({aud['dominant_frac']:.0%} of non-routine) | "
         f"chain={_chain_word(aud)} | "
         f"retrain_requests {aud['retrain_requests']}",
-        f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of classified cycles "
+        f"- Liquidity: spoofy {evt['spoofy_frac']:.0%} of non-liquid cycles "
         f"| feed errors {evt['feed_error_events']}",
     ]
     rec = d.get("recent") or {}
@@ -610,7 +626,7 @@ def render_markdown(d: dict) -> str:
             f"records | dominant {ra.get('dominant_code')} "
             f"({ra.get('dominant_frac', 0.0):.0%} of non-routine) | "
             f"retrain_requests {ra.get('retrain_requests', 0)} | spoofy "
-            f"{re_.get('spoofy_frac', 0.0):.0%}")
+            f"{re_.get('spoofy_frac', 0.0):.0%} (non-liquid)")
     lines += [
         "",
         "## Diagnostics",

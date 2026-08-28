@@ -48,6 +48,13 @@ from ml.walkforward import (BAR_SECONDS, BRIER_MARGIN, admissible_families,
 
 log = logging.getLogger("liquiditybot.ml.overfit")
 
+# Model complexity order used by the PBO ladder — mirrors walkforward._LADDER
+# over the hyperparameter grid. A step up must beat the INCUMBENT by
+# BRIER_MARGIN. Experiment arms (schema_ab, epoch_ab) insert after their base.
+_BASE_ORDER = ("logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
+               "gbt_d3_lr10", "gbt_d4_lr05", "gbt_mono", "mlp_small",
+               "adaptive_gbt")
+
 
 # ---------------------------------------------------------------------------
 # 1) train-vs-OOF gap
@@ -743,9 +750,6 @@ def model_space_pbo(X, y, label_span: int = 96, n_splits: int = 5,
     # T3.6a: "the ladder treats it as the next-complex step") — a no-op
     # when experiment_bases is empty, which is exactly the byte-identity
     # baseline.
-    _BASE_ORDER = ("logistic", "gbt_d2_lr05", "gbt_d2_lr10", "gbt_d3_lr05",
-                  "gbt_d3_lr10", "gbt_d4_lr05", "gbt_mono", "mlp_small",
-                  "adaptive_gbt")
     order = []
     for k in _BASE_ORDER:
         if k in names:

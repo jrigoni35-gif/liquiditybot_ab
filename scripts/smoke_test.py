@@ -141,6 +141,7 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     ml.setdefault("postmortem", {})
     ml["postmortem"]["report_dir"] = str(d / "postmortems")
     ml["postmortem"]["summary_path"] = str(d / "postmortem_summary.csv")
+    ml["postmortem"]["paths_path"] = str(d / "trade_paths.csv")
     ml.setdefault("monitor", {})
     ml["monitor"]["retrain_flag_path"] = str(d / "retrain.flag")
     cfg.setdefault("context", {})["enabled"] = False

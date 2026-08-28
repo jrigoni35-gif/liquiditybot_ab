@@ -91,6 +91,25 @@ def test_detects_starvation_noise_and_liquidity(tmp_path):
     assert d["audit"]["chain_ok"] is True  # real chain verifies
 
 
+def test_lens_labels_are_display_honest(tmp_path):
+    """The 2026-08-27 misreads, pinned: the spoofy share must NAME its
+    non-liquid denominator everywhere it renders (liquid cycles are never
+    logged - liquidity_regime.py emits only label != 'liquid'), and the
+    realized/fees headline must carry the netting asymmetry (realized is
+    post-close-fee, fees are both legs) so the two lines cannot be
+    naively ratioed."""
+    _fixture(tmp_path, spoofy_cycles=15, retrain=60, live_rows=0)
+    d = build_digest(tmp_path / "outputs")
+    assert d["events"]["liq_lens"] == "non_liquid_cycles_only"
+    md = render_markdown(d)
+    assert "of non-liquid cycles" in md
+    assert "of classified cycles" not in md
+    assert "realized PnL (post-close-fee)" in md
+    assert "fees (all legs)" in md
+    sd3 = next(g for g in d["diagnostics"] if g["id"] == SD_LIQUIDITY_VETO)
+    assert "NON-LIQUID" in sd3["detail"]
+
+
 def test_detects_fabricated_postmortem(tmp_path):
     # realized -18% with MAE ~0 is internally impossible -> SD-005 error
     _fixture(tmp_path, live_rows=2, postmortems=[(-18.47, 0.0, "underperformance")])

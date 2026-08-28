@@ -1,5 +1,10 @@
 # THALES — the lazy-bot insecurity model
 
+> **Registry (2026-08-27):** exploitable-mistake entries and their
+> incorporation lifecycle now live in `docs/thales/REGISTRY.md` under
+> the anti-rot contract `docs/thales/README.md`. This doctrine file
+> stays at its legacy path (in-code references point here).
+
 > Thales of Miletus, mocked as a penniless stargazer, used his foresight
 > to reserve every olive press in Miletus and Chios one winter for
 > almost nothing, then rented them back at harvest on his own terms
