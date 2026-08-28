@@ -386,6 +386,29 @@ def _control_arm_tag(asset: str, ts: float) -> bool:
     control arm needs, and one a numpy/random seed cannot give (a seeded
     draw's result depends on how many prior draws preceded it, which a
     corpus replay can never reproduce exactly).
+
+    NORMALIZATION (2026-08-28 review verdict, measured): dividing by
+    0xFFFFFFFF maps the 8-hex-digit int onto [0, 1] INCLUSIVE - frac can
+    be exactly 1.0 when digest[:8] == "ffffffff" (p = 2^-32). That
+    endpoint is never admitted to the control arm (1.0 < fraction is
+    False for any fraction < 1), and at CONTROL_ARM_FRACTION = 0.05 the
+    admitted integer set is IDENTICAL to the /0x100000000 ([0,1))
+    variant: both thresholds fall strictly between h = 214748364 and
+    h = 214748365 (0.05*(2^32-1) = 214748364.75, 0.05*2^32 =
+    214748364.8), so h <= 214748364 is the admitted set either way -
+    verified by exhaustive boundary-window scan + 2M random draws, zero
+    disagreements. DO NOT "fix" the divisor: the change is behaviorally
+    null today, but the formula is the arm boundary itself - any edit to
+    it is a re-draw of the arms and needs operator adjudication, not
+    hygiene. tests/test_control_arm_tag.py pins the boundary integers.
+
+    Asset names reach the hash raw (f"{asset}|{bucket}"). Assumption,
+    not validation: assets here are the internal base symbols (BTC, ETH,
+    ...) derived from the config-fixed trading_pairs - a closed
+    operator-controlled set with no "|" and no external input path
+    (corpus enumeration 2026-08-28: 15 distinct, all [A-Z]+). An asset
+    containing "|" could only collide with another asset literally named
+    with a trailing "|<digits>" suffix; no such path exists.
     """
     bucket = int(float(ts)) // CONTROL_ARM_BUCKET_SECONDS
     digest = hashlib.sha256(f"{asset}|{bucket}".encode()).hexdigest()

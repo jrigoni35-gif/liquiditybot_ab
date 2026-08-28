@@ -130,6 +130,17 @@ def main() -> int:
 
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     backup = CONFIG.with_name(f"config.json.pre-boundary5-{stamp}")
+    # RESTORE HAZARD (2026-08-28 review verdict). This backup is the exact
+    # pre-cut config; restoring it by hand does NOT revert the era: the
+    # exec_era stamp is a CODE constant (core/fill_ledger.py EXEC_ERA),
+    # so every fill after a manual restore records the NEW era over the
+    # OLD cost manifold - a silent comparability poisoning nothing
+    # detects (this script's drift-check runs at apply time only, and the
+    # restored values ARE the FROM values, so a re-run would read clean;
+    # config_guard passed this config when it was live, so it fires
+    # nothing either). Restoring the backup is itself a cohort-resetting
+    # act: operator adjudication + an EXEC_ERA decision, never a copy.
+    # The file is gitignored (config.json.pre-*) - keep it out of history.
     shutil.copy2(CONFIG, backup)
     CONFIG.write_text(json.dumps(cand, indent=2) + "\n", encoding="utf-8")
     print("")

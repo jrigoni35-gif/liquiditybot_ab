@@ -77,6 +77,40 @@ def test_known_value_pins(asset, ts, expected):
     assert _control_arm_tag(asset, ts) is expected
 
 
+def test_normalization_boundary_integers(monkeypatch):
+    """Pin the ARM BOUNDARY itself, through the real function (2026-08-28
+    review verdict on the /0xFFFFFFFF divisor). The divisor maps the
+    8-hex int onto [0, 1] inclusive; at fraction 0.05 both candidate
+    divisors (0xFFFFFFFF and 0x100000000) admit exactly h <= 214748364
+    (0x0CCCCCCC) - the thresholds 214748364.75 and 214748364.8 straddle
+    no integer - so the admitted SET, not the formula, is the contract.
+    Drive digest[:8] directly by faking sha256 so the pins sit ON the
+    boundary instead of wherever real digests happen to land. A fraction
+    typo, an inverted comparison, or a genuinely wrong normalization
+    (e.g. /0xFFFF) goes red here; swapping to the other [0,1) divisor
+    stays green because behavior is identical - which is the point: this
+    pins behavior, and the docstring forbids touching the formula."""
+    import ml.history as mh
+
+    class _FakeDigest:
+        def __init__(self, hex8: str):
+            self._hex = hex8 + "0" * 56
+        def hexdigest(self) -> str:
+            return self._hex
+
+    def _drive(hex8: str) -> bool:
+        monkeypatch.setattr(mh.hashlib, "sha256",
+                            lambda _b, _h=hex8: _FakeDigest(_h))
+        return mh._control_arm_tag("BTC", 3600.0)
+
+    assert _drive("00000000") is True     # floor of the range
+    assert _drive("0ccccccc") is True     # 214748364: last admitted int
+    assert _drive("0ccccccd") is False    # 214748365: first rejected int
+    assert _drive("ffffffff") is False    # frac == 1.0 endpoint: never
+    # admitted, never an error - the documented inclusive-range case
+    assert int("0ccccccc", 16) == 214748364   # the pin's own arithmetic
+
+
 def test_bucket_floors_within_the_window():
     """CONTROL_ARM_BUCKET_SECONDS=3600 is a documented design choice, not
     an accident of the literal 3600 in the pins above - assert the
