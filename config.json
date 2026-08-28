@@ -37,7 +37,7 @@
         "MINA/USD",
         "FLOW/USD"
       ],
-      "_paxg_doc": "PAXG (2026-08-05, operator): gold as a TANGIBLE investment, the top rung of the tangible-value ladder the haven gradient measures (regime/haven.py) - PAXG > BTC > ETH > alts. Redeemable for an allocated bar, so its value survives every counterparty in this list; near-zero crypto beta makes it the one universe member whose drawdowns are not the others' drawdowns. No special-casing anywhere: gold's low vol flows through the SAME vol-scaled brackets, sizer and labeler as everything else - sigma-scaled geometry tightens on its own, which is the point of scaling by sigma instead of hardcoded percentages. Kraken spot only; the bot holds no margin anywhere.",
+      "_paxg_doc": "PAXG (2026-08-05, operator): gold as a TANGIBLE investment, the top rung of the tangible-value ladder the haven gradient measures (regime/haven.py) - PAXG > BTC > ETH > alts. Redeemable for an allocated bar, so its value survives every counterparty in this list; near-zero crypto beta makes it the one universe member whose drawdowns are not the others' drawdowns. No special-casing anywhere: gold's low vol flows through the SAME vol-scaled brackets, sizer and labeler as everything else - sigma-scaled geometry tightens on its own, which is the point of scaling by sigma instead of hardcoded percentages. Kraken only. [doc corrected 2026-08-27 config audit: this note's original 'Kraken spot only; the bot holds no margin anywhere' was already stale when written - leverage.use_margin has been true since 57a20f89 (2026-07-12, deliberate); see the leverage section]",
       "rate_limit_per_sec": 3,
       "candle_refresh_sec": 150,
       "_candle_doc": "v8 venue-grounded candles: every mapped asset's 5m bars are re-grounded on Kraken (wash-trading hygiene, Cong et al. 2023 - external reported volume averages >70% fabricated); this is the per-asset REST refresh cadence (150s = half a 5m bar), throttled to 3 fetches/cycle, most-stale first"
@@ -56,16 +56,17 @@
     }
   },
   "signal_gates": {
-    "description": "All 5 gates must confirm simultaneously before a signal fires",
+    "description": "five_gate ROLLBACK engine config: strategies.engine ships 'informed_flow', so this stack runs only if the operator sets engine=five_gate. All 5 gates must confirm simultaneously before a signal fires. [description corrected 2026-08-27 config audit - it read as if this were the live engine]",
+    "_unread_leaves_doc": "2026-08-27 config audit: _lookback_minutes, _depth_levels, _timeframe and _indicator below are read by NO code path at ANY engine setting (verified at the reader, five_gate rollback included) - underscore-prefixed so they stop counting as config points; values kept for the record.",
     "gate_1_liquidity_pool": {
       "enabled": true,
       "min_pool_size_usd": 500000,
-      "lookback_minutes": 15
+      "_lookback_minutes": 15
     },
     "gate_2_order_book_imbalance": {
       "enabled": true,
       "min_imbalance_ratio": 1.5,
-      "depth_levels": 10
+      "_depth_levels": 10
     },
     "gate_3_volume_confirmation": {
       "enabled": true,
@@ -78,8 +79,8 @@
     },
     "gate_5_momentum_alignment": {
       "enabled": true,
-      "timeframe": "5m",
-      "indicator": "ema_cross",
+      "_timeframe": "5m",
+      "_indicator": "ema_cross",
       "fast_period": 9,
       "slow_period": 21
     },
@@ -288,6 +289,8 @@
     "imbalance_whiplash_threshold": 1.45,
     "whiplash_healthy_p95": 1.27,
     "spoof_touch_buffer_bps": 5.0,
+    "spoof_ewma_alpha": 0.06,
+    "_spoof_ewma_alpha_doc": "lifted 2026-08-27 (config audit item 9; overfit discipline - IDENTICAL to the code default 0.06 that has always run, behavior-preserving, runtime A/B byte-verified). Per-snapshot EWMA weight on detected spoof events; the spoof score that hard-vetoes books (label 'spoofy', size_mult 0) is 1 - exp(-3*ewma), so this constant sets how much SUSTAINED evidence a score level implies - the SD-003 healthy-book bar derivation (0.85 needs ~0.63 events/cycle vs 0.20 for the 0.45 bar) was computed AT alpha 0.06 and silently re-scales if this moves. config_guard FATALs outside (0, 1] (not an EWMA weight otherwise: <=0 freezes the score at its seed forever, >1 diverges) and WARNs above 0.5 (smoothing effectively off - a near-per-snapshot reading, defeating the sustained-evidence semantics).",
     "track_levels": 15,
     "imbalance_decay_bps": 15.0,
     "_decay_doc": "v8 anti-layering (Stoikov 2018 near-touch information; spoof economics: far size is cheap to paint+cancel, touch size gets executed): order-book imbalance weights each level exp(-dist_bps/decay_bps) vs its side's own best, so painted far-from-touch walls decay out of the ratio. One source of truth - regime engine AND liquidity_model view imbalance read this key. 0 = legacy equal-weight.",
@@ -411,7 +414,7 @@
     "_doc": "post-fill mark-out: the empirical adverse-selection meter (execution/markout.py). For each NEW-risk fill, at each horizon the signed post-fill move vs the trusted mark is markout_bps = side_sign*(mark-fill)/fill*1e4. NEGATIVE = the price moved against us right after we filled = we were scalped (the ground truth the risk.manip_gate pre-empts). Measurement only - takes no trading decision. window = rolling obs per asset+horizon; grace_sec = extra time to find a fresh mark before dropping an unmeasured fill."
   },
   "leverage": {
-    "description": "use_margin=false keeps everything spot (1x). Region cap: Kraken allows max 10x here; pair-level caps may be lower.",
+    "description": "use_margin=true is the SHIPPED value (flipped deliberately in 57a20f89, 2026-07-12, 'earned margin' - BEFORE the era-4 epoch, so the accruing cohort has always run under it; changing it is a sizing change = COHORT-RESETTING, operator adjudication required; config_guard WARNs at live arm). use_margin=false keeps everything spot (1x). Region cap: Kraken allows max 10x here; pair-level caps may be lower. [description corrected 2026-08-27 config audit - it explained only the false branch]",
     "use_margin": true,
     "region_max_leverage": 10,
     "target_vol_annual_pct": 35,
@@ -429,6 +432,8 @@
     "p_bar_edge_margin": 0.0,
     "_p_bar_doc": "2026-07-27 drought diagnosis (operator-directed fix): the entry p(win) bar was an absolute literal sitting BELOW the net-Kelly breakeven (0.632 at current tiers/stop/fees) - a phantom the config guard had flagged (entries in [0.55, breakeven) passed the bar only to die SZ-030 one step later), and any tier/fee change silently re-breaks an absolute number. mode 'derived' pins the bar to the geometry: max(1/(1+b_net) + p_bar_edge_margin, min_p_win); min_p_win's remaining role is the FLOOR. edge_margin ships 0.0 = pure de-phantomization, no new fitted number - raising it is a gate-tightening decision that must clear the overfit discipline (quant trials, never tuned to a backtest peak). INTERLOCK: ml.exploration.p_win (0.64, the synthetic probe p) must clear the derived bar or the F0b probe trickle dies at SZ-023 - config_guard WARNs when clearance drops below 0.005. mode 'absolute' reverts to the historical literal bar.",
     "min_ticket_usd": 15,
+    "explore_floor_mult": 1.2,
+    "_explore_floor_mult_doc": "lifted 2026-08-27 (config audit item 8; overfit discipline - IDENTICAL to the code default 1.2 that has always run, behavior-preserving, runtime A/B byte-verified). Exploration label-acquisition floor: probe tickets floor at max(min_ticket_usd, pretrade.min_order_usd x this). The sizer floors at the MARK but the pre-trade gate recomputes notional at the QUOTE (a maker buy rests below the mark), so a ticket floored to exactly min_order lands cents under and dies PT-031 - the margin covers the quote gap + lot rounding (SZ-044). The 6e57ebd7->ae4b5314 history is why decision-path knobs do not live only in code. config_guard FATALs outside [1.0, 5.0]: below 1.0 recreates the PT-031 death this knob exists to prevent; above 5.0 it is a probe SIZING lever in disguise, not a floor margin.",
     "tier_reach_decay": 0.65,
     "vol_target_ann_pct": 35.0,
     "vol_sigma_floor_pct": 5.0,
@@ -896,11 +901,11 @@
     "kraken_enabled": true,
     "kraken_depth": 10,
     "kraken_max_book_age_sec": 3.5,
-    "kraken_max_book_age_sec_note": "MUST stay strictly below pretrade.max_data_staleness_ms/1000 (4.0s); config_guard FATALs otherwise. At the previous 5.0 the ws cache SERVED books aged 4-5s that the pre-trade gate then vetoed (PT-020) - and because main.py only falls back to REST when the ws returns None, that doomed book PREEMPTED a REST read that would have been fresh, silently refusing entries on the thinnest pairs (~3% of evaluations there). 3.5 leaves headroom for the measured cycle read delay (p50 0.34s, p90 0.68s) and costs ~0.6 extra REST book calls/cycle against a 15/cycle budget. Lower this knob rather than raising the veto ceiling.",
+    "_kraken_max_book_age_sec_note": "MUST stay strictly below pretrade.max_data_staleness_ms/1000 (4.0s); config_guard FATALs otherwise. At the previous 5.0 the ws cache SERVED books aged 4-5s that the pre-trade gate then vetoed (PT-020) - and because main.py only falls back to REST when the ws returns None, that doomed book PREEMPTED a REST read that would have been fresh, silently refusing entries on the thinnest pairs (~3% of evaluations there). 3.5 leaves headroom for the measured cycle read delay (p50 0.34s, p90 0.68s) and costs ~0.6 extra REST book calls/cycle against a 15/cycle budget. Lower this knob rather than raising the veto ceiling.",
     "kraken_checksum_backoff_base_s": 1.0,
     "kraken_checksum_backoff_cap_s": 60.0,
-    "kraken_checksum_backoff_note": "W2-28: consecutive checksum-mismatch resubscribe backoff (doubling from base, capped at cap, reset by the next clean verified frame) - paces the RESUBSCRIBE REQUEST only, never data availability. A mismatch still drops local state + invalidates the cache immediately on every occurrence, forcing an instant REST fallback read; only how often we ASK Kraken to resubscribe is bounded, so a systematic (not one-off) desync can't churn reconnects at zero delay.",
-    "kraken_note": "Kraken v2 public book channel (wss://ws.kraken.com/v2). Real-time incremental books for the 6 trading_pairs, keyed by Kraken REST pair so fast_cycle's get_order_book(pair) reads the cache and skips the rate-limited REST Depth loop. Read-only public data; Kraken execution stays on the REST order path (invariant 3). Fail-safe: stale/down/disabled -> REST."
+    "_kraken_checksum_backoff_note": "W2-28: consecutive checksum-mismatch resubscribe backoff (doubling from base, capped at cap, reset by the next clean verified frame) - paces the RESUBSCRIBE REQUEST only, never data availability. A mismatch still drops local state + invalidates the cache immediately on every occurrence, forcing an instant REST fallback read; only how often we ASK Kraken to resubscribe is bounded, so a systematic (not one-off) desync can't churn reconnects at zero delay.",
+    "_kraken_note": "Kraken v2 public book channel (wss://ws.kraken.com/v2). Real-time incremental books for the 6 trading_pairs, keyed by Kraken REST pair so fast_cycle's get_order_book(pair) reads the cache and skips the rate-limited REST Depth loop. Read-only public data; Kraken execution stays on the REST order path (invariant 3). Fail-safe: stale/down/disabled -> REST."
   },
   "webdata": {
     "description": "Free keyless crypto context: CoinGecko global (BTC dominance, mcap) + alternative.me Fear & Greed index.",
@@ -965,7 +970,7 @@
       "max_history_bars": 4032
     },
     "stops": {
-      "round_grid": "self-scaling",
+      "_round_grid_doc": "self-scaling - the round-number grid is HARDCODED behavior in strategies/thales.py (2026-08-27 config audit: no reader anywhere; this was a decorative config-shaped key an operator could 'change' with zero effect - silent-ignore class, so it is now a doc key)",
       "swing_lookback": 48,
       "zone_tol_pct": 0.15,
       "pre_gain": 0.1,
@@ -1039,7 +1044,7 @@
     "replace_margin": 0.1
   },
   "moomoo": {
-    "description": "Read-only cross-asset quotes via moomoo OpenAPI (quote context only - execution impossible). Requires local OpenD gateway + pip install moomoo-api. Disabled by default.",
+    "description": "Read-only cross-asset quotes via moomoo OpenAPI (quote context only - execution impossible). Requires local OpenD gateway + pip install moomoo-api. ENABLED on this box: safe because data/moomoo_feed.py carries the TCP pre-probe hang-fix (an OpenD outage can no longer freeze the cycle loop). [description corrected 2026-08-27 config audit - it still said 'Disabled by default']",
     "enabled": true,
     "opend_host": "127.0.0.1",
     "opend_port": 11111,
@@ -1095,7 +1100,9 @@
   "assurance": {
     "description": "Assurance Build spine: hash-chained audit trail (outputs/audit.jsonl), latching fault manager, global reason codes, model registry (outputs/models/). All rewritten modules log every reject/clamp/fault/deploy through the chain. Verify integrity anytime: python scripts/assurance_check.py",
     "audit_path": "outputs/audit.jsonl",
-    "registry_dir": "outputs/models"
+    "_audit_path_doc": "SCRIPT-FACING ONLY (2026-08-27 config audit): the engine's audit chain uses core/audit.py's own default 'outputs/audit.jsonl' (AuditTrail() constructed bare) and never reads this key; scripts (cost_truth_report, smoke_test) DO read it. Editing it moves the scripts' READ target without moving the engine's WRITE target - split-brain by one edit. Keep it equal to the engine default unless the engine is wired to it.",
+    "registry_dir": "outputs/models",
+    "_registry_dir_doc": "INFORMATIONAL (2026-08-27 config audit): ml/registry.py hardcodes directory='outputs/models' and no get_registry() caller passes this key - editing it silently changes nothing. Code owns the path."
   },
   "strategies": {
     "engine": "informed_flow",
@@ -1152,7 +1159,7 @@
     "improve_at_urgency": 0.7,
     "taker_at_urgency": 0.88,
     "improve_spread_frac": 0.25,
-    "_thin_doc": "thin-book precision entries (adverse-selection defense): when thin_book_maker_only is true, an entry into a 'thin' liquidity regime is forced maker-only (never crosses the spread) and rests improved thin_improve_spread_frac into the spread for a precise fill. Ships false = current behavior; enable to trade thinner weekend books safely without paying the toxic-book spread.",
+    "_thin_doc": "thin-book precision entries (adverse-selection defense): when thin_book_maker_only is true, an entry into a 'thin' liquidity regime is forced maker-only (never crosses the spread) and rests improved thin_improve_spread_frac into the spread for a precise fill. Introduced false (ff927a58), flipped TRUE in fd3d9511 (deliberate commit) - true IS current behavior. [doc corrected 2026-08-27 config audit - it still said 'Ships false = current behavior']",
     "thin_book_maker_only": true,
     "thin_improve_spread_frac": 0.4
   },

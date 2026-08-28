@@ -1752,6 +1752,22 @@ def validate(config: dict) -> list:
                  f"minimum ticket - NO entry can ever be approved. Raise "
                  f"max_position_size_pct_of_capital or add capital.")
 
+    # --- exploration floor multiplier (lifted 2026-08-27, config audit) ---
+    # Probe tickets floor at max(min_ticket_usd, pretrade.min_order_usd *
+    # explore_floor_mult) (risk/position_sizer.py, SZ-044). Below 1.0 the
+    # floor undercuts the pre-trade minimum: the sizer floors at the MARK
+    # while the gate recomputes notional at the QUOTE, so the floored
+    # ticket lands under min_order and dies PT-031 - the exact death the
+    # knob exists to prevent. Above 5.0 it stops being a floor margin and
+    # becomes a probe SIZING lever in disguise.
+    efm = float(_f(config, "position_sizer.explore_floor_mult", 1.2))
+    if not (1.0 <= efm <= 5.0):
+        fatal(f"position_sizer.explore_floor_mult={efm} outside [1.0, 5.0] "
+              f"- below 1.0 the exploration floor undercuts "
+              f"pretrade.min_order_usd after the maker-quote gap (the "
+              f"PT-031 death it exists to prevent); above 5.0 it is probe "
+              f"sizing, not a floor margin")
+
     # --- profit tiers -----------------------------------------------------
     # ProfitTierEngine closes close_pct of the CURRENT (remaining) size at each
     # tier, not the original, so closes compound geometrically:
@@ -2672,6 +2688,26 @@ def validate(config: dict) -> list:
         warn(f"liquidity_regime.whiplash_healthy_p95={wp95} sits at/below "
              f"the healthy-book median (p50~1.1) - manip_suspect will read "
              f"elevated on ordinary quiet books")
+
+    # --- spoof EWMA smoothing weight (lifted 2026-08-27, config audit) ----
+    # spoof_score = 1 - exp(-3 * ewma), ewma updated with this weight every
+    # snapshot; the score hard-vetoes books at the spoofy thresholds above.
+    # Outside (0, 1] it is not an EWMA weight: <= 0 freezes the score at
+    # its seed forever (the veto never updates on evidence), > 1
+    # overshoots. Above 0.5 the smoothing is effectively off - a
+    # near-per-snapshot reading, defeating the sustained-evidence
+    # semantics the SD-003 healthy-book bar was derived under (0.85
+    # requires a sustained ~0.63 events/cycle EWMA at alpha 0.06).
+    sea = float(_f(config, "liquidity_regime.spoof_ewma_alpha", 0.06))
+    if not (0.0 < sea <= 1.0):
+        fatal(f"liquidity_regime.spoof_ewma_alpha={sea} outside (0, 1] - "
+              f"not an EWMA weight: <=0 freezes the spoof score at its "
+              f"seed forever (the veto never updates), >1 overshoots")
+    elif sea > 0.5:
+        warn(f"liquidity_regime.spoof_ewma_alpha={sea} > 0.5 - smoothing "
+             f"effectively off (near-per-snapshot spoof score); the SD-003 "
+             f"healthy-book bar derivation assumed sustained-evidence "
+             f"semantics at alpha 0.06")
 
     # --- v9 liquidity-tier isolation coherence ----------------------------
     # The cap-tiers scale ONLY the categorical executability floors. Two
