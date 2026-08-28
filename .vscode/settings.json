@@ -17,7 +17,21 @@
     "**/__pycache__": true,
     "**/*.pyc": true,
     "outputs/audit.jsonl": true,
-    "outputs/state.json*": true
+    "outputs/state.json*": true,
+    ".pytest_cache": true,
+    ".ruff_cache": true,
+    ".worktrees": true,
+    ".mythos": true
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "config.json": "config.json.pre-*",
+    "README.md": "README_WINDOWS.md",
+    "pyproject.toml": "pyrightconfig.json, requirements.txt, .markdownlint.json",
+    ".gitignore": ".gitattributes",
+    "start.bat": "start.sh, stop.bat, stop.sh, restart.bat",
+    "install.bat": "install.sh"
   },
   "search.exclude": {
     "outputs/**": true,
