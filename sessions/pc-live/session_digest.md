@@ -2,15 +2,15 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-28 21:34 UTC (1189.69h, ~3245 cycles)
-- Equity (current capital epoch): $800.00 -> $797.77 (range $10.12) | 5 epochs lifetime, range $99,208.70 | realized PnL $2.88 | fees $8.14
-- Activity: 5 open | 375 live labeled trades | 18699 candidates | 313 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-28 22:34 UTC (1190.69h, ~3363 cycles)
+- Equity (current capital epoch): $800.00 -> $797.90 (range $10.12) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $2.88 | fees (all legs) $8.14
+- Activity: 5 open | 375 live labeled trades | 18707 candidates | 313 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 375 | cold=False
-- Audit: 69549 records (29987 non-routine) | dominant SZ-047 (74% of non-routine) | chain=SEAMS(8, benign) | retrain_requests 159
-- Liquidity: spoofy 65% of classified cycles | feed errors 1
-- Recent (48h lens): 625 audit records | dominant LB-010 (37% of non-routine) | retrain_requests 7 | spoofy 65%
+- Audit: 69563 records (30001 non-routine) | dominant SZ-047 (74% of non-routine) | chain=SEAMS(8, benign) | retrain_requests 159
+- Liquidity: spoofy 65% of non-liquid cycles | feed errors 1
+- Recent (48h lens): 617 audit records | dominant LB-010 (37% of non-routine) | retrain_requests 7 | spoofy 65% (non-liquid)
 
 ## Diagnostics
-- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 65% of classified cycles (last 48h), which suppresses sizing/taker on every asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
-- [WARN] **SD-004 audit trail dominated by one code**  -  LB-010 is 37% of 543 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 65% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
+- [WARN] **SD-004 audit trail dominated by one code**  -  LB-010 is 37% of 542 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  8 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
