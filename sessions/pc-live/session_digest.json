@@ -1,22 +1,22 @@
 {
-  "generated_at": 1787891659.057487,
+  "generated_at": 1787895261.825883,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787891649.554,
-    "duration_h": 1172.68
+    "end": 1787895246.0,
+    "duration_h": 1173.67
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 707,
-      "signal_records": 579,
+      "records": 710,
+      "signal_records": 582,
       "by_src": {
-        "long_book": 223,
-        "exploration": 159,
+        "long_book": 224,
+        "exploration": 161,
         "conviction": 144,
-        "ml_governor": 123,
-        "order_manager": 41,
+        "ml_governor": 122,
+        "order_manager": 42,
         "exit": 12,
         "startup": 2,
         "fault": 2,
@@ -29,7 +29,7 @@
         ],
         [
           "CV-030",
-          111
+          113
         ],
         [
           "SZ-051",
@@ -45,15 +45,15 @@
         ],
         [
           "CV-000",
-          33
+          31
         ],
         [
           "SZ-049",
-          27
+          28
         ],
         [
           "LB-020",
-          26
+          27
         ],
         [
           "ML-016",
@@ -73,22 +73,26 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.34,
-      "retrain_requests": 8,
+      "dominant_frac": 0.338,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 8274,
+      "records": 9059,
       "by_level": {
-        "INFO": 8216,
-        "WARNING": 54,
+        "INFO": 8996,
+        "WARNING": 59,
         "CRITICAL": 2,
         "ERROR": 2
       },
       "top_warnings": [
         [
+          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+          6
+        ],
+        [
           "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
+          5
         ],
         [
           "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -121,30 +125,26 @@
         [
           "op-state INIT -> ARMED (startup validation passed)",
           2
-        ],
-        [
-          "DF-020: building feature rows with degraded context (equity, options) - the affected features read neutral; rows carry avail_* flags",
-          2
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 1362,
-        "thin": 1127
+        "spoofy": 1561,
+        "thin": 1267
       },
-      "spoofy_frac": 0.547,
-      "cycles_estimate": 1240,
+      "spoofy_frac": 0.552,
+      "cycles_estimate": 1358,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 801.07,
+    "equity_end": 801.19,
     "equity_min": 797.61,
     "equity_max": 806.91,
     "equity_range": 9.3,
     "capital_epochs": 5,
-    "epoch_samples": 88665,
+    "epoch_samples": 88902,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -152,22 +152,22 @@
     "realized_pnl_total": 2.88,
     "fees_paid_total": 7.8543,
     "open_positions": 3,
-    "samples": 256456
+    "samples": 256693
   },
   "activity": {
-    "signal_rows_total": 18659,
+    "signal_rows_total": 18661,
     "live_labeled_trades": 375,
-    "candidate_rows": 18284
+    "candidate_rows": 18286
   },
   "audit": {
-    "records": 69332,
-    "signal_records": 29798,
+    "records": 69346,
+    "signal_records": 29812,
     "by_src": {
-      "exploration": 62393,
-      "ml_governor": 2004,
-      "long_book": 1713,
-      "order_manager": 1667,
-      "conviction": 473,
+      "exploration": 62395,
+      "ml_governor": 2005,
+      "long_book": 1719,
+      "order_manager": 1668,
+      "conviction": 477,
       "startup": 322,
       "fault": 303,
       "exit": 279,
@@ -195,15 +195,15 @@
       ],
       [
         "LB-010",
-        1108
+        1112
       ],
       [
         "ML-031",
-        755
+        756
       ],
       [
         "OM-040",
-        449
+        450
       ],
       [
         "ML-016",
@@ -218,11 +218,11 @@
         329
       ],
       [
-        "CG-000",
-        322
+        "CV-030",
+        326
       ],
       [
-        "ML-041",
+        "CG-000",
         322
       ]
     ],
@@ -238,17 +238,21 @@
     "chain_error": null
   },
   "events": {
-    "records": 8274,
+    "records": 9059,
     "by_level": {
-      "INFO": 8216,
-      "WARNING": 54,
+      "INFO": 8996,
+      "WARNING": 59,
       "CRITICAL": 2,
       "ERROR": 2
     },
     "top_warnings": [
       [
+        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+        6
+      ],
+      [
         "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
+        5
       ],
       [
         "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -281,18 +285,14 @@
       [
         "op-state INIT -> ARMED (startup validation passed)",
         2
-      ],
-      [
-        "DF-020: building feature rows with degraded context (equity, options) - the affected features read neutral; rows carry avail_* flags",
-        2
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1362,
-      "thin": 1127
+      "spoofy": 1561,
+      "thin": 1267
     },
-    "spoofy_frac": 0.547,
-    "cycles_estimate": 1240,
+    "spoofy_frac": 0.552,
+    "cycles_estimate": 1358,
     "feed_error_events": 1
   },
   "model": {
@@ -335,7 +335,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 34% of 579 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 582 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
