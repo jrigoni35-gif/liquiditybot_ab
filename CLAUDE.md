@@ -204,19 +204,14 @@ exotic.** Verify the instrument before you build a theory on its
 output. Measured recurrences, all the same shape (a confident
 instrument, wrong, with nothing flagging it):
 
-- `cost_attribution.py` hard-codes a fee schedule STRUCK 2026-08-07 and
-  asserts using it is "the conservative check" — inverted at the true
-  tier. A false safety claim shipped inside a running instrument.
-- The session digest reported cured conditions (spoofy 68%, SZ-047
-  spam) as CURRENT for weeks, because its lens was the whole run.
-- A "constant-time comparison" test pin was satisfied by the string
-  appearing in a COMMENT; an `==` implementation passed it.
-- The manip detector scores an honest market maker byte-identically to
-  a layering attacker (0.949/79/spoofy both).
-- `manip_suspect` on the board has no smoothing (lag-1 autocorr 0.06);
-  a single read was taken for a trend that measured rho=+0.007.
-- The overfit battery silently substitutes a SYNTHETIC corpus and still
-  prints green — the corpus line is the only tell.
+Seven dated incidents — a struck fee schedule asserting itself "the
+conservative check", a digest reporting cured conditions as current, a
+test pin satisfied by a comment, a detector scoring honest and hostile
+flow byte-identically, an unsmoothed board number read as a trend, the
+overfit battery's silent synthetic corpus, and the era-confounded veto
+baseline (2026-08-27) — live with full citations in vault
+`wiki/concepts/the-method.md` ("Measured recurrences" register). Read
+them there before trusting any instrument this file governs.
 
 **Operating consequences, binding:**
 
