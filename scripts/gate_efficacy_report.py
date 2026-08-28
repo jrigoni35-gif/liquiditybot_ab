@@ -192,13 +192,27 @@ def _era_state(overlap: float, base_n: int) -> str:
 
 
 def _comparison(base_n: int, is_veto: bool, era_state: str,
-                neff_ok_both: bool, lo, hi, base_lo, base_hi) -> str:
+                neff_ok_both: bool, lo, hi, base_lo, base_hi,
+                *, admitted: bool = False) -> str:
     """Single significance-verdict vocabulary shared by every comparison
     site (per-disposition, by_code pooling, and the admitted-vs-baseline
     headline) so the three surfaces cannot silently diverge on what
     "significant" means. EXTEND this vocabulary, never repurpose an
     existing value - gc_pusher and the vault both key off these
     strings.
+
+    `anti_selective`/`selective` are VETO-sample tokens: the sample is
+    what the gate REJECTED, so winning MORE than baseline is harm and
+    winning LESS is the veto earning its keep. The admitted-vs-baseline
+    headline is the opposite kind of sample (rows the gate TOOK), so it
+    passes `admitted=True` and the same two interval predicates emit
+    `selects_winners` / `adverse_selection` instead - the direction
+    words a taken sample actually means. Before 2026-08-28 (final-review
+    F1) the headline lied `is_veto=True` to reach the confound states
+    and exported the veto tokens inverted: admitted 0.90 vs baseline
+    0.10, same era, read `anti_selective` - the harm word for brilliant
+    selection. The confound / no-baseline / not-significant tokens are
+    sample-direction-neutral and stay shared.
 
     `not_significant_nominal_n` is distinct from `not_significant`: the
     latter means both sides had a computable effective n AND their
@@ -209,7 +223,7 @@ def _comparison(base_n: int, is_veto: bool, era_state: str,
     `anti_selective_nominal` distinction at the boolean level."""
     if not base_n:
         return "no_baseline"
-    if not is_veto:
+    if not is_veto and not admitted:
         return "not_applicable"
     if era_state == "CONFOUNDED_BASELINE":
         return "CONFOUNDED_BASELINE"
@@ -218,9 +232,9 @@ def _comparison(base_n: int, is_veto: bool, era_state: str,
     if not neff_ok_both:
         return "not_significant_nominal_n"
     if lo > base_hi:
-        return "anti_selective"
+        return "selects_winners" if admitted else "anti_selective"
     if hi < base_lo:
-        return "selective"
+        return "adverse_selection" if admitted else "selective"
     return "not_significant"
 
 
@@ -354,9 +368,9 @@ def efficacy(rows: list, min_n: int) -> dict:
            "separation": adm["rate"] - base["rate"] if base["n"] else None,
            "admitted_era_overlap": adm_era_overlap,
            "admitted_comparison": _comparison(
-               base["n"], True, adm_era_state,
+               base["n"], False, adm_era_state,
                adm["neff_ok"] and base["neff_ok"], adm["lo"], adm["hi"],
-               base["lo"], base["hi"]),
+               base["lo"], base["hi"], admitted=True),
            "dispositions": []}
     for d, v in sorted(by.items(), key=lambda kv: -len(kv[1])):
         if len(v) < min_n:
@@ -595,18 +609,22 @@ def render(eff: dict, cal: list, conc: dict) -> str:
                      "era the baseline can't speak to); no significance "
                      "claim is made here")
         else:
+            # F1 (2026-08-28 final review): prose now branches on the
+            # exported `admitted_comparison` token itself rather than
+            # re-deriving the same interval predicates, so the JSON
+            # field and this markdown cannot silently diverge.
             nom_disjoint = (a["n"] and b["n"]
                             and (a["lo_nom"] > b["hi_nom"]
                                  or a["hi_nom"] < b["lo_nom"]))
-            if not (a["neff_ok"] and b["neff_ok"]):
+            if cmp == "not_significant_nominal_n":
                 L.append("- **significance NOT assessed**: effective n is not "
                          "computable for at least one side, so no disjointness "
                          "claim is made here (a claim that would rest on "
                          "nominal n is not made at all)")
-            elif a["lo"] > b["hi"]:
+            elif cmp == "selects_winners":
                 L.append("- separation is significant on effective n "
                          "(intervals disjoint)")
-            elif a["hi"] < b["lo"]:
+            elif cmp == "adverse_selection":
                 L.append("- **adverse separation is SIGNIFICANT** on effective "
                          "n (intervals disjoint) - the admitted set is "
                          "reliably worse than taking no view at all")

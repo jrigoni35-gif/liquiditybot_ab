@@ -905,7 +905,7 @@
     "kraken_checksum_backoff_base_s": 1.0,
     "kraken_checksum_backoff_cap_s": 60.0,
     "_kraken_checksum_backoff_note": "W2-28: consecutive checksum-mismatch resubscribe backoff (doubling from base, capped at cap, reset by the next clean verified frame) - paces the RESUBSCRIBE REQUEST only, never data availability. A mismatch still drops local state + invalidates the cache immediately on every occurrence, forcing an instant REST fallback read; only how often we ASK Kraken to resubscribe is bounded, so a systematic (not one-off) desync can't churn reconnects at zero delay.",
-    "_kraken_note": "Kraken v2 public book channel (wss://ws.kraken.com/v2). Real-time incremental books for the 6 trading_pairs, keyed by Kraken REST pair so fast_cycle's get_order_book(pair) reads the cache and skips the rate-limited REST Depth loop. Read-only public data; Kraken execution stays on the REST order path (invariant 3). Fail-safe: stale/down/disabled -> REST."
+    "_kraken_note": "Kraken v2 public book channel (wss://ws.kraken.com/v2). Real-time incremental books for the 7 trading_pairs, keyed by Kraken REST pair so fast_cycle's get_order_book(pair) reads the cache and skips the rate-limited REST Depth loop. Read-only public data; Kraken execution stays on the REST order path (invariant 3). Fail-safe: stale/down/disabled -> REST."
   },
   "webdata": {
     "description": "Free keyless crypto context: CoinGecko global (BTC dominance, mcap) + alternative.me Fear & Greed index.",

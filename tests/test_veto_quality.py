@@ -270,6 +270,55 @@ def test_admitted_vs_baseline_headline_stays_normal_when_comparable():
     assert "baseline PARTIAL OVERLAP" not in md
 
 
+# ---------------------------------------------------------------------------
+# F1 (2026-08-28 final review): the admitted-vs-baseline headline used to
+# call _comparison with is_veto=True - a lie to the parameter that leaked
+# the VETO significance vocabulary inverted onto a TAKEN sample. The
+# admitted headline now speaks admitted-appropriate tokens
+# (selects_winners / adverse_selection); the veto tokens stay untouched
+# for by_code/per-disposition, and the confound states remain shared.
+# ---------------------------------------------------------------------------
+def test_admitted_headline_beating_baseline_is_selects_winners():
+    """INJECTION (the reviewer's exact plant): admitted 0.90 vs baseline
+    0.10, same era, intervals disjoint on effective n. Under the old
+    is_veto=True lie this exported 'anti_selective' - the harm word for
+    brilliant selection."""
+    t = 1_787_300_000.0
+    rows = [_era_row("", 1 if i < 4 else 0, t + i * 3600, "legacy")
+            for i in range(40)]                       # baseline 0.10
+    rows += [_era_row("entered", 1 if i < 36 else 0, t + (100 + i) * 3600,
+                      "legacy") for i in range(40)]   # admitted 0.90
+    eff = ger.efficacy(rows, 30)
+    assert eff["admitted_era_overlap"] == 1.0
+    assert eff["admitted_comparison"] == "selects_winners"
+    assert eff["admitted_comparison"] != "anti_selective"
+    md = ger.render(eff, [], ger.concentration(rows))
+    assert "separation is significant on effective n" in md
+    assert "adverse separation is SIGNIFICANT" not in md
+    # extend-never-repurpose: the per-disposition admitted row still
+    # reads the pre-existing non-veto token, untouched by this fix
+    d = {x["disposition"]: x for x in eff["dispositions"]}["entered"]
+    assert d["comparison"] == "not_applicable"
+
+
+def test_admitted_headline_worse_than_baseline_is_adverse_selection():
+    """Symmetric inverse of the injection above: admitted 0.10 vs
+    baseline 0.90, same era, disjoint. Under the old lie this exported
+    'selective' - the veto praise word for a gate reliably taking
+    losers."""
+    t = 1_787_400_000.0
+    rows = [_era_row("", 1 if i < 36 else 0, t + i * 3600, "legacy")
+            for i in range(40)]                       # baseline 0.90
+    rows += [_era_row("entered", 1 if i < 4 else 0, t + (100 + i) * 3600,
+                      "legacy") for i in range(40)]   # admitted 0.10
+    eff = ger.efficacy(rows, 30)
+    assert eff["admitted_era_overlap"] == 1.0
+    assert eff["admitted_comparison"] == "adverse_selection"
+    assert eff["admitted_comparison"] != "selective"
+    md = ger.render(eff, [], ger.concentration(rows))
+    assert "adverse separation is SIGNIFICANT" in md
+
+
 def test_per_disposition_rows_carry_the_comparison_field():
     """C7: HANDOFF overclaimed the per-rule markdown table already
     carried `comparison: "CONFOUNDED_BASELINE"` (it only ever emitted
