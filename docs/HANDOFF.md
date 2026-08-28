@@ -34,6 +34,44 @@ In VS Code: **Tasks: Run Task** → `Remote console: PC status (via git)`,
 
 ---
 
+## ERA-5 BEGINS HERE — cut #8, the fee-truth epoch (2026-08-28)
+
+**The era-4 cohort is CLOSED at its readout state** (COST_BOUND, n=54,
+`docs/quant/2026-08-26_why_losing_deep_dive.md`). Boundary #5 — the
+fee-truth cut — was **APPLIED** under the 2026-08-27 operator adjudication
+("both: full bundle"), together with the control-arm merge. `exec_era` is
+now **`8-ca55e2ba`** (cut #8 on the all-cuts counter, boundary #5 on the
+fill-axis counter; both name this cut, see the vault's comparability
+table). Config went to venue-true Kraken Tier-1 **40/80 bps** on both the
+pricing and booking sides, the PT break-even floor to 80, the label
+round-trip cost to **1.2%**, exploration `p_win` to **0.85**.
+
+**Era-5 accrual starts at zero from the cut #8 runner restart.** Nothing
+from era-4 may be pooled with it. The pre-registered gate machinery
+(`scripts/cohort_eval.py`, its bands, its selection rule) was **not
+touched** by the cut — deliberately.
+
+**What to expect, so it is not misread as a fault:** the derived entry bar
+is now **0.8335** (was 0.6902). Model confidences run 0.60–0.77, so
+conviction entries effectively stop and the book becomes probe-dominated.
+That is the strategy's honest position at true costs, not a malfunction —
+it is consequence #1 of `docs/quant/2026-08-25_boundary5_adjudication.md`,
+chosen with eyes open.
+
+**Also live from this bundle:** the control-arm stratification tag
+(`ml/history.py`, schema **94→95**, `CONTROL_ARM_FRACTION` 5%) — a
+deterministic `sha256(asset|hour-bucket)` tag written at the single
+`_append_row` choke point so the corpus grows its own contemporaneous
+baseline. It is **written and never read**: no gate, sizer or order path
+touches it (repo-wide grep guard,
+`tests/test_control_arm_tag.py::test_control_arm_absent_from_decision_code`).
+It does not bypass a veto and it changes no decision — "control arm at 5%"
+means 5% of new rows are TAGGED, not 5% of trades are unguarded. The
+`gate_efficacy_report` consumer that would turn those rows into a live
+era-current baseline is **not built yet** (see CTRL-2 on the docket).
+
+---
+
 ## AS OF 2026-08-22T15:00Z — verify before citing
 
 **CURRENCY NOTE 2026-08-28:** the table below predates the era-4 READOUT
@@ -125,8 +163,10 @@ bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
 | **TRIALS-1** *(SAFE)* | no ledger of how many strategy configurations were evaluated before the deployed one, and none of their SR dispersion. Without it DSR cannot be computed — only tabulated against hypotheses about N (`deflated_sharpe` falls back to var=SR^2). Cheap, purely additive | same |
 | **WHY-1** | **era-4 dollar decomposition at readout (n=54)**: gross +$8.23, fees $6.87 booked / $13.59 true -> net +$1.36 / **-$5.36**. The split that matters: **conviction n=5 nets +1.46%/trip at TRUE fees; probes n=49 net -1.05%** - 91% of trades are tuition whose gross (+0.28%) sits below the round trip. Alt tail (DOGE/ARB/LTC/ADA/SUI) -$3.67 on 27 trips; BTC/ETH/LINK +$4.56 on 18. Median ticket **$18** - unbeatable fee floor. Verdict machinery worked: COST_BOUND shape + old gate STAND DOWN. Remedies all staged/docketed: boundary #5, ALGO-5, CONC-1, asset discipline | `docs/quant/2026-08-26_why_losing_deep_dive.md` |
 | **CONC-1** *(cohort-resetting — do NOT act before readout)* | mean uniqueness 0.301 means the cohort buys information at ~1/3 of nominal rate. Raising it is a **sizing/concurrency** decision, inadmissible under the moratorium. Logged for boundary #6 | same |
-| **FEE-1** | **configured fees are ~half the venue's real bottom tier** (Kraken T1 = 40/80, config = 25/40). Worth **−$4.04 of the accrued +$5.04** in the cohort window. Writing the true number produces a **config_guard FATAL** — the bot will not start, because exploration `p_win 0.700` falls below the net-Kelly breakeven `0.833` | `raw/quant/` cost-stack report; injection-verified |
-| **FEE-2** | at true fees the entry bar moves **p 0.690 → 0.834** (+14.3 pts), so the probe lane that generates 85% of the cohort stops clearing by construction | same |
+| ~~**FEE-1**~~ **SHIPPED at cut #8 (2026-08-28)** | **configured fees are ~half the venue's real bottom tier** (Kraken T1 = 40/80, config = 25/40). Worth **−$4.04 of the accrued +$5.04** in the cohort window. Writing the true number produces a **config_guard FATAL** — the bot will not start, because exploration `p_win 0.700` falls below the net-Kelly breakeven `0.833` | `raw/quant/` cost-stack report; injection-verified |
+| ~~**FEE-2**~~ **SHIPPED at cut #8 (2026-08-28)** | at true fees the entry bar moves **p 0.690 → 0.834** (+14.3 pts), so the probe lane that generates 85% of the cohort stops clearing by construction. Re-derived independently at apply time: b_net 0.4488 → 0.1998, breakeven 0.6902 → **0.8335** — the adjudication doc's number, confirmed by a second route | same |
+| **QT-1** *(NEW 2026-08-28, needs its own adjudication — do NOT flip it in a passing commit)* | `scripts/quant_trials.py`'s harness-owned `TIER_CFG["est_fee_bps"]` is **40** and the deployed config is now **80** — the harness's declared "mirrors config.json's shipped block" property is DRIFTED by cut #8. Measured before deciding (200×1200, seed 7, runtime-proven config-independent: **0** config.json reads at import or during `run_trials`): as-is **G1–G5 all pass, byte-identical to pre-cut**; mirroring the cut (est_fee_bps 80) makes **G5 capture FAIL, 0.57 vs baseline 0.61**, and collapses G1's margin to 4.84% vs cap 4.91%. Same shape as the adjudicated #103 T6 enablement finding. Left UNCHANGED and NOT widened; the standing gates are honest about the harness world they were baselined in, and now demonstrably *not* about the deployed cost world | `scripts/quant_trials.py:73-82`, this session's boundary-#5 report |
+| **CTRL-2** *(SAFE, unblocked by the cut #8 merge)* | the control-arm tag is now WRITTEN but nothing consumes it. `gate_efficacy_report.py` needs its second, era-current baseline arm sourced from the tag's minority-arm rows — the only route out of the universal CONFOUNDED_BASELINE/PARTIAL_OVERLAP state. Two drifts the original TODO must absorb: the era-current arm must clear `ERA_OVERLAP_MAJORITY` by construction (not merely the floor), and any new `comparison` value must route through the two-vocabulary verdict function at `gate_efficacy_report.py:228-237` or it reintroduces the F1 inversion `0084c16d` killed. Needs accrual first (~usable n=30 in 0.85–1.6d of live rows) | sandbox report §5, `scripts/gate_efficacy_report.py` |
 | **FEE-3** | OM-080 fee reconciliation has **never fired** — the account's actual tier row is unverified. One read-only `TradeVolume` call settles it; needs the first real credential on the box, so scope query-only and prefer post-readout | `execution/order_manager.py:767` |
 **REG-6 UPDATE (2026-08-26, veto-quality instrument):** the pre-registered
 readout condition now has its number. Pooled by code with effective-n
@@ -214,7 +254,7 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the 86bps break-even buffer and bo
 
 ## STANDING FENCES (why your change may be refused)
 
-- **Era-4 moratorium** — anything touching entry decisioning, sizing,
+- **Era-5 moratorium** (era-4's, re-fenced at cut #8) — anything touching entry decisioning, sizing,
   stop/exit geometry, the fill simulator, fee booking, or order
   lifecycle mints a new execution era and restarts accrual. Requires
   operator adjudication. SAFE: measurement, reports, dashboards, tests,
@@ -256,6 +296,8 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the 86bps break-even buffer and bo
 
 | what | verdict | record |
 |---|---|---|
+| Boundary #5 / cut #8 — the fee-truth cut (08-28) | **EXECUTED** under operator adjudication. Stager owned every config write (drift-check green, backup written, `validate()` on the APPLIED file = 0 FATAL / 4 WARN, all four documented consequences); `exec_era` minted `8-ca55e2ba` in the SAME commit as the behavior change — no repeat of cut #7's late-bump debt. `dry_run` never touched. 7 suite pins re-baselined, each named in the report; none widened | this row + `core/fill_ledger.py:30-78`, `docs/quant/2026-08-25_boundary5_adjudication.md` |
+| CTRL-1 control-arm merge (08-28) | **MERGED** (ff, `7b19181d`+`d64ad030`). Schema 95 live on the write path only (rotation in `_ensure_schema` ← `_append_row`, never `__init__` — the 2026-07-11 discipline); both conftest leak-registrations intact after the union rebase; 38 pins green in the MAIN tree | sandbox rebase report, `tests/test_control_arm_tag.py` |
 | Brier spike 0.181→0.339 (08-19) | base-rate surge 0.24→0.42, guards held, recovered within one horizon. **No fix.** | `docs/quant/2026-08-19_brier_spike_diagnosis.md` |
 | BTC/ETH +11%/+20% surge (08-20) | operator-adjudicated OUTLIER; bot measured it perfectly, cannot attribute it; no corpus surgery | `docs/quant/2026-08-20_event_record_surge_outlier.md` |
 | C++ diode 16-vs-21 accrual disagreement | diode's strict ingest was stricter than the pre-registered reference; fills now mirror DictReader; **full agreement at 1e-9** | `diode/README.md` |

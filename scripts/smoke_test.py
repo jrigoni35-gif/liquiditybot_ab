@@ -58,6 +58,36 @@ def check(name, cond, detail=""):
         print(f"  FAIL  {name}  {detail}")
 
 
+def forced_entry_prior(cfg: dict, margin: float = 0.05) -> float:
+    """A cold-start prior guaranteed to clear THIS cfg's net-Kelly bar.
+
+    Several checks below force a synthetic signal all the way to a real
+    order because their subject is the pipeline (order lifecycle,
+    persistence, the recorder) and not cost policy. For that to work the
+    forced entry must clear the sizer's p(win) bar, which in the shipped
+    `p_bar_mode="derived"` is pinned at the net-Kelly breakeven — a
+    function of the LIVE fee constants, not a constant.
+
+    This used to be a hardcoded 0.72, correct for a 25/40 bps world and
+    silently wrong the moment fees moved. Cut #8 (boundary #5, fee truth,
+    2026-08-28) moved the breakeven 0.6902 -> 0.8335 and three checks
+    started reporting "forced signal produced an entry order: orders=0" —
+    a harness failure that reads exactly like a pipeline regression.
+    Deriving it removes the whole class (pin the expression, not the
+    value); the next cost cut cannot re-break these checks.
+    """
+    from risk.position_sizer import payoff_ratio_from_config
+    pt = cfg.get("pretrade", {}) or {}
+    rt = (float(pt.get("maker_fee_bps", 25.0))
+          + float(pt.get("taker_fee_bps", 40.0))) / 100.0
+    b_net = payoff_ratio_from_config(
+        cfg.get("profit_taking", {}) or {}, cfg.get("risk", {}) or {},
+        rt_cost_pct=rt,
+        reach_decay=float((cfg.get("position_sizer", {}) or {})
+                          .get("tier_reach_decay", 0.65)))
+    return min(0.99, round(1.0 / (1.0 + b_net) + margin, 4))
+
+
 def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     """Point EVERY file the engine graph writes at TMP. QA bots run on
     the production config, whose path defaults are the live telemetry
@@ -544,10 +574,14 @@ def test_entry_fill_exit_path():
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
     qa_redirect_paths(cfg, "lifecycle")
-    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # DERIVED, not a literal (see forced_entry_prior): the bar this must
+    # clear is the net-Kelly breakeven, which moves with the fee constants
+    # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
+    # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
+    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). Subject is the order pipeline, not cost policy,
     # so the forced entry must clear net-Kelly to produce an order.
-    cfg["ml"]["cold_start_prior_p"] = 0.72
+    cfg["ml"]["cold_start_prior_p"] = forced_entry_prior(cfg)
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history2.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1   # let the forced signal through
@@ -793,11 +827,15 @@ def test_persistence_roundtrip():
     cfg["system"]["state_path"] = str(TMP / "smoke_state.json")
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
-    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # DERIVED, not a literal (see forced_entry_prior): the bar this must
+    # clear is the net-Kelly breakeven, which moves with the fee constants
+    # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
+    # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
+    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). This test's subject is persistence, not gate
     # economics, so the synthetic entry must clear net-Kelly to have a
     # position to snapshot (0.62 now sits below breakeven -> SZ-030 veto).
-    cfg["ml"]["cold_start_prior_p"] = 0.72
+    cfg["ml"]["cold_start_prior_p"] = forced_entry_prior(cfg)
     cfg["ml"]["model_path"] = str(TMP / "none.json")
     cfg["ml"]["history_path"] = str(TMP / "smoke_history3.csv")
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
@@ -1521,9 +1559,13 @@ def test_record_replay_sweep():
     cfg["ml"]["history_path"] = str(TMP / "smoke_rec" / "hist.csv")
     cfg["position_sizer"] = dict(cfg.get("position_sizer", {}),
                                  entry_cooldown_min=0, min_p_win=0.50)
-    # 0.72: above the honest net breakeven (~0.690 after the 2026-07-29 payoff-compounding fix; was 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # DERIVED, not a literal (see forced_entry_prior): the bar this must
+    # clear is the net-Kelly breakeven, which moves with the fee constants
+    # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
+    # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
+    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
     # round-trip cost fix). Subject is the recorder, not cost policy.
-    cfg["ml"]["cold_start_prior_p"] = 0.72
+    cfg["ml"]["cold_start_prior_p"] = forced_entry_prior(cfg)
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False  # subject: recorder, not cost policy
 

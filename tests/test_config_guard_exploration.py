@@ -33,8 +33,15 @@ def test_p_win_below_breakeven_is_fatal():
 
 
 def test_p_win_above_breakeven_is_clean():
+    # RE-BASELINED at cut #8 (boundary #5, fee truth, 2026-08-28): the
+    # breakeven this literal has to clear is derived from the LIVE fee
+    # constants, and true Tier-1 fees (40/80) moved it 0.690 -> 0.8335.
+    # 0.70 was "above breakeven" only in the 25/40 world; below the cut it
+    # is a FATAL, which is the guard being RIGHT. The pin's subject is the
+    # guard's clean-above-breakeven branch, so the literal moves with the
+    # breakeven - the number is a fixture, not the claim.
     cfg = copy.deepcopy(_CFG)
-    cfg["ml"]["exploration"]["p_win"] = 0.70
+    cfg["ml"]["exploration"]["p_win"] = 0.90
     assert not _explore_fatals(cfg)
 
 

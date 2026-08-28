@@ -104,12 +104,17 @@ def test_apply_refuses_on_drifted_from_value(tmp_path, monkeypatch, capsys):
 #    up the original beside it before writing.
 # ---------------------------------------------------------------------
 def test_clean_apply_writes_and_backs_up(tmp_path, monkeypatch):
+    # RE-BASELINED at cut #8 (2026-08-28): this pin used to assert the LIVE
+    # config still sat at the staged FROM values, because until the cut ran
+    # that was true and drift meant a stale package. The cut has now RUN -
+    # the live config is at the TO values by design - so the pre-cut world
+    # is reconstructed here explicitly instead of read off disk. What the
+    # old precondition protected (live drift must never be papered over) is
+    # NOT dropped: it moves to test_apply_refuses_against_the_applied_live_
+    # config below, which asserts the stronger post-cut fact.
     cfg = _real_config()
     for key, frm, _to in b5.EDITS:
-        assert b5._get(cfg, key) == frm, (
-            f"{key}: live config.json no longer matches boundary5_stage's "
-            "staged FROM value - the package needs re-derivation, this "
-            "test's fixture cannot silently paper over real drift")
+        b5._set(cfg, key, frm)
     cfg_path = tmp_path / "config.json"
     original_text = json.dumps(cfg, indent=2) + "\n"
     cfg_path.write_text(original_text, encoding="utf-8")
@@ -127,3 +132,35 @@ def test_clean_apply_writes_and_backs_up(tmp_path, monkeypatch):
     backups = list(tmp_path.glob("config.json.pre-boundary5-*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == original_text
+
+
+# ---------------------------------------------------------------------
+# 5. POST-CUT (added at cut #8, 2026-08-28): the package has been applied
+#    to the live config, so re-running --apply against it must REFUSE on
+#    its own drift check - the stager is single-shot by construction and
+#    cannot double-apply or re-mint the era. This is the pin that keeps
+#    the live config honest now that #4 no longer reads it: if someone
+#    hand-reverts a fee key to the pre-cut value, this test goes red.
+# ---------------------------------------------------------------------
+def test_apply_refuses_against_the_applied_live_config(tmp_path, monkeypatch,
+                                                       capsys):
+    cfg = _real_config()
+    for key, _frm, to in b5.EDITS:
+        assert b5._get(cfg, key) == to, (
+            f"{key}: the live config.json is not at boundary #5's applied TO "
+            "value - the cut was reverted or hand-edited; re-derive, do not "
+            "relax this pin")
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    before = cfg_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(b5, "CONFIG", cfg_path)
+    monkeypatch.setattr(sys, "argv", ["boundary5_stage.py", "--apply"])
+
+    rc = b5.main()
+
+    assert rc == 2
+    out = capsys.readouterr().out
+    assert "REFUSING" in out
+    assert cfg_path.read_text(encoding="utf-8") == before   # untouched
+    assert not list(tmp_path.glob("config.json.pre-boundary5-*"))

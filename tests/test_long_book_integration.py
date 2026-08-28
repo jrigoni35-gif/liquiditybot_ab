@@ -2186,7 +2186,26 @@ def _real_taker_entry_cfg(tmp_path) -> dict:
     order instead of a silent veto."""
     cfg = _full_cfg(tmp_path)
     cfg["grid_ladder"] = dict(cfg.get("grid_ladder", {}), enabled=False)
-    cfg["ml"]["cold_start_prior_p"] = 0.72
+    # RE-BASELINED at cut #8 (boundary #5, fee truth, 2026-08-28), and
+    # DERIVED rather than transcribed so the next cost cut cannot silently
+    # re-break it. The prior only exists to carry a forced signal past the
+    # sizer's p-bar into the real submit path; that bar is pinned at the
+    # net-Kelly breakeven in derived mode, and true Tier-1 fees moved the
+    # breakeven 0.690 -> 0.8335 - so the old flat 0.72 stopped clearing and
+    # the entry these tests pin was SZ-vetoed before reaching the wiring.
+    # Deriving it from THIS cfg's own geometry keeps the fixture honest at
+    # any future fee/geometry world (Class-4 stale-literal fix: pin the
+    # expression, not the value).
+    from risk.position_sizer import payoff_ratio_from_config
+    _pt_cfg = cfg.get("pretrade", {}) or {}
+    _rt = (float(_pt_cfg.get("maker_fee_bps", 25.0))
+           + float(_pt_cfg.get("taker_fee_bps", 40.0))) / 100.0
+    _be = 1.0 / (1.0 + payoff_ratio_from_config(
+        cfg.get("profit_taking", {}) or {}, cfg.get("risk", {}) or {},
+        rt_cost_pct=_rt,
+        reach_decay=float((cfg.get("position_sizer", {}) or {})
+                          .get("tier_reach_decay", 0.65))))
+    cfg["ml"]["cold_start_prior_p"] = min(0.99, round(_be + 0.05, 4))
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1
     cfg["pretrade"]["price_exit_leg"] = False
     cfg.setdefault("order_manager", {}).setdefault(

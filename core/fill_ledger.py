@@ -43,7 +43,39 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # per the rule above; it landed one commit late. Verified at the bump: ZERO
 # fills between the deploy instant and this commit (book flat through the
 # window), so no row ever carried "4-aeeaae36" on the era-7 side.
-EXEC_ERA = "7-e7d5ca1a"
+#
+# 8-ca55e2ba: cut #8, the FEE-TRUTH epoch - "boundary #5" on the fill-axis
+# counter the vault's comparability table keeps in parallel (four fill-axis
+# cuts + the label axis + the capital epoch + geometry = cut #7; this is the
+# eighth cut and the fifth fill-axis boundary; both counters are in use and
+# both name THIS cut). Applied by scripts/boundary5_stage.py --apply at
+# 2026-08-28T02:34:42Z under the 2026-08-27 operator adjudication ("both:
+# full bundle"), batched to the era-4 readout (COST_BOUND at n=54) exactly as
+# owed-88 prescribed. What changed: pricing AND booking fees 25/40 -> the
+# venue-true Kraken Tier-1 40/80 bps, the profit-taking break-even floor
+# 40 -> 80, the label round-trip cost 0.5% -> 1.2%, and the exploration
+# sizing ticket p_win 0.70 -> 0.85 (the one coherence edit that clears the
+# net-Kelly FATAL the guard correctly raises at true cost). Every fill priced,
+# booked and labelled after this cut is on a DIFFERENT cost manifold than
+# every fill before it - do not pool them.
+#
+# WHY THE SHA NAMES ca55e2ba AND NOT THIS COMMIT. The rule above ("bump in
+# the SAME commit") is satisfiable; naming the bumping commit's own sha is
+# NOT - a commit cannot contain its own hash. Cut #7 resolved that by
+# bumping one commit late and recording the debt. This cut resolves it the
+# other way: the bump rides the behavior change (the --apply config write is
+# in this same commit, no debt), and the 8-hex names the commit that DEFINES
+# the boundary's content - ca55e2ba, which shipped scripts/boundary5_stage.py
+# and docs/quant/2026-08-25_boundary5_adjudication.md. That is also the sha
+# the vault's authoritative boundary table already uses for this cut, so the
+# stamp and the table agree by construction.
+#
+# The era BEGINS at the runner restart on this commit (a running process
+# keeps the fee constants it read at init), not at the config write; that
+# instant is stamped in docs/HANDOFF.md and the vault boundary row in this
+# same session. Rows stamped 8-ca55e2ba are exactly the rows a binary
+# carrying this constant wrote - which is the only claim the stamp makes.
+EXEC_ERA = "8-ca55e2ba"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order

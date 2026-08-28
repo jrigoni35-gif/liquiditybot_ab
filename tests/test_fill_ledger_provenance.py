@@ -71,8 +71,14 @@ def test_new_file_carries_exec_era():
     r = _row()
     assert r["exec_era"] == EXEC_ERA
     # Cut #7 (geometry epoch, deployed 2026-08-11T01:33:50Z): era 4 -> 7.
+    # Cut #8 (fee-truth epoch, "boundary #5" on the fill-axis counter,
+    # applied 2026-08-28T02:34:42Z by scripts/boundary5_stage.py --apply
+    # under the 2026-08-27 operator adjudication): era 7 -> 8. The sha names
+    # ca55e2ba, the commit that DEFINES the package, because a commit cannot
+    # name its own hash - see core/fill_ledger.py's comment for why that is
+    # the resolution that keeps the bump on the behavior commit with no debt.
     # The assertion changing here IS the record of the bump, per convention.
-    assert EXEC_ERA == "7-e7d5ca1a", (
+    assert EXEC_ERA == "8-ca55e2ba", (
         "era constant must name the CURRENT era and its boundary commit - "
         "if you bumped it deliberately, this pin moves in the same commit")
     import re

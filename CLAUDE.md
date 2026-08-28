@@ -76,16 +76,33 @@ INVARIANT below, stop and say so instead of complying.
   legitimate change moves numbers, re-baseline consciously at 200×1200 —
   never widen a gate to silence CI.
 
-## Era-4 accrual moratorium (2026-08-10 -> gate readout)
+## Accrual moratorium — era-5 (cut #8, fee truth, 2026-08-28)
 
-The strategy verdict accrues on the era-4 honest-fill cohort
-(`scripts/cohort_eval.py`, pre-registered n=50; boundary #4 = aeeaae36,
-2026-08-10T11:03:35Z; capital epoch 2026-08-10T23:05:27Z). **Re-fenced at
-cut #7** — the geometry epoch, 2026-08-11T01:33:50Z (`e7d5ca1a`,
-widen-beyond stop placement; `exec_era` = `7-e7d5ca1a`): zero closes
-existed before it in the gate window, so the accruing cohort is uniformly
-post-geometry with no change to the pre-registered cut. Until the gate
-reads out:
+**The era-4 cohort is CLOSED.** It ran to its pre-registered n=50, read
+out **COST_BOUND** at n=54 (`docs/quant/2026-08-26_why_losing_deep_dive.md`),
+and that readout discharged the batching condition owed-88 was waiting
+on. Its numbers stay citable AS era-4; nothing accruing now may be pooled
+with them.
+
+**Cut #8 — the FEE-TRUTH epoch** (`exec_era` = `8-ca55e2ba`; "boundary #5"
+on the fill-axis counter the vault's comparability table keeps in
+parallel) was minted 2026-08-28 under explicit operator adjudication
+("both: full bundle"), applying `scripts/boundary5_stage.py --apply`:
+pricing and booking fees 25/40 → the venue-true Kraken Tier-1 **40/80
+bps**, the profit-taking break-even floor 40 → 80, the label round-trip
+cost 0.5% → **1.2%**, and exploration `p_win` 0.70 → **0.85** (the
+coherence edit that clears the net-Kelly FATAL the guard correctly raises
+at true cost). Consequences chosen knowingly, not discovered: the derived
+entry bar rises **0.690 → 0.8335** (conviction entries effectively stop;
+the book becomes probe-dominated), label targets follow the cost floor,
+and the give-back ratchet now arms inside a 166bps break-even buffer
+(GB-1, docketed with ALGO-5). Decision record:
+`docs/quant/2026-08-25_boundary5_adjudication.md`.
+
+**Era-5 accrual begins at the cut #8 runner restart**, from zero, on the
+same pre-registered machinery (`scripts/cohort_eval.py` — untouched by
+the cut: the gate, its bands and its selection rule are exactly as
+registered). Until it reads out:
 
 - **COHORT-RESETTING — forbidden without operator adjudication** (any of
   these mints the next execution-era boundary and restarts accrual):
@@ -93,8 +110,9 @@ reads out:
   (placement, nudges, time limits — the cut-#7 lesson: geometry changes
   trip outcomes even when fills don't move), the fill simulator, fee
   booking, or the order lifecycle. The ALGO-5 amendment (stop widths +
-  time-decay ladder at ~30 uncensored paths) is PRE-NAMED as the next
-  such adjudication.
+  time-decay ladder at ~30 uncensored paths), bundled with GB-1, is
+  PRE-NAMED as the next such adjudication; CONC-1 (concurrency/
+  uniqueness) is named for the one after.
 - **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
   export, and bug fixes that do not alter which orders are placed or how
   they fill.
@@ -139,7 +157,7 @@ ran on.
   2026-08-15. An SE computed on nominal n is optimistic by `sqrt(n/n_eff)`.
 
 **DO NOT "fix" any of these by lowering a floor.** The overfit row floor,
-`SG_MIN_ROWS`, and the era-4 `n=50` are **measurement standards, not
+`SG_MIN_ROWS`, and the cohort gate's `n=50` are **measurement standards, not
 tunables** — `gate_truth_report`'s own docstring says so in as many words.
 Moving one so a gate reads "real" is the widening this file forbids. The
 correct response to a degraded gate is to say so out loud and treat what it
@@ -188,7 +206,7 @@ in the vault holds the procedure. This is where to point suspicion
 FIRST, and it is earned from repeated measurement, not taste.
 
 **The asymmetry that generates every recurrence.** The decision path is
-the most-governed code here: hard invariants, the era-4 moratorium,
+the most-governed code here: hard invariants, the accrual moratorium,
 pre-registered gates, a hash-chained audit, the overfit battery,
 adversarial review. The measurement plane that observes it is the
 LEAST-governed: it is SAFE class by construction, so it ships freely,

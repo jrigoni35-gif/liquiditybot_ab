@@ -52,14 +52,45 @@ def test_immediate_stop_is_a_loss():
 
 
 def test_clean_run_through_all_tiers():
-    c, h, ll = _bars([(101.0, 100.5, 100.8), (102.0, 101.0, 101.8),
-                      (103.5, 102.5, 103.0), (105.0, 104.0, 104.8)])
+    # PATH RE-ANCHORED at cut #8 (boundary #5, fee truth, 2026-08-28).
+    # ExitPolicy.from_config reads the LIVE profit_taking.est_fee_bps, which
+    # the cut moved 40 -> 80: the break-even floor armed after tier 1 is
+    # 2*fee+buffer, so it doubled from 86bps to 166bps and the old path's
+    # shallower pullbacks now trip the floor/trail before tier 4 fills. The
+    # claim under test is the tier arithmetic on a clean four-tier run, so
+    # the PATH moves to stay clean in the new cost world; the arithmetic
+    # (0.25*(1+2+3.5+5)% = 2.875%) is untouched. The old path's new outcome
+    # is pinned below as the cut's recorded consequence, not deleted.
+    c, h, ll = _bars([(101.0, 100.5, 100.8), (102.0, 101.8, 101.9),
+                      (103.5, 103.0, 103.4), (105.0, 104.4, 104.9)])
     out = simulate_exit_policy(c, h, ll, 0, +1, 0.0, _flat_policy(),
                                max_bars=96, cost_pct=0.5)
     # 0.25*(1+2+3.5+5)% = 2.875% realized across the four scale-outs
     assert out.barrier == "tier"
     assert abs(out.ret_pct - 2.875) < 1e-6
     assert out.label == 1
+
+
+def test_boundary5_fee_truth_moved_the_runner_exit_on_the_old_path():
+    """Cut #8's label-geometry consequence, pinned rather than lost.
+
+    The path this test replays is the pre-cut version of the four-tier run
+    above. Under est_fee_bps=40 it closed on the tier-4 scale-out for
+    +2.875%; under the venue-true 80 the doubled break-even/trail floor
+    catches the runner first. The label stays 1 - the cut did not turn a
+    winner into a loser, it moved WHERE the runner is released and cut the
+    realized return by roughly half. That is the adjudicated consequence #2
+    of docs/quant/2026-08-25_boundary5_adjudication.md, observed on the
+    real labeler rather than argued from the config diff.
+    """
+    c, h, ll = _bars([(101.0, 100.5, 100.8), (102.0, 101.0, 101.8),
+                      (103.5, 102.5, 103.0), (105.0, 104.0, 104.8)])
+    out = simulate_exit_policy(c, h, ll, 0, +1, 0.0, _flat_policy(),
+                               max_bars=96, cost_pct=0.5)
+    assert _CFG["profit_taking"]["est_fee_bps"] == 80    # the cut, as shipped
+    assert out.barrier == "trail"
+    assert out.label == 1
+    assert 1.0 < out.ret_pct < 2.875
 
 
 def test_runup_then_giveback_exits_on_the_floor_not_at_peak():

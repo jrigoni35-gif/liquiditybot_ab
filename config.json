@@ -121,7 +121,7 @@
     "vol_scaled": true,
     "be_after_tier": 1,
     "be_buffer_bps": 6,
-    "est_fee_bps": 40,
+    "est_fee_bps": 80,
     "chandelier_k": 3.0,
     "chandelier_bars": 6,
     "tighten_after_bars": 96,
@@ -135,7 +135,7 @@
       "_doc": "v8 anti stop-hunt (Osler 2003/2005: stops cluster just past round numbers; sweep wicks overshoot the level then revert): a trailing-stop candidate within band_bps of the nearest round level on its sweep side is nudged to band_bps beyond it - always AWAY from price, ratchet-composed (never loosens a held stop), never blocks an exit. Break-even floor exempt (its contract is locking breakeven+buffer exactly). 0 = off (code default)."
     },
     "give_back": {
-        "_arm_doc": "arm_gain_pct set from the honest ledger 2026-07-20 (n=55, movers n=13): MFE p50 0.30 / p75 0.45 / p90 0.72 - the old 1.5 arm sat ABOVE p90, so the ratchet armed once in 55 trades and movers round-tripped (median peak +0.64 -> median close -0.33). 0.6 sits inside the observed envelope (~2x median mover peak); giveback_frac 0.4 then locks 60 percent of peak. Category repair, not peak-fit: any arm in [0.5, 0.8] captures the same mass.",
+      "_arm_doc": "arm_gain_pct set from the honest ledger 2026-07-20 (n=55, movers n=13): MFE p50 0.30 / p75 0.45 / p90 0.72 - the old 1.5 arm sat ABOVE p90, so the ratchet armed once in 55 trades and movers round-tripped (median peak +0.64 -> median close -0.33). 0.6 sits inside the observed envelope (~2x median mover peak); giveback_frac 0.4 then locks 60 percent of peak. Category repair, not peak-fit: any arm in [0.5, 0.8] captures the same mass.",
       "enabled": true,
       "arm_gain_pct": 0.6,
       "arm_vol_mult": 2.0,
@@ -155,9 +155,9 @@
       "max_boost": 0.5
     },
     "conviction_runner": {
-      "_doc": "entry-conviction (Position.confidence = meta p(win) at entry) scales the RUNNER leash: a LOW-conviction winner banks sooner (tighter chandelier trail), a HIGH-conviction winner keeps the full leash to run. One-sided by construction — only tightens, never loosens — so it composes with the ratchet and can only bring exits SOONER (invariant 5 safe). confidence >= neutral_conf, or <= 0 (unknown/restored/synthetic), keeps the FULL leash unchanged; between min_conf and neutral_conf the trail distance scales linearly down to min_trail_mult. This is how the desk lets a high-conviction winner run and cuts a marginal one short — the model's own p(win) decides.",
+      "_doc": "entry-conviction (Position.confidence = meta p(win) at entry) scales the RUNNER leash: a LOW-conviction winner banks sooner (tighter chandelier trail), a HIGH-conviction winner keeps the full leash to run. One-sided by construction \u2014 only tightens, never loosens \u2014 so it composes with the ratchet and can only bring exits SOONER (invariant 5 safe). confidence >= neutral_conf, or <= 0 (unknown/restored/synthetic), keeps the FULL leash unchanged; between min_conf and neutral_conf the trail distance scales linearly down to min_trail_mult. This is how the desk lets a high-conviction winner run and cuts a marginal one short \u2014 the model's own p(win) decides.",
       "enabled": true,
-      "neutral_conf": 0.70,
+      "neutral_conf": 0.7,
       "min_conf": 0.55,
       "min_trail_mult": 0.6
     },
@@ -275,11 +275,24 @@
     "tiers": {
       "_doc": "v9 liquidity-tier isolation. An asset is classified into a cap-tier from its OWN trailing-median Kraken top-10 depth (a DERIVED category, never a hardcoded symbol map - overfit discipline), and the tier scales ONLY the two categorical executability floors (depth / spread). CORE reproduces the legacy flat floors (min_depth_usd 150000 / max_spread_bps 12) byte-identically, so ETH/BTC - and quant_trials / overfit - never move; MID/MICRO lower the floors so a low-volume asset (SUI/ARB/MINA/FLOW) is judged on its own scale and REACHES the honest edge/cost EV gate, which stays FLAT for every tier. Tier = the richest tier whose depth floor the median depth clears; a sub-floor asset falls to the thinnest tier. Bands are broad round numbers (category, not peak-fit); re-calibrate from observed per-asset depth once real recordings arm (Bucket C). enabled=false collapses every asset to CORE (exact legacy behavior). config_guard enforces monotonic floors and core==legacy.",
       "enabled": true,
-      "order": ["core", "mid", "micro"],
+      "order": [
+        "core",
+        "mid",
+        "micro"
+      ],
       "hysteresis_frac": 0.15,
-      "core":  {"min_depth_usd": 150000, "max_spread_bps": 12},
-      "mid":   {"min_depth_usd": 40000,  "max_spread_bps": 25},
-      "micro": {"min_depth_usd": 12000,  "max_spread_bps": 45}
+      "core": {
+        "min_depth_usd": 150000,
+        "max_spread_bps": 12
+      },
+      "mid": {
+        "min_depth_usd": 40000,
+        "max_spread_bps": 25
+      },
+      "micro": {
+        "min_depth_usd": 12000,
+        "max_spread_bps": 45
+      }
     },
     "spoof_size_mult": 8,
     "spoof_max_lifetime_sec": 90,
@@ -328,8 +341,8 @@
   },
   "pretrade": {
     "description": "Set maker/taker fees to your actual Kraken tier. 25/40 is the public spot floor - config_guard refuses live start below it unless allow_sub_floor_fees is true. price_exit_leg adds the unwind leg (taker fee + half spread) to the EV cost stack - entries must clear ROUND-TRIP cost, not entry-only.",
-    "maker_fee_bps": 25,
-    "taker_fee_bps": 40,
+    "maker_fee_bps": 40.0,
+    "taker_fee_bps": 80.0,
     "price_exit_leg": true,
     "impact_eta": 0.8,
     "min_edge_cost_ratio": 1.3,
@@ -356,8 +369,8 @@
     "max_reprices": 1,
     "reprice_max_slip_bps": 8,
     "min_fill_ratio": 0.1,
-    "maker_fee_bps": 25,
-    "taker_fee_bps": 40,
+    "maker_fee_bps": 40.0,
+    "taker_fee_bps": 80.0,
     "deadman_timeout_sec": 60,
     "fee_recon": {
       "_doc": "W2-9 remainder: periodic REPORT-ONLY reconciliation of the account's ACTUAL Kraken fee tier (private TradeVolume, read-only) against BOTH configured bps sources - the maker_fee_bps/taker_fee_bps above (what OrderManager books fees at) AND pretrade.maker_fee_bps/taker_fee_bps (the pretrade EV gate's cost stack, threaded into OrderManager via main.py's pretrade_fee_bps constructor arg) - timed off hourly_cycle's injected now (never wall-clock). Never mutates config.json at runtime - a mismatch on EITHER source only WARNs + emits OM-080 once per interval, so the operator re-tunes the diverging bps consciously (lifted-threshold discipline). Flags when configured < actual (a gate is underestimating cost - the dangerous direction) regardless of tolerance, or when |configured - actual| exceeds tolerance_bps in either direction. tolerance_bps=1.0: the smallest Kraken tier step matters at our ~20.5bps measured cost overrun (P1, 2026-07-23 P&L diagnosis, 209 live closes) - looser and a real tier change could hide inside the noise band. interval_hours=24: daily is frequent enough to catch a volume-tier change within a trading day without hammering the private endpoint. Fails silent (debug-level skip, never raises) on missing/invalid credentials, DRY_RUN without keys, network errors, or a malformed TradeVolume response. config_guard enforces tolerance_bps in (0, 50] FATAL, interval_hours in [1, 168] FATAL.",
@@ -366,10 +379,10 @@
       "interval_hours": 24
     },
     "sim_fill": {
-      "_doc": "DRY-RUN passive-fill realism (MP-7). queue_aware gates a resting limit's fill on the depth resting AHEAD of it at its price clearing first (Huang-Lehalle-Rosenbaum queue-reactive / Moallemi-Yuan queue value: state-independent Poisson fills over-credit passive execution and bias candidate labels). Eligible once that depth ratchets down (max of observed shrink and a vol-scaled geometric turnover) to within queue_tol_frac of our own order size; the passive_base_prob*exp(-dist/sigma) draw then applies to the front-of-queue remainder. CONSCIOUSLY ENABLED (2026-07-21, execution-truth harness): the old flat-Poisson model over-credited passive fills ~95% at the touch with no queue/trade-through/adverse-selection, inflating the dry-run track record; queue-gating makes the paper fill honest. It changes the DRY-RUN label distribution, so it was enabled with a conscious re-baseline: pytest (1353) + smoke (219) + assurance (47) re-verified green (two controlled smoke fixtures — persistence + lifecycle plumbing — pinned to the deterministic fill model since their subject is persistence/pipeline, not fill realism; realism is tested in tests/test_sim_fill_queue). quant_trials is unaffected (it does not use the sim fill). The overfit live-data gap/pbo/dof fails are pre-existing and independent of the fill model (they read the fixed history CSV, not fills) — a data-thinness signal, not a regression. CAVEAT: honest fills are rarer, so verify passive fills are not starved at your live sigma/poll-cadence (scripts/calibrate_fills.py) before trusting the labels. Constants lifted from the fill path (overfit discipline). Live path unaffected: the venue owns real queueing.",
+      "_doc": "DRY-RUN passive-fill realism (MP-7). queue_aware gates a resting limit's fill on the depth resting AHEAD of it at its price clearing first (Huang-Lehalle-Rosenbaum queue-reactive / Moallemi-Yuan queue value: state-independent Poisson fills over-credit passive execution and bias candidate labels). Eligible once that depth ratchets down (max of observed shrink and a vol-scaled geometric turnover) to within queue_tol_frac of our own order size; the passive_base_prob*exp(-dist/sigma) draw then applies to the front-of-queue remainder. CONSCIOUSLY ENABLED (2026-07-21, execution-truth harness): the old flat-Poisson model over-credited passive fills ~95% at the touch with no queue/trade-through/adverse-selection, inflating the dry-run track record; queue-gating makes the paper fill honest. It changes the DRY-RUN label distribution, so it was enabled with a conscious re-baseline: pytest (1353) + smoke (219) + assurance (47) re-verified green (two controlled smoke fixtures \u2014 persistence + lifecycle plumbing \u2014 pinned to the deterministic fill model since their subject is persistence/pipeline, not fill realism; realism is tested in tests/test_sim_fill_queue). quant_trials is unaffected (it does not use the sim fill). The overfit live-data gap/pbo/dof fails are pre-existing and independent of the fill model (they read the fixed history CSV, not fills) \u2014 a data-thinness signal, not a regression. CAVEAT: honest fills are rarer, so verify passive fills are not starved at your live sigma/poll-cadence (scripts/calibrate_fills.py) before trusting the labels. Constants lifted from the fill path (overfit discipline). Live path unaffected: the venue owns real queueing.",
       "queue_aware": true,
       "queue_tol_frac": 1.0,
-      "queue_drain_frac": 0.20,
+      "queue_drain_frac": 0.2,
       "sigma_ref_bps": 30.0,
       "passive_base_prob": 0.048,
       "calibration_life_sec": 25.0,
@@ -463,7 +476,7 @@
     }
   },
   "conviction": {
-    "_doc": "Compounder Phase A conviction formula (risk/conviction.py, spec docs/superpowers/specs/2026-07-24-compounder-framework-design.md §2): deterministic admission for CONVICTION (non-probe) entries — all terms must agree, no fitted weights, every disposition a registered CV-* code. mode=report (shipped default) logs dispositions with BYTE-IDENTICAL entry behavior — the threshold-derivation period. mode=enforce skips denied conviction entries; the flip is a conscious operator decision after report telemetry review + green quant-trials at 200x1200 (never widen, never tune to a backtest peak).",
+    "_doc": "Compounder Phase A conviction formula (risk/conviction.py, spec docs/superpowers/specs/2026-07-24-compounder-framework-design.md \u00a72): deterministic admission for CONVICTION (non-probe) entries \u2014 all terms must agree, no fitted weights, every disposition a registered CV-* code. mode=report (shipped default) logs dispositions with BYTE-IDENTICAL entry behavior \u2014 the threshold-derivation period. mode=enforce skips denied conviction entries; the flip is a conscious operator decision after report telemetry review + green quant-trials at 200x1200 (never widen, never tune to a backtest peak).",
     "enabled": true,
     "mode": "report",
     "agreement_floor": 0.75,
@@ -477,19 +490,41 @@
     "_cadence_doc": "governor mirror of ml.exploration.probe_share_window (40): rolling admit-share of the last share_window conviction EVALUATIONS, global + per-regime. Outside [share_lo, share_hi] with >= share_min_n samples -> CV-050/051 on the state TRANSITION only. It alarms, it never auto-tunes. share_min_n suppresses judgment on thin windows, so a restart-reset window is silent, never false-alarming."
   },
   "context": {
-    "_doc": "Compounder Phase B context engine (data/context_engine.py, spec §3; evidence doc 2026-07-24 both passes). TELEMETRY-ONLY this phase: no decision path reads it until Phase C wires the long book. Slow structure = gates/context, never 5m model features (evidence doc §0). Every source degrades to unknown - a state, not a guess.",
+    "_doc": "Compounder Phase B context engine (data/context_engine.py, spec \u00a73; evidence doc 2026-07-24 both passes). TELEMETRY-ONLY this phase: no decision path reads it until Phase C wires the long book. Slow structure = gates/context, never 5m model features (evidence doc \u00a70). Every source degrades to unknown - a state, not a guess.",
     "enabled": true,
     "poll_hours": 6.0,
     "next_halving_date": "2028-04-17",
     "_next_halving_doc": "block-clock ESTIMATE; refresh as the epoch approaches. Past halvings are code constants (chain history).",
-    "phase_bucket_days": {"accumulation": 180, "expansion": 540, "euphoria": 900, "contraction": 1460},
-    "_phase_doc": "labeled CONVENTIONS over n=3 halvings - descriptive, no statistical claim (evidence doc pass 1 §1); consumers may only tighten on late phases, never boost.",
-    "stress": {"dff_center": 0.0, "dff_scale": 0.5, "t10y2y_center": 0.0, "t10y2y_scale": 0.5, "vix_center": 20.0, "vix_scale": 10.0, "clip": 2.0},
-    "_stress_doc": "fixed-clip z conventions (equity_risk_z pattern, no fitted weights); STRONG-graded as a risk dial only, never alpha (evidence doc pass 1 §3). 10y-2y is the first term to drop if budget tightens.",
-    "flow": {"cot_scale": 5000.0, "stable_scale_pct": 2.0, "clip": 2.0},
-    "_flow_doc": "COT leveraged-funds net delta is a CROWDING dial read jointly with basis_bps - post-ETF net-short is carry, not direction (pass 2 §1.3c, BINDING); stablecoin weekly supply delta per Ante et al. FRL 2021. Never signed direction.",
-    "event_window": {"fomc_pre_h": 24.0, "fomc_post_h": 6.0, "expiry_pre_h": 8.0, "expiry_post_h": 2.0},
-    "_event_doc": "cadence-pause windows only - direction evidence is contradictory (pass 1 §4); consumed by the long book in Phase C, nothing in Phase B.",
+    "phase_bucket_days": {
+      "accumulation": 180,
+      "expansion": 540,
+      "euphoria": 900,
+      "contraction": 1460
+    },
+    "_phase_doc": "labeled CONVENTIONS over n=3 halvings - descriptive, no statistical claim (evidence doc pass 1 \u00a71); consumers may only tighten on late phases, never boost.",
+    "stress": {
+      "dff_center": 0.0,
+      "dff_scale": 0.5,
+      "t10y2y_center": 0.0,
+      "t10y2y_scale": 0.5,
+      "vix_center": 20.0,
+      "vix_scale": 10.0,
+      "clip": 2.0
+    },
+    "_stress_doc": "fixed-clip z conventions (equity_risk_z pattern, no fitted weights); STRONG-graded as a risk dial only, never alpha (evidence doc pass 1 \u00a73). 10y-2y is the first term to drop if budget tightens.",
+    "flow": {
+      "cot_scale": 5000.0,
+      "stable_scale_pct": 2.0,
+      "clip": 2.0
+    },
+    "_flow_doc": "COT leveraged-funds net delta is a CROWDING dial read jointly with basis_bps - post-ETF net-short is carry, not direction (pass 2 \u00a71.3c, BINDING); stablecoin weekly supply delta per Ante et al. FRL 2021. Never signed direction.",
+    "event_window": {
+      "fomc_pre_h": 24.0,
+      "fomc_post_h": 6.0,
+      "expiry_pre_h": 8.0,
+      "expiry_post_h": 2.0
+    },
+    "_event_doc": "cadence-pause windows only - direction evidence is contradictory (pass 1 \u00a74); consumed by the long book in Phase C, nothing in Phase B.",
     "urls": {
       "fred_dff": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFF",
       "fred_t10y2y": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=T10Y2Y",
@@ -499,10 +534,13 @@
     }
   },
   "long_book": {
-    "_doc": "Compounder Phase C long-horizon accumulation book (risk/long_book.py, spec §4-5). PAPER-FIRST: rung 0 binds until realized book-tagged track record earns rung 1+. Engines are parameterized instances of the existing tier/sizer machinery - never duplicates. All thresholds below are planning conventions pending paper re-derivation.",
+    "_doc": "Compounder Phase C long-horizon accumulation book (risk/long_book.py, spec \u00a74-5). PAPER-FIRST: rung 0 binds until realized book-tagged track record earns rung 1+. Engines are parameterized instances of the existing tier/sizer machinery - never duplicates. All thresholds below are planning conventions pending paper re-derivation.",
     "enabled": true,
-    "assets": ["BTC", "ETH"],
-    "_assets_doc": "majors only at start - thin alts are the pump-and-dump surface (evidence doc pass 2 §1.1d); extend consciously.",
+    "assets": [
+      "BTC",
+      "ETH"
+    ],
+    "_assets_doc": "majors only at start - thin alts are the pump-and-dump surface (evidence doc pass 2 \u00a71.1d); extend consciously.",
     "add_usd_frac_of_ceiling": 0.2,
     "add_min_spacing_hours": 24.0,
     "add_offset_pct": 0.5,
@@ -514,39 +552,72 @@
     "_ttl_doc": "C4 review fix (Critical #1): order_ttl_hours is this book's OWN resting-order lifetime override (execution/order_manager.py's per-order ttl_sec), NOT the shared 5m order_manager.order_timeout_sec (25s) - a patient maker bid needs to live for HOURS to have any real chance of a paper/live fill, not 25 seconds. Each _long_book_cycle pass cancels-and-replaces a resting bid once its price has drifted past (add_offset_pct + zone_buffer_pct) from the current mark, so the long TTL never means a stale, unfillable price sits for the full 6h. retry_backoff_minutes (Important #3): once decide_add yields a plan but sizing/submission then fails (sizer veto, sub-ordermin, firewall reject, zero notional), the asset backs off for this long before the NEXT attempt - without it, the exact same failure would re-fire (and re-audit) every ~30s slow_cycle tick.",
     "thesis_stop_pct": 12.0,
     "_thesis_doc": "structural invalidation full-close (LB-031), NOT a volatility stop; wide by design - the tier/give-back machinery handles profit protection.",
-    "context": {"stress_max_for_add": 1.0, "require_known": true,
-                "pause_in_event_window": true,
-                "contraction_spacing_mult": 2.0,
-                "pause_in_crisis": true},
+    "context": {
+      "stress_max_for_add": 1.0,
+      "require_known": true,
+      "pause_in_event_window": true,
+      "contraction_spacing_mult": 2.0,
+      "pause_in_crisis": true
+    },
     "_context_doc": "term-4 alignment: adds need context known + stress dial <= stress_max_for_add; event windows pause adds (LB-050); contraction phase doubles spacing (down-only cadence, never direction; phase buckets are labeled conventions). pause_in_crisis (task C5, C4-review item 4): self.macro.state(asset).label==\"crisis\" pauses adds via the SAME LB-050 deny path as event windows - down-only cadence, exits never touched.",
     "ladder": {
-      "r1": {"ceiling_frac": 0.10, "min_closed_paper": 10},
-      "r2": {"ceiling_frac": 0.20, "min_closed_live": 15, "pf_floor": 1.2},
-      "r3": {"ceiling_frac": 0.30, "min_closed_live": 30,
-             "adverse_transitions_survived": 1},
+      "r1": {
+        "ceiling_frac": 0.1,
+        "min_closed_paper": 10
+      },
+      "r2": {
+        "ceiling_frac": 0.2,
+        "min_closed_live": 15,
+        "pf_floor": 1.2
+      },
+      "r3": {
+        "ceiling_frac": 0.3,
+        "min_closed_live": 30,
+        "adverse_transitions_survived": 1
+      },
       "dd_downgrade_pct": 6.0,
       "adverse_min_hours": 24.0
     },
-    "_ladder_doc": "evidence buys size (spec §5): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct, measured as the drop from the book's own equity-curve peak normalized by TOTAL PORTFOLIO EQUITY (not the book's own peak) -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
+    "_ladder_doc": "evidence buys size (spec \u00a75): rung 0 = paper only; r1-r3 ceilings as equity fractions unlocked by realized BOOK-TAGGED closes; breach dd_downgrade_pct, measured as the drop from the book's own equity-curve peak normalized by TOTAL PORTFOLIO EQUITY (not the book's own peak) -> INSTANT one-rung drop (LB-041; de-risk fast, re-earn slowly). Live arming remains the global config+restart+ARM LIVE road regardless of rung. adverse_min_hours (task C5 item 3(b)): a risk-off context episode (stress > stress_max_for_add) must SUSTAIN for at least this long, held-exposure-throughout and drawdown-under-the-downgrade-line-throughout, to count as a survived adverse transition (r3's own gate) - LB-042 on survival.",
     "position_sizer": {
       "max_position_size_pct_of_capital": 10,
       "_doc": "main.py builds a SECOND PositionSizer for this book from long_book.position_sizer. The block was absent, so every knob ran at risk/position_sizer.py's code defaults and the long book's entry cap has ALWAYS been the 10.0 fallback - invisible to the capital_management/position_sizer parity FATAL, which never covered this copy. Lifted at the IDENTICAL default (behavior-preserving, CLAUDE.md overfit discipline) so the number is now stated, guarded (config_guard._long_book_checks) and tunable. Deliberately NOT the 5m book's 25: this is the value that has actually been running, not an invented one. Every other sizer knob still resolves to the code default by design - the EvidenceLadder ceiling, not Kelly, is what bounds this book."
     },
     "profit_taking": {
-      "tier_1": {"trigger_pct_gain": 8.0, "close_pct_of_position": 20},
-      "tier_2": {"trigger_pct_gain": 15.0, "close_pct_of_position": 20},
-      "tier_3": {"trigger_pct_gain": 25.0, "close_pct_of_position": 25},
-      "tier_4": {"trigger_pct_gain": 40.0, "close_pct_of_position": 25},
+      "tier_1": {
+        "trigger_pct_gain": 8.0,
+        "close_pct_of_position": 20
+      },
+      "tier_2": {
+        "trigger_pct_gain": 15.0,
+        "close_pct_of_position": 20
+      },
+      "tier_3": {
+        "trigger_pct_gain": 25.0,
+        "close_pct_of_position": 25
+      },
+      "tier_4": {
+        "trigger_pct_gain": 40.0,
+        "close_pct_of_position": 25
+      },
       "vol_scaled": false,
-      "trailing_stop": {"enabled": true, "activate_after_tier": 2,
-                        "trail_pct": 8.0},
-      "give_back": {"enabled": true, "arm_gain_pct": 5.0,
-                    "giveback_frac": 0.35,
-                    "euphoria_giveback_frac": 0.25},
-      "time_stop": {"enabled": false},
+      "trailing_stop": {
+        "enabled": true,
+        "activate_after_tier": 2,
+        "trail_pct": 8.0
+      },
+      "give_back": {
+        "enabled": true,
+        "arm_gain_pct": 5.0,
+        "giveback_frac": 0.35,
+        "euphoria_giveback_frac": 0.25
+      },
+      "time_stop": {
+        "enabled": false
+      },
       "min_trigger_cost_mult": 3.0
     },
-    "_profit_doc": "long-horizon tier geometry (wider, absolute pct - vol_scaled off); euphoria phase tightens give-back to euphoria_giveback_frac (down-only per the disposition-effect inversion, evidence pass 2 §1.1a); PT-060 time-stop OFF by design (patience IS the strategy)."
+    "_profit_doc": "long-horizon tier geometry (wider, absolute pct - vol_scaled off); euphoria phase tightens give-back to euphoria_giveback_frac (down-only per the disposition-effect inversion, evidence pass 2 \u00a71.1a); PT-060 time-stop OFF by design (patience IS the strategy)."
   },
   "ml": {
     "sampling": {
@@ -570,7 +641,7 @@
     "label_sl_vol_mult": 6,
     "label_pt_cost_mult": 4.0,
     "_label_pt_cost_mult_doc": "Cost-floored barrier geometry (spec D2, docs/superpowers/specs/2026-07-27-geometry-alignment-design.md, geometry-alignment task 2): floors the SIGMA INPUT to ml/labeling.py's barrier_geometry() so the profit distance never falls below pt_cost_mult round-trip costs - sigma_eff = max(sigma_bar, pt_cost_mult * (label_round_trip_cost_pct/100) / label_pt_vol_mult), flooring the INPUT (never the distances) keeps the 8:6 pt:sl ratio exact by construction, one knob, no per-barrier distortion. At the shipped cost 0.5%: floor puts pt at 2%, sl at 1.5% (4.0 * 0.5% = 2% profit distance -> costs are 25% of the gross win). 0 disables the floor (legacy bare 8sigma/6sigma). Consumed by BOTH the candidate labeler (this key) and the live bracket-exit engine (Task 5) via the same pure helper - one bet, labeled and traded identically. Guarded in core/config_guard.py: FATAL outside [0, 20], WARN in (0, 2) (costs above 50% of the profit distance).",
-    "label_round_trip_cost_pct": 0.5,
+    "label_round_trip_cost_pct": 1.2,
     "label_include_spread": true,
     "label_spread_cap_bps": 60,
     "label_bars_stale_cycles": 240,
@@ -603,7 +674,7 @@
       "_drought_doc": "SIGNAL-DROUGHT extension of the VOI fastpath: with a free slot the fastpath normally stays dormant (a new teach trade can open regardless, holding is free). When NO entry has been admitted for realize_drought_h hours (thin weekend books, sustained gate vetoes) that premise fails - holding buys nothing and costs label latency - so the fastpath arms with free slots too. Clock resets on any successful entry-order submit. 0 disables the extension.",
       "_fastpath_doc": "VALUE-OF-INFORMATION fast-forward: the realize horizon only throttles learning when the book is FULL (a free slot admits a new teach trade regardless). Full book -> the stalest position realizes at fastpath spans (0.25 = ~2h, the guard floor) to buy a teach slot with the least label-richness cost; free slots -> the full realize_after_label_spans window (holding is free, outcome richer). Faster live-label flow reaches the evidence gate's floors sooner, unlocking model capacity earlier - compounding, not sloppy: candidate label geometry (label_max_bars) is untouched, live rows carry barrier='realized', and the uniqueness/recency weighting applies as usual. 0 disables the fastpath.",
       "_realize_doc": "learning-phase LABEL REALIZATION (ML-073, dry-run only, auto-off at until_live_rows). Fixes the SD-002 starvation loop: exploration paper trades must CLOSE to become live labels, but in a quiet book they hit no tier/stop and sit for days, filling the book to capacity so no new teaching entry can fire (observed: 0 entries, model cold at 35 live rows, retrain requested 18x with no new data to clear it). A position held past the model's LABEL HORIZON (realize_after_label_spans * ml.label_max_bars * bar-seconds; default 1x = ~8h) has already resolved its triple-barrier outcome, so its realized close IS the label the model expects - close the stalest such position (one per cycle) to bank the live label and free a teach slot. NOT a free literal: the horizon is the labeler's own window. Set realize_mature_labels=false to disable.",
-      "p_win": 0.7,
+      "p_win": 0.85,
       "_p_win_doc": "synthetic probe prior, PLACEHOLDER not measurement: its contract (config_guard) is to clear the derived net-Kelly breakeven with >=0.005 headroom so the F0b trickle survives. Re-derived 2026-07-29: the payoff-ratio unit fix (tier closes compound in original-position space, %-of-CURRENT contract) moved the honest config-average breakeven 0.632 -> 0.690, so the old 0.64 (set against the flat-weighted 0.632) fell below it and would have SZ-030-vetoed every probe on the non-bracket arm. 0.70 restores the designed clearance; probe notional is floor-dominated (label-acquisition floor + min ticket), so this does not inflate probe size.",
       "size_scale": 1.0,
       "max_asset_share": 0.5,
@@ -756,8 +827,18 @@
     "model_selection": {
       "_doc": "EVIDENCE GATE on the walk-forward selection ladder (ml/walkforward.admissible_families). Model capacity needs a minimum sample-per-effective-parameter to generalize instead of memorize (events-per-variable floor, Peduzzi 1996); a boosted-tree / MLP / bagged ensemble fit on a handful of real outcomes can only overfit, and entering it into selection just manufactures a lucky winner (inflating PBO). So a higher-capacity family is TRAINED and entered into selection only when BOTH floors clear: min_live_rows (real closed-trade labels - complexity is earned on ground truth, not triple-barrier proxies) AND min_total_rows (enough labeled rows to fit non-degenerate purged folds). logistic (the linear baseline) is always admissible and defines the simplicity floor. Floors escalate with capacity; they are order-of-magnitude sample-size floors, NOT tuned to any backtest peak. overfit_check mirrors this gate so OF-3 PBO measures the space the bot actually selects from. enabled=false -> no gating (historical behavior).",
       "enabled": true,
-      "min_live_rows": {"gbt": 60, "blend": 60, "mlp": 150, "adaptive_gbt": 250},
-      "min_total_rows": {"gbt": 150, "blend": 150, "mlp": 400, "adaptive_gbt": 600}
+      "min_live_rows": {
+        "gbt": 60,
+        "blend": 60,
+        "mlp": 150,
+        "adaptive_gbt": 250
+      },
+      "min_total_rows": {
+        "gbt": 150,
+        "blend": 150,
+        "mlp": 400,
+        "adaptive_gbt": 600
+      }
     },
     "overfit": {
       "dsr_n_trials": 7,
@@ -919,12 +1000,12 @@
     "enabled": true,
     "influence": "shadow",
     "evidence_concentration": {
-      "_doc": "TH-021 (docs/THALES.md §Evidence concentration): the fused evidence E = Σ wᵢ·sᵢ is a weighted SUM, so a DIFFUSE signal (many weak factors averaged) can clear the same |E| bar as a PINPOINTED one. This shade trims a signal's confidence toward the floor ONLY when it is BOTH diffuse (concentration < conc_pivot) AND marginal (confidence between floor_conf and marginal_conf); concentrated conviction or an already-strong signal is untouched. Down-only, bounded to [1-max_atten, 1.0]. enabled=false keeps EXACT prior behavior — flip true only after shadow hit-rate beats null and the OF/quant battery stays green (the doc's promotion bar).",
+      "_doc": "TH-021 (docs/THALES.md \u00a7Evidence concentration): the fused evidence E = \u03a3 w\u1d62\u00b7s\u1d62 is a weighted SUM, so a DIFFUSE signal (many weak factors averaged) can clear the same |E| bar as a PINPOINTED one. This shade trims a signal's confidence toward the floor ONLY when it is BOTH diffuse (concentration < conc_pivot) AND marginal (confidence between floor_conf and marginal_conf); concentrated conviction or an already-strong signal is untouched. Down-only, bounded to [1-max_atten, 1.0]. enabled=false keeps EXACT prior behavior \u2014 flip true only after shadow hit-rate beats null and the OF/quant battery stays green (the doc's promotion bar).",
       "enabled": false,
       "conc_pivot": 0.35,
       "max_atten": 0.15,
       "marginal_conf": 0.65,
-      "floor_conf": 0.50
+      "floor_conf": 0.5
     },
     "reliability": {
       "_doc": "V2 evidence-weighted gains: every closed advise-mode trade grades the detectors that shaded its entry (up-advice vindicated by a win, down-advice by a loss). Below min_fired grades a detector keeps its full configured gain (the hand-crafted prior rules cold start); after that the gain is scaled by max(0, 2*WilsonLCB90 - 1), so a detector that cannot beat a coin flip out-of-sample loses its voice. Weights ATTENUATE only, never amplify. feed_integrity is exempt (safety shade, not an alpha thesis).",
@@ -1031,7 +1112,16 @@
     "_doc": "asset skimmer: scan a candidate pool beyond the core trading_pairs, rank tradability (spread cost / book depth / bar activity), and PROMOTE the best into the active universe at the NEXT RESTART (runner.main merges outputs/skimmer_active.json into trading_pairs on the live path only - replay/overfit stay pinned to the recorded universe). Core pairs are permanent; at most max_extra promotions, keeping the worst-case REST-fallback budget (3 req/s with WS down) inside the ~12-pair envelope. Watching costs <=2 REST calls per evaluation, one candidate round-robin per loop pass, each at most once per eval_every_min. Promoted assets face every existing rail (EV gate, sizer, protocols, heat, firewall, manip gate); demotion only removes them from the NEXT boot - open positions keep their exits. apply_in_live=false means promotions apply in dry-run only until explicitly enabled for live.",
     "enabled": true,
     "apply_in_live": false,
-    "candidates": ["SOL/USD", "XRP/USD", "ADA/USD", "LINK/USD", "DOGE/USD", "DOT/USD", "AVAX/USD", "LTC/USD"],
+    "candidates": [
+      "SOL/USD",
+      "XRP/USD",
+      "ADA/USD",
+      "LINK/USD",
+      "DOGE/USD",
+      "DOT/USD",
+      "AVAX/USD",
+      "LTC/USD"
+    ],
     "max_extra": 5,
     "_max_extra_doc": "6 -> 5 on 2026-08-05 when PAXG joined the core pairs. The REST-fallback envelope is a real capacity limit, not a preference: with the WS feed down the book poll runs at 3 req/s, and base(7) + extra(6) = 13 pairs would starve it (the config guard fatals on exactly this). Gold therefore costs one DISCRETIONARY skimmer slot - a permanent tangible-value anchor in place of a rotating candidate, which is the trade the operator asked for. Raising this again requires raising the envelope first.",
     "eval_every_min": 60,
