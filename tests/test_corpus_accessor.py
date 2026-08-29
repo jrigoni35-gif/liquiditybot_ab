@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from ml.corpus import (NUMERIC_OPTIONAL, gross_ret_pct, is_unknown,
-                       net_ret_pct, read_frame, read_rows, row_era)
+from ml.corpus import (gross_ret_pct, is_unknown, net_ret_pct, read_rows,
+                       row_era)
 
 _COLS = ["side", "entry_price", "exit_price", "gate_confidence",
          "label_ret_pct", "label_era", "barrier", "label"]
@@ -78,27 +78,3 @@ def test_era_filter_never_pools(corpus_csv: Path):
     assert len(read_rows(corpus_csv)) == 4
     assert len(read_rows(corpus_csv, era="exit_sim")) == 1
     assert len(read_rows(corpus_csv, era="triple_barrier_h432")) == 1
-
-
-def test_polars_parity_with_stdlib(corpus_csv: Path):
-    """The fast lane must agree with the stdlib route row-for-row: same
-    count, '' -> null (not 0) in NUMERIC_OPTIONAL, same gross returns."""
-    pl = pytest.importorskip("polars")
-    rows = read_rows(corpus_csv)
-    df = read_frame(corpus_csv)
-    assert df.height == len(rows)
-    for col in NUMERIC_OPTIONAL:
-        if col not in df.columns:
-            continue
-        assert df.schema[col] == pl.Float64
-    # UNKNOWN survives typing: row 3's blank confidence is null, never 0.0
-    conf = df["gate_confidence"].to_list()
-    assert conf[2] is None
-    # gross parity on the recoverable rows, including the short sign flip
-    raw = (pl.col("exit_price") - pl.col("entry_price")) \
-        / pl.col("entry_price") * 100.0
-    g = df.select(
-        pl.when(pl.col("side") == "short").then(-raw).otherwise(raw)
-        .alias("g"))["g"]
-    for i in (0, 1):
-        assert g[i] == pytest.approx(gross_ret_pct(rows[i]))

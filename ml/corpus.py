@@ -27,29 +27,26 @@ tests/test_corpus_accessor.py — change behavior only WITH its pin):
 Reads only — this module never writes the corpus (append stays in
 ml.history; rotation stays write-path-only per the 2026-07-11 incident).
 
-polars is an OPTIONAL fast lane (12-36x measured): `read_frame` imports it
-lazily and raises a clear error if absent. Everything else is stdlib so the
-module imports in isolation (tests/test_import_integrity.py law).
+STDLIB-ONLY BY LAW: this module lives in engine scope (ml/), so it may not
+import analysis tooling (polars/pandas/duckdb) even lazily — the engine-scope
+dependency-hygiene gate (tests/test_dependency_hygiene.py) forbids it, and
+the repo convention keeps the polars fast lane in scripts/ (see the candle
+store: data/candle_journal.py is stdlib, scripts/candle_store.py holds the
+polars lane). A caller wanting the 12-36x parquet/polars speed reads
+CORPUS_PATH directly from a script; the semantics helpers here are the
+authority the fast lane mirrors, not a thing it imports.
 """
 from __future__ import annotations
 
 import csv
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ml.history import label_era_of
 
-if TYPE_CHECKING:  # polars is optional at runtime; typing only here
-    import polars as pl
-
 # Read-only default location of the live corpus (never written from here).
 CORPUS_PATH = Path("outputs") / "signal_history.csv"
-
-# Columns that are numeric-when-known, '' when UNKNOWN. Used by read_frame
-# for schema overrides so '' becomes null (never 0) in the fast lane too.
-NUMERIC_OPTIONAL = ("gate_confidence", "entry_price", "exit_price",
-                    "label_ret_pct", "net_pnl_usd", "pt_frac", "sl_frac")
 
 
 def is_unknown(value: object) -> bool:
@@ -110,19 +107,3 @@ def read_rows(path: "Path | str" = CORPUS_PATH,
     if era is None:
         return list(rows)
     return [r for r in rows if row_era(r) == era]
-
-
-def read_frame(path: "Path | str" = CORPUS_PATH) -> "pl.DataFrame":
-    """Typed polars frame (fast lane, 12x measured). '' -> null in the
-    NUMERIC_OPTIONAL columns — UNKNOWN survives the type system. Raises
-    ImportError with guidance when polars is not installed."""
-    try:
-        import polars as pl
-    except ImportError as exc:  # pragma: no cover - environment-dependent
-        raise ImportError(
-            "polars is the optional fast lane for ml.corpus; install it "
-            "(pip install polars) or use read_rows()/iter_rows()"
-        ) from exc
-    overrides = {c: pl.Float64 for c in NUMERIC_OPTIONAL}
-    return pl.read_csv(str(path), schema_overrides=overrides,
-                       infer_schema_length=5000)
