@@ -130,10 +130,14 @@ def test_double_derive_pct_and_usd_agree():
 
 @pytest.mark.skipif(not FILLS.exists(), reason="no fills.csv on this box")
 def test_usd_reconstruction_matches_gross():
-    # load_cohort asserts internally; this pins that the assert is REACHED and
-    # passes on the frozen snapshot (63 trips, no divergence raised).
+    # The real check is the per-trip USD==gross reconstruction (the loop) on
+    # whatever the LIVE cohort is. The count is >= 63, NOT == 63: the cohort is
+    # selected by close-ts>=threshold, so it grows monotonically as the live
+    # dry-run bot closes more qualifying trips (host-state-dependent green — a
+    # hard ==63 flaked to 64 the first time a new trip closed). The registration
+    # froze n=63; the live file only grows past it.
     trips = tcs.load_cohort(str(FILLS))
-    assert len(trips) == 63
+    assert len(trips) >= 63
     for t in trips:
         chk = 100.0 * t["cash_usd"] / t["notional_usd"]
         assert chk == pytest.approx(t["gross_pct"], abs=1e-6)
