@@ -489,6 +489,324 @@ def test_a_held_lock_refuses_rather_than_waiting_or_proceeding(tmp_path):
     assert _ingest(tmp_path).status == "OK"
 
 
+# --- P28 a venue revision is journalled ONCE, not once per poll -----------
+
+def test_a_repeated_identical_revision_appends_zero_bytes(tmp_path):
+    """MUTATION THAT MUST KILL THIS: make _window_index return conflict KEYS
+    again (a set) instead of conflict VALUES, so the
+    `value in journalled_conflicts[t]` test cannot be made.
+
+    Once a venue had revised one bar, EVERY subsequent identical fetch
+    re-appended a byte-identical CONFLICT row plus a coverage row - 176
+    bytes of no information per poll, forever. Three consequences, all
+    measured: content_digest (the module's advertised REPRODUCIBILITY
+    CONTRACT) drifted on an unchanged store, so "did the store change?"
+    could no longer be answered by comparing digests; lanes()['conflicts']
+    counted POLLS rather than venue revisions, a confidently wrong number
+    about data quality; and on a 5m collector across 15 assets it grew
+    without bound."""
+    base = _bars(5)
+    _ingest(tmp_path, base, committed_upto=T0 + 4 * IV, asked_from=T0,
+            asked_to=T0 + 4 * IV)
+    revised = [*base[:2], {**base[2], "close": base[2]["close"] + 0.25},
+               *base[3:]]
+    rep = _ingest(tmp_path, revised, committed_upto=T0 + 4 * IV,
+                  asked_from=T0, asked_to=T0 + 4 * IV, now_s=NOW + 60)
+    assert (rep.bars_accepted, rep.bars_dup, rep.bars_conflict) == (0, 4, 1)
+
+    after_revision = _files(tmp_path)
+    digest = cj.content_digest(tmp_path)
+    for k in range(3):
+        again = _ingest(tmp_path, revised, committed_upto=T0 + 4 * IV,
+                        asked_from=T0, asked_to=T0 + 4 * IV,
+                        now_s=NOW + 120 + 300 * k)
+        assert again.bars_conflict == 0, "the same revision re-conflicted"
+        assert again.bars_dup == 5
+    assert _files(tmp_path) == after_revision, "a re-poll appended bytes"
+    assert cj.content_digest(tmp_path) == digest, "the digest drifted"
+    assert [r["conflicts"] for r in cj.lanes(root=tmp_path)] == [1], (
+        "conflicts counts polls, not venue revisions")
+    # a SECOND, DIFFERENT revision is still journalled
+    rep3 = _ingest(tmp_path, [*base[:2],
+                              {**base[2], "close": base[2]["close"] - 0.25},
+                              *base[3:]],
+                   committed_upto=T0 + 4 * IV, asked_from=T0,
+                   asked_to=T0 + 4 * IV, now_s=NOW + 9000)
+    assert rep3.rejected_by_reason == {}
+    assert rep3.bars_conflict == 1
+    assert [r["conflicts"] for r in cj.lanes(root=tmp_path)] == [2]
+
+
+# --- P29 a contradiction inside one batch is the same fact ----------------
+
+@pytest.mark.parametrize("order", ["low_first", "high_first"])
+def test_two_contradictory_prints_in_one_batch_are_a_conflict(tmp_path, order):
+    """MUTATION THAT MUST KILL THIS: book a second differing row for the
+    same key as bars_dup again.
+
+    The module MANDATES batch accumulation ("a backfill MUST accumulate
+    every page for one lane and call this ONCE") and data/okx_feed.py pages
+    backward in 100-row chunks, so a venue revising a boundary bar between
+    page 1 and page 5 lands both prints in ONE batch. That used to be booked
+    as bars_dup with conflicts=0, with a confident price served at reason
+    OK - while the identical disagreement one poll apart was journalled as
+    CONFLICT and refused a number. Two observationally identical inputs, two
+    different epistemic answers, and the module's own batching rule made the
+    HIDING one likelier.
+
+    The old branch comment claimed "the first wins, consistently with
+    first-committed-wins across batches". Measured: both offer orders
+    produced the SAME survivor, because `sorted(valid)` sorts on the
+    RENDERED value tuple - it was neither the first offered nor consistent
+    with the cross-batch path."""
+    a = {"time": T0, "open": 100.0, "high": 101.0, "low": 99.0,
+         "close": 99.5, "volume": 1.0}
+    b = {"time": T0, "open": 100.0, "high": 101.5, "low": 99.0,
+         "close": 100.5, "volume": 1.0}
+    batch = [a, b] if order == "low_first" else [b, a]
+    rep = _ingest(tmp_path, batch, committed_upto=T0, asked_from=T0,
+                  asked_to=T0)
+    assert rep.bars_conflict == 1, "an in-batch contradiction was hidden"
+    assert rep.bars_dup == 0
+
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    assert view.coverage_of(T0) == "CONFLICTED"
+    assert view.forward_return(T0, IV)[1].startswith("anchor_CONFLICTED")
+    assert view.bars(T0, T0)[0].conflicted is True
+
+    # THE EQUIVALENCE THAT MATTERS: the same disagreement split across two
+    # ingests reaches the same epistemic state.
+    split = tmp_path / "split"
+    _ingest(split, [batch[0]], committed_upto=T0, asked_from=T0, asked_to=T0)
+    r2 = _ingest(split, [batch[1]], committed_upto=T0, asked_from=T0,
+                 asked_to=T0, now_s=NOW + 60)
+    sview = cj.load_view("ETH", IV, series=SERIES, root=split)
+    assert r2.bars_conflict == 1
+    assert sview.coverage_of(T0) == view.coverage_of(T0)
+    assert sview.forward_return(T0, IV) == view.forward_return(T0, IV)
+    assert sview.price_at(T0)[1] == view.price_at(T0)[1]
+
+
+def test_two_identical_prints_in_one_batch_are_still_a_dup(tmp_path):
+    """The complement: agreement is not a conflict."""
+    a = {"time": T0, "open": 100.0, "high": 101.0, "low": 99.0,
+         "close": 99.5, "volume": 1.0}
+    rep = _ingest(tmp_path, [a, dict(a)], committed_upto=T0, asked_from=T0,
+                  asked_to=T0)
+    assert (rep.bars_accepted, rep.bars_dup, rep.bars_conflict) == (1, 1, 0)
+    assert cj.load_view("ETH", IV, series=SERIES,
+                        root=tmp_path).coverage_of(T0) == "OK"
+
+
+# --- P27 the coverage CLAIM never outlives its EVIDENCE -------------------
+
+def test_a_failed_bar_append_writes_no_coverage_claim(tmp_path, monkeypatch):
+    """MUTATION THAT MUST KILL THIS: delete the `if not written: return`
+    guard before the coverage append in _ingest_locked.
+
+    core.runtime.durable_append is documented to NEVER RAISE and to return
+    False on OSError. Ignoring that False left the store claiming a window
+    over bars that were never written, so every slot in it answered
+    NO_BAR_IN_COVERED_WINDOW - "we looked and the venue had nothing" -
+    forever, in an append-only store with no path that retracts a coverage
+    row. Identical to the confident lie P1's write ORDER exists to prevent,
+    reached by a path the ordering does not cover, at exit 0 and
+    `verify` ok:true."""
+    real = cj.durable_append
+
+    def fail_journal(path, render, **kw):
+        if "journal" in str(path):
+            return False
+        return real(path, render, **kw)
+
+    # a healthy first run, so the lane is KNOWN and the second run's slots
+    # can only differ by their coverage
+    _ingest(tmp_path, _bars(2), committed_upto=T0 + IV, asked_from=T0,
+            asked_to=T0 + IV)
+    before = _files(tmp_path)
+
+    monkeypatch.setattr(cj, "durable_append", fail_journal)
+    rep = _ingest(tmp_path, _bars(6), committed_upto=T0 + 5 * IV,
+                  asked_from=T0, asked_to=T0 + 5 * IV, now_s=NOW + 60)
+    assert rep.written is False
+    assert rep.bars_accepted == 4
+    assert rep.coverage_windows == ()
+    assert _files(tmp_path) == before, (
+        "a coverage claim was written over bars that never landed")
+    monkeypatch.undo()
+
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    for i in range(2, 6):
+        # NOT covered - either never-looked or right-censored, both of which
+        # are curable and honest. The forbidden answer is the fabricated
+        # hole: "we looked and the venue had nothing".
+        assert view.coverage_of(T0 + i * IV) in (
+            "NOT_COVERED", "BEYOND_RIGHT_EDGE"), i
+        assert view.coverage_of(T0 + i * IV) != "NO_BAR_IN_COVERED_WINDOW"
+    # ...and it self-heals on the next complete run
+    _ingest(tmp_path, _bars(6), committed_upto=T0 + 5 * IV, asked_from=T0,
+            asked_to=T0 + 5 * IV, now_s=NOW + 120)
+    healed = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    assert healed.coverage_of(T0 + 5 * IV) == "OK"
+
+
+def test_a_failed_reject_append_writes_no_coverage_claim(tmp_path,
+                                                        monkeypatch):
+    """Same rule for the refusal ledger: without its rows the refused slots
+    would read as venue holes inside a window we DID claim."""
+    real = cj.durable_append
+
+    def fail_rejects(path, render, **kw):
+        if "rejects" in str(path):
+            return False
+        return real(path, render, **kw)
+
+    batch = [b for b in _bars(4)]
+    batch[2] = {**batch[2], "high": batch[2]["low"] - 1.0}
+    monkeypatch.setattr(cj, "durable_append", fail_rejects)
+    rep = _ingest(tmp_path, batch, committed_upto=T0 + 3 * IV, asked_from=T0,
+                  asked_to=T0 + 3 * IV)
+    assert rep.written is False
+    assert not (tmp_path / "coverage").exists()
+
+
+# --- P30 an unbounded response claims its CONTIGUOUS RUNS -----------------
+
+def test_a_stale_in_band_bar_does_not_widen_coverage(tmp_path):
+    """MUTATION THAT MUST KILL THIS: go back to `win_from = min(seen)` for
+    the asked_from_s=None path, i.e. one window spanning the response.
+
+    scripts/candle_backfill.py's own docstring RECORDS the measured case: a
+    DELISTED Binance.US USD pair answers 200 with a well-formed frozen page
+    (ARBUSD/PAXGUSD/FLOWUSD each returned 1000 bars dated 2023-05-16 ->
+    2023-06-27 in response to a request for the most recent 1000, and
+    nothing in the response says so). Both shipped callers pass
+    asked_from_s=None, and core/sanitize.clean_candles applies no
+    timestamp-plausibility, monotonicity or gap check - so one stale row
+    beside current rows made the store claim it had LOOKED at every slot
+    between, converting tens of thousands of never-looked slots into
+    fabricated real holes. NOT_COVERED is curable by fetching; a fabricated
+    NO_BAR_IN_COVERED_WINDOW is not."""
+    stale = {"time": T0 - 20000 * IV, "open": 50.0, "high": 51.0,
+             "low": 49.0, "close": 50.0, "volume": 1.0}
+    rep = _ingest(tmp_path, [stale, *_bars(3)], committed_upto=T0 + 2 * IV,
+                  asked_from=None, asked_to=None)
+    assert rep.bars_accepted == 4
+    wins = cj.covered_windows("ETH", IV, series=SERIES, root=tmp_path)
+    assert wins == [(T0 - 20000 * IV, T0 - 20000 * IV), (T0, T0 + 2 * IV)]
+    assert rep.coverage_windows == ((T0 - 20000 * IV, T0 - 20000 * IV),
+                                    (T0, T0 + 2 * IV))
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    for probe in (T0 - 10000 * IV, T0 - IV, T0 - 19999 * IV):
+        assert view.coverage_of(probe) == "NOT_COVERED", probe
+    assert view.coverage_of(T0 - 20000 * IV) == "OK"
+    assert view.coverage_of(T0) == "OK"
+    # the stale row itself is kept - it IS what the venue said
+    assert len(view.bars(T0 - 20000 * IV, T0 + 2 * IV)) == 4
+
+
+def test_an_unbounded_contiguous_response_still_claims_one_window(tmp_path):
+    """The common case is unchanged: a complete page is ONE run."""
+    rep = _ingest(tmp_path, _bars(10), committed_upto=T0 + 9 * IV,
+                  asked_from=None, asked_to=None)
+    assert rep.coverage_windows == ((T0, T0 + 9 * IV),)
+    assert cj.covered_windows("ETH", IV, series=SERIES, root=tmp_path) == \
+        [(T0, T0 + 9 * IV)]
+    assert rep.note == "window_inferred_from_response"
+    before = _files(tmp_path)
+    _ingest(tmp_path, _bars(10), committed_upto=T0 + 9 * IV, asked_from=None,
+            asked_to=None, now_s=NOW + 3600)
+    assert _files(tmp_path) == before, "the re-run was not a no-op"
+
+
+def test_an_asked_window_IS_the_coverage_claim_and_says_so(tmp_path):
+    """The other half of the same rule, and it is deliberately NOT clamped.
+
+    With asked_from_s supplied the caller ATTESTS the venue was asked for
+    that range, so an un-returned slot IS a real hole - that semantic is
+    load-bearing (see test_a_successful_empty_window_IS_a_real_hole) and
+    clamping it would destroy the only way to record a genuine venue
+    absence. What was missing is that nothing SAID so and nothing flagged
+    the venue-cap shape. The note now does; ingest()'s docstring says it in
+    capitals."""
+    rep = _ingest(tmp_path, _bars(5, start=T0 + 995 * IV),
+                  committed_upto=T0 + 999 * IV, asked_from=T0,
+                  asked_to=T0 + 999 * IV)
+    assert rep.bars_accepted == 5
+    assert rep.note == "response_short_of_asked_from"
+    assert rep.coverage_windows == ((T0, T0 + 999 * IV),)
+    out = cj.coverage("ETH", IV, T0, T0 + 999 * IV, series=SERIES,
+                      root=tmp_path)
+    assert out["missing_in_covered"] == 995     # the documented consequence
+    assert "asked_from_s BECOMES THE COVERAGE CLAIM" in \
+        (cj.ingest.__doc__ or "").replace("\n", " ").replace("  ", " ") or \
+        "IT BECOMES THE COVERAGE CLAIM" in (cj.ingest.__doc__ or "")
+    # a response that DOES reach the asked start carries no such note
+    clean = _ingest(tmp_path / "clean", _bars(5), committed_upto=T0 + 4 * IV,
+                    asked_from=T0, asked_to=T0 + 4 * IV)
+    assert clean.note == ""
+
+
+# --- P25 the closed vocabularies are enforced on READ as well as WRITE ----
+
+@pytest.mark.parametrize("cell,value", [
+    ("symbol", r"..\..\ESCAPED"),
+    ("symbol", "../../status"),
+    ("symbol", "eth"),
+    ("record_kind", "REJECTED"),
+    ("source", "coinbase"),
+    ("quote", "EUR"),
+    ("committed_by", "guess"),
+])
+def test_a_hand_written_row_outside_the_vocabulary_is_refused_on_read(
+        tmp_path, cell, value):
+    """MUTATION THAT MUST KILL THIS: delete the _validate_row call in
+    _read_segment.
+
+    _SYMBOL_RE is called "a SECURITY control, not tidiness" because the
+    symbol becomes a parquet filename - but it guarded ingest() only, so the
+    store's real trust boundary was "the journal CSV on disk is trusted
+    input", which nothing stated. A row can arrive by a route that is not
+    ingest(): the hand repair this module prescribes, an operator fix after
+    a STORE_UNREADABLE, a restored or merged segment, a bundle-transport
+    mangling. compact() then built `pdir / f"{symbol}_{interval_s}.parquet"`
+    straight out of the cell, and the store root is under outputs/, so
+    `..\\..` reaches the repo root. MEASURED: it wrote ESCAPED_3600.parquet
+    outside the store and named it only by basename in its own report."""
+    _ingest(tmp_path, _bars(3), committed_upto=T0 + 2 * IV, asked_from=T0,
+            asked_to=T0 + 2 * IV)
+    seg = next((tmp_path / "journal").glob("*.csv"))
+    row = {c: v for c, v in zip(cj.BAR_COLUMNS, [
+        1, "BAR", "ETH", IV, "kraken", "USD", T0 + 9 * IV, "100", "101",
+        "99", "100", "1", "venue_last", NOW])}
+    row[cell] = value
+    with open(seg, "a", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerow([row[c] for c in cj.BAR_COLUMNS])
+
+    with pytest.raises(cj.CandleStoreUnreadable):
+        list(cj._iter_bar_rows(tmp_path))
+    with pytest.raises(cj.CandleStoreUnreadable):
+        cj.lanes(root=tmp_path, prefer_manifest=False)
+    assert cj.load_view("ETH", IV, series=SERIES,
+                        root=tmp_path).coverage_of(T0) == "STORE_UNREADABLE"
+
+
+def test_compact_refuses_a_partition_path_outside_the_store(tmp_path,
+                                                            monkeypatch):
+    """BELT AND BRACES, verified independently of the read-path check."""
+    pytest.importorskip("polars")
+    import scripts.candle_store as cs
+    _ingest(tmp_path, _bars(3), committed_upto=T0 + 2 * IV, asked_from=T0,
+            asked_to=T0 + 2 * IV)
+    rows = cj.canonical_bar_rows(tmp_path)
+    escaped = [{**r, "symbol": r"..\..\ESCAPED"} for r in rows]
+    monkeypatch.setattr(cj, "canonical_bar_rows", lambda root=None: escaped)
+    monkeypatch.setattr(cs.cj, "canonical_bar_rows", lambda root=None: escaped)
+    with pytest.raises(cj.CandleStoreUnreadable):
+        cs.compact(tmp_path, full=True)
+    assert list(tmp_path.parent.glob("ESCAPED_*.parquet")) == []
+
+
 def test_no_tolerance_parameter_exists_anywhere(tmp_path):
     """P11. MUTATION THAT MUST KILL THIS: add `tolerance_s=0` to
     forward_return.

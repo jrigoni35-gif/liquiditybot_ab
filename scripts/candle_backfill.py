@@ -126,21 +126,43 @@ def venue_symbol(venue: str, asset: str, quote: str) -> str:
     raise ValueError(f"unknown venue {venue!r}")
 
 
+def _strip_credentials(feed: Any) -> Any:
+    """Make the public-only property STRUCTURAL, not a comment.
+
+    Passing no credential keys is not the same as building a client that
+    HAS none: KrakenFeed.__init__ resolves api_key/api_secret from the
+    ENVIRONMENT (KRAKEN_API_KEY / KRAKEN_API_SECRET) irrespective of the
+    config handed to it, and on the operator box those are set - so this
+    analysis process would otherwise hold a live, signing-capable client
+    exposing _private_post and the cancel/open-order calls. Nothing here
+    calls them; the defect is that the SAFE classification would rest on
+    prose, leaving a comment as the only guardrail against a future edit,
+    an exception path that dumps the object, or a repr in a crash log.
+    Blanking is done HERE rather than in the shipped feed class so no
+    decision-path module changes. Pinned by test_candle_backfill_public_only.
+    """
+    for attr in ("api_key", "api_secret", "api_passphrase", "passphrase"):
+        if getattr(feed, attr, None):
+            setattr(feed, attr, "")
+    return feed
+
+
 def build_feed(venue: str, config: Mapping[str, Any]) -> Any:
-    """A FRESH client per run - never the engine's live instance."""
+    """A FRESH, CREDENTIAL-FREE client per run - never the engine's live
+    instance. Only the throttle is carried over from config, and any
+    credential the feed class resolved for itself is blanked before the
+    object is returned (see _strip_credentials)."""
     ex = dict((config.get("exchanges") or {}).get(venue) or {})
-    # Only the throttle is carried over. No credential keys are passed:
-    # every endpoint this script touches is public.
     cfg = {"rate_limit_per_sec": ex.get("rate_limit_per_sec", 3)}
     if venue == "kraken":
         from data.kraken_feed import KrakenFeed
-        return KrakenFeed(cfg)
+        return _strip_credentials(KrakenFeed(cfg))
     if venue == "okx":
         from data.okx_feed import OKXFeed
-        return OKXFeed(cfg)
+        return _strip_credentials(OKXFeed(cfg))
     if venue == "binanceus":
         from data.binanceus_feed import BinanceUSFeed
-        return BinanceUSFeed(cfg)
+        return _strip_credentials(BinanceUSFeed(cfg))
     raise ValueError(f"unknown venue {venue!r}")
 
 
@@ -254,7 +276,8 @@ def run(assets: Sequence[str], intervals: Sequence[int], venue: str,
     bad = 0
     print(f"{'asset':<8}{'interval_s':>11}{'offered':>9}{'accepted':>10}"
           f"{'dup':>7}{'conflict':>10}{'rejected':>10}  "
-          f"{'win_from_s':>12}{'win_to_s':>12}  status  rejected_by_reason")
+          f"{'win_from_s':>12}{'win_to_s':>12}  status  written  "
+          f"rejected_by_reason")
     for asset in assets:
         for interval_s in intervals:
             rep = backfill_lane(
@@ -262,14 +285,19 @@ def run(assets: Sequence[str], intervals: Sequence[int], venue: str,
                 fetch=lambda a=asset, i=interval_s: fetch_lane(
                     feed, venue, a, quote, i, total),
                 root=root)
-            if rep.status != "OK":
+            # `written` counts as badly as a non-OK status. durable_append
+            # never raises and returns False on OSError, so a lane whose
+            # append died prints accepted=N for N bars that never reached
+            # disk; and status=="LOCKED" writes nothing at all. Neither may
+            # exit 0.
+            if rep.status != "OK" or not rep.written:
                 bad += 1
             print(f"{rep.symbol:<8}{rep.interval_s:>11}{rep.bars_offered:>9}"
                   f"{rep.bars_accepted:>10}{rep.bars_dup:>7}"
                   f"{rep.bars_conflict:>10}{rep.bars_rejected:>10}  "
                   f"{rep.win_from_s:>12}{rep.win_to_s:>12}  {rep.status}  "
-                  f"{rep.rejected_by_reason or ''}")
-    print(f"lanes with a non-OK observation: {bad}")
+                  f"{str(rep.written):<7}  {rep.rejected_by_reason or ''}")
+    print(f"lanes with a non-OK or unwritten observation: {bad}")
     print("re-derive the store's own numbers with: "
           "python scripts/candle_store.py verify")
     return 1 if bad else 0

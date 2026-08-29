@@ -64,16 +64,25 @@ zero-fill sin wearing a different hat). An unknown field is '' on disk and
 None in memory. There is NO tolerance parameter on any forward-return call
 and there never will be (pin P11): a tolerance >= the horizon makes every
 anchor match ITSELF and the cell reads 100% coverage, which is an artifact,
-not data.
+not data. THE SAME ARTIFACT IS REACHABLE THROUGH AN UNALIGNED HORIZON and
+is refused the same way: `horizon_s` must be a POSITIVE MULTIPLE of
+`interval_s` or forward_return returns (None, "MISALIGNED_HORIZON").
+Without that check a sub-interval horizon floors its forward endpoint back
+onto the anchor bar and returns exactly 0.0 at reason "OK" - an implicit
+tolerance of interval_s - 1 wearing the signature P11 inspects (pin P22).
 
-THE FIVE-WAY SPLIT IS THE WHOLE POINT AND IS NEVER COLLAPSED.
+THE SIX-WAY SPLIT IS THE WHOLE POINT AND IS NEVER COLLAPSED.
 `NOT_COVERED` (we never looked - curable by fetching),
 `NO_BAR_IN_COVERED_WINDOW` (we looked, the venue had nothing - a real
-hole), `BEYOND_RIGHT_EDGE` (right-censored: the future has not happened
-yet), `BEFORE_LEFT_EDGE` (backfillable past), and `STORE_UNREADABLE` (an
-INSTRUMENT FAULT, never a data gap) are five different epistemic states.
+hole), `REJECTED_BY_STORE` (the venue sent something and THIS STORE refused
+it - an instrument/data-quality event, never a venue absence),
+`BEYOND_RIGHT_EDGE` (right-censored: the future has not happened yet),
+`BEFORE_LEFT_EDGE` (backfillable past), and `STORE_UNREADABLE` (an
+INSTRUMENT FAULT, never a data gap) are six different epistemic states.
 Pooling censoring with holes biases every horizon-stratified number in one
-direction and concentrates the bias in the thin-alt cohort.
+direction and concentrates the bias in the thin-alt cohort - and pooling a
+store-side refusal with a venue absence does the same thing while blaming
+the venue for our own refusal (pin P23).
 
 NO ROTATION, NO INIT-TIME ANYTHING. A schema bump starts a NEW segment
 ({YYYY-MM}.v2.csv); the v1 segment is never opened for write again. No
@@ -84,6 +93,21 @@ rotation destroyed live rows) rather than guarding against it. Reading -
 constructing a view, taking coverage, running any query - creates NOTHING:
 not a directory, not a manifest, not an empty segment. Pin P8.
 
+THE BLAST RADIUS OF A TORN RECORD IS THE WHOLE STORE, AND THAT IS STATED
+RATHER THAN DISCOVERED. Segments are named for the month of INGEST, so
+every lane shares one file: a single kill-torn record makes EVERY symbol,
+interval, source and quote answer STORE_UNREADABLE, and ingest() then
+refuses to append anything at all rather than start a divergent history
+beside bytes it cannot parse. core.runtime.durable_append's guarantee 2
+(a torn tail is left as a junk line that a CSV reader skips) is therefore
+NOT available here on purpose - skipping the row is precisely the
+"instrument fault reported as a data hole" this store exists to make
+impossible. The operator escape hatch is
+`python scripts/candle_store.py quarantine --apply`: it takes the ingest
+lock, moves the unparsable fragments to a `.quarantine_<pid>_<ts>.csv`
+sidecar, and lets ingest resume. It is the one repair path, it is
+dry-run by default, and it never invents a value.
+
 Re-deriving volatile facts (row counts, byte sizes, lane inventories):
     python scripts/candle_store.py verify --root <root>
 No count is written into this docstring; a number in a permanent file
@@ -92,6 +116,7 @@ decays into a false claim.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
 import io
@@ -102,7 +127,7 @@ import os
 import re
 import socket
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -133,20 +158,54 @@ COVERAGE_COLUMNS: tuple[str, ...] = (
     "bars_rejected", "status", "note", "observed_at_s",
 )
 
+# THE REFUSAL LEDGER. A bar the STORE refused inside a window the store
+# CLAIMS is a third epistemic state, and without a per-slot record it is
+# byte-identical to a venue absence in every query. It lives in its own
+# append-only ledger rather than as a new record_kind so that no existing
+# segment's header changes and no generation bump is needed (the aggregate
+# `bars_rejected` on the coverage row stays exactly what it was - this is
+# strictly additive).
+REJECT_COLUMNS: tuple[str, ...] = (
+    "schema_version", "symbol", "interval_s", "source", "quote", "t_open_s",
+    "reject_reason", "observed_at_s",
+)
+
 # Per-generation column tuples, so a segment is always read under ITS OWN
 # header rather than the current one.
 _BAR_COLUMNS_BY_VERSION: dict[int, tuple[str, ...]] = {1: BAR_COLUMNS}
 _COVERAGE_COLUMNS_BY_VERSION: dict[int, tuple[str, ...]] = {1: COVERAGE_COLUMNS}
+_REJECT_COLUMNS_BY_VERSION: dict[int, tuple[str, ...]] = {1: REJECT_COLUMNS}
 
 RECORD_KINDS = frozenset({"BAR", "CONFLICT"})
 INTERVALS: tuple[int, ...] = (60, 300, 900, 1800, 3600, 14400, 86400)
 SOURCES = frozenset({"bot_cache", "kraken", "okx", "binanceus"})
 QUOTES = frozenset({"USD", "USDT", "USDC"})
 COMMITTED_BY = frozenset({"venue_last", "venue_confirm", "clock"})
+
+# STATUSES is the WRITE vocabulary: what a caller may hand to ingest() and
+# what may land in a coverage row's `status` cell.
 STATUSES = frozenset({"OK", "FETCH_FAILED", "EMPTY"})
+
+# REPORT_STATUSES is the READ vocabulary: every value IngestReport.status
+# can carry. It is STATUSES plus "LOCKED", which ingest() returns when the
+# single-writer lock is held and which is deliberately NOT writable - a
+# refused poll writes nothing at all, so it never reaches a coverage cell.
+# Separated rather than merged so a consumer switching on the write
+# vocabulary cannot silently miss a lost poll (pin P24).
+REPORT_STATUSES = frozenset(STATUSES | {"LOCKED"})
+
 NOTES = frozenset({
     "", "window_inferred_from_response", "truncated_by_venue_cap",
     "schema_narrower_than_current",
+    # Set by ingest() itself when asked_from_s was supplied and the
+    # response's oldest bar is LATER than it: the coverage claim is the
+    # caller's asked window, so the leading slots are being recorded as
+    # real holes. That is correct when the caller can attest the venue was
+    # asked for them and honestly answered, and a fabricated hole when the
+    # venue silently capped the page. The note flags the shape; it does not
+    # adjudicate the cause (`truncated_by_venue_cap` above names a cause and
+    # is reserved for a caller that can actually establish one).
+    "response_short_of_asked_from",
 })
 
 # A symbol becomes a parquet filename and a journal cell. This regex is a
@@ -211,10 +270,12 @@ REASONS = frozenset({
     "OK",
     "NOT_COVERED",               # we never looked. curable by fetching.
     "NO_BAR_IN_COVERED_WINDOW",  # we looked, the venue had nothing.
+    "REJECTED_BY_STORE",         # the venue sent it; WE refused it.
     "BEFORE_LEFT_EDGE",          # earlier than every window; backfillable.
     "BEYOND_RIGHT_EDGE",         # right-censored: the future has not happened.
     "FIELD_UNKNOWN",             # bar PRESENT, requested field is ''.
     "MISALIGNED_T0",
+    "MISALIGNED_HORIZON",        # horizon_s is not a positive multiple of iv.
     "NONPOSITIVE_ANCHOR",
     "CONFLICTED",
     "QUOTE_MISMATCH",
@@ -227,6 +288,20 @@ REJECT_REASONS = frozenset({
     "NON_INTEGRAL", "UNIT_RANGE", "MISALIGNED", "FORMING", "OUT_OF_WINDOW",
     "BAD_OHLC",
 })
+
+# Which refusals get a PER-SLOT row in the reject ledger. A refusal is
+# slot-attributable only when the offered bar already carried a valid,
+# in-range, grid-aligned t_open_s - and only such a slot can ever fall
+# inside a window the store claims:
+#   NON_INTEGRAL / UNIT_RANGE / MISALIGNED - no grid slot exists at all.
+#   FORMING                                - by construction beyond win_to.
+#   OUT_OF_WINDOW                          - by construction outside the ask.
+#   BAD_OHLC                               - THE LIVE CASE: a well-addressed
+#                                            slot the venue filled with
+#                                            something this store refuses.
+# Extend deliberately: a reason added here starts claiming REJECTED_BY_STORE
+# for slots that previously read NO_BAR_IN_COVERED_WINDOW.
+_SLOT_REJECT_REASONS = frozenset({"BAD_OHLC"})
 
 FIELDS = ("open", "high", "low", "close", "volume")
 
@@ -263,6 +338,12 @@ def coverage_dir(root: Path | str | None = None) -> Path:
     return store_root(root) / "coverage"
 
 
+def reject_dir(root: Path | str | None = None) -> Path:
+    """The per-slot refusal ledger. Same shape and same rules as the other
+    two: append-only, month-named segments, created only by a WRITE."""
+    return store_root(root) / "rejects"
+
+
 def parquet_dir(root: Path | str | None = None) -> Path:
     return store_root(root) / "parquet"
 
@@ -285,6 +366,10 @@ def bar_header(version: int = SCHEMA_VERSION) -> str:
 
 def coverage_header(version: int = SCHEMA_VERSION) -> str:
     return ",".join(_COVERAGE_COLUMNS_BY_VERSION[version]) + "\r\n"
+
+
+def reject_header(version: int = SCHEMA_VERSION) -> str:
+    return ",".join(_REJECT_COLUMNS_BY_VERSION[version]) + "\r\n"
 
 
 def segment_name(ingest_s: int, version: int = SCHEMA_VERSION) -> str:
@@ -406,7 +491,15 @@ class Bar:
 
     `close` is the price as of t_open_s + interval_s. `open` and `volume`
     are None (UNKNOWN) on the bot_cache lane, which stores only t/c/h/l -
-    they are never 0.0 and never invented."""
+    they are never 0.0 and never invented.
+
+    `conflicted` is True when the venue has CONTRADICTED this slot. The
+    value is still the first-committed one and is still served, because a
+    query is entitled to see what the store holds - but a bar the venue has
+    contradicted is not one a statistic may quietly consume, and before this
+    flag existed bars() handed it back with nothing on the object to say so
+    (only forward_return refused it). Extended at the END with a default, so
+    every existing positional construction still works."""
     symbol: str
     interval_s: int
     source: str
@@ -419,6 +512,7 @@ class Bar:
     volume: float | None
     committed_by: str
     ingest_s: int
+    conflicted: bool = False
 
 
 @dataclass(frozen=True)
@@ -439,6 +533,12 @@ class IngestReport:
     win_to_s: int = -1
     written: bool = False
     note: str = ""
+    # THE ACTUAL COVERAGE CLAIM, which win_from_s/win_to_s only bound. An
+    # unbounded request whose response has internal gaps now claims one
+    # window PER CONTIGUOUS RUN instead of one window spanning the lot, so
+    # the scalar pair is the outer envelope and this is the truth. Extended
+    # at the end; `status` is drawn from REPORT_STATUSES, never STATUSES.
+    coverage_windows: tuple[tuple[int, int], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -500,6 +600,29 @@ class _IngestLock:
         self.release()
 
 
+@contextlib.contextmanager
+def ingest_lock(root: Path | str | None = None):
+    """THE PUBLIC SINGLE-WRITER LOCK. Yields True when it was acquired.
+
+    Every path that reads-then-rewrites a byte of this store must hold it -
+    not only ingest(). scripts/candle_store_resolve.py rewrote a whole
+    segment without it, so any append landing inside its read->replace
+    window was destroyed silently, and the destroyed slots then answered
+    NO_BAR_IN_COVERED_WINDOW ("the venue had nothing") because the coverage
+    file was not rewritten with them.
+
+    A caller that gets False MUST refuse and exit non-zero. It must NEVER
+    steal: a gate whose release condition is the thing it blocks has caused
+    four separate incidents in this repo. Stale locks are an operator
+    decision (`scripts/candle_store.py unlock --force`)."""
+    lock = _IngestLock(root)
+    got = lock.acquire()
+    try:
+        yield got
+    finally:
+        lock.release()
+
+
 def lock_age_s(root: Path | str | None = None,
                now_s: float | None = None) -> float | None:
     """Seconds since the held lock's heartbeat, or None when unlocked.
@@ -545,44 +668,91 @@ def _segments(directory: Path) -> list[tuple[Path, int]]:
     return out
 
 
+# Cells that carry a CLOSED vocabulary on disk. Validated on READ as well
+# as on write: the write-path check on `symbol` is a SECURITY control (the
+# symbol becomes a parquet filename), and a control applied on one side of
+# a file is not a control at all. A journal row can reach the store by a
+# route that is not ingest() - the hand repair this module's own docstring
+# prescribes, a restored or merged segment, a bundle-transport mangling -
+# and scripts/candle_store.py's compaction then builds a path straight out
+# of the cell. Pin P25 plants `..\..\ESCAPED` and watches the read refuse.
+_CELL_VOCABULARY: tuple[tuple[str, frozenset[str]], ...] = (
+    ("record_kind", RECORD_KINDS),
+    ("source", SOURCES),
+    ("quote", QUOTES),
+    ("committed_by", COMMITTED_BY),
+    ("status", STATUSES),
+    ("reject_reason", REJECT_REASONS),
+)
+
+
+def _validate_row(path: Path, lineno: int, row: Mapping[str, str]) -> None:
+    """Refuse a row whose closed-vocabulary cells are outside their sets."""
+    symbol = row.get("symbol")
+    if symbol is not None and _SYMBOL_RE.match(symbol) is None:
+        raise CandleStoreUnreadable(
+            f"{path.name}:{lineno} symbol {symbol!r} is outside "
+            f"{_SYMBOL_RE.pattern} - the symbol becomes a filename, so this "
+            f"is refused on READ as well as on write")
+    for column, vocabulary in _CELL_VOCABULARY:
+        value = row.get(column)
+        if value is not None and value not in vocabulary:
+            raise CandleStoreUnreadable(
+                f"{path.name}:{lineno} {column}={value!r} is outside the "
+                f"closed set {sorted(vocabulary)}")
+
+
 def _read_segment(path: Path, version: int,
                   columns_by_version: Mapping[int, tuple[str, ...]],
-                  ) -> list[dict[str, str]]:
-    """Rows of ONE segment, read under ITS OWN header.
+                  ) -> Iterable[dict[str, str]]:
+    """Rows of ONE segment, read under ITS OWN header, STREAMED.
 
-    Refuses rather than guesses. A garbage header, an unknown column, or a
-    row whose field count differs from the header (which is what a
-    kill-torn record isolated by durable_append looks like) raises
-    CandleStoreUnreadable. That is deliberate: a damaged store must be
-    loud, because the alternative - skipping the row - reports an
-    instrument fault as a data hole, which is the one failure this store
-    exists to make impossible. `scripts/candle_store.py verify` names the
-    segment and line; resolution is by hand."""
+    A GENERATOR, not a list, and that is load-bearing rather than tidy: the
+    list form made every window lookup O(store) in memory and time while
+    _window_index's docstring claimed O(window). Measured on the live
+    8.9 MB journal, a ONE-BAR window lookup peaked at 110.1 MB and 1.57 s -
+    identical to a full pass, which is the direct measurement that the
+    window bound did nothing. The collector is designed to poll every 300 s
+    across ~15 assets over an append-only store that only grows. A caller
+    that needs the whole segment materialised says so with list().
+
+    Refuses rather than guesses. A garbage header, an unknown column, a row
+    whose field count differs from the header (which is what a kill-torn
+    record isolated by durable_append looks like), or a closed-vocabulary
+    cell outside its set raises CandleStoreUnreadable. That is deliberate:
+    a damaged store must be loud, because the alternative - skipping the
+    row - reports an instrument fault as a data hole, which is the one
+    failure this store exists to make impossible. `scripts/candle_store.py
+    verify` names the segment and line; `quarantine` is the repair."""
     expected = columns_by_version.get(version)
     if expected is None:
         raise CandleStoreUnreadable(f"no column set for schema v{version}")
     try:
         with open(path, encoding="utf-8", newline="") as f:
-            rows = list(csv.reader(f))
+            reader = csv.reader(f)
+            header: tuple[str, ...] | None = None
+            for lineno, raw in enumerate(reader, start=1):
+                if raw == []:
+                    continue
+                if header is None:
+                    header = tuple(raw)
+                    if header != expected:
+                        raise CandleStoreUnreadable(
+                            f"{path.name} header is not the v{version} "
+                            f"schema: {header!r}")
+                    continue
+                if len(raw) != len(expected):
+                    raise CandleStoreUnreadable(
+                        f"{path.name}:{lineno} has {len(raw)} fields, "
+                        f"expected {len(expected)} (a torn or hand-edited "
+                        f"record)")
+                row = dict(zip(expected, raw, strict=True))
+                _validate_row(path, lineno, row)
+                yield row
     except OSError as exc:
         raise CandleStoreUnreadable(f"cannot read {path.name}: {exc}") from exc
     except UnicodeDecodeError as exc:
         raise CandleStoreUnreadable(f"{path.name} is not UTF-8") from exc
-    rows = [r for r in rows if r != []]
-    if not rows:
-        return []
-    header = tuple(rows[0])
-    if header != expected:
-        raise CandleStoreUnreadable(
-            f"{path.name} header is not the v{version} schema: {header!r}")
-    out: list[dict[str, str]] = []
-    for lineno, raw in enumerate(rows[1:], start=2):
-        if len(raw) != len(expected):
-            raise CandleStoreUnreadable(
-                f"{path.name}:{lineno} has {len(raw)} fields, expected "
-                f"{len(expected)} (a torn or hand-edited record)")
-        out.append(dict(zip(expected, raw, strict=True)))
-    return out
 
 
 def _iter_bar_rows(root: Path | str | None) -> Iterable[dict[str, str]]:
@@ -593,6 +763,29 @@ def _iter_bar_rows(root: Path | str | None) -> Iterable[dict[str, str]]:
 def _iter_coverage_rows(root: Path | str | None) -> Iterable[dict[str, str]]:
     for path, version in _segments(coverage_dir(root)):
         yield from _read_segment(path, version, _COVERAGE_COLUMNS_BY_VERSION)
+
+
+def _iter_reject_rows(root: Path | str | None) -> Iterable[dict[str, str]]:
+    for path, version in _segments(reject_dir(root)):
+        yield from _read_segment(path, version, _REJECT_COLUMNS_BY_VERSION)
+
+
+def segment_shas(root: Path | str | None = None) -> dict[str, list]:
+    """{segment name: [sha256, bytes]} across all three ledgers.
+
+    Cheap (no CSV parse) and it is what binds a published MANIFEST.json to
+    the journal it was derived from. Diagnostic, never the reproducibility
+    contract - see content_digest."""
+    out: dict[str, list] = {}
+    for directory in (journal_dir(root), coverage_dir(root),
+                      reject_dir(root)):
+        if not directory.is_dir():
+            continue
+        for p in sorted(directory.glob("*.csv")):
+            raw = p.read_bytes()
+            out[f"{directory.name}/{p.name}"] = [
+                hashlib.sha256(raw).hexdigest(), len(raw)]
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -652,6 +845,7 @@ class CandleView:
         self.unreadable: str = ""
         self._bars: dict[int, Bar] = {}
         self._conflicts: set[int] = set()
+        self._rejected: dict[int, str] = {}
         self._windows: list[tuple[int, int]] = []
         self._committed_by_mix: dict[str, int] = {}
         self.symbol_known = False
@@ -709,6 +903,24 @@ class CandleView:
                 committed_by=cb, ingest_s=_parse_int(row["ingest_s"]),
             )
         self._conflicts = conflicted
+        # A bar the venue later contradicted still serves its first-committed
+        # value, but it carries the mark now - bars() consumers could not see
+        # it at all before, and only forward_return refused it.
+        for t_open in conflicted & self._bars.keys():
+            self._bars[t_open] = replace(self._bars[t_open], conflicted=True)
+
+        for row in _iter_reject_rows(root):
+            if row["symbol"] != sym:
+                continue
+            self.symbol_known = True
+            if _parse_int(row["interval_s"]) != iv:
+                continue
+            self.interval_known = True
+            if row["source"] != src or row["quote"] != qte:
+                continue
+            self.lane_known = True
+            self._rejected.setdefault(_parse_int(row["t_open_s"]),
+                                      row["reject_reason"])
 
         raw_windows: list[tuple[int, int]] = []
         for row in _iter_coverage_rows(root):
@@ -759,6 +971,14 @@ class CandleView:
                 return "BEYOND_RIGHT_EDGE"
             return "NOT_COVERED"
         if t_open_s not in self._bars:
+            if t_open_s in self._rejected:
+                # THE VENUE SENT SOMETHING AND WE REFUSED IT. Reporting this
+                # as "we looked and the venue had nothing" attributes an
+                # instrument/data-quality event to the venue, and does so
+                # preferentially in the thin-alt cohort where poisoned bars
+                # concentrate - the exact missing-not-at-random bias the
+                # five-way split exists to prevent.
+                return "REJECTED_BY_STORE"
             return "NO_BAR_IN_COVERED_WINDOW"
         return "OK"
 
@@ -781,9 +1001,26 @@ class CandleView:
         """Resolve by FLOOR onto the bar grid. No nearest-neighbour, no
         forward-fill, no tolerance.
 
-        The third element stamps {t_open_s, source, quote, committed_by,
-        offset_s} so a caller can CORRECT for up to one interval of error
-        rather than silently absorb it. `offset_s` is ts_s - t_open_s.
+        THE STAMP, AND THE TWO DIFFERENT ERRORS IN IT.
+        `offset_s` is ts_s - t_open_s: how far the requested instant sits
+        INTO the resolved bar. It is NOT the error on the returned number.
+        `value_as_of_s` is when the returned value is actually true:
+        t_open_s for 'open', and t_open_s + interval_s for high/low/close/
+        volume, because a bar covers [t_open_s, t_open_s + interval_s). So
+        for the DEFAULT field the value POST-DATES the requested instant by
+        `value_as_of_s - ts_s`, up to a full interval - on a 4h lane that is
+        up to 14,399 s of LOOKAHEAD. A fill-quality or slippage comparison
+        built on offset_s alone manufactures edge in the direction that
+        looks like skill. Correct against value_as_of_s.
+
+        A CONFLICTED SLOT RETURNS A VALUE. It is the only non-OK reason in
+        this API that does not pair with None: the first-committed value
+        exists and a query is entitled to see it, so this returns
+        (value, "CONFLICTED", stamp). The guard
+        `if value is not None: use(value)` is therefore NOT sufficient -
+        check the reason. forward_return refuses such a slot outright,
+        because a bar the venue has contradicted is not one a statistic may
+        quietly consume.
 
         A PRESENT bar whose requested field is UNKNOWN returns
         (None, "FIELD_UNKNOWN", stamp) - never 0.0, and never conflated
@@ -796,6 +1033,8 @@ class CandleView:
             "t_open_s": t_open, "source": self.series.source,
             "quote": self.series.quote, "committed_by": "",
             "offset_s": ts_s - t_open,
+            "value_as_of_s": (t_open if field_name == "open"
+                              else t_open + self.interval_s),
         }
         reason = self.coverage_of(t_open)
         if reason != "OK" and reason != "CONFLICTED":
@@ -820,9 +1059,18 @@ class CandleView:
         `(exit - entry) / entry * 100.0`, negated for side == "short",
         None when entry <= 0.
 
-        EXACT-BAR ONLY. `t0_s % interval_s != 0` returns
+        EXACT-BAR ONLY, ON BOTH LEGS. `t0_s % interval_s != 0` returns
         (None, "MISALIGNED_T0") and is NEVER re-anchored - a study that
         wants slack implements it, names it, and owns the error.
+        `horizon_s` must likewise be a POSITIVE MULTIPLE of interval_s or
+        this returns (None, "MISALIGNED_HORIZON"). Without that check the
+        forward endpoint is floored back onto the grid, so on a 4h lane
+        H=1h and H=2h resolve to the ANCHOR ITSELF and return exactly 0.0 at
+        reason "OK" with 100% coverage, and H=6h returns the 4h number under
+        the 6h label. That is an implicit tolerance of interval_s - 1 on the
+        forward leg - the precise artifact P11's no-tolerance rule exists to
+        forbid, reachable through a parameter P11's signature check cannot
+        see.
 
         REASON PREFIXING. "OK" only when BOTH endpoints resolve; otherwise
         the failing endpoint's reason prefixed `anchor_` or `forward_`, so
@@ -837,6 +1085,8 @@ class CandleView:
             raise CandleLaneError(f"side must be long|short, got {side!r}")
         if self.interval_s <= 0 or t0_s % self.interval_s != 0:
             return None, "MISALIGNED_T0"
+        if horizon_s <= 0 or horizon_s % self.interval_s != 0:
+            return None, "MISALIGNED_HORIZON"
         entry, r_a, _ = self.price_at(t0_s)
         if r_a != "OK" or entry is None:
             return None, f"anchor_{r_a}"
@@ -866,15 +1116,34 @@ class CandleView:
         number can be quoted without its denominator, and
         `holes_in_covered` is the source of a study's exclusion accounting
         rather than a silently dropped row. `read_at_s` is the snapshot
-        stamp: values are as-of."""
+        stamp: values are as-of.
+
+        EVERY FIELD HERE IS SCOPED TO THE QUERIED WINDOW, INCLUDING
+        `conflicts` AND `committed_by_mix`. They were lane-wide inside a
+        dict whose every other field was window-scoped, so an analyst
+        building exclusion accounting read conflicts=3 for a window holding
+        none, and read committed_by_mix against a denominator that could be
+        many times the window's own. The lane-wide figures are still
+        available, under their own names (`lane_conflicts`,
+        `lane_committed_by_mix`) - extended, never repurposed.
+
+        `rejected_in_covered` is separated from `holes_in_covered`: a slot
+        the STORE refused is not a slot the VENUE lacked."""
         iv = self.interval_s
         first = t0_s + ((-t0_s) % iv)
         last = t1_s - (t1_s % iv)
         slots = list(range(first, last + 1, iv)) if last >= first else []
         covered = [t for t in slots if self._covered_at(t)]
         present = [t for t in covered if t in self._bars]
-        holes = [t for t in covered if t not in self._bars]
+        rejected = [t for t in covered
+                    if t not in self._bars and t in self._rejected]
+        holes = [t for t in covered
+                 if t not in self._bars and t not in self._rejected]
         uncovered = [t for t in slots if not self._covered_at(t)]
+        window_mix: dict[str, int] = {}
+        for t in present:
+            cb = self._bars[t].committed_by
+            window_mix[cb] = window_mix.get(cb, 0) + 1
         return {
             "symbol": self.symbol,
             "interval_s": iv,
@@ -886,14 +1155,18 @@ class CandleView:
             "covered_bars": len(covered),
             "present_bars": len(present),
             "missing_in_covered": len(holes),
+            "rejected_bars": len(rejected),
             "uncovered_bars": len(uncovered),
             "covered_windows": list(self._windows),
             "holes_in_covered": _runs(holes, iv),
+            "rejected_in_covered": _runs(rejected, iv),
             "uncovered_windows": _runs(uncovered, iv),
             "left_edge_s": self.left_edge_s,
             "right_edge_s": self.right_edge_s,
-            "committed_by_mix": dict(self._committed_by_mix),
-            "conflicts": len(self._conflicts),
+            "committed_by_mix": window_mix,
+            "conflicts": len([t for t in slots if t in self._conflicts]),
+            "lane_committed_by_mix": dict(self._committed_by_mix),
+            "lane_conflicts": len(self._conflicts),
             "read_at_s": self.read_at_s,
             "store_schema_version": SCHEMA_VERSION,
             "unreadable": self.unreadable,
@@ -927,9 +1200,17 @@ def bars(symbol: str, interval_s: int, t0_s: int, t1_s: int, *,
 
     CALLING THIS IN A LOOP RE-PARSES THE STORE; use load_view(). Yields
     nothing for a gap - pair with coverage() to tell a hole from a
-    never-looked window."""
-    return load_view(symbol, interval_s, series=series, root=root).bars(
-        t0_s, t1_s)
+    never-looked window.
+
+    RAISES CandleStoreUnreadable rather than answering []. CandleView keeps
+    degrading, because its consumers read `.unreadable` and coverage()
+    surfaces it - but this wrapper hands back a bare list with no channel
+    for the flag, so an instrument fault would arrive as the data fact "the
+    store holds nothing here"."""
+    view = load_view(symbol, interval_s, series=series, root=root)
+    if view.unreadable:
+        raise CandleStoreUnreadable(view.unreadable)
+    return view.bars(t0_s, t1_s)
 
 
 def price_at(symbol: str, ts_s: int, *, interval_s: int, series: Series,
@@ -981,21 +1262,54 @@ def coverage(symbol: str, interval_s: int, t0_s: int, t1_s: int, *,
 def covered_windows(symbol: str, interval_s: int, *, series: Series,
                     root: Path | str | None = None) -> list[tuple[int, int]]:
     """The merged disjoint coverage windows for one lane. Pure stdlib;
-    answers with polars absent."""
-    return list(load_view(symbol, interval_s, series=series,
-                          root=root)._windows)
+    answers with polars absent.
+
+    RAISES CandleStoreUnreadable rather than answering []. A corrupted store
+    returning [] is the instrument fault converted into the data fact "we
+    never looked": scripts/candle_backfill.py's pre-flight --dry-run - the
+    run whose entire purpose is deciding whether to spend venue calls - then
+    reports a torn store as `covered_windows 0, right_edge_s None, store
+    ok`, byte-indistinguishable from a fresh empty store, and the operator
+    re-fetches history Kraken's 720-bar cap cannot restore. Any reachability
+    denominator derived from this call would silently attribute a corrupt
+    store to venue reach."""
+    view = load_view(symbol, interval_s, series=series, root=root)
+    if view.unreadable:
+        raise CandleStoreUnreadable(view.unreadable)
+    return list(view._windows)
 
 
 def lanes(symbol: str | None = None, root: Path | str | None = None,
-          ) -> list[dict[str, Any]]:
+          *, prefer_manifest: bool = False) -> list[dict[str, Any]]:
     """What the store actually HOLDS - the prior-art / what-do-I-have call.
 
-    Reads MANIFEST.json when a compaction has published one, and otherwise
-    derives the same shape from the journal. Makes the USD/USDT and
-    kraken/bot_cache splits visible rather than implicit."""
-    manifest = read_json(manifest_path(root))
+    DERIVED FROM THE JOURNAL BY DEFAULT. Makes the USD/USDT and
+    kraken/bot_cache splits visible rather than implicit.
+
+    THE MANIFEST FAST PATH IS OPT-IN NOW, and even then it is bound to the
+    bytes by `segment_shas`. It used to be the default and unbound, which
+    was wrong twice over:
+      * STALE. Compact once, then collect or backfill - the DOCUMENTED order,
+        since the collector runs continuously and compaction is manual - and
+        lanes() reported the OLD rows / t_min_s / t_max_s with no freshness
+        marker, while `verify` printed that stale lane count beside FRESH
+        bar_rows. t_max_s is precisely the field
+        scripts/candle_backfill.py's delisted-pair rule tells an operator to
+        trust ("a lane being POPULATED is not a lane being CURRENT: read
+        t_min_s/t_max_s, never the row count").
+      * FORGEABLE. MANIFEST.json is a plain file in the store root and its
+        `lanes` array was served verbatim - a rewritten inventory claiming
+        74 lanes of 999,999 rows passed while the journal-derived digests
+        stayed correct, so only the inventory lied and nothing in the output
+        distinguished the two. The sha binding catches divergence from the
+        LEDGERS; it cannot vouch for an array a writer replaced in place.
+        The journal derivation is the same code and the honest one, so it is
+        what a caller gets unless it asks otherwise."""
+    manifest = read_json(manifest_path(root)) if prefer_manifest else None
     rows: list[dict[str, Any]]
-    if isinstance(manifest, dict) and isinstance(manifest.get("lanes"), list):
+    if (isinstance(manifest, dict)
+            and isinstance(manifest.get("lanes"), list)
+            and manifest.get("segment_shas") == segment_shas(root)):
         rows = [r for r in manifest["lanes"] if isinstance(r, dict)]
     else:
         acc: dict[tuple[str, int, str, str], dict[str, Any]] = {}
@@ -1032,7 +1346,7 @@ def lanes(symbol: str | None = None, root: Path | str | None = None,
 
 
 def content_digest(root: Path | str | None = None) -> str:
-    """sha256 over the canonical sorted row tuples: bars, then coverage.
+    """sha256 over the canonical sorted row tuples: bars, coverage, rejects.
 
     THE REPRODUCIBILITY CONTRACT, and it is ORDER-INDEPENDENT on purpose.
     A file sha256 is DIAGNOSTIC ONLY and is never the contract: CSV byte
@@ -1043,7 +1357,16 @@ def content_digest(root: Path | str | None = None) -> str:
     cross-order byte identity.
 
     The claim that IS true, and is pinned: re-running the same ingest over
-    the same store appends ZERO bytes."""
+    the same store appends ZERO bytes.
+
+    THE REFUSAL LEDGER IS INSIDE THE DIGEST, because a reject row changes
+    what a query ANSWERS (REJECTED_BY_STORE instead of
+    NO_BAR_IN_COVERED_WINDOW) and is therefore content, not metadata. Adding
+    that third section shifted the digest by one separator byte for stores
+    written before the ledger existed. That is a one-time, deliberate shift
+    of a value this module tells every caller to RE-DERIVE and never
+    recall - no key changed, and the zero-bytes contract above is
+    untouched."""
     h = hashlib.sha256()
     bar_rows = sorted(
         tuple(r[c] for c in BAR_COLUMNS if c != "ingest_s")
@@ -1055,6 +1378,12 @@ def content_digest(root: Path | str | None = None) -> str:
         tuple(r[c] for c in COVERAGE_COLUMNS if c != "observed_at_s")
         for r in _iter_coverage_rows(root))
     for row in cov_rows:
+        h.update(("\x1f".join(row) + "\x1e").encode("utf-8"))
+    h.update(b"\x1d")
+    rej_rows = sorted(
+        tuple(r[c] for c in REJECT_COLUMNS if c != "observed_at_s")
+        for r in _iter_reject_rows(root))
+    for row in rej_rows:
         h.update(("\x1f".join(row) + "\x1e").encode("utf-8"))
     return h.hexdigest()
 
@@ -1168,16 +1497,29 @@ def _validate_lane(symbol: str, interval_s: Any, source: str, quote: str,
 
 def _window_index(root: Path | str | None, symbol: str, interval_s: int,
                   source: str, quote: str, t_lo: int, t_hi: int,
-                  ) -> tuple[dict[int, tuple[str, ...]], set[int]]:
-    """Existing values for JUST the ingested window: t_open_s -> value tuple.
+                  ) -> tuple[dict[int, tuple[str, ...]],
+                             dict[int, set[tuple[str, ...]]]]:
+    """Existing values for JUST the ingested window: t_open_s -> value tuple,
+    plus the CONFLICT values already journalled per slot.
 
-    Memory is O(window), not O(store). The I/O is NOT restricted to the
-    segments whose names overlap the window and must never be: a segment is
-    named for the month of INGEST, so a July bar backfilled in August lives
-    in the August segment. Restricting by name would miss the duplicate and
-    append it again, which is how a re-run stops being a no-op."""
+    Memory is O(window), not O(store) - and that is now true rather than
+    asserted: _read_segment streams, so nothing here holds a whole segment.
+    The claim was previously false in both time and memory (a one-bar lookup
+    on the live journal peaked at 110.1 MB, identical to a full pass) and
+    the collector re-pays it every 300 s per asset over a store that only
+    grows. Pin P26 bounds it against a synthetic large journal.
+
+    The second element carries VALUES, not just keys, because without them a
+    venue revision re-offered on every subsequent poll re-enters the
+    conflict branch and appends a byte-identical CONFLICT row forever.
+
+    The I/O is NOT restricted to the segments whose names overlap the window
+    and must never be: a segment is named for the month of INGEST, so a July
+    bar backfilled in August lives in the August segment. Restricting by
+    name would miss the duplicate and append it again, which is how a re-run
+    stops being a no-op."""
     values: dict[int, tuple[str, ...]] = {}
-    conflicts: set[int] = set()
+    conflicts: dict[int, set[tuple[str, ...]]] = {}
     for row in _iter_bar_rows(root):
         if (row["symbol"] != symbol or row["source"] != source
                 or row["quote"] != quote):
@@ -1187,11 +1529,30 @@ def _window_index(root: Path | str | None, symbol: str, interval_s: int,
         t = _parse_int(row["t_open_s"])
         if t < t_lo or t > t_hi:
             continue
+        value = tuple(row[c] for c in _VALUE_COLUMNS)
         if row["record_kind"] == "CONFLICT":
-            conflicts.add(t)
+            conflicts.setdefault(t, set()).add(value)
             continue
-        values.setdefault(t, tuple(row[c] for c in _VALUE_COLUMNS))
+        values.setdefault(t, value)
     return values, conflicts
+
+
+def _reject_index(root: Path | str | None, symbol: str, interval_s: int,
+                  source: str, quote: str) -> set[tuple[int, str]]:
+    """(t_open_s, reject_reason) pairs already in the refusal ledger.
+
+    Exists so a corrupt bar the venue keeps re-serving is journalled ONCE:
+    without it the collector's 5-minute poll would append a refusal row per
+    poll, forever, for a fact that has not changed."""
+    out: set[tuple[int, str]] = set()
+    for row in _iter_reject_rows(root):
+        if (row["symbol"] != symbol or row["source"] != source
+                or row["quote"] != quote):
+            continue
+        if _parse_int(row["interval_s"]) != interval_s:
+            continue
+        out.add((_parse_int(row["t_open_s"]), row["reject_reason"]))
+    return out
 
 
 def _existing_windows(root: Path | str | None, symbol: str, interval_s: int,
@@ -1253,14 +1614,43 @@ def ingest(symbol: str, interval_s: int, source: str, quote: str,
          re-acquirable (Kraken serves 720 committed bars and `since` does
          not page backward), and a venue revision is a FACT ABOUT THE
          VENUE that analysis must be able to see.
-      6. THE TWO WRITES, BARS FIRST THEN COVERAGE, NEVER REVERSED. A crash
-         between them leaves bars on disk that read NOT_COVERED -
-         UNDER-claiming, benign, self-healing. The reverse order would
-         claim coverage over bars that were never written, so a real hole
-         reports as NO_BAR_IN_COVERED_WINDOW - "we looked and the venue had
-         nothing" when the write simply died. A confident lie with no
-         external symptom. Pin P1 mutates the order and watches the reason
-         flip.
+      6. THE WRITES, EVIDENCE FIRST THEN CLAIM, NEVER REVERSED: bars, then
+         the refusal ledger, then coverage. A crash between them leaves
+         bars on disk that read NOT_COVERED - UNDER-claiming, benign,
+         self-healing. The reverse order would claim coverage over bars
+         that were never written, so a real hole reports as
+         NO_BAR_IN_COVERED_WINDOW - "we looked and the venue had nothing"
+         when the write simply died. A confident lie with no external
+         symptom. Pin P1 mutates the order and watches the reason flip.
+         ORDER ALONE IS NOT ENOUGH, and pin P27 covers the rest:
+         durable_append is documented to NEVER RAISE and to return False on
+         OSError, so the coverage append is also CONDITIONAL on the earlier
+         appends having landed. A disk-full or ACL failure on the journal
+         used to leave a coverage claim over bars that do not exist -
+         reaching the identical confident lie by a path the ordering does
+         not cover, at written=False, exit 0, and `verify` ok:true.
+
+    WHAT `asked_from_s` MEANS: IT BECOMES THE COVERAGE CLAIM.
+      * asked_from_s NOT None - the caller is ATTESTING that the venue was
+        asked for [asked_from_s, asked_to_s] and answered. Every slot in
+        that range with no bar is recorded as a REAL HOLE, permanently, in
+        an append-only store. Pass it only when you can make that
+        attestation. A venue that silently caps its page (Binance.US
+        honours startTime at the venue but the shipped client sends only
+        symbol/interval/limit) turns the un-returned slots into fabricated
+        holes - so when the response's oldest bar is later than the asked
+        start, ingest sets note="response_short_of_asked_from" rather than
+        letting the shape pass unremarked.
+      * asked_from_s None - an UNBOUNDED request (Kraken OHLC never states
+        how far back it looked). The claim is then derived from the
+        response's own CONTIGUOUS RUNS, one coverage row per run, NOT one
+        window spanning the response. One stale in-band row alongside
+        current rows - the recorded delisted-pair shape, ARBUSD/PAXGUSD/
+        FLOWUSD answering 200 with a frozen 2023 page - would otherwise
+        make the store claim it had looked at every slot between, turning
+        millions of never-looked slots into fabricated real holes. Under
+        run-derivation those slots stay NOT_COVERED: curable by fetching,
+        which is the honest and the recoverable direction.
 
     BATCH ACCUMULATION RULE: a backfill MUST accumulate every page for one
     (symbol, interval_s, source, quote) run and call this ONCE. Per-page
@@ -1297,9 +1687,14 @@ def ingest(symbol: str, interval_s: int, source: str, quote: str,
         log.warning("candle store: ingest lock held by pid=%s host=%s - "
                     "refusing to proceed", holder.get("pid"),
                     holder.get("host"))
+        # "LOCKED" is in REPORT_STATUSES, never in STATUSES: a refused poll
+        # writes NOTHING - not a bar, not a coverage row - so this value can
+        # never reach a cell on disk. A caller MUST surface it and exit
+        # non-zero; on the 5m collector lane a silently-lost poll is data
+        # lost from the world, not merely from this store.
         return IngestReport(symbol, interval_s, source, quote, "LOCKED",
                             len(bars), 0, 0, 0, 0, {}, 0, -1, False,
-                            "")
+                            "", ())
     try:
         return _ingest_locked(symbol, interval_s, source, quote, bars,
                               committed_upto_s, committed_by, asked_from_s,
@@ -1338,13 +1733,23 @@ def _ingest_locked(symbol: str, interval_s: int, source: str, quote: str,
                             header=coverage_header())
         return IngestReport(symbol, interval_s, source, quote, status,
                             offered, 0, 0, 0, 0, {}, anchor,
-                            anchor - interval_s, ok, note)
+                            anchor - interval_s, ok, note,
+                            ((anchor, anchor - interval_s),))
 
     # --- STEP 3: validate the WHOLE batch before any write ----------------
     rejected_by_reason: dict[str, int] = {}
+    # (t_open_s, reason) for refusals that address a real grid slot - see
+    # _SLOT_REJECT_REASONS. Without these a bar the store REFUSED reads
+    # identically to a bar the venue never served.
+    slot_rejects: list[tuple[int, str]] = []
 
     def _reject(reason: str) -> None:
         rejected_by_reason[reason] = rejected_by_reason.get(reason, 0) + 1
+
+    def _reject_slot(t_open: int, reason: str) -> None:
+        _reject(reason)
+        if reason in _SLOT_REJECT_REASONS:
+            slot_rejects.append((t_open, reason))
 
     valid: list[tuple[int, tuple[str, ...]]] = []
     for raw in bars:
@@ -1380,16 +1785,16 @@ def _ingest_locked(symbol: str, interval_s: int, source: str, quote: str,
             cl = _coerce_number(raw.get("close"))
             v = _coerce_number(raw.get("volume"))
         except ValueError:
-            _reject("BAD_OHLC")
+            _reject_slot(t_open, "BAD_OHLC")
             continue
         if h is None or lo is None or cl is None:
-            _reject("BAD_OHLC")
+            _reject_slot(t_open, "BAD_OHLC")
             continue
         if v is not None and v < 0:
-            _reject("BAD_OHLC")
+            _reject_slot(t_open, "BAD_OHLC")
             continue
         if not ohlc_is_consistent(o, h, lo, cl):
-            _reject("BAD_OHLC")
+            _reject_slot(t_open, "BAD_OHLC")
             continue
         valid.append((t_open, (render_price(o), render_price(h),
                                render_price(lo), render_price(cl),
@@ -1398,65 +1803,96 @@ def _ingest_locked(symbol: str, interval_s: int, source: str, quote: str,
     rejected = sum(rejected_by_reason.values())
 
     # --- STEP 4/5: window index, then resolve per key ---------------------
+    existing: dict[int, tuple[str, ...]] = {}
+    journalled_conflicts: dict[int, set[tuple[str, ...]]] = {}
     if valid:
         t_lo = min(t for t, _ in valid)
         t_hi = max(t for t, _ in valid)
         try:
-            existing, _existing_conflicts = _window_index(
+            existing, journalled_conflicts = _window_index(
                 root, symbol, interval_s, source, quote, t_lo, t_hi)
         except CandleStoreUnreadable:
             log.exception("candle store: journal unreadable - refusing to "
                           "ingest into a damaged store")
             raise
-    else:
-        existing = {}
 
     bar_rows: list[list[Any]] = []
     accepted = dup = conflict = 0
-    seen: set[int] = set()
+    # The first value THIS BATCH settled on per key: the stored one when the
+    # key already existed, otherwise the first offered row for it.
+    batch: dict[int, tuple[str, ...]] = {}
     for t_open, value in sorted(valid):
-        if t_open in seen:
-            # Two rows for the same key inside one batch: the first wins,
-            # consistently with first-committed-wins across batches.
+        prior = batch.get(t_open)
+        if prior is None:
+            prior = existing.get(t_open)
+            if prior is None:
+                batch[t_open] = value
+                accepted += 1
+                bar_rows.append([SCHEMA_VERSION, "BAR", symbol, interval_s,
+                                 source, quote, t_open, *value[:5], value[5],
+                                 now])
+                continue
+            batch[t_open] = prior
+        if prior == value:
             dup += 1
             continue
-        seen.add(t_open)
-        prior = existing.get(t_open)
-        if prior is None:
-            accepted += 1
-            bar_rows.append([SCHEMA_VERSION, "BAR", symbol, interval_s,
-                             source, quote, t_open, *value[:5], value[5],
-                             now])
-        elif prior == value:
+        if value in journalled_conflicts.get(t_open, ()):
+            # THIS EXACT REVISION IS ALREADY JOURNALLED. Re-appending it
+            # would add 176 bytes of no information on every subsequent poll
+            # of a lane the venue has revised once - which makes the
+            # content digest drift on an unchanged store forever and makes
+            # lanes()['conflicts'] count POLLS instead of venue revisions.
             dup += 1
-        else:
-            conflict += 1
-            log.warning("candle store: venue revision for %s %ss %s/%s at "
-                        "t_open_s=%d - journalled as CONFLICT; the "
-                        "queryable value stays the first one",
-                        symbol, interval_s, source, quote, t_open)
-            bar_rows.append([SCHEMA_VERSION, "CONFLICT", symbol, interval_s,
-                             source, quote, t_open, *value[:5], value[5],
-                             now])
+            continue
+        # A CONTRADICTION INSIDE ONE BATCH IS THE SAME FACT AS ONE ACROSS
+        # TWO. It used to be booked as bars_dup with conflicts=0 and the
+        # slot served a confident price at reason OK, while the identical
+        # disagreement one poll apart was journalled as CONFLICT and refused
+        # a number - and the module's own batching rule (accumulate every
+        # page, ingest ONCE) makes the hiding case the LIKELIER one. Which
+        # value survives as the BAR is the first in `sorted(valid)` order,
+        # i.e. lexicographic on the RENDERED value tuple, not offer order.
+        conflict += 1
+        journalled_conflicts.setdefault(t_open, set()).add(value)
+        log.warning("candle store: venue revision for %s %ss %s/%s at "
+                    "t_open_s=%d - journalled as CONFLICT; the "
+                    "queryable value stays the first one",
+                    symbol, interval_s, source, quote, t_open)
+        bar_rows.append([SCHEMA_VERSION, "CONFLICT", symbol, interval_s,
+                         source, quote, t_open, *value[:5], value[5],
+                         now])
 
     # --- window derivation (law, not taste) -------------------------------
     win_to = _align_down(min(asked_to_s, committed_upto_s)
                          if asked_to_s is not None else committed_upto_s,
                          interval_s)
     out_note = note
+    claims: list[tuple[int, int]]
     if asked_from_s is not None:
+        # THE CALLER'S WINDOW IS THE CLAIM. See ingest()'s docstring.
         win_from = _align_up(asked_from_s, interval_s)
-    elif seen:
-        # UNBOUNDED request (Kraken OHLC never states how far back it
-        # looked): claim only from the oldest bar it actually returned.
-        win_from = min(seen)
+        if win_to < win_from:
+            win_to = win_from - interval_s    # sentinel: claims nothing
+        claims = [(win_from, win_to)]
+        if batch and min(batch) > win_from and win_to >= win_from:
+            out_note = out_note or "response_short_of_asked_from"
+    elif batch:
+        # UNBOUNDED request: claim the response's own CONTIGUOUS RUNS, never
+        # one window spanning them. A single stale in-band bar would
+        # otherwise convert every never-looked slot between it and now into
+        # a fabricated "we looked, the venue had nothing".
+        runs = _runs(sorted(batch), interval_s)
+        win_from = runs[0][0]
+        if win_to < runs[-1][1]:
+            win_to = runs[-1][1]
+        claims = [*runs[:-1], (runs[-1][0], win_to)]
         out_note = out_note or "window_inferred_from_response"
     else:
         # Nothing to claim at all -> the empty-window sentinel.
         win_from = win_to + interval_s
+        win_to = win_from - interval_s
+        claims = [(win_from, win_to)]
         out_note = out_note or "window_inferred_from_response"
-    if win_to < win_from:
-        win_to = win_from - interval_s        # sentinel: claims nothing
 
     # A ledger row is appended only when the observation CHANGES the store:
     # new or conflicting bars, or a window not already covered. A re-run
@@ -1467,13 +1903,27 @@ def _ingest_locked(symbol: str, interval_s: int, source: str, quote: str,
     # still gets the full IngestReport for its own logging.
     # status != "OK" rows are NEVER suppressed above: a failed fetch is a
     # real event and the ledger is the fetch-health series.
+    # The refusal ledger is deduplicated the same way, so a corrupt bar the
+    # venue keeps re-serving is journalled once, not once per poll.
+    new_rejects: list[tuple[int, str]] = []
+    if slot_rejects:
+        known = _reject_index(root, symbol, interval_s, source, quote)
+        for pair in slot_rejects:
+            if pair not in known:
+                known.add(pair)
+                new_rejects.append(pair)
+
     adds_bars = bool(accepted or conflict)
     prior_windows = _existing_windows(root, symbol, interval_s, source, quote)
-    already_covered = win_to >= win_from and all(
-        _covered(prior_windows, t)
-        for t in range(win_from, win_to + 1, interval_s))
+    # An EMPTY-WINDOW SENTINEL claim (b < a) is never "already covered": a
+    # failed or empty observation is a real event and the coverage ledger is
+    # the fetch-health series, so its row is never suppressed.
+    already_covered = all(
+        b >= a and all(_covered(prior_windows, t)
+                       for t in range(a, b + 1, interval_s))
+        for a, b in claims)
 
-    # --- STEP 6: bars FIRST, coverage SECOND. NEVER REVERSED --------------
+    # --- STEP 6: EVIDENCE FIRST, CLAIM LAST. NEVER REVERSED ---------------
     written = True
     if bar_rows:
         buf = io.StringIO(newline="")
@@ -1484,16 +1934,45 @@ def _ingest_locked(symbol: str, interval_s: int, source: str, quote: str,
         written = durable_append(journal_dir(root) / segment_name(now),
                                  lambda f: f.write(body),
                                  header=bar_header())
-    if adds_bars or not already_covered:
-        cov = _coverage_row(symbol, interval_s, source, quote, win_from,
-                            win_to, committed_upto_s, committed_by, offered,
-                            accepted, dup, conflict, rejected, status,
-                            out_note, now)
-        written = durable_append(cov_path,
-                                 lambda f: csv.writer(f).writerow(cov),
+    if new_rejects and written:
+        rbuf = io.StringIO(newline="")
+        rwriter = csv.writer(rbuf)
+        for t_open, reason in new_rejects:
+            rwriter.writerow([SCHEMA_VERSION, symbol, interval_s, source,
+                              quote, t_open, reason, now])
+        rbody = rbuf.getvalue()
+        written = durable_append(reject_dir(root) / segment_name(now),
+                                 lambda f: f.write(rbody),
+                                 header=reject_header())
+    if not written:
+        # THE CLAIM NEVER OUTLIVES ITS EVIDENCE. durable_append is
+        # documented to never raise and to return False on OSError, so a
+        # disk-full / ACL / antivirus failure on the journal must not be
+        # followed by a coverage row: the store would then claim a window
+        # over bars that were never written, and every slot in it would
+        # answer NO_BAR_IN_COVERED_WINDOW forever - append-only, with no
+        # path that retracts a coverage row. Under-claiming is the benign
+        # direction and is the one taken here.
+        log.error("candle store: append FAILED for %s %ss %s/%s - writing NO "
+                  "coverage claim (under-claiming on purpose)",
+                  symbol, interval_s, source, quote)
+        return IngestReport(symbol, interval_s, source, quote, "OK", offered,
+                            accepted, dup, conflict, rejected,
+                            dict(rejected_by_reason), win_from, win_to,
+                            False, out_note, ())
+    if adds_bars or new_rejects or not already_covered:
+        cbuf = io.StringIO(newline="")
+        cwriter = csv.writer(cbuf)
+        for a, b in claims:
+            cwriter.writerow(_coverage_row(
+                symbol, interval_s, source, quote, a, b, committed_upto_s,
+                committed_by, offered, accepted, dup, conflict, rejected,
+                status, out_note, now))
+        cbody = cbuf.getvalue()
+        written = durable_append(cov_path, lambda f: f.write(cbody),
                                  header=coverage_header()) and written
 
     return IngestReport(symbol, interval_s, source, quote, "OK", offered,
                         accepted, dup, conflict, rejected,
                         dict(rejected_by_reason), win_from, win_to, written,
-                        out_note)
+                        out_note, tuple(claims))

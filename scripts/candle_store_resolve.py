@@ -7,13 +7,27 @@ This script exists because a venue can legitimately CORRECT a bar, and
 first-committed-wins would otherwise pin the store to the wrong value
 forever with no escape hatch.
 
+IT TAKES THE INGEST LOCK FOR THE WHOLE READ-MODIFY-REPLACE, AND REFUSES
+(exit 1) WHEN IT CANNOT. Without that, any append landing inside the
+read->replace window was destroyed outright: the collector polls every 5
+minutes by design, its bars are NOT re-acquirable, the `.preschema_` backup
+is taken before the concurrent append and so contains neither copy, and -
+because coverage/ is a different file that is never rewritten - the
+destroyed slots came back as NO_BAR_IN_COVERED_WINDOW, the store asserting
+the venue had no data for bars it held thirty seconds earlier. That is the
+2026-07-11 schema-loss class recurring inside the one tool exempted from
+the append-only law. It NEVER steals the lock; a stale one is an operator
+decision (`candle_store.py unlock --force`).
+
 It follows the repo's migration discipline exactly
 (scripts/migrate_fills_schema.py — "resolve by hand, never by overwrite"):
 
   * --dry-run IS THE DEFAULT. Nothing is written without --apply.
-  * A `.preschema_<ts>` COPY of every segment it touches is made BEFORE
-    any write, with shutil.copy2 (a copy, not a rename - the original
-    segment keeps its name and its place in the read order).
+  * A `.preschema_<pid>_<ts>` COPY of every segment it touches is made
+    BEFORE any write, with shutil.copy2 (a copy, not a rename - the
+    original segment keeps its name and its place in the read order). The
+    name carries the PID because two rewrites in the same second would
+    otherwise clobber one backup.
   * It REFUSES anything it cannot interpret: a segment whose header is not
     the schema, a key whose conflict set it cannot pair up, a schema
     generation newer than this code. It never guesses.
@@ -33,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import shutil
 import sys
 import time
@@ -50,7 +65,8 @@ def _load(root: Path | str | None) -> list[tuple[Path, int, int, dict]]:
     """(segment, version, line index within the segment, row) for all bars."""
     out: list[tuple[Path, int, int, dict]] = []
     for path, version in cj._segments(cj.journal_dir(root)):
-        rows = cj._read_segment(path, version, cj._BAR_COLUMNS_BY_VERSION)
+        rows = list(cj._read_segment(path, version,
+                                     cj._BAR_COLUMNS_BY_VERSION))
         for i, row in enumerate(rows):
             out.append((path, version, i, row))
     return out
@@ -79,14 +95,22 @@ def conflicts(root: Path | str | None = None,
 def _rewrite(path: Path, version: int, edits: dict[int, str]) -> None:
     """Rewrite one segment with `record_kind` flipped on the named lines.
 
+    THE CALLER MUST ALREADY HOLD cj.ingest_lock - this reads a file and
+    replaces it, so an unlocked concurrent append inside that window is
+    lost silently and permanently.
+
     Backs the segment up FIRST, then writes through a PID-scoped tmp in the
-    same directory and an atomic replace. Refuses a header it does not
-    recognise (_read_segment already raised in that case)."""
+    same directory and an atomic replace. The read is fully materialised
+    before the replace: _read_segment streams, and leaving its handle open
+    across os.replace is a PermissionError on the target platform. Refuses a
+    header it does not recognise (_read_segment already raised in that
+    case)."""
     columns = cj._BAR_COLUMNS_BY_VERSION[version]
-    rows = cj._read_segment(path, version, cj._BAR_COLUMNS_BY_VERSION)
-    backup = path.with_suffix(path.suffix + f".preschema_{int(time.time())}")
+    rows = list(cj._read_segment(path, version, cj._BAR_COLUMNS_BY_VERSION))
+    stamp = f"{os.getpid()}_{int(time.time())}"
+    backup = path.with_suffix(path.suffix + f".preschema_{stamp}")
     shutil.copy2(path, backup)
-    tmp = path.with_suffix(path.suffix + ".resolve.tmp")
+    tmp = path.with_suffix(path.suffix + f".resolve.{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(columns)
@@ -103,7 +127,29 @@ def _rewrite(path: Path, version: int, edits: dict[int, str]) -> None:
 def resolve(root: Path | str | None = None, *, accept: str = "latest",
             symbol: str | None = None, interval_s: int | None = None,
             apply: bool = False) -> int:
-    """List, and with apply=True flip, the authoritative row per key."""
+    """List, and with apply=True flip, the authoritative row per key.
+
+    apply=True runs the ENTIRE scan-plan-rewrite under cj.ingest_lock, so
+    the plan cannot be stale by the time it is written and no concurrent
+    append can be overwritten. A held lock is a REFUSAL (return 1), never a
+    steal."""
+    if not apply:
+        return _resolve_inner(root, accept=accept, symbol=symbol,
+                              interval_s=interval_s, apply=False)
+    with cj.ingest_lock(root) as acquired:
+        if not acquired:
+            print("REFUSED: the candle-store ingest lock is held - a "
+                  "rewrite here would destroy whatever the holder appends. "
+                  "Stop the writer, or `python scripts/candle_store.py "
+                  "unlock --force` if it is dead.")
+            return 1
+        return _resolve_inner(root, accept=accept, symbol=symbol,
+                              interval_s=interval_s, apply=True)
+
+
+def _resolve_inner(root: Path | str | None, *, accept: str,
+                   symbol: str | None, interval_s: int | None,
+                   apply: bool) -> int:
     found = conflicts(root, symbol, interval_s)
     if not found:
         print("no conflicted keys")

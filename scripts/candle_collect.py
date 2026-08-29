@@ -33,6 +33,13 @@ THREE RULES, ALL PINNED BY TEST:
     never torn; the residual risk is a transient PermissionError inside
     the replace window, handled as the same skip.)
 
+ 2b. A LOST POLL EXITS NON-ZERO AND SAYS WHICH LANE. `status` and `written`
+    are printed per asset and drive the exit code (see lost_polls). A poll
+    refused by the ingest lock, or one whose append failed, writes nothing
+    at all - and on this lane a silently skipped poll is 5m path lost from
+    the world. "0 findings" and "the scan is broken" are the same
+    observation until separated.
+
  3. PER-ASSET RIGHT EDGE, NEVER THE WALL CLOCK. `committed_upto_s` comes
     from THAT ASSET'S OWN newest cached bar. MEASURED live on this box at
     one instant [K, read_at_s=1788020156.44, state.json
@@ -153,6 +160,31 @@ def collect_once(state_path: Path | str | None = None,
             "reports": reports, "read_at_s": now}
 
 
+def lost_polls(summary: dict[str, Any]) -> list[str]:
+    """Lanes whose observation did NOT land, as printable strings.
+
+    A LOST POLL MUST NEVER EXIT 0. The 5m ring is not re-acquirable - every
+    poll this lane misses is path lost from the world, not merely from this
+    store - and the two ways to lose one are both silent by default:
+
+      * status == "LOCKED": a backfill (or a killed process whose lock
+        survives) holds the single-writer lock, so ingest refuses, writes
+        NOTHING - not even a coverage row - and returns. The refusal is
+        CORRECT; the silence is the defect. Its only other visible trace was
+        win_to_s == -1 in a column headed `right_edge_s`.
+      * written == False: core.runtime.durable_append never raises and
+        returns False on OSError (disk full, an ACL/AV lock). The report
+        then prints `accepted=N` for N bars that never reached disk.
+    """
+    out: list[str] = []
+    for rep in summary.get("reports", []):
+        if rep.status != "OK":
+            out.append(f"{rep.symbol}:{rep.status}")
+        elif not rep.written:
+            out.append(f"{rep.symbol}:WRITE_FAILED")
+    return out
+
+
 def _print(summary: dict[str, Any]) -> None:
     if summary["poll_unreadable"]:
         print(f"read_at_s={summary['read_at_s']}  state.json UNREADABLE - "
@@ -160,13 +192,20 @@ def _print(summary: dict[str, Any]) -> None:
         return
     print(f"read_at_s={summary['read_at_s']}  assets={summary['assets']}")
     print(f"{'asset':<8}{'offered':>9}{'accepted':>10}{'dup':>7}"
-          f"{'conflict':>10}{'rejected':>10}{'right_edge_s':>14}  "
-          f"rejected_by_reason")
+          f"{'conflict':>10}{'rejected':>10}{'right_edge_s':>14}"
+          f"{'status':>10}{'written':>9}  rejected_by_reason")
     for rep in summary["reports"]:
         print(f"{rep.symbol:<8}{rep.bars_offered:>9}{rep.bars_accepted:>10}"
               f"{rep.bars_dup:>7}{rep.bars_conflict:>10}"
-              f"{rep.bars_rejected:>10}{rep.win_to_s:>14}  "
+              f"{rep.bars_rejected:>10}{rep.win_to_s:>14}"
+              f"{rep.status:>10}{str(rep.written):>9}  "
               f"{rep.rejected_by_reason or ''}")
+    lost = lost_polls(summary)
+    if lost:
+        print(f"LOST POLLS (nothing written, NOT re-acquirable): "
+              f"{', '.join(lost)}")
+        print("  a LOCKED lane means the ingest lock is held - if no writer "
+              "is alive, `python scripts/candle_store.py unlock --force`")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -210,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for n in range(cycles):
         summary = collect_once(args.state, args.root, assets)
         _print(summary)
-        if summary["poll_unreadable"]:
+        if summary["poll_unreadable"] or lost_polls(summary):
             rc = 1
         if n + 1 < cycles:
             time.sleep(max(1, args.interval_poll_s))

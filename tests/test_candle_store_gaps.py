@@ -328,6 +328,16 @@ def _reachable_reasons(tmp_path) -> set[str]:
     note(va.coverage_of(T0 - 10 * IV))             # BEFORE_LEFT_EDGE
     note(va.coverage_of(T0 + 99 * IV))             # BEYOND_RIGHT_EDGE
     note(va.forward_return(T0 + 3, IV)[1])         # MISALIGNED_T0
+    note(va.forward_return(T0, IV // 2)[1])        # MISALIGNED_HORIZON
+    # REJECTED_BY_STORE: the venue served a bar, the store refused it, and
+    # the slot is inside a window the store claims.
+    f = tmp_path / "f"
+    bad = [b for b in _bars(5)]
+    bad[2] = {**bad[2], "high": bad[2]["low"] - 1.0}
+    _ingest(f, bad, committed_upto=T0 + 4 * IV, asked_from=T0,
+            asked_to=T0 + 4 * IV)
+    note(cj.load_view("ETH", IV, series=SERIES, root=f).coverage_of(
+        T0 + 2 * IV))
     # QUOTE_MISMATCH / SYMBOL_UNKNOWN / INTERVAL_UNKNOWN
     note(cj.load_view("ETH", IV, series=cj.Series("kraken", "USDT"),
                       root=a).coverage_of(T0))
@@ -533,3 +543,351 @@ def test_collector_only_reads_state_json(tmp_path):
     cc.collect_once(state, tmp_path / "candles", now_s=NOW)
     assert state.read_bytes() == raw
     assert list(tmp_path.glob("state.json.*")) == []
+
+
+# --- P22 the horizon must be a POSITIVE MULTIPLE of the lane interval -----
+
+def test_a_sub_interval_horizon_is_refused_not_answered_with_zero(tmp_path):
+    """MUTATION THAT MUST KILL THIS: delete the
+    `horizon_s % self.interval_s` guard in CandleView.forward_return.
+
+    Without it the forward endpoint floors back onto the ANCHOR BAR, so
+    every sub-interval horizon returns exactly 0.0 at reason "OK" with 100%
+    coverage, and a non-multiple horizon returns the next-lower multiple's
+    return UNDER THE REQUESTED HORIZON'S LABEL. A pre-registered sweep over
+    {1h,2h,4h,6h,24h} against a 4h lane then reads "no edge at short
+    horizons, fully covered" - which is the exact question this store was
+    built to answer, answered by an artifact.
+
+    P11 asserts no parameter NAME starts with "tolerance"; the floor
+    resolution supplied an unbounded implicit tolerance of interval_s - 1
+    with no such parameter, so P11 was green throughout. This pin is
+    BEHAVIOURAL for that reason."""
+    _ingest(tmp_path, _bars(6), committed_upto=T0 + 5 * IV, asked_from=T0,
+            asked_to=T0 + 5 * IV)
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    # the boundary, both sides
+    assert view.forward_return(T0, IV)[1] == "OK"
+    assert view.forward_return(T0, IV - 1) == (None, "MISALIGNED_HORIZON")
+    assert view.forward_return(T0, IV + 1) == (None, "MISALIGNED_HORIZON")
+    # a sub-interval horizon must NOT be a confident zero
+    assert view.forward_return(T0, IV // 2) == (None, "MISALIGNED_HORIZON")
+    assert view.forward_return(T0, 1) == (None, "MISALIGNED_HORIZON")
+    assert view.forward_return(T0, 0) == (None, "MISALIGNED_HORIZON")
+    assert view.forward_return(T0, -IV) == (None, "MISALIGNED_HORIZON")
+    # multiples still work, and 1.5x resolves to neither leg's number
+    assert view.forward_return(T0, 2 * IV)[1] == "OK"
+    assert view.forward_return(T0, IV + IV // 2)[0] is None
+    assert cj.forward_return("ETH", T0, IV // 2, interval_s=IV,
+                             series=SERIES, root=tmp_path) == (
+        None, "MISALIGNED_HORIZON")
+    assert view.forward_returns_batch([T0, T0 + IV], IV // 2) == [
+        (None, "MISALIGNED_HORIZON"), (None, "MISALIGNED_HORIZON")]
+
+
+def test_the_pre_registered_horizon_grid_against_a_4h_lane(tmp_path):
+    """The concrete sweep shape that motivated the store: a 4h lane, the
+    {1h,2h,4h,6h,24h,72h} grid. Only the multiples may produce a number."""
+    iv = 14400
+    t0 = 1787428800 - (1787428800 % iv)
+    bars = [{"time": t0 + i * iv, "open": 100.0 + i, "high": 102.0 + i,
+             "low": 98.0 + i, "close": 100.0 + i, "volume": 1.0}
+            for i in range(30)]
+    cj.ingest("ETH", iv, "kraken", "USD", bars, committed_upto_s=t0 + 29 * iv,
+              committed_by="venue_last", asked_from_s=t0,
+              asked_to_s=t0 + 29 * iv, now_s=NOW, root=tmp_path)
+    view = cj.load_view("ETH", iv, series=SERIES, root=tmp_path)
+    got = {h: view.forward_return(t0, h) for h in (3600, 7200, 14400, 21600,
+                                                   86400, 259200)}
+    assert got[3600] == (None, "MISALIGNED_HORIZON")
+    assert got[7200] == (None, "MISALIGNED_HORIZON")
+    assert got[21600] == (None, "MISALIGNED_HORIZON")   # was the 4h number
+    assert got[14400][1] == "OK"
+    assert got[86400][1] == "OK"
+    assert got[259200][1] == "OK"
+    assert got[14400][0] != got[86400][0]
+
+
+# --- P23 a slot the STORE refused is not a slot the VENUE lacked ----------
+
+def test_a_rejected_bar_is_not_a_venue_hole(tmp_path):
+    """MUTATION THAT MUST KILL THIS: drop the `t_open_s in self._rejected`
+    branch from coverage_of, or stop journalling _SLOT_REJECT_REASONS.
+
+    Three distinct epistemic states in one window - the venue sent a
+    corrupt bar, the venue sent a poisoned bar, the venue sent nothing -
+    used to answer with ONE reason code, documented as "we looked, the
+    venue had nothing". This repo has already quarantined 5 poisoned rows
+    on the data-intake path and that class concentrates in the thin alts,
+    so the misattribution is missing-not-at-random in exactly the cohort
+    this store exists to de-bias."""
+    good = _bars(10)
+    batch = []
+    for i, b in enumerate(good):
+        if i == 3:
+            batch.append({**b, "high": b["low"] - 1.0})     # corrupt: h < l
+        elif i == 5:
+            batch.append({**b, "close": float("nan")})      # poisoned
+        elif i == 7:
+            continue                                        # a REAL hole
+        else:
+            batch.append(b)
+    rep = _ingest(tmp_path, batch, committed_upto=T0 + 9 * IV, asked_from=T0,
+                  asked_to=T0 + 9 * IV)
+    assert rep.bars_accepted == 7
+    assert rep.rejected_by_reason == {"BAD_OHLC": 2}
+
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    assert view.coverage_of(T0 + 3 * IV) == "REJECTED_BY_STORE"
+    assert view.coverage_of(T0 + 5 * IV) == "REJECTED_BY_STORE"
+    assert view.coverage_of(T0 + 7 * IV) == "NO_BAR_IN_COVERED_WINDOW"
+    assert view.coverage_of(T0) == "OK"
+    # ...and the three states stay apart in the exclusion accounting
+    cov = view.coverage(T0, T0 + 9 * IV)
+    assert cov["present_bars"] == 7
+    assert cov["rejected_bars"] == 2
+    assert cov["missing_in_covered"] == 1
+    assert cov["holes_in_covered"] == [(T0 + 7 * IV, T0 + 7 * IV)]
+    assert cov["rejected_in_covered"] == [(T0 + 3 * IV, T0 + 3 * IV),
+                                          (T0 + 5 * IV, T0 + 5 * IV)]
+    # the refusal is an instrument fact, so it never yields a number
+    assert view.forward_return(T0 + 3 * IV, IV) == (
+        None, "anchor_REJECTED_BY_STORE")
+    assert view.price_at(T0 + 3 * IV)[1] == "REJECTED_BY_STORE"
+
+
+def test_the_refusal_ledger_is_journalled_once_not_once_per_poll(tmp_path):
+    """A corrupt bar the venue keeps re-serving is ONE fact. Without the
+    dedup the 5m collector would append a refusal row every 300 s forever."""
+    batch = [b for b in _bars(5)]
+    batch[2] = {**batch[2], "high": batch[2]["low"] - 1.0}
+    _ingest(tmp_path, batch, committed_upto=T0 + 4 * IV, asked_from=T0,
+            asked_to=T0 + 4 * IV)
+    assert (tmp_path / "rejects").is_dir()
+    before = _files(tmp_path)
+    for k in range(3):
+        _ingest(tmp_path, batch, committed_upto=T0 + 4 * IV, asked_from=T0,
+                asked_to=T0 + 4 * IV, now_s=NOW + 300 * (k + 1))
+    assert _files(tmp_path) == before, "a re-poll grew the refusal ledger"
+    assert cj.load_view("ETH", IV, series=SERIES,
+                        root=tmp_path).coverage_of(T0 + 2 * IV) == \
+        "REJECTED_BY_STORE"
+
+
+def test_a_rejection_outside_any_claimed_window_stays_uncovered(tmp_path):
+    """REJECTED_BY_STORE never OVER-rides the coverage algebra: a refused
+    slot the store never claimed is still NOT_COVERED, not a refusal."""
+    batch = [b for b in _bars(5)]
+    batch[4] = {**batch[4], "high": batch[4]["low"] - 1.0}
+    _ingest(tmp_path, batch, committed_upto=T0 + 4 * IV, asked_from=T0,
+            asked_to=T0 + 2 * IV)
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    assert view.coverage_of(T0 + 4 * IV) == "BEYOND_RIGHT_EDGE"
+
+
+# --- coverage() is scoped to the window it was asked about ----------------
+
+def test_coverage_conflicts_and_mix_are_window_scoped(tmp_path):
+    """MUTATION THAT MUST KILL THIS: report len(self._conflicts) and
+    self._committed_by_mix (the LANE-wide accumulators) again.
+
+    Every other field in this dict, and its whole docstring, is about the
+    queried window. An analyst building a study's exclusion accounting -
+    which this call calls THE MANDATORY COMPANION TO EVERY STATISTIC - read
+    conflicts=3 for a window containing none, and read committed_by_mix
+    against a denominator many times the window's. "A ratio is not a number
+    until its denominator is read from the code that computes it"."""
+    bars20 = _bars(20)
+    _ingest(tmp_path, bars20, committed_upto=T0 + 19 * IV, asked_from=T0,
+            asked_to=T0 + 19 * IV)
+    for k in (15, 16, 17):
+        _ingest(tmp_path, [{**bars20[k], "close": bars20[k]["close"] + 0.25}],
+                committed_upto=T0 + 19 * IV, asked_from=T0 + k * IV,
+                asked_to=T0 + k * IV, committed_by="clock",
+                now_s=NOW + 100 + k)
+    out = cj.coverage("ETH", IV, T0, T0 + 4 * IV, series=SERIES,
+                      root=tmp_path)
+    assert out["expected_bars"] == 5 and out["present_bars"] == 5
+    assert out["conflicts"] == 0, "lane-wide conflicts leaked into a window"
+    assert out["committed_by_mix"] == {"venue_last": 5}
+    # the lane-wide figures remain available under their OWN names
+    assert out["lane_conflicts"] == 3
+    assert out["lane_committed_by_mix"] == {"venue_last": 20}
+    # and a window that DOES contain the conflicts reports them
+    inner = cj.coverage("ETH", IV, T0 + 15 * IV, T0 + 17 * IV, series=SERIES,
+                        root=tmp_path)
+    assert inner["conflicts"] == 3
+
+
+# --- the provenance stamp names WHEN the value is true -------------------
+
+def test_price_at_stamp_says_when_the_value_is_actually_true(tmp_path):
+    """MUTATION THAT MUST KILL THIS: drop `value_as_of_s`, or set it to
+    t_open_s for every field.
+
+    `offset_s` is how far the requested instant sits INTO the bar; the
+    docstring offered it as the error to "CORRECT for". For the DEFAULT
+    field it is the wrong magnitude AND the wrong sign: `close` is the price
+    as of t_open + interval, which POST-DATES the request by up to a full
+    interval. A maintainer resolving a corpus signal_ts against the
+    recommended 4h lane would read offset_s=10 and believe the price is
+    within 10 s of the decision instant, while it is 14,390 s of
+    LOOKAHEAD - manufactured edge in the direction that looks like skill."""
+    iv = 14400
+    t0 = T0 - (T0 % iv)
+    cj.ingest("ETH", iv, "kraken", "USD",
+              [{"time": t0, "open": 100.0, "high": 102.0, "low": 98.0,
+                "close": 100.0, "volume": 1.0}],
+              committed_upto_s=t0, committed_by="venue_last", asked_from_s=t0,
+              asked_to_s=t0, now_s=NOW, root=tmp_path)
+    view = cj.load_view("ETH", iv, series=SERIES, root=tmp_path)
+    _, reason, stamp = view.price_at(t0 + 10)
+    assert reason == "OK"
+    assert stamp["offset_s"] == 10
+    assert stamp["value_as_of_s"] == t0 + iv
+    assert stamp["value_as_of_s"] - (t0 + 10) == iv - 10   # the real error
+    # 'open' is the one field that IS as of the bar open
+    assert view.price_at(t0 + 10, "open")[2]["value_as_of_s"] == t0
+    for f in ("high", "low", "close", "volume"):
+        assert view.price_at(t0 + 10, f)[2]["value_as_of_s"] == t0 + iv
+
+
+# --- a contradicted bar is visible to a consumer, not just to a refusal ---
+
+def test_a_conflicted_slot_is_detectable_by_a_consumer(tmp_path):
+    """MUTATION THAT MUST KILL THIS: drop `conflicted` from Bar, or stop
+    setting it in CandleView._load.
+
+    price_at is the ONLY call in this API that pairs a real value with a
+    non-OK reason, and its own docstring did not say so - it documented
+    exactly one non-OK case (FIELD_UNKNOWN -> None). The natural guard
+    `if value is not None: use(value)` therefore consumed a bar the venue
+    had contradicted. bars() was worse: no marker on the object at all."""
+    base = {"time": T0, "open": 100.0, "high": 103.0, "low": 99.0,
+            "close": 102.0, "volume": 1.0}
+    _ingest(tmp_path, [base], committed_upto=T0, asked_from=T0, asked_to=T0)
+    _ingest(tmp_path, [{**base, "close": 101.5}], committed_upto=T0,
+            asked_from=T0, asked_to=T0, now_s=NOW + 60)
+    _ingest(tmp_path, [{**base, "time": T0 + IV}], committed_upto=T0 + IV,
+            asked_from=T0 + IV, asked_to=T0 + IV, now_s=NOW + 120)
+
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    value, reason, _ = view.price_at(T0)
+    assert value == 102.0 and reason == "CONFLICTED"     # a VALUE, not None
+    got = {b.t_open_s: b.conflicted for b in view.bars(T0, T0 + IV)}
+    assert got == {T0: True, T0 + IV: False}
+    # the documented consumer pattern can now see it
+    assert [b for b in view.bars(T0, T0 + IV) if not b.conflicted] == \
+        view.bars(T0 + IV, T0 + IV)
+    assert "CONFLICTED" in (cj.CandleView.price_at.__doc__ or ""), (
+        "price_at's own docstring must name the one reason that pairs with "
+        "a real value")
+
+
+# --- an instrument fault has no channel through a bare list --------------
+
+def test_module_level_wrappers_raise_rather_than_answer_empty(tmp_path):
+    """MUTATION THAT MUST KILL THIS: return [] from the module-level bars()
+    and covered_windows() when the view reports a fault.
+
+    A corrupted store answering [] is the instrument fault converted into
+    the data fact "we never looked". scripts/candle_backfill.py's pre-flight
+    --dry-run - the run that decides whether to spend venue calls - then
+    printed `covered_windows 0, right_edge_s None, store ok`, indis-
+    tinguishable from a fresh empty store, and its `except
+    CandleStoreUnreadable` was dead code. CandleView itself keeps degrading:
+    its consumers read .unreadable and coverage() surfaces it."""
+    import scripts.candle_backfill as bf
+    _ingest(tmp_path, _bars(5), committed_upto=T0 + 4 * IV, asked_from=T0,
+            asked_to=T0 + 4 * IV)
+    healthy = bf._plan_row("ETH", IV, "kraken", "USD", tmp_path)
+    assert healthy["store"] == "ok" and healthy["covered_windows"] == 1
+
+    seg = next((tmp_path / "journal").glob("*.csv"))
+    seg.write_bytes(seg.read_bytes()[:-14])
+    with pytest.raises(cj.CandleStoreUnreadable):
+        cj.covered_windows("ETH", IV, series=SERIES, root=tmp_path)
+    with pytest.raises(cj.CandleStoreUnreadable):
+        cj.bars("ETH", IV, T0, T0 + 4 * IV, series=SERIES, root=tmp_path)
+    torn = bf._plan_row("ETH", IV, "kraken", "USD", tmp_path)
+    assert torn["store"].startswith("UNREADABLE"), torn
+    # the view still degrades, because it HAS a channel for the flag
+    view = cj.load_view("ETH", IV, series=SERIES, root=tmp_path)
+    assert view.unreadable and view.coverage_of(T0) == "STORE_UNREADABLE"
+
+
+# --- P24 a lost poll never exits 0 ---------------------------------------
+
+def test_a_locked_poll_is_loud_and_exits_non_zero(tmp_path, capsys):
+    """MUTATION THAT MUST KILL THIS: set rc only from poll_unreadable
+    again, or drop the status/written columns from _print.
+
+    A wedged lock turns the collector into a silent no-op: a plausible
+    table, exit 0, and every subsequent 5m window lost from the WORLD -
+    indefinitely, until a human happens to notice. The refusal is right; the
+    silence is the defect."""
+    import scripts.candle_collect as cc
+    state = _state(tmp_path, {"ETH": T0 + 4 * IV})
+    root = tmp_path / "candles"
+    assert cc.main(["--state", str(state), "--root", str(root), "--once"]) == 0
+
+    lock = cj._IngestLock(root)
+    assert lock.acquire() is True
+    try:
+        summary = cc.collect_once(state, root, now_s=NOW + 300)
+        assert [r.status for r in summary["reports"]] == ["LOCKED"]
+        assert cc.lost_polls(summary) == ["ETH:LOCKED"]
+        rc = cc.main(["--state", str(state), "--root", str(root), "--once"])
+        assert rc == 1, "a lost poll exited 0"
+    finally:
+        lock.release()
+    out = capsys.readouterr().out
+    assert "LOCKED" in out and "LOST POLLS" in out
+    assert "status" in out and "written" in out
+
+
+def test_a_failed_append_is_loud_and_exits_non_zero(tmp_path, monkeypatch):
+    """durable_append never raises and returns False on OSError. The
+    collector printed accepted=N for N bars that never reached disk."""
+    import scripts.candle_collect as cc
+    state = _state(tmp_path, {"ETH": T0 + 4 * IV})
+    root = tmp_path / "candles"
+    monkeypatch.setattr(cj, "durable_append", lambda *a, **k: False)
+    summary = cc.collect_once(state, root, now_s=NOW)
+    assert [r.written for r in summary["reports"]] == [False]
+    assert cc.lost_polls(summary) == ["ETH:WRITE_FAILED"]
+    monkeypatch.undo()
+    assert cc.main(["--state", str(state), "--root", str(root), "--once"]) == 0
+
+
+def test_report_statuses_is_the_read_vocabulary_and_locked_is_in_it():
+    """"LOCKED" was outside the module's own closed STATUSES set, so a
+    consumer validating IngestReport.status against it silently missed the
+    one value that means the observation never happened. It is in the READ
+    vocabulary and stays OUT of the WRITE one - a refused poll writes
+    nothing, so it can never reach a cell."""
+    assert "LOCKED" in cj.REPORT_STATUSES
+    assert "LOCKED" not in cj.STATUSES
+    assert cj.STATUSES < cj.REPORT_STATUSES
+    with pytest.raises(cj.CandleLaneError):
+        cj.ingest("ETH", IV, "kraken", "USD", [], committed_upto_s=T0,
+                  committed_by="venue_last", asked_from_s=T0, asked_to_s=T0,
+                  status="LOCKED", now_s=NOW, root="unreachable")
+
+
+def test_every_ingest_report_status_is_in_the_read_vocabulary(tmp_path):
+    """Exhaustive over the reachable statuses, so the set cannot drift."""
+    seen = set()
+    seen.add(_ingest(tmp_path, _bars(3), committed_upto=T0 + 2 * IV,
+                     asked_from=T0, asked_to=T0 + 2 * IV).status)
+    for st in ("FETCH_FAILED", "EMPTY"):
+        seen.add(_ingest(tmp_path, [], committed_upto=T0, asked_from=T0,
+                         asked_to=T0, status=st, now_s=NOW + 1).status)
+    lock = cj._IngestLock(tmp_path)
+    lock.acquire()
+    try:
+        seen.add(_ingest(tmp_path, _bars(1), committed_upto=T0,
+                         asked_from=T0, asked_to=T0).status)
+    finally:
+        lock.release()
+    assert seen == set(cj.REPORT_STATUSES)

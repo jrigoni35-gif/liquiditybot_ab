@@ -23,12 +23,24 @@ from data import candle_journal as cj
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STORE_MODULE = REPO_ROOT / "data" / "candle_journal.py"
 
-# Everything the store may never be imported by. ml/ is not swept whole -
-# ml/features.py is the feature vector's home and the one file in that tree
-# whose contamination would put a candle into the trained matrix.
+# Everything the store may never be imported by.
+#
+# ml/ IS SWEPT WHOLE, and data/ WITH IT. Sweeping only ml/features.py left
+# the natural next step wide open: using the store in ml/history.py's
+# CandidateLabeler or ml/labeling.py to backfill labels changes the labels,
+# which changes the model, which changes entry decisioning - COHORT-RESETTING
+# under the era-5 moratorium, with no CI signal. main.py imports ml.history
+# and data.kraken_feed, so a data/ module is one transitive edge from the
+# engine. INJECTION-VERIFIED: planting the import in ml/history.py,
+# ml/labeling.py and data/kraken_feed.py left the old guard fully green.
 DECISION_TREES = ("core", "execution", "risk", "regime", "strategies",
-                  "sentiment", "api")
-DECISION_FILES = ("main.py", "runner.py", "ml/features.py")
+                  "sentiment", "api", "ml", "data")
+DECISION_FILES = ("main.py", "runner.py")
+
+# The store's own files, which obviously name themselves. Excluded by exact
+# path, never by a substring rule that a future file could accidentally
+# satisfy.
+STORE_OWN_FILES = ("data/candle_journal.py",)
 
 STORE_NAMES = ("candle_journal", "candle_store", "candle_collect",
                "candle_backfill", "candle_store_resolve")
@@ -40,53 +52,105 @@ FORBIDDEN_IMPORTS = ("pandas", "polars", "duckdb", "matplotlib", "seaborn",
 
 
 def _decision_files() -> list[Path]:
+    own = {(REPO_ROOT / f).resolve() for f in STORE_OWN_FILES}
     files: list[Path] = []
     for d in DECISION_TREES:
         files += [p for p in (REPO_ROOT / d).rglob("*.py")
                   if "__pycache__" not in p.parts]
     files += [REPO_ROOT / f for f in DECISION_FILES]
-    return sorted(f for f in files if f.exists())
+    return sorted(f for f in files
+                  if f.exists() and f.resolve() not in own)
+
+
+def _scan(files) -> list[str]:
+    """The detector itself, as a function so a pin can EXERCISE it.
+
+    An unreadable file is a FAILURE, not a skip: the previous blanket
+    `except (OSError, UnicodeDecodeError): continue` meant any future
+    narrowing - an encoding change, a rename in DECISION_TREES, a refactor
+    that reads a subset - silently emptied the scan while every test stayed
+    green."""
+    hits: list[str] = []
+    for path in files:
+        text = Path(path).read_text(encoding="utf-8")
+        for name in STORE_NAMES:
+            if name in text:
+                try:
+                    label = Path(path).relative_to(REPO_ROOT).as_posix()
+                except ValueError:
+                    label = str(path)
+                hits.append(f"{label}: {name}")
+    return hits
 
 
 # --- P9 the store is absent from every decision module --------------------
 
 def test_store_absent_from_decision_code():
     """MUTATION THAT MUST KILL THIS: add `from data import candle_journal`
-    to ml/features.py.
+    to ml/features.py - or, since ml/ and data/ are now swept whole, to
+    ml/history.py, ml/labeling.py or data/kraken_feed.py.
 
     A structural guard, not an absence of call sites today. A gate, a
     sizer, an order path or a veto picking this store up is exactly the
     COHORT-RESETTING change the era-5 moratorium forbids, and it must fail
     loudly here rather than be discovered later as a live behaviour
     change."""
-    hits = []
-    for path in _decision_files():
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for name in STORE_NAMES:
-            if name in text:
-                hits.append(f"{path.relative_to(REPO_ROOT).as_posix()}: "
-                            f"{name}")
+    hits = _scan(_decision_files())
     assert hits == [], (
         "the candle store is referenced from decision code - that is "
         f"COHORT-RESETTING under the era-5 moratorium: {hits}")
 
 
-def test_the_guard_would_actually_catch_an_import():
-    """SEPARATE "0 findings" FROM "the scan is broken".
+def test_the_guard_would_actually_catch_an_import(tmp_path):
+    """SEPARATE "0 findings" FROM "the scan is broken" - BY RUNNING IT.
 
-    Plants the exact forbidden form in a scratch file inside a scanned
-    tree and asserts the detector fires on it, so the green above is
-    evidence rather than an empty walk."""
-    files = _decision_files()
-    assert len(files) > 50, f"the scan found only {len(files)} files"
-    planted = "from data import candle_journal  # planted"
-    assert any(name in planted for name in STORE_NAMES)
-    # and the real files are the ones being read
-    assert (REPO_ROOT / "ml" / "features.py") in files
-    assert (REPO_ROOT / "main.py") in files
+    The previous version of this test claimed to plant the forbidden form
+    and assert the detector fires. It planted nothing: it substring-matched
+    a Python literal against itself (`any(name in planted ...)`), which is a
+    tautology about the `in` operator, and checked a file count. MUTATION
+    PROOF that it was vacuous: monkeypatching Path.read_text to return ""
+    (a totally blinded detector) left BOTH pins green. This one calls the
+    real `_scan` on a real file and asserts both directions."""
+    clean = tmp_path / "clean.py"
+    clean.write_text("import json\n\n\ndef f():\n    return 1\n",
+                     encoding="utf-8")
+    assert _scan([clean]) == [], "the detector fired on a clean file"
+
+    planted = tmp_path / "planted.py"
+    planted.write_text("from data import candle_journal  # planted\n",
+                       encoding="utf-8")
+    hits = _scan([planted])
+    assert len(hits) == 1 and "candle_journal" in hits[0], hits
+
+    # ...and every store name is detectable, not just the module's own.
+    for name in STORE_NAMES:
+        p = tmp_path / f"p_{name}.py"
+        p.write_text(f"import scripts.{name}\n", encoding="utf-8")
+        assert _scan([p]), name
+
+
+def test_an_unreadable_decision_file_fails_the_guard(tmp_path):
+    """A file the detector cannot read is an UNVERIFIED file, and an
+    unverified file may not count as clean."""
+    bad = tmp_path / "bad.py"
+    bad.write_bytes(b"\xff\xfe\x00 not utf-8 \xff")
+    with pytest.raises((UnicodeDecodeError, OSError)):
+        _scan([bad])
+
+
+def test_the_sweep_actually_reaches_the_decision_upstream_trees():
+    """The hole this pin closes: ml/ was represented by ml/features.py
+    alone, and data/ not at all, so the labeler and the label engine - both
+    decision-UPSTREAM, both one edit from changing what the model learns -
+    were unswept."""
+    swept = {p.relative_to(REPO_ROOT).as_posix() for p in _decision_files()}
+    for required in ("ml/features.py", "ml/history.py", "ml/labeling.py",
+                     "data/kraken_feed.py", "main.py", "runner.py",
+                     "execution/order_manager.py"):
+        assert required in swept, f"{required} is not swept"
+    assert "data/candle_journal.py" not in swept, (
+        "the store's own module must be excluded, or the guard flags itself")
+    assert len(swept) > 80, f"the scan found only {len(swept)} files"
 
 
 # --- P10 no module-level outputs/ path (anti-leak-instance-#11) -----------
