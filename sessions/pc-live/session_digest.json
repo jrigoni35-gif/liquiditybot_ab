@@ -1,19 +1,19 @@
 {
-  "generated_at": 1787963705.4317782,
+  "generated_at": 1787967305.3847237,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1787963695.599,
-    "duration_h": 1192.69
+    "end": 1787967299.0,
+    "duration_h": 1193.69
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 609,
-      "signal_records": 534,
+      "records": 612,
+      "signal_records": 537,
       "by_src": {
         "long_book": 262,
-        "ml_governor": 108,
+        "ml_governor": 111,
         "exploration": 101,
         "conviction": 96,
         "order_manager": 29,
@@ -53,15 +53,15 @@
         ],
         [
           "ML-016",
-          19
+          20
         ],
         [
           "ML-042",
-          19
+          20
         ],
         [
           "ML-041",
-          19
+          20
         ],
         [
           "OM-000",
@@ -73,49 +73,57 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.376,
+      "dominant_frac": 0.374,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 757,
+      "records": 1594,
       "by_level": {
-        "INFO": 752,
-        "WARNING": 5
+        "INFO": 1583,
+        "WARNING": 11
       },
       "top_warnings": [
+        [
+          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+          6
+        ],
         [
           "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
           2
         ],
         [
-          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          2
+          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          1
         ],
         [
-          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "auto-retrain: 8760 rows (40 new)",
+          1
+        ],
+        [
+          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 221,
-        "thin": 55
+        "spoofy": 400,
+        "thin": 145
       },
-      "spoofy_frac": 0.801,
+      "spoofy_frac": 0.734,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 92,
+      "cycles_estimate": 210,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 798.33,
+    "equity_end": 798.29,
     "equity_min": 796.79,
     "equity_max": 806.91,
     "equity_range": 10.12,
     "capital_epochs": 5,
-    "epoch_samples": 93395,
+    "epoch_samples": 93632,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -123,22 +131,22 @@
     "realized_pnl_total": 2.88,
     "fees_paid_total": 8.1423,
     "open_positions": 5,
-    "samples": 261186
+    "samples": 261423
   },
   "activity": {
-    "signal_rows_total": 19112,
+    "signal_rows_total": 19121,
     "live_labeled_trades": 375,
-    "candidate_rows": 18737
+    "candidate_rows": 18746
   },
   "audit": {
-    "records": 69582,
-    "signal_records": 30020,
+    "records": 69594,
+    "signal_records": 30032,
     "by_src": {
       "exploration": 62426,
-      "ml_governor": 2045,
-      "long_book": 1851,
+      "ml_governor": 2049,
+      "long_book": 1855,
       "order_manager": 1673,
-      "conviction": 505,
+      "conviction": 509,
       "startup": 322,
       "fault": 303,
       "exit": 279,
@@ -166,11 +174,11 @@
       ],
       [
         "LB-010",
-        1192
+        1196
       ],
       [
         "ML-031",
-        772
+        773
       ],
       [
         "OM-040",
@@ -182,11 +190,11 @@
       ],
       [
         "CV-030",
-        354
+        358
       ],
       [
         "ML-016",
-        347
+        348
       ],
       [
         "ML-072",
@@ -194,7 +202,7 @@
       ],
       [
         "ML-041",
-        329
+        330
       ]
     ],
     "dominant_code": "SZ-047",
@@ -209,39 +217,47 @@
     "chain_error": null
   },
   "events": {
-    "records": 757,
+    "records": 1594,
     "by_level": {
-      "INFO": 752,
-      "WARNING": 5
+      "INFO": 1583,
+      "WARNING": 11
     },
     "top_warnings": [
+      [
+        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+        6
+      ],
       [
         "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
         2
       ],
       [
-        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        2
+        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        1
       ],
       [
-        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        "auto-retrain: 8760 rows (40 new)",
+        1
+      ],
+      [
+        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 221,
-      "thin": 55
+      "spoofy": 400,
+      "thin": 145
     },
-    "spoofy_frac": 0.801,
+    "spoofy_frac": 0.734,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 92,
+    "cycles_estimate": 210,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.24898906295631068,
+    "champion_brier": 0.2489885029294361,
     "brier": "n/a",
     "history_rows": 375,
     "cold": false
@@ -271,13 +287,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 80% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 73% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 38% of 534 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 37% of 537 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
