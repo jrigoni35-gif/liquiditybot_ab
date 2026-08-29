@@ -493,6 +493,23 @@ def self_test() -> list[str]:
     return fails
 
 
+def negative_arm() -> int:
+    """NEGATIVE ARM (the control): plant a KNOWN defect — a sign-INVERTED
+    markout — and confirm the sign-convention checks CATCH it. A self-test
+    that stays green under an inverted instrument is vacuous (assurance C2:
+    a null arm proves the instrument does not cry wolf, never that it can
+    detect anything). Returns how many of the four directional planted cases
+    the inverted instrument trips; must be all four."""
+    def inv(side: str, fill: float, fwd: float) -> float:
+        return -raw_markout_bps(side, fill, fwd)
+    return sum((
+        inv("buy", 100.0, 101.0) <= 0,    # planted POSITIVE, inversion trips it
+        inv("buy", 100.0, 99.0) >= 0,     # planted NEGATIVE
+        inv("sell", 100.0, 99.0) <= 0,    # planted POSITIVE (short)
+        inv("sell", 100.0, 101.0) >= 0,   # planted NEGATIVE (short)
+    ))
+
+
 # ---------------------------------------------------------------------------
 # report
 # ---------------------------------------------------------------------------
@@ -517,12 +534,20 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     fails = self_test()
+    neg = negative_arm()
     print("== SIGN-CONVENTION SELF-TEST ==")
-    print("  PASS (7 planted cases)" if not fails else "  FAIL:")
+    print("  PASS 7/7 planted cases" if not fails else "  FAIL:")
     for f in fails:
         print("   -", f)
+    # NEGATIVE ARM / control: the inverted-sign instrument must be caught by
+    # all 4 directional cases; a self-test that survives inversion is vacuous.
+    print(f"  negative arm (control): inverted-sign instrument caught by "
+          f"{neg}/4 planted cases")
+    neg_ok = neg == 4
+    if not neg_ok:
+        print("   - CONTROL FAILED: self-test does not detect an inverted sign")
     if args.self_test:
-        return 0 if not fails else 1
+        return 0 if (not fails and neg_ok) else 1
     if fails:
         print("ABORT: sign convention broken; no null is trustworthy.")
         return 1
