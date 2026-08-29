@@ -19,20 +19,39 @@ reuses the SHIPPED feed classes rather than a new HTTP client, so every
 call goes through the repo's own throttle, its 16 MB bounded-body decode,
 and core.sanitize.
 
-VENUE REACH, MEASURED (2026-08-29), not inferred from docstrings:
+VENUE REACH. The figures below marked RUN were obtained by running this
+script against the live venues on 2026-08-29 and reading the store back
+(docs/quant/2026-08-29_candle_store_coverage.md holds the stamps); the
+rest are structural properties of the endpoint. Re-derive, never recall.
   * Kraken serves 720 committed bars per interval and `since` DOES NOT
-    page backward - 2.5 days at 5m, 30 days at 1h, 720 days at 1d. It is
-    the execution venue and the depth-starved one. It cannot backfill.
-  * OKX /market/history-candles pages backward with the `after` cursor and
-    reaches >= 400 days.
+    page backward. RUN: 30.0 days at 1h, 119.8 days at 4h, 719 days at 1d.
+    It is the execution venue and the depth-starved one. It cannot
+    backfill 1h history older than its cap - which is why a corpus study
+    that needs the execution venue's own quote must trade anchor precision
+    for reach by dropping to 4h.
+  * OKX /market/history-candles pages backward with the `after` cursor.
+    RUN: 2879 hourly bars = 119.9 days at --total 2880, every asset in the
+    live universe present. Deeper is a --total change, untested.
   * Binance.US honours startTime at the venue, but data/binanceus_feed.py
     sends only symbol/interval/limit, so through the SHIPPED client its
-    reach is one page (<= 1000 bars). Deepening it means extending that
-    signature (extend-never-rename: optional start_ms defaulted to None) -
-    a separate, reviewed change, not something to smuggle in here.
-  * Binance.US has no MINA at all, and ARB/PAXG/FLOW are USDT-only there.
+    reach is one page (<= 1000 bars). RUN: 999 bars = 41.6 days at 1h.
+    Deepening it means extending that signature (extend-never-rename:
+    optional start_ms defaulted to None) - a separate, reviewed change,
+    not something to smuggle in here.
+  * Binance.US has no MINA at all (RUN: HTTP 400, recorded EMPTY, coverage
+    claims nothing), and ARB/PAXG/FLOW are USDT-only there.
     Filling a USD series from a USDT one is the era-confound shape, so the
     quote is part of the store key and this script refuses to pretend.
+
+    AND THE ONE THAT IS NOT A REFUSAL: a DELISTED Binance.US USD pair
+    still answers 200 with a well-formed body - the frozen final page.
+    RUN: ARBUSD / PAXGUSD / FLOWUSD each returned 1000 bars dated
+    2023-05-16 -> 2023-06-27 in response to a request for the most recent
+    1000. Nothing in the response says so. The store contains it because
+    coverage is derived from the RESPONSE's own timestamps, so those lanes
+    answer BEYOND_RIGHT_EDGE at a 2026 anchor rather than a stale price -
+    but `lanes` shows them populated. A LANE BEING POPULATED IS NOT A LANE
+    BEING CURRENT: read t_min_s/t_max_s, never the row count.
 
 BATCH ACCUMULATION IS A RULE, NOT AN OPTIMISATION. Every page of one
 (symbol, interval, source, quote) run is accumulated and handed to
