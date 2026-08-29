@@ -159,3 +159,101 @@ def read_rows(path: "Path | str" = CORPUS_PATH,
     if era is None:
         return list(rows)
     return [r for r in rows if row_era(r) == era]
+
+
+# --- CONCURRENCY / EFFECTIVE-N ------------------------------------------
+# The ONE home for the corpus's effective-sample-size statistic and the
+# Wilson interval evaluated on it. RELOCATED here (2026-08-29) from
+# scripts/gate_truth_report.py, VERBATIM: the algorithm is unchanged, it
+# simply now lives in the stdlib-legal canonical accessor so every route
+# (gate_truth_report, gate_efficacy_report, and any new reader) computes
+# it in ONE place instead of keeping a private copy that can silently
+# disagree — the exact anti-pattern gate_efficacy_report's own header
+# warned about. Both scripts now import from here.
+#
+# NOTE this is the de Prado CANDIDATE-ROW uniqueness (per-(asset, 5m-bar)
+# concurrency over each row's [signal_ts, ts] label window). It is a
+# DIFFERENT instrument from scripts/cohort_eval.cohort_effective_n
+# (continuous-time uniqueness over realized TRIP spans [t_open, t_close])
+# and from ml.history.ess_kish (Kish ESS of a WEIGHT vector) — they answer
+# different questions on different inputs and are deliberately NOT merged.
+# The matching instrument for a sample of candidate label rows is this one.
+
+# Mirrors ml.history.load_training_data's uniqueness computation (config
+# ml.sample_weights defaults): 5m concurrency grid, 14-day span cap
+# against corrupt far-future timestamps. Report constants, not knobs.
+_UNIQ_GRID_SEC = 300.0
+_UNIQ_CAP_BARS = int(14 * 86400 // _UNIQ_GRID_SEC)
+
+
+def _num(v: object, d: float = 0.0) -> float:
+    """Finite float or default — the exact coercion the lifted effective_n
+    relies on (NaN and ±inf both fall back to `d`, never propagate). Kept
+    verbatim from the source instrument so relocation cannot shift a value."""
+    try:
+        x = float(v)  # type: ignore[arg-type]
+        return x if x == x and abs(x) != float("inf") else d
+    except (TypeError, ValueError):
+        return d
+
+
+def effective_n(rows: "list[Mapping[str, Any]]") -> "tuple[float, float]":
+    """(n_eff, mean_uniqueness) of a row sample — the number of
+    INDEPENDENT observations its statistics actually run on.
+
+    De Prado average uniqueness (AFML ch.4), the loader's exact
+    algorithm computed WITHIN this sample: per-(asset, 5m-bar)
+    concurrency over each row's [signal_ts, ts] label lifespan; per-row
+    uniqueness u_i = mean(1/concurrency) over its bars; n_eff = sum(u_i).
+    N fully-concurrent same-asset rows contribute ~1.0 total; disjoint
+    rows contribute 1.0 each; different assets never share a path. A
+    missing/zero signal_ts falls back to ts (single-bar lifespan) rather
+    than fabricating a [0, ts] mega-span that overlaps everything.
+    Empty sample -> (0.0, 0.0)."""
+    if not rows:
+        return 0.0, 0.0
+    conc: dict = {}
+    spans = []
+    for r in rows:
+        ts = _num(r.get("ts"))
+        sig = _num(r.get("signal_ts"))
+        if sig <= 0.0:
+            sig = ts
+        b0 = int(sig // _UNIQ_GRID_SEC)
+        b1 = min(int(max(ts, sig) // _UNIQ_GRID_SEC), b0 + _UNIQ_CAP_BARS)
+        asset = r.get("asset") or ""
+        spans.append((asset, b0, b1))
+        for b in range(b0, b1 + 1):
+            conc[(asset, b)] = conc.get((asset, b), 0) + 1
+    uniqs = [sum(1.0 / conc[(a, b)] for b in range(b0, b1 + 1))
+             / (b1 - b0 + 1) for a, b0, b1 in spans]
+    return float(sum(uniqs)), float(sum(uniqs) / len(uniqs))
+
+
+def wilson_interval(k: float, n: float, z: float = 1.96) -> "tuple[float, float]":
+    """Wilson score interval (lo, hi) — correct near 0 and 1, where the
+    normal approximation puts bounds outside [0,1].
+
+    `k`/`n` are FLOATS, not ints, on purpose: the honest sample size here
+    is EFFECTIVE n, and the interval is evaluated at k_eff = rate * n_eff
+    out of n_eff trials, which keeps the point estimate exactly where the
+    data put it and widens only the interval. Integer counts still work
+    unchanged. Lifted verbatim from scripts/gate_efficacy_report.wilson."""
+    if n <= 0:
+        return (0.0, 0.0)
+    p = k / n
+    d = 1.0 + z * z / n
+    c = p + z * z / (2 * n)
+    m = z * math.sqrt(max(p * (1 - p) / n + z * z / (4 * n * n), 0.0))
+    return ((c - m) / d, (c + m) / d)
+
+
+def wilson_on_neff(rate: float, n_eff: float,
+                   z: float = 1.96) -> "tuple[float, float]":
+    """Wilson interval for an observed `rate` re-evaluated on EFFECTIVE n:
+    Wilson(rate * n_eff successes out of n_eff trials). The point estimate
+    is untouched; only the width reflects the independent-observation
+    count. This is the one honest way to interval a per-stratum rate whose
+    rows overlap — a nominal-n interval on the same rate is optimistic by
+    sqrt(n / n_eff) and reads tight while straddling."""
+    return wilson_interval(rate * n_eff, n_eff, z)

@@ -38,6 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.codes import Code                                # noqa: E402
 from ml.history import (SG_COMPONENT_KEYS,                 # noqa: E402
                         triple_barrier_era)
+# effective_n RELOCATED to ml.corpus (2026-08-29), the stdlib-legal
+# canonical home; re-exported here (module attribute) so existing callers
+# and tests that `from scripts.gate_truth_report import effective_n`
+# keep working, and there is now exactly ONE copy of the algorithm.
+from ml.corpus import effective_n                          # noqa: E402,F401
 
 SG_MIN_ROWS = 100
 _WEIGHT_KEYS = ("flow", "delta", "accum", "burst", "trend")
@@ -97,46 +102,6 @@ def _spearman(a, b):
     da = sum((x - ma) ** 2 for x in ra) ** 0.5
     db = sum((y - mb) ** 2 for y in rb) ** 0.5
     return num / (da * db) if da and db else 0.0
-
-
-# Mirrors ml.history.load_training_data's uniqueness computation (config
-# ml.sample_weights defaults): 5m concurrency grid, 14-day span cap
-# against corrupt far-future timestamps. Report constants, not knobs.
-_UNIQ_GRID_SEC = 300.0
-_UNIQ_CAP_BARS = int(14 * 86400 // _UNIQ_GRID_SEC)
-
-
-def effective_n(rows):
-    """(n_eff, mean_uniqueness) of a row sample — the number of
-    INDEPENDENT observations its statistics actually run on.
-
-    De Prado average uniqueness (AFML ch.4), the loader's exact
-    algorithm computed WITHIN this sample: per-(asset, 5m-bar)
-    concurrency over each row's [signal_ts, ts] label lifespan; per-row
-    uniqueness u_i = mean(1/concurrency) over its bars; n_eff = sum(u_i).
-    N fully-concurrent same-asset rows contribute ~1.0 total; disjoint
-    rows contribute 1.0 each; different assets never share a path. A
-    missing/zero signal_ts falls back to ts (single-bar lifespan) rather
-    than fabricating a [0, ts] mega-span that overlaps everything.
-    Empty sample -> (0.0, 0.0)."""
-    if not rows:
-        return 0.0, 0.0
-    conc: dict = {}
-    spans = []
-    for r in rows:
-        ts = _f(r.get("ts"))
-        sig = _f(r.get("signal_ts"))
-        if sig <= 0.0:
-            sig = ts
-        b0 = int(sig // _UNIQ_GRID_SEC)
-        b1 = min(int(max(ts, sig) // _UNIQ_GRID_SEC), b0 + _UNIQ_CAP_BARS)
-        asset = r.get("asset") or ""
-        spans.append((asset, b0, b1))
-        for b in range(b0, b1 + 1):
-            conc[(asset, b)] = conc.get((asset, b), 0) + 1
-    uniqs = [sum(1.0 / conc[(a, b)] for b in range(b0, b1 + 1))
-             / (b1 - b0 + 1) for a, b0, b1 in spans]
-    return float(sum(uniqs)), float(sum(uniqs) / len(uniqs))
 
 
 def classify_alignment(weights, aucs, n, n_eff=None):

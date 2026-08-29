@@ -46,7 +46,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.gate_truth_report import effective_n  # noqa: E402
+from ml.corpus import (  # noqa: E402
+    effective_n, wilson_interval as wilson, wilson_on_neff,
+)
 from ml.history import (  # noqa: E402
     label_era_of, LABEL_ERA_TRIPLE_BARRIER, LABEL_ERA_UNKNOWN,
 )
@@ -58,15 +60,18 @@ from ml.history import (  # noqa: E402
 #   - `scripts/cohort_eval.py` cohort_effective_n - continuous-time average
 #     uniqueness over TRIP spans [t_open, t_close]; it needs realized
 #     positions, and most rows here were never entered.
-#   - `scripts/gate_truth_report.py` effective_n - de Prado average
-#     uniqueness (AFML ch.4) over CANDIDATE-ROW label windows
-#     [signal_ts, ts], per (asset, 5m bar), the training loader's own
-#     algorithm computed within the sample.
+#   - `ml/corpus.py` effective_n - de Prado average uniqueness (AFML ch.4)
+#     over CANDIDATE-ROW label windows [signal_ts, ts], per (asset, 5m
+#     bar), the training loader's own algorithm computed within the
+#     sample. RELOCATED there 2026-08-29 (verbatim) from
+#     scripts/gate_truth_report.py so it has ONE stdlib-legal home;
+#     gate_truth_report imports it from there too now.
 # The rows this report scores ARE candidate rows with overlapping
-# triple-barrier label windows, so the third one is the matching
-# instrument - and it is the same one the gate-truth route has quoted
-# since 2026-07-29. Imported, never re-implemented: a second copy of an
-# instrument is a second thing that can silently disagree.
+# triple-barrier label windows, so this is the matching instrument - the
+# same one the gate-truth route has quoted since 2026-07-29. Imported,
+# never re-implemented: a second copy of an instrument is a second thing
+# that can silently disagree. `wilson`/`wilson_on_neff` come from the same
+# home so every interval on this page and the shared cut use one formula.
 
 # Dispositions that mean "the gate let this through", not "a rule vetoed it".
 ADMITTED = {"entered", "capped"}
@@ -244,23 +249,9 @@ def _comparison(base_n: int, is_veto: bool, era_state: str,
 _P_BAR = re.compile(r"p\s+([0-9.]+)\s+below bar\s+([0-9.]+)")
 
 
-def wilson(k: float, n: float, z: float = 1.96) -> tuple:
-    """Wilson score interval - correct near 0 and 1, where the normal
-    approximation produces bounds outside [0,1] and a veto rule sitting at a
-    6% hit rate is exactly that regime.
-
-    `k`/`n` are floats, not ints, because the honest sample size here is
-    EFFECTIVE n: the interval is evaluated at k_eff = rate * n_eff out of
-    n_eff trials, which keeps the point estimate exactly where the data
-    put it and widens only the interval. Integer counts still work
-    unchanged."""
-    if n <= 0:
-        return (0.0, 0.0)
-    p = k / n
-    d = 1.0 + z * z / n
-    c = p + z * z / (2 * n)
-    m = z * math.sqrt(max(p * (1 - p) / n + z * z / (4 * n * n), 0.0))
-    return ((c - m) / d, (c + m) / d)
+# `wilson` (alias of ml.corpus.wilson_interval) and `wilson_on_neff` are
+# imported at the top from the shared home — one Wilson formula for every
+# interval on this page and the per-style cut below.
 
 
 def _rows(path: Path) -> list:
@@ -329,7 +320,7 @@ def _stat(rows: list) -> dict:
                 "mean_uniqueness": None, "neff_ok": False,
                 "neff_note": note, "lo": lo_nom, "hi": hi_nom,
                 "lo_nom": lo_nom, "hi_nom": hi_nom, "se_inflation": None}
-    lo, hi = wilson(rate * n_eff, n_eff)
+    lo, hi = wilson_on_neff(rate, n_eff)
     return {"n": n, "wins": k, "rate": rate, "n_eff": n_eff,
             "mean_uniqueness": mean_u, "neff_ok": True, "neff_note": note,
             "lo": lo, "hi": hi, "lo_nom": lo_nom, "hi_nom": hi_nom,
@@ -442,7 +433,7 @@ def efficacy(rows: list, min_n: int) -> dict:
             continue
         rate = wins / n if n else 0.0
         if n_eff > 0:
-            lo, hi = wilson(rate * n_eff, n_eff)
+            lo, hi = wilson_on_neff(rate, n_eff)
             neff_ok = True
         else:
             lo, hi = wilson(wins, n)
@@ -557,17 +548,122 @@ def concentration(rows: list) -> dict:
     return out
 
 
+# --- PER EXECUTION-STYLE CUT (2026-08-29) --------------------------------
+# by_code above cuts the corpus by which VETO fired. This cuts it by
+# execution STYLE - side, the five hard one-hot regimes, the five THALES
+# channels, probe/conviction - and asks the same question every panel here
+# asks: at HONEST (effective) n, is this stratum resolvably different from
+# the book, or does its interval straddle the average while a nominal-n
+# interval would read tight and optimistic by sqrt(n / n_eff)?
+#
+# ERA-CLEAN BY CONSTRUCTION. The cut runs inside the SINGLE most-populous
+# label_era among labelled candidate rows and compares each style to the
+# pooled win rate of that SAME era. One era in, one era out: no style is
+# ever compared across disjoint label populations (the CONFOUNDED_BASELINE
+# class guarded elsewhere on this page), so the only verdicts are
+# effective-n verdicts - the whole point of the cut.
+#
+# The era baseline INCLUDES the style's own rows (the era pool), so the
+# separation test is deliberately conservative: a style must out- or
+# under-perform the very pool it belongs to. NO NOMINAL-n INTERVAL IS EVER
+# RENDERED here. A style whose effective-n Wilson interval overlaps that
+# baseline - n_eff too small to clear it - is reported UNESTIMABLE, never
+# as a point rate that reads precise but is not.
+_REGIME_COLS = ("regime_bull_quiet", "regime_bull_vol", "regime_range",
+                "regime_bear", "regime_crisis")
+_THALES_COLS = ("th_grid", "th_metronome", "th_clockwork", "th_stopzone",
+                "th_barclose")
+
+
+def _is_probe(r: dict) -> bool:
+    return (r.get("probe") or "").strip() in ("1", "true", "True")
+
+
+def _style_subsets(pop: list) -> list:
+    """(style_name, kind, rows) for each execution-style axis over one
+    era-clean population. Regimes are one-hot (active = value > 0.5);
+    THALES channels are continuous shading scores (active = nonzero, any
+    magnitude); `probe` is an ENTRY-time tag that candidate rows carry
+    blank, so its cut is expected to be degenerate here and is REPORTED
+    (UNESTIMABLE) rather than dropped, so the absence stays visible."""
+    out = [("side=long", "side",
+            [r for r in pop
+             if (r.get("side") or "").strip().lower() == "long"]),
+           ("side=short", "side",
+            [r for r in pop
+             if (r.get("side") or "").strip().lower() == "short"])]
+    for c in _REGIME_COLS:
+        out.append((c, "regime", [r for r in pop if (_f(r, c) or 0.0) > 0.5]))
+    for c in _THALES_COLS:
+        out.append((c, "thales",
+                    [r for r in pop if (_f(r, c) or 0.0) != 0.0]))
+    out.append(("probe", "probe", [r for r in pop if _is_probe(r)]))
+    out.append(("conviction", "probe", [r for r in pop if not _is_probe(r)]))
+    return out
+
+
+def _style_verdict(st: dict, base: dict) -> str:
+    """UNESTIMABLE unless the style's EFFECTIVE-n Wilson interval clears the
+    era baseline's (disjoint above or below). n=0 or an incomputable n_eff
+    is UNESTIMABLE by definition; an interval that overlaps the baseline
+    means n_eff is too small to separate the style from the pack - reported
+    as UNESTIMABLE, not as a falsely-precise rate."""
+    if st["n"] == 0 or not st["neff_ok"] or not base["neff_ok"]:
+        return "UNESTIMABLE"
+    if st["lo"] > base["hi"]:
+        return "above_baseline"
+    if st["hi"] < base["lo"]:
+        return "below_baseline"
+    return "UNESTIMABLE"
+
+
+def per_style(rows: list) -> dict:
+    """Win rate + EFFECTIVE-n Wilson interval per execution style, inside
+    one era-clean population (see the block comment above). Report-only;
+    selects nothing, changes no threshold."""
+    labelled = [r for r in rows if _f(r, "label") is not None]
+    if not labelled:
+        return {"available": False, "reason": "no labelled candidate rows"}
+    era = Counter(_row_era(r) for r in labelled).most_common(1)[0][0]
+    pop = [r for r in labelled if _row_era(r) == era]
+    base = _stat(pop)
+    styles = []
+    for name, kind, sub in _style_subsets(pop):
+        st = _stat(sub)
+        verdict = _style_verdict(st, base)
+        estimable = verdict in ("above_baseline", "below_baseline")
+        styles.append({
+            "style": name, "kind": kind, "n": st["n"],
+            "n_eff": st["n_eff"], "mean_uniqueness": st["mean_uniqueness"],
+            "se_inflation": st["se_inflation"],
+            # NEVER a nominal-n number here: an unresolvable style carries
+            # no rate/interval at all, only the diagnostics that say why.
+            "rate": st["rate"] if estimable else None,
+            "lo": st["lo"] if estimable else None,
+            "hi": st["hi"] if estimable else None,
+            "vs_baseline": (st["rate"] - base["rate"]) if estimable else None,
+            "verdict": verdict,
+        })
+    return {"available": True, "era": era, "n": len(pop),
+            "baseline": {"n": base["n"], "n_eff": base["n_eff"],
+                         "mean_uniqueness": base["mean_uniqueness"],
+                         "rate": base["rate"], "lo": base["lo"],
+                         "hi": base["hi"], "neff_ok": base["neff_ok"]},
+            "styles": styles}
+
+
 def _neff_cell(st: dict) -> str:
     """`n_eff` for a table cell - never blank, never silently nominal."""
     return f"{st['n_eff']:.1f}" if st.get("neff_ok") else "n/a"
 
 
-def render(eff: dict, cal: list, conc: dict) -> str:
+def render(eff: dict, cal: list, conc: dict,
+           ps: "dict | None" = None) -> str:
     L = ["# Gate efficacy report", "",
          "Every interval below is a Wilson interval on EFFECTIVE n "
          "(de Prado average uniqueness over each row's own "
          "[signal_ts, ts] label window, per asset on a 5m concurrency "
-         "grid - `scripts/gate_truth_report.effective_n`, the standard "
+         "grid - `ml.corpus.effective_n`, the standard "
          "this repo has applied since 2026-07-29). Overlapping label "
          "windows share one return path, so N concurrent rows are far "
          "fewer than N facts; the nominal-n interval is printed beside "
@@ -702,6 +798,47 @@ def render(eff: dict, cal: list, conc: dict) -> str:
           "opportunity it was offered. A rising hit rate with rising excess",
           "is not learning - it is the gate narrowing onto a pocket that a",
           "regime change will remove.", ""]
+
+    # ps is optional so existing 3-arg callers (tests, gc_pusher) keep their
+    # exact output; the per-style section is emitted only when main supplies
+    # it. Extend-with-default, never break the signature (CLAUDE.md inv. 7).
+    if ps is None:
+        return "\n".join(L)
+    L += ["## Per execution style (effective-n)", ""]
+    if not ps.get("available"):
+        L += [f"_unavailable: {ps.get('reason', 'no data')}_", ""]
+    else:
+        pb = ps["baseline"]
+        L += [f"Cut inside the single most-populous label_era "
+              f"**{ps['era']}** (n={ps['n']}), era-clean so no style is "
+              f"pooled across disjoint label populations. Baseline (that "
+              f"era, all styles pooled, so the test is conservative): "
+              f"**{pb['rate']:.1%}** [{pb['lo']:.1%}, {pb['hi']:.1%}] "
+              f"n={pb['n']} n_eff={pb['n_eff']:.1f}. Every interval is on "
+              f"EFFECTIVE n; a style whose n_eff cannot clear that baseline "
+              f"interval is **UNESTIMABLE** - reported as such, never as a "
+              f"nominal-n point rate.", "",
+              "| style | kind | n | n_eff | SE infl | win rate | 95% CI "
+              "(n_eff) | vs baseline | verdict |",
+              "|---|---|---:|---:|---:|---|---|---:|---|"]
+        for s in ps["styles"]:
+            neff = f"{s['n_eff']:.1f}" if s.get("n_eff") else "n/a"
+            infl = (f"{s['se_inflation']:.1f}x"
+                    if s.get("se_inflation") else "-")
+            if s["verdict"] in ("above_baseline", "below_baseline"):
+                rate = f"{s['rate']:.1%}"
+                ci = f"[{s['lo']:.1%}, {s['hi']:.1%}]"
+                vs = f"{s['vs_baseline']:+.1%}"
+            else:
+                rate = ci = vs = "UNESTIMABLE"
+            L.append(f"| `{s['style']}` | {s['kind']} | {s['n']} | {neff} "
+                     f"| {infl} | {rate} | {ci} | {vs} | {s['verdict']} |")
+        L += ["", "SE infl = sqrt(n / n_eff), the factor by which a "
+              "nominal-n interval understates width. UNESTIMABLE is not a "
+              "null result ABOUT the style - it is a statement about the "
+              "SAMPLE: at this effective n the style cannot be separated "
+              "from the era baseline, so no honest point rate is quoted "
+              "(a nominal-n one would read tight and mislead).", ""]
     return "\n".join(L)
 
 
@@ -726,11 +863,12 @@ def main() -> int:
     eff = efficacy(rows, ns.min_n)
     cal = calibration(rows, ns.min_n)
     conc = concentration(rows)
+    ps = per_style(rows)
     if ns.json:
         print(json.dumps({"efficacy": eff, "calibration": cal,
-                          "concentration": conc}, indent=1))
+                          "concentration": conc, "per_style": ps}, indent=1))
         return 0
-    md = render(eff, cal, conc)
+    md = render(eff, cal, conc, ps)
     Path(ns.out).write_text(md, encoding="utf-8")
     print(md)
     return 0

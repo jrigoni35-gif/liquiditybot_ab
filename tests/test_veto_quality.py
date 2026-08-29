@@ -542,3 +542,55 @@ def test_collector_caches_between_attempts(monkeypatch):
     gp._veto_quality_metrics(now)
     gp._veto_quality_metrics(now + 1.0)      # inside the cadence window
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# per-style cut (2026-08-29): win rate + EFFECTIVE-n Wilson per execution
+# style, inside one era-clean population. The pins are a CONTROLLED
+# EXPERIMENT: identical win rates, disjoint vs overlapping label windows.
+# On nominal n both separate; on effective n only the disjoint one does.
+# ---------------------------------------------------------------------------
+def _srow(side, label, ts, era="legacy"):
+    return {"side": side, "label": str(label), "asset": "BTC",
+            "signal_ts": str(ts), "ts": str(ts), "label_era": era,
+            "disp": "", "source": "candidate"}
+
+
+def test_per_style_separates_sides_on_disjoint_windows():
+    t = 1_786_500_000.0
+    rows = [_srow("long", 1 if i < 27 else 0, t + i * 7200)       # 0.90
+            for i in range(30)]
+    rows += [_srow("short", 1 if i < 3 else 0, t + (100 + i) * 7200)  # 0.10
+             for i in range(30)]
+    ps = ger.per_style(rows)
+    assert ps["available"] and ps["era"] == "legacy" and ps["n"] == 60
+    by = {s["style"]: s for s in ps["styles"]}
+    assert by["side=long"]["verdict"] == "above_baseline"
+    assert by["side=short"]["verdict"] == "below_baseline"
+    # NEVER a nominal-n number: every UNESTIMABLE style carries NO rate/CI;
+    # every estimable one does. This is the discipline the cut enforces.
+    for s in ps["styles"]:
+        if s["verdict"] == "UNESTIMABLE":
+            assert s["rate"] is None and s["lo"] is None and s["hi"] is None
+        else:
+            assert s["rate"] is not None and s["lo"] is not None
+    # probe is an ENTRY-time tag, blank on candidate rows -> degenerate cut,
+    # reported (UNESTIMABLE) not hidden
+    assert by["probe"]["n"] == 0 and by["probe"]["verdict"] == "UNESTIMABLE"
+
+
+def test_per_style_overlap_collapses_separation_to_unestimable():
+    """MUTATION-KILL / controlled experiment: SAME rates as above but every
+    row shares ONE label window on one asset. Nominal n would still separate
+    long (0.90) from baseline (0.50); effective n collapses to <1 per side,
+    so the honest verdict is UNESTIMABLE. If per_style ran on nominal n this
+    would read above/below_baseline instead."""
+    t = 1_786_600_000.0
+    rows = [_srow("long", 1 if i < 27 else 0, t) for i in range(30)]
+    rows += [_srow("short", 1 if i < 3 else 0, t) for i in range(30)]
+    ps = ger.per_style(rows)
+    by = {s["style"]: s for s in ps["styles"]}
+    assert by["side=long"]["verdict"] == "UNESTIMABLE"
+    assert by["side=short"]["verdict"] == "UNESTIMABLE"
+    # the point estimate would look decisive on nominal n; n_eff has collapsed
+    assert by["side=long"]["n"] == 30 and by["side=long"]["n_eff"] < 3.0
