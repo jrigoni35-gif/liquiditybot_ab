@@ -124,6 +124,56 @@ def load_round_trips(fills_path: Path,
     return trips
 
 
+def load_round_trips_supplement(fills_path: Path,
+                                lo: float = WINDOW_LO,
+                                hi: float = WINDOW_HI) -> list[RoundTrip]:
+    """POST-HOC SUPPLEMENT selector (NOT the registered one; used only
+    when the strict loader fails, and labeled as such in the report).
+    Deviation, documented: a hedge position's close may be SPLIT across
+    several exit legs with different reasons (measured 2026-08-28: 1 of
+    159 trips closed 2766.3 via 'hard cap breach' + 3471.3 via 'hedge
+    unwind'). Here the close = ALL exit legs of any position opened by a
+    hedge fill, aggregated (size-weighted close price keeps gross
+    exact); total sizes must still balance or PairingError."""
+    opens: dict[str, dict] = {}
+    exits: dict[str, list[dict]] = {}
+    with fills_path.open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            ts = _f(row, "ts")
+            if not (lo <= ts <= hi):
+                continue
+            pid = row["position_id"]
+            if row["purpose"] == "hedge":
+                if pid in opens:
+                    raise PairingError(f"duplicate hedge open for {pid}")
+                opens[pid] = row
+            elif row["purpose"] == "exit":
+                exits.setdefault(pid, []).append(row)
+    trips = []
+    for pid, o in sorted(opens.items(), key=lambda kv: _f(kv[1], "ts")):
+        legs = exits.get(pid)
+        if not legs:
+            raise PairingError(f"no exit legs for hedge {pid}")
+        tot = sum(_f(x, "fill_size") for x in legs)
+        so = _f(o, "fill_size")
+        if abs(so - tot) > 1e-6 * max(so, tot, 1.0):
+            raise PairingError(
+                f"exit legs do not balance open for {pid}: {so} vs {tot}")
+        vwap = sum(_f(x, "fill_size") * _f(x, "fill_price")
+                   for x in legs) / tot
+        trips.append(RoundTrip(
+            position_id=pid, open_ts=_f(o, "ts"),
+            close_ts=max(_f(x, "ts") for x in legs), size=so,
+            open_px=_f(o, "fill_price"), close_px=vwap,
+            open_side=o["side"], open_fee=_f(o, "fees_delta_usd"),
+            close_fee=sum(_f(x, "fees_delta_usd") for x in legs),
+            open_post_only=o["post_only"] not in ("0", "", "0.0", "False"),
+            close_post_only=all(x["post_only"] not in ("0", "", "0.0",
+                                                       "False")
+                                for x in legs)))
+    return trips
+
+
 def booked_rate_stats(trips: list[RoundTrip]) -> dict:
     """Verify (not assume) the booked per-leg fee rate."""
     rates = []
@@ -295,7 +345,8 @@ def drawdown_deltas(eq_pts: list[tuple[float, float]],
                     trips: list[RoundTrip]) -> dict:
     """eq_kM(t) = eq(t) - CumNet_booked(t) + k*CumNet_M(t), cum stepping
     at unwind timestamps. Registered metric 5."""
-    steps = sorted((t.close_ts, t) for t in trips)
+    steps = [(t.close_ts, t)
+             for t in sorted(trips, key=lambda t: t.close_ts)]
     actual_dd = max_drawdown([e for _, e in eq_pts])
     out = {"actual_max_dd": actual_dd, "cells": {}}
     for model in ("booked", "era8_truth"):
@@ -321,7 +372,12 @@ def _iso(ts: float) -> str:
 def run(fills: Path, audit: Path, equity: Path, out: Path | None,
         registration_sha: str = REGISTRATION_SHA) -> str:
     read_stamp = _dt.datetime.now(_dt.timezone.utc).isoformat()
-    trips = load_round_trips(fills)
+    strict_failure: str | None = None
+    try:
+        trips = load_round_trips(fills)
+    except PairingError as e:
+        strict_failure = str(e)
+        trips = load_round_trips_supplement(fills)
     rates = booked_rate_stats(trips)
     g = grid(trips)
     v = verdict(trips)
@@ -347,7 +403,21 @@ def run(fills: Path, audit: Path, equity: Path, out: Path | None,
     a(f"Snapshot stamp (live files read at): {read_stamp}")
     a(f"Sources: fills={fills} audit={audit} equity={equity}")
     a("")
-    a(f"## VERDICT (registered rule): **{v['verdict']}**")
+    if strict_failure:
+        a("## REGISTERED VERDICT: **UNDECIDABLE-AT-N** (harness-failure arm)")
+        a("")
+        a(f"The registered strict selector FAILED as registered it must: "
+          f"`{strict_failure}`. The registration's assumption that every "
+          "unwind is a single exit leg with reason 'hedge unwind' was "
+          "contradicted by the data (split close). The registration is NOT "
+          "amended. Everything below is the POST-HOC SUPPLEMENT (documented "
+          "deviation: close = ALL exit legs of hedge-opened positions, "
+          "aggregated), applying the otherwise-identical registered "
+          "computation.")
+        a("")
+        a(f"## SUPPLEMENTARY verdict (post-hoc selector): **{v['verdict']}**")
+    else:
+        a(f"## VERDICT (registered rule): **{v['verdict']}**")
     a("")
     a(f"- net_pnl(k=1, era8_truth) = {v['net_truth']:+.2f} USD  "
       f"[K: fills legs, truth fees]")

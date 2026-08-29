@@ -22,6 +22,7 @@ from scripts.hedge_sim import (
     episodes,
     grid,
     load_round_trips,
+    load_round_trips_supplement,
     run,
     verdict,
 )
@@ -92,6 +93,68 @@ def test_load_fails_on_unequal_leg_sizes(tmp_path):
     p = _write_fills(tmp_path / "fills.csv", rows)
     with pytest.raises(PairingError):
         load_round_trips(p, lo=0.0, hi=1000.0)
+
+
+def test_supplement_aggregates_split_close_exactly(tmp_path):
+    # the real 2026-08-28 shape: open 100, closed 40 (hard cap breach)
+    # + 60 (hedge unwind). Strict must FAIL; supplement must balance and
+    # keep gross EXACT (vwap identity).
+    rows = [
+        _fill(100.0, "s", "hedge", "sell", 100.0, 1.0, 0.4,
+              reason="net delta +1 beyond cap 0, beta=1.0"),
+        _fill(105.0, "s", "exit", "buy", 40.0, 0.95, 0.152,
+              reason="hard cap breach (-1,247 USD)"),
+        _fill(160.0, "s", "exit", "buy", 60.0, 0.90, 0.216,
+              reason="hedge unwind: correlation 0.34 below floor"),
+    ]
+    p = _write_fills(tmp_path / "fills.csv", rows)
+    with pytest.raises(PairingError):
+        load_round_trips(p, lo=0.0, hi=1000.0)
+    trips = load_round_trips_supplement(p, lo=0.0, hi=1000.0)
+    assert len(trips) == 1
+    t = trips[0]
+    # gross = sum over legs (open - leg_px)*leg_size = 40*.05 + 60*.10
+    assert t.gross == pytest.approx(40 * 0.05 + 60 * 0.10)
+    assert t.close_fee == pytest.approx(0.152 + 0.216)
+    assert t.close_ts == 160.0
+
+
+def test_supplement_fails_when_legs_do_not_balance(tmp_path):
+    rows = [
+        _fill(100.0, "s", "hedge", "sell", 100.0, 1.0, 0.4),
+        _fill(105.0, "s", "exit", "buy", 40.0, 0.95, 0.152,
+              reason="hedge unwind: x"),
+    ]
+    p = _write_fills(tmp_path / "fills.csv", rows)
+    with pytest.raises(PairingError):
+        load_round_trips_supplement(p, lo=0.0, hi=1000.0)
+
+
+def test_run_labels_supplement_on_strict_failure(tmp_path):
+    rows = [
+        _fill(1786064990.0, "s", "hedge", "sell", 100.0, 1.0, 0.4,
+              reason="net delta"),
+        _fill(1786064995.0, "s", "exit", "buy", 40.0, 0.95, 0.152,
+              reason="hard cap breach"),
+        _fill(1786065050.0, "s", "exit", "buy", 60.0, 0.90, 0.216,
+              reason="hedge unwind: x"),
+    ]
+    fills = _write_fills(tmp_path / "fills.csv", rows)
+    audit = tmp_path / "audit.jsonl"
+    net_booked = (40 * 0.05 + 60 * 0.10) - (0.4 + 0.152 + 0.216)
+    audit.write_text(json.dumps({
+        "code": "PT-061", "ts": 1786065051.0, "src": "exit",
+        "msg": "PT-061: close ADA",
+        "data": {"position_id": "s", "net_usd": net_booked,
+                 "close_reason": "hedge unwind: x"}}) + "\n",
+        encoding="utf-8")
+    eq = tmp_path / "equity.csv"
+    eq.write_text("ts,equity,daily_pnl\n1786060900,100.0,0\n",
+                  encoding="utf-8")
+    report = run(fills, audit, eq, out=None)
+    assert "REGISTERED VERDICT: **UNDECIDABLE-AT-N** (harness-failure arm)" \
+        in report
+    assert "SUPPLEMENTARY verdict" in report
 
 
 # ------------------------------------------------------------- economics
@@ -211,6 +274,19 @@ def test_blocked_opens_parses_notional(tmp_path):
     assert b["count"] == 1
     assert b["notional_usd"] == pytest.approx(200.0)
     assert b["truth_fee_cost_usd"] == pytest.approx(200.0 * 2 * 0.008)
+
+
+def test_drawdown_delta_handles_tied_close_timestamps():
+    # real data has duplicate close_ts; must not TypeError on the sort
+    t1 = _mk_trip(pid="t1", open_ts=100.0, open_px=1.0, close_px=1.05,
+                  size=100.0)
+    t2 = _mk_trip(pid="t2", open_ts=101.0, open_px=1.0, close_px=1.05,
+                  size=100.0)
+    assert t1.close_ts == t2.close_ts - 1.0
+    t2.close_ts = t1.close_ts               # force the tie
+    eq_pts = [(50.0, 100.0), (200.0, 90.0)]
+    dd = drawdown_deltas(eq_pts, [t1, t2])
+    assert dd["cells"][(0.0, "booked")] == pytest.approx(-10.0)
 
 
 def test_drawdown_delta_k0_removes_hedge_loss():
