@@ -39,6 +39,7 @@ authority that fast lane mirrors, not a thing it imports.
 from __future__ import annotations
 
 import csv
+import math
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -67,10 +68,13 @@ def row_era(row: Mapping[str, Any]) -> str:
     return label_era_of(str(row.get("barrier") or "") or None)
 
 
-def gross_ret_pct(row: Mapping[str, Any]) -> "float | None":
-    """Side-adjusted gross return in percent from entry/exit prices.
+def _entry_exit(row: Mapping[str, Any]) -> "tuple[float, float] | None":
+    """Parsed (entry, exit) prices, or None when either is unrecoverable.
 
-    None when unrecoverable (missing/blank/nonpositive entry) — never 0.
+    A NONPOSITIVE price on EITHER leg is UNKNOWN, never a real fill: a live
+    row for a still-open position stores exit_price=0.0, and reading that as
+    a -100% return is the exit<=0 hole (measured 2026-08-29, adverse-selection
+    audit). Both legs are guarded so no consumer can mint a spurious ±100%.
     """
     e_raw, x_raw = row.get("entry_price"), row.get("exit_price")
     if is_unknown(e_raw) or is_unknown(x_raw):
@@ -79,10 +83,43 @@ def gross_ret_pct(row: Mapping[str, Any]) -> "float | None":
         entry, exit_ = float(e_raw), float(x_raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if entry <= 0.0:
+    if entry <= 0.0 or exit_ <= 0.0 or not (math.isfinite(entry)
+                                            and math.isfinite(exit_)):
         return None
+    return entry, exit_
+
+
+def gross_ret_pct(row: Mapping[str, Any]) -> "float | None":
+    """Side-adjusted gross return in PERCENT (linear scale) from entry/exit.
+
+    None when unrecoverable (missing/blank/nonpositive/non-finite either
+    leg) — never 0, never a spurious ±100%.
+    """
+    ee = _entry_exit(row)
+    if ee is None:
+        return None
+    entry, exit_ = ee
     raw = (exit_ - entry) / entry * 100.0
     return -raw if str(row.get("side") or "long") == "short" else raw
+
+
+def gross_log_ret(row: Mapping[str, Any]) -> "float | None":
+    """Side-adjusted gross return on the LOG scale: ln(exit/entry), decimal
+    (a +1% move ≈ +0.00995). Same UNKNOWN guards as gross_ret_pct.
+
+    Log returns are the natural scale for a compounding process: they ADD
+    across a sequence (Σ log_ret = the log of the cumulative multiple), so a
+    persistent edge shows as a straight positive slope in the cumulative
+    series where the linear-percent view curves and hides it. Provided
+    alongside the linear helper so profit/edge patterns can be read on both
+    scales without a second reader (operator directive 2026-08-29).
+    """
+    ee = _entry_exit(row)
+    if ee is None:
+        return None
+    entry, exit_ = ee
+    lr = math.log(exit_ / entry)
+    return -lr if str(row.get("side") or "long") == "short" else lr
 
 
 def net_ret_pct(row: Mapping[str, Any], cost_pct: float) -> "float | None":

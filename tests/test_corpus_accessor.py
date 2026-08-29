@@ -4,12 +4,13 @@ Each pin guards one semantic the 42 bespoke readers kept re-implementing.
 A change to accessor behavior moves WITH its pin or not at all.
 """
 import csv
+import math
 from pathlib import Path
 
 import pytest
 
-from ml.corpus import (gross_ret_pct, is_unknown, net_ret_pct, read_rows,
-                       row_era)
+from ml.corpus import (gross_log_ret, gross_ret_pct, is_unknown, net_ret_pct,
+                       read_rows, row_era)
 
 _COLS = ["side", "entry_price", "exit_price", "gate_confidence",
          "label_ret_pct", "label_era", "barrier", "label"]
@@ -78,3 +79,30 @@ def test_era_filter_never_pools(corpus_csv: Path):
     assert len(read_rows(corpus_csv)) == 4
     assert len(read_rows(corpus_csv, era="exit_sim")) == 1
     assert len(read_rows(corpus_csv, era="triple_barrier_h432")) == 1
+
+
+def test_zero_exit_price_is_unknown_never_minus_100():
+    """A live row for a still-open position stores exit_price=0.0. Reading
+    that as a -100% return is the exit<=0 hole (adverse-selection audit,
+    2026-08-29). Both the linear and log helpers must return None, never a
+    spurious ±100% / -inf."""
+    open_row = {"side": "long", "entry_price": "42000.0", "exit_price": "0.0"}
+    assert gross_ret_pct(open_row) is None
+    assert gross_log_ret(open_row) is None
+    # a non-finite price on either leg is UNKNOWN too
+    assert gross_ret_pct({"entry_price": "inf", "exit_price": "10"}) is None
+
+
+def test_log_return_matches_linear_at_small_moves_and_adds():
+    """gross_log_ret = side-adjusted ln(exit/entry). Sanity + the additivity
+    property that makes it the profit/edge scale: a +2% then -2% round trip
+    sums to ln(1.02)+ln(0.98) != 0 (the compounding drag linear % hides)."""
+    up = {"side": "long", "entry_price": "100.0", "exit_price": "102.0"}
+    dn = {"side": "long", "entry_price": "100.0", "exit_price": "98.0"}
+    assert gross_log_ret(up) == pytest.approx(math.log(1.02))
+    # short flips sign, like the linear helper
+    sh = {"side": "short", "entry_price": "50.0", "exit_price": "49.0"}
+    assert gross_log_ret(sh) == pytest.approx(math.log(50.0 / 49.0))
+    # additive: cumulative log return of the pair is the log of the product
+    assert (gross_log_ret(up) + gross_log_ret(dn)
+            == pytest.approx(math.log(1.02 * 0.98)))
