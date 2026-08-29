@@ -36,11 +36,19 @@ from regime.vol_regime import FAST_WARMUP_BARS
 
 log = logging.getLogger("liquiditybot.core.config_guard")
 
-# Kraken spot public schedule, bottom tier (highest fees). If the
-# configured fees are below this, the operator either has real volume
-# tier discounts (set allow_sub_floor_fees) or has misconfigured.
-KRAKEN_SPOT_FLOOR_MAKER_BPS = 25.0
-KRAKEN_SPOT_FLOOR_TAKER_BPS = 40.0
+# Kraken spot venue-true Tier-1 (cut #8, exec_era 8-ca55e2ba, 2026-08-28):
+# 40/80 bps, the schedule the shipped config runs at and PnL books against.
+# If configured fees are below this the operator either has real volume tier
+# discounts (set allow_sub_floor_fees) or has misconfigured. This floor is
+# the whole reason the FATAL below exists ("understated fees make the
+# pre-trade gate approve net-losing trades") - it MUST sit at venue truth,
+# not the retired public bottom tier (25/40, pre-cut-#8), or the gate would
+# silently pass any config in [25/40, 40/80), i.e. up to half the true taker
+# leg. Was 25/40 through cut #8; corrected to venue truth 2026-08-29
+# (measured stale-floor finding, injection-confirmed). Strict `<` keeps the
+# live 40/80 config passing exactly at the floor.
+KRAKEN_SPOT_FLOOR_MAKER_BPS = 40.0
+KRAKEN_SPOT_FLOOR_TAKER_BPS = 80.0
 
 # Entry-signal engines main.py:540 can dispatch. NOT a tunable: this is a
 # statement of what the code can construct, so it belongs beside the module
@@ -550,10 +558,15 @@ def validate(config: dict) -> list:
     dry_run = bool(_f(config, "system.dry_run", True))
 
     # --- fees ----------------------------------------------------------
-    # defaults mirror the read-sites' shipped values (execution/pretrade.py,
-    # execution/order_manager.py both default 25/40 bps) - a stale 16/26
-    # fallback here would silently pass a config that DELETED the fee keys
-    # even though the modules it validates against actually run at 25/40.
+    # These fallbacks (25/40, the retired pre-cut-#8 tier) sit DELIBERATELY
+    # BELOW the venue-true floor (40/80): a config that DELETED the fee keys
+    # falls back here and then TRIPS the sub-floor FATAL below - which is the
+    # whole point (a missing fee key must not silently price at the old tier).
+    # The shipped config carries the keys explicitly at 40/80, so these
+    # fallbacks never fire in production. (The read-sites in
+    # execution/pretrade.py and execution/order_manager.py still carry their
+    # OWN stale 25/40 fallbacks - tracked separately; harmless while the keys
+    # are present, but they should follow this floor to venue truth.)
     pt_maker = float(_f(config, "pretrade.maker_fee_bps", 25.0))
     pt_taker = float(_f(config, "pretrade.taker_fee_bps", 40.0))
     om_maker = float(_f(config, "order_manager.maker_fee_bps", 25.0))
