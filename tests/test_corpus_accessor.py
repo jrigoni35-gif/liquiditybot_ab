@@ -93,6 +93,25 @@ def test_zero_exit_price_is_unknown_never_minus_100():
     assert gross_ret_pct({"entry_price": "inf", "exit_price": "10"}) is None
 
 
+def test_log_return_never_raises_on_underflow_ratio():
+    """gross_log_ret must honor the never-throw contract even when both legs
+    pass the sign/finite guards but the RATIO underflows to 0.0 (math.log(0)
+    raises). Adversarial review 2026-08-29 — verified crash, now None."""
+    underflow = {"side": "long", "entry_price": "1e300", "exit_price": "1e-300"}
+    assert gross_log_ret(underflow) is None          # not a ValueError
+    overflow = {"side": "long", "entry_price": "1e-300", "exit_price": "1e300"}
+    assert gross_log_ret(overflow) is None
+
+
+def test_short_side_is_case_insensitive():
+    """'SHORT'/'Short'/' short ' must flip the sign like 'short' — an exact
+    lowercase match silently read them as long (adversarial review)."""
+    for s in ("SHORT", "Short", " short "):
+        r = {"side": s, "entry_price": "100.0", "exit_price": "102.0"}
+        assert gross_ret_pct(r) == pytest.approx(-2.0)
+        assert gross_log_ret(r) == pytest.approx(-math.log(1.02))
+
+
 def test_log_return_matches_linear_at_small_moves_and_adds():
     """gross_log_ret = side-adjusted ln(exit/entry). Sanity + the additivity
     property that makes it the profit/edge scale: a +2% then -2% round trip

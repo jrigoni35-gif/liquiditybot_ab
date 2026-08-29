@@ -89,6 +89,14 @@ def _entry_exit(row: Mapping[str, Any]) -> "tuple[float, float] | None":
     return entry, exit_
 
 
+def _is_short(row: Mapping[str, Any]) -> bool:
+    """A row's side is short. Case/whitespace-insensitive so 'SHORT'/'Short'
+    do not silently read as long and flip the return sign the wrong way
+    (adversarial review 2026-08-29). One home for the sign convention, used
+    by both return helpers."""
+    return str(row.get("side") or "long").strip().lower() == "short"
+
+
 def gross_ret_pct(row: Mapping[str, Any]) -> "float | None":
     """Side-adjusted gross return in PERCENT (linear scale) from entry/exit.
 
@@ -100,7 +108,7 @@ def gross_ret_pct(row: Mapping[str, Any]) -> "float | None":
         return None
     entry, exit_ = ee
     raw = (exit_ - entry) / entry * 100.0
-    return -raw if str(row.get("side") or "long") == "short" else raw
+    return -raw if _is_short(row) else raw
 
 
 def gross_log_ret(row: Mapping[str, Any]) -> "float | None":
@@ -118,8 +126,15 @@ def gross_log_ret(row: Mapping[str, Any]) -> "float | None":
     if ee is None:
         return None
     entry, exit_ = ee
-    lr = math.log(exit_ / entry)
-    return -lr if str(row.get("side") or "long") == "short" else lr
+    ratio = exit_ / entry
+    # Both legs pass _entry_exit (positive, finite), but the RATIO can still
+    # underflow to 0.0 (tiny exit / huge entry) or overflow to inf — and
+    # math.log(0.0) RAISES, breaking the never-throw contract (adversarial
+    # review 2026-08-29). A non-positive / non-finite ratio is UNKNOWN.
+    if ratio <= 0.0 or not math.isfinite(ratio):
+        return None
+    lr = math.log(ratio)
+    return -lr if _is_short(row) else lr
 
 
 def net_ret_pct(row: Mapping[str, Any], cost_pct: float) -> "float | None":
