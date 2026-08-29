@@ -172,7 +172,9 @@ class PositionSizer:
             "stop_loss_pct", 2.0))
         # DERIVED ENTRY BAR (2026-07-27 drought diagnosis, operator-directed):
         # an absolute min_p_win is geometry-blind — the shipped 0.55 sat BELOW
-        # the net-Kelly breakeven (0.632 at current tiers/stop/fees), a
+        # the net-Kelly breakeven (a VOLATILE number: ~0.83 at cut-#8 40/80
+        # fees + 1.2% rt cost, was ~0.632 pre-cut - re-derive from the live
+        # tiers/stop/fees, never cite a frozen value), a
         # phantom the config guard had been flagging: entries in
         # [bar, breakeven) passed the bar only to die SZ-030 one step later,
         # and any tier/fee change silently re-breaks an absolute number.

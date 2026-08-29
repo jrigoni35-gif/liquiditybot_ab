@@ -34,10 +34,13 @@ def barrier_geometry(sigma_bar: float, cost_pct: float, pt_mult: float,
                      sl_mult: float, pt_cost_mult: float) -> tuple:
     """(pt_frac, sl_frac) for the triple-barrier bet, cost-floored.
 
-    WHY the floor (spec D2, 2026-07-27): sigma-scaled barriers at
-    typical 5m vol put the profit target ~1% out while the round-trip
-    cost is ~0.5% — costs eat half the profit distance and the AVERAGE
-    bracket bet is EV-negative regardless of signal. Flooring the SIGMA
+    WHY the floor (spec D2, 2026-07-27; cost figure fee-truth-refreshed
+    2026-08-29): sigma-scaled barriers at typical 5m vol put the profit
+    target ~1% out while the round-trip cost is now ~1.2% (config
+    label_round_trip_cost_pct at cut #8, venue-true 40/80 fees + spread;
+    was 0.5% pre-cut) — at that cost the round trip can equal or exceed
+    the profit distance and the AVERAGE bracket bet is EV-negative
+    regardless of signal. Flooring the SIGMA
     INPUT (never the distances) keeps pt:sl at its configured ratio by
     construction: sigma_eff = max(sigma_bar,
     pt_cost_mult * cost_frac / pt_mult), so at the floor the profit

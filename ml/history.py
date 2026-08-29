@@ -351,6 +351,33 @@ AVAIL_COLS = ("avail_web", "avail_equity", "avail_options",
 # gate_efficacy_report.py) does not exist yet - deliberately out of scope
 # here (that script is concurrently edited elsewhere); see the TODO in
 # this change's report.
+#
+# READER TRAPS (column-scale gotchas - every entry cost a real misread;
+# citations are ml/features.py build_features):
+#   - spread_bps: stored = clip(raw, 0, 60) / 10, so stored * 10 = bps
+#     (features.py:378). fv_edge_bps: stored = clip(raw, -50, 50) / 10, so
+#     stored * 10 = bps (features.py:380-381) - NOTE the clip bounds are
+#     (-50, 50), NOT (0, 60): fv_edge is signed, spread is not; do not
+#     assume they share a scale.
+#   - sigma_bar_pct: a PERCENT in [0, 5] (features.py:375). 4.0 == 4%, it
+#     is NOT a fraction.
+#   - vol_percentile, drawdown_pct, turbulence_pct: FRACTIONS already -
+#     each divided by 100 at build (features.py:376, 387, 391). 0.50 ==
+#     50th percentile / 50% drawdown / 50% turbulence.
+#   - every *_dir column is SIDE-RELATIVE: dir_sign (+1 long / -1 short,
+#     features.py:342) is multiplied in, so "+" means WITH my trade, not
+#     market-absolute up/down (features.py:109-110). The ONLY pure +/-1
+#     side flag is the `direction` column (features.py:154); every other
+#     *_dir has already folded the side in.
+#   - label_ret_pct, the avail_* flags (AVAIL_COLS), and control_arm use
+#     "" == UNKNOWN, NEVER 0/false (avail 304-306, label_ret_pct 322,
+#     control_arm 339-344). A blank is "written before this column
+#     existed / this path cannot compute it", a 0 is a real drawn value -
+#     conflating them poisons every comparison.
+#   - COST BASIS DIFFERS BY SOURCE: a candidate row's label_ret_pct is net
+#     of THAT row's label_round_trip_cost_pct (+ capped spread); a live
+#     row's is net of BOOKED fees (312-322). Never pool raw label_ret_pct
+#     across source OR across label_era.
 _N_TRAIL = 13 + len(SG_COMPONENT_KEYS) + 2 + len(AVAIL_COLS) + 1 + 1
 
 # CONTROL_ARM_FRACTION: 5% carve-out. Chosen (not fitted) to keep the arm
@@ -2261,10 +2288,14 @@ class CandidateLabeler:
         # costs, one knob, pt:sl ratio preserved by construction. Code
         # default 0.0 = legacy (no floor); config.json ships 4.0.
         self.pt_cost_mult = float(cfg.get("label_pt_cost_mult", 0.0))
-        # round-trip cost subtracted before the win/loss label. Defaults to the
-        # maker round-trip (2 x 25bps = 0.5%) so labels reflect REALIZED net
-        # profitability, not an optimistic ~0 - a 6bps default here taught the
-        # model that near-breakeven trades were wins. Config-driven + guarded.
+        # round-trip cost subtracted before the win/loss label. config.json
+        # ships label_round_trip_cost_pct = 1.2% (cut #8, 2026-08-28: the
+        # venue-true round trip at 40/80 fees + spread); the code default below
+        # (0.5, the legacy 2 x 25bps maker-only round trip) is the pre-cut
+        # fallback, dead under the shipped config. Either way labels reflect
+        # REALIZED net profitability, not an optimistic ~0 - a 6bps default here
+        # taught the model that near-breakeven trades were wins. Config-driven
+        # + guarded.
         # INTENTIONALLY distinct from the sizer's rt_cost (maker+taker, worst
         # case for Kelly): the labeler models the EXPECTED realized cost (maker
         # entry OM-011 + maker-first exit, which fills maker most of the time)

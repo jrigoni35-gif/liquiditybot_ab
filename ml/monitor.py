@@ -165,8 +165,12 @@ class ModelMonitor:
         self._rows_at_last_request = 0
         self.champion_brier: float = 0.25
 
-        # live overrides consumed by main/meta/sizer (bounded, one-way
-        # conservative)
+        # live overrides consumed by main/meta/sizer (bounded, ASYMMETRIC
+        # HYSTERESIS - not one-way: escalation toward caution is immediate,
+        # de-escalation waits deescalate_healthy_windows CONSECUTIVE healthy
+        # windows for the level, and edge_ratio_bump/stop_widen decay back
+        # toward neutral when their trigger clears; see the level ladder and
+        # bump-decay logic below)
         self.shrinkage = self.shrink_base
         self.kelly_mult = 1.0
         self.use_model = True

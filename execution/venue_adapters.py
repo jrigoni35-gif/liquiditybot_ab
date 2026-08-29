@@ -218,7 +218,13 @@ class DMAAdapter(_DisabledConnectivityAdapter):
 class PrimeBrokerAdapter(_DisabledConnectivityAdapter):
     """Institutional prime / prime-of-prime. Give-up and allocation flow,
     cross-margin, custody — none of which this bot touches by default.
-    Withdrawals/transfers remain on the permanent deny list regardless."""
+    This adapter is hard-off (a _DisabledConnectivityAdapter: never
+    execution-eligible, place() fails closed before _place is reached)
+    and exposes NO withdrawal/transfer surface of its own. That is a
+    distinct mechanism from the Kraken REST client's endpoint deny list
+    (invariant 4), which is what actually blocks Withdraw/WalletTransfer
+    at the one live venue - do not read "deny list" here as this
+    adapter's doing."""
     name = "prime"
     transport = "fix"
 

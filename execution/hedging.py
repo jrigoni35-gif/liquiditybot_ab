@@ -3,10 +3,18 @@ execution/hedging.py
 
 Beta-weighted delta hedging within the Kraken universe. When net
 portfolio delta (signed USD across all positions) exceeds the cap, the
-excess is offset with a position in the *other* asset, sized by the
-EWMA beta from regime/correlation.py. Hedge validity is conditional on
-correlation: if BTC/ETH correlation decays below the floor, the hedge
-is a second bet rather than a hedge and gets unwound.
+excess is offset with a position in the hedge asset - `others[0]`, the
+FIRST asset in the universe list that is not the dominant exposure
+(picked by position concentration, NOT by correlation strength), sized
+by the EWMA beta from regime/correlation.py. Hedge validity is
+conditional on correlation: BOTH the open gate and the unwind test
+compute corr(dominant-exposed asset, hedge asset) - the SAME pair on
+both paths (the 2026-08-06 consistency fix; the two paths previously
+asked about different correlations and thrashed open/unwind, see the
+inline comment at the unwind loop). If that correlation decays below
+the floor the position is a second bet rather than a hedge and gets
+unwound. (In the historical 2-asset book this pair was simply BTC/ETH;
+it is NOT hardcoded to those assets.)
 
 Hedge positions are tagged is_hedge=True: exempt from profit tiers,
 excluded from signal-side inventory, unwound when net delta normalizes

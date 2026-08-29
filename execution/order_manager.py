@@ -173,8 +173,14 @@ class OrderManager:
         self.max_reprices = int(cfg.get("max_reprices", 1))
         self.reprice_slip_bps = float(cfg.get("reprice_max_slip_bps", 8.0))
         self.min_fill_ratio = float(cfg.get("min_fill_ratio", 0.10))
-        self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
-        self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
+        # fallback = venue-true Kraken Tier-1 (cut #8, 2026-08-28). config
+        # is the authority and always carries these (config.json 40/80);
+        # config_guard FATALs a start whose fee keys fall below this floor,
+        # so the fallback is dead in production and fires only in bare-config
+        # test construction. Kept at venue truth so a fallback can never
+        # silently book at the retired 25/40 tier.
+        self.maker_fee_bps = float(cfg.get("maker_fee_bps", 40.0))
+        self.taker_fee_bps = float(cfg.get("taker_fee_bps", 80.0))
         self.deadman_sec = int(cfg.get("deadman_timeout_sec", 60))
         # W2-9 remainder: periodic REPORT-ONLY reconciliation of the venue's
         # ACTUAL Kraken fee tier (TradeVolume) against BOTH configured bps

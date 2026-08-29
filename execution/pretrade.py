@@ -3,7 +3,8 @@ execution/pretrade.py — rev 2.0 (Assurance Build)
 
 The "is this trade worth existing?" gate. Rev 2 keeps every rev-1 veto
 and adds the two terms that decide whether a passive strategy makes or
-loses money at Kraken's 25/40bps fee tier:
+loses money at Kraken's fee tier (venue-true 40/80bps as of cut #8,
+2026-08-28; config.pretrade.maker_fee_bps/taker_fee_bps are authority):
 
   ADVERSE SELECTION (maker path). A passive fill is not a free maker
   fee — you get filled precisely when flow trades through you, so the
@@ -76,8 +77,13 @@ class PreTradeDecision:
 class PreTradeGate:
     def __init__(self, config: dict):
         cfg = config or {}
-        self.maker_fee_bps = float(cfg.get("maker_fee_bps", 25.0))
-        self.taker_fee_bps = float(cfg.get("taker_fee_bps", 40.0))
+        # fallback = venue-true Kraken Tier-1 (cut #8, 2026-08-28). config is
+        # the authority and always carries these (config.json 40/80);
+        # config_guard FATALs a start whose fee keys fall below this floor, so
+        # the fallback is dead in production and fires only in bare-config test
+        # construction. Kept at venue truth, never the retired 25/40 tier.
+        self.maker_fee_bps = float(cfg.get("maker_fee_bps", 40.0))
+        self.taker_fee_bps = float(cfg.get("taker_fee_bps", 80.0))
         self.price_exit_leg = bool(cfg.get("price_exit_leg", True))
         self.impact_eta = float(cfg.get("impact_eta", 0.8))
         self.min_edge_cost_ratio = float(cfg.get("min_edge_cost_ratio", 1.3))

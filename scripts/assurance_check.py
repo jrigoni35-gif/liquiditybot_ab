@@ -96,15 +96,23 @@ def main():
     check("all clear -> ARMED", fm.state is OpState.ARMED)
 
     print("[4] quoter structural fee floor")
+    # fee comes from the SHIPPED config's real tier (cut #8 venue-true
+    # 40/80), never a retired 25/40 literal, so this check tracks config.
+    import json as _json
+    with open("config.json", encoding="utf-8") as _cf:
+        _cfg = _json.load(_cf)
+    _pt_cfg = _cfg.get("pretrade", {})
+    _maker_fee = float(_pt_cfg.get("maker_fee_bps", 40.0))
+    _taker_fee = float(_pt_cfg.get("taker_fee_bps", 80.0))
     from execution.market_maker import AvellanedaStoikovQuoter
     q = AvellanedaStoikovQuoter({"min_half_spread_bps": 1.0,
                                  "min_profit_bps": 1.0})
-    quote = q.quote(100.0, 0.05, 0.0, "liquid", fee_bps=25.0)
+    quote = q.quote(100.0, 0.05, 0.0, "liquid", fee_bps=_maker_fee)
     check("half spread >= fee + margin (QT-010)",
-          quote.half_spread_bps >= 26.0 - 1e-9)
+          quote.half_spread_bps >= _maker_fee + 1.0 - 1e-9)
     check("bid <= reservation <= ask",
           quote.bid <= quote.reservation <= quote.ask)
-    quote = q.quote(100.0, 0.5, 1.0, "liquid", fee_bps=25.0)
+    quote = q.quote(100.0, 0.5, 1.0, "liquid", fee_bps=_maker_fee)
     check("max long inventory keeps quote uncrossed",
           quote.bid <= quote.reservation <= quote.ask)
     bad = q.quote(float("nan"), 0.05, 0.0)
@@ -126,21 +134,24 @@ def main():
 
     print("[6] pre-trade EV gate")
     from execution.pretrade import PreTradeGate, PreTradeContext
-    g = PreTradeGate({"maker_fee_bps": 25, "taker_fee_bps": 40,
+    g = PreTradeGate({"maker_fee_bps": _maker_fee, "taker_fee_bps": _taker_fee,
                       "min_edge_cost_ratio": 1.3})
     deep = {"bids": [[99.9, 50]], "asks": [[100.1, 50]]}
     ctx = PreTradeContext(kraken_book=deep, sigma_daily_pct=3.0,
                           adv_usd=5e7, liq_label="liquid",
                           spread_bps=5.0, staleness_ms=100.0)
-    # re-baselined for round-trip pricing (price_exit_leg): "strong" at
-    # the 25/40 tier now means clearing entry + taker-exit + half-spread
-    # (~74bps cost -> ~96bps bar at 1.3x), evidenced by 9/9 live
-    # cost_overrun postmortems at median 44bps under entry-only pricing
-    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=110.0,
+    # fee-agnostic re-baseline (price_exit_leg round-trip pricing): probe
+    # the gate's OWN round-trip cost stack at config's real tier (cut #8
+    # 40/80), then test an edge comfortably above the 1.3x bar and one
+    # below it. This tracks config instead of a retired 25/40 literal, so
+    # a future tier change can never leave the check testing a dead fee.
+    _cost = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=1.0e4,
+                       fv_edge_bps=10.0, ctx=ctx).est_cost_bps
+    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=_cost * 3.0,
                    fv_edge_bps=10.0, ctx=ctx)
     check("strong edge approves with p_fill/EV attached",
           d.approved and 0 < d.p_fill <= 1 and d.ev_bps > 0)
-    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=20.0,
+    d = g.evaluate("buy", 1.0, 100.0, exp_alpha_bps=_cost * 0.3,
                    fv_edge_bps=0.0, ctx=ctx)
     check("thin edge below fee stack rejects (PT-041)",
           not d.approved and any("PT-041" in r for r in d.reasons))
@@ -148,8 +159,8 @@ def main():
     check("non-finite input rejects (PT-010)",
           not d.approved and any("PT-010" in r for r in d.reasons))
     check("maker cost includes adverse selection",
-          g.evaluate("buy", 1.0, 100.0, 80.0, 10.0, ctx).est_cost_bps
-          > 25.0)
+          g.evaluate("buy", 1.0, 100.0, _cost * 3.0, 10.0, ctx).est_cost_bps
+          > _maker_fee)
 
     print("[7] sizer net-Kelly + drawdown throttle")
     from risk.position_sizer import payoff_ratio_from_config

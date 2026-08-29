@@ -10,7 +10,8 @@ calculation hangs off. Rev 2 changes, in order of importance:
   before reporting it. An "edge" smaller than the estimator's own noise
   floor is a statistical mirage — reporting it as zero is the single
   highest-value profit fix in the stack, because every mirage trade
-  pays the full 25-40bps cost stack to capture nothing.
+  pays the full 40-80bps cost stack to capture nothing (venue-true
+  Kraken Tier-1 maker/taker as of cut #8, 2026-08-28).
 
   INNOVATION GATING. A raw print that jumps more than `gate_z` noise
   units gets a reduced blend weight for one update instead of full

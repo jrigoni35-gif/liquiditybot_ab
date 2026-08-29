@@ -673,9 +673,11 @@ class StateStore:
             return False
 
     def _seal_and_write(self, data: dict) -> bool:
-        # integrity seal: checksum over the payload, so a torn or
-        # bit-rotted file is DETECTED at load instead of silently
-        # restoring a corrupt book
+        # integrity CHECKSUM (not a tamper seal): a plain SHA-256 over the
+        # payload, so a torn or bit-rotted file is DETECTED at load instead
+        # of silently restoring a corrupt book. NO secret/HMAC - it catches
+        # ACCIDENTAL corruption only; any writer with file access can
+        # recompute it, so it is not evidence against deliberate tampering.
         # seal a COPY, never the caller's dict: mutating `data` in place (the
         # old `data["_sha256"] = ...`) leaves a stale seal on any dict a caller
         # reuses across calls, which then fails its own checksum. snapshot()
