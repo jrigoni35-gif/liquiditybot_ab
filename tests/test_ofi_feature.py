@@ -353,6 +353,10 @@ _ALLOWED_REL = {
     "ml/features.py",                  # the ONLY consumer (feature vector)
     "ml/contracts.py",                 # declared ranges (schema contract)
     "config.json",                     # knob _doc strings name the keys
+    "scripts/horizon_edge_sweep.py",   # analysis-ONLY consumer (2026-08-29):
+    # names the shadow features to measure their forward edge offline - a
+    # script, not a decision module, so it does not violate the guarantee
+    # this gate protects ("no gate/sizer/exit/execution module reads them").
 }
 _SKIP_DIRS = {".venv", "__pycache__", ".git", "node_modules", "tests",
               "docs", ".superpowers", ".claude"}

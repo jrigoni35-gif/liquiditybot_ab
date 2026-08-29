@@ -11,8 +11,9 @@ The semantics enforced here (each carries a pin in
 tests/test_corpus_accessor.py — change behavior only WITH its pin):
 
 - UNKNOWN-as-'': an empty string in a bookkeeping column means "cannot
-  know", never zero (ml/history.py AVAIL_COLS / label_ret_pct / control_arm
-  conventions). Helpers return None, never 0.0, for unrecoverable values.
+  know", never zero (the ml/history.py write-path column conventions,
+  incl. the availability flags and the control-arm tag). Helpers return
+  None, never 0.0, for unrecoverable values.
 - Era of a row: the row's OWN persisted `label_era` tag wins; only rows
   written before the tag existed fall back to deriving from `barrier`
   (mirrors ml.history._row_label_era — the derivation without horizon
@@ -30,11 +31,10 @@ ml.history; rotation stays write-path-only per the 2026-07-11 incident).
 STDLIB-ONLY BY LAW: this module lives in engine scope (ml/), so it may not
 import analysis tooling (polars/pandas/duckdb) even lazily — the engine-scope
 dependency-hygiene gate (tests/test_dependency_hygiene.py) forbids it, and
-the repo convention keeps the polars fast lane in scripts/ (see the candle
-store: data/candle_journal.py is stdlib, scripts/candle_store.py holds the
-polars lane). A caller wanting the 12-36x parquet/polars speed reads
-CORPUS_PATH directly from a script; the semantics helpers here are the
-authority the fast lane mirrors, not a thing it imports.
+the repo convention keeps any polars/parquet fast lane in scripts/, never in
+an engine-scope module. A caller wanting the 12-36x parquet/polars speed
+reads CORPUS_PATH directly from a script; the semantics helpers here are the
+authority that fast lane mirrors, not a thing it imports.
 """
 from __future__ import annotations
 
