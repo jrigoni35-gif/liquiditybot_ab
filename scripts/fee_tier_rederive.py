@@ -103,7 +103,6 @@ def main() -> int:
         print("  entry bar   = %.4f   (R1 sizer=%.4f R2 hand=%.4f agree=%s)"
               % (d["bar_r1"], d["bar_r1"], d["bar_r2"], d["agree"]))
         # label round-trip cost + barrier target
-        rt_label = d["rt_pct"] / 2.0  # label cost tracks one-way? No: see doc.
         pt_mult = float(cfg["ml"].get("label_pt_cost_mult", 4.0))
         # label_round_trip_cost_pct is a standalone config knob; report the
         # coherent value (== rt) and its 4x barrier target.
