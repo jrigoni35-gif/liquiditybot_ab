@@ -1,6 +1,6 @@
 ---
 name: grafana-dashboard-architect
-description: Architect and modify the liquiditybot Grafana boards safely — generator-owned JSON, liquid-glass injector rules (two failure modes already paid for), exact-inventory test pins, supervisor auto-import pipeline, cloud/API verification, and the black-screen triage drill.
+description: Architect and modify the liquiditybot Grafana boards safely — generator-owned JSON, the zero-script-panel law (liquid glass removed 2026-08-30 after three paid-for incidents), exact-inventory test pins, supervisor auto-import pipeline, cloud/API verification, and the black-screen triage drill.
 ---
 
 # Grafana Dashboard Architect
@@ -17,10 +17,12 @@ what is currently open (ALERT-DRIFT lives there).
    the shipped-JSON == generator invariant is load-bearing (palette,
    HIG pass, and tags are applied at generation). Change the generator,
    re-run it, diff the output.
-2. **One sanctioned JS-executing panel per board** — the glass injector
-   (`_injector()`, id `gen.INJ_ID`). Test-enforced. A second
-   script-running panel is how a board grows script execution without
-   review; do not add one.
+2. **ZERO script-executing panels, ever** (one-way pin since the
+   2026-08-30 glass removal). No `marcusolsson-dynamictext-panel`, no
+   `afterRender`/`helpers` hook, no html-mode text tile, no CSS injection
+   of any kind. Test-enforced both ends (shipped JSON + generator module).
+   The boards are pure declarative JSON; anything needing browser script
+   belongs in the console, not Grafana.
 3. **Every metric a panel queries must exist in `scripts/gc_pusher.py`'s
    `collect()`** — the pusher is the sole source of series names. A tile
    whose label says X but queries Y is the exact lie the inventory pins
@@ -63,34 +65,35 @@ GET https://goldsavanna1216.grafana.net/api/dashboards/uid/<uid>
 # check dashboard.version bumped and grep the JSON for your change
 ```
 
-Users must hard-refresh ONCE per open tab after a skin change — the
-injected style is tab-lifetime and the injector's id-guard skips
-re-injection while the old node exists.
+One legacy note: any browser tab open since BEFORE the 2026-08-30 glass
+removal still carries the old injected style until one hard refresh;
+after that, board changes need only a normal reload.
 
-## The glass skin — and the two failure modes already paid for
+## The glass skin — REMOVED 2026-08-30 ("delete the liquid glass 100%")
 
-`GLASS_RULES` (a CSS string in the generator) + `_injector()` (a
-marcusolsson-dynamictext panel whose `afterRender` appends
-`<style id="lb-glass">` to `document.head`). The style node outlives the
-board: Grafana is a SPA, so head content rides along on navigation.
+The frosted skin only ever existed in Grafana as CSS smuggled through a
+third-party panel's `afterRender` hook, and in ONE day that mechanism
+produced three operator-visible incidents, each with its own failed fix:
 
-Two approaches are DEAD — do not resurrect either:
+- **Unscoped selectors**: `.main-view { background:#000 }` leaked across
+  the SPA — blackened Alerting → History ("alert history screen is
+  black"; `b8a673ce`).
+- **`:has(#lb-glass-marker)` scoping** (`b8a673ce`): keyed the page theme
+  to a React-managed span's MOUNT STATE — whole-page skin flicker per
+  re-render, plus a `body:has()` recalc storm ("glitching"; reverted
+  `42560be0` same day).
+- The route-keyed `style.disabled` toggle (`42560be0`) worked — and the
+  operator then ordered the entire mechanism deleted anyway, correctly:
+  a pager surface should not depend on browser-executed injection at all.
 
-- **Unscoped selectors** (pre-2026-08-30): `.main-view { background:#000 }`
-  leaked onto every Grafana page visited after a board — blackened
-  Alerting → History (operator report; fixed `b8a673ce`).
-- **`:has(#lb-glass-marker)` scoping** (`b8a673ce`, reverted `42560be0`
-  same day): keyed the page-wide theme to the MOUNT STATE of a
-  React-managed span — the tile remounts per refresh, so the whole page's
-  skin flipped off/on per re-render, and `body:has()` re-evaluates per DOM
-  mutation (recalc storm). Operator report: "glitching".
-
-The living mechanism (`42560be0`): selectors stay in their original cheap
-forms; the injector JS toggles `style.disabled` by ROUTE — enabled only
-when `location.pathname` matches `/d/liquiditybot-*` — flipped on wrapped
-`pushState`/`replaceState` and `popstate`, installed once per tab
-(`window.__lbGlassNav` guard), re-synced per render. Keep any future
-scoping keyed to the URL, never to DOM presence.
+After the removal: boards render native Grafana dark; the generator holds
+a tombstone comment where `GLASS_RULES`/`_injector()` lived; the removal
+is pinned one-way (`test_glass_removal_is_total`,
+`test_no_panel_executes_javascript`). **The design language lives in
+`scripts/glass_console.py`** (`outputs/console.html`) — the same palette
+and idioms rendered natively, where they can never leak into Grafana. The
+unused Business Text plugin may be uninstalled from the cloud instance
+(Admin step, optional).
 
 ## Test pins & contracts (move pins in the SAME commit, never widen)
 
@@ -129,9 +132,11 @@ step killed a real theory on 2026-08-30:
    `outputs/status.json` mtime. (Was healthy during both black reports.)
 2. **Is it the board's own JSON?** Read the emitted file — a stripped
    board with only the injector renders pure black BY CONSTRUCTION.
-3. **Is it the style stowaway?** Symptom on NON-board pages after
-   visiting a board; one hard refresh clears the tab. If a report matches
-   this, the injector scoping regressed.
+3. **Is it injected style?** Since the 2026-08-30 removal there IS no
+   injection — so this symptom (dark on NON-board pages, cleared by one
+   hard refresh) now means someone resurrected a script panel: the
+   one-way pins should already be red. Also: any tab open since before the
+   removal keeps the old style until one hard refresh.
 4. **Is it data absence?** Query the cloud series directly
    (`/api/ds/query`, `count_over_time(<metric>[5m])`) — VENUE TRUTH for
    gaps. Ad-hoc log-timestamp parsing has dateless-midnight traps and

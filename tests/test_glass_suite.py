@@ -1,9 +1,12 @@
-"""tests/test_glass_suite.py — the Liquid Glass suite contract.
+"""tests/test_glass_suite.py — the board-suite contract (glass RETIRED).
 
-The glass suite IS the four banner boards (2026-07-22 spec). The dedicated
-glass + mobile boards were retired; these pins keep them retired and keep
-the glass primitives (value-only state tiles, joinByField tables, CSS
-injector, transparency) from regressing.
+HISTORICAL NAME. The Liquid Glass skin was deleted 100% on 2026-08-30
+operator directive (three same-day display incidents from its CSS-injection
+mechanism — 51b261af / b8a673ce / 42560be0; the design language now renders
+natively in scripts/glass_console.py). What this file keeps: the four-board
+family pins, and every SUBSTANCE contract that survived the skin — accuracy
+idioms (joinByField tables, no query-text tiles, valid PromQL), plus the
+retirement pins for the boards that stay retired.
 """
 from pathlib import Path
 
@@ -46,37 +49,21 @@ def _panels(d):
     return out
 
 
-def test_all_panels_transparent():
+def test_boards_are_native_and_script_free():
+    # 2026-08-30 glass removal: no injector, no dynamictext plugin, no
+    # afterRender hook, no forced transparency, and no html-mode text tile
+    # (Grafana sanitizes those anyway — an html tile is always a mistake).
+    # This is the suite-side twin of test_boards_stripped's one-way pin.
     for d in _boards():
         for p in _panels(d):
-            if p["type"] != "row":
-                assert p.get("transparent") is True, \
-                    f'{d["uid"]}: panel {p["id"]} not transparent'
-
-
-def test_injector_present_and_self_hiding():
-    # 2026-07-23: injector promoted from the dormant native text tile to a
-    # Business Text panel — Grafana Cloud sanitizes <style> in native text,
-    # so the CSS is injected into document.head by the plugin's afterRender
-    # hook instead (plugin installed by the operator; README_glass.md).
-    # id 990 is the CSS injector; the Pulse board carries a SECOND Business
-    # Text panel (its whole-screen content tile), so select the injector by
-    # its fixed id rather than by plugin type.
-    for d in _boards():
-        inj = [p for p in d["panels"]
-               if p["type"] == "marcusolsson-dynamictext-panel"
-               and p["id"] == 990]
-        assert len(inj) == 1, f'{d["uid"]}: exactly one CSS injector'
-        opts = inj[0]["options"]
-        assert "afterRender" in opts.get("editors", []), \
-            "afterRender editor must be enabled for the hook to run"
-        js = opts["afterRender"]
-        assert "lb-glass" in js            # idempotence guard + style id
-        assert "panel-990" in js           # hides its own tile
-        assert "backdrop-filter" in js     # the frosted skin
-        # no native text injector left behind (would be sanitized anyway)
-        assert not [p for p in d["panels"] if p["type"] == "text"
-                    and p.get("options", {}).get("mode") == "html"]
+            assert p["type"] != "marcusolsson-dynamictext-panel", \
+                f'{d["uid"]}: panel {p["id"]} resurrects the glass injector'
+            opts = p.get("options") or {}
+            assert not opts.get("afterRender"), \
+                f'{d["uid"]}: panel {p["id"]} executes browser script'
+            assert not (p["type"] == "text"
+                        and opts.get("mode") == "html"), \
+                f'{d["uid"]}: html-mode text tile (sanitized to nothing)'
 
 
 def test_state_tiles_never_print_query_text():

@@ -9,12 +9,22 @@ types.
 STRIPPED 2026-08-15. Every visualization panel was deleted from all four
 boards before the newly-configured bot produced real data, so that nothing on
 screen could be a number carried over from the retired geometry. ONE board was
-then rebuilt small — see the stub block at "board 1 · command". The Liquid
-Glass FRAMEWORK is untouched: GLASS_RULES + _injector() (the frosted skin),
-_apple_palette()/_hig_all(), and every panel factory below
-(row/stat/state/gauge/timeseries/bargauge/donut/table/text) with its threshold
-palettes. A board is rebuilt by writing constructor calls into its _author_
-stub; nothing else has to be restored first. See docs/grafana/README_glass.md.
+then rebuilt small — see the stub block at "board 1 · command".
+
+LIQUID GLASS REMOVED 2026-08-30 (operator directive: "delete the liquid glass
+100%"). The frosted skin only ever existed in Grafana as CSS smuggled through
+a third-party panel's afterRender hook (GLASS_RULES + _injector()), and that
+mechanism caused every display incident of 2026-08-30 — two black-screen
+reports and a glitching report in one day (commits 51b261af, b8a673ce,
+42560be0 hold the receipts). The boards now render NATIVE Grafana dark theme
+and carry ZERO JavaScript-executing panels — pure declarative JSON, which is
+also the stronger security posture (test_glass_suite.py pins it). The glass
+design language lives natively in scripts/glass_console.py, where it needs no
+hack. What remains here from that language is inert and semantic:
+_apple_palette()/_hig_all() (static colors in the emitted JSON) and every
+panel factory below (row/stat/state/gauge/timeseries/bargauge/donut/table/
+text) with its threshold palettes. A board is rebuilt by writing constructor
+calls into its _author_ stub; nothing else has to be restored first.
 
 DESIGN — the rules the rebuilt board follows, and that a future one should:
   * ACCURACY FIRST. Two rules, and they do NOT have the same force — the
@@ -174,59 +184,16 @@ GRAY_HEX = "#8E8E93"
 CAT_TEAL = "#40CBE0"
 CAT_PURPLE = "#BF5AF2"
 
-INJ_ID = 990          # fixed id on every board so the CSS can self-hide
-
-# Frosted-glass skin, ACTIVE since 2026-07-23: the operator installed the
-# signed Business Text plugin (Admin-only step), so the injector tile is a
-# marcusolsson-dynamictext-panel whose afterRender hook appends these rules
-# to document.head — the route Grafana Cloud's <style> sanitizer (which kept
-# the old native-text tile dormant) does not touch. README_glass.md.
-# SCOPING HISTORY (2026-08-30, two operator reports same day). The injected
-# <style id="lb-glass"> lives in document.head for the LIFE OF THE TAB -
-# Grafana is a SPA, so unscoped rules rode along to every page ("alert
-# history screen is black": `.main-view { background:#000 }` on pages the
-# skin was never written for). FIRST fix scoped every selector with
-# :has(#lb-glass-marker) - REVERTED within the hour, operator report
-# "glitching": it keyed a page-wide theme to the MOUNT STATE of a
-# React-managed span (the dynamictext tile re-renders on every refresh, so
-# the whole page's skin flipped off/on per re-render), and body:has()
-# re-evaluates on every DOM mutation - a style-recalc storm on a
-# constantly-mutating dashboard. Selectors are therefore back to their
-# original cheap forms, and the LEAK is fixed in the injector JS instead:
-# the script toggles the style element's `disabled` bit by ROUTE
-# (location.pathname starts with /d/liquiditybot-), flipping on
-# pushState/replaceState/popstate - a stable signal with zero per-mutation
-# cost. See _injector(). Do NOT re-scope these selectors with :has().
-GLASS_RULES = """\
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-.main-view, .scrollbar-view { background: #000 !important; }
-html, body, .main-view, [class*="dashboard"] {
-  font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
-               system-ui, sans-serif !important;
-  -webkit-font-smoothing: antialiased;
-}
-[data-testid="data-testid panel content"] {
-  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,
-              rgba(28,28,30,.50) 100%) !important;
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: .5px solid rgba(255,255,255,.12) !important;
-  border-radius: 20px !important;
-  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),
-              inset 0 -1px 1px 0 rgba(0,0,0,.30),
-              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;
-}
-.react-grid-item { background: transparent !important; }
-[data-testid^="data-testid Panel header"] { background: transparent !important;
-  border: 0 !important; }
-[data-testid="data-testid header-container"] {
-  font-weight: 600; letter-spacing: .4px; font-size: 11px;
-  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }
-[data-testid^="data-testid dashboard-row-title-"] {
-  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;
-  font-weight: 700; color: rgba(235,235,245,.55) !important; }
-[data-viz-panel-key="panel-990"] { display: none !important; }
-"""
+# LIQUID GLASS TOMBSTONE (2026-08-30). GLASS_RULES, INJ_ID and _injector()
+# lived here 2026-07-23 -> 2026-08-30: a marcusolsson-dynamictext panel whose
+# afterRender hook appended the frosted-skin CSS to document.head. Deleted
+# 100% on operator directive after it caused three same-day display
+# incidents (SPA style leak blackening non-board pages, then :has()-scoping
+# remount flicker — receipts in 51b261af / b8a673ce / 42560be0 and the
+# grafana-dashboard-architect skill). Boards now carry ZERO JS-executing
+# panels — pure declarative JSON, pinned by the suite. Do not reintroduce a
+# script-running panel for styling or anything else; the glass design
+# language renders natively in scripts/glass_console.py.
 
 panels: list = []
 
@@ -808,26 +775,20 @@ _BRAIN_GUIDE = (
 # The screening board was folded away (nothing to fold - it held only the
 # injector); scripts/grafana_import.py retires its uid on the next import.
 #
-# SANITIZER CONTRACT - recorded here because the only two places it was ever
-# written down (the _bt_options() docstring and the pulse banner comment) were
-# deleted in the strip, and losing it would make the glass skin unmaintainable:
-# Grafana Cloud STRIPS <style> out of rendered panel HTML. CSS reaches the page
-# by exactly two routes - (a) the Business Text plugin's dedicated `styles`
-# option, which the plugin injects itself, outside the sanitizer's reach, or
-# (b) an `afterRender` hook appending a <style> node to document.head, which is
-# the route _injector() takes. A <style> tag placed back into a panel's
-# `content` silently vanishes on the instance and the board renders unskinned.
+# SANITIZER CONTRACT - kept as history although the glass skin is GONE
+# (2026-08-30 removal): Grafana Cloud STRIPS <style> out of rendered panel
+# HTML, which is why the skin ever needed a plugin's afterRender hook to
+# exist at all - and that hook is precisely the mechanism the removal
+# deleted. If anyone proposes CSS-in-Grafana again, this contract is the
+# first reason it cannot be done safely; the incident record in the
+# module header is the second.
 #
-# What survives is the FRAMEWORK, not the content:
-#   * GLASS_RULES + _injector()      the Liquid Glass frosted skin
-#                                    (docs/grafana/README_glass.md)
+# What survives is the FRAMEWORK, not the skin:
 #   * _apple_palette() + _hig_all()  Apple system palette and the HIG pass
-#                                    (docs/grafana/HIG.md)
+#                                    (docs/grafana/HIG.md) - static colors
+#                                    in the emitted JSON, no runtime surface
 #   * the panel FACTORIES - row/stat/state/gauge/timeseries/bargauge/donut/
 #     table/text - and every threshold palette, untouched.
-#
-# Each board therefore renders as: shell (title, tags, nav links, time range)
-# plus exactly ONE glass injector panel. Panel count per board is 1.
 #
 # TO REBUILD a board, append factory calls inside the matching _author_ below;
 # nothing else has to be restored first. The deleted content is recoverable in
@@ -1945,47 +1906,6 @@ def _links():
             for t, u in _NAV]
 
 
-def _injector():
-    # json.dumps embeds the rules as a JS string literal — no escaping
-    # hazards, and the id guard keeps re-renders / cross-board SPA
-    # navigation from stacking duplicate <style> nodes. The node outlives
-    # the board (SPA head is tab-lifetime); the 2026-08-30 "alert history
-    # screen is black" leak is closed by the ROUTE WATCHER below, which
-    # toggles the style's `disabled` bit: enabled only while
-    # location.pathname is a /d/liquiditybot-* board, flipped exactly on
-    # pushState / replaceState / popstate (plus once per panel render as a
-    # belt-and-braces re-sync). Keyed to the URL, NOT to DOM presence — a
-    # :has(#lb-glass-marker) scoping attempt was reverted the same day for
-    # operator-visible flicker ("glitching"): the marker is React-managed
-    # and remounts per refresh, and body:has() re-evaluates per mutation.
-    # The watcher installs once per tab (window.__lbGlassNav guard).
-    marker = '<span id="lb-glass-marker"></span>'
-    js = ("var s = document.getElementById('lb-glass'); "
-          "if (!s) { s = document.createElement('style'); s.id = 'lb-glass'; "
-          f"s.textContent = {json.dumps(GLASS_RULES)}; "
-          "document.head.appendChild(s); } "
-          "var lbApply = function() { "
-          "var el = document.getElementById('lb-glass'); if (!el) return; "
-          "el.disabled = !/^\\/d\\/liquiditybot-/.test(location.pathname); }; "
-          "if (!window.__lbGlassNav) { window.__lbGlassNav = 1; "
-          "var lbWrap = function(fn) { return function() { "
-          "var r = fn.apply(this, arguments); lbApply(); return r; }; }; "
-          "history.pushState = lbWrap(history.pushState); "
-          "history.replaceState = lbWrap(history.replaceState); "
-          "window.addEventListener('popstate', lbApply); } "
-          "lbApply();")
-    return {"id": INJ_ID, "type": "marcusolsson-dynamictext-panel",
-            "title": "", "datasource": None,
-            "gridPos": {"h": 1, "w": 1, "x": 0, "y": _cur["y"] + 1},
-            "transparent": True,
-            "options": {"renderMode": "data", "content": marker,
-                        "defaultContent": marker,
-                        "editors": ["afterRender"], "afterRender": js,
-                        "helpers": "", "styles": "", "wrap": False,
-                        "externalStyles": [], "contentPartials": []},
-            "pluginVersion": "6.3.0"}
-
-
 def _nest_collapsed(flat):
     """Move each collapsed row's member panels INTO the row object — the
     exact shape Grafana exports for a collapsed row. Grafana runs no
@@ -2013,23 +1933,9 @@ def _board(uid, title, desc, author, extra_tag, time_from="now-24h"):
     author()
     _flush()
     top = _nest_collapsed(panels)
-    # the CSS injector must stay top-level: a panel nested in a collapsed
-    # row never renders, and the frosted-glass skin would vanish until the
-    # operator happened to expand that row
-    top.append(_injector())
-    # _injector() places itself one row BELOW the last content panel, which is
-    # correct while a board has content. On a stripped (content-free) board it
-    # is the ONLY panel, and y=1 would leave a dead empty row above it and
-    # break the "first panel starts at the top" invariant that
-    # test_importable_shape_and_layout_per_board pins. Re-seat it at the
-    # origin in exactly that case; a board WITH content is untouched.
-    if len(top) == 1:
-        top[0]["gridPos"]["y"] = 0
-    for p in top:
-        if p["type"] != "row":
-            p["transparent"] = True
-        for member in p.get("panels") or []:
-            member["transparent"] = True
+    # NATIVE THEME (glass removed 2026-08-30): no injector is appended and
+    # panels keep Grafana's default panel chrome — transparency was part of
+    # the glass ground and is deliberately NOT forced anymore.
     # refresh 1m: gc_pusher exports every 30s; 1m still surfaces every push
     # within one refresh at half the query/render churn (2026-07-25 fix)
     return {"uid": uid, "title": title, "description": desc,
@@ -2517,7 +2423,6 @@ for _d in DASHBOARDS.values():
     _apple_palette(_d)
     _hig_all(_d)
     _tags = set(_d.get("tags") or [])
-    _tags.add("liquid-glass")
     _d["tags"] = sorted(_tags)
 
 OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "grafana"

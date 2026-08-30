@@ -4,7 +4,6 @@
   "description": "COMMAND — what is the bot doing right now: equity & P&L, the open book, liveness, exposure by asset, fill mix, and the loss-budget posture.",
   "tags": [
     "command",
-    "liquid-glass",
     "liquiditybot",
     "paper-trading",
     "trading"
@@ -140,8 +139,7 @@
           "range": true,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 2,
@@ -212,8 +210,7 @@
           "range": true,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 3,
@@ -284,8 +281,7 @@
           "range": true,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 4,
@@ -356,8 +352,7 @@
           "range": true,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 5,
@@ -432,8 +427,7 @@
           "range": true,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 6,
@@ -519,8 +513,7 @@
           "range": true,
           "legendFormat": "equity"
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 7,
@@ -587,8 +580,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 8,
@@ -657,8 +649,7 @@
           "instant": true,
           "range": false
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 9,
@@ -725,8 +716,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 10,
@@ -810,8 +800,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 11,
@@ -895,8 +884,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 12,
@@ -971,8 +959,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 13,
@@ -1056,8 +1043,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 14,
@@ -1141,8 +1127,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 15,
@@ -1236,8 +1221,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 16,
@@ -1326,8 +1310,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 17,
@@ -1737,8 +1720,7 @@
             }
           }
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 19,
@@ -1859,8 +1841,7 @@
           "range": false,
           "legendFormat": "taker (paid the spread)"
         }
-      ],
-      "transparent": true
+      ]
     },
     {
       "id": 21,
@@ -1927,39 +1908,7 @@
           "range": false,
           "legendFormat": ""
         }
-      ],
-      "transparent": true
-    },
-    {
-      "id": 990,
-      "type": "marcusolsson-dynamictext-panel",
-      "title": "",
-      "datasource": null,
-      "gridPos": {
-        "h": 1,
-        "w": 1,
-        "x": 0,
-        "y": 42
-      },
-      "transparent": true,
-      "options": {
-        "renderMode": "data",
-        "content": "<span id=\"lb-glass-marker\"></span>",
-        "defaultContent": "<span id=\"lb-glass-marker\"></span>",
-        "editors": [
-          "afterRender"
-        ],
-        "afterRender": "var s = document.getElementById('lb-glass'); if (!s) { s = document.createElement('style'); s.id = 'lb-glass'; s.textContent = \"html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }\\n.main-view, .scrollbar-view { background: #000 !important; }\\nhtml, body, .main-view, [class*=\\\"dashboard\\\"] {\\n  font-family: -apple-system, \\\"SF Pro Text\\\", \\\"SF Pro Display\\\", \\\"Inter\\\",\\n               system-ui, sans-serif !important;\\n  -webkit-font-smoothing: antialiased;\\n}\\n[data-testid=\\\"data-testid panel content\\\"] {\\n  background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,\\n              rgba(28,28,30,.50) 100%) !important;\\n  backdrop-filter: blur(22px) saturate(180%);\\n  -webkit-backdrop-filter: blur(22px) saturate(180%);\\n  border: .5px solid rgba(255,255,255,.12) !important;\\n  border-radius: 20px !important;\\n  box-shadow: inset 0 1px 0 0 rgba(255,255,255,.14),\\n              inset 0 -1px 1px 0 rgba(0,0,0,.30),\\n              0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;\\n}\\n.react-grid-item { background: transparent !important; }\\n[data-testid^=\\\"data-testid Panel header\\\"] { background: transparent !important;\\n  border: 0 !important; }\\n[data-testid=\\\"data-testid header-container\\\"] {\\n  font-weight: 600; letter-spacing: .4px; font-size: 11px;\\n  text-transform: uppercase; color: rgba(235,235,245,.6) !important; }\\n[data-testid^=\\\"data-testid dashboard-row-title-\\\"] {\\n  text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;\\n  font-weight: 700; color: rgba(235,235,245,.55) !important; }\\n[data-viz-panel-key=\\\"panel-990\\\"] { display: none !important; }\\n\"; document.head.appendChild(s); } var lbApply = function() { var el = document.getElementById('lb-glass'); if (!el) return; el.disabled = !/^\\/d\\/liquiditybot-/.test(location.pathname); }; if (!window.__lbGlassNav) { window.__lbGlassNav = 1; var lbWrap = function(fn) { return function() { var r = fn.apply(this, arguments); lbApply(); return r; }; }; history.pushState = lbWrap(history.pushState); history.replaceState = lbWrap(history.replaceState); window.addEventListener('popstate', lbApply); } lbApply();",
-        "helpers": "",
-        "styles": "",
-        "wrap": false,
-        "externalStyles": [],
-        "contentPartials": []
-      },
-      "pluginVersion": "6.3.0",
-      "fieldConfig": {
-        "defaults": {}
-      }
+      ]
     }
   ]
 }

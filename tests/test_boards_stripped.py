@@ -15,12 +15,13 @@ What it pins:
   * per board, the EXACT panel inventory as (id, title, type, sorted
     metrics) QUADRUPLES — see the mutation story on _COMMAND_HERO_PANELS
     for why the metric tuple is load-bearing. Each pin also accepts the
-    fully-stripped (injector-only) form, so re-stripping a board can never
+    fully-stripped (ZERO-panel) form, so re-stripping a board can never
     brick the deploy gate.
-  * the injector exists on EVERY board, is transparent, is 1x1, is the
-    bottom-most panel, and carries the WHOLE of gen.GLASS_RULES inside its
-    afterRender JS (asserted against the module constant, not a copy, so a
-    rewritten stylesheet cannot pass by accident).
+  * the LIQUID GLASS REMOVAL IS TOTAL (2026-08-30 operator directive,
+    after three same-day display incidents): no script-executing panel,
+    no afterRender/helpers hook, no glass residue in any shipped JSON,
+    and the generator carries no GLASS_RULES/_injector — both ends
+    asserted, one-way pin.
   * the board shell: unique non-empty uid, schemaVersion 39, non-empty
     title, and nav links whose targets are exactly the four board uids.
   * shipped JSON == what the generator produces right now (the repo's
@@ -55,7 +56,6 @@ LEARNING = "liquiditybot_learning.json"
 PROBLEMS = "liquiditybot_problem_solution.json"
 ALL_BOARDS = (COMMAND, EXECUTION, LEARNING, PROBLEMS)
 
-INJ_TYPE = "marcusolsson-dynamictext-panel"
 
 # The execution board carries ONLY what the two alert rules fire on. It was
 # rebuilt 2026-08-16 after a measurement: liquiditybot_ml_brier and
@@ -73,7 +73,6 @@ _EXEC_PANELS = frozenset({
     (5, "Champion Brier", "stat", ("liquiditybot_ml_champion_brier",)),
     (6, "Drift share", "stat", ("liquiditybot_ml_drift_share",)),
     (7, "Monitor", "stat", ("liquiditybot_monitor_level",)),
-    (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 # 2026-08-30: the stripped form gained ONE core text signpost. The strip had
 # shipped with no explanation panel, so the board rendered as the glass skin
@@ -83,7 +82,6 @@ _EXEC_PANELS = frozenset({
 # carries zero data panels and every skip-on-stripped branch stays valid.
 _EXEC_STRIPPED_PANELS = frozenset({
     (1, "Where the alert inputs live", "text", ()),
-    (gen.INJ_ID, "", INJ_TYPE, ()),
 })
 
 # The command board's authored inventory, as
@@ -139,9 +137,8 @@ _COMMAND_HERO_PANELS = frozenset({
      ("liquiditybot_order_maker_fills", "liquiditybot_order_taker_fills")),
     (21, "Profit pools", "stat",
      ("liquiditybot_reserve", "liquiditybot_savings")),
-    (gen.INJ_ID, "", INJ_TYPE, ()),
 })
-_COMMAND_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+_COMMAND_STRIPPED_PANELS = frozenset()   # a re-strip = ZERO panels (2026-08-30)
 
 # The LEARNING board (2026-08-17, uid liquiditybot-learning) — the operator's
 # long-term "is it getting smarter" read. Same pin philosophy as the command
@@ -202,9 +199,8 @@ _LEARNING_PANELS = frozenset({
     # STREAM 7c (audit MERGE 52->50): Base win rate folded into this desc.
     (42, 'Is any gate lying?', 'bargauge', ('liquiditybot_gate_divergence',)),
     (43, 'Labeled rows feeding the gates', 'stat', ('liquiditybot_gate_labeled',)),
-    (990, '', 'marcusolsson-dynamictext-panel', ()),
 })
-_LEARNING_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+_LEARNING_STRIPPED_PANELS = frozenset()  # a re-strip = ZERO panels (2026-08-30)
 
 # The PROBLEMS board (2026-08-17, keeps uid liquiditybot-problem-solution so
 # the operator's link survives) — what needs attention; looking empty is
@@ -319,9 +315,8 @@ _PROBLEM_PANELS = frozenset({
     (49, "Verdict comparability (label-era overlap vs baseline)",
      "bargauge",
      ("liquiditybot_admitted_era_overlap", "liquiditybot_veto_era_overlap")),
-    (gen.INJ_ID, "", INJ_TYPE, ()),
 })
-_PROBLEM_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+_PROBLEM_STRIPPED_PANELS = frozenset()   # a re-strip = ZERO panels (2026-08-30)
 
 _MET_RE = re.compile(r"liquiditybot_[a-z0-9_]+")
 
@@ -333,10 +328,11 @@ def _identity(p: dict) -> tuple:
                    for m in _MET_RE.findall(t.get("expr", ""))})
     return (p["id"], p.get("title", ""), p["type"], tuple(mets))
 
-# Panels that execute JavaScript in the operator's browser. The glass
-# injector is the only sanctioned one; a second such panel is how a board
-# would grow script execution without anyone noticing.
-_JS_PANEL_TYPES = (INJ_TYPE,)
+# Panel types that execute JavaScript in the operator's browser. ZERO are
+# sanctioned since the 2026-08-30 glass removal (operator directive) —
+# boards are pure declarative JSON. The list is the ban's reach; extend it
+# if another script-capable plugin ever appears in a proposal.
+_JS_PANEL_TYPES = ("marcusolsson-dynamictext-panel",)
 
 
 def _shipped(fname: str) -> dict:
@@ -352,12 +348,6 @@ def _all_panels(d: dict) -> list:
         out.append(p)
         out.extend(p.get("panels") or [])
     return out
-
-
-def _injector_of(d: dict) -> dict:
-    inj = [p for p in _all_panels(d) if p.get("id") == gen.INJ_ID]
-    assert len(inj) == 1, f"expected exactly one id-{gen.INJ_ID} panel"
-    return inj[0]
 
 
 # --------------------------------------------------------------------------
@@ -704,19 +694,26 @@ def test_execution_board_still_mirrors_the_alert_rules():
 
 
 @pytest.mark.parametrize("fname", ALL_BOARDS)
-def test_only_the_glass_injector_executes_javascript(fname):
-    """The Business Text plugin runs arbitrary JS in the operator's browser
-    via its afterRender hook. Exactly one panel per board may do that, and it
-    must be the injector at the pinned id — otherwise a board could grow a
-    second script-executing tile while every other pin stayed green."""
-    js = [p for p in _all_panels(_shipped(fname))
-          if p.get("type") in _JS_PANEL_TYPES]
-    assert len(js) == 1, (
-        f"{fname}: expected exactly ONE JavaScript-executing panel, found "
-        f"{len(js)}: {[(p.get('id'), p.get('title')) for p in js]}")
-    assert js[0]["id"] == gen.INJ_ID, (
-        f"{fname}: the JS panel is id {js[0]['id']}, not the sanctioned "
-        f"injector id {gen.INJ_ID}")
+def test_no_panel_executes_javascript(fname):
+    """ZERO script-executing panels, board-wide (2026-08-30 glass removal).
+
+    The glass skin ran as arbitrary JS in the operator's browser via a
+    Business Text panel's afterRender hook, and that mechanism produced
+    three same-day display incidents (two black screens, one glitching —
+    51b261af / b8a673ce / 42560be0). The operator ordered it deleted 100%;
+    boards are now pure declarative JSON, which is also the stronger
+    security posture. This pin is one-way: it never relaxes back to
+    'exactly one sanctioned panel'. Any afterRender/helpers hook or a
+    _JS_PANEL_TYPES plugin type is a failure regardless of id or intent."""
+    for p in _all_panels(_shipped(fname)):
+        assert p.get("type") not in _JS_PANEL_TYPES, (
+            f"{fname}: panel {p.get('id')} ({p.get('title')!r}) is a "
+            "script-executing plugin type — banned since the glass removal")
+        opts = p.get("options") or {}
+        for hook in ("afterRender", "helpers"):
+            assert not opts.get(hook), (
+                f"{fname}: panel {p.get('id')} carries a {hook!r} hook — "
+                "boards must stay free of browser-executed script")
 
 
 @pytest.mark.parametrize("fname", (COMMAND, LEARNING, PROBLEMS))
@@ -738,8 +735,8 @@ def test_operator_boards_surface_telemetry_age(fname):
     """
     d = _shipped(fname)
     got = frozenset(_identity(p) for p in _all_panels(d))
-    if got == frozenset({(gen.INJ_ID, "", INJ_TYPE, ())}):
-        pytest.skip(f"{fname} is in the fully-stripped form")
+    if not got:
+        pytest.skip(f"{fname} is in the fully-stripped form (zero panels)")
     exprs = " ".join(t.get("expr", "")
                      for p in _all_panels(d)
                      for t in (p.get("targets") or []))
@@ -751,44 +748,27 @@ def test_operator_boards_surface_telemetry_age(fname):
 
 
 # --------------------------------------------------------------------------
-# the glass framework survives on every board
+# the glass framework is GONE from every board (2026-08-30, operator
+# directive "delete the liquid glass 100%") — the removal itself is pinned
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("fname", ALL_BOARDS)
-def test_every_board_carries_a_transparent_glass_injector(fname):
+def test_glass_removal_is_total(fname):
+    """No trace of the injection system may survive in shipped JSON: no
+    lb-glass id, no marker span, no GLASS_RULES fragment, no route watcher.
+    The generator constant itself is deleted (tombstone comment remains) —
+    both ends asserted so a partial resurrection fails loudly."""
+    raw = (ROOT / "docs" / "grafana" / fname).read_text(encoding="utf-8")
+    for frag in ("lb-glass", "backdrop-filter", "__lbGlassNav",
+                 "afterRender", "dynamictext"):
+        assert frag not in raw, f"{fname}: glass residue {frag!r} in shipped JSON"
+    assert not hasattr(gen, "GLASS_RULES") and not hasattr(gen, "_injector"), \
+        "the generator has grown glass machinery back — see the tombstone"
+    # layout hygiene the injector test used to carry: content starts at the
+    # top of the grid (no dead band) on any board that has panels at all
     d = _shipped(fname)
-    inj = _injector_of(d)
-    assert inj["type"] == INJ_TYPE, f"{fname}: {inj['type']}"
-    assert inj["transparent"] is True, f"{fname}: injector must be transparent"
-    assert inj["gridPos"]["w"] == 1 and inj["gridPos"]["h"] == 1, \
-        f"{fname}: injector must stay 1x1, found {inj['gridPos']}"
-    # it must be TOP-LEVEL: a panel nested in a collapsed row never renders,
-    # and the skin would vanish until someone expanded that row
-    assert any(p["id"] == gen.INJ_ID for p in d["panels"]), \
-        f"{fname}: injector nested inside a row — it would never render"
-    # and bottom-most, so it never pushes content down a grid row
     ys = [p["gridPos"]["y"] for p in d["panels"]]
-    assert inj["gridPos"]["y"] == max(ys), \
-        f"{fname}: injector at y={inj['gridPos']['y']}, max y={max(ys)}"
-    assert min(ys) == 0, f"{fname}: no panel at y=0 — dead band at the top"
-
-
-@pytest.mark.parametrize("fname", ALL_BOARDS)
-def test_injector_embeds_the_whole_glass_stylesheet(fname):
-    after = _injector_of(_shipped(fname))["options"]["afterRender"]
-    assert gen.GLASS_RULES.strip(), "GLASS_RULES is empty — the skin is gone"
-    # distinctive fragments, asserted BOTH ends: present in the module
-    # constant AND in the shipped JS. A fragment that drifts out of
-    # GLASS_RULES fails here rather than silently weakening the check.
-    for frag in ("-webkit-text-size-adjust: 100%", "backdrop-filter",
-                 f"panel-{gen.INJ_ID}"):
-        assert frag in gen.GLASS_RULES, f"stale fragment {frag!r}"
-        assert frag in after, f"{fname}: {frag!r} missing from afterRender"
-    # the whole stylesheet, embedded as a JS string literal by _injector()
-    assert json.dumps(gen.GLASS_RULES) in after, (
-        f"{fname}: afterRender does not carry GLASS_RULES verbatim — the "
-        "shipped skin has drifted from the generator constant")
-    assert "document.getElementById('lb-glass')" in after, \
-        f"{fname}: the duplicate-<style> guard is gone"
+    if ys:
+        assert min(ys) == 0, f"{fname}: no panel at y=0 — dead band at the top"
 
 
 # --------------------------------------------------------------------------
@@ -856,8 +836,9 @@ def test_panel_factories_still_build_a_board():
     assert len(built_panels) > 1, "factories produced no content panels"
     types = {p["type"] for p in built_panels} | {
         m["type"] for p in built_panels for m in (p.get("panels") or [])}
-    assert {"stat", "gauge", "timeseries", "table", INJ_TYPE} <= types, \
+    assert {"stat", "gauge", "timeseries", "table"} <= types, \
         f"rebuilt board is missing panel types: {sorted(types)}"
     assert built["schemaVersion"] == 39
-    assert any(p["id"] == gen.INJ_ID for p in built_panels), \
-        "a rebuilt board would ship without the glass injector"
+    # and a rebuilt board must come out CLEAN of glass machinery too
+    assert not any(p["type"] in _JS_PANEL_TYPES for p in built_panels), \
+        "_board() re-grew a script-executing panel"
