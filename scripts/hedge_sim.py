@@ -272,7 +272,7 @@ def verdict(trips: list[RoundTrip]) -> dict:
     n_ep = len(eps)
     if n_ep >= BOOTSTRAP_MIN_EPISODES:
         import random
-        rng = random.Random(20260828)
+        rng = random.Random(20260828)  # nosec B311 - seeded bootstrap resampling, not crypto
         sums = sorted(
             sum(e_nets[rng.randrange(n_ep)] for _ in range(n_ep))
             for _ in range(10_000))

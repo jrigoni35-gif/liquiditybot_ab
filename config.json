@@ -121,7 +121,7 @@
     "vol_scaled": true,
     "be_after_tier": 1,
     "be_buffer_bps": 6,
-    "est_fee_bps": 80,
+    "est_fee_bps": 38,
     "chandelier_k": 3.0,
     "chandelier_bars": 6,
     "tighten_after_bars": 96,
@@ -341,8 +341,8 @@
   },
   "pretrade": {
     "description": "Set maker/taker fees to your actual Kraken tier. 40/80 is the venue-true Kraken Tier-1 floor (cut #8, 2026-08-28) - config_guard refuses live start below it unless allow_sub_floor_fees is true. price_exit_leg adds the unwind leg (taker fee + half spread) to the EV cost stack - entries must clear ROUND-TRIP cost, not entry-only.",
-    "maker_fee_bps": 40.0,
-    "taker_fee_bps": 80.0,
+    "maker_fee_bps": 22.0,
+    "taker_fee_bps": 38.0,
     "price_exit_leg": true,
     "impact_eta": 0.8,
     "min_edge_cost_ratio": 1.3,
@@ -362,15 +362,16 @@
     "maker_fill_p0": 0.45,
     "p_fill_floor": 0.05,
     "miss_cost_bps": 0.5,
-    "ev_min_bps": 0.0
+    "ev_min_bps": 0.0,
+    "allow_sub_floor_fees": true
   },
   "order_manager": {
     "order_timeout_sec": 25,
     "max_reprices": 1,
     "reprice_max_slip_bps": 8,
     "min_fill_ratio": 0.1,
-    "maker_fee_bps": 40.0,
-    "taker_fee_bps": 80.0,
+    "maker_fee_bps": 22.0,
+    "taker_fee_bps": 38.0,
     "deadman_timeout_sec": 60,
     "fee_recon": {
       "_doc": "W2-9 remainder: periodic REPORT-ONLY reconciliation of the account's ACTUAL Kraken fee tier (private TradeVolume, read-only) against BOTH configured bps sources - the maker_fee_bps/taker_fee_bps above (what OrderManager books fees at) AND pretrade.maker_fee_bps/taker_fee_bps (the pretrade EV gate's cost stack, threaded into OrderManager via main.py's pretrade_fee_bps constructor arg) - timed off hourly_cycle's injected now (never wall-clock). Never mutates config.json at runtime - a mismatch on EITHER source only WARNs + emits OM-080 once per interval, so the operator re-tunes the diverging bps consciously (lifted-threshold discipline). Flags when configured < actual (a gate is underestimating cost - the dangerous direction) regardless of tolerance, or when |configured - actual| exceeds tolerance_bps in either direction. tolerance_bps=1.0: the smallest Kraken tier step matters at our ~20.5bps measured cost overrun (P1, 2026-07-23 P&L diagnosis, 209 live closes) - looser and a real tier change could hide inside the noise band. interval_hours=24: daily is frequent enough to catch a volume-tier change within a trading day without hammering the private endpoint. Fails silent (debug-level skip, never raises) on missing/invalid credentials, DRY_RUN without keys, network errors, or a malformed TradeVolume response. config_guard enforces tolerance_bps in (0, 50] FATAL, interval_hours in [1, 168] FATAL.",
@@ -641,7 +642,7 @@
     "label_sl_vol_mult": 6,
     "label_pt_cost_mult": 4.0,
     "_label_pt_cost_mult_doc": "Cost-floored barrier geometry (spec D2, docs/superpowers/specs/2026-07-27-geometry-alignment-design.md, geometry-alignment task 2): floors the SIGMA INPUT to ml/labeling.py's barrier_geometry() so the profit distance never falls below pt_cost_mult round-trip costs - sigma_eff = max(sigma_bar, pt_cost_mult * (label_round_trip_cost_pct/100) / label_pt_vol_mult), flooring the INPUT (never the distances) keeps the 8:6 pt:sl ratio exact by construction, one knob, no per-barrier distortion. At the shipped cost 0.5%: floor puts pt at 2%, sl at 1.5% (4.0 * 0.5% = 2% profit distance -> costs are 25% of the gross win). 0 disables the floor (legacy bare 8sigma/6sigma). Consumed by BOTH the candidate labeler (this key) and the live bracket-exit engine (Task 5) via the same pure helper - one bet, labeled and traded identically. Guarded in core/config_guard.py: FATAL outside [0, 20], WARN in (0, 2) (costs above 50% of the profit distance).",
-    "label_round_trip_cost_pct": 1.2,
+    "label_round_trip_cost_pct": 0.6,
     "label_include_spread": true,
     "label_spread_cap_bps": 60,
     "label_bars_stale_cycles": 240,

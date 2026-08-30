@@ -141,7 +141,7 @@ def daycluster_bootstrap(times: list[float], vals: list[float],
     import random
     if not vals:
         return {"n": 0}
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 - seeded bootstrap resampling, not crypto
     days: dict[int, list[float]] = {}
     for t, v in zip(times, vals, strict=True):
         days.setdefault(int(t // 86400), []).append(v)

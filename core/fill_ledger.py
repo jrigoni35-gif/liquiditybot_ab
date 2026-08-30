@@ -59,23 +59,32 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # booked and labelled after this cut is on a DIFFERENT cost manifold than
 # every fill before it - do not pool them.
 #
-# WHY THE SHA NAMES ca55e2ba AND NOT THIS COMMIT. The rule above ("bump in
+# WHY THE SHA NAMES 16ec821e AND NOT THIS COMMIT. The rule above ("bump in
 # the SAME commit") is satisfiable; naming the bumping commit's own sha is
-# NOT - a commit cannot contain its own hash. Cut #7 resolved that by
-# bumping one commit late and recording the debt. This cut resolves it the
-# other way: the bump rides the behavior change (the --apply config write is
-# in this same commit, no debt), and the 8-hex names the commit that DEFINES
-# the boundary's content - ca55e2ba, which shipped scripts/boundary5_stage.py
-# and docs/quant/2026-08-25_boundary5_adjudication.md. That is also the sha
-# the vault's authoritative boundary table already uses for this cut, so the
-# stamp and the table agree by construction.
+# NOT - a commit cannot contain its own hash. As at cut #8, the bump rides
+# the behavior change (the fee_correction_stage.py --apply config write is in
+# this same commit, no debt), and the 8-hex names the commit that DEFINES the
+# boundary's content - 16ec821e, which shipped scripts/fee_tier_rederive.py
+# and docs/quant/2026-08-29_fee_tier_correction_adjudication.md. That is the
+# sha the vault's boundary table uses for this cut, so stamp and table agree.
+#
+# CUT #9 - THE TIER-3 FEE CORRECTION (2026-08-30, operator ARM "fee correction
+# only", dry_run STAYS true). Cut #8 booked 40/80 (assumed Tier-1); the
+# account is real Tier 3 = 22/38 (operator Kraken screenshot), so cut #8
+# over-stated fees ~2x. This cut books the real tier: pretrade+order_manager
+# 22/38, label rt 0.6, allow_sub_floor_fees true (22/38 is below the 40/80
+# KRAKEN_SPOT_FLOOR tripwire, which stays put; the account genuinely holds a
+# Tier-3 volume discount), and the derived entry bar recomputes 0.8335 ->
+# 0.6772 (conviction resumes). ALGO-5 tail-control EXCLUDED (net-CI spans
+# zero on fills alone). Prior cut-8 rows stay citable AS cut-8; nothing
+# accruing under this constant may be pooled with them.
 #
 # The era BEGINS at the runner restart on this commit (a running process
 # keeps the fee constants it read at init), not at the config write; that
 # instant is stamped in docs/HANDOFF.md and the vault boundary row in this
-# same session. Rows stamped 8-ca55e2ba are exactly the rows a binary
+# same session. Rows stamped 9-16ec821e are exactly the rows a binary
 # carrying this constant wrote - which is the only claim the stamp makes.
-EXEC_ERA = "8-ca55e2ba"
+EXEC_ERA = "9-16ec821e"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order

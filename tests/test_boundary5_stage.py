@@ -145,11 +145,17 @@ def test_clean_apply_writes_and_backs_up(tmp_path, monkeypatch):
 def test_apply_refuses_against_the_applied_live_config(tmp_path, monkeypatch,
                                                        capsys):
     cfg = _real_config()
-    for key, _frm, to in b5.EDITS:
+    # Cut #9 (2026-08-30, fee_correction_stage.py) SUPERSEDED boundary #5: the
+    # live config is now at the real Tier-3 fees (22/38), NOT boundary #5's
+    # applied TO (40/80). boundary5_stage --apply against it therefore DRIFTS
+    # (its FROM 25/40 no longer matches) and refuses - the stager stays inert
+    # against a world that moved past it, which is the safety property this
+    # test pins. Verify the live config is at cut #9's applied TO:
+    from scripts import fee_correction_stage as fc9
+    for key, _frm, to in fc9.EDITS:
         assert b5._get(cfg, key) == to, (
-            f"{key}: the live config.json is not at boundary #5's applied TO "
-            "value - the cut was reverted or hand-edited; re-derive, do not "
-            "relax this pin")
+            f"{key}: the live config.json is not at cut #9's applied TO value "
+            "- the cut was reverted or hand-edited; re-derive, do not relax")
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     before = cfg_path.read_text(encoding="utf-8")

@@ -77,8 +77,12 @@ def test_new_file_carries_exec_era():
     # ca55e2ba, the commit that DEFINES the package, because a commit cannot
     # name its own hash - see core/fill_ledger.py's comment for why that is
     # the resolution that keeps the bump on the behavior commit with no debt.
+    # Cut #9 (Tier-3 fee correction, applied 2026-08-30 by
+    # scripts/fee_correction_stage.py --apply under operator ARM "fee
+    # correction only"; cut #8 over-stated fees ~2x vs the real 22/38 tier):
+    # era 8 -> 9, sha 16ec821e (the fee_tier_correction adjudication commit).
     # The assertion changing here IS the record of the bump, per convention.
-    assert EXEC_ERA == "8-ca55e2ba", (
+    assert EXEC_ERA == "9-16ec821e", (
         "era constant must name the CURRENT era and its boundary commit - "
         "if you bumped it deliberately, this pin moves in the same commit")
     import re

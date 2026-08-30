@@ -108,4 +108,9 @@ skips = ["B101"]
 # test against another commit, which is exactly how the 2026-07-26 Windows
 # pin failure was diagnosed) added 75 phantom findings to a clean tree. A
 # throwaway checkout must never be able to block a deploy.
-exclude_dirs = [".venv", "tests", ".worktrees"]
+# `.claude` added 2026-08-30: the worktree tooling now roots checkouts under
+# `.claude/worktrees/<name>/` (gitignored), which `.worktrees` did not match,
+# so a stale bridge worktree leaked 3 phantom findings back in. `.claude`
+# also holds agent/IDE tooling (hooks/, skills/) that is never in the shipped
+# deliverable and is outside the bot's attack surface — none of it is product.
+exclude_dirs = [".venv", "tests", ".worktrees", ".claude"]

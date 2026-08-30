@@ -70,16 +70,17 @@ def test_edge_margin_out_of_bounds_is_fatal():
 def test_probe_clearance_interlock_warns_before_the_trickle_dies():
     # shipped BEFORE cut #8: explore p 0.64 vs derived bar ~0.6317 ->
     # clearance ~0.008, no warning; margin 0.01 closed it and WARNed.
-    # RE-BASELINED at cut #8 (boundary #5, fee truth, 2026-08-28): true
-    # Tier-1 fees moved the breakeven 0.6902 -> 0.8335 and the package moved
-    # explore p_win 0.70 -> 0.85, so the shipped clearance is now 0.0165 and
-    # it takes a margin of 0.013 (bar 0.8465) to close it under 0.005.
-    # Both numbers are fixtures of the cost world; the interlock's claim -
-    # probes dying at SZ-023 must WARN before the trickle dies - is unchanged.
+    # RE-BASELINED at cut #9 (Tier-3 fee correction, 2026-08-30): real 22/38
+    # fees moved the breakeven back 0.8335 -> 0.6772 while p_win STAYS 0.85, so
+    # the shipped clearance is now a healthy ~0.173 (no warn), and it takes a
+    # margin of ~0.17 (bar ~0.847) to close it under 0.005. Both numbers are
+    # fixtures of the cost world; the interlock's claim - probes dying at
+    # SZ-023 must WARN before the trickle dies - is unchanged. (cut #8's
+    # figures were breakeven 0.8335, clearance 0.0165, margin 0.013.)
     assert not any("exploration.p_win" in m and "clearance" in m
                    for m in _sev(_CFG, "WARN"))
     cfg = _cfg()
-    cfg["position_sizer"]["p_bar_edge_margin"] = 0.013  # bar 0.8465 vs 0.85
+    cfg["position_sizer"]["p_bar_edge_margin"] = 0.17  # bar ~0.847 vs 0.85
     assert any("clearance" in m for m in _sev(cfg, "WARN"))
 
 

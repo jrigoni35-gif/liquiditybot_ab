@@ -76,7 +76,7 @@ INVARIANT below, stop and say so instead of complying.
   legitimate change moves numbers, re-baseline consciously at 200×1200 —
   never widen a gate to silence CI.
 
-## Accrual moratorium — era-5 (cut #8, fee truth, 2026-08-28)
+## Accrual moratorium — era-6 (cut #9, Tier-3 fee correction, 2026-08-30)
 
 **The era-4 cohort is CLOSED.** It ran to its pre-registered n=50, read
 out **COST_BOUND** at n=54 (`docs/quant/2026-08-26_why_losing_deep_dive.md`),
@@ -84,22 +84,35 @@ and that readout discharged the batching condition owed-88 was waiting
 on. Its numbers stay citable AS era-4; nothing accruing now may be pooled
 with them.
 
-**Cut #8 — the FEE-TRUTH epoch** (`exec_era` = `8-ca55e2ba`; "boundary #5"
-on the fill-axis counter the vault's comparability table keeps in
-parallel) was minted 2026-08-28 under explicit operator adjudication
-("both: full bundle"), applying `scripts/boundary5_stage.py --apply`:
-pricing and booking fees 25/40 → the venue-true Kraken Tier-1 **40/80
-bps**, the profit-taking break-even floor 40 → 80, the label round-trip
-cost 0.5% → **1.2%**, and exploration `p_win` 0.70 → **0.85** (the
-coherence edit that clears the net-Kelly FATAL the guard correctly raises
-at true cost). Consequences chosen knowingly, not discovered: the derived
-entry bar rises **0.690 → 0.8335** (conviction entries effectively stop;
-the book becomes probe-dominated), label targets follow the cost floor,
-and the give-back ratchet now arms inside a 166bps break-even buffer
-(GB-1, docketed with ALGO-5). Decision record:
-`docs/quant/2026-08-25_boundary5_adjudication.md`.
+**Cut #8's fee premise was WRONG and is SUPERSEDED.** Cut #8 (2026-08-28,
+`exec_era` `8-ca55e2ba`, "boundary #5") booked venue-true Kraken **Tier-1**
+40/80 bps as "conservative", ASSUMING a zero-volume account. The operator's
+Kraken app (2026-08-29) proved the account is real **Tier 3 = 22/38 bps** on
+$17,482 30-day spot volume — cut #8 over-stated fees ~2x (the-method #1
+recurrence: a struck fee schedule asserting itself as truth; booked median
+~65bps and OM-080 n=0 were the unheeded warnings). Cut #8's era-5 accrual
+never reached its n=50 readout; those rows stay citable AS era-5 (accrued at
+the over-stated 40/80) but are SUPERSEDED — nothing may be pooled across the
+fee correction.
 
-**Era-5 accrual begins at the cut #8 runner restart**, from zero, on the
+**Cut #9 — the TIER-3 FEE CORRECTION** (`exec_era` `9-16ec821e`) was minted
+2026-08-30 under explicit operator ARM ("fee correction only"; dry_run STAYS
+true), applying `scripts/fee_correction_stage.py --apply`: pricing and
+booking fees 40/80 → the real **22/38 bps**, the profit-taking break-even
+`est_fee_bps` 80 → 38, the label round-trip cost 1.2% → **0.6%**, and
+`allow_sub_floor_fees` → true (22/38 sits below the 40/80 `KRAKEN_SPOT_FLOOR`
+tripwire, which STAYS as the understated-fee guard; the account genuinely
+holds a Tier-3 volume discount). Consequence, chosen knowingly: the derived
+entry bar FALLS **0.8335 → 0.6772** (conviction resumes, back inside the live
+confidence band, out of cut-8's probe-only regime), and the give-back ratchet
+now arms inside an **82bps** break-even buffer (GB-1, still docketed with
+ALGO-5). The correction buys an HONEST readout, not a winning strategy: net
+stays undetermined-leaning-negative at real fees — the median clears the rake,
+the fat tail loses, an ALGO-5 problem EXCLUDED from this cut (its net-CI spans
+zero on fills alone; needs the candle re-sim). Decision record:
+`docs/quant/2026-08-29_fee_tier_correction_adjudication.md`.
+
+**Era-6 accrual begins at the cut #9 runner restart**, from zero, on the
 same pre-registered machinery (`scripts/cohort_eval.py` — untouched by
 the cut: the gate, its bands and its selection rule are exactly as
 registered). Until it reads out:

@@ -1765,10 +1765,16 @@ def test_hardening_layer():
     c = copy.deepcopy(base)
     c["pretrade"]["maker_fee_bps"] = 10
     c["order_manager"]["maker_fee_bps"] = 10
+    # cut #9 (2026-08-30) set allow_sub_floor_fees=True on the LIVE base for the
+    # genuine Tier-3 discount (22/38) - a blanket opt-out of the public-spot-
+    # floor tripwire. Force it OFF here so this check still proves the tripwire
+    # FIRES on sub-floor fees; the opt-out world is pinned separately below.
+    # Re-baseline: the mechanism is unchanged, not weakened.
+    c["pretrade"]["allow_sub_floor_fees"] = False
     c["system"]["dry_run"] = False
     c["capital_management"]["starting_capital_usd"] = 5000
     fatals = [m for sev, m in validate(c) if sev == "FATAL"]
-    check("guard: sub-floor fees are FATAL in live config",
+    check("guard: sub-floor fees are FATAL in live config (opt-out off)",
           any("public spot floor" in m for m in fatals), str(fatals))
     raised = False
     try:
@@ -1779,6 +1785,19 @@ def test_hardening_layer():
     c["system"]["dry_run"] = True
     check("guard: same config only WARNS in dry-run (paper finds mistakes)",
           enforce(c) is not None)
+
+    # cut #9 companion: the allow_sub_floor_fees opt-out PERMITS sub-floor fees
+    # in live mode (the account genuinely holds Tier-3 pricing). Same 10bps
+    # sub-floor fees, flag ON -> the public-spot-floor FATAL must NOT fire.
+    c = copy.deepcopy(base)
+    c["pretrade"]["maker_fee_bps"] = 10
+    c["order_manager"]["maker_fee_bps"] = 10
+    c["pretrade"]["allow_sub_floor_fees"] = True
+    c["system"]["dry_run"] = False
+    c["capital_management"]["starting_capital_usd"] = 5000
+    fatals = [m for sev, m in validate(c) if sev == "FATAL"]
+    check("guard: allow_sub_floor_fees opt-out permits sub-floor fees live",
+          not any("public spot floor" in m for m in fatals), str(fatals))
 
     c = copy.deepcopy(base)
     c["capital_management"]["daily_loss_limit_pct"] = 20   # >= hard stop 15
