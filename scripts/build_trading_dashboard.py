@@ -181,15 +181,32 @@ INJ_ID = 990          # fixed id on every board so the CSS can self-hide
 # marcusolsson-dynamictext-panel whose afterRender hook appends these rules
 # to document.head — the route Grafana Cloud's <style> sanitizer (which kept
 # the old native-text tile dormant) does not touch. README_glass.md.
+# EVERY rule is scoped with :has(#lb-glass-marker) (2026-08-30). The injected
+# <style id="lb-glass"> node lives in document.head for the LIFE OF THE TAB -
+# Grafana is a SPA, so navigating from a bot board to any other page (Alerting
+# -> History was the measured casualty: operator report "alert history screen
+# is black") used to carry `.main-view { background:#000 }` along and blacken
+# pages this skin was never written for. :has() keys the rules to the marker
+# span's PRESENCE IN THE DOM instead: on a bot board (all four embed the
+# hidden injector tile) the skin applies; navigate away and the marker leaves
+# the DOM, so every rule stops matching that same instant - no removal JS, no
+# polling, nothing to leak. Failure direction on a pre-:has() browser is the
+# safe one: rules never match, boards render plain dark theme, nothing goes
+# black. Solo-panel view (viewPanel=N) omits the marker tile, so it renders
+# unskinned - accepted; the dashboard view is the product.
 GLASS_RULES = """\
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-.main-view, .scrollbar-view { background: #000 !important; }
-html, body, .main-view, [class*="dashboard"] {
+html:has(#lb-glass-marker) { -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%; }
+body:has(#lb-glass-marker) .main-view,
+body:has(#lb-glass-marker) .scrollbar-view { background: #000 !important; }
+html:has(#lb-glass-marker), body:has(#lb-glass-marker),
+body:has(#lb-glass-marker) .main-view,
+body:has(#lb-glass-marker) [class*="dashboard"] {
   font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
                system-ui, sans-serif !important;
   -webkit-font-smoothing: antialiased;
 }
-[data-testid="data-testid panel content"] {
+body:has(#lb-glass-marker) [data-testid="data-testid panel content"] {
   background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,
               rgba(28,28,30,.50) 100%) !important;
   backdrop-filter: blur(22px) saturate(180%);
@@ -200,16 +217,18 @@ html, body, .main-view, [class*="dashboard"] {
               inset 0 -1px 1px 0 rgba(0,0,0,.30),
               0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;
 }
-.react-grid-item { background: transparent !important; }
-[data-testid^="data-testid Panel header"] { background: transparent !important;
-  border: 0 !important; }
-[data-testid="data-testid header-container"] {
+body:has(#lb-glass-marker) .react-grid-item {
+  background: transparent !important; }
+body:has(#lb-glass-marker) [data-testid^="data-testid Panel header"] {
+  background: transparent !important; border: 0 !important; }
+body:has(#lb-glass-marker) [data-testid="data-testid header-container"] {
   font-weight: 600; letter-spacing: .4px; font-size: 11px;
   text-transform: uppercase; color: rgba(235,235,245,.6) !important; }
-[data-testid^="data-testid dashboard-row-title-"] {
+body:has(#lb-glass-marker) [data-testid^="data-testid dashboard-row-title-"] {
   text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;
   font-weight: 700; color: rgba(235,235,245,.55) !important; }
-[data-viz-panel-key="panel-990"] { display: none !important; }
+body:has(#lb-glass-marker) [data-viz-panel-key="panel-990"] {
+  display: none !important; }
 """
 
 panels: list = []
@@ -1932,7 +1951,11 @@ def _links():
 def _injector():
     # json.dumps embeds the rules as a JS string literal — no escaping
     # hazards, and the guard keeps re-renders / cross-board SPA navigation
-    # from stacking duplicate <style> nodes.
+    # from stacking duplicate <style> nodes. The node itself outlives the
+    # board (SPA head is tab-lifetime); that is SAFE ONLY because every
+    # GLASS_RULES selector is :has(#lb-glass-marker)-scoped — a style that
+    # persists but matches nothing off-board. Add an unscoped rule and the
+    # 2026-08-30 "alert history screen is black" leak comes straight back.
     marker = '<span id="lb-glass-marker"></span>'
     js = ("if (!document.getElementById('lb-glass')) { "
           "var s = document.createElement('style'); s.id = 'lb-glass'; "
