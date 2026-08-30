@@ -1,22 +1,22 @@
 {
-  "generated_at": 1788060951.793592,
+  "generated_at": 1788064553.4988384,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788060938.0,
-    "duration_h": 1219.7
+    "end": 1788064552.0,
+    "duration_h": 1220.7
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 763,
-      "signal_records": 557,
+      "records": 750,
+      "signal_records": 551,
       "by_src": {
         "long_book": 254,
-        "exploration": 214,
+        "exploration": 203,
         "conviction": 144,
-        "ml_governor": 119,
-        "order_manager": 29,
+        "ml_governor": 121,
+        "order_manager": 25,
         "exit": 3
       },
       "top_codes": [
@@ -26,15 +26,15 @@
         ],
         [
           "CV-030",
-          142
+          144
         ],
         [
           "SZ-051",
-          95
+          92
         ],
         [
           "ML-070",
-          95
+          92
         ],
         [
           "LB-050",
@@ -45,24 +45,24 @@
           45
         ],
         [
-          "OM-040",
+          "ML-016",
           19
         ],
         [
-          "ML-016",
-          18
-        ],
-        [
           "ML-042",
-          18
+          19
         ],
         [
           "ML-041",
-          18
+          19
+        ],
+        [
+          "OM-040",
+          16
         ],
         [
           "SZ-052",
-          16
+          15
         ],
         [
           "LB-020",
@@ -70,15 +70,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.352,
-      "retrain_requests": 8,
+      "dominant_frac": 0.356,
+      "retrain_requests": 7,
       "kill_switch_events": 4
     },
     "events": {
-      "records": 23011,
+      "records": 23810,
       "by_level": {
-        "INFO": 22904,
-        "WARNING": 103,
+        "INFO": 23699,
+        "WARNING": 107,
         "CRITICAL": 4
       },
       "top_warnings": [
@@ -107,6 +107,10 @@
           3
         ],
         [
+          "ML-074: trailing 24h label prior 0.66 skews from corpus prior 0.33 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+          2
+        ],
+        [
           "auto-retrain: 8760 rows (40 new)",
           1
         ],
@@ -117,31 +121,27 @@
         [
           "auto-retrain: 8788 rows (28 new)",
           1
-        ],
-        [
-          "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 5340,
-        "thin": 1978
+        "spoofy": 5503,
+        "thin": 2034
       },
       "spoofy_frac": 0.73,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3272,
+      "cycles_estimate": 3390,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 798.21,
+    "equity_end": 798.0,
     "equity_min": 796.79,
     "equity_max": 806.91,
     "equity_range": 10.12,
     "capital_epochs": 5,
-    "epoch_samples": 99775,
+    "epoch_samples": 100011,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -149,22 +149,22 @@
     "realized_pnl_total": 1.72,
     "fees_paid_total": 8.7245,
     "open_positions": 5,
-    "samples": 267566
+    "samples": 267802
   },
   "activity": {
-    "signal_rows_total": 19458,
+    "signal_rows_total": 19482,
     "live_labeled_trades": 378,
-    "candidate_rows": 19080
+    "candidate_rows": 19104
   },
   "audit": {
-    "records": 70072,
-    "signal_records": 30339,
+    "records": 70084,
+    "signal_records": 30351,
     "by_src": {
       "exploration": 62597,
-      "ml_governor": 2121,
-      "long_book": 1963,
+      "ml_governor": 2125,
+      "long_book": 1967,
       "order_manager": 1693,
-      "conviction": 613,
+      "conviction": 617,
       "startup": 322,
       "fault": 303,
       "exit": 282,
@@ -188,7 +188,7 @@
       ],
       [
         "LB-010",
-        1300
+        1304
       ],
       [
         "OM-000",
@@ -196,7 +196,7 @@
       ],
       [
         "ML-031",
-        799
+        800
       ],
       [
         "OM-040",
@@ -204,7 +204,7 @@
       ],
       [
         "CV-030",
-        462
+        466
       ],
       [
         "LB-050",
@@ -212,11 +212,11 @@
       ],
       [
         "ML-016",
-        358
+        359
       ],
       [
         "ML-041",
-        340
+        341
       ],
       [
         "ML-072",
@@ -235,10 +235,10 @@
     "chain_error": null
   },
   "events": {
-    "records": 23011,
+    "records": 23810,
     "by_level": {
-      "INFO": 22904,
-      "WARNING": 103,
+      "INFO": 23699,
+      "WARNING": 107,
       "CRITICAL": 4
     },
     "top_warnings": [
@@ -267,6 +267,10 @@
         3
       ],
       [
+        "ML-074: trailing 24h label prior 0.66 skews from corpus prior 0.33 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+        2
+      ],
+      [
         "auto-retrain: 8760 rows (40 new)",
         1
       ],
@@ -277,26 +281,22 @@
       [
         "auto-retrain: 8788 rows (28 new)",
         1
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5340,
-      "thin": 1978
+      "spoofy": 5503,
+      "thin": 2034
     },
     "spoofy_frac": 0.73,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3272,
+    "cycles_estimate": 3390,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.25277135371560294,
+    "champion_brier": 0.2530358448639045,
     "brier": "n/a",
     "history_rows": 378,
     "cold": false
@@ -332,7 +332,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 35% of 557 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 36% of 551 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
