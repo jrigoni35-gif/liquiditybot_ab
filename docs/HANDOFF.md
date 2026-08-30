@@ -378,15 +378,30 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 ## WATCH LIST (check these, don't assume)
 
-- **PAGER-1 (2026-08-30): did the telemetry dead-man page during the >9h
-  push gaps?** Full-range scan of gc_pusher.log found four success-gaps >9h
-  across 08-29/30 (worst 12.86h; box sleep is the leading candidate). The
-  lb-telemetry-stale rule (noDataState: Alerting, ~10-11min to page) SHOULD
-  have fired each time — whether it actually did is UNVERIFIED (needs the
-  Grafana alert-history read, cloud-side). If it did not, the pager has a
-  hole exactly where it exists to cover. Also unexplained, same scan: a
-  one-off `Permission denied: outputs/status.json` (08-30 12:00:12) and 603
-  gc_log_offset.tmp file-contention incidents.
+- ~~PAGER-1~~ **RESOLVED same day (2026-08-30) — instrument artifact, the
+  pager is fine.** The ">9h push gaps" came from parsing DATELESS pusher-log
+  timestamps across midnight (the extraction agent had itself tagged its
+  date inference [I]). Venue truth via the cloud's own series
+  (`count_over_time(liquiditybot_status_age_sec[5m])`, 48h, 577 points,
+  queried 2026-08-30 ~20:45Z): **zero gaps >15min** — telemetry was
+  continuous through the entire alleged window, so the dead-man was
+  CORRECTLY silent (state history confirms: no lb-telemetry-stale
+  transitions in 3d; today's 2-min restart staleness sat under its
+  3min+5m-for threshold by design). The-method recurrence shape: surprising
+  number from the least-governed instrument, killed by a second route.
+  Still unexplained (minor, real): one `Permission denied:
+  outputs/status.json` (08-30 12:00:12 local) and 603 gc_log_offset.tmp
+  file-contention incidents in gc_log_pusher.log.
+- **ALERT-DRIFT (2026-08-30, real, SAFE to fix): the cloud alert plane and
+  `docs/grafana/*.yaml` have diverged in BOTH directions.** Cloud holds
+  exactly two rules ({lb-telemetry-stale, "manipulation suspicion high"},
+  read via `/api/prometheus/grafana/api/v1/rules`); the repo's
+  **Brier-degraded and drift-stuck YAMLs were never provisioned** (no such
+  rules in cloud), and the manipulation rule exists ONLY in cloud (no YAML —
+  unversioned, unreviewed). It also flaps Normal→Pending ~2x/day without
+  ever firing (pending window doing its job, but it lives near its line).
+  Fix = provision the two YAMLs + export the manip rule to a YAML, all
+  measurement-plane.
 
 - **Whether `turbulence_pct` decays below 0.95** — the book reopens on its own if it does. Pinned at the series ceiling 0.984 for 23-30h as of 08-22; historical N=1, no base rate to forecast it.
 - SAFE-NOW observability backlog from TURB-1 (turbulence absent from `status.json` entirely; silent stale-hold; no config_guard coverage) — see the synthesis doc's disposition section.
