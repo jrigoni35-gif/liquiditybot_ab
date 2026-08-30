@@ -336,7 +336,17 @@ def test_shadow_output_referenced_nowhere_decision_path():
     hits = []
     for path in REPO_ROOT.rglob("*.py"):
         parts = path.parts
-        if ".venv" in parts or "__pycache__" in parts or "tests" in parts:
+        # See test_control_arm_tag.py for the measured rationale: a git
+        # worktree under .claude/worktrees/ holds byte-copies of this repo's
+        # files at different absolute paths, missing the canonical-path
+        # `allow` set and reading as a violation on an unmodified tree.
+        # `.claude` is agent tooling, never decision code.
+        if (
+            ".venv" in parts
+            or "__pycache__" in parts
+            or "tests" in parts
+            or ".claude" in parts
+        ):
             continue
         if path.resolve() in allow:
             continue

@@ -175,7 +175,19 @@ def test_control_arm_absent_from_decision_code():
     hits = []
     for path in REPO_ROOT.rglob("*.py"):
         parts = path.parts
-        if ".venv" in parts or "__pycache__" in parts or "tests" in parts:
+        # `.claude` holds agent-tooling state, including git worktrees created
+        # under .claude/worktrees/. A nested checkout carries byte-copies of
+        # ml/history.py at a DIFFERENT absolute path, so it misses the
+        # canonical-path `allow` set below and reads as a violation. Measured
+        # 2026-08-30: a stray isolation worktree turned this pin red on an
+        # unmodified tree. Nothing under `.claude` is decision code, so
+        # excluding it narrows the scan to what the guard is actually about.
+        if (
+            ".venv" in parts
+            or "__pycache__" in parts
+            or "tests" in parts
+            or ".claude" in parts
+        ):
             continue
         if path.resolve() in allow:
             continue

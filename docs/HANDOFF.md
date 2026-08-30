@@ -178,8 +178,8 @@ below as that counter's current value, not a new decision point.
 
 | fact | value | re-derive with |
 |---|---|---|
-| era-4 trigger's own counter (closed gate, informational only) | 72/50, mixed `exec_era` {7-e7d5ca1a, 8-ca55e2ba, 9-16ec821e} in one cohort (COHORT HOMOGENEITY: MIXED) | `scripts/cohort_eval.py` |
-| era-6 (`exec_era 9-16ec821e`) raw fill-legs since the cut-9 restart | 11 rows in `outputs/fills.csv` (read 22:11Z) — a fill-leg count, NOT the position-joined closed-trip count `cohort_eval.py` uses; no era-6-only join script exists yet, so this is a lower-bound proxy, not the accrual-to-50 number | `outputs/fills.csv`, column `exec_era` |
+| era-4 trigger's own counter (closed gate, informational only) | 72/50, mixed `exec_era` {7-e7d5ca1a, 8-ca55e2ba, 9-16ec821e} in one cohort (COHORT HOMOGENEITY: MIXED). **This counter is NOT era-scoped and never was**: `era4_trips` selects on FIVE predicates (`cohort_eval.py:301,303,305,313,320-322`) and `exec_era` appears in NONE of them — every `exec_era` reference in the file (L273-287, L327, L447-448, L477, L773-781) is report-only classification, as L270-272 says in as many words. So `72/50 COST-BOUND` pools cuts #7/#8/#9 by construction; it is not a cut-#9 readout | `scripts/cohort_eval.py` |
+| era-6 (`exec_era 9-16ec821e`) accrual, gate-join population | **4 closed entry-opened trips** (upper bound 7 if trips merely TOUCHING era-6 are counted — 3 of those entered under cut #8 at the superseded 40/80 booking and only EXITED under cut #9, so the moratorium's "nothing pooled across the fee correction" excludes them). Supersedes the earlier 11-row fill-leg proxy: 11 legs = 7 position_ids = 4 wholly-era-6 trips. Two independent routes agreed exactly (gate's own `era4_trips()` segmented by its own `eras` field; and a from-predicates re-implementation), on a frozen byte-identical snapshot of `fills.csv` (md5 `f972dd36f569369a9dfb78cc06727578`, file mtime 21:10:20Z, read 22:47Z). Verified by a 10-case injection battery incl. 2 positive controls — the counter provably MOVES, so "4" is a measurement, not a dead scan. Era boundary is clean: 0 era-9 legs before the 15:32:36Z restart, 0 era-8 legs after. **Count only — no gross/net/win-rate on an accruing era.** **DECAY NOTE (2026-08-30T23:10Z, re-confirmed 23:17:45Z): the leg/pid chain above is correctly snapshot-stamped but is ALREADY STALE AS LITERAL TEXT — RE-DERIVE, NEVER CITE.** `fills.csv` has since moved to md5 `ef92ef6cd3295b69dff0fcefd39b60fb`, **1,189 rows**, **12** era-9 legs across **8** pids (was 11/7 at the 22:47Z snapshot; md5 + counts double-derived at 23:10Z and again at 23:17:45Z, identical). **The trip count is STILL 4** — the new leg is an unclosed ENTRY, so it joins no closed trip. The "11 → 7 → 4" chain is a historical measurement of the 22:47Z snapshot, not a current reading; only the re-derivation command below yields a citable number | freeze a copy of `outputs/fills.csv`, then `era4_trips(<snap>)` filtered to `t["eras"] == ["9-16ec821e"]` |
 | deployed head | `9fdbc389`, branch `main` == `origin/main`, clean | `git log -1`, `git status` |
 | runner | PID 7692, `runner_state` RUNNING, `mode` DRY_RUN | `outputs/status.json` (mtime 22:07:54Z) |
 | equity | $797.35 | `outputs/status.json.equity` (read 22:07:56Z) |
@@ -263,6 +263,12 @@ bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
 | LS-2 | Bayesian uncertainty-aware sizing (spec-on-paper; the right answer to 343 live labels at uniqueness 0.152) | same |
 | ATTR-1 | sentiment feed read 0.002-flat through the most newsworthy policy day of the quarter | `docs/quant/2026-08-20_event_record_surge_outlier.md` |
 | ATTR-2 | no liquidation/OI awareness; context calendar knows only *scheduled* events | same |
+| **MLSEC-1** | **CRITICAL — the ML-011 model-tamper gate is disabled by DELETING its own evidence.** `ml/meta_model.py:83` rejects only on `v.get("ok") is False`; `ml/registry.py:284-287` returns `ok=None` ("unknown provenance") whenever no pedigree is found, and `registry.py:221-222` returns `ok=None` when the ledger is unreadable — so `verify()` never returns False once `registry.jsonl` is gone. **Injection-confirmed 2026-08-30** (control passes: ledger intact → `ok=False`, ML-011 fires, `p_win` falls back to the prior **0.5600**; ledger deleted → `ok=None`, the swapped artifact **LOADS**, `p_win`=**0.9500**, the hard-clip ceiling, on every entry). Worse, an EMPTY ledger makes `verify_chain()` report **`ok=True, "chain intact"`** — 0 rows passes vacuously, so the chain verifier cannot tell "untampered" from "no evidence". The attacker needs no extra privilege: `registry.jsonl` lives in the same `outputs/models/` directory as the artifact being swapped. **This is the fifth instance of the durable rule "a gate's release condition must never depend on the thing it blocks."** **RE-ROOTED 2026-08-30 (adversarial re-verify — the diagnosis above mis-located the root cause and the real defect is WORSE):** the deleted/empty-ledger paths are *symptoms*; the root cause is that **`ml/registry.py` `_record_hash` is an UNKEYED public sha256** — anyone who can write the file can also write a VALID chain over forged content. Measured **forged-chained-row** case: append ONE well-formed `registered` row whose `sha256` is the SWAPPED artifact and whose `prev` is the last row's `h`, and `verify_chain()` returns `{'ok': True, 'rows': 3, 'chained': 3, 'reason': 'chain intact'}` **and** `verify()` returns `{'ok': True, …}` — the swapped artifact is not merely un-rejected, it is **POSITIVELY ATTESTED**. Consequence for the fix: **"reject on `ok is not True`" DOES NOT CLOSE THIS** — that only covers the `ok=None` path; a forged row returns `ok=True` and sails through any such check. A keyed MAC (or an out-of-tree signer) is the class of fix; nothing weaker is a fix. **Threat model on which the [HIGH] rests, stated so it is neither over- nor under-fixed:** the severity is against a **PARTIAL-WRITE** attacker — one who can write `outputs/models/` (a corrupted/hostile artifact drop, a stray process, a botched sync) but does not own the repo. Against an attacker who already owns the repo NO gate here helps, because the ledger lives in the same directory as the artifact it attests and the verifier itself is editable. COHORT-RESETTING (a naive `is not True` refuses every unregistered/hand-trained model). Live state healthy as of 2026-08-30T22:52:02Z (chain ok, 177 rows, deployed artifact `1ee3ae68c0df` verifies ok=True) | GAP-4 read-only adversarial audit of `execution/`+`ml/` (this session) |
+| **MLSEC-2** | **the model artifact's `calibration` block is an unvalidated code path into `p_win`.** `ml/calibration.py:112-118` `IsotonicCalibrator.from_dict` copies stored knots with **zero validation** (no monotonicity, no sort, no finiteness, no key check) and `fitted` is true at `len(x)>=2`; `ml/meta_model.py:225` checks `np.isfinite` on the **RAW** model output, line 227 then applies the calibrator, and **nothing re-checks after it** — `np.clip(nan,...)` is `nan`. **Injection-confirmed 2026-08-30**: a NaN knot makes `p_win()` return **nan** with `fallbacks=0, infer_faults=0` (the fail-safe counters that exist for this never move, so `status()` reads healthy); `y` pinned to 0.95 gives an attacker-chosen probability (raw 0.60 → 0.7925); descending `x` maps every probability to 0.02; a `calibration` block missing key `"x"` raises **KeyError out of `MetaModelService.reload()`**, i.e. out of `__init__`. **Severity deflated honestly**: `risk/position_sizer.py:425` does guard `_fin(p_win)`, so the realized outcome is a *silent, uncounted, total entry outage* with the health panel reading green — not mis-sizing. Pairs with MLSEC-1 (which is what lets a swapped artifact land at all) | same |
+| **MLGOV-1** | **the governor's calibration-gap clause silently dies below n=5.** `ml/calibration.py:36-37` returns **`0.0` = "perfectly calibrated"** when `len(y) < n_bins` (5) — an absence sentinel inside the domain of the comparison — and `ml/monitor.py:258/274-277` consumes it raw as one of the three `degraded`/`failing` clauses. `core/config_guard.py:2187-2191` bounds `ml.monitor.min_trades_to_judge` **only from above** (`<= window_trades`); nothing forbids a value below 5. **Injection-confirmed verdict FLIP 2026-08-30**: promised p=0.81 with 5/5 wins reads `calib_gap=0.1897 → degraded=True` at n=5, and the identical promise/rate reads `calib_gap=0.0000 → degraded=False` at n=4, with the Brier clause (0.036 vs baseline 0.25) and hit-deficit both silent — the sentinel alone flips it. Latent today (default `min_trades_to_judge`=15, key absent from config.json). Cheapest fix is a config_guard lower bound (SAFE); changing the sentinel to `None` touches the governor verdict = BOUNDARY | same |
+| **PT-B1** | **`execution/pretrade.py:165-178` `maker_dist_bps` fails OPEN on an unreadable book touch**: the permissive branch needs a `mid` of exactly 0.0 or non-finite, which `:178`'s `if _fin(mid) and mid > 0` then turns into `dist_bps=0.0` ("at the money") → `p_fill` jumps to its **ceiling** `maker_fill_p0`. **Trigger set, exact (corrected 2026-08-30, see below):** a touch that raises `TypeError`/`ValueError`/`IndexError` at `:176` (non-parseable value, short/malformed row) → `mid=0.0`; a NaN touch → non-finite `mid`; or **BOTH** touches zero. **Injection-confirmed 2026-08-30**: identical inputs, healthy book → `p_fill 0.0500, EV +16.18bps`; bid touch NaN → `p_fill 0.4500, EV +149.65bps` — a **9.25x EV overstatement** on exactly the input the gate should distrust, and both APPROVE. **CORRECTION (2026-08-30, adversarial re-verify — this row previously listed "zero" bid as a trigger; that was FALSE and is struck):** a `bid=0.0` beside a LIVE ask takes the **CONSERVATIVE** branch — `mid = 0.5*(0.0+ask)` is positive, so a 0.0 bid against a 101 ask at price 100 measures `mid=50.5, dist=9801.98bps, p_fill=0.0500`, i.e. maximally distrusted, the opposite of fail-open. The mechanism and the 9.25x figure STAND for the non-parseable / NaN / short-row inputs above. The one-sided-book veto at `pretrade.py:299` only tests list truthiness, never parsability. **Reachability deflated honestly**: all **THREE** shipped `bot.kraken_books[asset]` writers — `main.py:2651`, `main.py:2729`, and **`runner.py:940`** (PAUSED-flatten refresh; *missed by the original reachability grep, count corrected 2026-08-30 — the conclusion survives*) — source from the two production book paths (`data/kraken_feed.py:289` REST and `data/ws_feed.py:107` WS), both of which route through `core/sanitize.clean_book`, which drops bad levels and returns None if a side empties. So this is **unreachable today**, guarded by exactly ONE upstream sanitizer with no defense in depth at the gate. Test doubles inject clean books, so the branch is never exercised in test either (`concepts/test-double-fidelity`) — *note this is "not exercised by the doubles", NOT "untested": no mutation run has established that, see OWED-VERIFY below*. NEW-HIRE hazard: `pretrade.py:34` asserts "Everything is fail-closed: any non-finite input rejects (PT-010)", which is **false for the book** — a maintainer adding a fourth book source re-opens it instantly. BOUNDARY (the gate decides entries) | same |
+| **PT-B2** | **`execution/pretrade.py:268-273` participation clamp silently NO-OPS at zero depth** — `if max_units > EPS` means an unreadable depth read is "no clamp needed", not "no depth data". **Injection-confirmed 2026-08-30**: with the trade-direction side's sizes unparseable/0/negative/NaN the full **5.0000** units are approved and the reason list is **`['PT-000']`, byte-identical to healthy** (the SWEEP-1 signature), where a thin-but-readable book correctly clamps to 0.6000 with `PT-030`. The **taker** path is protected by `book_walk_bps`'s 1e6 sentinel (`PT-023` fires); the **maker** path — i.e. every entry, since invariant #5 makes entries limit-only — is not. Same `clean_book` reachability deflation as PT-B1 (**three** shipped `kraken_books` writers, `main.py:2651` / `main.py:2729` / `runner.py:940` — count corrected 2026-08-30, conclusion unchanged); this is the vault's long-documented "participation clamp at zero depth" instance (`concepts/zero-is-not-a-reading`), now localized to the maker path. BOUNDARY (sizing) | same |
+| **FEEDOC-1** | **`execution/pretrade.py:6` and `:81` assert a SUPERSEDED fee world as venue truth** — "venue-true 40/80bps as of cut #8" and "config.json 40/80", while `config.json` has carried **22/38** since cut #9 (2026-08-30). Runtime behavior is correct (config is authority; verified `pretrade.maker_fee_bps=22.0 / taker=38.0`), but the stated *reason the 40/80 fallback is "dead in production"* — that `config_guard` FATALs any config below the floor — **no longer holds**: cut #9 set `pretrade.allow_sub_floor_fees=true` (verified live), so `core/config_guard.py:582` skips the floor check entirely, and the guard's own fee defaults (`config_guard.py:570-571`) are **25/40, the explicitly-retired tier**, a third value disagreeing with both. Absent fee keys would now start silently. **FOURTH SITE (added 2026-08-30): `core/config_guard.py:565-566`** — the comment above those defaults asserts "The shipped config carries the keys explicitly at **40/80**, so these fallbacks never fire in production", stating the superseded tier as current AND resting on the same dead floor-FATAL premise. So the stale-40/80 assertion count is **4**: `pretrade.py:6`, `pretrade.py:81`, `config_guard.py:565-566`, plus the retired-25/40 defaults at `config_guard.py:570-571`. This is the-method recurrence #1 (a struck fee schedule asserting itself as truth) in comment form. Comment correction = **SAFE**; changing the 40/80 fallback constants = BOUNDARY (fee booking) | same |
 
 | **POWER-1** | **gate power analysis (MinTRL/PSR)**: NET needs 62 trades at configured fees (gate stops at 50) and **1,603 or INFINITE at true Kraken T1**. Two of three fee worlds are the pre-registered COST_BOUND arm. ~~GROSS edge already established~~ **— that half is WITHDRAWN by POWER-2** | `docs/quant/2026-08-22_gate_power_analysis_mintrl.md` |
 | **POWER-2** | **resampling tranche 2 corrects POWER-1's headline.** Cohort n=33 carries **n_eff=9.92** (mean uniqueness 0.301); gross MinTRL is **9.94** — the gross edge is **precisely undetermined**, not established. Sequential dependence is unresolvable at this n (Politis-White block 1.3); **concurrency is the binding deflation** (SE x1.82). New: **cost tolerance** = 118 bps by point estimate, **43 bps** demanding distinguishability — below the 67.04 bps already booked. Also **walks back tranche 1's "independent confirmation" of the 66.76 bps cost**: both routes are anchored on the same configured 65 bps, so their agreement proves booking==config, not venue truth (`cost_truth_report` §1: OM-080 n_records=0) | `docs/quant/2026-08-22_walkforward_resampling_tranche2.md`, `scripts/walkforward_lab.py` |
@@ -390,6 +396,41 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 ## WATCH LIST (check these, don't assume)
 
+- **ERA6-COUNT-1 — no tool counts era-6 accrual; the only gate headline on
+  screen pools three cuts.** Measurement-plane (SAFE class), opened
+  2026-08-30. CLAUDE.md's moratorium says era-6 accrues "from zero" at the
+  cut-#9 restart, but NO script computes that number — a repo-wide scan for
+  `16ec821e` finds it only in `core/fill_ledger.py:87`, `scripts/glass_console.py:55`,
+  a test pin, and prose. Meanwhile `cohort_eval.py` prints
+  `accrual: 72/50 … COST-BOUND` (L718-719, L753-756), which reads like a
+  current-regime verdict but is the pre-registered **era-4** population:
+  a pure timestamp cut at `max(B4_TS, CAPITAL_EPOCH_TS)` = 2026-08-10T23:05:27Z
+  (L320-322), pooling cuts #7/#8/#9.
+  **This is NOT a computation defect and must not be "fixed" by filtering the
+  gate** — the era-4 population is pre-registered (L75-77) and re-selecting it
+  after accrual is precisely what pre-registration forbids (L270-272 states
+  this). The tool also already DISCLOSES the pooling (`COHORT HOMOGENEITY:
+  MIXED(both)` + `distinct stamped eras present: 7-e7d5ca1a, 8-ca55e2ba,
+  9-16ec821e`, L777-778). The real gap is **presentation + coverage**: the
+  headline is not era-labelled, and the full era ENUMERATION sits **34
+  printed lines** below it (headline at printed line **39**, enumeration at
+  printed line **73** — measured 2026-08-30; the earlier "~40" was an
+  unmeasured approximation, and rule (a) forbids a "~" boundary in a
+  permanent file). **CORRECTION, against this row's own interest
+  (2026-08-30):** `COHORT HOMOGENEITY: MIXED(both)` prints at printed line
+  **40 — ONE line BELOW the headline**, not 34 lines away. The "a reader
+  stops at the headline and never sees the disclosure" argument is therefore
+  **materially WEAKER than originally written**: the pooling warning is
+  adjacent to the headline; only the which-eras enumeration is distant. What
+  survives is the narrower, still-real complaint — the headline itself
+  carries no era label, `MIXED(both)` names neither WHICH cuts nor in what
+  proportion, and **no tool computes era-6 accrual at all** (the coverage
+  half, untouched by this correction). Nearest honest fix, both SAFE: (a) label the
+  era-4 headline as era-4/pooled at the point of print, and (b) add a separate
+  era-6 accrual counter (reuse `era4_trips()` unchanged and segment on its
+  existing report-only `eras` field — no change to any selection predicate).
+  Current value while that is owed: **4** (see the AS OF table).
+
 - ~~PAGER-1~~ **RESOLVED same day (2026-08-30) — instrument artifact, the
   pager is fine.** The ">9h push gaps" came from parsing DATELESS pusher-log
   timestamps across midnight (the extraction agent had itself tagged its
@@ -412,6 +453,132 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 - Exploration probe rate (~56/hr in volatile tape) — loud by design,
   budget-capped; it is the corpus flywheel, not a fault.
 - Drift share vs the 30% retrain vote line.
+- **DELIVERY-1 — alert delivery is VERIFIED to the routing layer, but the
+  root-route trap is STILL ARMED for the next rule.** Adversarial re-check of
+  the 08-30 notification fix (all reads 2026-08-30T22:38–22:44Z, Grafana
+  13.3.0-32244229338.patch1, stack ns `stacks-1722437`): the fix is
+  **substantive, not cosmetic** — the suspicion that it "moved the null one
+  layer down" is REFUTED by four independent routes. (1)
+  `/api/v1/provisioning/contact-points` → exactly ONE contact point,
+  `grafana-default-email`, uid `cfs1d30a113b4c`, type email, **1 integration**,
+  `addresses` = the operator's real gmail (verified by string equality in
+  memory, never printed; len 19, not a placeholder). (2) Full AM config
+  (`/api/alertmanager/grafana/config/api/v1/alerts`) shows Grafana's
+  **simplified-routing autogen subtree** under root: `__grafana_autogenerated__
+  = true` → child `__grafana_receiver__ = grafana-default-email` → that
+  receiver. Receiver `empty` is real and has **zero** `grafana_managed_receiver_configs`.
+  (3) k8s API `.../namespaces/stacks-1722437/receivers` → `empty`=0
+  integrations, `grafana-default-email`=1. (4) **The runtime's own testimony**
+  (`/api/prometheus/grafana/api/v1/rules`): live alert instances for all 4
+  rules already carry the labels `__grafana_receiver__: grafana-default-email`
+  + `__grafana_autogenerated__: true` — i.e. Grafana is attaching the matcher
+  labels at evaluation time, not just storing config. All 4 rules
+  `isPaused=false`, `health=ok`; zero mute/active time intervals anywhere in
+  the tree. **Verdict: an alert firing now DOES reach a human.**
+  *Two things this did NOT prove, and one live trap:*
+  (a) ~~**SMTP dispatch itself is unproven**~~ **— CLOSED 2026-08-30T23:05Z by
+  an ORGANIC firing; nothing artificial was sent.** `GET /api/alertmanager/
+  grafana/config/api/v1/receivers` returned, for `grafana-default-email`:
+  `lastNotifyAttempt='2026-08-30T23:05:05.164Z'`, `duration='341ms'`,
+  `error=None` — the dispatch record of the real `lb-drift-stuck` firing
+  (`startsAt` 23:04:30Z), handed to the mailer 35s later with no error.
+  **Correct the method claim this lane made, too: "only a real send closes
+  that" is FALSE as a general statement.** It was true at 22:44Z, when
+  nothing had ever fired and the receivers endpoint therefore held no
+  dispatch record; it stopped being true the moment any rule fired. That GET
+  is a **ZERO-COST read of the dispatch record** — it sends nothing, and it
+  is the check to run FIRST before ever considering the operator-gated
+  "DELIVERY TEST" block in `docs/grafana/liquiditybot_deadman_alert.yaml`
+  (which does send a real email and stays not-run-unattended).
+  **Residual that genuinely survives, unclosed:** `error=None` proves only
+  that Grafana Cloud's mailer ACCEPTED the handoff. It does **not** prove
+  gmail delivered to the INBOX rather than spam, and does not prove the
+  mailbox is monitored. **Zero-cost close, operator-side:** eyeball that
+  inbox (and its spam folder) for an `lb-drift-stuck` mail timestamped
+  ~2026-08-30T23:05Z.
+  (b) The **root route receiver is still `empty` (0 integrations)**, so ANY
+  future rule created without `notification_settings` routes to the void
+  exactly as the 2026-07-14→08-30 outage did. The 4 current rules are safe
+  only because each carries a per-rule override. Durable fix (not applied —
+  wider blast radius, operator call): point the root route at
+  `grafana-default-email`. Until then, **every new alert rule MUST carry
+  `notification_settings`** — treat that as the checklist item.
+  (c) Contact point has `provenance: "api"`, so it is **locked in the Grafana
+  UI** — edits to the destination address must go through the API.
+
+---
+
+## OWED-VERIFY — the 2026-08-30 audit wave's NOT-DONE register
+
+**Read this before citing anything from the MLSEC/PT/DATA rows above as a
+clean bill of health.** Every line here is a TASK OWED, not a fact; each
+names a place the wave did NOT look, or a lane that FAILED. All READ/measure
+class (unfenced) unless marked. *A "0 findings" that was never run is not a
+0 — CLAUDE.md mindset rule 3.*
+
+**Two lanes FAILED and produced nothing — recorded so they are not
+rediscovered as gaps in the record:**
+- **GAP-1 (fresh-worktree, host-state-independent suite): FAILED, no
+  findings.** Died on a git `core.worktree` redirect — the isolation
+  worktree resolved to a path outside itself, so the harness refused to run
+  there. **The fresh-worktree green remains UNESTABLISHED.** Re-running
+  separately. (Landmine map already warns: the live repo's green depends on
+  accumulated on-disk history.)
+- **GAP-5 (post-commit DoD re-run + independent review of commit
+  `8f27a326`): FAILED, no findings.** Died on a StructuredOutput retry cap —
+  **a schema defect in the orchestration, not a repo problem.** The
+  post-commit DoD matrix for that commit remains **UNRUN**. Re-running
+  separately.
+
+**Coverage the wave never had:**
+- **26 of 33 modules in `execution/` + `ml/` were NEVER OPENED.** Not read at
+  any depth: `ml/history.py` (**3,052 lines** — the corpus/labeling path),
+  `ml/overfit.py` (1,188), `ml/models.py` (969), plus labeling, postmortem,
+  walkforward, features, linkage, corpus, interpret, event_sampler,
+  foundational_confidence, money_sense, retrain_log; and `execution/` algos,
+  fair_value, fix_codec, grid_ladder, hedging, inventory, market_maker,
+  markout, routing, tactics, venue_adapters. **A clean result there is NOT
+  established — it was not looked at.** Highest-value next slice:
+  **`ml/history.py` + `ml/labeling.py`**, where a fail-open corrupts the
+  **TRAINING SET** rather than one order.
+- **Replay/recording book path UNTRACED.** PT-B1/PT-B2 are called
+  "unreachable in production" behind exactly ONE upstream `clean_book`, but
+  the replay/recording drivers and the `scripts/` harnesses that build a
+  `LiquidityBot` with injected feeds were never traced. **A replay recording
+  carrying an unsanitized book RE-OPENS both findings inside the measurement
+  plane.**
+- **No mutation testing of `tests/`.** Established: shipped code takes the
+  permissive branch. **NOT established: that these are untested paths.**
+- **MLSEC-2 downstream checked at ONE hop only** (`risk/position_sizer.py:425`
+  rejects the NaN). What the engine does with a sizer returning zero size
+  every cycle is **[I] INFERRED, not measured**.
+- **`_tail_link` concurrent-writer fork UNTESTED** — its own docstring flags
+  the hazard.
+- **`exec_era` stamp correctness NEVER verified against the binary that
+  granted each fill** — only self-consistency. `cohort_eval`'s homogeneity
+  section reports **5/72 trips with a STALE-BINARY leg**, so the stamp HAS
+  failed before.
+
+**OPERATOR DECISIONS OWED (neither is mine to make):**
+- **Grafana root route.** The root route still points at receiver `empty`
+  (**0 integrations**). The 4 current rules deliver ONLY because each carries
+  its own `notification_settings` override. Any rule created WITHOUT that
+  override routes to the void **exactly as the 2026-07-14→08-30 outage did**.
+  Fix is either (i) repoint the root route to `grafana-default-email`, or
+  (ii) mandate `notification_settings` on every new rule as a checklist item.
+  **Until one of those lands, the RULE-#5 TRAP IS ARMED.** The contact point
+  is `provenance: "api"` → UI-locked, editable only via the API.
+- **Era-6 straddler membership.** **4** trips under stamp-purity AND under
+  entry-time (these two are **SET-EQUAL, not merely count-equal**); **7**
+  under any-leg AND under close-time. The moratorium's "accrual begins at the
+  cut #9 restart, from zero" most directly implies **4**. Operator owns the
+  call.
+
+**METHOD NOTE (cost measured this session).** Every lane's injection harness
+lived in a session-scoped scratchpad and was **GONE** when the verifier
+needed it, forcing a full rewrite from `file:line` citations. **If a claim is
+worth docketing, its harness is worth a durable path** — otherwise every
+verification is paid for twice.
 
 ---
 
@@ -419,6 +586,7 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 | what | verdict | record |
 |---|---|---|
+| `.claude/settings.json` edit flagged UNATTRIBUTED (08-30) | **ATTRIBUTED — owned by the main session, intentional, do NOT revert.** It removed the ORPHAN MCP permission rule `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__list_triggers` after verifying **0 occurrences** of that UUID across `~/.claude.json`, `~/.claude/settings.json`, `.claude/settings.local.json` and `.mcp.json` — i.e. no server config anywhere binds it. Re-parsed after the edit: **PARSE OK, 9 allow entries, `enabledPlugins` preserved**. Rationale: MCP permission rules match on the **name string alone**, with no binding to a server config, so an orphan allow entry is a **standing pre-approval for any tool later registered under that ID**; removing it strictly **NARROWS** permissions. Recorded here so the diff does not read as unowned | this row; re-derive with `git log -p -- .claude/settings.json` |
 | General update pass + data-pull determinism/usefulness audit (08-30, post cut-9) | **DoD matrix full green on `9fdbc389` (clean tree, no code changes this pass — Grafana alert-plane + docs only):** pytest 4422 passed/10 skipped/2 xfailed (563.37s) · smoke_test 220/0 · assurance_check 51/0 (corpus 20,728 rows) · overfit_check passed 3/0 (corpus **live history 10,359 rows**, real not synthetic; OF-4 plateau INERT — flat surface, 0 entries on the replay recording; OF-5 DSR DEFERRED — 26 conviction trades < 30 floor) · ruff clean on the exact CLAUDE.md scope · pyright 0/0/0 on the exact CLAUDE.md scope · bandit 0 issues (61,993 LOC, 66 nosec-skipped) · compileall clean. All 8 gates green, numbers match the cut-9 settlement row exactly (4422/220/51/3), confirming no drift since. **Data-pull audit** (Kraken/OKX/Binance.US/ccxt/moomoo/webdata/ws_feed/context_engine/candle_journal, all 8 live ingestion modules read): no determinism defects found beyond 2 pre-existing minor ones (both BOUNDARY-classed below, DATA-1/DATA-2 — they'd change ML feature values if fixed); no wasted-fetch/unused-field findings (every fetched field grep-verified consumed downstream) | this row; DoD outputs captured this session (not persisted — re-derive per CLAUDE.md's own "a number written into law decays" rule) |
 | ALERT-DRIFT + a bigger delivery defect found underneath it (08-30) | **FIXED, both halves.** (1) Cloud/repo drift closed both directions: `lb-drift-stuck` + `lb-brier-degraded` PROVISIONED live (POST 201, folderUID `liquiditybot-ops`, group `liquiditybot-ml`, interval 60s — verified via `/api/prometheus/grafana/api/v1/rules`, all 4 rules now present); `lb-manip-high` (live since 2026-07-14, never mirrored) exported to `docs/grafana/liquiditybot_manip_alert.yaml`. (2) **Read-only GET surfaced a live defect nobody had closed**: both pre-existing rules (`lb-telemetry-stale`, `lb-manip-high`) had `notification_settings: null` since creation (2026-07-14) and the root notification policy receiver is `"empty"` (zero integrations, confirmed via `/api/v1/provisioning/policies`) — **any firing since 2026-07-14 paged nobody** (the repo's own `liquiditybot_deadman_alert.yaml` had already found and dated this 2026-08-17 as "MANUAL-APPLY", never applied). Fixed by the documented read-modify-write PUT (`notification_settings.receiver = grafana-default-email`) on both rules, verified live via GET after the PUT; the two new rules were provisioned with the setting attached from creation so they never carry the defect. Root policy receiver is still `"empty"`, untouched (smaller blast radius: per-rule override, not a policy-tree change). All 4 YAML files in `docs/grafana/` updated to record what's live and when | this row; `docs/grafana/liquiditybot_deadman_alert.yaml`, `liquiditybot_drift_alert.yaml`, `liquiditybot_brier_alert.yaml`, `liquiditybot_manip_alert.yaml` (new); read/write timestamps 2026-08-30T22:0x — re-derive via `GET /api/v1/provisioning/alert-rules/<uid>` |
 | `turbulence_pct` decay + crisis-book reopen (08-30) | **RESOLVED — it decayed, the book is open.** Live read: `turbulence_pct` = 16.0 (fraction 0.16, well under the 0.95/p95 crisis line), fresh (`computed_at` 21:32:49Z, `stale`=False, `sample_count`=250 — not a held/stale reading). `status.regimes` shows 0/12 assets in `crisis` (range/bull_quiet/bear/bull_volatile instead), vs the 08-22 all-12-crisis reading. Historical N is now 2 (episode 1 ended, this is the second observed decay) | this row; `outputs/status.json.correlation` (read 2026-08-30T22:07:56Z) |
