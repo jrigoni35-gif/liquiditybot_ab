@@ -2,15 +2,15 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-30 08:35 UTC (1224.7h, ~240 cycles)
-- Equity (current capital epoch): $800.00 -> $798.09 (range $10.12) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $1.72 | fees (all legs) $8.72
-- Activity: 5 open | 378 live labeled trades | 19235 candidates | 316 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-30 09:35 UTC (1225.7h, ~356 cycles)
+- Equity (current capital epoch): $800.00 -> $797.90 (range $10.12) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $1.72 | fees (all legs) $8.72
+- Activity: 5 open | 378 live labeled trades | 19272 candidates | 316 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 378 | cold=False
-- Audit: 70131 records (30398 non-routine) | dominant SZ-047 (73% of non-routine) | chain=SEAMS(9, benign) | retrain_requests 165
-- Liquidity: spoofy 66% of non-liquid cycles | feed errors 0
-- Recent (48h lens): 755 audit records | dominant LB-010 (34% of non-routine) | retrain_requests 8 | spoofy 66% (non-liquid)
+- Audit: 70143 records (30410 non-routine) | dominant SZ-047 (73% of non-routine) | chain=SEAMS(9, benign) | retrain_requests 165
+- Liquidity: spoofy 71% of non-liquid cycles | feed errors 0
+- Recent (48h lens): 745 audit records | dominant LB-010 (34% of non-routine) | retrain_requests 8 | spoofy 71% (non-liquid)
 
 ## Diagnostics
-- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 66% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
-- [WARN] **SD-004 audit trail dominated by one code**  -  LB-010 is 34% of 556 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter
+- [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 71% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
+- [WARN] **SD-004 audit trail dominated by one code**  -  LB-010 is 34% of 557 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter
 - [INFO] **SD-010 audit writer seam(s)**  -  9 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
