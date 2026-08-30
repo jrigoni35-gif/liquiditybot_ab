@@ -169,6 +169,12 @@ Everything the learning stack consumes, and the knobs that matter:
   distributions are compared to the training deciles via PSI. When
   >30% of features shift past PSI 0.25, a retrain fires *before*
   outcome metrics can degrade (outcomes lag by the label horizon).
+* **`python scripts/glass_console.py [--open] [--loop SEC]`** — renders
+  the liquid-glass operator console (`outputs/console.html`) from the
+  shared state files; presentation layer only, SAFE class (Grafana
+  remains the pager/history). `--loop` re-renders every SEC seconds in
+  the foreground; **Ctrl-C is the documented exit**. The page
+  self-reloads each minute; fresh data appears when a render runs.
 
 ## Replay backtesting & parameter sweeps
 
