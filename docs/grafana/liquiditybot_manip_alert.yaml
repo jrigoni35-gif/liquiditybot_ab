@@ -1,0 +1,84 @@
+# Grafana alert rule — "manipulation suspicion high" on a MAJOR.
+#
+# Repo mirror, written 2026-08-30 (ALERT-DRIFT). The RULE ALREADY EXISTS LIVE
+# on https://goldsavanna1216.grafana.net — uid `lb-manip-high`, created via
+# API 2026-07-14T13:36:34Z, folder "liquiditybot" (folderUID
+# liquiditybot-ops), group "liquiditybot", interval 60s — but was never
+# mirrored into docs/grafana/ until now (the other half of ALERT-DRIFT: the
+# repo's YAML files existed without a live rule, this rule existed live
+# without a YAML). Do NOT re-POST it as a new rule.
+#
+# Exported verbatim from GET /api/v1/provisioning/alert-rules/lb-manip-high
+# (read 2026-08-30, see docs/HANDOFF.md for the exact read timestamp).
+#
+# ── What it covers ───────────────────────────────────────────────────────
+# Fires when, continuously for 10 minutes:
+#
+#     max(liquiditybot_manip_suspect{asset=~"BTC|ETH"}) > 0.9
+#
+# Restricted to BTC/ETH deliberately: thin alts (MINA/FLOW) spoof
+# chronically and are excluded because the liquidity model already zeroes
+# their sizing on it — see the dashboard gauge for those instead. A
+# sustained >0.9 reading on a MAJOR, where deep books make spoofing
+# anomalous, is the actionable signal.
+#
+# ── Delivery defect (found 2026-08-17, FIXED 2026-08-30T22:05Z) ─────────────
+# Same void-routing defect as lb-telemetry-stale (see
+# liquiditybot_deadman_alert.yaml's header for the full history):
+# notification_settings was null since creation, the root notification
+# policy receiver is "empty" (zero integrations), so any firing between
+# 2026-07-14 and 2026-08-30 would have paged nobody. Fixed by the same
+# read-modify-write PUT setting notification_settings.receiver =
+# grafana-default-email (verified live via GET after the PUT). Root policy
+# receiver is still "empty" and untouched — the per-rule override is what
+# now delivers, same pattern for all four rules in this alert plane.
+#
+# Datasource uid grafanacloud-prom = built-in Grafana Cloud Prometheus.
+# File format matches liquiditybot_deadman_alert.yaml /
+# liquiditybot_drift_alert.yaml / liquiditybot_brier_alert.yaml.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: liquiditybot                 # live ruleGroup (NOT liquiditybot-ml)
+    folder: liquiditybot               # live folderUID: liquiditybot-ops
+    interval: 1m
+    rules:
+      - uid: lb-manip-high
+        title: manipulation suspicion high
+        condition: C
+        for: 10m
+        noDataState: OK                 # no manip series = not this alert's job
+        execErrState: Error             # live value; an exec-error still notifies (DatasourceError)
+        labels:
+          service: liquiditybot
+        notification_settings:          # ← LIVE since 2026-08-30T22:05:24Z (see header)
+          receiver: grafana-default-email
+        annotations:
+          summary: >-
+            manip_suspect above 0.9 on BTC or ETH sustained 10m - manipulation
+            signature on a MAJOR, where deep books make it anomalous. Thin alts
+            (MINA/FLOW) spoof chronically and are excluded: the liquidity model
+            already zeroes their sizing; see the dashboard gauge for them.
+        data:
+          - refId: A                    # manip_suspect, BTC/ETH only, instant
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: grafanacloud-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(liquiditybot_manip_suspect{job="liquiditybot", asset=~"BTC|ETH"})
+          - refId: B                    # reduce to latest sample
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, reducer: last, expression: A}
+          - refId: C                    # fire when suspicion exceeds 0.9
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - type: query
+                  evaluator: {type: gt, params: [0.9]}
+                  operator: {type: and}
+                  query: {params: [C]}
+                  reducer: {type: last}

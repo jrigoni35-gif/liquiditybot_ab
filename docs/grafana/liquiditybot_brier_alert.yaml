@@ -21,9 +21,14 @@
 # metrics exist ONLY once >=15 trades are judgeable, so before then the query
 # returns no data and the alert stays OK — it never fires on an unjudgeable model.
 #
-# Apply + contact point: same as the drift alert (see liquiditybot_drift_alert.yaml
-# header). This file defines the RULE; attach a contact point via a notification
-# policy matching severity=warning.
+# ── PROVISIONED 2026-08-30T22:xx — LIVE (ALERT-DRIFT closed) ────────────────
+# POSTed to /api/v1/provisioning/alert-rules (folderUID liquiditybot-ops,
+# ruleGroup liquiditybot-ml, interval 60s) with `notification_settings:
+# {receiver: grafana-default-email}` attached from creation. Re-derive
+# liveness: GET /api/v1/provisioning/alert-rules/lb-brier-degraded, or
+# /api/prometheus/grafana/api/v1/rules (group "liquiditybot-ml"). Root
+# notification policy receiver is still "empty" (untouched) — this rule's
+# per-rule override is what delivers, same pattern as the other three.
 apiVersion: 1
 groups:
   - orgId: 1
@@ -40,6 +45,8 @@ groups:
         labels:
           severity: warning
           service: liquiditybot
+        notification_settings:         # ← LIVE since provisioning, 2026-08-30
+          receiver: grafana-default-email
         annotations:
           summary: >-
             The deployed model's rolling Brier has stayed more than 0.03 above its

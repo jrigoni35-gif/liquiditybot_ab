@@ -10,18 +10,18 @@
 # i.e. the model is stuck on a regime it can't refit AND outcomes are hurting —
 # not a passing regime shift. Both metrics are exported by scripts/gc_pusher.py.
 #
-# ── How to apply (Grafana Cloud) ────────────────────────────────────────────
-# Option A (phone/UI, easiest): Alerting → Alert rules → New alert rule, and
-#   reproduce the queries/expressions/threshold/duration below (steps in
-#   docs/grafana/README or the chat message that shipped this).
-# Option B (API/IaC): POST each rule to the alerting provisioning API, or import
-#   this file via grafana/grizzly / Terraform. datasourceUid grafanacloud-prom
-#   is the built-in Grafana Cloud Prometheus (confirmed live).
+# ── PROVISIONED 2026-08-30T22:xx — LIVE (ALERT-DRIFT closed) ────────────────
+# POSTed to /api/v1/provisioning/alert-rules (folderUID liquiditybot-ops,
+# ruleGroup liquiditybot-ml, interval 60s) with `notification_settings:
+# {receiver: grafana-default-email}` attached from creation — this rule
+# never carried the void-routing defect the deadman/manip rules had (see
+# liquiditybot_deadman_alert.yaml's header for that history). Re-derive
+# liveness: GET /api/v1/provisioning/alert-rules/lb-drift-stuck, or
+# /api/prometheus/grafana/api/v1/rules (group "liquiditybot-ml").
 #
-# The CONTACT POINT (where the ping goes — email / mobile push / etc.) is your
-# choice; attach it via a notification policy matching label severity=warning,
-# or set it as this rule's contact point in the UI. This file defines the RULE,
-# not where it notifies.
+# Root notification policy receiver is still "empty" (untouched, wider
+# blast radius than needed) — this rule's per-rule notification_settings
+# override is what actually delivers, same pattern as the other three.
 apiVersion: 1
 groups:
   - orgId: 1
@@ -38,6 +38,8 @@ groups:
         labels:
           severity: warning
           service: liquiditybot
+        notification_settings:         # ← LIVE since provisioning, 2026-08-30
+          receiver: grafana-default-email
         annotations:
           summary: >-
             Feature drift has stayed above 30% for 30m while the ML governor is
