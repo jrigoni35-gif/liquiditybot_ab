@@ -181,32 +181,31 @@ INJ_ID = 990          # fixed id on every board so the CSS can self-hide
 # marcusolsson-dynamictext-panel whose afterRender hook appends these rules
 # to document.head — the route Grafana Cloud's <style> sanitizer (which kept
 # the old native-text tile dormant) does not touch. README_glass.md.
-# EVERY rule is scoped with :has(#lb-glass-marker) (2026-08-30). The injected
-# <style id="lb-glass"> node lives in document.head for the LIFE OF THE TAB -
-# Grafana is a SPA, so navigating from a bot board to any other page (Alerting
-# -> History was the measured casualty: operator report "alert history screen
-# is black") used to carry `.main-view { background:#000 }` along and blacken
-# pages this skin was never written for. :has() keys the rules to the marker
-# span's PRESENCE IN THE DOM instead: on a bot board (all four embed the
-# hidden injector tile) the skin applies; navigate away and the marker leaves
-# the DOM, so every rule stops matching that same instant - no removal JS, no
-# polling, nothing to leak. Failure direction on a pre-:has() browser is the
-# safe one: rules never match, boards render plain dark theme, nothing goes
-# black. Solo-panel view (viewPanel=N) omits the marker tile, so it renders
-# unskinned - accepted; the dashboard view is the product.
+# SCOPING HISTORY (2026-08-30, two operator reports same day). The injected
+# <style id="lb-glass"> lives in document.head for the LIFE OF THE TAB -
+# Grafana is a SPA, so unscoped rules rode along to every page ("alert
+# history screen is black": `.main-view { background:#000 }` on pages the
+# skin was never written for). FIRST fix scoped every selector with
+# :has(#lb-glass-marker) - REVERTED within the hour, operator report
+# "glitching": it keyed a page-wide theme to the MOUNT STATE of a
+# React-managed span (the dynamictext tile re-renders on every refresh, so
+# the whole page's skin flipped off/on per re-render), and body:has()
+# re-evaluates on every DOM mutation - a style-recalc storm on a
+# constantly-mutating dashboard. Selectors are therefore back to their
+# original cheap forms, and the LEAK is fixed in the injector JS instead:
+# the script toggles the style element's `disabled` bit by ROUTE
+# (location.pathname starts with /d/liquiditybot-), flipping on
+# pushState/replaceState/popstate - a stable signal with zero per-mutation
+# cost. See _injector(). Do NOT re-scope these selectors with :has().
 GLASS_RULES = """\
-html:has(#lb-glass-marker) { -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%; }
-body:has(#lb-glass-marker) .main-view,
-body:has(#lb-glass-marker) .scrollbar-view { background: #000 !important; }
-html:has(#lb-glass-marker), body:has(#lb-glass-marker),
-body:has(#lb-glass-marker) .main-view,
-body:has(#lb-glass-marker) [class*="dashboard"] {
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.main-view, .scrollbar-view { background: #000 !important; }
+html, body, .main-view, [class*="dashboard"] {
   font-family: -apple-system, "SF Pro Text", "SF Pro Display", "Inter",
                system-ui, sans-serif !important;
   -webkit-font-smoothing: antialiased;
 }
-body:has(#lb-glass-marker) [data-testid="data-testid panel content"] {
+[data-testid="data-testid panel content"] {
   background: linear-gradient(180deg, rgba(40,40,44,.60) 0%,
               rgba(28,28,30,.50) 100%) !important;
   backdrop-filter: blur(22px) saturate(180%);
@@ -217,18 +216,16 @@ body:has(#lb-glass-marker) [data-testid="data-testid panel content"] {
               inset 0 -1px 1px 0 rgba(0,0,0,.30),
               0 1px 1px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.55) !important;
 }
-body:has(#lb-glass-marker) .react-grid-item {
-  background: transparent !important; }
-body:has(#lb-glass-marker) [data-testid^="data-testid Panel header"] {
-  background: transparent !important; border: 0 !important; }
-body:has(#lb-glass-marker) [data-testid="data-testid header-container"] {
+.react-grid-item { background: transparent !important; }
+[data-testid^="data-testid Panel header"] { background: transparent !important;
+  border: 0 !important; }
+[data-testid="data-testid header-container"] {
   font-weight: 600; letter-spacing: .4px; font-size: 11px;
   text-transform: uppercase; color: rgba(235,235,245,.6) !important; }
-body:has(#lb-glass-marker) [data-testid^="data-testid dashboard-row-title-"] {
+[data-testid^="data-testid dashboard-row-title-"] {
   text-transform: uppercase; letter-spacing: 1.4px; font-size: 12px;
   font-weight: 700; color: rgba(235,235,245,.55) !important; }
-body:has(#lb-glass-marker) [data-viz-panel-key="panel-990"] {
-  display: none !important; }
+[data-viz-panel-key="panel-990"] { display: none !important; }
 """
 
 panels: list = []
@@ -1950,17 +1947,33 @@ def _links():
 
 def _injector():
     # json.dumps embeds the rules as a JS string literal — no escaping
-    # hazards, and the guard keeps re-renders / cross-board SPA navigation
-    # from stacking duplicate <style> nodes. The node itself outlives the
-    # board (SPA head is tab-lifetime); that is SAFE ONLY because every
-    # GLASS_RULES selector is :has(#lb-glass-marker)-scoped — a style that
-    # persists but matches nothing off-board. Add an unscoped rule and the
-    # 2026-08-30 "alert history screen is black" leak comes straight back.
+    # hazards, and the id guard keeps re-renders / cross-board SPA
+    # navigation from stacking duplicate <style> nodes. The node outlives
+    # the board (SPA head is tab-lifetime); the 2026-08-30 "alert history
+    # screen is black" leak is closed by the ROUTE WATCHER below, which
+    # toggles the style's `disabled` bit: enabled only while
+    # location.pathname is a /d/liquiditybot-* board, flipped exactly on
+    # pushState / replaceState / popstate (plus once per panel render as a
+    # belt-and-braces re-sync). Keyed to the URL, NOT to DOM presence — a
+    # :has(#lb-glass-marker) scoping attempt was reverted the same day for
+    # operator-visible flicker ("glitching"): the marker is React-managed
+    # and remounts per refresh, and body:has() re-evaluates per mutation.
+    # The watcher installs once per tab (window.__lbGlassNav guard).
     marker = '<span id="lb-glass-marker"></span>'
-    js = ("if (!document.getElementById('lb-glass')) { "
-          "var s = document.createElement('style'); s.id = 'lb-glass'; "
+    js = ("var s = document.getElementById('lb-glass'); "
+          "if (!s) { s = document.createElement('style'); s.id = 'lb-glass'; "
           f"s.textContent = {json.dumps(GLASS_RULES)}; "
-          "document.head.appendChild(s); }")
+          "document.head.appendChild(s); } "
+          "var lbApply = function() { "
+          "var el = document.getElementById('lb-glass'); if (!el) return; "
+          "el.disabled = !/^\\/d\\/liquiditybot-/.test(location.pathname); }; "
+          "if (!window.__lbGlassNav) { window.__lbGlassNav = 1; "
+          "var lbWrap = function(fn) { return function() { "
+          "var r = fn.apply(this, arguments); lbApply(); return r; }; }; "
+          "history.pushState = lbWrap(history.pushState); "
+          "history.replaceState = lbWrap(history.replaceState); "
+          "window.addEventListener('popstate', lbApply); } "
+          "lbApply();")
     return {"id": INJ_ID, "type": "marcusolsson-dynamictext-panel",
             "title": "", "datasource": None,
             "gridPos": {"h": 1, "w": 1, "x": 0, "y": _cur["y"] + 1},
