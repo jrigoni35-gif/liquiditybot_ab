@@ -1,21 +1,21 @@
 {
-  "generated_at": 1788064553.4988384,
+  "generated_at": 1788068155.001221,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788064552.0,
-    "duration_h": 1220.7
+    "end": 1788068142.0,
+    "duration_h": 1221.7
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 750,
-      "signal_records": 551,
+      "records": 752,
+      "signal_records": 553,
       "by_src": {
-        "long_book": 254,
-        "exploration": 203,
+        "long_book": 253,
+        "exploration": 202,
         "conviction": 144,
-        "ml_governor": 121,
+        "ml_governor": 125,
         "order_manager": 25,
         "exit": 3
       },
@@ -46,15 +46,15 @@
         ],
         [
           "ML-016",
-          19
+          20
         ],
         [
           "ML-042",
-          19
+          20
         ],
         [
           "ML-041",
-          19
+          20
         ],
         [
           "OM-040",
@@ -66,20 +66,20 @@
         ],
         [
           "LB-020",
-          10
+          9
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.356,
-      "retrain_requests": 7,
+      "dominant_frac": 0.354,
+      "retrain_requests": 8,
       "kill_switch_events": 4
     },
     "events": {
-      "records": 23810,
+      "records": 24613,
       "by_level": {
-        "INFO": 23699,
-        "WARNING": 107,
-        "CRITICAL": 4
+        "INFO": 24497,
+        "WARNING": 111,
+        "CRITICAL": 5
       },
       "top_warnings": [
         [
@@ -95,16 +95,20 @@
           5
         ],
         [
+          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          5
+        ],
+        [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           5
         ],
         [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
           "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           3
+        ],
+        [
+          "ML-032 RETRAIN REQUESTED: input drift on 38% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          2
         ],
         [
           "ML-074: trailing 24h label prior 0.66 skews from corpus prior 0.33 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
@@ -117,31 +121,27 @@
         [
           "ML-080: exit-reason mix drift tvd=0.366 over trailing 24h (487/18978 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
           1
-        ],
-        [
-          "auto-retrain: 8788 rows (28 new)",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 5503,
-        "thin": 2034
+        "spoofy": 5640,
+        "thin": 2117
       },
-      "spoofy_frac": 0.73,
+      "spoofy_frac": 0.727,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3390,
+      "cycles_estimate": 3507,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 798.0,
+    "equity_end": 798.08,
     "equity_min": 796.79,
     "equity_max": 806.91,
     "equity_range": 10.12,
     "capital_epochs": 5,
-    "epoch_samples": 100011,
+    "epoch_samples": 100245,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -149,22 +149,22 @@
     "realized_pnl_total": 1.72,
     "fees_paid_total": 8.7245,
     "open_positions": 5,
-    "samples": 267802
+    "samples": 268036
   },
   "activity": {
-    "signal_rows_total": 19482,
+    "signal_rows_total": 19506,
     "live_labeled_trades": 378,
-    "candidate_rows": 19104
+    "candidate_rows": 19128
   },
   "audit": {
-    "records": 70084,
-    "signal_records": 30351,
+    "records": 70098,
+    "signal_records": 30365,
     "by_src": {
       "exploration": 62597,
-      "ml_governor": 2125,
-      "long_book": 1967,
+      "ml_governor": 2130,
+      "long_book": 1972,
       "order_manager": 1693,
-      "conviction": 617,
+      "conviction": 621,
       "startup": 322,
       "fault": 303,
       "exit": 282,
@@ -188,7 +188,7 @@
       ],
       [
         "LB-010",
-        1304
+        1308
       ],
       [
         "OM-000",
@@ -196,14 +196,14 @@
       ],
       [
         "ML-031",
-        800
-      ],
-      [
-        "OM-040",
-        466
+        801
       ],
       [
         "CV-030",
+        470
+      ],
+      [
+        "OM-040",
         466
       ],
       [
@@ -212,11 +212,11 @@
       ],
       [
         "ML-016",
-        359
+        360
       ],
       [
         "ML-041",
-        341
+        342
       ],
       [
         "ML-072",
@@ -224,8 +224,8 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.734,
-    "retrain_requests": 164,
+    "dominant_frac": 0.733,
+    "retrain_requests": 165,
     "kill_switch_events": 7,
     "chain_ok": false,
     "chain_first_break": null,
@@ -235,11 +235,11 @@
     "chain_error": null
   },
   "events": {
-    "records": 23810,
+    "records": 24613,
     "by_level": {
-      "INFO": 23699,
-      "WARNING": 107,
-      "CRITICAL": 4
+      "INFO": 24497,
+      "WARNING": 111,
+      "CRITICAL": 5
     },
     "top_warnings": [
       [
@@ -255,16 +255,20 @@
         5
       ],
       [
+        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        5
+      ],
+      [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         5
       ],
       [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
         "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 38% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        2
       ],
       [
         "ML-074: trailing 24h label prior 0.66 skews from corpus prior 0.33 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
@@ -277,26 +281,22 @@
       [
         "ML-080: exit-reason mix drift tvd=0.366 over trailing 24h (487/18978 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
         1
-      ],
-      [
-        "auto-retrain: 8788 rows (28 new)",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5503,
-      "thin": 2034
+      "spoofy": 5640,
+      "thin": 2117
     },
-    "spoofy_frac": 0.73,
+    "spoofy_frac": 0.727,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3390,
+    "cycles_estimate": 3507,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.2530358448639045,
+    "champion_brier": 0.25259014745511943,
     "brier": "n/a",
     "history_rows": 378,
     "cold": false
@@ -332,7 +332,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 36% of 551 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 35% of 553 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
