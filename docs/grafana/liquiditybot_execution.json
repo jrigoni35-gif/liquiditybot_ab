@@ -1,7 +1,7 @@
 {
   "uid": "liquiditybot-exec",
   "title": "liquiditybot — alert inputs",
-  "description": "The alert-input mirror: every metric the Grafana alert rules fire on, plus the alert conditions themselves as numbers, with honest empty-state text.",
+  "description": "RETIRED signpost (STREAM 7c, 2026-08-28): the alert-input metrics moved to the Problems board's 'What the pager watches' row. This page only says where they went — it queries nothing.",
   "tags": [
     "execution",
     "liquid-glass",
@@ -76,6 +76,30 @@
   },
   "panels": [
     {
+      "id": 1,
+      "type": "text",
+      "title": "Where the alert inputs live",
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 0
+      },
+      "transparent": true,
+      "options": {
+        "mode": "markdown",
+        "content": "### This board was retired 2026-08-27 (STREAM 7c, `034e6aa6`)\n\nEvery metric the alert rules fire on — `liquiditybot_ml_brier`,\n`liquiditybot_ml_baseline_brier`, `liquiditybot_ml_drift_share`,\n`liquiditybot_monitor_level` — lives on\n[**🚨 Problems → \"What the pager watches\"**](/d/liquiditybot-problem-solution),\nas the same arithmetic the rules run. It is kept in ONE place so the pager's\ninputs cannot drift between two copies\n(`test_problem_board_mirrors_both_pager_conditions` pins the mirror).\n\nThis page stays only as a nav anchor; nothing here queries data, so there is\nno outage to read into an empty render. Alert rules themselves:\n`docs/grafana/liquiditybot_*_alert.yaml` (Brier gap · drift-stuck ·\ntelemetry dead-man).\n",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
       "id": 990,
       "type": "marcusolsson-dynamictext-panel",
       "title": "",
@@ -84,7 +108,7 @@
         "h": 1,
         "w": 1,
         "x": 0,
-        "y": 0
+        "y": 10
       },
       "transparent": true,
       "options": {

@@ -77,14 +77,21 @@ pre-registered gate machinery (`scripts/cohort_eval.py`, its bands, its
 selection rule) is **untouched**. Cut-8 rows stay citable AS cut-8; nothing
 under `9-16ec821e` may be pooled with them (or with era-4).
 
-**THE CUT #9 INSTANT — PENDING RESTART (owed to the boundary table).** The
-era begins at the runner restart on this commit, NOT at the config write: a
-running process keeps the fee constants it read at init. As of this session
-the config is written and `EXEC_ERA` is minted, but **the runner has NOT yet
-been restarted** — the live process is still on cut-8 constants until the
-operator restarts it. Stamp the restart instant here and in the vault
-boundary row (row 9) the moment the new process is first observed RUNNING;
-until then the cut #9 instant is UNKNOWN, not assumed.
+**THE CUT #9 INSTANT — STAMPED: 2026-08-30T15:32:36Z** (era-6 accrual zero
+point = new runner process creation). Full chain, all measured same session:
+`59bdcf87` merged+pushed to `origin/main`; the updater could NEVER restart
+the runner for it (locally-born deploy reads "local is AHEAD … runner
+untouched" — auto_update restarts only on outcome `updated`), so the restart
+was operator-side via the control plane, the cut-#8 mechanism: `stop` sent
+15:30:24Z (cid `1788103824.226997-67a8f6`), runner acked `control: stop ->
+ok` 15:30:25Z, pc_supervisor `runner stale/absent -> relaunching` 15:32:36Z,
+new runner worker **PID 7692** (venv shim 25488, parent = supervisor 14776)
+created **15:32:36Z**, first RUNNING line 15:32:37Z. Corroborated by the new
+process's own startup log: `runner starting: DRY … fees=22/38bps` and
+`sizer payoff b=0.92 gross / 0.48 net of 0.60% rt cost (net p(win) breakeven
+0.677) … p(win) bar=0.677 (derived, floor 0.55)` — the cut-9 constants,
+bit-for-bit with the pre-derivation. Vault boundary row 9 stamped same
+session. Rows written from this instant carry `9-16ec821e`.
 
 ---
 
@@ -371,6 +378,16 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 ## WATCH LIST (check these, don't assume)
 
+- **PAGER-1 (2026-08-30): did the telemetry dead-man page during the >9h
+  push gaps?** Full-range scan of gc_pusher.log found four success-gaps >9h
+  across 08-29/30 (worst 12.86h; box sleep is the leading candidate). The
+  lb-telemetry-stale rule (noDataState: Alerting, ~10-11min to page) SHOULD
+  have fired each time — whether it actually did is UNVERIFIED (needs the
+  Grafana alert-history read, cloud-side). If it did not, the pager has a
+  hole exactly where it exists to cover. Also unexplained, same scan: a
+  one-off `Permission denied: outputs/status.json` (08-30 12:00:12) and 603
+  gc_log_offset.tmp file-contention incidents.
+
 - **Whether `turbulence_pct` decays below 0.95** — the book reopens on its own if it does. Pinned at the series ceiling 0.984 for 23-30h as of 08-22; historical N=1, no base rate to forecast it.
 - SAFE-NOW observability backlog from TURB-1 (turbulence absent from `status.json` entirely; silent stale-hold; no config_guard coverage) — see the synthesis doc's disposition section.
 - Champion Brier / calibration gap after each retrain: a base-rate
@@ -387,7 +404,7 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 | what | verdict | record |
 |---|---|---|
-| Cut #9 — the Tier-3 fee correction (08-30) | **EXECUTED** under operator ARM "fee correction only", `dry_run` never touched. Cut #8 booked 40/80 (assumed Tier-1); the account is real **Tier 3 = 22/38** (operator Kraken screenshot), so cut #8 over-stated fees ~2x — the-method #1 recurrence. `fee_correction_stage.py --apply` owned every config write (drift-check green, backup `config.json.pre-cut9-*`, `validate()` on the applied file = 0 FATAL / 4 WARN); `exec_era` minted **`9-16ec821e`** in the same commit as the behavior change. Derived entry bar **0.8335 → 0.6772** (conviction resumes; cut #8's probe-dominated consequence UNWOUND). Full DoD green (4422 pytest / 220 smoke / 51 assurance / 3 overfit on live 9468-row corpus / ruff / bandit 0 / pyright 0). 5 suite re-baselines, each named + runtime-verified, none widened; the sub-floor tripwire re-baseline PROVES the mechanism still fires (flag-off arm) + pins the opt-out. **RUNNER RESTART STILL OWED** — live process is on cut-8 constants until restarted | this row + `core/fill_ledger.py:71-87`, `docs/quant/2026-08-29_fee_tier_correction_adjudication.md`, `scripts/fee_correction_stage.py` |
+| Cut #9 — the Tier-3 fee correction (08-30) | **EXECUTED** under operator ARM "fee correction only", `dry_run` never touched. Cut #8 booked 40/80 (assumed Tier-1); the account is real **Tier 3 = 22/38** (operator Kraken screenshot), so cut #8 over-stated fees ~2x — the-method #1 recurrence. `fee_correction_stage.py --apply` owned every config write (drift-check green, backup `config.json.pre-cut9-*`, `validate()` on the applied file = 0 FATAL / 4 WARN); `exec_era` minted **`9-16ec821e`** in the same commit as the behavior change. Derived entry bar **0.8335 → 0.6772** (conviction resumes; cut #8's probe-dominated consequence UNWOUND). Full DoD green (4422 pytest / 220 smoke / 51 assurance / 3 overfit on live 9468-row corpus / ruff / bandit 0 / pyright 0). 5 suite re-baselines, each named + runtime-verified, none widened; the sub-floor tripwire re-baseline PROVES the mechanism still fires (flag-off arm) + pins the opt-out. Restart DISCHARGED same day: era-6 began **2026-08-30T15:32:36Z** (PID 7692, startup log `fees=22/38bps … bar=0.677` — see the era-6 section's stamped chain) | this row + `core/fill_ledger.py:71-87`, `docs/quant/2026-08-29_fee_tier_correction_adjudication.md`, `scripts/fee_correction_stage.py` |
 | Boundary #5 / cut #8 — the fee-truth cut (08-28) | **EXECUTED** under operator adjudication. Stager owned every config write (drift-check green, backup written, `validate()` on the APPLIED file = 0 FATAL / 4 WARN, all four documented consequences); `exec_era` minted `8-ca55e2ba` in the SAME commit as the behavior change — no repeat of cut #7's late-bump debt. `dry_run` never touched. 7 suite pins re-baselined, each named in the report; none widened | this row + `core/fill_ledger.py:30-78`, `docs/quant/2026-08-25_boundary5_adjudication.md` |
 | CTRL-1 control-arm merge (08-28) | **MERGED** (ff, `7b19181d`+`d64ad030`). Schema 95 live on the write path only (rotation in `_ensure_schema` ← `_append_row`, never `__init__` — the 2026-07-11 discipline); both conftest leak-registrations intact after the union rebase; 38 pins green in the MAIN tree | sandbox rebase report, `tests/test_control_arm_tag.py` |
 | Brier spike 0.181→0.339 (08-19) | base-rate surge 0.24→0.42, guards held, recovered within one horizon. **No fix.** | `docs/quant/2026-08-19_brier_spike_diagnosis.md` |

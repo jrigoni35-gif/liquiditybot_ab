@@ -1042,6 +1042,24 @@ def _author_command():
               "reserve pools. It counts in equity but is no longer at risk.")
 
 
+_EXEC_SIGNPOST_MD = """\
+### This board was retired 2026-08-27 (STREAM 7c, `034e6aa6`)
+
+Every metric the alert rules fire on — `liquiditybot_ml_brier`,
+`liquiditybot_ml_baseline_brier`, `liquiditybot_ml_drift_share`,
+`liquiditybot_monitor_level` — lives on
+[**🚨 Problems → "What the pager watches"**](/d/liquiditybot-problem-solution),
+as the same arithmetic the rules run. It is kept in ONE place so the pager's
+inputs cannot drift between two copies
+(`test_problem_board_mirrors_both_pager_conditions` pins the mirror).
+
+This page stays only as a nav anchor; nothing here queries data, so there is
+no outage to read into an empty render. Alert rules themselves:
+`docs/grafana/liquiditybot_*_alert.yaml` (Brier gap · drift-stuck ·
+telemetry dead-man).
+"""
+
+
 def _author_execution():
     """RETIRED to its stripped form, STREAM 7c (2026-08-28 audit).
 
@@ -1058,7 +1076,17 @@ def _author_execution():
     to duplicate rather than originate its content. To rebuild, write
     factory calls back into this stub; nothing else has to be restored
     first.
+
+    SIGNPOST ADDED 2026-08-30: the strip shipped WITHOUT the honest
+    empty-state text the board description promised, so the rendered page
+    was the glass skin alone — pure black, and the operator read it as a
+    fault (the exact misread 452bad12's honest-absence contract exists to
+    prevent: "a board must say WHY it is empty"). One core `text` panel now
+    says why the board is empty and where the inputs live. It queries
+    nothing, so the stripped-form contract (zero DATA panels) is intact —
+    the pin moves to include it in the same commit.
     """
+    text("Where the alert inputs live", _EXEC_SIGNPOST_MD, 14, 9)
 
 
 def _author_learning():
@@ -2444,9 +2472,10 @@ DASHBOARDS = {
         _author_problem, "diagnostics"),
     "liquiditybot_execution.json": _board(
         "liquiditybot-exec", "liquiditybot — alert inputs",
-        "The alert-input mirror: every metric the Grafana alert rules fire "
-        "on, plus the alert conditions themselves as numbers, with honest "
-        "empty-state text.", _author_execution, "execution"),
+        "RETIRED signpost (STREAM 7c, 2026-08-28): the alert-input metrics "
+        "moved to the Problems board's 'What the pager watches' row. This "
+        "page only says where they went — it queries nothing.",
+        _author_execution, "execution"),
 }
 for _d in DASHBOARDS.values():
     _apple_palette(_d)

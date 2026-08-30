@@ -75,7 +75,16 @@ _EXEC_PANELS = frozenset({
     (7, "Monitor", "stat", ("liquiditybot_monitor_level",)),
     (gen.INJ_ID, "", INJ_TYPE, ()),
 })
-_EXEC_STRIPPED_PANELS = frozenset({(gen.INJ_ID, "", INJ_TYPE, ())})
+# 2026-08-30: the stripped form gained ONE core text signpost. The strip had
+# shipped with no explanation panel, so the board rendered as the glass skin
+# alone - a pure-black page the operator reported as a fault. The signpost
+# says why the board is empty and where the inputs live (452bad12's
+# honest-absence contract); it queries NOTHING, so the stripped form still
+# carries zero data panels and every skip-on-stripped branch stays valid.
+_EXEC_STRIPPED_PANELS = frozenset({
+    (1, "Where the alert inputs live", "text", ()),
+    (gen.INJ_ID, "", INJ_TYPE, ()),
+})
 
 # The command board's authored inventory, as
 # (id, title, type, sorted metrics) QUADRUPLES.
