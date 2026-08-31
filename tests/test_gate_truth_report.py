@@ -354,3 +354,69 @@ def test_report_reads_the_CONFIGURED_era_not_a_hardcoded_one(tmp_path):
     # would be exactly the tautological pin this docket exists to catch.
     named = text.split("label era:")[1].split("(")[0].strip()
     assert named == deployed, f"named {named!r}, expected {deployed!r}"
+
+
+# ---------------------------------------------------------------------------
+# PARTIAL IDENTIFICATION of the XV-040 verdict (2026-08-31)
+#
+# [2]'s AUCs are ESTIMATES and rho reads only their RANK ORDER, so sampling
+# error at EFFECTIVE n can reorder them outright. Measured on the live corpus
+# 2026-08-31T00:39:31Z: n=10718, n_eff=611.3, AUCs
+# {flow .504, delta .502, accum .513, burst .495, trend .521} - spread 0.026
+# against a 95% margin of +/-0.046. 120 of 120 orderings feasible, identified
+# set of rho = [-1.00, +1.00]: the report was printing a confident XV-040
+# ALIGNED on a rho whose SIGN the evidence does not determine.
+# ---------------------------------------------------------------------------
+_LIVE_AUCS = {"flow": 0.504, "delta": 0.502, "accum": 0.513,
+              "burst": 0.495, "trend": 0.521}
+_W5 = {"flow": 1.0, "delta": 0.6, "accum": 0.9, "burst": 0.8, "trend": 0.7}
+
+
+def test_auc_se_uses_effective_n_and_inflates():
+    from scripts.gate_truth_report import auc_se_on_neff
+    se_nom = auc_se_on_neff(10718, 0.44)
+    se_eff = auc_se_on_neff(611.3, 0.44)
+    # nominal n is optimistic by sqrt(n / n_eff) = x4.187
+    assert abs(se_eff / se_nom - (10718 / 611.3) ** 0.5) < 0.02
+    # degenerate one-class split yields NaN, never a zero margin
+    assert auc_se_on_neff(500.0, 0.0) != auc_se_on_neff(500.0, 0.0)
+
+
+def test_rho_identified_set_is_exhaustive_and_not_constant():
+    from scripts.gate_truth_report import rho_identified_set
+    keys = list(_LIVE_AUCS)
+    # margin 0 -> only the observed ordering is feasible -> a POINT
+    lo, hi, nf = rho_identified_set(_W5, _LIVE_AUCS, 0.0, keys)
+    assert nf == 1 and abs(lo - hi) < 1e-12
+    # live margin on effective n -> every ordering feasible -> whole range
+    lo, hi, nf = rho_identified_set(_W5, _LIVE_AUCS, 0.0461, keys)
+    assert nf == 120 and lo < 0.0 < hi
+
+
+def test_classify_declines_when_rho_sign_is_not_identified():
+    """The planted-defect proof, pinned: with the margin the live corpus
+    actually supports, ALIGNED must NOT be claimed."""
+    code, line = classify_alignment(_W5, _LIVE_AUCS, 10718, n_eff=611.3,
+                                    auc_margin=0.0461)
+    assert code == "XV-042"
+    assert "NOT IDENTIFIED" in line and "identified set" in line
+    # DEFECT-2: guard disarmed -> the OLD confident verdict returns. This
+    # is what shipped before 2026-08-31, and pinning it proves the new
+    # branch (not some unrelated change) is what declines.
+    code_off, _ = classify_alignment(_W5, _LIVE_AUCS, 10718, n_eff=611.3)
+    assert code_off == "XV-040"
+
+
+def test_identification_guard_is_not_a_blanket_refusal():
+    """A guard that always declines detects nothing. Genuinely separated
+    AUCs must still reach a verdict at the SAME margin."""
+    strong = {"flow": 0.80, "delta": 0.52, "accum": 0.72, "burst": 0.64,
+              "trend": 0.58}
+    code, _ = classify_alignment(_W5, strong, 10718, n_eff=611.3,
+                                 auc_margin=0.0461)
+    assert code == "XV-040"
+    inverted = {"flow": 0.52, "delta": 0.80, "accum": 0.58, "burst": 0.64,
+                "trend": 0.72}
+    code, _ = classify_alignment(_W5, inverted, 10718, n_eff=611.3,
+                                 auc_margin=0.0461)
+    assert code == "XV-041"

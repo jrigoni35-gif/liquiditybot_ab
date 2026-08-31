@@ -219,6 +219,17 @@ class MarkoutTracker:
             ],
             "obs": {f"{asset}{_OBS_KEY_SEP}{h}": list(dq)
                     for (asset, h), dq in self._obs.items() if dq},
+            # DECOMPOSITION persistence (2026-08-31): _scap/_alpha were
+            # computed since 2026-08-23 but omitted here, so every restart
+            # destroyed the spread-neutral alpha series - measured live at
+            # 0.986% coverage (1,521 obs on disk, zero alpha) because the
+            # decomposition window was exactly time-since-restart. The
+            # module docstring calls alpha "the half worth watching"; now
+            # it survives the restarts that used to erase it.
+            "scap": {f"{asset}{_OBS_KEY_SEP}{h}": list(dq)
+                     for (asset, h), dq in self._scap.items() if dq},
+            "alpha": {f"{asset}{_OBS_KEY_SEP}{h}": list(dq)
+                      for (asset, h), dq in self._alpha.items() if dq},
         }
 
     def restore(self, d: dict | None) -> None:
@@ -254,3 +265,16 @@ class MarkoutTracker:
                     (float(v) for v in vals), maxlen=self.window)
         except (KeyError, TypeError, ValueError):
             log.warning("markout obs section malformed - skipped")
+        # Decomposition series: snapshots written before 2026-08-31 have no
+        # scap/alpha keys and restore clean (empty) - same tolerance as the
+        # pre-decomposition mid0=None path above. Each section independent.
+        for section, target in (("scap", self._scap), ("alpha", self._alpha)):
+            try:
+                for key, vals in (d.get(section) or {}).items():
+                    asset, _sep, h_str = str(key).rpartition(_OBS_KEY_SEP)
+                    if not _sep:
+                        continue
+                    target[(asset, float(h_str))] = deque(
+                        (float(v) for v in vals), maxlen=self.window)
+            except (KeyError, TypeError, ValueError):
+                log.warning("markout %s section malformed - skipped", section)

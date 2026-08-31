@@ -989,13 +989,48 @@ def feature_dof_report(X, y, feature_names, label_span: int = 96,
                                          n_top=len(feature_names))
             dead = [name for name, drop in imp
                     if abs(drop) <= dead_importance_eps]
+    # COVERAGE (2026-08-31): a permutation-importance zero is only evidence
+    # about a feature the fitted model actually CONSULTED. Early stopping can
+    # leave this GBT a handful of stumps (measured: one seed produced a
+    # single tree splitting on 2 features; union across a 3x3 seed/split
+    # sweep touched 15 of 64), and every never-split feature then returns an
+    # AUC drop of exactly 0.0 - the signature of a blind model, not a dead
+    # feature. dead_feature_frac stays byte-identical for existing readers;
+    # the new keys let the caller tell "measured dead" from "never looked".
+    used: set = set()
+
+    def _walk(node):
+        if isinstance(node, dict) and "f" in node:
+            used.add(int(node["f"]))
+            for k in ("L", "R"):
+                if isinstance(node.get(k), dict):
+                    _walk(node[k])
+
+    if folds and len(folds[-1][1]) >= 20:
+        try:
+            for t in m.trees:          # m exists iff the fit above ran
+                _walk(t)
+        except (AttributeError, NameError):
+            pass
+    unseen = [nm for i, nm in enumerate(feature_names) if i not in used]
     rpf = n / max(d, 1)
     return {"n_rows": int(n), "n_features": int(d),
             "rows_per_feature": round(float(rpf), 2),
             "dead_feature_frac": round(len(dead) / max(d, 1), 3),
             "dead_features": dead,
             "starved": bool(rpf < rows_per_feature_floor),
-            "importance_top": imp[:8]}
+            "importance_top": imp[:8],
+            "features_consulted": len(used),
+            "dead_but_never_consulted": len([f for f in dead if f in unseen]),
+            # informative iff the dead list is mostly features the model
+            # actually consulted and measured to ~zero - NOT features it
+            # never split on. A raw consulted-count threshold was tried
+            # first and rejected by its own planted-defect test: the live
+            # blind case consulted 15/64 yet 41/48 of its "dead" were
+            # never-consulted, while a healthy sparse fit can consult few
+            # features and still measure its dead list honestly.
+            "scan_informative": (not dead) or (
+                len([f for f in dead if f in unseen]) * 2 <= len(dead))}
 
 
 # ---------------------------------------------------------------------------

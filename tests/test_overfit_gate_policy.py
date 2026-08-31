@@ -114,3 +114,46 @@ def test_synthetic_run_keeps_hard_pass_fail_verdicts(tmp_path):
     assert all(ln.startswith("- **PASS**") or ln.startswith("- **FAIL**")
                for ln in gap_lines), (
         f"synthetic OF-1 must stay a hard gate, got: {gap_lines}")
+
+
+# ---------------------------------------------------------------------------
+# OF-5 REACHABILITY (2026-08-31). deflated_sharpe's var_trial_sr default is
+# max(sr_observed**2, 0.01), so the rejection threshold sr0 = k(N)*|SR| is
+# PROPORTIONAL to the statistic under test. k(N) crosses 1.0 between N=3 and
+# N=4, so at the shipped default N=7 the gate `dsr >= 0.90` cannot be passed
+# by ANY sample. Verified by exhaustive sweep 2026-08-31: 518,616
+# (SR, n, skew, kurtosis) combinations, 0 passing, max attainable DSR 0.4262;
+# the same sweep at N=1 finds 387/400 passing, so the sweep is not blind.
+# The gate is currently DEFERRED (27 conviction trades < 30), which is why
+# nobody has seen it fail - it will fail on arrival regardless of the strategy.
+# ---------------------------------------------------------------------------
+def test_dsr_gate_reachability_boundary_is_real_not_a_stub():
+    from scripts.overfit_check import dsr_gate_reachable
+    for n in (1, 2, 3):
+        reach, k, _ = dsr_gate_reachable(n)
+        assert reach and k < 1.0, f"N={n} should be reachable (k={k})"
+    for n in (4, 5, 7, 10, 57, 100):
+        reach, k, _ = dsr_gate_reachable(n)
+        assert not reach and k > 1.0, f"N={n} should be unpassable (k={k})"
+
+
+def test_dsr_unreachable_claim_agrees_with_brute_force_at_shipped_default():
+    """The checker is only worth its line if it agrees with the function it
+    describes. Brute-force the actual deflated_sharpe at N=7."""
+    from ml.overfit import deflated_sharpe
+    from scripts.overfit_check import dsr_gate_reachable
+    reach, _, _ = dsr_gate_reachable(7)
+    best = max((deflated_sharpe(sr / 50.0, n, skew=sk, kurtosis=ku,
+                                n_trials=7).get("dsr") or 0.0)
+               for sr in range(-100, 501)
+               for n in (30, 100, 387)
+               for sk in (-2.0, 0.0, 1.0)
+               for ku in (3.0, 22.7))
+    assert not reach
+    assert best < 0.90, f"claimed unpassable but brute force reached {best}"
+    # positive control: the same sweep DOES find passes at N=1, so a
+    # "nothing found" above is a property of the gate, not of the sweep
+    best1 = max((deflated_sharpe(sr / 50.0, 100, skew=0.0, kurtosis=3.0,
+                                 n_trials=1).get("dsr") or 0.0)
+                for sr in range(0, 200))
+    assert best1 >= 0.90

@@ -28,6 +28,7 @@ Weight source: config `informed_flow.weights` — NOT `strategies.weights`
 under that same prefix; `strategies` only carries `engine`/`_rollback`).
 """
 import csv
+import itertools
 import json
 import math
 import sys
@@ -104,13 +105,82 @@ def _spearman(a, b):
     return num / (da * db) if da and db else 0.0
 
 
-def classify_alignment(weights, aucs, n, n_eff=None):
+def auc_se_on_neff(n_eff, pos_rate):
+    """H0 standard error of a rank AUC, evaluated on EFFECTIVE n.
+
+    sqrt((n1 + n0 + 1) / (12 * n1 * n0)) — the Bamber/Hanley-McNeil
+    null-hypothesis SE. Deliberately fed EFFECTIVE counts: overlapping
+    label windows share one return path, so an SE computed on nominal n
+    is optimistic by sqrt(n / n_eff) (the same deflation SG_MIN_ROWS has
+    been judged against since 2026-07-29). Returns nan for a degenerate
+    one-class split, which callers must treat as "no margin available",
+    never as zero margin."""
+    n1 = float(n_eff) * float(pos_rate)
+    n0 = float(n_eff) - n1
+    if not (n1 > 0.0 and n0 > 0.0):
+        return float("nan")
+    return math.sqrt((n1 + n0 + 1.0) / (12.0 * n1 * n0))
+
+
+def rho_identified_set(weights, aucs, margin, keys):
+    """IDENTIFIED SET of the XV-040 spearman rho (Manski partial
+    identification), given each AUC is known only to +/- `margin`.
+
+    rho depends on the AUCs ONLY through their RANK ORDER, so the set of
+    rho values consistent with the data is finite and can be enumerated
+    EXHAUSTIVELY rather than sampled: <= 5! = 120 orderings. An ascending
+    ordering sigma is feasible iff every pair it commits to can actually
+    be realized inside the boxes — auc_i - auc_j <= 2*margin whenever
+    sigma places v_i <= v_j (pairwise is sufficient here: independent
+    intervals admit a realizing assignment whenever every pair does).
+
+    Returns (rho_lo, rho_hi, n_feasible). When the set straddles zero the
+    ALIGNED-vs-MISALIGNED distinction is NOT IDENTIFIED: the point rho is
+    a coin flip dressed as a verdict, and the caller must decline."""
+    lo, hi, n_feas = 1.0, -1.0, 0
+    wv = [weights[k] for k in keys]
+    for sigma in itertools.permutations(range(len(keys))):
+        feasible = True
+        for a in range(len(sigma)):
+            for b in range(a + 1, len(sigma)):
+                i, j = sigma[a], sigma[b]           # commits v_i <= v_j
+                if aucs[keys[i]] - aucs[keys[j]] > 2.0 * margin:
+                    feasible = False
+                    break
+            if not feasible:
+                break
+        if not feasible:
+            continue
+        n_feas += 1
+        # rank surrogate: any values in this order give the same rho
+        surrogate = [0.0] * len(keys)
+        for pos, i in enumerate(sigma):
+            surrogate[i] = float(pos)
+        r = _spearman(wv, surrogate)
+        lo, hi = min(lo, r), max(hi, r)
+    if n_feas == 0:                                  # unreachable in theory
+        return float("nan"), float("nan"), 0
+    return lo, hi, n_feas
+
+
+def classify_alignment(weights, aucs, n, n_eff=None, auc_margin=None):
     """(code_value, human_line) for the weight-vs-data verdict.
 
     `n_eff` (uniqueness-weighted independent-observation count) is the
     number the SG_MIN_ROWS floor is judged against when provided — the
     unit the AUC statistics actually run on; None preserves the legacy
-    raw-n gate byte-identically (existing callers/tests)."""
+    raw-n gate byte-identically (existing callers/tests).
+
+    `auc_margin` (half-width of each AUC's 95% interval on EFFECTIVE n)
+    turns the verdict from a point into a partial-identification test:
+    the rho is computed from five ESTIMATED AUCs, so when the identified
+    set of rho straddles zero, ALIGNED and MISALIGNED are both consistent
+    with the data and NEITHER may be asserted. Measured 2026-08-31 on the
+    live corpus: n=10718 / n_eff=611.3, AUC spread 0.026 against a 95%
+    margin of +/-0.046 — 120 of 120 orderings feasible, identified set
+    [-1.000, +1.000]. XV-040 ALIGNED was being printed on a rho whose
+    sign the evidence does not determine. None preserves the legacy
+    point-verdict byte-identically."""
     gate_n = n if n_eff is None else n_eff
     if gate_n < SG_MIN_ROWS:
         unit = (f"only {n} instrumented era rows" if n_eff is None else
@@ -133,6 +203,23 @@ def classify_alignment(weights, aucs, n, n_eff=None):
                 f"yet, keep accruing")
     rho = _spearman([weights[k] for k in keys], [aucs[k] for k in keys])
     counts = f"n={n}" if n_eff is None else f"n={n}, n_eff={n_eff:.0f}"
+    # PARTIAL IDENTIFICATION: the five AUCs are estimates, and rho reads
+    # only their rank order, so sampling error at effective n can reorder
+    # them outright. If both signs of rho survive, decline the verdict —
+    # XV-042 already carries "no verdict yet" for the other non-row-count
+    # condition in this function (the degenerate-NaN branch above).
+    if auc_margin is not None and auc_margin == auc_margin:
+        r_lo, r_hi, n_feas = rho_identified_set(weights, aucs,
+                                                float(auc_margin), keys)
+        if r_lo == r_lo and r_lo < 0.0 <= r_hi:
+            return (Code.XV_GATE_TRUTH_THIN.value,
+                    f"{Code.XV_GATE_TRUTH_THIN.value}: weight-vs-AUC rank "
+                    f"agreement NOT IDENTIFIED — point spearman {rho:+.2f}, "
+                    f"but the identified set of rho is [{r_lo:+.2f}, "
+                    f"{r_hi:+.2f}] ({n_feas}/120 orderings feasible at the "
+                    f"+/-{auc_margin:.3f} AUC margin on effective n, "
+                    f"{counts}) - ALIGNED and MISALIGNED are both "
+                    f"consistent with this evidence, so neither is claimed")
     if rho >= 0.0:
         return (Code.XV_GATE_TRUTH_ALIGNED.value,
                 f"{Code.XV_GATE_TRUTH_ALIGNED.value}: weight order "
@@ -189,16 +276,33 @@ def build_report(history_path="outputs/signal_history.csv",
            f"AUC below actually run on)", ""]
 
     y = [1.0 if r.get("label") == "1" else 0.0 for r in inst]
+    # AUC INTERVAL, on the SAME effective n the floor is judged against.
+    # Section [1] has always printed n_eff and called it "the unit every
+    # AUC below actually runs on" — until 2026-08-31 no AUC below carried
+    # an interval, so a reader saw five points and read a RANKING that
+    # the sampling error does not support.
+    _win = (sum(y) / len(y)) if y else float("nan")
+    _auc_se = auc_se_on_neff(n_eff, _win) if y else float("nan")
+    _margin = 1.96 * _auc_se if _auc_se == _auc_se else float("nan")
     aucs = {}
     out.append("[2] per-component realized discrimination "
                "(aligned = s_i x direction)")
+    if _margin == _margin:
+        out.append(f"  AUC 95% margin +/-{_margin:.4f} on effective n="
+                   f"{n_eff:.1f} (nominal n={len(inst)} would read "
+                   f"+/-{1.96 * auc_se_on_neff(len(inst), _win):.4f} — "
+                   f"optimistic by x{math.sqrt(len(inst) / n_eff):.2f})")
     for k in _WEIGHT_KEYS:
         a = [_f(r.get(f"sg_{k}")) * _f(r.get("direction"), 1.0)
              for r in inst]
         auc = _rank_auc(a, y) if inst else float("nan")
         aucs[k] = auc
         n_pos = sum(1 for v in a if v > 0)
-        out.append(f"  {k:6s} w={weights[k]:.2f}  AUC={auc:.3f}  "
+        _ci = ""
+        if _margin == _margin and auc == auc:
+            _sig = "" if abs(auc - 0.5) > _margin else "  [spans 0.5]"
+            _ci = f"  95% CI [{auc - _margin:.3f}, {auc + _margin:.3f}]{_sig}"
+        out.append(f"  {k:6s} w={weights[k]:.2f}  AUC={auc:.3f}{_ci}  "
                    f"aligned_n={n_pos}/{len(a)}")
         # win-rate SPLIT: aligned (s_i x direction > 0) vs opposed (< 0).
         # Rows with s_i x direction == 0 count toward neither side.
@@ -243,7 +347,8 @@ def build_report(history_path="outputs/signal_history.csv",
                f"(vs label; <0.5 = anti-calibrated)")
     out.append("")
 
-    code, line = classify_alignment(weights, aucs, len(inst), n_eff=n_eff)
+    code, line = classify_alignment(weights, aucs, len(inst), n_eff=n_eff,
+                                    auc_margin=_margin)
     out += ["[5] verdict", f"  {line}", ""]
     return "\n".join(out)
 

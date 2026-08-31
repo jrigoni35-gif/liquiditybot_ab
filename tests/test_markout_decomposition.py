@@ -102,3 +102,36 @@ def test_snapshot_written_before_the_decomposition_still_restores():
     c = m.snapshot()["by_asset"]["ETH"]["5"]
     assert c["markout_bps"] == 100.0
     assert "alpha_bps" not in c
+
+
+# --- the gap that shipped: resolved observations must survive a restart ---
+# (2026-08-31: the only prior round-trip test restored BEFORE polling, so it
+# pinned the in-flight mid0 path and never noticed to_dict() dropped the
+# resolved _scap/_alpha series - measured live at 0.986% coverage because
+# the decomposition window was exactly time-since-restart.)
+
+def test_resolved_decomposition_survives_restart():
+    m = MarkoutTracker({"horizons_sec": [1.0]})
+    m.record_fill("ETH/USD", "ETH", "buy", 100.0, 0.0, mid_at_fill=100.5)
+    m.poll({"ETH/USD": 101.0}, 2.0)                    # RESOLVE first
+    before = m.snapshot()["by_asset"]["ETH"]["1"]
+    assert "alpha_bps" in before                        # decomposed pre-restart
+
+    m2 = MarkoutTracker({"horizons_sec": [1.0]})
+    m2.restore(m.to_dict())                             # the restart
+    after = m2.snapshot()["by_asset"]["ETH"]["1"]
+    assert "alpha_bps" in after, (
+        "resolved alpha series destroyed by a restart - the exact defect "
+        "measured live 2026-08-31 (1,521 obs on disk, zero alpha)")
+    assert after["alpha_bps"] == before["alpha_bps"]
+    assert after["spread_capture_bps"] == before["spread_capture_bps"]
+    assert after["decomposed_n"] == before["decomposed_n"]
+    assert after["markout_bps"] == before["markout_bps"]  # unchanged behaviour
+
+
+def test_pre_decomposition_snapshot_without_scap_alpha_keys_restores_clean():
+    m = MarkoutTracker({"horizons_sec": [1.0]})
+    m.restore({"pending": [], "obs": {"ETH\u00011.0": [100.0]}})  # old file shape
+    c = m.snapshot()["by_asset"]["ETH"]["1"]
+    assert c["markout_bps"] == 100.0
+    assert "alpha_bps" not in c                         # absent, never fabricated

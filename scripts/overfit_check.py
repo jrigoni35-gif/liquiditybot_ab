@@ -646,6 +646,41 @@ def resolve_dsr_trials(configured: int, ledger_path) -> tuple:
                         f"ratchet holds configured {configured}")
 
 
+def dsr_gate_reachable(n_trials: int, gate: float = 0.90) -> tuple:
+    """Is OF-5's `dsr >= gate` ATTAINABLE AT ALL at this trial count?
+
+    deflated_sharpe's default nuisance parameter is
+    `var_trial_sr = max(sr_observed**2, 0.01)` (ml/overfit.py:866) — the
+    dispersion of SR ACROSS trials is UNIDENTIFIED here (no ledger
+    records per-trial SR), so the code substitutes the observed SR
+    itself. That substitution makes the rejection threshold PROPORTIONAL
+    to the statistic being tested:
+
+        sr0 = k(N) * |SR|,  k(N) = (1-g)Z'(1-1/N) + g*Z'(1-1/(N e))
+
+    and k(N) crosses 1.0 between N=3 and N=4. For every N >= 4 the
+    threshold therefore EXCEEDS the observed SR no matter how large that
+    SR is, z < 0, and DSR < 0.5 < gate — the gate cannot be passed by any
+    sample. At the shipped default N=7 an exhaustive sweep of 518,616
+    (SR, n, skew, kurtosis) combinations found 0 passing and a maximum
+    attainable DSR of 0.4262 (2026-08-31).
+
+    Returns (reachable, k, max_dsr_bound). Report-only: this NEVER
+    changes the threshold or the verdict — it lets the run SAY that a
+    green is unreachable instead of a reader mistaking a deferred gate
+    for a satisfied one. The real repair is a var_trial_sr measured from
+    a trial ledger that records per-trial SR (v0.1 records none), which
+    is a decision this file must not make on its own."""
+    from ml.overfit import deflated_sharpe
+    k = deflated_sharpe(1.0, 1000, n_trials=max(int(n_trials), 1)
+                        )["sr0_threshold"]
+    if k < 1.0:
+        return True, k, None
+    # k>=1 => sr0 >= |SR| for every |SR| >= 0.1 (the 0.01 var floor), and
+    # for |SR| < 0.1 the floor pins sr0 = 0.1*k > |SR|. Either way z <= 0.
+    return False, k, 0.5
+
+
 # ---------------------------------------------------------------------------
 def main() -> int:
     # OF-4 replays construct full bots that audit their dispositions and
@@ -954,6 +989,26 @@ def main() -> int:
     check("dof: not starved (>=10 rows per feature)", not dof["starved"],
           f"rows/feature={dof['rows_per_feature']:.1f} "
           f"({dof['n_rows']} rows / {dof['n_features']} features)")
+    # SCAN COVERAGE (2026-08-31): dead_feature_frac is only evidence about
+    # features the fitted GBT actually consulted. Measured on the live
+    # corpus: early stopping left the fit consulting 15/64 features across
+    # a full seed sweep, and 41 of 48 "always dead" entries were features
+    # NO fit ever split on - a blind model, not dead features. info(), not
+    # check(): coverage qualifies the reading, it is not itself a gate.
+    if not dof.get("scan_informative", True):
+        info("dof COVERAGE",
+             f"dead-feature scan UNINFORMATIVE: the fitted GBT consulted "
+             f"only {dof.get('features_consulted', 0)}/{dof['n_features']} "
+             f"features ({dof.get('dead_but_never_consulted', 0)} of the "
+             f"{len(dof['dead_features'])} 'dead' were never split on at "
+             f"all). Read dead_feature_frac as the model's blindness, not "
+             f"the features' deadness; the clustered-MDA report "
+             f"(scripts/interpret_report.py) is the honest ranking.")
+    else:
+        info("dof coverage",
+             f"fitted GBT consulted {dof.get('features_consulted', 0)}/"
+             f"{dof['n_features']} features - dead read taken on a model "
+             f"that actually looked")
     # dead-feature semantics depend on the dataset: the synthetic
     # benchmark plants signal in ~6 of 36 features BY CONSTRUCTION, so a
     # high dead fraction there is expected and says nothing about
@@ -1039,6 +1094,17 @@ def main() -> int:
         _dsr_trials, Path(__file__).resolve().parents[1] /
         "outputs" / "trial_ledger.csv")
     info(_dsr_src)
+    _reach, _k, _ = dsr_gate_reachable(_dsr_trials)
+    if not _reach:
+        info("dsr REACHABILITY",
+             f"UNPASSABLE at N={_dsr_trials}: the var_trial_sr=SR^2 fallback "
+             f"makes sr0 = {_k:.3f}x|SR|, so the rejection threshold scales "
+             f"with the statistic and dsr>=0.90 is attainable for NO sample "
+             f"(exhaustive sweep 2026-08-31: 0/518616 combinations pass at "
+             f"N=7, max dsr 0.4262). This gate cannot produce a green — read "
+             f"any OF-5 line below as INERT, not as evidence. Repair needs a "
+             f"var_trial_sr MEASURED from per-trial SR (trial_ledger v0.1 "
+             f"records none), never a threshold move.")
 
     def _dsr_of(r):
         # UNIT NOTE (2026-07-29 audit): r is per-trade USD PnL, so this is
@@ -1139,8 +1205,21 @@ def main() -> int:
                     "the market.** It is not evidence that the deployed "
                     "strategy is un-overfit.\n")
     print("=" * 42)
-    print(f"passed {PASS_N}, failed {FAIL_N}  "
+    # INERT COUNT ON THE SUMMARY LINE, same argument as the corpus line
+    # below: "passed 3, failed 0" is what a reader takes away, and it
+    # reads identically whether seven gates fired and three passed or
+    # three fired and four could not fire at all (OF-1 informational
+    # under exploration, OF-3 evidence-gated to one family, OF-4 inert on
+    # a zero-entry recording, OF-5 deferred/unreachable). A gate that
+    # COULD NOT FIRE reported the same way as one that fired and passed
+    # is the laundering this line stops. Measured 2026-08-31: passed 3,
+    # failed 0, informational 30+ — three of seven gates armed.
+    _info_n = sum(1 for kind, _, _ in REPORT if kind == "INFO")
+    print(f"passed {PASS_N}, failed {FAIL_N}, informational lines {_info_n}  "
           f"(report: {out}, {time.time() - t0:.0f}s)")
+    print(f"  ^^ {PASS_N} ARMED checks passed. Informational lines are NOT "
+          f"passes and include gates that COULD NOT FIRE - read the '--' "
+          f"lines to see which, and why, before reading this as a green")
     # THE CORPUS BELONGS ON THE SUMMARY LINE, not only in the OF-1 header ~30
     # lines up. "passed N, failed 0" is what a reader takes away, and
     # CLAUDE.md's definition-of-done lists this script as a GATE — so a

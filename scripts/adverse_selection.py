@@ -393,8 +393,16 @@ def entry_alpha_series(rows: list[dict], lane: str, horizon_s: int,
     for r in rows:
         if r["purpose"] != "entry":
             continue
-        if era is not None and (r.get("exec_era") or "") != era:
-            continue
+        if era is not None:
+            ev = r.get("exec_era")
+            # ABSENT != BLANK (the control-arm tag precedent, CLAUDE.md r7):
+            # a well-formed row with exec_era == "" IS the pre-stamp cohort;
+            # a ragged 16-field row DictReader None-fills is era-UNREADABLE
+            # and must match NO era filter. The old `or ""` coercion silently
+            # filed 6 era-7 fills (lines 1038-1043, 2026-08-12) into the
+            # era-4 view - 5.2% of era-7's entry cohort, measured 2026-08-31.
+            if ev is None or ev != era:
+                continue
         base = base_symbol(r["symbol"])
         ts = float(r["ts"])
         t0 = int(ts // iv) * iv
