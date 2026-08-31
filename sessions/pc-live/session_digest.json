@@ -1,21 +1,21 @@
 {
-  "generated_at": 1788169000.9456308,
+  "generated_at": 1788172604.0144541,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788168995.0,
-    "duration_h": 1249.72
+    "end": 1788172595.545,
+    "duration_h": 1250.72
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 760,
-      "signal_records": 552,
+      "records": 749,
+      "signal_records": 541,
       "by_src": {
         "exploration": 223,
-        "long_book": 174,
-        "ml_governor": 156,
-        "conviction": 150,
+        "long_book": 170,
+        "ml_governor": 153,
+        "conviction": 146,
         "order_manager": 43,
         "exit": 11,
         "startup": 1,
@@ -25,11 +25,11 @@
       "top_codes": [
         [
           "LB-010",
-          160
+          156
         ],
         [
           "CV-030",
-          146
+          142
         ],
         [
           "SZ-051",
@@ -45,15 +45,15 @@
         ],
         [
           "ML-016",
-          30
+          29
         ],
         [
           "ML-042",
-          30
+          29
         ],
         [
           "ML-041",
-          30
+          29
         ],
         [
           "OM-000",
@@ -73,54 +73,62 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.29,
+      "dominant_frac": 0.288,
       "retrain_requests": 8,
       "kill_switch_events": 4
     },
     "events": {
-      "records": 462,
+      "records": 1353,
       "by_level": {
-        "INFO": 264,
-        "WARNING": 100,
-        "ERROR": 98
+        "INFO": 857,
+        "WARNING": 340,
+        "ERROR": 156
       },
       "top_warnings": [
         [
-          "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-          98
-        ],
-        [
           "Binance.US: skipping BTCUSD, order book unavailable",
-          50
+          169
         ],
         [
           "Binance.US: skipping ETHUSD, order book unavailable",
-          49
+          168
+        ],
+        [
+          "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
+          156
         ],
         [
           "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
+        ],
+        [
+          "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
+          1
+        ],
+        [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          1
         ]
       ],
       "liquidity_tally": {
-        "thin": 45,
-        "spoofy": 40
+        "spoofy": 205,
+        "thin": 93
       },
-      "spoofy_frac": 0.471,
+      "spoofy_frac": 0.688,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 39,
-      "feed_error_events": 197
+      "cycles_estimate": 142,
+      "feed_error_events": 493
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 795.86,
+    "equity_end": 795.74,
     "equity_min": 794.61,
     "equity_max": 806.91,
     "equity_range": 12.3,
     "capital_epochs": 5,
-    "epoch_samples": 106850,
+    "epoch_samples": 107087,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -128,19 +136,19 @@
     "realized_pnl_total": -0.24,
     "fees_paid_total": 10.1312,
     "open_positions": 4,
-    "samples": 274641
+    "samples": 274878
   },
   "activity": {
-    "signal_rows_total": 21119,
+    "signal_rows_total": 21125,
     "live_labeled_trades": 387,
-    "candidate_rows": 20732
+    "candidate_rows": 20738
   },
   "audit": {
-    "records": 70453,
-    "signal_records": 30667,
+    "records": 70454,
+    "signal_records": 30668,
     "by_src": {
       "exploration": 62665,
-      "ml_governor": 2217,
+      "ml_governor": 2218,
       "long_book": 2063,
       "order_manager": 1720,
       "conviction": 691,
@@ -175,7 +183,7 @@
       ],
       [
         "ML-031",
-        826
+        827
       ],
       [
         "CV-030",
@@ -214,38 +222,46 @@
     "chain_error": null
   },
   "events": {
-    "records": 462,
+    "records": 1353,
     "by_level": {
-      "INFO": 264,
-      "WARNING": 100,
-      "ERROR": 98
+      "INFO": 857,
+      "WARNING": 340,
+      "ERROR": 156
     },
     "top_warnings": [
       [
-        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-        98
-      ],
-      [
         "Binance.US: skipping BTCUSD, order book unavailable",
-        50
+        169
       ],
       [
         "Binance.US: skipping ETHUSD, order book unavailable",
-        49
+        168
+      ],
+      [
+        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
+        156
       ],
       [
         "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
+      ],
+      [
+        "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
+        1
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 45,
-      "spoofy": 40
+      "spoofy": 205,
+      "thin": 93
     },
-    "spoofy_frac": 0.471,
+    "spoofy_frac": 0.688,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 39,
-    "feed_error_events": 197
+    "cycles_estimate": 142,
+    "feed_error_events": 493
   },
   "model": {
     "monitor_level": 1,
@@ -278,11 +294,17 @@
   },
   "diagnostics": [
     {
+      "id": "SD-003",
+      "severity": "warn",
+      "title": "liquidity vetoed feed-wide",
+      "detail": "liquidity classified 'spoofy' on 69% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+    },
+    {
       "id": "SD-010",
       "severity": "info",
       "title": "audit writer seam(s)",
       "detail": "10 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
-  "verdict": "SD-010 audit writer seam(s)"
+  "verdict": "SD-003 liquidity vetoed feed-wide"
 }
