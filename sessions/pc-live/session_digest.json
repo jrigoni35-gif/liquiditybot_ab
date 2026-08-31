@@ -1,20 +1,20 @@
 {
-  "generated_at": 1788140187.9790988,
+  "generated_at": 1788143790.477657,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788140174.0,
-    "duration_h": 1241.71
+    "end": 1788143787.258,
+    "duration_h": 1242.71
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 829,
-      "signal_records": 614,
+      "records": 821,
+      "signal_records": 606,
       "by_src": {
         "exploration": 228,
-        "long_book": 208,
-        "conviction": 182,
+        "long_book": 204,
+        "conviction": 178,
         "ml_governor": 153,
         "order_manager": 43,
         "exit": 12,
@@ -25,11 +25,11 @@
       "top_codes": [
         [
           "LB-010",
-          192
+          188
         ],
         [
           "CV-030",
-          178
+          174
         ],
         [
           "SZ-051",
@@ -73,15 +73,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.313,
+      "dominant_frac": 0.31,
       "retrain_requests": 8,
       "kill_switch_events": 4
     },
     "events": {
-      "records": 16884,
+      "records": 17560,
       "by_level": {
-        "INFO": 16815,
-        "WARNING": 64,
+        "INFO": 17490,
+        "WARNING": 65,
         "CRITICAL": 3,
         "ERROR": 2
       },
@@ -92,6 +92,10 @@
         ],
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          2
+        ],
+        [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           2
         ],
         [
@@ -121,31 +125,27 @@
         [
           "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
           1
-        ],
-        [
-          "ML-080: exit-reason mix drift tvd=0.741 over trailing 24h (469/19469 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3586,
-        "thin": 1752
+        "spoofy": 3801,
+        "thin": 1838
       },
-      "spoofy_frac": 0.672,
+      "spoofy_frac": 0.674,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 2189,
+      "cycles_estimate": 2308,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 795.31,
+    "equity_end": 795.27,
     "equity_min": 794.61,
     "equity_max": 806.91,
     "equity_range": 12.3,
     "capital_epochs": 5,
-    "epoch_samples": 104952,
+    "epoch_samples": 105190,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -153,19 +153,19 @@
     "realized_pnl_total": -0.24,
     "fees_paid_total": 10.0896,
     "open_positions": 2,
-    "samples": 272743
+    "samples": 272981
   },
   "activity": {
-    "signal_rows_total": 21053,
+    "signal_rows_total": 21058,
     "live_labeled_trades": 387,
-    "candidate_rows": 20666
+    "candidate_rows": 20671
   },
   "audit": {
-    "records": 70423,
-    "signal_records": 30646,
+    "records": 70424,
+    "signal_records": 30647,
     "by_src": {
       "exploration": 62654,
-      "ml_governor": 2202,
+      "ml_governor": 2203,
       "long_book": 2063,
       "order_manager": 1716,
       "conviction": 691,
@@ -200,7 +200,7 @@
       ],
       [
         "ML-031",
-        818
+        819
       ],
       [
         "CV-030",
@@ -239,10 +239,10 @@
     "chain_error": null
   },
   "events": {
-    "records": 16884,
+    "records": 17560,
     "by_level": {
-      "INFO": 16815,
-      "WARNING": 64,
+      "INFO": 17490,
+      "WARNING": 65,
       "CRITICAL": 3,
       "ERROR": 2
     },
@@ -253,6 +253,10 @@
       ],
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        2
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
@@ -282,19 +286,15 @@
       [
         "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
         1
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.741 over trailing 24h (469/19469 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3586,
-      "thin": 1752
+      "spoofy": 3801,
+      "thin": 1838
     },
-    "spoofy_frac": 0.672,
+    "spoofy_frac": 0.674,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 2189,
+    "cycles_estimate": 2308,
     "feed_error_events": 1
   },
   "model": {
@@ -337,7 +337,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 31% of 614 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 31% of 606 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
