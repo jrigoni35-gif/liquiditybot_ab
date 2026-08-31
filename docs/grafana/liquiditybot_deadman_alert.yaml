@@ -43,11 +43,19 @@
 # `notification_settings`, or GET .../lb-manip-high — both carry it):
 # read-modify-write PUT set `notification_settings: {receiver:
 # grafana-default-email}` on both lb-telemetry-stale and lb-manip-high
-# (verified live, GET confirms the field on both after the PUT). Root
-# policy receiver is STILL "empty" — untouched, wider blast radius than
-# needed — this per-rule override is what now delivers. The two new rules
-# below (lb-drift-stuck, lb-brier-degraded) were PROVISIONED WITH this
-# setting already attached, so they never carried the defect.
+# (verified live, GET confirms the field on both after the PUT). The two
+# new rules below (lb-drift-stuck, lb-brier-degraded) were PROVISIONED
+# WITH this setting already attached, so they never carried the defect.
+#
+# ROOT ROUTE REPOINTED 2026-08-31 (operator "Go"): PUT
+# /api/v1/provisioning/policies set the root receiver empty →
+# grafana-default-email (HTTP 202; independent GET confirms; group_by
+# ["grafana_folder","alertname"] preserved, no routes clobbered — the
+# per-rule autogen routes live rule-side and are invisible to this
+# endpoint by design). A future rule created WITHOUT
+# notification_settings now pages instead of routing to the void; the
+# per-rule overrides remain as belt-and-braces. Re-derive: GET
+# /api/v1/provisioning/policies and read `receiver`.
 #
 # Recipe, for the next rule that needs it:
 #   GET  /api/v1/provisioning/alert-rules/<uid>

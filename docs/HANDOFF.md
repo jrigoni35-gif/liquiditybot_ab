@@ -281,7 +281,11 @@ bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
 | **CTRL-2** *(SAFE, unblocked by the cut #8 merge)* | the control-arm tag is now WRITTEN but nothing consumes it. `gate_efficacy_report.py` needs its second, era-current baseline arm sourced from the tag's minority-arm rows — the only route out of the universal CONFOUNDED_BASELINE/PARTIAL_OVERLAP state. Two drifts the original TODO must absorb: the era-current arm must clear `ERA_OVERLAP_MAJORITY` by construction (not merely the floor), and any new `comparison` value must route through the two-vocabulary verdict function at `gate_efficacy_report.py:228-237` or it reintroduces the F1 inversion `0084c16d` killed. Needs accrual first (~usable n=30 in 0.85–1.6d of live rows) | sandbox report §5, `scripts/gate_efficacy_report.py` |
 | **DATA-1** *(BOUNDARY, found 08-30 data-pull audit)* | `MoomooFeed._poll_options` (`data/moomoo_feed.py:372-377`) picks NTM option contracts with `picked = picked[:self.opt_max_contracts]` — an order-dependent truncation on whatever row order `chain.iterrows()` returns, not sorted by distance-to-mid. If an underlying's NTM band ever exceeds `opt_max_contracts` (60) simultaneously-listed contracts, WHICH contracts survive the truncation depends on SDK row order (not proven stable call-to-call), so `opt_pcr_z`/`opt_iv_skew` could vary for reasons unrelated to price. Feeds an ML feature -> BOUNDARY if changed (fix would alter feature values feeding the model). Not observed live yet (crypto-proxy chains rarely exceed 60 in a 10% NTM band) — fix = sort `picked` by `abs(strike-mid)` before truncating, same selection semantics, deterministic order | `data/moomoo_feed.py:341-377`, this row |
 | **DATA-2** *(BOUNDARY, found 08-30 data-pull audit)* | `WebDataFeed.maybe_poll`'s CoinGecko-fetch exception path (`data/webdata_feed.py:120-124`) holds `btc_dominance`/`total_mcap_usd` at their last-good value on failure (consistent with the module's own stale-hold design) but hard-resets `dominance_delta` to `0.0` instead of holding ITS last value too — an inconsistency within the same fallback block, not a crash risk. `dominance_delta` is an ML feature -> BOUNDARY if changed. Low severity (CoinGecko fetch failures are rare and the field already defaults neutral) but worth reconciling with the hold-last-value convention the rest of the block uses | `data/webdata_feed.py:99-124`, this row |
-| **FEE-3** | OM-080 fee reconciliation has **never fired** — the account's actual tier row is unverified. One read-only `TradeVolume` call settles it; needs the first real credential on the box, so scope query-only and prefer post-readout | `execution/order_manager.py:767` |
+| **FEE-3** *(CORRECTED 2026-08-30, partial-identification audit — the "never fired" clause was FALSE)* | OM-080 has fired **n=1**: `outputs/audit.jsonl` seq 69754, 2026-08-29T15:47:07.123Z, XBTUSD **40/80 bps** — double-derived (full-range grep n=1; `cost_truth_report.py` `n_records=1`, live verdict **XV-033 DANGEROUS: configured UNDER measured** vs shipped 22/38); record predates the cut-#9 adjudication commit `16ec821e` by 4h40m58s, and the emit path requires a signed non-error `TradeVolume` response, so credentials existed on the box 2026-08-29. **The tier is a 2-element identified set** {40/80 [K, one venue reading — possibly schedule-top for an untraded pair] vs 22/38 [I, operator app screenshot]} and **era-6 accrues at 22/38 while the only venue reading on record says 40/80**. REOPENED remedy (SAFE, measurement-plane, highest value/cost on this docket): `data/kraken_feed.py:415-428` keeps only `fee` and discards `minfee`/`maxfee`/`nextfee`/`nextvolume`/`tiervolume` + 30-day `volume` — log the full tier context and re-run `cost_truth_report.py`; those fields distinguish "account rate" from "schedule top" and confirm/refute the $17,482 volume figure. POWER-2's "OM-080 n_records=0" clause was true when written (08-22) and is superseded by this row | `execution/order_manager.py:767`, `data/kraken_feed.py:406-429`, vault `concepts/partial-identification` |
+| **PI-1** *(SAFE — correct the cut-#9 decision record)* | `docs/quant/2026-08-29_fee_tier_correction_adjudication.md:84-90` carries a **[K] tag that is false at authorship** ("OM-080 n=0 ... no credentials": measured n=1, 4h40m58s before the commit) and `:82`'s booked-median-65.4bps cross-check is **circular** (config then in force = 65bps round-trip; POWER-2 already named this shape — agreement proves booking==config, not venue truth). Operator adjudicates striking both clauses with a dated callout; the record is decision-grade and operator-owned, so it was NOT edited by the audit. Does NOT reopen the 22/38 ground truth by itself — see FEE-3 for the evidence route | vault `concepts/partial-identification`, this session's audit register |
+| **PI-2** *(SAFE — disclosure that changes what the era-6 readout MEANS)* | the model entry path is **structurally closed at every element of the fee set**: deployed champion `1ee3ae68c0df` raw range [0.0196, 0.9832] but isotonic-calibrated ceiling **0.6446** < bar 0.6772 (live post-shrink 0.5687), **0/21,047 corpus rows clear** — mutation-verified (identity calibrator frees 1,956 rows: the CALIBRATOR closes the path, the scan is live). Every live entry is a synthetic-p probe (exploration 0.85 / aggressive 0.72), so gates reading "the strategy" read the probe lane. Recurrence of `_label_max_bars_migration_doc`'s "structurally unreachable" ceiling (0.2164 vs 0.63) at a new geometry, undetected — record it in the readout's preamble; any calibrator/bar change is COHORT-RESETTING and waits for the boundary | vault `concepts/partial-identification` |
+| **PI-3** *(SAFE — the closing veto is unobservable)* | `main.py:4152-4160` logs non-exploration sizer vetoes at DEBUG; `system.log_level` INFO; 0 DEBUG lines persisted; **0** SZ-023/SZ-030 in the full 70,409-line `audit.jsonl` — the system's most-firing veto leaves no record anywhere (why PI-2 went unremarked; the CLAUDE.md asymmetry in pure form). Remedy: raise to INFO or emit a registered audit code — measurement-plane, but touches `main.py`, so ship through a normal DoD-green commit, not an audit session | `main.py:4152-4160` |
+| **PI-4** *(BOUNDARY — LS-2 scope extension; CONFIRMS LS-2, does not rebuild it)* | the audit PRICES LS-2 ($50.44–$113.51 ticket set at its own most-favourable assumptions; $0.00–$153.14 jointly; shipped point $81.97 = minimax-regret action at NO rung) and finds three gaps OUTSIDE its scope as written: (a) the entry-bar set [0.6772, 0.8335] is a **cost**-side unidentification Bayesian p-sizing cannot move (belongs with FEE-3, sequence it FIRST — b_net uncertainty dominates p_win uncertainty in the joint set); (b) **admission is not sizing**: the p-bar veto is a 1e-4 step on a point (`position_sizer.py:469`) with no vocabulary for a p-interval straddling the bar — the trade/no-trade decision itself is unidentified at the SMALLER measured calibration error (0.72−0.06647=0.6535 → $0 vs 0.72 → $20.30), and no sizer helps while the ceiling sits below the bar; (c) the governor applies its 3-valued `kelly_mult` AFTER veto and f_star. Operator adjudicates: widen LS-2 to admission or docket separately; bundle with ALGO-5/GB-1 at the boundary | `docs/quant/2026-08-20_learning_symmetry_synthesis.md`, vault `concepts/partial-identification` |
 | **THALES-R** *(SAFE)* | exploitable-human-mistake registry established: 15 entries (A: counterparty mistakes incl. the 3 dormant/absent footprints + funding/basis/OI blindness; B: our own measured biases as archetype ground truth), lifecycle contract with staleness-vs-boundary enforcement in the suite. Founding cautionary case: THALES itself — frozen at `shadow` since 07-29 while its th_* features shipped live ungated | `docs/thales/README.md`, `docs/thales/REGISTRY.md`, `tests/test_thales_registry.py` |
 | **TRIALS-1 build** *(SAFE, shipped)* | archetype null battery + trial ledger v0.1: measured trial N feeds OF-5 under a ratchet (max(configured, measured); var stays legacy behind TRIPS_FLOOR=20); 8 entry-only rungs + deployed member on venue-coherent multi-seed tapes; activity floor + liveness pin close the confident-zero hole; run `python scripts/archetype_battery.py` then `python scripts/trial_ledger.py --report` | `docs/superpowers/specs/2026-08-27-archetype-null-battery-design.md`, `docs/superpowers/plans/2026-08-27-archetype-null-battery.md` |
 **REG-6 UPDATE (2026-08-26, veto-quality instrument):** the pre-registered
@@ -496,13 +500,12 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
   mailbox is monitored. **Zero-cost close, operator-side:** eyeball that
   inbox (and its spam folder) for an `lb-drift-stuck` mail timestamped
   ~2026-08-30T23:05Z.
-  (b) The **root route receiver is still `empty` (0 integrations)**, so ANY
-  future rule created without `notification_settings` routes to the void
-  exactly as the 2026-07-14→08-30 outage did. The 4 current rules are safe
-  only because each carries a per-rule override. Durable fix (not applied —
-  wider blast radius, operator call): point the root route at
-  `grafana-default-email`. Until then, **every new alert rule MUST carry
-  `notification_settings`** — treat that as the checklist item.
+  (b) ~~root route receiver `empty`~~ **CLOSED 2026-08-31 under operator
+  "Go":** root receiver repointed `empty` → `grafana-default-email` via PUT
+  /api/v1/provisioning/policies (HTTP 202, GET-verified; group_by preserved,
+  per-rule autogen routes untouched). New rules without
+  `notification_settings` now page by default; per-rule overrides remain as
+  belt-and-braces. Re-derive: GET the policies endpoint, read `receiver`.
   (c) Contact point has `provenance: "api"`, so it is **locked in the Grafana
   UI** — edits to the destination address must go through the API.
 
@@ -559,15 +562,15 @@ rediscovered as gaps in the record:**
   section reports **5/72 trips with a STALE-BINARY leg**, so the stamp HAS
   failed before.
 
-**OPERATOR DECISIONS OWED (neither is mine to make):**
-- **Grafana root route.** The root route still points at receiver `empty`
-  (**0 integrations**). The 4 current rules deliver ONLY because each carries
-  its own `notification_settings` override. Any rule created WITHOUT that
-  override routes to the void **exactly as the 2026-07-14→08-30 outage did**.
-  Fix is either (i) repoint the root route to `grafana-default-email`, or
-  (ii) mandate `notification_settings` on every new rule as a checklist item.
-  **Until one of those lands, the RULE-#5 TRAP IS ARMED.** The contact point
-  is `provenance: "api"` → UI-locked, editable only via the API.
+**OPERATOR DECISIONS OWED:**
+- ~~**Grafana root route.**~~ **EXECUTED 2026-08-31 under operator "Go"** —
+  root receiver repointed `empty` → `grafana-default-email` (PUT
+  /api/v1/provisioning/policies, HTTP 202, independent GET confirms;
+  group_by preserved). **The rule-#5 trap is DISARMED.** Contact point stays
+  `provenance: "api"` (UI-locked, API-editable). An adversarial review of
+  the operator-decision handoff had found this item was within
+  already-exercised authority (same class as the 2026-08-30 rule PUTs) —
+  the "Go" confirmed it.
 - **Era-6 straddler membership.** **4** trips under stamp-purity AND under
   entry-time (these two are **SET-EQUAL, not merely count-equal**); **7**
   under any-leg AND under close-time. The moratorium's "accrual begins at the
