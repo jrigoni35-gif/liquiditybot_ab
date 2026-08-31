@@ -357,6 +357,9 @@ def test_collect_aux_isolates_a_raising_collector(monkeypatch):
     monkeypatch.setattr(gp, "_lineage_metrics", boom)
     monkeypatch.setattr(gp, "_cohort_metrics", lambda now: [])
     monkeypatch.setattr(gp, "_veto_quality_metrics", lambda now: [])
+    # 2026-08-31: ceiling-bar collector joined the composition; patched out
+    # like its siblings so this pin tests ISOLATION, not live outputs/.
+    monkeypatch.setattr(gp, "_ceiling_bar_metrics", lambda now: [])
     out = gp.collect_aux(1000.0)          # must not raise
     assert _names(out) == {"liquiditybot_ml_orphan_ratio"}
 

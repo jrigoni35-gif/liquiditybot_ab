@@ -1353,6 +1353,57 @@ def _veto_quality_metrics(now: float) -> list:
     return m
 
 
+META_MODEL_PATH = _REPO_ROOT / "outputs" / "meta_model.json"
+CEILING_CONFIG_PATH = _REPO_ROOT / "config.json"
+CEILING_STATUS_PATH = _REPO_ROOT / "outputs" / "status.json"
+
+
+def _ceiling_bar_metrics(ts: float) -> list:
+    """Ceiling-vs-bar margin: the moving-property watch behind the era-6
+    structural-closure finding (2026-08-31). Three live inputs move it and
+    NONE of them announces itself: a retrain refits the isotonic calibrator
+    (moves the max emittable knot), the governor moves shrinkage, and a fee
+    change moves the derived entry bar. When the emittable ceiling sits
+    below the bar, the model path cannot admit an entry and the accruing
+    gate is measuring the exploration lane only — measured live 2026-08-31:
+    corpus-conditional ceiling 0.6446 < bar set [0.6772, 0.8335], while the
+    THEORETICAL ceiling exported here (max knot, shrunk) was 0.7280 —
+    reachable only by degenerate inputs (the sent_fear landmine measured
+    exactly 0.728000 end-to-end, which is this formula's independent
+    validation). So: margin < 0 here = hard-closed even for degenerate
+    inputs; margin >= 0 does NOT mean open for realistic ones — the
+    corpus-conditional ceiling is the stricter number and is re-derived
+    offline (point-vs-set audit), not per-push.
+
+    bar comes from the REAL PositionSizer constructed on the live config —
+    single source of truth, never a copied formula (the spread_bps /10 and
+    bps-vs-percent traps both came from copies drifting). Report-only:
+    nothing reads these gauges back into any decision."""
+    import json as _json
+    try:
+        cfg = _json.loads(CEILING_CONFIG_PATH.read_text(encoding="utf-8"))
+        meta = _json.loads(META_MODEL_PATH.read_text(encoding="utf-8"))
+        st = _json.loads(CEILING_STATUS_PATH.read_text(encoding="utf-8"))
+        ys = (meta.get("calibration") or {}).get("y") or []
+        if not ys:
+            return []
+        from risk.position_sizer import PositionSizer
+        sizer = PositionSizer(cfg.get("position_sizer", {}),
+                              cfg.get("profit_taking", {}),
+                              cfg.get("risk", {}),
+                              pretrade_cfg=cfg.get("pretrade", {}),
+                              capital_cfg=cfg.get("capital_management", {}))
+        bar = float(sizer.p_bar_base)
+        shrink = _num((st.get("monitor") or {}).get("shrinkage"), 0.0)
+        ceiling = 0.5 + (float(max(ys)) - 0.5) * (1.0 - shrink)
+        return [gauge("liquiditybot_p_entry_bar", bar, ts=ts),
+                gauge("liquiditybot_p_ceiling_theoretical", ceiling, ts=ts),
+                gauge("liquiditybot_p_ceiling_margin", ceiling - bar, ts=ts)]
+    except Exception:
+        log.debug("ceiling-bar metrics unavailable", exc_info=True)
+        return []
+
+
 def collect_aux(now: float | None = None) -> list:
     """The ledger-derived batch pushed beside collect()'s status batch.
     Each helper already returns [] on its own failure; this wrapper
@@ -1361,7 +1412,7 @@ def collect_aux(now: float | None = None) -> list:
     now = time.time() if now is None else now
     out: list = []
     for fn in (_orphan_ratio_metrics, _lineage_metrics, _cohort_metrics,
-               _veto_quality_metrics):
+               _veto_quality_metrics, _ceiling_bar_metrics):
         try:
             out.extend(fn(now))
         except Exception:
