@@ -2,13 +2,13 @@
 
 **Verdict: SD-003 liquidity vetoed feed-wide**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-08-31 21:36 UTC (1261.72h, ~1417 cycles)
-- Equity (current capital epoch): $800.00 -> $795.93 (range $12.30) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $-0.73 | fees (all legs) $10.35
-- Activity: 3 open | 389 live labeled trades | 21053 candidates | 326 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-08-31 22:37 UTC (1262.72h, ~1534 cycles)
+- Equity (current capital epoch): $800.00 -> $795.50 (range $12.30) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $-0.73 | fees (all legs) $10.35
+- Activity: 3 open | 389 live labeled trades | 21068 candidates | 326 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 389 | cold=False
-- Audit: 70492 records (30704 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 171
+- Audit: 70514 records (30711 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 171
 - Liquidity: spoofy 65% of non-liquid cycles | feed errors 1059
-- Recent (48h lens): 644 audit records | dominant LB-010 (25% of non-routine) | retrain_requests 8 | spoofy 65% (non-liquid)
+- Recent (48h lens): 656 audit records | dominant LB-010 (24% of non-routine) | retrain_requests 8 | spoofy 65% (non-liquid)
 
 ## Diagnostics
 - [WARN] **SD-003 liquidity vetoed feed-wide**  -  liquidity classified 'spoofy' on 65% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source
