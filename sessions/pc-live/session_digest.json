@@ -1,21 +1,21 @@
 {
-  "generated_at": 1788205020.5033774,
+  "generated_at": 1788208618.9698246,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788205018.0,
-    "duration_h": 1259.72
+    "end": 1788208617.0,
+    "duration_h": 1260.72
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 677,
-      "signal_records": 467,
+      "records": 669,
+      "signal_records": 459,
       "by_src": {
         "exploration": 227,
         "ml_governor": 144,
-        "long_book": 134,
-        "conviction": 110,
+        "long_book": 130,
+        "conviction": 106,
         "order_manager": 45,
         "exit": 13,
         "startup": 1,
@@ -26,11 +26,11 @@
       "top_codes": [
         [
           "LB-010",
-          120
+          116
         ],
         [
           "CV-030",
-          106
+          102
         ],
         [
           "SZ-051",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.257,
+      "dominant_frac": 0.253,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 9337,
+      "records": 10026,
       "by_level": {
-        "INFO": 8250,
-        "WARNING": 929,
+        "INFO": 8936,
+        "WARNING": 932,
         "ERROR": 156,
         "CRITICAL": 2
       },
@@ -108,6 +108,10 @@
           2
         ],
         [
+          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
+          2
+        ],
+        [
           "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
         ],
@@ -122,31 +126,27 @@
         [
           "moomoo options poll failed (no option volume in NTM band) - options context neutral until next attempt",
           1
-        ],
-        [
-          "DF-020: building feature rows with degraded context (options) - the affected features read neutral; rows carry avail_* flags",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 1756,
-        "thin": 996
+        "spoofy": 1942,
+        "thin": 1076
       },
-      "spoofy_frac": 0.638,
+      "spoofy_frac": 0.643,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1182,
+      "cycles_estimate": 1300,
       "feed_error_events": 1059
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 795.95,
+    "equity_end": 795.64,
     "equity_min": 794.61,
     "equity_max": 806.91,
     "equity_range": 12.3,
     "capital_epochs": 5,
-    "epoch_samples": 109212,
+    "epoch_samples": 109448,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -154,19 +154,19 @@
     "realized_pnl_total": -0.73,
     "fees_paid_total": 10.3476,
     "open_positions": 3,
-    "samples": 277003
+    "samples": 277239
   },
   "activity": {
-    "signal_rows_total": 21419,
+    "signal_rows_total": 21438,
     "live_labeled_trades": 389,
-    "candidate_rows": 21030
+    "candidate_rows": 21049
   },
   "audit": {
-    "records": 70489,
-    "signal_records": 30701,
+    "records": 70490,
+    "signal_records": 30702,
     "by_src": {
       "exploration": 62669,
-      "ml_governor": 2243,
+      "ml_governor": 2244,
       "long_book": 2063,
       "order_manager": 1723,
       "conviction": 691,
@@ -201,7 +201,7 @@
       ],
       [
         "ML-031",
-        832
+        833
       ],
       [
         "CV-030",
@@ -240,10 +240,10 @@
     "chain_error": null
   },
   "events": {
-    "records": 9337,
+    "records": 10026,
     "by_level": {
-      "INFO": 8250,
-      "WARNING": 929,
+      "INFO": 8936,
+      "WARNING": 932,
       "ERROR": 156,
       "CRITICAL": 2
     },
@@ -269,6 +269,10 @@
         2
       ],
       [
+        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
+        2
+      ],
+      [
         "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
       ],
@@ -283,19 +287,15 @@
       [
         "moomoo options poll failed (no option volume in NTM band) - options context neutral until next attempt",
         1
-      ],
-      [
-        "DF-020: building feature rows with degraded context (options) - the affected features read neutral; rows carry avail_* flags",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1756,
-      "thin": 996
+      "spoofy": 1942,
+      "thin": 1076
     },
-    "spoofy_frac": 0.638,
+    "spoofy_frac": 0.643,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1182,
+    "cycles_estimate": 1300,
     "feed_error_events": 1059
   },
   "model": {
