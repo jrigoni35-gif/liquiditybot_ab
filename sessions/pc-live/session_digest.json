@@ -1,23 +1,23 @@
 {
-  "generated_at": 1788230240.2196517,
+  "generated_at": 1788233840.7347689,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788230226.0,
-    "duration_h": 1266.72
+    "end": 1788233831.0,
+    "duration_h": 1267.73
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 728,
-      "signal_records": 439,
+      "records": 601,
+      "signal_records": 422,
       "by_src": {
-        "exploration": 310,
-        "ml_governor": 138,
-        "long_book": 121,
-        "conviction": 82,
-        "order_manager": 60,
-        "exit": 12,
+        "exploration": 200,
+        "ml_governor": 137,
+        "long_book": 122,
+        "conviction": 78,
+        "order_manager": 48,
+        "exit": 11,
         "engine": 2,
         "startup": 1,
         "fault": 1,
@@ -25,27 +25,23 @@
       },
       "top_codes": [
         [
+          "LB-010",
+          99
+        ],
+        [
           "SZ-051",
-          135
+          85
         ],
         [
           "ML-070",
-          131
-        ],
-        [
-          "LB-010",
-          100
+          81
         ],
         [
           "CV-030",
-          78
+          74
         ],
         [
           "ML-031",
-          37
-        ],
-        [
-          "OM-040",
           36
         ],
         [
@@ -61,12 +57,16 @@
           31
         ],
         [
+          "OM-040",
+          26
+        ],
+        [
           "OM-000",
-          24
+          22
         ],
         [
           "SZ-052",
-          23
+          13
         ],
         [
           "SZ-049",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.228,
+      "dominant_frac": 0.235,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 15182,
+      "records": 16031,
       "by_level": {
-        "INFO": 14082,
-        "WARNING": 942,
+        "INFO": 14930,
+        "WARNING": 943,
         "ERROR": 156,
         "CRITICAL": 2
       },
@@ -105,7 +105,7 @@
         ],
         [
           "turbulence spike: 73.9 (p99 >= p95)",
-          3
+          4
         ],
         [
           "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3216,
-        "thin": 1929
+        "spoofy": 3460,
+        "thin": 1951
       },
-      "spoofy_frac": 0.625,
+      "spoofy_frac": 0.639,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 2000,
+      "cycles_estimate": 2117,
       "feed_error_events": 1059
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 795.09,
+    "equity_end": 796.0,
     "equity_min": 794.61,
     "equity_max": 806.91,
     "equity_range": 12.3,
     "capital_epochs": 5,
-    "epoch_samples": 110851,
+    "epoch_samples": 111086,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -154,20 +154,20 @@
     "realized_pnl_total": -0.73,
     "fees_paid_total": 10.3969,
     "open_positions": 4,
-    "samples": 278642
+    "samples": 278877
   },
   "activity": {
-    "signal_rows_total": 21569,
+    "signal_rows_total": 21576,
     "live_labeled_trades": 389,
-    "candidate_rows": 21180
+    "candidate_rows": 21187
   },
   "audit": {
-    "records": 70633,
-    "signal_records": 30755,
+    "records": 70673,
+    "signal_records": 30761,
     "by_src": {
-      "exploration": 62763,
+      "exploration": 62797,
       "ml_governor": 2258,
-      "long_book": 2079,
+      "long_book": 2085,
       "order_manager": 1741,
       "conviction": 691,
       "startup": 323,
@@ -185,15 +185,15 @@
       ],
       [
         "ML-070",
-        21109
+        21126
       ],
       [
         "SZ-051",
-        18603
+        18620
       ],
       [
         "LB-010",
-        1396
+        1399
       ],
       [
         "OM-000",
@@ -217,7 +217,7 @@
       ],
       [
         "LB-050",
-        385
+        388
       ],
       [
         "ML-041",
@@ -322,10 +322,10 @@
     ]
   },
   "events": {
-    "records": 15182,
+    "records": 16031,
     "by_level": {
-      "INFO": 14082,
-      "WARNING": 942,
+      "INFO": 14930,
+      "WARNING": 943,
       "ERROR": 156,
       "CRITICAL": 2
     },
@@ -348,7 +348,7 @@
       ],
       [
         "turbulence spike: 73.9 (p99 >= p95)",
-        3
+        4
       ],
       [
         "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
@@ -372,12 +372,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3216,
-      "thin": 1929
+      "spoofy": 3460,
+      "thin": 1951
     },
-    "spoofy_frac": 0.625,
+    "spoofy_frac": 0.639,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 2000,
+    "cycles_estimate": 2117,
     "feed_error_events": 1059
   },
   "model": {
@@ -420,7 +420,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 62% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 64% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
