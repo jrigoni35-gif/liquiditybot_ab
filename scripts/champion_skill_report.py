@@ -96,6 +96,39 @@ def window_report(p_cal: np.ndarray, y: np.ndarray,
     return out
 
 
+def capacity_ladder(fit_predict, y_test: np.ndarray) -> list[dict[str, Any]]:
+    """Skill of each capacity rung on ONE shared test window.
+
+    `fit_predict` maps a rung name -> calibrated test-window probabilities
+    (or None if that rung could not be fitted). Injected rather than built
+    here so tests can plant predictors of known skill without training
+    anything, and so this stays pure.
+
+    WHY A LADDER: if low skill were a CAPACITY limit, a higher rung would
+    beat the deployed one. Measured 2026-09-01 on 4,887 unseen rows: all
+    eight rungs scored NEGATIVE skill and capacity was monotonically
+    HARMFUL (blend -0.004 ... ensemble_mlp -0.194). That is the signature
+    of fitting noise: the binding constraint is the TARGET, not the model.
+    """
+    y_test = np.asarray(y_test, float).reshape(-1)
+    rows: list[dict[str, Any]] = []
+    for name, p in fit_predict.items():
+        if p is None:
+            rows.append({"rung": name, "error": "could not fit",
+                         "skill_score": None, "verdict": "UNDEFINED (unfit)"})
+            continue
+        r = window_report(p, y_test)
+        r["rung"] = name
+        rows.append(r)
+    # Explicit None test, NOT `or`: a skill score of exactly 0.0 is FALSY,
+    # and `x or default` would sort the perfect-null rung to the bottom as
+    # if it were the worst. (Planted-test-caught, 2026-09-01.)
+    rows.sort(key=lambda r: (r["skill_score"] is None,
+                             -r["skill_score"]
+                             if r["skill_score"] is not None else 0.0))
+    return rows
+
+
 def _load_live() -> dict[str, Any]:
     """Production corpus + deployed champion, exactly as main.py loads them.
 
@@ -124,14 +157,70 @@ def _load_live() -> dict[str, Any]:
         epoch_cfg=ml_cfg.get("epoch", {}),
         era_cfg=ml_cfg.get("era_exclusion", {}))
     keep = get_contract().check_matrix(X)["keep"]
-    return {"X": X[keep], "y": y[keep], "sig": sig[keep],
+    return {"X": X[keep], "y": y[keep], "sig": sig[keep], "w": w[keep],
             "meta_path": Path(ml_cfg.get("model_path",
                                          "outputs/meta_model.json"))}
+
+
+def _run_ladder(X: np.ndarray, y: np.ndarray, w: np.ndarray,
+                wm: int) -> list[dict[str, Any]]:
+    """Fit each family on the champion's train window, score on the unseen
+    rows. Isotonic is fit on a held-out TAIL OF TRAIN, never on test - the
+    in-sample-calibration mistake that produced a retracted claim on
+    2026-08-31. Seeds are the family defaults, so this is deterministic.
+    """
+    import ml.models as families
+    from ml.calibration import IsotonicCalibrator
+    cal_cut = int(wm * 0.8)
+    Xtr, ytr, wtr = X[:cal_cut], y[:cal_cut], w[:cal_cut]
+    Xca, yca = X[cal_cut:wm], y[cal_cut:wm]
+    Xte, yte = X[wm:], np.asarray(y[wm:], float)
+    rungs = {
+        "logistic (deployed family)": families.LogisticModel,
+        "mlp 32-16": families.NumpyMLP,
+        "mlp 128-64": lambda: families.NumpyMLP(hidden=(128, 64)),
+        "ensemble_mlp k=3": families.EnsembleMLP,
+        "gbt stumps": families.GradientBoostedStumps,
+        "gbt depth-4": lambda: families.GradientBoostedStumps(
+            max_depth=4, n_estimators=600),
+        "adaptive_gbt": families.AdaptiveGBT,
+        "blend": families.BlendModel,
+    }
+    preds: dict[str, np.ndarray | None] = {}
+    for name, make in rungs.items():
+        try:
+            m = make()
+            try:
+                m.fit(Xtr, ytr, sample_weight=wtr)
+            except TypeError:
+                m.fit(Xtr, ytr)
+            cal = IsotonicCalibrator()
+            fitted = False
+            try:
+                cal.fit(np.asarray(m.predict_proba(Xca), float).reshape(-1),
+                        yca)
+                fitted = bool(getattr(cal, "fitted", False))
+            except Exception:                                # noqa: BLE001
+                fitted = False
+            p = np.asarray(m.predict_proba(Xte), float).reshape(-1)
+            if fitted:
+                p = np.asarray(cal.transform(p), float).reshape(-1)
+            preds[name] = np.clip(p, 1e-6, 1 - 1e-6)
+        except Exception:                                    # noqa: BLE001
+            # A family that will not fit is reported as unfit, never as a
+            # zero-skill result - those are different observations.
+            preds[name] = None
+    return capacity_ladder(preds, yte)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--json", action="store_true", help="machine-readable")
+    ap.add_argument("--ladder", action="store_true",
+                    help="also fit every model family on the champion's own "
+                         "train window and score each on the same unseen "
+                         "rows - answers 'is low skill a CAPACITY limit?'. "
+                         "MEASUREMENT ONLY: nothing is deployed or saved.")
     args = ap.parse_args(argv)
 
     live = _load_live()
@@ -188,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
         f"champion skill on unseen rows: {fresh.get('skill_score')} "
         f"({fresh.get('verdict')}, n={fresh.get('n')})")
 
+    if args.ladder and 0 < wm < n:
+        report["ladder"] = _run_ladder(X, yv, live["w"], wm)
+
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
@@ -210,6 +302,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    SKILL {r['skill_score']}  -> {r['verdict']}")
         print(f"    calibrated p range [{r['p_min']:.4f}, {r['p_max']:.4f}] "
               f"sd {r['p_sd']:.4f}")
+    if report.get("ladder"):
+        print("\n  capacity ladder (same unseen rows; nothing deployed):")
+        for r in report["ladder"]:
+            if r.get("error"):
+                print(f"    {r['rung']:26s} {r['error']}")
+                continue
+            print(f"    {r['rung']:26s} brier {r['brier']:.5f}  "
+                  f"skill {r['skill_score']:+.5f}  {r['verdict']}")
+        best = next((r for r in report["ladder"]
+                     if r.get("skill_score") is not None), None)
+        if best is not None and best["skill_score"] <= 0:
+            print("    -> NO rung beats a constant: the binding constraint "
+                  "is the TARGET, not model capacity.")
+
     print(f"\n{report['headline']}")
     return 0
 
