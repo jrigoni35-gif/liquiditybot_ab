@@ -2,13 +2,13 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-01 05:37 UTC (1269.72h, ~2352 cycles)
-- Equity (current capital epoch): $800.00 -> $796.21 (range $12.30) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $-0.73 | fees (all legs) $10.40
-- Activity: 4 open | 389 live labeled trades | 21231 candidates | 326 postmortems
-- Model: level 1 | use_model=True | brier n/a | history_rows 389 | cold=False
-- Audit: 70928 records (30778 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 171
+- Window: 2026-07-10 07:53 UTC -> 2026-09-01 06:37 UTC (1270.73h, ~2470 cycles)
+- Equity (current capital epoch): $800.00 -> $795.88 (range $12.30) | 5 epochs lifetime, range $99,208.70 | realized PnL (post-close-fee) $-0.67 | fees (all legs) $10.48
+- Activity: 3 open | 390 live labeled trades | 21292 candidates | 326 postmortems
+- Model: level 1 | use_model=True | brier n/a | history_rows 390 | cold=False
+- Audit: 71149 records (30793 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 172
 - Liquidity: spoofy 66% of non-liquid cycles | feed errors 1059
-- Recent (48h lens): 830 audit records | dominant LB-010 (24% of non-routine) | retrain_requests 6 | spoofy 66% (non-liquid)
+- Recent (48h lens): 1039 audit records | dominant LB-010 (24% of non-routine) | retrain_requests 7 | spoofy 66% (non-liquid)
 
 ## Diagnostics
 - [WARN] **SD-011 audit fork carries divergent payloads**  -  38 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'ML-031': 9, 'OM-000': 8, 'SZ-051': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'LB-010': 5, 'ML-050': 4, 'CG-000': 3, 'RT-010': 3, 'FT-020': 3, 'ML-070': 3, 'SZ-047': 2, 'SZ-049': 2, 'OM-040': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'ML-016': 1, 'ML-042': 1, 'ML-041': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete
