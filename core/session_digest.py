@@ -36,6 +36,15 @@ recurring condition has a durable name across sessions:
   SD-010 audit_writer_seam   hash-valid concurrent-writer fork(s) in the
                              chain (dual-runner window) - benign, nothing
                              committed altered; informational only
+  SD-011 audit_fork_divergence duplicated seq numbers whose rows DISAGREE
+                             (different code/hash) - a forked writer put
+                             its own payload into the shared ledger, and
+                             any instrument reading rows by seq/code can
+                             consume the wrong branch as truth (measured
+                             2026-08-29: a planted OM-080 fee reading on
+                             a 62s fork was cited as venue truth for two
+                             days). Data-driven: fires only on divergent
+                             payloads, never on idempotent double-writes
 
 SD-000 is emitted when nothing fired. Severities: "info" | "warn" | "error".
 These ids are report diagnostics, not audit dispositions, so they live here as
@@ -66,6 +75,7 @@ SD_AUDIT_CHAIN_BREAK = "SD-007"
 SD_FLAT_EQUITY = "SD-008"
 SD_FEED_DEGRADED = "SD-009"
 SD_AUDIT_WRITER_SEAM = "SD-010"
+SD_FORK_DIVERGENCE = "SD-011"
 
 _LIQ_RE = re.compile(r"liquidity=(\w+)")
 _ASSET_RE = re.compile(r"^\[(\w+)\]")
@@ -192,6 +202,38 @@ def _audit_section(records: list, outputs: Path) -> dict:
         # different operator actions and deserve different words)
         "chain_torn_tail": chain.get("torn_tail", False),
         "chain_error": chain.get("error"),
+    })
+    # Fork-payload legibility (AUDIT-SEAM-0829, 2026-09-01). verify_chain
+    # counts hash-valid writer seams; these additive keys name WHAT rode
+    # them, because "10 seams, benign" gave an operator no way to find the
+    # one forked row (a planted OM-080 fee reading) that downstream
+    # instruments then consumed as venue truth. Divergence is data-driven:
+    # a seq is divergent only when its rows DISAGREE on (code, h) - an
+    # idempotent double-write of the same record stays SD-010-benign.
+    seq_rows: dict = {}
+    for r in records:
+        s = r.get("seq")
+        if s is not None:
+            seq_rows.setdefault(s, []).append(r)
+    dup = {s: rs for s, rs in seq_rows.items() if len(rs) > 1}
+    divergent = {s: rs for s, rs in dup.items()
+                 if len({(x.get("code"), x.get("h")) for x in rs}) > 1}
+    div_codes = Counter(str(x.get("code")) for rs in divergent.values()
+                        for x in rs)
+    out.update({
+        "dup_seqs": len(dup),
+        "fork_divergent_seqs": len(divergent),
+        # COMPLETE code histogram, deliberately uncapped: a top-N cut hid
+        # the motivating case on its first live run (the planted OM-080,
+        # count 1, fell below an 8-code cutoff - the exact row this
+        # instrument exists to surface). Bounded by distinct codes riding
+        # forks, which is small by construction.
+        "fork_codes": dict(div_codes.most_common()),
+        "fork_examples": [
+            {"seq": s,
+             "codes": sorted({str(x.get("code")) for x in rs}),
+             "ts": sorted(round(_f(x.get("ts"), 0.0), 3) for x in rs)[:3]}
+            for s, rs in sorted(divergent.items())[:5]],
     })
     return out
 
@@ -350,6 +392,25 @@ def _detectors(digest: dict, config: dict) -> list:
             f"{aud.get('chain_seams')} hash-valid concurrent-writer fork(s) "
             "in the chain - benign (no committed record altered); "
             "prevention: runner instance lock + one-bot mode")
+    # SD-011 fork divergence: fires INDEPENDENTLY of (and usually alongside)
+    # SD-010 - the seam itself is benign, but rows that share a seq while
+    # DISAGREEING on payload mean a forked writer put its own data into the
+    # shared ledger, and any consumer selecting rows by seq/code can read
+    # the wrong branch as truth. Warn, not error: the chain itself is
+    # intact; it is the READERS that are at risk (measured 2026-08-29: a
+    # 62-second fork's planted OM-080 was cited as a venue fee reading for
+    # two days before operator testimony overturned it).
+    if aud.get("fork_divergent_seqs"):
+        _fc = aud.get("fork_codes") or {}
+        _ex = aud.get("fork_examples") or []
+        add(SD_FORK_DIVERGENCE, "warn",
+            "audit fork carries divergent payloads",
+            f"{aud['fork_divergent_seqs']} duplicated seq(s) whose rows "
+            f"disagree on (code, hash) - codes riding forks: {_fc}; "
+            f"first examples: {_ex[:3]}. Instruments consuming audit rows "
+            "must not treat forked-seq rows as unique venue truth; find "
+            "the writer (an unredirected script/harness - configure_audit "
+            "exists for exactly this) and quarantine, never delete")
 
     # SD-005 stream inconsistency: a postmortem realized% that its OWN excursion
     # columns contradict. A position that never moved adverse (MAE ~ 0) cannot

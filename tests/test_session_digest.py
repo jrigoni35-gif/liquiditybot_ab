@@ -313,3 +313,70 @@ def test_chain_word_reaches_the_rendered_headline(tmp_path):
     md = render_markdown(d)
     assert "chain=OK" in md
     assert "chain_ok=" not in md
+
+
+# --- SD-011 fork divergence (AUDIT-SEAM-0829, 2026-09-01) -----------------
+# A forked writer's rows share seq numbers with the canonical chain while
+# DISAGREEING on payload; measured live 2026-08-29 a 62-second fork's
+# planted OM-080 was consumed as a venue fee reading for two days. The
+# firing rule is data-driven: divergent (code, h) under one seq fires;
+# an idempotent double-write of the identical record must NOT.
+
+def _mk_audit_rows(tmp_path, rows):
+    o = tmp_path / "outputs"
+    o.mkdir(exist_ok=True)
+    (o / "audit.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return o
+
+
+def test_sd011_fires_on_divergent_forked_seq(tmp_path):
+    rows = [
+        {"seq": 1, "code": "FT-020", "h": "aa", "prev": "", "ts": 100.0,
+         "src": "fault", "msg": "m"},
+        {"seq": 2, "code": "ML-050", "h": "bb", "prev": "aa", "ts": 101.0,
+         "src": "ml_governor", "msg": "m"},
+        # fork: a second writer reuses seq 2 with a DIFFERENT payload -
+        # the exact 08-29 shape (OM-080 riding a forked lineage)
+        {"seq": 2, "code": "OM-080", "h": "cc", "prev": "aa", "ts": 101.5,
+         "src": "order_manager", "msg": "planted"},
+    ]
+    d = build_digest(_mk_audit_rows(tmp_path, rows))
+    aud = d["audit"]
+    assert aud["dup_seqs"] == 1
+    assert aud["fork_divergent_seqs"] == 1
+    assert "OM-080" in aud["fork_codes"]
+    ids = {x["id"] for x in d["diagnostics"]}
+    assert "SD-011" in ids, "divergent fork must warn"
+    sd11 = next(x for x in d["diagnostics"] if x["id"] == "SD-011")
+    assert sd11["severity"] == "warn"
+    assert "OM-080" in sd11["detail"], "the riding code must be findable"
+
+
+def test_sd011_silent_on_idempotent_double_write(tmp_path):
+    row = {"seq": 7, "code": "LB-000", "h": "dd", "prev": "cc", "ts": 200.0,
+           "src": "long_book", "msg": "m"}
+    rows = [
+        {"seq": 6, "code": "FT-020", "h": "cc", "prev": "", "ts": 199.0,
+         "src": "fault", "msg": "m"},
+        row, dict(row),                       # identical record twice
+    ]
+    d = build_digest(_mk_audit_rows(tmp_path, rows))
+    aud = d["audit"]
+    assert aud["dup_seqs"] == 1               # counted as a dup...
+    assert aud["fork_divergent_seqs"] == 0    # ...but NOT divergent
+    ids = {x["id"] for x in d["diagnostics"]}
+    assert "SD-011" not in ids, "idempotent double-write must stay benign"
+
+
+def test_sd011_silent_on_clean_chain(tmp_path):
+    rows = [
+        {"seq": i, "code": "LB-000", "h": f"h{i}", "prev": f"h{i-1}",
+         "ts": 300.0 + i, "src": "long_book", "msg": "m"}
+        for i in range(1, 6)
+    ]
+    d = build_digest(_mk_audit_rows(tmp_path, rows))
+    aud = d["audit"]
+    assert aud["dup_seqs"] == 0
+    assert aud["fork_divergent_seqs"] == 0
+    assert "SD-011" not in {x["id"] for x in d["diagnostics"]}

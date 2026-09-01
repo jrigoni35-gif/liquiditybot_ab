@@ -49,7 +49,7 @@ that emit most codes - sailed past the gate. It now sweeps all of them
 (scripts/ and tests/ stay out of scope: scripts are operator tooling with
 their own report vocabularies, and test fixtures legitimately mint fake
 codes). The full-corpus sweep found exactly ONE additional parallel
-vocabulary: core/session_digest.py's SD-000..SD-010 detector ids, which its
+vocabulary: core/session_digest.py's SD-000..SD-011 detector ids, which its
 own module docstring declares as "report diagnostics, not audit
 dispositions ... documented constants rather than in core/codes.py".
 Pinned as an allowlist below, same contract as EX-ALGO-*: a NEW SD id (or
@@ -86,7 +86,10 @@ def _scan_targets():
 # for the session-digest report, append-only, never audited, never tag()'d.
 # Confined to that ONE file; the id set is pinned so a new SD id is a
 # reviewed allowlist edit, exactly like EX-ALGO-*.
-SD_ALLOWLIST = {f"SD-{i:03d}" for i in range(11)}     # SD-000 .. SD-010
+SD_ALLOWLIST = {f"SD-{i:03d}" for i in range(12)}     # SD-000 .. SD-011
+# SD-011 registered 2026-09-01: audit_fork_divergence (AUDIT-SEAM-0829) -
+# duplicated seqs with disagreeing payloads; the conscious-re-baseline
+# this pin exists to force, not a widening.
 SD_HOME = (ROOT / "core" / "session_digest.py").resolve()
 
 # execution/algos.py's own documented internal reason-coded scheme (module
