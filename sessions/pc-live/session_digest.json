@@ -1,10 +1,10 @@
 {
-  "generated_at": 1788226638.3018172,
+  "generated_at": 1788230240.2196517,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788226633.0,
-    "duration_h": 1265.73
+    "end": 1788230226.0,
+    "duration_h": 1266.72
   },
   "recent": {
     "hours": 48.0,
@@ -12,10 +12,10 @@
       "records": 728,
       "signal_records": 439,
       "by_src": {
-        "exploration": 309,
-        "ml_governor": 139,
-        "long_book": 117,
-        "conviction": 86,
+        "exploration": 310,
+        "ml_governor": 138,
+        "long_book": 121,
+        "conviction": 82,
         "order_manager": 60,
         "exit": 12,
         "engine": 2,
@@ -38,11 +38,11 @@
         ],
         [
           "CV-030",
-          82
+          78
         ],
         [
           "ML-031",
-          38
+          37
         ],
         [
           "OM-040",
@@ -69,8 +69,8 @@
           23
         ],
         [
-          "PT-061",
-          12
+          "SZ-049",
+          13
         ]
       ],
       "dominant_code": "LB-010",
@@ -79,10 +79,10 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 14190,
+      "records": 15182,
       "by_level": {
-        "INFO": 13092,
-        "WARNING": 940,
+        "INFO": 14082,
+        "WARNING": 942,
         "ERROR": 156,
         "CRITICAL": 2
       },
@@ -104,15 +104,15 @@
           4
         ],
         [
+          "turbulence spike: 73.9 (p99 >= p95)",
+          3
+        ],
+        [
           "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
           2
         ],
         [
           "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
-        ],
-        [
-          "turbulence spike: 73.9 (p99 >= p95)",
           2
         ],
         [
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3016,
-        "thin": 1800
+        "spoofy": 3216,
+        "thin": 1929
       },
-      "spoofy_frac": 0.626,
+      "spoofy_frac": 0.625,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1883,
+      "cycles_estimate": 2000,
       "feed_error_events": 1059
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 795.21,
+    "equity_end": 795.09,
     "equity_min": 794.61,
     "equity_max": 806.91,
     "equity_range": 12.3,
     "capital_epochs": 5,
-    "epoch_samples": 110616,
+    "epoch_samples": 110851,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -154,20 +154,20 @@
     "realized_pnl_total": -0.73,
     "fees_paid_total": 10.3969,
     "open_positions": 4,
-    "samples": 278407
+    "samples": 278642
   },
   "activity": {
-    "signal_rows_total": 21532,
+    "signal_rows_total": 21569,
     "live_labeled_trades": 389,
-    "candidate_rows": 21143
+    "candidate_rows": 21180
   },
   "audit": {
-    "records": 70621,
-    "signal_records": 30743,
+    "records": 70633,
+    "signal_records": 30755,
     "by_src": {
-      "exploration": 62762,
-      "ml_governor": 2255,
-      "long_book": 2071,
+      "exploration": 62763,
+      "ml_governor": 2258,
+      "long_book": 2079,
       "order_manager": 1741,
       "conviction": 691,
       "startup": 323,
@@ -193,7 +193,7 @@
       ],
       [
         "LB-010",
-        1392
+        1396
       ],
       [
         "OM-000",
@@ -213,15 +213,15 @@
       ],
       [
         "ML-016",
-        388
+        389
       ],
       [
         "LB-050",
-        381
+        385
       ],
       [
         "ML-041",
-        370
+        371
       ],
       [
         "ML-072",
@@ -322,10 +322,10 @@
     ]
   },
   "events": {
-    "records": 14190,
+    "records": 15182,
     "by_level": {
-      "INFO": 13092,
-      "WARNING": 940,
+      "INFO": 14082,
+      "WARNING": 942,
       "ERROR": 156,
       "CRITICAL": 2
     },
@@ -347,15 +347,15 @@
         4
       ],
       [
+        "turbulence spike: 73.9 (p99 >= p95)",
+        3
+      ],
+      [
         "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
         2
       ],
       [
         "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        2
-      ],
-      [
-        "turbulence spike: 73.9 (p99 >= p95)",
         2
       ],
       [
@@ -372,19 +372,19 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3016,
-      "thin": 1800
+      "spoofy": 3216,
+      "thin": 1929
     },
-    "spoofy_frac": 0.626,
+    "spoofy_frac": 0.625,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1883,
+    "cycles_estimate": 2000,
     "feed_error_events": 1059
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.24428958922628638,
+    "champion_brier": 0.24463819880095733,
     "brier": "n/a",
     "history_rows": 389,
     "cold": false
@@ -420,7 +420,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 63% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 62% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
