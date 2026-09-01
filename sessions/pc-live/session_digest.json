@@ -1,22 +1,22 @@
 {
-  "generated_at": 1788266253.895182,
+  "generated_at": 1788269855.2561731,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788266250.0,
-    "duration_h": 1276.73
+    "end": 1788269844.0,
+    "duration_h": 1277.73
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 2549,
-      "signal_records": 404,
+      "records": 2878,
+      "signal_records": 403,
       "by_src": {
-        "exploration": 2166,
-        "long_book": 155,
-        "ml_governor": 118,
+        "exploration": 2496,
+        "long_book": 157,
+        "ml_governor": 119,
         "order_manager": 49,
-        "conviction": 44,
+        "conviction": 40,
         "exit": 12,
         "engine": 2,
         "startup": 1,
@@ -26,11 +26,11 @@
       "top_codes": [
         [
           "SZ-051",
-          1068
+          1233
         ],
         [
           "ML-070",
-          1064
+          1229
         ],
         [
           "LB-010",
@@ -38,11 +38,11 @@
         ],
         [
           "LB-050",
-          46
+          50
         ],
         [
           "CV-030",
-          40
+          36
         ],
         [
           "ML-031",
@@ -75,78 +75,53 @@
       ],
       "dominant_code": "LB-010",
       "dominant_frac": 0.248,
-      "retrain_requests": 6,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 26475,
+      "records": 1199,
       "by_level": {
-        "INFO": 25355,
-        "WARNING": 961,
-        "ERROR": 156,
-        "CRITICAL": 3
+        "INFO": 1195,
+        "WARNING": 3,
+        "CRITICAL": 1
       },
       "top_warnings": [
         [
-          "Binance.US: skipping BTCUSD, order book unavailable",
-          452
-        ],
-        [
-          "Binance.US: skipping ETHUSD, order book unavailable",
-          451
-        ],
-        [
-          "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-          156
-        ],
-        [
           "turbulence spike: 73.9 (p99 >= p95)",
-          13
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
-          2
-        ],
-        [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
         ],
         [
-          "ML-080: exit-reason mix drift tvd=0.310 over trailing 24h (1383/20960 rows) exceeds 0.30 - recent-window reason mix diverges from the traili",
+          "auto-retrain: 11615 rows (152 new)",
           1
         ],
         [
-          "auto-retrain: 10766 rows (33 new)",
+          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          1
+        ],
+        [
+          "ML-032 RETRAIN REQUESTED: input drift on 32% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
           1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 5621,
-        "thin": 2538
+        "spoofy": 191,
+        "thin": 31
       },
-      "spoofy_frac": 0.689,
+      "spoofy_frac": 0.86,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3175,
-      "feed_error_events": 1059
+      "cycles_estimate": 100,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 794.56,
-    "equity_min": 794.37,
+    "equity_end": 794.31,
+    "equity_min": 794.04,
     "equity_max": 806.91,
-    "equity_range": 12.54,
+    "equity_range": 12.87,
     "capital_epochs": 5,
-    "epoch_samples": 113209,
+    "epoch_samples": 113444,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
@@ -154,20 +129,20 @@
     "realized_pnl_total": -0.67,
     "fees_paid_total": 10.4826,
     "open_positions": 3,
-    "samples": 281000
+    "samples": 281235
   },
   "activity": {
-    "signal_rows_total": 21855,
+    "signal_rows_total": 21991,
     "live_labeled_trades": 390,
-    "candidate_rows": 21465
+    "candidate_rows": 21601
   },
   "audit": {
-    "records": 72730,
-    "signal_records": 30852,
+    "records": 73073,
+    "signal_records": 30865,
     "by_src": {
-      "exploration": 64763,
-      "ml_governor": 2277,
-      "long_book": 2155,
+      "exploration": 65093,
+      "ml_governor": 2282,
+      "long_book": 2163,
       "order_manager": 1742,
       "conviction": 691,
       "startup": 323,
@@ -180,20 +155,20 @@
     },
     "top_codes": [
       [
+        "ML-070",
+        22274
+      ],
+      [
         "SZ-047",
         22270
       ],
       [
-        "ML-070",
-        22109
-      ],
-      [
         "SZ-051",
-        19603
+        19768
       ],
       [
         "LB-010",
-        1434
+        1438
       ],
       [
         "OM-000",
@@ -201,7 +176,7 @@
       ],
       [
         "ML-031",
-        838
+        839
       ],
       [
         "CV-030",
@@ -213,15 +188,15 @@
       ],
       [
         "LB-050",
-        423
+        427
       ],
       [
         "ML-016",
-        394
+        395
       ],
       [
         "ML-041",
-        376
+        377
       ],
       [
         "ML-072",
@@ -230,7 +205,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.722,
-    "retrain_requests": 172,
+    "retrain_requests": 173,
     "kill_switch_events": 7,
     "chain_ok": false,
     "chain_first_break": null,
@@ -322,69 +297,44 @@
     ]
   },
   "events": {
-    "records": 26475,
+    "records": 1199,
     "by_level": {
-      "INFO": 25355,
-      "WARNING": 961,
-      "ERROR": 156,
-      "CRITICAL": 3
+      "INFO": 1195,
+      "WARNING": 3,
+      "CRITICAL": 1
     },
     "top_warnings": [
       [
-        "Binance.US: skipping BTCUSD, order book unavailable",
-        452
-      ],
-      [
-        "Binance.US: skipping ETHUSD, order book unavailable",
-        451
-      ],
-      [
-        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
-        156
-      ],
-      [
         "turbulence spike: 73.9 (p99 >= p95)",
-        13
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
-        2
-      ],
-      [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        2
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
       ],
       [
-        "ML-080: exit-reason mix drift tvd=0.310 over trailing 24h (1383/20960 rows) exceeds 0.30 - recent-window reason mix diverges from the traili",
+        "auto-retrain: 11615 rows (152 new)",
         1
       ],
       [
-        "auto-retrain: 10766 rows (33 new)",
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        1
+      ],
+      [
+        "ML-032 RETRAIN REQUESTED: input drift on 32% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5621,
-      "thin": 2538
+      "spoofy": 191,
+      "thin": 31
     },
-    "spoofy_frac": 0.689,
+    "spoofy_frac": 0.86,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3175,
-    "feed_error_events": 1059
+    "cycles_estimate": 100,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.24509676957479137,
+    "champion_brier": 0.24457716283778225,
     "brier": "n/a",
     "history_rows": 390,
     "cold": false
@@ -420,7 +370,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 69% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 86% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
