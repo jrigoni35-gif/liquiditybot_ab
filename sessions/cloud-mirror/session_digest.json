@@ -1,64 +1,12 @@
 {
-  "generated_at": 1787882830.7160385,
+  "generated_at": 1788313781.347202,
   "outputs_dir": "outputs",
   "window": {
-    "start": 1787840215.885,
-    "end": 1787858498.745,
-    "duration_h": 5.08
+    "start": null,
+    "end": null,
+    "duration_h": 0.0
   },
-  "recent": {
-    "hours": 48.0,
-    "audit": {
-      "records": 1974,
-      "signal_records": 1974,
-      "by_src": {
-        "long_book": 1824,
-        "startup": 73,
-        "fault": 73,
-        "exploration": 4
-      },
-      "top_codes": [
-        [
-          "LB-010",
-          608
-        ],
-        [
-          "CX-030",
-          608
-        ],
-        [
-          "LB-050",
-          608
-        ],
-        [
-          "CG-000",
-          73
-        ],
-        [
-          "FT-020",
-          73
-        ],
-        [
-          "SZ-049",
-          4
-        ]
-      ],
-      "dominant_code": "LB-010",
-      "dominant_frac": 0.308,
-      "retrain_requests": 0,
-      "kill_switch_events": 0
-    },
-    "events": {
-      "records": 0,
-      "by_level": {},
-      "top_warnings": [],
-      "liquidity_tally": {},
-      "spoofy_frac": 0.0,
-      "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 0,
-      "feed_error_events": 0
-    }
-  },
+  "recent": {},
   "pnl": {
     "starting_capital": 0.0,
     "equity_start": 0.0,
@@ -78,55 +26,29 @@
     "samples": 0
   },
   "activity": {
-    "signal_rows_total": 18215,
-    "live_labeled_trades": 373,
-    "candidate_rows": 17842
+    "signal_rows_total": 22490,
+    "live_labeled_trades": 391,
+    "candidate_rows": 22099
   },
   "audit": {
-    "records": 1974,
-    "signal_records": 1974,
-    "by_src": {
-      "long_book": 1824,
-      "startup": 73,
-      "fault": 73,
-      "exploration": 4
-    },
-    "top_codes": [
-      [
-        "LB-010",
-        608
-      ],
-      [
-        "CX-030",
-        608
-      ],
-      [
-        "LB-050",
-        608
-      ],
-      [
-        "CG-000",
-        73
-      ],
-      [
-        "FT-020",
-        73
-      ],
-      [
-        "SZ-049",
-        4
-      ]
-    ],
-    "dominant_code": "LB-010",
-    "dominant_frac": 0.308,
+    "records": 0,
+    "signal_records": 0,
+    "by_src": {},
+    "top_codes": [],
+    "dominant_code": null,
+    "dominant_frac": 0.0,
     "retrain_requests": 0,
     "kill_switch_events": 0,
-    "chain_ok": true,
+    "chain_ok": false,
     "chain_first_break": null,
-    "chain_tamper": false,
+    "chain_tamper": true,
     "chain_seams": 0,
     "chain_torn_tail": false,
-    "chain_error": null
+    "chain_error": "unreadable",
+    "dup_seqs": 0,
+    "fork_divergent_seqs": 0,
+    "fork_codes": {},
+    "fork_examples": []
   },
   "events": {
     "records": 0,
@@ -144,7 +66,7 @@
     "kelly_mult": null,
     "champion_brier": null,
     "brier": "n/a",
-    "history_rows": 373,
+    "history_rows": 391,
     "cold": true
   },
   "postmortems": {
@@ -153,21 +75,46 @@
     "worst_realized_pct": 0.0,
     "impossible_count": 0
   },
+  "eras": {
+    "current_era": "9-16ec821e",
+    "era_source": "core.fill_ledger.EXEC_ERA",
+    "rows_per_era": {
+      "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
+    },
+    "rows_per_label_era": {
+      "triple_barrier_h432": 12160,
+      "triple_barrier": 5328,
+      "exit_sim": 2762,
+      "legacy": 1781,
+      "exit_sim_time_stop": 459
+    },
+    "fills_rows": 0,
+    "fills_torn_rows": 0,
+    "fills_per_era": {},
+    "pooling_hazard": false,
+    "pooling_hazard_source": null,
+    "corpus_rows": 22490,
+    "corpus_first_ts": "2026-07-13T12:35:47Z",
+    "corpus_last_ts": "2026-09-01T20:25:00Z",
+    "corpus_span_days": 50.33,
+    "signal_ts_missing": 0
+  },
   "streams_present": {
-    "audit.jsonl": true,
+    "audit.jsonl": false,
     "events.jsonl": false,
     "equity.csv": false,
     "state.json": false,
     "signal_history.csv": true,
-    "postmortem_summary.csv": false
+    "postmortem_summary.csv": false,
+    "fills.csv": false
   },
   "diagnostics": [
     {
-      "id": "SD-004",
-      "severity": "warn",
-      "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 31% of 1974 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "id": "SD-007",
+      "severity": "error",
+      "title": "audit chain broken",
+      "detail": "hash chain first breaks at record None  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point"
     }
   ],
-  "verdict": "SD-004 audit trail dominated by one code"
+  "verdict": "SD-007 audit chain broken"
 }

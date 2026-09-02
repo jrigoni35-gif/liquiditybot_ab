@@ -1,14 +1,15 @@
 # Session digest
 
-**Verdict: SD-004 audit trail dominated by one code**
+**Verdict: SD-007 audit chain broken**
 
-- Window: 2026-08-27 14:16 UTC -> 2026-08-27 19:21 UTC (5.08h, ~0 cycles)
+- Window: n/a -> n/a (0.0h, ~0 cycles)
 - Equity (current capital epoch): $0.00 -> $0.00 (range $0.00) | realized PnL (post-close-fee) $0.00 | fees (all legs) $0.00
-- Activity: 0 open | 373 live labeled trades | 17842 candidates | 0 postmortems
-- Model: level None | use_model=None | brier n/a | history_rows 373 | cold=True
-- Audit: 1974 records (1974 non-routine) | dominant LB-010 (31% of non-routine) | chain=OK | retrain_requests 0
+- Activity: 0 open | 391 live labeled trades | 22099 candidates | 0 postmortems
+- Model: level None | use_model=None | brier n/a | history_rows 391 | cold=True
+- Audit: 0 records (0 non-routine) | dominant None (0% of non-routine) | chain=UNREADABLE(unreadable) | retrain_requests 0
 - Liquidity: spoofy 0% of non-liquid cycles | feed errors 0
-- Recent (48h lens): 1974 audit records | dominant LB-010 (31% of non-routine) | retrain_requests 0 | spoofy 0% (non-liquid)
+- Eras: current 9-16ec821e | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {} (0 rows) | pooling_hazard=False (source None)
+- RAW signal-file span (signal_ts, all 22490 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-01T20:25:00Z (50.33d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
 ## Diagnostics
-- [WARN] **SD-004 audit trail dominated by one code**  -  LB-010 is 31% of 1974 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter
+- [ERR]  **SD-007 audit chain broken**  -  hash chain first breaks at record None  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point
