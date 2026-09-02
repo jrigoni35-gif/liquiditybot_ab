@@ -2,15 +2,15 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-02 16:38 UTC (1304.75h, ~292 cycles)
-- Equity (current capital epoch): $800.00 -> $791.28 (range $16.33) | 5 epochs lifetime, range $99,209.45 | realized PnL (post-close-fee) $-3.19 | fees (all legs) $11.60
-- Activity: 3 open | 397 live labeled trades | 22557 candidates | 334 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-09-02 17:38 UTC (1305.75h, ~410 cycles)
+- Equity (current capital epoch): $800.00 -> $790.90 (range $16.38) | 5 epochs lifetime, range $99,209.50 | realized PnL (post-close-fee) $-3.19 | fees (all legs) $11.60
+- Activity: 3 open | 397 live labeled trades | 22575 candidates | 334 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 397 | cold=False
-- Audit: 76570 records (31122 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 177
+- Audit: 76575 records (31127 non-routine) | dominant SZ-047 (72% of non-routine) | chain=SEAMS(10, benign) | retrain_requests 177
 - Liquidity: spoofy 76% of non-liquid cycles | feed errors 0
-- Recent (48h lens): 6099 audit records | dominant LB-010 (29% of non-routine) | retrain_requests 7 | spoofy 76% (non-liquid)
+- Recent (48h lens): 6100 audit records | dominant LB-010 (30% of non-routine) | retrain_requests 7 | spoofy 76% (non-liquid)
 - Eras: current 9-16ec821e | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 38, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4} (1215 rows) | pooling_hazard=True (source fills.exec_era)
-- RAW signal-file span (signal_ts, all 22954 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-02T16:15:00Z (51.15d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
+- RAW signal-file span (signal_ts, all 22972 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-02T16:25:00Z (51.16d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
 ## Diagnostics
 - [WARN] **SD-011 audit fork carries divergent payloads**  -  38 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'ML-031': 9, 'OM-000': 8, 'SZ-051': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'LB-010': 5, 'ML-050': 4, 'CG-000': 3, 'RT-010': 3, 'FT-020': 3, 'ML-070': 3, 'SZ-047': 2, 'SZ-049': 2, 'OM-040': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'ML-016': 1, 'ML-042': 1, 'ML-041': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete
