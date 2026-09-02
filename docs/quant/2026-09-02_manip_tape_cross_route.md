@@ -328,3 +328,36 @@ backfill having landed), so the honest status of Findings 2 and 3 is
 "under-powered on a population that has since doubled", not "settled null".
 
 **No gate change, threshold, or tuning is proposed by this memo.**
+
+---
+
+## ADDENDUM (2026-09-02T03:03:56Z, added after the backfill completed)
+
+The coverage caveats above are **stale, and the correction strengthens the memo's
+verdict while refuting its stated reason.**
+
+At the time of measurement FLOW had zero tape rows and BTC was partial, and the memo
+attributed the 98.8% blindness to that. The backfill has since completed: FLOW now
+holds 18,372 rows and BTC 2,930,099, both reaching 2026-09-02T~02:00Z. Re-measured on
+full coverage:
+
+| asset | refusals | inside tape coverage | with >=5 trades in the prior 300 s |
+|---|---|---|---|
+| FLOW | 451 | 451 | **51** |
+| MINA | 284 | 284 | **47** |
+| BTC | 4 | 4 | 4 |
+| DOT | 3 | 3 | 3 |
+| ARB | 1 | 1 | 1 |
+| ETH | 1 | 1 | 1 |
+| **total** | **744** | **744** | **107 (14.4%)** |
+
+Tape-visible refusals doubled, from 52 (7.0%) to 107 (14.4%). **The remaining blindness
+is not a data gap and cannot be closed by more backfilling.** Every refusal is now
+inside the tape window; what stops the measurement is that FLOW prints roughly fifteen
+trades an hour, so a 300-second window usually contains fewer than five. SZ-045
+refusals concentrate on precisely the illiquid assets whose tape is too sparse to
+characterise — 735 of 744 are FLOW and MINA.
+
+That is a fact about **what the gate refuses**, not about our data collection, and it
+makes the memo's verdict firmer rather than weaker: the tape route cannot adjudicate
+SZ-045, now or later. Do not re-run this analysis "after more backfill".
