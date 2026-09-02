@@ -328,3 +328,44 @@ Spearman flag from §2 — one of the twelve.
 (not in the repo, session scratchpad): `t3_features.py`, `t3_score.py`,
 `t3_tables.py`, `t3_nullrate.py`, `t3_planted.py`, `t3_absimb.py`;
 revision-1 copies kept beside them as `*.py.bak`.
+
+---
+
+## ADDENDUM (2026-09-02T10:37Z) - RE-RUN ON COMPLETE COVERAGE, THROUGH THE SHIPPED INSTRUMENT
+
+This memo's own caveat said to re-run once the BTC backfill finished. It has, and
+FLOW is no longer absent, so the re-run was done properly: features rebuilt on the
+full tape and scored through the COMMITTED, mutation-verified
+`scripts/label_decomposition_report.py --extra-csv` rather than through scratch
+scoring code.
+
+**What changed.** Coverage 5,054 -> 22,159 signal rows built (99.4% of all signals);
+join rate into the production corpus 41.5% -> **98.9%** (12,286 of 12,422 rows
+matched, 0 duplicate CSV keys). All 15 assets now have tape reaching ~2026-09-02T02Z.
+Twenty tape features (signed imbalance, |imbalance|, log trade count, market-order
+share, tape return - each at 60/300/900/3600 s) were scored beside the 64 stored
+features on the same rows: 84 features, 12,422 rows, 25 day blocks.
+
+**Result: NOT ONE of the 20 tape features is DIRECTIONAL.** Every one is NULL or
+RESOLUTION-ONLY. The single cell this memo kept - `absimb_60`, direction AUC 0.5308
+on the partial-coverage sample - reads **0.505 [0.486, 0.525]** on full coverage,
+a CI comfortably spanning 0.5. It does not survive.
+
+**And the chance baseline is now measured rather than assumed.** `--null-calibration
+200` (200 pure N(0,1) features against the real targets, rows and day blocks) gives a
+realized DIRECTION exclusion rate of **12.5%**, so at 84 features chance alone yields
+**10.5** directional flags. The run produced **6**. The count of "significant"
+features is BELOW what pure noise produces on this corpus. The nominal 5% figure this
+memo and its predecessors quoted was never the right comparator.
+
+**The resolution channel is confirmed for tape features too**, which is the finding:
+`tape_absimb_300` RESOLUTION 0.619 [0.578, 0.667] against DIRECTION 0.509;
+`tape_absimb_60` 0.602 against 0.505. They sit beside the stored loaders
+`sigma_bar_pct` 0.751 and `spread_bps` 0.662. Activity, spread and volatility all
+predict whether a path reaches a barrier; nothing predicts which one.
+
+**Status of this memo: its verdict stands and is now much better supported.** The
+earlier "nothing survives" rested on a 9-day-block sample with a placebo comparison
+across three different row sets. This rests on 25 day blocks, 99% coverage, a
+measured null baseline, and an instrument with 17 pins and nine mutation-verified
+defects. The owed re-run is DONE; do not re-run again on coverage grounds.
