@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,43 @@ import numpy as np
 # Brier of the best possible constant is b*(1-b); a window with no label
 # variation makes skill undefined rather than infinite.
 MIN_WINDOW_ROWS = 30
+
+
+def corpus_span(sig) -> dict[str, Any]:
+    """Calendar span of the rows ACTUALLY LOADED, from their signal times.
+
+    The MinBTL denominator (how many calendar days the corpus covers) was
+    quoted from a doc that had it as 50.1d; this re-derives it every run
+    from the same `sig` array the skill windows are cut on, so the number
+    on the report is the number the report used. Pure: no I/O. Non-finite
+    or non-positive times are excluded and counted, never averaged in.
+    Keys: corpus_first_ts / corpus_last_ts (ISO UTC, None when empty),
+    corpus_span_days (2 dp, None when empty), corpus_rows, sig_missing.
+    """
+    s = np.asarray(sig, float).reshape(-1)
+    ok = np.isfinite(s) & (s > 0.0)
+    good = s[ok]
+    out: dict[str, Any] = {"corpus_rows": int(s.size),
+                           "sig_missing": int(s.size - good.size),
+                           "corpus_first_ts": None, "corpus_last_ts": None,
+                           "corpus_span_days": None}
+    if good.size == 0:
+        return out
+    lo, hi = float(good.min()), float(good.max())
+
+    def _iso(t: float) -> str | None:
+        # Windows gmtime raises OSError on a millisecond epoch (the
+        # unit-mixing class the data-quality audit measured); a report
+        # must degrade to None, never crash over one bad cell
+        try:
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    out["corpus_first_ts"] = _iso(lo)
+    out["corpus_last_ts"] = _iso(hi)
+    out["corpus_span_days"] = round((hi - lo) / 86400.0, 2)
+    return out
 
 
 def skill_score(brier: float, base_rate: float) -> float | None:
@@ -225,9 +263,20 @@ def main(argv: list[str] | None = None) -> int:
 
     live = _load_live()
     X, y, sig = live["X"], live["y"], live["sig"]
+    span = corpus_span(sig)
+    span_line = (f"corpus span (signal_ts of the {span['corpus_rows']} rows "
+                 f"loaded): {span['corpus_first_ts']} -> "
+                 f"{span['corpus_last_ts']} = {span['corpus_span_days']} d"
+                 + (f" ({span['sig_missing']} rows without a signal time)"
+                    if span["sig_missing"] else ""))
     meta_path: Path = live["meta_path"]
     if not meta_path.exists():
-        print(f"no deployed champion at {meta_path} - nothing to score")
+        if args.json:
+            print(json.dumps({"champion": None, "error": "no deployed champion",
+                              **span}, indent=2))
+        else:
+            print(span_line)
+            print(f"no deployed champion at {meta_path} - nothing to score")
         return 0
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
@@ -269,6 +318,11 @@ def main(argv: list[str] | None = None) -> int:
         "model_kind": meta.get("kind"),
         "trained_rows": wm,
         "alignment": align,
+        # the MinBTL denominator, re-derived from the loaded rows every run
+        "corpus_first_ts": span["corpus_first_ts"],
+        "corpus_last_ts": span["corpus_last_ts"],
+        "corpus_span_days": span["corpus_span_days"],
+        "corpus_sig_missing": span["sig_missing"],
         "windows": {k: window_report(p[m], yv[m], train_base)
                     for k, m in windows.items() if int(m.sum()) > 0},
     }
@@ -286,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"champion {report['champion']} ({report['model_kind']}), "
           f"trained_rows={wm}, corpus={n}")
+    print(f"  {span_line}")
     il = align.get("interleave_rows")
     if il:
         print(f"  [!] watermark interleave: {il} rows sit in the index-fresh "

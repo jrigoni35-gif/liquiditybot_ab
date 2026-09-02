@@ -4,6 +4,8 @@ Backpack rule 2: a check that READS correct is worth nothing until it is
 shown to FAIL on a planted defect. Each test plants a predictor whose true
 skill is known by construction and asserts the report recovers its sign.
 """
+import json
+
 import numpy as np
 
 from scripts.champion_skill_report import (MIN_WINDOW_ROWS, capacity_ladder,
@@ -133,3 +135,79 @@ def test_train_constant_null_reported_when_supplied():
     r = window_report(np.full(y.size, 0.5), y, train_base=0.6)
     assert "train_constant_brier" in r
     assert r["train_constant_brier"] > 0
+
+
+# --- corpus calendar span (2026-08-31): the MinBTL denominator ------------
+# Re-derived from the loaded rows every run, never quoted from a doc.
+
+def test_corpus_span_planted_three_rows_to_two_dp():
+    """Three planted signal times spanning exactly 50.25 days, unsorted:
+    the span must read the extremes, not first/last-by-position."""
+    from scripts.champion_skill_report import corpus_span
+    t0 = 1_783_946_147.0                          # 2026-07-13T12:35:47Z
+    r = corpus_span(np.array([t0 + 3 * 86400.0, t0, t0 + 50.25 * 86400.0]))
+    assert r["corpus_rows"] == 3 and r["sig_missing"] == 0
+    assert r["corpus_first_ts"] == "2026-07-13T12:35:47Z"
+    assert r["corpus_last_ts"] == "2026-09-01T18:35:47Z"
+    assert r["corpus_span_days"] == 50.25
+
+
+def test_corpus_span_excludes_nonfinite_and_counts_them():
+    from scripts.champion_skill_report import corpus_span
+    t0 = 1_783_946_147.0
+    r = corpus_span([t0, np.nan, 0.0, t0 + 86400.0 * 2.5])
+    assert r["corpus_rows"] == 4 and r["sig_missing"] == 2
+    assert r["corpus_span_days"] == 2.5
+    empty = corpus_span([])
+    assert empty["corpus_span_days"] is None
+    assert empty["corpus_first_ts"] is None and empty["corpus_rows"] == 0
+
+
+def test_main_prints_span_from_loaded_rows_and_json_carries_it(
+        monkeypatch, tmp_path, capsys):
+    """The span on the report must come from what _load_live() returned
+    (planted here), and reach both the text line and the --json payload -
+    with and without a deployed champion."""
+    import scripts.champion_skill_report as csr
+    t0 = 1_783_946_147.0
+    sig = np.array([t0, t0 + 86400.0, t0 + 50.25 * 86400.0])
+    y = np.array([1.0, 0.0, 1.0])
+    X = np.zeros((3, 2))
+    missing = tmp_path / "no_meta.json"
+    monkeypatch.setattr(csr, "_load_live", lambda: {
+        "X": X, "y": y, "sig": sig, "w": np.ones(3), "meta_path": missing})
+    assert csr.main([]) == 0
+    out = capsys.readouterr().out
+    assert ("corpus span (signal_ts of the 3 rows loaded): "
+            "2026-07-13T12:35:47Z -> 2026-09-01T18:35:47Z = 50.25 d") in out
+    assert csr.main(["--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["corpus_first_ts"] == "2026-07-13T12:35:47Z"
+    assert payload["corpus_last_ts"] == "2026-09-01T18:35:47Z"
+    assert payload["corpus_span_days"] == 50.25
+    # with a (minimal) champion present the keys ride the full report
+    from ml.models import LogisticModel
+    m = LogisticModel()
+    m.fit(np.vstack([X, X]), np.concatenate([y, 1 - y]))
+    meta = m.to_dict()
+    meta["rows"] = 2
+    meta_path = tmp_path / "meta.json"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    monkeypatch.setattr(csr, "_load_live", lambda: {
+        "X": X, "y": y, "sig": sig, "w": np.ones(3), "meta_path": meta_path})
+    assert csr.main(["--json"]) == 0
+    full = json.loads(capsys.readouterr().out)
+    assert full["corpus_span_days"] == 50.25 and "windows" in full
+    assert csr.main([]) == 0
+    assert "= 50.25 d" in capsys.readouterr().out
+
+
+def test_corpus_span_survives_millisecond_epoch():
+    """Windows gmtime raises on a ms epoch; the span must degrade to None
+    stamps rather than crash the report over one unit-mixed cell."""
+    from scripts.champion_skill_report import corpus_span
+    t0 = 1_783_946_147.0
+    r = corpus_span([t0, t0 * 1000.0])
+    assert r["corpus_first_ts"] == "2026-07-13T12:35:47Z"
+    assert r["corpus_last_ts"] is None
+    assert r["corpus_span_days"] is not None

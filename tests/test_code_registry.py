@@ -86,10 +86,13 @@ def _scan_targets():
 # for the session-digest report, append-only, never audited, never tag()'d.
 # Confined to that ONE file; the id set is pinned so a new SD id is a
 # reviewed allowlist edit, exactly like EX-ALGO-*.
-SD_ALLOWLIST = {f"SD-{i:03d}" for i in range(12)}     # SD-000 .. SD-011
+SD_ALLOWLIST = {f"SD-{i:03d}" for i in range(13)}     # SD-000 .. SD-012
 # SD-011 registered 2026-09-01: audit_fork_divergence (AUDIT-SEAM-0829) -
 # duplicated seqs with disagreeing payloads; the conscious-re-baseline
 # this pin exists to force, not a widening.
+# SD-012 registered 2026-09-01: era_pooling_hazard - rows of more than one
+# exec_era in one file (the CLAUDE.md no-pooling-across-the-fee-correction
+# rule, given a digest name). Operator-authorized 2026-08-31.
 SD_HOME = (ROOT / "core" / "session_digest.py").resolve()
 
 # execution/algos.py's own documented internal reason-coded scheme (module

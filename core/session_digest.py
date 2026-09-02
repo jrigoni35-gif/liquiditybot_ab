@@ -45,6 +45,14 @@ recurring condition has a durable name across sessions:
                              a 62s fork was cited as venue truth for two
                              days). Data-driven: fires only on divergent
                              payloads, never on idempotent double-writes
+  SD-012 era_pooling_hazard  rows stamped with MORE THAN ONE execution era
+                             (`exec_era`) sit in one file. CLAUDE.md's
+                             accrual moratorium forbids pooling across the
+                             cut-#9 fee correction; the digest names the
+                             per-era counts so a reader segments before it
+                             averages. Standing condition on a lifetime
+                             ledger - informational to the era, WARN to the
+                             reader
 
 SD-000 is emitted when nothing fired. Severities: "info" | "warn" | "error".
 These ids are report diagnostics, not audit dispositions, so they live here as
@@ -76,6 +84,14 @@ SD_FLAT_EQUITY = "SD-008"
 SD_FEED_DEGRADED = "SD-009"
 SD_AUDIT_WRITER_SEAM = "SD-010"
 SD_FORK_DIVERGENCE = "SD-011"
+SD_ERA_POOLING_HAZARD = "SD-012"
+
+# exec_era bucket names for rows that carry NO stamp (mirrors the three-way
+# classification scripts/cohort_eval.py applies to the same column):
+#   csv.DictReader restval None -> the writer's COLS predate the stamp
+#   ""                          -> stamp-aware writer, pre-stamp row
+ERA_ABSENT = "absent(stale-binary)"
+ERA_PRESTAMP = "prestamp"
 
 _LIQ_RE = re.compile(r"liquidity=(\w+)")
 _ASSET_RE = re.compile(r"^\[(\w+)\]")
@@ -412,6 +428,28 @@ def _detectors(digest: dict, config: dict) -> list:
             "the writer (an unredirected script/harness - configure_audit "
             "exists for exactly this) and quarantine, never delete")
 
+    # SD-012 era pooling hazard: more than one execution era's rows share
+    # one file. Whole-window by nature (a ledger is one file). The detail
+    # carries the per-era counts and the source they were counted on, so
+    # the operator segments BEFORE averaging; CLAUDE.md's moratorium
+    # forbids pooling across the cut-#9 fee correction.
+    eras = digest.get("eras") or {}
+    if eras.get("pooling_hazard"):
+        _src = eras.get("pooling_hazard_source")
+        _counts = (eras.get("rows_per_era")
+                   if _src == "signal_history.exec_era"
+                   else eras.get("fills_per_era")) or {}
+        _sig_stamp = ("present"
+                      if "unavailable" not in (eras.get("rows_per_era") or {})
+                      else "ABSENT - segment by ts against the boundary table")
+        add(SD_ERA_POOLING_HAZARD, "warn",
+            "rows from more than one execution era share one file",
+            f"{len([k for k, n in _counts.items() if n > 0])} exec_era keys "
+            f"on {_src}: {_counts}; current era {eras.get('current_era')}. "
+            "Do NOT pool across eras (CLAUDE.md accrual moratorium) - any "
+            "statistic over this file must segment by exec_era first "
+            f"(signal_history.csv exec_era: {_sig_stamp})")
+
     # SD-005 stream inconsistency: a postmortem realized% that its OWN excursion
     # columns contradict. A position that never moved adverse (MAE ~ 0) cannot
     # realize a multi-percent loss -> the % is a scaling artifact (entry_usd ~ 0
@@ -550,6 +588,183 @@ def _postmortem_section(rows: list) -> dict:
     }
 
 
+def _csv_header(path: Path) -> list:
+    """Column names of a CSV, from its first line only (never the body)."""
+    if not path.exists():
+        return []
+    try:
+        with open(path, encoding="utf-8", newline="") as f:
+            return next(csv.reader(f), [])
+    except (OSError, csv.Error):
+        return []
+
+
+def _iso(t: float) -> "str | None":
+    """ISO-8601 UTC, or None when the epoch is outside the platform's
+    range (Windows gmtime raises OSError on a millisecond epoch - the
+    unit-mixing class the data-quality audit measured; a reader must never
+    take the digest down over one bad cell)."""
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _era_bucket(val) -> str:
+    """exec_era cell -> era key. None (missing trailing field) and "" are
+    distinct pre-stamp populations and stay distinct keys."""
+    if val is None:
+        return ERA_ABSENT
+    s = str(val).strip()
+    return s if s else ERA_PRESTAMP
+
+
+def _eras_section(sig_rows: list, outputs: Path) -> dict:
+    """Execution-era provenance of the corpus in `outputs` (2026-08-31,
+    operator-authorized). Pure reader; every branch degrades to a value.
+
+    `current_era` is the CODE constant every fill written by this binary
+    carries (core/fill_ledger.EXEC_ERA) - the stamp is in code, not in any
+    status/config file (measured 2026-09-01: zero `exec_era` keys in
+    status.json, state.json, config.json).
+
+    `rows_per_era` counts signal_history.csv rows by `exec_era` IF that
+    column exists. Measured 2026-09-01 it does NOT (95-column schema; the
+    only era column there is `label_era`, the LABEL-definition axis of
+    ml/history.py:label_era_of, a different thing) - so the key reports
+    `{"unavailable": <reason>}` rather than an empty dict a reader would
+    mistake for "one era". `rows_per_label_era` carries that other axis
+    under its own name so the two are never confused.
+
+    `fills_per_era` is the same count over outputs/fills.csv, the ONE
+    on-disk stream that carries the execution stamp (core/fill_ledger.COLS,
+    last column). Streamed row by row; never loaded whole. Rows with the
+    stamp field MISSING (a stale binary's COLS) and rows with it BLANK
+    (stamp-aware writer, pre-stamp row) are kept as distinct buckets, the
+    three-way rule scripts/cohort_eval.py applies to the same column.
+
+    `pooling_hazard` is True when the era source in use holds >1 era key
+    with count>0: rows from different execution eras share one file, and
+    CLAUDE.md forbids pooling across the fee correction. The source is
+    named (`pooling_hazard_source`) so the bool is never read as a claim
+    about a file it did not measure. signal_history's stamp is preferred
+    when it exists; fills.csv is the fallback; neither -> False + None.
+
+    The span keys (`corpus_first_ts` / `corpus_last_ts` / `corpus_rows`)
+    come from `signal_ts` (the corpus' own signal-time anchor;
+    ml/history.py sorts on it) over the rows already loaded - one pass,
+    no second read of the MB-scale file. They describe EVERY ROW ON DISK
+    and are therefore the RAW file span, NOT the span the champion is
+    scored on: the production loader drops rows by era exclusion and by
+    `label_era`, so the trained span is strictly shorter (measured
+    2026-09-01: 50.33d raw vs 23.73d trained, a 2.1x gap). Anything that
+    divides by a span - MinBTL, the standard error of an annualized
+    Sharpe - must use the TRAINED one from
+    scripts/champion_skill_report.py --json (`corpus_span_days`). The
+    rendered line says so; do not shorten it to "corpus span".
+    """
+    out: dict = {
+        "current_era": None,
+        "era_source": "core.fill_ledger.EXEC_ERA",
+        "rows_per_era": {"unavailable": "signal_history.csv not present"},
+        "rows_per_label_era": {},
+        "fills_rows": 0,
+        "fills_torn_rows": 0,
+        "fills_per_era": {},
+        "pooling_hazard": False,
+        "pooling_hazard_source": None,
+        "corpus_rows": len(sig_rows),
+        "corpus_first_ts": None,
+        "corpus_last_ts": None,
+        "corpus_span_days": None,
+        "signal_ts_missing": 0,
+    }
+    try:
+        from core.fill_ledger import EXEC_ERA
+        out["current_era"] = str(EXEC_ERA)
+    except Exception:  # pragma: no cover - a missing stamp must not break the digest
+        out["current_era"] = None
+
+    # --- signal_history.csv: era columns + calendar span ------------------
+    sig_path = outputs / "signal_history.csv"
+    header = _csv_header(sig_path)
+    if header:
+        if "exec_era" in header:
+            out["rows_per_era"] = dict(Counter(
+                _era_bucket(r.get("exec_era")) for r in sig_rows).most_common())
+        else:
+            out["rows_per_era"] = {
+                "unavailable": f"signal_history.csv has no exec_era column "
+                               f"({len(header)} columns; label_era present="
+                               f"{'label_era' in header}, a label-definition "
+                               f"axis, not the execution era)"}
+        if "label_era" in header:
+            out["rows_per_label_era"] = dict(Counter(
+                (r.get("label_era") or "").strip() or "blank"
+                for r in sig_rows).most_common())
+    lo = hi = None
+    missing = 0
+    for r in sig_rows:
+        raw = r.get("signal_ts")
+        t = _f(raw, 0.0) if raw not in (None, "") else 0.0
+        if t <= 0.0:
+            missing += 1
+            continue
+        lo = t if lo is None else min(lo, t)
+        hi = t if hi is None else max(hi, t)
+    out["signal_ts_missing"] = missing
+    if lo is not None and hi is not None:
+        out["corpus_first_ts"] = _iso(lo)
+        out["corpus_last_ts"] = _iso(hi)
+        out["corpus_span_days"] = round((hi - lo) / 86400.0, 2)
+
+    # --- fills.csv: the stream that actually carries the stamp -----------
+    fills_path = outputs / "fills.csv"
+    per_era: Counter = Counter()
+    n_fills = torn = 0
+    if fills_path.exists():
+        try:
+            with open(fills_path, encoding="utf-8", newline="") as f:
+                rdr = csv.DictReader(f)
+                if rdr.fieldnames and "exec_era" in rdr.fieldnames:
+                    for r in rdr:
+                        # a row short in ANY field but exec_era is a torn
+                        # append (live file, crash mid-write) - half an
+                        # observation, dropped and counted, same rule as
+                        # _read_csv. Short in exec_era ONLY = a stale
+                        # binary's 16-column COLS = the ABSENT bucket.
+                        if any(v is None for k, v in r.items()
+                               if k != "exec_era"):
+                            torn += 1
+                            continue
+                        n_fills += 1
+                        per_era[_era_bucket(r.get("exec_era"))] += 1
+                else:
+                    for _ in rdr:
+                        n_fills += 1
+                    per_era[ERA_ABSENT] = n_fills
+        except (OSError, csv.Error):
+            per_era = Counter()
+            n_fills = 0
+    out["fills_rows"] = n_fills
+    out["fills_torn_rows"] = torn
+    out["fills_per_era"] = dict(per_era.most_common())
+
+    # --- pooling hazard: >1 era key with rows, on the named source --------
+    rpe = out["rows_per_era"]
+    if "unavailable" not in rpe:
+        src, counts = "signal_history.exec_era", rpe
+    elif per_era:
+        src, counts = "fills.exec_era", out["fills_per_era"]
+    else:
+        src, counts = None, {}
+    live_keys = [k for k, n in counts.items()
+                 if isinstance(n, int) and n > 0]
+    out["pooling_hazard"] = len(live_keys) > 1
+    out["pooling_hazard_source"] = src
+    return out
+
+
 def build_digest(outputs_dir: "str | Path" = "outputs",
                  config: dict | None = None,
                  recent_hours: float = 48.0) -> dict:
@@ -599,11 +814,13 @@ def build_digest(outputs_dir: "str | Path" = "outputs",
         "events": _events_section(events),
         "model": _model_section(state, live_rows),
         "postmortems": _postmortem_section(pm_rows),
+        "eras": _eras_section(sig_rows, o),
         "streams_present": {
             "audit.jsonl": bool(audit), "events.jsonl": bool(events),
             "equity.csv": bool(equity_rows), "state.json": bool(state),
             "signal_history.csv": bool(sig_rows),
             "postmortem_summary.csv": bool(pm_rows),
+            "fills.csv": (o / "fills.csv").exists(),
         },
     }
     digest["diagnostics"] = _detectors(digest, config or {})
@@ -688,6 +905,31 @@ def render_markdown(d: dict) -> str:
             f"({ra.get('dominant_frac', 0.0):.0%} of non-routine) | "
             f"retrain_requests {ra.get('retrain_requests', 0)} | spoofy "
             f"{re_.get('spoofy_frac', 0.0):.0%} (non-liquid)")
+    eras = d.get("eras") or {}
+    if eras:
+        rpe = eras.get("rows_per_era") or {}
+        rpe_txt = (f"unavailable ({rpe['unavailable']})"
+                   if "unavailable" in rpe else str(rpe))
+        span = eras.get("corpus_span_days")
+        lines.append(
+            f"- Eras: current {eras.get('current_era')} | signal_history "
+            f"exec_era: {rpe_txt} | fills per exec_era: "
+            f"{eras.get('fills_per_era') or {}} ({eras.get('fills_rows', 0)} "
+            f"rows) | pooling_hazard={eras.get('pooling_hazard')} "
+            f"(source {eras.get('pooling_hazard_source')})")
+        lines.append(
+            f"- RAW signal-file span (signal_ts, all "
+            f"{eras.get('corpus_rows', 0)} rows on disk): "
+            f"{eras.get('corpus_first_ts') or 'n/a'} -> "
+            f"{eras.get('corpus_last_ts') or 'n/a'} "
+            f"({span if span is not None else 'n/a'}d"
+            + (f", {eras['signal_ts_missing']} rows without signal_ts"
+               if eras.get("signal_ts_missing") else "")
+            + ") - NOT the TRAINED corpus span: era exclusion + the "
+            "label_era filter drop rows, so the span the champion is "
+            "SCORED on is shorter. For that one (the MinBTL / Sharpe-SE "
+            "denominator) run scripts/champion_skill_report.py --json -> "
+            "corpus_span_days")
     lines += [
         "",
         "## Diagnostics",
