@@ -199,7 +199,7 @@ EXPECTED_KEYS = {"read_at", "fills_path", "candle_dir", "rows_total", "entries_w
                  "scored", "skipped", "skipped_no_bar_near_right_edge", "lanes_used",
                  "lanes_loaded", "horizons", "placebo_shifts", "min_bars_ahead", "too_few",
                  "arrival_markout", "per_symbol", "placebo", "decomposition", "slip",
-                 "ticks", "caveats"}
+                 "ticks", "tick_store", "caveats"}
 
 
 def test_json_shape_is_stable_on_empty_fills(root: Path):
@@ -217,6 +217,8 @@ def test_json_shape_is_stable_on_empty_fills(root: Path):
                            "maker_mean": None, "taker_mean": None}
     assert rep["ticks"]["enabled"] is False
     assert set(rep["ticks"]["horizons"]) == {f"{h}s" for h in mr.TICK_HORIZONS_S}
+    assert rep["tick_store"]["enabled"] is False
+    assert set(rep["tick_store"]) == TICK_STORE_KEYS
     json.dumps(rep)                                  # serialisable as-is
     assert "n= " in mr.render(rep) or "n=   0" in mr.render(rep)
     # the CLI path, same shape, no candle dir at all
@@ -226,6 +228,7 @@ def test_json_shape_is_stable_on_empty_fills(root: Path):
     parsed = json.loads(out.stdout)
     assert set(parsed) == EXPECTED_KEYS
     assert parsed["ticks"]["enabled"] is False
+    assert parsed["tick_store"]["enabled"] is False
 
 
 # --- (f) tick-mode horizon lookup, no network ----------------------------------
@@ -314,3 +317,391 @@ def test_kraken_pair_aliases():
     assert mr.kraken_pair_for("BTC/USD") == "XBTUSD"
     assert mr.kraken_pair_for("DOGE/USD") == "XDGUSD"
     assert mr.kraken_pair_for("ETH/USD") == "ETHUSD"
+
+
+# --- (g) tick-store mode: LOCAL tape, offline ----------------------------------
+
+TICK_STORE_KEYS = {"enabled", "root", "read_at", "horizons_s", "pre_s", "placebo_shifts_s",
+                   "pairs", "fills_considered", "scored", "skipped_by_pair", "skip_reasons",
+                   "groups", "placebo", "matched", "density", "caveats"}
+TS0 = float(T0 + 50 * 3600 + 600)           # a fill 10 min into an hour
+STORE_H = mr.STORE_HORIZONS_S
+
+
+def write_tape(root: Path, sym: str, points, start_id: int = 1) -> None:
+    """points = [(time_s, price)] -> <root>/outputs/ticks/kraken/<PAIR>/..parquet
+    through the SAME TickStore.append the backfill uses."""
+    import scripts.kraken_trades_backfill as kb
+    store = kb.TickStore(root / "outputs" / "ticks")
+    rows = [{"trade_id": start_id + i, "time_s": float(t), "price": float(p), "volume": 1.0,
+             "side": "b", "otype": "l", "misc": ""} for i, (t, p) in enumerate(points)]
+    store.append(kb.kraken_pair(sym), rows)
+
+
+def flat_tape(t0: float, price: float, span_s: float = 5000.0, step_s: float = 5.0,
+              before_s: float = 4000.0):
+    """A print every step_s from t0-before_s through t0+span_s at `price`."""
+    return [(t, price) for t in np.arange(t0 - before_s, t0 + span_s + step_s, step_s)]
+
+
+def stepped(points, at: float, factor: float):
+    """Multiply every print with time > at by factor (a step strictly AFTER
+    at) and add a stepped print at at+0.25s so the 1s horizon sees it."""
+    base = [p for t, p in points if t <= at][-1]
+    out = [(t, p * factor if t > at else p) for t, p in points]
+    return sorted(out + [(at + 0.25, base * factor)])
+
+
+def _store_all(rep) -> dict:
+    return rep["tick_store"]["groups"][0]
+
+
+def test_tick_store_sign_is_with_us_for_buy_and_sell(root: Path):
+    # buy at TS0: prints step UP 20bps 0.5s after the fill; sell at TS0+2h:
+    # prints step DOWN 20bps 0.5s after. Both must read +20 at EVERY horizon.
+    t_sell = TS0 + 7200.0
+    pts = stepped(flat_tape(TS0, 100.0, span_s=7200.0 + 5000.0), TS0 + 0.5, 1.002)
+    pts = stepped(pts, t_sell + 0.5, 0.998)
+    write_tape(root, "ETH", pts)
+    write_fills(root / "outputs/fills.csv", [
+        fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0),
+        fill_row(t_sell, "ETH/USD", "sell", 100.2, 100.2),
+    ])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert ts_["enabled"] is True and ts_["scored"] == 2
+    assert ts_["skipped_by_pair"] == {} and ts_["skip_reasons"] == {}
+    _, entries = mr.load_fills(root / "outputs/fills.csv")
+    tape, _meta = mr.load_tape(root / "outputs" / "ticks", ["ETH"])
+    rows, _, _ = mr.score_tick_store(entries, tape)
+    assert [r["side"] for r in rows] == ["buy", "sell"]
+    for r in rows:
+        for h in STORE_H:
+            assert r[f"{h}s"] == pytest.approx(20.0, abs=1e-6), (r["side"], h, r[f"{h}s"])
+        # the fill equals the pre-fill print -> limit distance 0 for both sides
+        assert r["pre1s"] == pytest.approx(0.0, abs=1e-9)
+    g = _store_all(rep)
+    assert g["tag"] == "ALL entries" and g["n"] == 2 and g["hrs"] == 2
+    assert g["stats"]["60s"]["mean"] == pytest.approx(20.0, abs=1e-6)
+    assert g["stats"]["900s"]["mean"] == pytest.approx(20.0, abs=1e-6)
+
+
+def test_tick_store_pre1s_is_signed_limit_distance():
+    # buy filled 10bps BELOW the last pre-fill print -> pre1s = -10 (same
+    # convention as arr2fill: negative = filled better than the reference)
+    t = np.array([TS0 - 3000.0, TS0 - 1.5, TS0 + 0.4, TS0 + 1000.0])
+    p = np.array([100.0, 100.0, 100.0, 100.0])
+    entries = [{"ts": f"{TS0:.3f}", "symbol": "ETH/USD", "side": "buy", "purpose": "entry",
+                "fill_size": "1", "fill_price": "99.9", "post_only": "1", "exec_era": ""}]
+    rows, _, _ = mr.score_tick_store(entries, {"ETH": (t, p)})
+    assert rows[0]["pre1s"] == pytest.approx(-10.0, abs=1e-6)
+    # the print at TS0+0.4 (after fill_ts-1s) must NOT be the reference:
+    # move it and pre1s does not change
+    p2 = np.array([100.0, 100.0, 150.0, 100.0])
+    rows2, _, _ = mr.score_tick_store(entries, {"ETH": (t, p2)})
+    assert rows2[0]["pre1s"] == pytest.approx(-10.0, abs=1e-6)
+
+
+def test_tape_lookup_is_last_trade_at_or_before_each_horizon():
+    t = np.array([TS0 - 10.0, TS0 + 0.5, TS0 + 5.0, TS0 + 45.0, TS0 + 200.0,
+                  TS0 + 600.0, TS0 + 950.0])
+    p = np.array([100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0])
+    assert mr.tape_price_at_or_before(t, p, TS0 + 1) == 101.0
+    assert mr.tape_price_at_or_before(t, p, TS0 + 10) == 102.0
+    assert mr.tape_price_at_or_before(t, p, TS0 + 60) == 103.0
+    assert mr.tape_price_at_or_before(t, p, TS0 + 300) == 104.0
+    assert mr.tape_price_at_or_before(t, p, TS0 + 900) == 105.0
+    assert mr.tape_price_at_or_before(t, p, TS0 + 5.0) == 102.0        # exactly AT counts
+    assert mr.tape_price_at_or_before(t, p, TS0 - 20.0) is None        # nothing before
+    # end to end: a buy at 100 reads +100/+200/+300/+400/+500 bps; the
+    # first-trade-AFTER defect would read +200/+300/+400/+500/+600
+    entries = [{"ts": f"{TS0:.3f}", "symbol": "ETH/USD", "side": "buy", "purpose": "entry",
+                "fill_size": "1", "fill_price": "100.0", "post_only": "1", "exec_era": ""}]
+    rows, by_sym, reasons = mr.score_tick_store(entries, {"ETH": (t, p)})
+    assert len(rows) == 1 and by_sym == {}
+    assert set(reasons) == {"placebo-3600_uncovered", "placebo+3600_uncovered"}
+    assert [round(rows[0][f"{h}s"]) for h in STORE_H] == [100, 200, 300, 400, 500]
+
+
+def test_tick_store_skips_and_counts_uncovered_fills_by_pair(root: Path):
+    write_tape(root, "ETH", flat_tape(TS0, 100.0))                       # full cover
+    write_tape(root, "BTC", flat_tape(TS0, 50000.0, span_s=500.0))       # ends before +900
+    write_tape(root, "SOL", flat_tape(TS0, 50.0, before_s=0.5))          # starts after fill-1s
+    write_fills(root / "outputs/fills.csv", [
+        fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0),
+        fill_row(TS0, "BTC/USD", "buy", 50000.0, 50000.0),
+        fill_row(TS0, "BTC/USD", "sell", 50000.0, 50000.0),
+        fill_row(TS0, "SOL/USD", "buy", 50.0, 50.0),
+        fill_row(TS0, "FLOW/USD", "buy", 1.0, 1.0),                      # no tape at all
+        fill_row(TS0, "ETH/USD", "buy", "", 100.0),                      # no fill_price
+        fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0, size="0"),         # not an entry fill
+    ])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert ts_["fills_considered"] == 6
+    assert ts_["scored"] == 1
+    assert ts_["skipped_by_pair"] == {"BTC": 2, "SOL": 1, "FLOW": 1, "ETH": 1}
+    assert ts_["skip_reasons"] == {"tape_ends_before_horizon": 2, "tape_starts_after_fill": 1,
+                                   "no_tape": 1, "no_fill_price": 1}
+    assert ts_["scored"] + sum(ts_["skipped_by_pair"].values()) == ts_["fills_considered"]
+    assert ts_["pairs"]["FLOW"] == {"pair": "FLOWUSD", "rows": 0, "t_min": None, "t_max": None}
+    assert ts_["pairs"]["BTC"]["pair"] == "XBTUSD" and ts_["pairs"]["BTC"]["rows"] > 0
+    assert ts_["pairs"]["ETH"]["t_max"] == pytest.approx(TS0 + 5000.0)
+    # the single scored row is the ETH fill, and the BTC fill was NOT scored
+    # from its last (stale) print
+    assert [g["tag"] for g in ts_["groups"] if g["tag"] in ("BTC", "ETH")] == ["ETH"]
+
+
+def test_tape_covers_reasons():
+    t = np.array([TS0 - 100.0, TS0 + 950.0])
+    assert mr.tape_covers(t, TS0) is None
+    assert mr.tape_covers(t, TS0 + 51.0) == "tape_ends_before_horizon"     # +51+900 > +950
+    assert mr.tape_covers(t, TS0 + 50.0) is None                            # exactly reaches
+    assert mr.tape_covers(t, TS0 - 99.5) == "tape_starts_after_fill"       # needs ts-1 >= t[0]
+    assert mr.tape_covers(t, TS0 - 99.0) is None
+    assert mr.tape_covers(np.empty(0), TS0) == "no_tape"
+
+
+def test_tick_store_placebo_shift_and_no_lookahead_reference(root: Path):
+    # real window: step +20bps at TS0+0.5. The +3600 placebo window holds a
+    # SECOND step (+20bps at TS0+3600.5): with reference = last print at or
+    # before the shifted ts it reads +20; a look-ahead reference (first
+    # print AFTER the shifted ts, already stepped) would read 0. The -3600
+    # window is flat and must read 0.
+    pts = flat_tape(TS0, 100.0, span_s=6000.0, before_s=5000.0)
+    pts = stepped(pts, TS0 + 0.5, 1.002)
+    pts = stepped(pts, TS0 + 3600.5, 1.002)
+    write_tape(root, "ETH", pts)
+    # two fills 0.1s apart (group_stats needs >= 2 values), both pre-step
+    write_fills(root / "outputs/fills.csv", [fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0),
+                                             fill_row(TS0 + 0.1, "ETH/USD", "buy", 100.0, 100.0)])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert ts_["scored"] == 2 and ts_["skip_reasons"] == {}
+    _, entries = mr.load_fills(root / "outputs/fills.csv")
+    tape, _ = mr.load_tape(root / "outputs" / "ticks", ["ETH"])
+    for r in mr.score_tick_store(entries, tape)[0]:
+        for h in STORE_H:
+            assert r[f"{h}s"] == pytest.approx(20.0, abs=1e-6)
+            assert r[f"pl-3600_{h}s"] == pytest.approx(0.0, abs=1e-9), h
+            assert r[f"pl+3600_{h}s"] == pytest.approx(20.0, abs=1e-6), h
+    by_shift = {g["shift_s"]: g for g in ts_["placebo"]}
+    assert set(by_shift) == {-3600, 3600}
+    assert by_shift[-3600]["stats"]["60s"]["mean"] == pytest.approx(0.0, abs=1e-9)
+    assert by_shift[3600]["stats"]["60s"]["mean"] == pytest.approx(20.0, abs=1e-6)
+    # the placebo hour set is the SHIFTED one
+    assert by_shift[3600]["n"] == 2 and by_shift[3600]["hrs"] == 1
+    assert by_shift[-3600]["n"] == 2 and by_shift[-3600]["hrs"] == 1
+
+
+def test_tick_store_placebo_is_skipped_where_the_shifted_window_is_uncovered():
+    # tape covers the real window and -3600 but ends before +3600+900
+    t = np.array([TS0 - 3700.0, TS0 - 1.5, TS0 + 950.0, TS0 + 3600.0 + 100.0])
+    p = np.array([100.0, 100.0, 100.0, 100.0])
+    entries = [{"ts": f"{TS0:.3f}", "symbol": "ETH/USD", "side": "buy", "purpose": "entry",
+                "fill_size": "1", "fill_price": "100.0", "post_only": "1", "exec_era": ""}]
+    rows, _, reasons = mr.score_tick_store(entries, {"ETH": (t, p)})
+    assert len(rows) == 1
+    assert "pl-3600_60s" in rows[0] and "pl+3600_60s" not in rows[0]
+    assert reasons == {"placebo+3600_uncovered": 1}
+    sec = mr.build_tick_store_sections(rows)
+    assert {g["shift_s"]: g["n"] for g in sec["placebo"]} == {-3600: 1, 3600: 0}
+
+
+def test_tick_store_eras_and_maker_taker_are_never_pooled(root: Path):
+    # era A (maker): +20bps after every fill; era B (taker): -20bps. ALL pools
+    # to 0; each era line, and each era x maker/taker line, keeps its own sign.
+    ta = [TS0, TS0 + 2 * 3600.0]
+    tb = [TS0 + 4 * 3600.0, TS0 + 6 * 3600.0]
+    pts = flat_tape(TS0, 100.0, span_s=8 * 3600.0)
+    price = 100.0
+    out = []
+    steps = sorted([(t + 0.5, 1.002) for t in ta] + [(t + 0.5, 0.998) for t in tb])
+    for t, _ in pts:
+        while steps and t > steps[0][0]:
+            price *= steps.pop(0)[1]
+        out.append((t, price))
+    write_tape(root, "ETH", out)
+    def px_at(t):                      # last print at/before t (the fill price we book)
+        return [p for tt, p in out if tt <= t][-1]
+
+    write_fills(root / "outputs/fills.csv",
+                [fill_row(t, "ETH/USD", "buy", px_at(t), px_at(t), era="7-e7d5ca1a") for t in ta]
+                + [fill_row(t, "ETH/USD", "buy", px_at(t), px_at(t), post_only="0",
+                            era="9-16ec821e") for t in tb])
+    rep = mr.build_report(root=root, tick_store=True)
+    by_tag = {g["tag"]: g for g in rep["tick_store"]["groups"]}
+    assert rep["tick_store"]["scored"] == 4
+    assert by_tag["ALL entries"]["n"] == 4
+    assert by_tag["ALL entries"]["stats"]["60s"]["mean"] == pytest.approx(0.0, abs=1e-6)
+    assert by_tag["era 7-e7d5ca1a"]["n"] == 2
+    assert by_tag["era 7-e7d5ca1a"]["stats"]["60s"]["mean"] == pytest.approx(20.0, abs=1e-6)
+    assert by_tag["era 9-16ec821e"]["n"] == 2
+    assert by_tag["era 9-16ec821e"]["stats"]["60s"]["mean"] == pytest.approx(-20.0, abs=1e-6)
+    assert by_tag["maker (post_only)"]["stats"]["900s"]["mean"] == pytest.approx(20.0, abs=1e-6)
+    assert by_tag["taker"]["stats"]["900s"]["mean"] == pytest.approx(-20.0, abs=1e-6)
+    assert by_tag["era 7-e7d5ca1a maker"]["n"] == 2 and by_tag["era 7-e7d5ca1a taker"]["n"] == 0
+    assert by_tag["era 9-16ec821e taker"]["n"] == 2 and by_tag["era 9-16ec821e maker"]["n"] == 0
+    # nothing labelled pre-era exists here: no pooled '(pre-era)' line may appear
+    assert "era (pre-era)" not in by_tag
+
+
+def test_tick_store_se_deflates_to_distinct_fill_hours(root: Path):
+    # three fills in ONE hour (different minutes) + one in the next hour ->
+    # hrs == 2, never 4; SE = std/sqrt(2)
+    write_tape(root, "ETH", flat_tape(TS0, 100.0, span_s=8000.0))
+    pts_v = [(TS0, 100.0), (TS0 + 300.0, 100.1), (TS0 + 1200.0, 99.9), (TS0 + 3600.0, 100.05)]
+    write_fills(root / "outputs/fills.csv",
+                [fill_row(t, "ETH/USD", "buy", p, p) for t, p in pts_v])
+    rep = mr.build_report(root=root, tick_store=True)
+    g = _store_all(rep)
+    assert g["n"] == 4 and g["hrs"] == 2
+    vals = np.array([(100.0 - p) / p * 1e4 for _, p in pts_v])
+    assert g["stats"]["60s"]["mean"] == pytest.approx(vals.mean(), abs=1e-6)
+    assert g["stats"]["60s"]["se"] == pytest.approx(vals.std(ddof=1) / np.sqrt(2), abs=1e-9)
+
+
+def test_tick_store_json_section_and_cli(root: Path):
+    write_tape(root, "ETH", flat_tape(TS0, 100.0))
+    write_fills(root / "outputs/fills.csv", [fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0)])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert set(ts_) == TICK_STORE_KEYS
+    assert ts_["enabled"] is True and ts_["root"] == str(root / "outputs" / "ticks")
+    assert ts_["horizons_s"] == [1, 10, 60, 300, 900] and ts_["pre_s"] == 1
+    assert ts_["placebo_shifts_s"] == [-3600, 3600]
+    assert [g["tag"] for g in ts_["groups"]] == [
+        "ALL entries", "era (pre-era)", "maker (post_only)", "taker",
+        "era (pre-era) maker", "era (pre-era) taker", "buy", "sell", "ETH"]
+    assert set(ts_["groups"][0]["stats"]) == {"1s", "10s", "60s", "300s", "900s", "pre1s"}
+    assert [g["shift_s"] for g in ts_["placebo"]] == [-3600, 3600]
+    assert ts_["matched"]["shift_s"] == 0 and ts_["matched"]["n"] == 1
+    assert set(ts_["density"]["stale_by_horizon"]) == {"1s", "10s", "60s", "300s", "900s"}
+    assert ts_["read_at"].endswith("+00:00")
+    json.dumps(rep)
+    text = mr.render(rep)
+    assert "=== TICK-STORE" in text and "tape ETH   ETHUSD" in text
+    assert "skipped by pair {}" in text
+    # CLI: bare --tick-store resolves to <root>/outputs/ticks; an explicit
+    # ROOT with no tape scores nothing and counts every fill
+    out = subprocess.run([sys.executable, str(mr.ROOT / "scripts" / "markout_report.py"),
+                          "--json", "--root", str(root), "--tick-store"],
+                         capture_output=True, text=True, check=True, cwd=str(mr.ROOT))
+    parsed = json.loads(out.stdout)
+    assert parsed["tick_store"]["enabled"] is True and parsed["tick_store"]["scored"] == 1
+    out = subprocess.run([sys.executable, str(mr.ROOT / "scripts" / "markout_report.py"),
+                          "--json", "--root", str(root), "--tick-store", str(root / "nowhere")],
+                         capture_output=True, text=True, check=True, cwd=str(mr.ROOT))
+    parsed = json.loads(out.stdout)
+    assert parsed["tick_store"]["root"] == str(root / "nowhere")
+    assert parsed["tick_store"]["scored"] == 0
+    assert parsed["tick_store"]["skip_reasons"] == {"no_tape": 1}
+    assert parsed["tick_store"]["skipped_by_pair"] == {"ETH": 1}
+
+
+def test_tick_store_symbol_cannot_name_a_path(root: Path):
+    (root / "escape").mkdir()
+    write_tape(root, "ETH", flat_tape(TS0, 100.0))
+    write_fills(root / "outputs/fills.csv", [
+        fill_row(TS0, "../escape/USD", "buy", 1.0, 1.0),           # asset '..' -> UNKNOWN
+        fill_row(TS0, r"..\..\ETH/USD", "buy", 100.0, 100.0),      # separators stripped -> ETH
+    ])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert set(ts_["pairs"]) == {"UNKNOWN", "ETH"}
+    assert ts_["pairs"]["UNKNOWN"] == {"pair": "UNKNOWNUSD", "rows": 0, "t_min": None, "t_max": None}
+    assert ts_["skipped_by_pair"] == {"UNKNOWN": 1}
+    assert ts_["scored"] == 1
+    assert not list((root / "escape").iterdir())
+
+
+# --- (h) reference estimand, print density, tape ORDER ---------------------------
+
+def test_matched_reference_is_a_tape_print_not_the_fill_price(root: Path):
+    """THE ESTIMAND PIN. The group lines are referenced to fill_price (off
+    tape, inside the spread); the placebos to a tape print. A maker buy
+    filled 10bps under a DEAD-FLAT tape therefore reads +10bps forever on
+    the group line and EXACTLY 0.0 on the matched (shift-0) line, which is
+    the placebos' own construction. A matched line that reused fill_price
+    (or a placebo built off the fill) would read +10 here and the
+    'placebo is flat' reading would be circular."""
+    write_tape(root, "ETH", flat_tape(TS0, 100.0, span_s=6000.0, before_s=5000.0))
+    write_fills(root / "outputs/fills.csv", [fill_row(TS0, "ETH/USD", "buy", 99.9, 99.9),
+                                             fill_row(TS0 + 0.1, "ETH/USD", "buy", 99.9, 99.9)])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert ts_["scored"] == 2
+    fill_ref = ts_["groups"][0]["stats"]
+    matched = ts_["matched"]
+    assert matched["shift_s"] == 0 and matched["n"] == 2
+    for h in STORE_H:
+        assert fill_ref[f"{h}s"]["mean"] == pytest.approx(10.01, abs=0.01), h
+        assert matched["stats"][f"{h}s"]["mean"] == pytest.approx(0.0, abs=1e-9), h
+    # the whole fill-referenced number IS the limit distance, and pre1s says so
+    assert fill_ref["pre1s"]["mean"] == pytest.approx(-10.0, abs=1e-6)
+    for g in ts_["placebo"]:
+        for h in STORE_H:
+            assert g["stats"][f"{h}s"]["mean"] == pytest.approx(0.0, abs=1e-9)
+    text = mr.render(rep)
+    assert "MATCHED" in text and "TAPE-REFERENCED" in text
+    assert any("DIFFERENT ESTIMANDS" in c for c in ts_["caveats"])
+
+
+def test_stale_horizons_are_counted_when_the_window_has_no_prints():
+    """tape_covers is ENDPOINT-only. A fill in a 400 s tape dead zone is
+    'covered' yet its 1/10/60/300 s prices are all the SAME pre-fill print,
+    so those horizons are -pre1s by construction, not forward moves. The
+    density block must name them; a report that only prints means cannot
+    tell this apart from a market that did not move."""
+    pre = [(t, 100.0) for t in np.arange(TS0 - 1000.0, TS0 + 0.1, 5.0)]
+    post = [(t, 101.0) for t in np.arange(TS0 + 400.0, TS0 + 950.1, 5.0)]
+    t = np.array([x for x, _ in pre + post], float)
+    p = np.array([y for _, y in pre + post], float)
+    entries = [{"ts": f"{TS0:.3f}", "symbol": "ETH/USD", "side": "buy", "purpose": "entry",
+                "fill_size": "1", "fill_price": "99.9", "post_only": "1", "exec_era": ""}]
+    rows, _, _ = mr.score_tick_store(entries, {"ETH": (t, p)})
+    r = rows[0]
+    assert [r["stale_1s"], r["stale_10s"], r["stale_60s"], r["stale_300s"]] == [True] * 4
+    assert r["stale_900s"] is False
+    assert r["n_prints"] == 101                      # (TS0, TS0+900]: 400..900 step 5
+    assert r["max_gap_s"] == pytest.approx(400.0, abs=1e-9)
+    # the mechanism: a stale horizon is the pre-fill print, so it mirrors pre1s
+    assert r["1s"] == pytest.approx(-r["pre1s"], rel=2e-3)
+    assert r["900s"] > 0 and r["900s"] != pytest.approx(r["300s"])
+    d = mr.density_summary(rows)
+    assert d["stale_by_horizon"] == {"1s": 1, "10s": 1, "60s": 1, "300s": 1, "900s": 0}
+    assert d["no_print_in_window"] == 0
+    assert d["max_gap_s"]["median"] == pytest.approx(400.0, abs=1e-9)
+    assert d["window_s"] == 900
+    # a fill whose whole window is silent: every horizon stale, gap == window
+    t2 = np.array([TS0 - 10.0, TS0 + 901.0], float)
+    rows2, _, _ = mr.score_tick_store(entries, {"ETH": (t2, np.array([100.0, 100.0]))})
+    d2 = mr.density_summary(rows2)
+    assert d2["no_print_in_window"] == 1 and rows2[0]["max_gap_s"] == 900.0
+    assert d2["stale_by_horizon"] == {f"{h}s": 1 for h in STORE_H}
+
+
+def test_load_tape_sorts_by_TIME_not_trade_id(root: Path):
+    """TickStore.load sorts by trade_id; every searchsorted downstream needs
+    TIME order. Plant a tape whose trade_id order is NOT time order (the
+    backfill pages out of order / a re-request) and require both: the loaded
+    times come back non-decreasing, and the fill still scores its planted
+    +20bps. Without load_tape's re-sort the endpoint check reads the last
+    INSERTED print and the fill is silently skipped."""
+    pts = flat_tape(TS0, 100.0, span_s=5000.0, before_s=5000.0)
+    pts = stepped(pts, TS0 + 0.5, 1.002)
+    shuffled = pts[len(pts) // 2:] + pts[:len(pts) // 2]      # trade_id != time order
+    write_tape(root, "ETH", shuffled)
+    tape, meta = mr.load_tape(root / "outputs" / "ticks", ["ETH"])
+    t, _p = tape["ETH"]
+    assert np.all(np.diff(t) >= 0), "load_tape returned a tape out of time order"
+    assert meta["ETH"]["t_min"] == pytest.approx(min(x for x, _ in pts))
+    assert meta["ETH"]["t_max"] == pytest.approx(max(x for x, _ in pts))
+    write_fills(root / "outputs/fills.csv", [fill_row(TS0, "ETH/USD", "buy", 100.0, 100.0)])
+    rep = mr.build_report(root=root, tick_store=True)
+    ts_ = rep["tick_store"]
+    assert ts_["scored"] == 1 and ts_["skip_reasons"] == {}
+    _, entries = mr.load_fills(root / "outputs/fills.csv")
+    r = mr.score_tick_store(entries, tape)[0][0]
+    for h in STORE_H:
+        assert r[f"{h}s"] == pytest.approx(20.0, abs=1e-6), h

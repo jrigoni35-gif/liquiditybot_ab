@@ -4,7 +4,8 @@ scripts/markout_report.py — post-fill MARKOUT / adverse-selection report.
 SAFE class (era-6 moratorium): read-only measurement over outputs/fills.csv
 and the candle store. It places no order, alters no config, imports nothing
 from the decision path, and writes into outputs/ ONLY in --ticks mode, and
-then only the raw-response cache under outputs/markout_ticks_cache/.
+then only the raw-response cache under outputs/markout_ticks_cache/
+(--tick-store reads the local tape and writes nothing).
 
 WHAT IT MEASURES. For every ENTRY fill with fill_size > 0:
 
@@ -73,10 +74,60 @@ cached at outputs/markout_ticks_cache/<symbol>_<ts>.json so re-runs are
 free. One page (<= 1000 trades) per fill: a horizon the page does not
 reach is counted `page_exhausted`, never filled from a later trade.
 
+TICK-STORE MODE (--tick-store [ROOT], OFFLINE, off by default). Reads the
+LOCAL parquet tape written by scripts/kraken_trades_backfill.py
+(<ROOT>/kraken/<PAIR>/<YYYY-MM>.parquet, default ROOT outputs/ticks; public
+keyless data, no network here) and, for EVERY entry fill with fill_size > 0
+(the same load_fills filter as candle mode — arrival_ref is NOT required),
+computes the signed markout from fill_price to the LAST tape trade AT OR
+BEFORE fill_ts + h for h in STORE_HORIZONS_S = 1/10/60/300/900 s
+(searchsorted side="right" on the time-sorted tape; a later trade is never
+substituted), plus `pre1s` = side_sign * (fill - P[fill_ts - 1 s]) /
+P[fill_ts - 1 s] * 1e4 — the arr->fill limit-distance term re-derived from
+the tape's immediate pre-fill print instead of the booked arrival_ref (same
+sign convention as arr2fill: negative = we filled BETTER than the
+reference). A fill is scored only when its pair's tape spans
+[fill_ts - 1 s, fill_ts + 900 s] (`tape_covers`); every other fill is
+COUNTED by pair and by reason (no_tape / tape_ends_before_horizon /
+tape_starts_after_fill / no_fill_price / bad_ts) — BTC's tape is a partial,
+still-growing backfill and FLOW has none, so the skip table is part of the
+result, not noise.
+
+REFERENCE FAMILY (read this before comparing any two lines). The group lines
+are referenced to FILL_PRICE, which is off-tape and inside the spread; the
+placebo lines are referenced to a TAPE PRINT. Those are DIFFERENT ESTIMANDS:
+the bid/ask bounce a maker fill collects is in the first and CANNOT be in the
+second, so a flat placebo beside a positive fill-referenced number is flat by
+construction and corroborates nothing. The report therefore also prints the
+MATCHED control — shift 0, i.e. the placebo's own construction with no shift:
+`sgn * (P[ts+h] - P[ts]) / P[ts]`, same rows, same sides. Compare group lines
+to the matched line; the difference between them is the limit distance
+(pre1s), not forward information. The placebos, at fill_ts shifted -3600 s /
++3600 s (reference = last trade at or before the SHIFTED ts, no look-ahead,
+scored only where the shifted window is also covered), then control the
+MATCHED line for drift and side-mix — never the fill-referenced one.
+
+PRINT DENSITY. `tape_covers` is ENDPOINT-only: it proves the tape brackets
+[fill_ts - 1 s, fill_ts + 900 s] and says nothing about what happens inside,
+so a fill in a tape dead zone is scored as if measured. Every scored row
+therefore carries `n_prints` (trades in (ts, ts+900]), `max_gap_s` (the
+largest silence in that window, measured from ts and to the window end) and
+`stale_<h>s` — True when NO print falls in (ts, ts+h], so that horizon's
+"forward" price is a print at or before the fill. Where that print is ALSO
+the pre1s reference (no print in (ts-1 s, ts] either) the horizon reads
+exactly -pre1s up to the denominator, which is how a near-perfect
+corr(<h>s, -pre1s) arises with no market mechanism at all. The DENSITY line
+aggregates them. Groups:
+ALL, per exec_era (never pooled across the cut-#9 fee boundary — cite the
+era lines), maker/taker, era x maker/taker, buy/sell, per symbol; SE
+deflated to distinct fill-hours exactly as candle mode (group_stats).
+
 Usage:
     python scripts/markout_report.py                # candle report
     python scripts/markout_report.py --json         # same, as one dict
     python scripts/markout_report.py --ticks --max-fills 50
+    python scripts/markout_report.py --tick-store   # + local tape section
+    python scripts/markout_report.py --tick-store D:/ticks --json
 """
 
 from __future__ import annotations
@@ -90,7 +141,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -112,6 +163,16 @@ TICK_PAGE_COUNT = 1000    # Kraken Trades max per page
 TICK_UNIT_TOLERANCE_S = 3600.0
 TICK_CACHE_SUBDIR = "markout_ticks_cache"
 DEFAULT_MAX_FILLS = 100
+
+STORE_HORIZONS_S: tuple[int, ...] = (1, 10, 60, 300, 900)
+STORE_PRE_S = 1                      # pre-fill reference: last trade at/before fill_ts - 1 s
+STORE_PLACEBO_SHIFTS_S: tuple[int, ...] = (-3600, 3600)
+STORE_MATCHED_SHIFT_S = 0             # the placebo's own construction at shift 0
+# every reference the tick-store scores against a TAPE print (shift 0 = the
+# matched-estimand control for the fill_price-referenced numbers)
+STORE_REF_SHIFTS_S: tuple[int, ...] = (STORE_MATCHED_SHIFT_S,) + STORE_PLACEBO_SHIFTS_S
+STORE_COVER_S = max(STORE_HORIZONS_S)  # a pair covers a fill only through fill_ts + this
+DEFAULT_TICK_ROOT = ("outputs", "ticks")
 
 # Kraken denomination aliases for the Trades pair name (same table as
 # scripts/candle_backfill.py; KrakenFeed.kraken_pair is a bare replace).
@@ -450,6 +511,263 @@ def empty_ticks_section(max_fills: int = DEFAULT_MAX_FILLS) -> Row:
                                    "se": None, "t": None} for h in TICK_HORIZONS_S}}
 
 
+# --- tick-store mode (offline local tape) ----------------------------------
+
+Tape = dict[str, tuple[np.ndarray, np.ndarray]]   # sym -> (time_s sorted, price aligned)
+
+
+def _store_sym(symbol: Any) -> str:
+    """'ETH/USD' -> 'ETH'. The asset comes from a CSV column and becomes a
+    directory name under the tick root: keep alphanumerics only, so a
+    corrupt row can name at most a sibling pair, never a path."""
+    return "".join(ch for ch in str(symbol or "").split("/")[0] if ch.isalnum()) or "UNKNOWN"
+
+
+def load_tape(tick_root: Path, symbols: Iterable[str]) -> tuple[Tape, dict[str, Row]]:
+    """({sym: (time_s sorted asc, price aligned)}, {sym: coverage meta}) from
+    the local TickStore for every requested symbol. A symbol with no tape
+    gets meta rows=0 and no tape entry."""
+    from scripts.kraken_trades_backfill import TickStore, kraken_pair
+    store = TickStore(tick_root)
+    tape: Tape = {}
+    meta: dict[str, Row] = {}
+    for sym in sorted(set(symbols)):
+        pair = kraken_pair(sym)
+        df = store.load(pair)
+        if df.empty:
+            meta[sym] = {"pair": pair, "rows": 0, "t_min": None, "t_max": None}
+            continue
+        t = df["time_s"].astype(float).to_numpy()
+        p = df["price"].astype(float).to_numpy()
+        o = np.argsort(t, kind="stable")
+        t, p = t[o], p[o]
+        tape[sym] = (t, p)
+        meta[sym] = {"pair": pair, "rows": int(t.size),
+                     "t_min": float(t[0]), "t_max": float(t[-1])}
+    return tape, meta
+
+
+def tape_price_at_or_before(times: np.ndarray, prices: np.ndarray,
+                            target: float) -> Optional[float]:
+    """Price of the LAST trade with time_s <= target; None when no trade
+    precedes target. Never the first trade after."""
+    k = int(np.searchsorted(times, target, side="right"))
+    return float(prices[k - 1]) if k > 0 else None
+
+
+def tape_covers(times: np.ndarray, ts: float, horizon_s: float = STORE_COVER_S,
+                pre_s: float = STORE_PRE_S) -> Optional[str]:
+    """None when the tape spans [ts - pre_s, ts + horizon_s]; otherwise the
+    skip reason. A tape that ends before the horizon is NOT covering — the
+    last trade before its end would be a stale, not a horizon, price."""
+    if times.size == 0:
+        return "no_tape"
+    if float(times[-1]) < ts + horizon_s:
+        return "tape_ends_before_horizon"
+    if float(times[0]) > ts - pre_s:
+        return "tape_starts_after_fill"
+    return None
+
+
+def window_density(times: np.ndarray, ts: float,
+                   horizon_s: float = STORE_COVER_S) -> Row:
+    """Per-fill PRINT DENSITY inside the scored window (tape_covers is
+    ENDPOINT-only: it proves the tape brackets [ts-1s, ts+900s] and says
+    NOTHING about what happens inside, so a fill in a tape dead zone is
+    scored as if measured).
+
+      n_prints   trades in (ts, ts + horizon_s]
+      max_gap_s  the largest silence in the window, measured from ts to the
+                 first print, between prints, and from the last print to the
+                 window end (so a window with no print at all reads
+                 horizon_s, its true worst case)
+      stale_<h>s True when NO print falls in (ts, ts + h]: that horizon's
+                 price is the last print AT OR BEFORE the fill - a stale
+                 pre-fill quote, not a forward measurement. When that print
+                 is also the pre1s reference (nothing in (ts - pre_s, ts]
+                 either) the horizon equals -pre1s up to the denominator.
+    """
+    i0 = int(np.searchsorted(times, ts, side="right"))
+    i1 = int(np.searchsorted(times, ts + horizon_s, side="right"))
+    win = np.asarray(times[i0:i1], float)
+    edges = np.concatenate(([float(ts)], win, [float(ts) + float(horizon_s)]))
+    out: Row = {"n_prints": int(win.size),
+                "max_gap_s": float(np.diff(edges).max()) if edges.size > 1 else 0.0}
+    for h in STORE_HORIZONS_S:
+        out[f"stale_{h}s"] = bool(int(np.searchsorted(times, ts + h, side="right")) <= i0)
+    return out
+
+
+def density_summary(rows: Sequence[Row]) -> Row:
+    """Aggregate of window_density over the scored fills: how many horizons
+    are stale prints, and the distribution of the worst in-window silence."""
+    n = len(rows)
+    gaps = np.array([float(r["max_gap_s"]) for r in rows if "max_gap_s" in r], float)
+    prints = np.array([float(r["n_prints"]) for r in rows if "n_prints" in r], float)
+
+    def q(a: np.ndarray, x: float) -> Optional[float]:
+        return float(np.quantile(a, x)) if a.size else None
+
+    return {
+        "scored": n,
+        "stale_by_horizon": {f"{h}s": int(sum(1 for r in rows if r.get(f"stale_{h}s")))
+                             for h in STORE_HORIZONS_S},
+        "no_print_in_window": int(sum(1 for r in rows if r.get("n_prints") == 0)),
+        "max_gap_s": {"median": q(gaps, 0.5), "p90": q(gaps, 0.9),
+                      "p99": q(gaps, 0.99), "max": float(gaps.max()) if gaps.size else None},
+        "n_prints_window": {"p05": q(prints, 0.05), "median": q(prints, 0.5)},
+        "window_s": STORE_COVER_S,
+    }
+
+
+def score_tick_store(entries: Sequence[Row], tape: Tape
+                     ) -> tuple[list[Row], dict[str, int], dict[str, int]]:
+    """(scored rows, skipped-by-symbol, skipped-by-reason). Every entry fill
+    is either scored or counted under BOTH skip tables."""
+    rows: list[Row] = []
+    by_sym: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    for f in entries:
+        sym = _store_sym(f.get("symbol"))
+        try:
+            ts = float(f["ts"])
+        except (KeyError, TypeError, ValueError):
+            by_sym[sym] += 1
+            reasons["bad_ts"] += 1
+            continue
+        fp = _num(f.get("fill_price"))
+        if fp <= 0:
+            by_sym[sym] += 1
+            reasons["no_fill_price"] += 1
+            continue
+        got = tape.get(sym)
+        why = tape_covers(got[0] if got is not None else np.empty(0), ts)
+        if why is not None or got is None:
+            by_sym[sym] += 1
+            reasons[why or "no_tape"] += 1
+            continue
+        t, p = got
+        sgn = side_sign(str(f.get("side")))
+        r: Row = {
+            "ts": ts, "sym": sym, "side": f.get("side"),
+            "maker": f.get("post_only") == "1",
+            "era": f.get("exec_era") or "",
+            "hour": int(ts // CANDLE_INTERVAL_S), "fill": fp,
+        }
+        for h in STORE_HORIZONS_S:
+            px = tape_price_at_or_before(t, p, ts + h)
+            if px is None:            # unreachable under tape_covers; counted, not raised
+                reasons[f"no_trade_{h}s"] += 1
+                continue
+            r[f"{h}s"] = sgn * (px - fp) / fp * 1e4
+        pre = tape_price_at_or_before(t, p, ts - STORE_PRE_S)
+        if pre is not None and pre > 0:
+            r["pre1s"] = sgn * (fp - pre) / pre * 1e4
+        r.update(window_density(t, ts))
+        for sh in STORE_REF_SHIFTS_S:
+            s_ts = ts + sh
+            if sh and tape_covers(t, s_ts) is not None:
+                reasons[f"placebo{sh:+d}_uncovered"] += 1
+                continue
+            ref = tape_price_at_or_before(t, p, s_ts)
+            if ref is None or ref <= 0:
+                continue
+            for h in STORE_HORIZONS_S:
+                px = tape_price_at_or_before(t, p, s_ts + h)
+                if px is not None:
+                    r[f"pl{sh:+d}_{h}s"] = sgn * (px - ref) / ref * 1e4
+        rows.append(r)
+    return rows, dict(by_sym), dict(reasons)
+
+
+def store_keys() -> list[str]:
+    return [f"{h}s" for h in STORE_HORIZONS_S] + ["pre1s"]
+
+
+def build_tick_store_sections(rows: Sequence[Row]) -> Row:
+    keys = store_keys()
+
+    def grp(tag: str, sub: Sequence[Row]) -> Row:
+        g = group_stats(sub, keys)
+        g.update({"tag": tag, "too_few": len(sub) < TOO_FEW})
+        return g
+
+    eras = sorted({r["era"] for r in rows})
+    groups = [grp("ALL entries", rows)]
+    groups += [grp(f"era {_era_label(e)}", [r for r in rows if r["era"] == e]) for e in eras]
+    groups += [grp("maker (post_only)", [r for r in rows if r["maker"]]),
+               grp("taker", [r for r in rows if not r["maker"]])]
+    for e in eras:
+        groups += [grp(f"era {_era_label(e)} maker",
+                       [r for r in rows if r["era"] == e and r["maker"]]),
+                   grp(f"era {_era_label(e)} taker",
+                       [r for r in rows if r["era"] == e and not r["maker"]])]
+    groups += [grp("buy", [r for r in rows if r["side"] == "buy"]),
+               grp("sell", [r for r in rows if r["side"] == "sell"])]
+    groups += [grp(s, [r for r in rows if r["sym"] == s]) for s in sorted({r["sym"] for r in rows})]
+
+    def shift_group(sh: int) -> Row:
+        pk = [f"pl{sh:+d}_{h}s" for h in STORE_HORIZONS_S]
+        sub = [r for r in rows if pk[0] in r]
+        g = group_stats(sub, pk, hour_shift=sh // CANDLE_INTERVAL_S)
+        g["stats"] = {f"{h}s": g["stats"][f"pl{sh:+d}_{h}s"] for h in STORE_HORIZONS_S}
+        g["shift_s"] = sh
+        return g
+
+    placebo = [shift_group(sh) for sh in STORE_PLACEBO_SHIFTS_S]
+    matched = shift_group(STORE_MATCHED_SHIFT_S)
+    matched["tag"] = "matched tape reference (shift 0)"
+    return {"groups": groups, "placebo": placebo, "matched": matched,
+            "density": density_summary(rows)}
+
+
+STORE_CAVEATS = [
+    "tick-store: SE deflated to distinct fill-hours; same-hour cross-asset "
+    "fills stay correlated -> SE optimistic.",
+    "tick-store: ALL/maker/taker/buy/sell/symbol lines POOL across exec eras "
+    "and the cut-#9 fee boundary; cite 'era ...' lines for any era claim.",
+    "tick-store: pre1s is limit distance from the tape's last pre-fill print "
+    "(fill - P[t-1s]); fill->h is toxicity. Neither is an edge on its own.",
+    "tick-store: a pair's tape is as-of its t_max; BTC is a partial backfill "
+    "(skipped fills are counted, never filled from a later trade).",
+    "tick-store: the group lines are referenced to FILL_PRICE (off-tape, "
+    "inside the spread) and the placebo lines to a TAPE PRINT - DIFFERENT "
+    "ESTIMANDS. The bid/ask bounce the fill collects cannot appear in a "
+    "tape-referenced number, so a flat placebo is flat BY CONSTRUCTION and "
+    "corroborates nothing. Compare the group lines only against the "
+    "'matched tape reference (shift 0)' line, which is the SAME construction "
+    "as the placebos on the SAME rows; group minus matched is the limit "
+    "distance (see pre1s), not forward information.",
+    "tick-store: tape_covers is ENDPOINT-only (the tape brackets the window; "
+    "print density inside it is unconstrained). Read the DENSITY line: a "
+    "horizon counted stale has NO print in (fill_ts, fill_ts+h], so it is "
+    "measured to a print at or before the fill, not to a forward move.",
+]
+
+
+def empty_tick_store_section(tick_root: Optional[Path] = None) -> Row:
+    return {"enabled": False, "root": str(tick_root) if tick_root else None,
+            "read_at": None, "horizons_s": list(STORE_HORIZONS_S), "pre_s": STORE_PRE_S,
+            "placebo_shifts_s": list(STORE_PLACEBO_SHIFTS_S), "pairs": {},
+            "fills_considered": 0, "scored": 0, "skipped_by_pair": {},
+            "skip_reasons": {}, "groups": [], "placebo": [],
+            "matched": None, "density": None, "caveats": []}
+
+
+def tick_store_report(entries: Sequence[Row], tick_root: Path) -> Row:
+    read_at = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+    tape, meta = load_tape(tick_root, [_store_sym(f.get("symbol")) for f in entries])
+    rows, by_sym, reasons = score_tick_store(entries, tape)
+    sec: Row = {"enabled": True, "root": str(tick_root), "read_at": read_at,
+                "horizons_s": list(STORE_HORIZONS_S), "pre_s": STORE_PRE_S,
+                "placebo_shifts_s": list(STORE_PLACEBO_SHIFTS_S), "pairs": meta,
+                "fills_considered": len(entries), "scored": len(rows),
+                "skipped_by_pair": by_sym, "skip_reasons": reasons}
+    sec.update(build_tick_store_sections(rows))
+    sec["caveats"] = list(STORE_CAVEATS)
+    return sec
+
+
 # --- report ----------------------------------------------------------------
 
 CAVEATS = [
@@ -468,7 +786,8 @@ def build_report(root: Path = ROOT, fills_path: Optional[Path] = None,
                  candle_dir: Optional[Path] = None, ticks: bool = False,
                  max_fills: int = DEFAULT_MAX_FILLS,
                  fetch: Optional[Callable[[str, dict], Optional[dict]]] = None,
-                 sleep: Callable[[float], None] = time.sleep) -> Row:
+                 sleep: Callable[[float], None] = time.sleep,
+                 tick_store: bool = False, tick_root: Optional[Path] = None) -> Row:
     fills_path = fills_path or (root / "outputs" / "fills.csv")
     candle_dir = candle_dir or (root / "outputs" / "candles" / "parquet")
     read_at = _dt.datetime.now().isoformat(timespec="seconds")
@@ -501,6 +820,11 @@ def build_report(root: Path = ROOT, fills_path: Optional[Path] = None,
                                       max_fills, sleep=sleep)
     else:
         report["ticks"] = empty_ticks_section(max_fills)
+    if tick_store:
+        tick_root = tick_root or root.joinpath(*DEFAULT_TICK_ROOT)
+        report["tick_store"] = tick_store_report(entries, tick_root)
+    else:
+        report["tick_store"] = empty_tick_store_section(tick_root)
     report["caveats"] = list(CAVEATS)
     return report
 
@@ -573,9 +897,81 @@ def render(rep: Row) -> str:
             t = f"{s['t']:+4.1f}" if s["t"] is not None else " n/a"
             L.append(f"  +{h:5s} n={s['n']:4d} hrs={s['hrs']:4d} | {s['mean']:+7.1f}bps "
                      f"med {s['median']:+6.1f} ({t}se)")
+    ts_ = rep.get("tick_store") or {}
+    if ts_.get("enabled"):
+        L += render_tick_store(ts_)
     for c in rep["caveats"]:
         L.append(f"[D] {c}")
     return "\n".join(L)
+
+
+def _fmt_store(g: Row) -> str:
+    out = ""
+    for k in store_keys():
+        s = g["stats"].get(k)
+        if s is None:
+            out += f"| {k:>5s} {'n/a':>14s} "
+            continue
+        t = f"{s['t']:+.1f}" if s["t"] is not None else "n/a"
+        out += f"| {k:>5s} {s['mean']:+6.1f}/{s['median']:+6.1f} ({t}) "
+    return out
+
+
+def _g(v: Optional[float]) -> str:
+    return "n/a" if v is None else f"{float(v):.1f}"
+
+
+def _utc(v: Optional[float]) -> str:
+    if v is None:
+        return "n/a"
+    return _dt.datetime.fromtimestamp(float(v), _dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def render_tick_store(ts_: Row) -> list[str]:
+    L: list[str] = [""]
+    L.append("=== TICK-STORE: markout from fill_price, LOCAL tape "
+             "(bps; +=with us; mean/median (t)) ===")
+    L.append(f"[K] root {ts_['root']} read={ts_['read_at']}  fills considered "
+             f"{ts_['fills_considered']}  scored {ts_['scored']}  "
+             f"skipped by pair {ts_['skipped_by_pair']}  reasons {ts_['skip_reasons']}")
+    for sym, m in sorted(ts_["pairs"].items()):
+        L.append(f"  tape {sym:5s} {m['pair']:8s} rows={m['rows']:8d} "
+                 f"{_utc(m['t_min'])} .. {_utc(m['t_max'])}")
+    L.append(f"  horizons {ts_['horizons_s']} s; pre1s = fill vs last print at/before "
+             f"fill_ts-{ts_['pre_s']}s (limit distance, same sign as arr->fill)")
+    for g in ts_["groups"]:
+        if g.get("too_few"):
+            L.append(f"  {g['tag']:30s} n={g['n']:4d}  (too few)")
+            continue
+        L.append(f"  {g['tag']:30s} n={g['n']:4d} hrs={g['hrs']:4d} " + _fmt_store(g))
+    d = ts_.get("density")
+    if d:
+        L.append(f"  DENSITY in (fill_ts, fill_ts+{d['window_s']}s]: stale horizons "
+                 f"{d['stale_by_horizon']}  no print at all {d['no_print_in_window']}  "
+                 f"largest in-window gap s med/p90/p99/max "
+                 f"{_g(d['max_gap_s']['median'])}/{_g(d['max_gap_s']['p90'])}/"
+                 f"{_g(d['max_gap_s']['p99'])}/{_g(d['max_gap_s']['max'])}  "
+                 f"prints p05/med {_g(d['n_prints_window']['p05'])}/"
+                 f"{_g(d['n_prints_window']['median'])}")
+    L.append("  --- TAPE-REFERENCED: reference = last print at/before the (shifted) ts. "
+             "The shift-0 line is the MATCHED control for the fill-referenced groups "
+             "above; the +-3600s lines are placebos ---")
+    ref_groups = ([ts_["matched"]] if ts_.get("matched") else []) + list(ts_["placebo"])
+    for g in ref_groups:
+        tag = ("shift      0s (MATCHED)" if g["shift_s"] == 0
+               else f"shift {g['shift_s']:+6d}s          ")
+        line = f"  {tag}      n={g['n']:4d} hrs={g['hrs']:4d} "
+        for h in ts_["horizons_s"]:
+            s = g["stats"].get(f"{h}s")
+            if s is None:
+                line += f"| {h:>4d}s {'n/a':>14s} "
+                continue
+            t = f"{s['t']:+.1f}" if s["t"] is not None else "n/a"
+            line += f"| {h:>4d}s {s['mean']:+6.1f}/{s['median']:+6.1f} ({t}) "
+        L.append(line)
+    for c in ts_["caveats"]:
+        L.append(f"[D] {c}")
+    return L
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -589,9 +985,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="ALSO pull Kraken public trades (network) for sub-5-minute markout")
     ap.add_argument("--max-fills", type=int, default=DEFAULT_MAX_FILLS,
                     help="cap on fills scored in --ticks mode")
+    ap.add_argument("--tick-store", nargs="?", const="", default=None, metavar="ROOT",
+                    help="ALSO score every entry fill against the LOCAL parquet tape "
+                         "(offline; ROOT defaults to <root>/outputs/ticks)")
     a = ap.parse_args(argv)
+    tick_root = Path(a.tick_store) if a.tick_store else None
     rep = build_report(root=a.root, fills_path=a.fills, candle_dir=a.candles,
-                       ticks=a.ticks, max_fills=a.max_fills)
+                       ticks=a.ticks, max_fills=a.max_fills,
+                       tick_store=a.tick_store is not None, tick_root=tick_root)
     if a.json:
         print(json.dumps(rep, indent=1, default=str))
     else:
