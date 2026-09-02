@@ -36,13 +36,24 @@ inside 432 bars. On the champion's own corpus (12,066 rows, 23.73 d, as of
 | Decomposition of the 64 stored features | **MEASURED 2026-09-02: DIRECTIONAL 5 of 64 against 8.0 expected by chance (realized null rate 12.5%, measured on the real corpus with `--null-calibration 200`; the nominal 5% would say 3.2 and is the wrong comparator). The largest deviation is the feature named `direction` (the trade side) and it does not survive an independent bootstrap. RESOLUTION is where everything loads: sigma_bar_pct 0.750, spread_bps 0.662.** | `scripts/label_decomposition_report.py` |
 | Tape features vs the continuous outcome | **MEASURED 2026-09-02: nothing survives — 7 of 72 cells flagged, the placebo flags 9; largest \|Spearman\| 0.067** | `docs/quant/2026-09-02_tape_features_vs_expectancy.md` |
 | Tick-horizon markout | **MEASURED 2026-09-02: the apparent seconds-horizon gain is the bid/ask bounce (corr 0.995 with the reflected limit distance); net of it, negative at every horizon** | `scripts/markout_report.py --tick-store` |
+| **POWER of the decomposition test** | **MEASURED 2026-09-02, and it changes the STATUS of every row above: planting a known directional effect against the real targets, rows and day blocks, the instrument detects 0.05 SD 100% of the time (0.02 SD half the time). MDE = 0.05 SD at 80% power.** The nulls above are therefore FALSIFIABLE FINDINGS, not underpowered silence. | `scripts/label_decomposition_report.py --power-calibration` |
+| Power of the SKILL test | **MEASURED 2026-09-02 and it goes the OTHER way: the champion's fresh window resolves only \|skill\| > 0.0146 against an estimate of -0.0036 - 4.1x too coarse. That number establishes NOTHING in either direction.** | `scripts/champion_skill_report.py` |
 
 Two readings are consistent with all of it. (a) There is no exploitable structure in
 these features at this horizon. (b) The 1-bit label throws away the part of the outcome
 that might carry structure — magnitude — and folds volatility into the part it keeps.
-The data cannot yet separate (a) from (b). **That is the reason to change the target:
-not because a new target is expected to win, but because the current one cannot lose
-informatively.**
+
+**UPDATE 2026-09-02, and it weakens the case for changing the target rather than
+strengthening it.** Until the power rows above were measured, (a) and (b) were
+indistinguishable and the argument for a new target was "the current one cannot lose
+informatively". That argument is now half dead: the decomposition test CAN lose
+informatively. It detects a 0.05 SD directional effect every time and finds none, so
+reading (a) — there is no directional structure in these features at this horizon — is
+now a POSITIVE finding rather than an absence of evidence. What remains genuinely
+unresolved is narrower: whether the MAGNITUDE channel carries structure that a 1-bit
+direction label cannot express. That is a real question, but it is a smaller one than
+this brief was originally written to justify, and the honest framing is that the
+proposal is now optional rather than forced.
 
 ## 2. What the proposal is
 
@@ -109,6 +120,13 @@ Stated so the operator is not choosing from a one-sided brief.
 4. **The cheapest alternative is to do nothing and keep accruing.** Time is the one
    input that raises the denominator without raising N. Deferring costs only the
    opportunity of an earlier answer, and the accrual continues either way.
+5. **The forcing argument has since been measured away (2026-09-02).** This brief was
+   written on "the current target cannot lose informatively". The decomposition test's
+   measured power (0.05 SD detected 100% of the time) shows it CAN, and it did: the
+   absence of directional signal is now a finding. A target change is therefore a
+   research choice about the magnitude channel, not a repair of a broken instrument -
+   and research choices at N-plus-one trials against a 0.065 yr sample are exactly what
+   MinBTL says to be sparing with.
 The case FOR remains: the current target cannot lose informatively, so an indefinite
 deferral buys readouts that cannot change a decision.
 
@@ -116,6 +134,15 @@ deferral buys readouts that cannot change a decision.
 Approve / defer / reject the bundling of the target change with ALGO-5/GB-1 at the
 next cohort reset. Approval means: pre-register the new gate; then train; then read
 out. Nothing is trained before the registration is written down.
+
+**My recommendation changed on 2026-09-02 and this section says so rather than
+quietly keeping the original.** When this brief was drafted I would have said approve,
+because the 1-bit target could not lose informatively. It can, and it did. I now
+recommend **DEFER**: keep accruing on the current registration, and revisit only if the
+magnitude channel is worth a trial on its own merits. The one measurement that would
+change my recommendation back is a power result on the CONTINUOUS target showing it
+resolves effects the 1-bit target cannot - that has not been run, and it is the thing
+to run before approving, not after.
 
 ## 6. Provenance
 HANDOFF `EDGE-HUNTER MIRROR` items 1–9; `docs/quant/2026-09-01_edge_hunter_mirror_report.md`;
