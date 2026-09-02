@@ -16,11 +16,19 @@ operator-approved 2026-07-29), not the raw row count: overlapping
 same-asset label windows share one return path (de Prado average
 uniqueness, AFML ch.4 — the loader's exact algorithm computed within
 this report's sample), so 100 fully-concurrent rows are ~one
-independent fact and prove nothing. At the 2026-07-29 corpus's mean
-uniqueness (~0.16), 100 raw rows ≈ 16 independent observations — the
-detectable per-component effect at that size (~0.17 AUC) exceeds every
-deviation the weights could plausibly carry, which is exactly why the
-honest unit matters.
+independent fact and prove nothing.
+
+POWER IS COMPUTED HERE, NEVER ASSERTED IN PROSE. `mde_auc()` derives the
+minimum detectable per-component |AUC - 0.5| at 80% power / two-sided
+0.05 from the CURRENT sample's own effective n and win rate, and section
+[2] prints it twice: at the live n_eff, and at the SG_MIN_ROWS floor —
+so a reader can see what the floor actually buys. Re-derive it by
+RUNNING the report; do not quote a power figure from this docstring.
+(What stood here 2026-07-29 → 2026-09-02: a hand-computed "~0.17 AUC at
+~16 independent observations", never recomputed. At a balanced split it
+is ~1.1 null SEs — not an 80%-power MDE, which is 2.80 SEs, i.e. ~0.42
+at n_eff=16 — and the corpus it described is five weeks gone. A stale
+hand figure in exactly the class this repo repairs, so it is struck.)
 
 Weight source: config `informed_flow.weights` — NOT `strategies.weights`
 (main.py:544 constructs InformedFlowEngine(config.get("informed_flow",
@@ -120,6 +128,87 @@ def auc_se_on_neff(n_eff, pos_rate):
     if not (n1 > 0.0 and n0 > 0.0):
         return float("nan")
     return math.sqrt((n1 + n0 + 1.0) / (12.0 * n1 * n0))
+
+
+MDE_ALPHA = 0.05      # two-sided significance of the MDE printed in [2]
+MDE_POWER = 0.80      # power target of the MDE printed in [2]
+
+
+def _norm_cdf(x):
+    """Standard-normal CDF via math.erf (stdlib; scipy is absent here)."""
+    return 0.5 * (1.0 + math.erf(float(x) / math.sqrt(2.0)))
+
+
+def _z_quantile(p):
+    """Inverse standard-normal CDF, 0 < p < 1 (nan outside).
+
+    Acklam's rational approximation refined by one Halley step against
+    math.erf (~1e-14). Computed rather than hardcoded on purpose: with a
+    literal 1.96/0.84 the alpha and power arguments of mde_auc() would be
+    decoration, and a power target you cannot vary is a power target you
+    cannot check."""
+    p = float(p)
+    if not (0.0 < p < 1.0) or p != p:
+        return float("nan")
+    a = (-3.969683028665376e+01, 2.209460984245205e+02,
+         -2.759285104469687e+02, 1.383577518672690e+02,
+         -3.066479806614716e+01, 2.506628277459239e+00)
+    b = (-5.447609879822406e+01, 1.615858368580409e+02,
+         -1.556989798598866e+02, 6.680131188771972e+01,
+         -1.328068155288572e+01)
+    c = (-7.784894002430293e-03, -3.223964580411365e-01,
+         -2.400758277161838e+00, -2.549732539343734e+00,
+         4.374664141464968e+00, 2.938163982698783e+00)
+    d = (7.784695709041462e-03, 3.224671290700398e-01,
+         2.445134137142996e+00, 3.754408661907416e+00)
+    plow = 0.02425
+    if p < plow:
+        q = math.sqrt(-2.0 * math.log(p))
+        x = ((((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q
+              + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q
+                         + 1.0))
+    elif p <= 1.0 - plow:
+        q = p - 0.5
+        r = q * q
+        x = ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r
+              + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3])
+                              * r + b[4]) * r + 1.0))
+    else:
+        q = math.sqrt(-2.0 * math.log(1.0 - p))
+        x = -((((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q
+               + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q
+                          + 1.0))
+    e = _norm_cdf(x) - p
+    u = e * math.sqrt(2.0 * math.pi) * math.exp(x * x / 2.0)
+    return x - u / (1.0 + x * u / 2.0)
+
+
+def mde_auc(n_eff, pos_rate, power=MDE_POWER, alpha=MDE_ALPHA):
+    """Minimum detectable |AUC - 0.5| at `power` and two-sided `alpha`,
+    evaluated on EFFECTIVE n — the report's power figure, computed.
+
+    (z_{1-alpha/2} + z_{power}) * SE_H0, the standard normal-approximation
+    MDE, fed the SAME uniqueness-deflated count and win rate the AUC
+    interval in section [2] uses. Feeding it the raw row count instead
+    understates the MDE by sqrt(n / n_eff) — the exact optimism
+    SG_MIN_ROWS has been judged against since 2026-07-29.
+
+    APPROXIMATION, stated: the SE under the alternative is taken equal to
+    the SE under H0. For a rank AUC that SE shrinks slightly as the AUC
+    leaves 0.5, so this MDE is mildly CONSERVATIVE (too large) — the safe
+    direction for a claim about what the sample can and cannot see.
+
+    Returns nan — never 0.0 — when no SE exists (degenerate one-class
+    split, non-positive n_eff) or the alpha/power arguments are outside
+    (0, 1). Callers print "not available"; a zero MDE would read as
+    infinite power, the loudest possible silent lie."""
+    if not (0.0 < float(alpha) < 1.0) or not (0.0 < float(power) < 1.0):
+        return float("nan")
+    se = auc_se_on_neff(n_eff, pos_rate)
+    if se != se:
+        return float("nan")
+    return (_z_quantile(1.0 - float(alpha) / 2.0)
+            + _z_quantile(float(power))) * se
 
 
 def rho_identified_set(weights, aucs, margin, keys):
@@ -292,6 +381,22 @@ def build_report(history_path="outputs/signal_history.csv",
                    f"{n_eff:.1f} (nominal n={len(inst)} would read "
                    f"+/-{1.96 * auc_se_on_neff(len(inst), _win):.4f} — "
                    f"optimistic by x{math.sqrt(len(inst) / n_eff):.2f})")
+    # POWER, COMPUTED (replaces a hand-figure that stood in the module
+    # docstring from 2026-07-29 and was never recomputed). Both rungs run
+    # on EFFECTIVE observations: the live one says what THIS sample can
+    # see, the floor one says what SG_MIN_ROWS buys.
+    _mde = mde_auc(n_eff, _win) if y else float("nan")
+    _mde_floor = mde_auc(float(SG_MIN_ROWS), _win) if y else float("nan")
+    if _mde == _mde:
+        out.append(f"  MDE +/-{_mde:.4f} AUC at {MDE_POWER:.0%} power / "
+                   f"two-sided {MDE_ALPHA:.2f}, on effective n={n_eff:.1f} "
+                   f"(win rate {_win:.3f}); at the SG_MIN_ROWS="
+                   f"{SG_MIN_ROWS} effective-observation floor it is "
+                   f"+/-{_mde_floor:.4f} — a deviation smaller than this "
+                   f"is not detectable here, whatever the point AUCs read")
+    else:
+        out.append("  MDE not available (degenerate one-class sample or "
+                   "empty effective n) - power is UNKNOWN, not infinite")
     for k in _WEIGHT_KEYS:
         a = [_f(r.get(f"sg_{k}")) * _f(r.get("direction"), 1.0)
              for r in inst]

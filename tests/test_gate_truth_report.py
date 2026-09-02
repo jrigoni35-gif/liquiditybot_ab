@@ -420,3 +420,222 @@ def test_identification_guard_is_not_a_blanket_refusal():
     code, _ = classify_alignment(_W5, inverted, 10718, n_eff=611.3,
                                  auc_margin=0.0461)
     assert code == "XV-041"
+
+
+# --- POWER, COMPUTED (2026-09-02) --------------------------------------
+# Replaces the hand-computed "~0.17 AUC at ~16 independent observations"
+# that stood in the module docstring from 2026-07-29 and was never
+# recomputed. Every pin below exists to turn RED under one named defect;
+# the defect table is in the session return, not in a comment that could
+# drift from it.
+
+def _z_by_bisection(p):
+    """INDEPENDENT inverse-normal: bisection on math.erf. Deliberately a
+    different algorithm from the report's Acklam+Halley route - a re-read
+    of the same code is not a second implementation (verification
+    standard check 1)."""
+    import math as _m
+    lo, hi = -12.0, 12.0
+    for _ in range(200):
+        mid = (lo + hi) / 2.0
+        if 0.5 * (1.0 + _m.erf(mid / _m.sqrt(2.0))) < p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def _mde_independent(n_eff, pos_rate, power=0.80, alpha=0.05):
+    """Second, independently written MDE: own SE, own z route."""
+    import math as _m
+    n1 = n_eff * pos_rate
+    n0 = n_eff - n1
+    se = _m.sqrt((n1 + n0 + 1.0) / (12.0 * n1 * n0))
+    return (_z_by_bisection(1.0 - alpha / 2.0) + _z_by_bisection(power)) * se
+
+
+def test_z_quantile_matches_an_independent_inversion_and_the_literature():
+    from scripts.gate_truth_report import _z_quantile
+    for p in (0.001, 0.02, 0.1, 0.5, 0.8, 0.80, 0.9, 0.975, 0.995, 0.999):
+        assert abs(_z_quantile(p) - _z_by_bisection(p)) < 1e-9, p
+    # literature constants, a third route (no code of ours involved)
+    assert abs(_z_quantile(0.975) - 1.959963985) < 1e-8
+    assert abs(_z_quantile(0.80) - 0.841621234) < 1e-8
+    # out of domain -> nan, never a silent 0.0
+    for bad in (0.0, 1.0, -0.1, 1.5):
+        assert _z_quantile(bad) != _z_quantile(bad)
+
+
+def test_mde_matches_the_independent_implementation():
+    from scripts.gate_truth_report import mde_auc
+    for n_eff, rate in ((16.0, 0.5), (30.0, 0.5), (100.0, 0.44),
+                        (611.3, 0.44), (10718.0, 0.44)):
+        assert abs(mde_auc(n_eff, rate)
+                   - _mde_independent(n_eff, rate)) < 1e-9, (n_eff, rate)
+
+
+def test_mde_is_the_power_multiple_of_the_se_not_one_se():
+    """DEFECT-2 pin (MDE at 1 SE). The MDE is (z_a/2 + z_power) x SE =
+    2.8016 SE; a 1-SE 'detectable effect' is a ~50%-power figure and
+    understates what the sample can see by 2.8x."""
+    from scripts.gate_truth_report import auc_se_on_neff, mde_auc
+    se = auc_se_on_neff(611.3, 0.44)
+    assert abs(mde_auc(611.3, 0.44) / se - 2.801585) < 1e-6
+    assert mde_auc(611.3, 0.44) > 2.5 * se
+
+
+def test_mde_moves_with_the_power_target():
+    """DEFECT-3 pin (power target ignored). A `power` argument that does
+    not change the answer is decoration."""
+    from scripts.gate_truth_report import auc_se_on_neff, mde_auc
+    se = auc_se_on_neff(200.0, 0.5)
+    m50 = mde_auc(200.0, 0.5, power=0.50)
+    m80 = mde_auc(200.0, 0.5, power=0.80)
+    m90 = mde_auc(200.0, 0.5, power=0.90)
+    assert m50 < m80 < m90
+    assert abs(m50 / se - 1.959964) < 1e-6      # power .5 -> alpha only
+    # FORWARD power check, the other direction of the derivation: at the
+    # 80% MDE the achieved power really is 80%.
+    import math as _m
+    power = 0.5 * (1.0 + _m.erf((m80 / se - 1.959963985) / _m.sqrt(2.0)))
+    assert abs(power - 0.80) < 1e-6
+
+
+def test_mde_uses_effective_n_and_a_raw_n_mde_is_optimistic():
+    """DEFECT-1 pin (effective n replaced by raw n). Same optimism factor
+    sqrt(n / n_eff) the AUC margin already carries."""
+    from scripts.gate_truth_report import mde_auc
+    m_eff = mde_auc(611.3, 0.44)
+    m_raw = mde_auc(10718.0, 0.44)
+    assert m_eff > m_raw
+    assert abs(m_eff / m_raw - (10718.0 / 611.3) ** 0.5) < 0.02
+
+
+def test_mde_degenerate_inputs_return_nan_never_zero():
+    """Verification-standard check 6: a degenerate input fails loudly. A
+    zero MDE would read as INFINITE power."""
+    from scripts.gate_truth_report import mde_auc
+    for args in ((500.0, 0.0), (500.0, 1.0), (0.0, 0.5), (-5.0, 0.5)):
+        assert mde_auc(*args) != mde_auc(*args), args
+    assert mde_auc(500.0, 0.5, power=0.0) != mde_auc(500.0, 0.5, power=0.0)
+    assert mde_auc(500.0, 0.5, alpha=1.0) != mde_auc(500.0, 0.5, alpha=1.0)
+
+
+def test_report_prints_the_mde_computed_on_effective_n(tmp_path):
+    """DEFECT-4 pin (uniqueness deflation dropped at the call site): 30
+    assets x 4 fully-concurrent rows = 120 raw rows, n_eff exactly 30.0.
+    The printed MDE must be the n_eff=30 figure (0.3002), not the raw
+    n=120 figure (0.1483)."""
+    p = tmp_path / "hist.csv"
+    rows = []
+    for g in range(30):
+        for j in range(4):
+            win = j % 2 == 0
+            rows.append({"position_id": f"p{g}_{j}", "asset": f"A{g}",
+                         "side": "long", "direction": "1.000000",
+                         "label": "1" if win else "0",
+                         "source": "candidate",
+                         "barrier": "tb_pt" if win else "tb_sl",
+                         "label_era": CURRENT_ERA, "ts": "1499",
+                         "signal_ts": "1",
+                         "sg_flow": "0.5000" if win else "-0.5000",
+                         "sg_delta": "0.1000", "sg_evidence": "1.0000",
+                         "sg_conc": "0.3000",
+                         "gate_confidence": "0.500000"})
+    _write_corpus(p, rows)
+    text = build_report(str(p), "config.json")
+    m = re.search(r"MDE \+/-([0-9.]+) AUC at 80% power / two-sided 0\.05, "
+                  r"on effective n=([0-9.]+)", text)
+    assert m, text
+    assert abs(float(m.group(2)) - 30.0) < 0.05
+    assert abs(float(m.group(1)) - _mde_independent(30.0, 0.5)) < 5e-5
+    # the raw-n figure must NOT be what got printed
+    assert abs(float(m.group(1)) - _mde_independent(120.0, 0.5)) > 0.1
+    # the floor rung is printed too, and is the n_eff=SG_MIN_ROWS figure
+    f = re.search(r"floor it is \+/-([0-9.]+)", text)
+    assert f and abs(float(f.group(1))
+                     - _mde_independent(float(SG_MIN_ROWS), 0.5)) < 5e-5
+
+
+def test_report_mde_uses_the_sample_win_rate_it_advertises(tmp_path):
+    """DEFECT-5 pin (class balance substituted at the CALL SITE).
+
+    The DEFECT-4 fixture above is win-rate EXACTLY 0.500, so every
+    pos_rate defect at the `mde_auc(n_eff, _win)` call site -- a
+    hardcoded 0.5, a `max(_win, 0.5)` floor, a swapped argument -- is
+    invisible to it end-to-end while all the unit pins (which call
+    mde_auc directly) stay green. This fixture is deliberately
+    IMBALANCED: 30 assets x 4 fully-concurrent rows, 1 winner each ->
+    n_eff 30.0, win rate exactly 0.250.
+
+    The MDE is not flat in pos_rate: mde_auc(30, 0.25) is ~15% larger
+    than mde_auc(30, 0.50), and the gap widens as the balance worsens
+    (at a 5% win rate it is ~2.3x), always in the direction of
+    UNDERSTATING the undetectable band -- the same direction of error
+    as the struck hand-figure this section replaced. The parenthetical
+    win rate must also be the one that was USED, not decoration beside
+    a different number."""
+    p = tmp_path / "hist.csv"
+    rows = []
+    for g in range(30):
+        for j in range(4):
+            win = j == 0                     # 1 of 4 -> win rate 0.250
+            rows.append({"position_id": f"p{g}_{j}", "asset": f"A{g}",
+                         "side": "long", "direction": "1.000000",
+                         "label": "1" if win else "0",
+                         "source": "candidate",
+                         "barrier": "tb_pt" if win else "tb_sl",
+                         "label_era": CURRENT_ERA, "ts": "1499",
+                         "signal_ts": "1",
+                         "sg_flow": "0.5000" if win else "-0.5000",
+                         "sg_delta": "0.1000", "sg_evidence": "1.0000",
+                         "sg_conc": "0.3000",
+                         "gate_confidence": "0.500000"})
+    _write_corpus(p, rows)
+    text = build_report(str(p), "config.json")
+    m = re.search(r"MDE \+/-([0-9.]+) AUC at 80% power / two-sided 0\.05, "
+                  r"on effective n=([0-9.]+) \(win rate ([0-9.]+)\)", text)
+    assert m, text
+    printed_mde, printed_neff, printed_win = (float(m.group(1)),
+                                              float(m.group(2)),
+                                              float(m.group(3)))
+    assert abs(printed_neff - 30.0) < 0.05
+    # the advertised win rate is the real one
+    assert abs(printed_win - 0.25) < 5e-4, printed_win
+    # and the MDE was computed AT that win rate, by the independent route
+    assert abs(printed_mde - _mde_independent(30.0, 0.25)) < 5e-5
+    # a 0.5 class balance is NOT what got used -- the separation the
+    # DEFECT-4 fixture cannot make
+    assert abs(printed_mde - _mde_independent(30.0, 0.5)) > 5e-3
+    # the floor rung carries the same win rate
+    f = re.search(r"floor it is \+/-([0-9.]+)", text)
+    assert f and abs(float(f.group(1))
+                     - _mde_independent(float(SG_MIN_ROWS), 0.25)) < 5e-5
+    assert abs(float(f.group(1))
+               - _mde_independent(float(SG_MIN_ROWS), 0.5)) > 1e-3
+
+
+def test_report_says_unknown_not_zero_when_power_is_uncomputable(tmp_path):
+    """All-winners corpus -> one-class split -> no SE -> the report must
+    say power is UNKNOWN rather than print a 0.0000 MDE."""
+    p = tmp_path / "hist.csv"
+    rows = [{"position_id": f"w{i}", "asset": f"A{i}", "side": "long",
+             "direction": "1.000000", "label": "1", "source": "candidate",
+             "barrier": "tb_pt", "label_era": CURRENT_ERA,
+             "ts": str(i * 3000 + 299), "signal_ts": str(i * 3000),
+             "sg_flow": "0.5000", "sg_delta": "0.1000",
+             "sg_evidence": "1.0000", "sg_conc": "0.3000",
+             "gate_confidence": "0.500000"} for i in range(120)]
+    _write_corpus(p, rows)
+    text = build_report(str(p), "config.json")
+    assert "MDE not available" in text and "power is UNKNOWN" in text
+    assert "MDE +/-0.0000" not in text
+
+
+def test_docstring_carries_no_hand_computed_power_figure():
+    """The stale-claim pin: prose may point at the computed value, but a
+    numeric power claim must never live in the docstring again."""
+    import scripts.gate_truth_report as g
+    doc = g.__doc__ or ""
+    assert "0.17 AUC" not in doc.split("What stood here")[0]
+    assert "mde_auc()" in doc and "RUNNING the report" in doc
