@@ -1,23 +1,23 @@
 {
-  "generated_at": 1788316703.5285473,
+  "generated_at": 1788320306.0400882,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788316699.0,
-    "duration_h": 1290.75
+    "end": 1788320300.0,
+    "duration_h": 1291.75
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 6011,
-      "signal_records": 371,
+      "records": 6025,
+      "signal_records": 381,
       "by_src": {
-        "exploration": 5648,
-        "long_book": 194,
-        "ml_governor": 118,
-        "order_manager": 38,
-        "conviction": 5,
-        "exit": 4,
+        "exploration": 5652,
+        "long_book": 197,
+        "ml_governor": 121,
+        "order_manager": 40,
+        "conviction": 6,
+        "exit": 5,
         "circuit_breaker": 1,
         "engine": 1,
         "startup": 1,
@@ -26,15 +26,15 @@
       "top_codes": [
         [
           "SZ-051",
-          2813
+          2815
         ],
         [
           "ML-070",
-          2813
+          2815
         ],
         [
           "LB-010",
-          98
+          101
         ],
         [
           "LB-050",
@@ -46,15 +46,15 @@
         ],
         [
           "ML-016",
-          26
+          27
         ],
         [
           "ML-042",
-          26
+          27
         ],
         [
           "ML-041",
-          26
+          27
         ],
         [
           "OM-040",
@@ -66,7 +66,7 @@
         ],
         [
           "OM-000",
-          12
+          14
         ],
         [
           "ML-032",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.264,
+      "dominant_frac": 0.265,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 17422,
+      "records": 18434,
       "by_level": {
-        "INFO": 17363,
-        "WARNING": 55,
+        "INFO": 18368,
+        "WARNING": 62,
         "CRITICAL": 3,
         "ERROR": 1
       },
@@ -100,7 +100,15 @@
           3
         ],
         [
+          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+          3
+        ],
+        [
           "source unavailable (HTTPError): https://hn.algolia.com/api/v1/search_by_date?query=bitcoin+OR+crypto&tags=story&hitsPerPage=25",
+          2
+        ],
+        [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           2
         ],
         [
@@ -118,61 +126,53 @@
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           1
-        ],
-        [
-          "auto-retrain: 11682 rows (26 new)",
-          1
-        ],
-        [
-          "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bp",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 2582,
-        "thin": 1610
+        "spoofy": 2764,
+        "thin": 1713
       },
-      "spoofy_frac": 0.616,
+      "spoofy_frac": 0.617,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1611,
+      "cycles_estimate": 1728,
       "feed_error_events": 2
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.06,
+    "equity_end": 793.08,
     "equity_min": 792.58,
     "equity_max": 806.91,
     "equity_range": 14.33,
     "capital_epochs": 5,
-    "epoch_samples": 116478,
+    "epoch_samples": 116714,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 791.33,
     "lifetime_equity_max": 100000.03,
     "lifetime_equity_range": 99208.7,
-    "realized_pnl_total": -1.69,
-    "fees_paid_total": 10.8052,
+    "realized_pnl_total": -2.14,
+    "fees_paid_total": 10.9195,
     "open_positions": 5,
-    "samples": 284269
+    "samples": 284505
   },
   "activity": {
-    "signal_rows_total": 22559,
-    "live_labeled_trades": 391,
-    "candidate_rows": 22168
+    "signal_rows_total": 22591,
+    "live_labeled_trades": 392,
+    "candidate_rows": 22199
   },
   "audit": {
-    "records": 76435,
-    "signal_records": 31018,
+    "records": 76450,
+    "signal_records": 31029,
     "by_src": {
-      "exploration": 68302,
-      "ml_governor": 2321,
-      "long_book": 2257,
-      "order_manager": 1754,
-      "conviction": 696,
+      "exploration": 68306,
+      "ml_governor": 2325,
+      "long_book": 2260,
+      "order_manager": 1756,
+      "conviction": 697,
       "startup": 324,
       "fault": 305,
-      "exit": 295,
+      "exit": 296,
       "engine": 63,
       "firewall": 60,
       "circuit_breaker": 53,
@@ -181,7 +181,7 @@
     "top_codes": [
       [
         "ML-070",
-        23876
+        23878
       ],
       [
         "SZ-047",
@@ -189,23 +189,23 @@
       ],
       [
         "SZ-051",
-        21370
+        21372
       ],
       [
         "LB-010",
-        1486
+        1489
       ],
       [
         "OM-000",
-        1254
+        1256
       ],
       [
         "ML-031",
-        851
+        852
       ],
       [
         "CV-030",
-        538
+        539
       ],
       [
         "OM-040",
@@ -217,15 +217,15 @@
       ],
       [
         "ML-016",
-        403
+        404
       ],
       [
         "ML-041",
-        385
+        386
       ],
       [
         "ML-042",
-        338
+        339
       ]
     ],
     "dominant_code": "SZ-047",
@@ -233,8 +233,8 @@
     "retrain_requests": 175,
     "kill_switch_events": 7,
     "chain_ok": false,
-    "chain_first_break": 76430,
-    "chain_tamper": true,
+    "chain_first_break": null,
+    "chain_tamper": false,
     "chain_seams": 10,
     "chain_torn_tail": false,
     "chain_error": null,
@@ -322,10 +322,10 @@
     ]
   },
   "events": {
-    "records": 17422,
+    "records": 18434,
     "by_level": {
-      "INFO": 17363,
-      "WARNING": 55,
+      "INFO": 18368,
+      "WARNING": 62,
       "CRITICAL": 3,
       "ERROR": 1
     },
@@ -343,7 +343,15 @@
         3
       ],
       [
+        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
+        3
+      ],
+      [
         "source unavailable (HTTPError): https://hn.algolia.com/api/v1/search_by_date?query=bitcoin+OR+crypto&tags=story&hitsPerPage=25",
+        2
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         2
       ],
       [
@@ -361,32 +369,24 @@
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         1
-      ],
-      [
-        "auto-retrain: 11682 rows (26 new)",
-        1
-      ],
-      [
-        "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bp",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2582,
-      "thin": 1610
+      "spoofy": 2764,
+      "thin": 1713
     },
-    "spoofy_frac": 0.616,
+    "spoofy_frac": 0.617,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1611,
+    "cycles_estimate": 1728,
     "feed_error_events": 2
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.24457346398718705,
+    "champion_brier": 0.24466407301681423,
     "brier": "n/a",
-    "history_rows": 391,
+    "history_rows": 392,
     "cold": false
   },
   "postmortems": {
@@ -408,28 +408,28 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 12229,
+      "triple_barrier_h432": 12261,
       "triple_barrier": 5328,
       "exit_sim": 2762,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1205,
+    "fills_rows": 1207,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1024,
       "7-e7d5ca1a": 133,
-      "9-16ec821e": 28,
+      "9-16ec821e": 30,
       "8-ca55e2ba": 10,
       "absent(stale-binary)": 6,
       "4-aeeaae36": 4
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 22559,
+    "corpus_rows": 22591,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-02T01:05:00Z",
-    "corpus_span_days": 50.52,
+    "corpus_last_ts": "2026-09-02T01:46:11Z",
+    "corpus_span_days": 50.55,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -443,12 +443,6 @@
   },
   "diagnostics": [
     {
-      "id": "SD-007",
-      "severity": "error",
-      "title": "audit chain broken",
-      "detail": "hash chain first breaks at record 76430  -  a record was edited or removed (own-hash mismatch or dangling prev) past that point"
-    },
-    {
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
@@ -458,14 +452,20 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 28, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 9-16ec821e. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 30, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 9-16ec821e. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
       "detail": "liquidity classified 'spoofy' on 62% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+    },
+    {
+      "id": "SD-010",
+      "severity": "info",
+      "title": "audit writer seam(s)",
+      "detail": "10 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
-  "verdict": "SD-007 audit chain broken"
+  "verdict": "SD-011 audit fork carries divergent payloads"
 }
