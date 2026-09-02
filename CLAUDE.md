@@ -277,9 +277,15 @@ them there before trusting any instrument this file governs.
    passed through a pipe belongs to the filter, and a green whose
    runtime is implausible for its corpus is unread. (e) Deflations
    (effective n, concurrency) apply to the claims you like at the
-   same rate as the claims you doubt. Session-side ad-hoc extraction
-   snippets are the least-governed instruments in the room — the
-   asymmetry above applies to THEM first.
+   same rate as the claims you doubt. (f) *(2026-09-01, second measured
+   instance)* A feature's skill against the triple-barrier label is
+   TWO numbers, never one: RESOLUTION (did the path touch a barrier at
+   all — volatility loads it, no edge) and DIRECTION (which barrier —
+   the only channel that is an edge). A raw-label AUC is their blend;
+   report both with day-block CIs before the word "signal" is used
+   (vault `concepts/resolution-vs-direction-decomposition`).
+   Session-side ad-hoc extraction snippets are the least-governed
+   instruments in the room — the asymmetry above applies to THEM first.
 
 Full concept + citations: vault `wiki/concepts/the-method.md` and
 `wiki/concepts/observational-equivalence.md`.
