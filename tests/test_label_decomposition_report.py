@@ -369,3 +369,80 @@ def test_null_calibration_measures_this_corpus_not_the_nominal_5pct():
                                reps=200, seed=7)
     assert tight["direction"]["rate"] > 0.9, tight          # collapsed intervals
     assert tight["flag_counts"][L.FLAG_UNDEF] == 12         # and the floor refuses them
+
+
+# --- power calibration: the mirror of null_calibration (2026-09-02) --------
+def _synth_barrier(n=6000, ndays=25, seed=0):
+    rng = np.random.default_rng(seed)
+    per = n // ndays
+    sig = np.repeat(np.arange(ndays), per) * 86400.0
+    b = rng.choice(["tb_pt", "tb_sl", "tb_time"], size=per * ndays,
+                   p=[0.38, 0.45, 0.17]).astype(object)
+    return (b == "tb_pt").astype(float), b, sig
+
+
+def test_power_calibration_detection_rate_rises_with_effect_size():
+    """The curve must be monotone-ish and saturate: a bigger planted effect
+    cannot be detected LESS often. A flat curve means the plant is broken."""
+    y, b, sig = _synth_barrier(seed=1)
+    r = L.power_calibration(y, b, sig, grid=(0.0, 0.05, 0.4),
+                              per_size=6, reps=120)
+    rates = [g["detection_rate"] for g in r["grid"]]
+    assert rates[0] < 0.5          # a ZERO effect is not "detected"
+    assert rates[-1] >= rates[1] >= rates[0]
+    assert r["grid"][-1]["effect_sd"] == 0.4
+
+
+def test_power_calibration_reports_mde_and_none_means_no_resolution():
+    """mde None is a FINDING about the test, not a null about the market -
+    the report must be able to say it."""
+    y, b, sig = _synth_barrier(seed=2)
+    ok = L.power_calibration(y, b, sig, grid=(0.4,), per_size=6, reps=120)
+    assert ok["mde"] == 0.4
+    # a grid of effects too small for any corpus to see
+    none = L.power_calibration(y, b, sig, grid=(1e-6,), per_size=6, reps=120)
+    assert none["mde"] is None
+    assert "STATEMENT ABOUT THE TEST" in none["note"].upper()
+
+
+def test_power_calibration_requires_the_correct_sign():
+    """A DIRECTIONAL flag pointing the wrong way is not a detection. Pinned
+    because counting bare flags would inflate power by the false-positive
+    rate that null_calibration exists to measure."""
+    y, b, sig = _synth_barrier(seed=3)
+    r = L.power_calibration(y, b, sig, grid=(0.3,), per_size=6, reps=120)
+    g = r["grid"][0]
+    assert g["detected_with_correct_sign"] <= g["flagged_directional"]
+    assert g["detection_rate"] == round(
+        g["detected_with_correct_sign"] / g["features"], 4)
+
+
+def test_power_calibration_plants_direction_not_resolution():
+    """The plant must load DIRECTION only. If it leaked into RESOLUTION the
+    curve would measure the wrong channel and read as power we do not have."""
+    y, b, sig = _synth_barrier(seed=4)
+    n = y.size
+    resolved = np.isin(b, L.RESOLVED_BARRIERS)
+    lift = np.where(resolved, np.where(b == "tb_pt", 1.0, -1.0), 0.0)
+    rng = np.random.default_rng(99)
+    feats = {"planted": rng.normal(size=n) + 0.4 * lift}
+    row = L.decompose(feats, y, b, sig, reps=200, seed=5)[0]
+    assert row["direction_auc"] > 0.5
+    assert row["flag"] == L.FLAG_DIR
+    # resolution must stay at chance: the plant is 0 on tb_time rows
+    assert abs(row["resolution_auc"] - 0.5) < 0.05
+
+
+def test_power_calibration_does_not_count_a_backwards_detection():
+    """Plant the effect with the WRONG sign. The flag still fires (the
+    feature IS directional), but it points the opposite way, so it must not
+    count as power. Without this, `detected == flagged` and counting bare
+    flags would inflate power by exactly the false-positive rate that
+    null_calibration exists to measure."""
+    y, b, sig = _synth_barrier(seed=11)
+    r = L.power_calibration(y, b, sig, grid=(-0.4,), per_size=6, reps=150)
+    g = r["grid"][0]
+    assert g["flagged_directional"] >= 5      # the flag fires: it IS directional
+    assert g["detected_with_correct_sign"] == 0   # but backwards
+    assert g["detection_rate"] == 0.0
+    assert r["mde"] is None

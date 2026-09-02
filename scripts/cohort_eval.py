@@ -746,10 +746,33 @@ def main() -> int:
               % ERA4_MIN_N)
         print("  trend; do not retune on them.")
     elif e4["readout"] == "NO_GROSS_EDGE":
-        print("\n  NO GROSS EDGE at n>=%d on honest fills: the stop-strategy"
+        # THE FLOOR TRAVELS WITH THE VERDICT (2026-09-02). The resolvable-edge
+        # figure is printed ~20 lines above, but a reader quoting THIS
+        # paragraph was quoting a null with no resolution attached - the
+        # Harvey & Liu Type-II shape, where a test too weak to see an effect
+        # and a world with no effect produce the same sentence. NO_GROSS_EDGE
+        # means "no edge ABOVE the floor", never "no edge", so it now says so
+        # in the paragraph a reader actually quotes.
+        _en2 = res.get("effective_n") or {}
+        _se2 = e4.get("gross_se_pct")
+        print("\n  NO GROSS EDGE DETECTED at n>=%d on honest fills."
               % ERA4_MIN_N)
-        print("  question goes to the operator. No execution, cost or model")
-        print("  change is on the table - none of them create expectancy.")
+        if _en2.get("available") and _se2 is not None:
+            print("  Resolvable floor here is ~%.4f%% (2 SE inflated x%.2f for"
+                  % (2 * _se2 * _en2["se_inflation"], _en2["se_inflation"]))
+            print("  concurrency, on %.1f effective observations of %d"
+                  % (_en2["effective_n"], _en2["n"]))
+            print("  nominal). An edge SMALLER than that floor is")
+            print("  indistinguishable from zero HERE and is NOT excluded")
+            print("  by this readout - that is a limit of the sample, not")
+            print("  a finding about the strategy.")
+        else:
+            print("  Effective-n unavailable, so this readout carries NO")
+            print("  resolution floor: treat it as undetermined, not as a")
+            print("  null.")
+        print("  The stop-strategy question goes to the operator. No")
+        print("  execution, cost or model change is on the table - none of")
+        print("  them create expectancy.")
     elif e4["readout"] == "COST_BOUND":
         print("\n  COST-BOUND: a gross edge exists on honest fills and fees")
         print("  eat it. The fee levers held behind h432 become the live")

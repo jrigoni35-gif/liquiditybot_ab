@@ -318,6 +318,80 @@ def null_calibration(y: np.ndarray, barrier: np.ndarray, sig: np.ndarray,
     return out
 
 
+DEFAULT_POWER_GRID = (0.02, 0.05, 0.10, 0.20, 0.40)
+POWER_TARGET = 0.80
+
+
+def power_calibration(y: np.ndarray, barrier: np.ndarray, sig: np.ndarray,
+                      grid=DEFAULT_POWER_GRID, per_size: int = 20,
+                      reps: int = DEFAULT_REPS,
+                      seed: int = DEFAULT_SEED) -> dict[str, Any]:
+    """REALIZED DETECTION RATE of these CIs ON THIS CORPUS - the mirror of
+    null_calibration, and the half this instrument was missing.
+
+    null_calibration asks "how often do I flag something when nothing is
+    there" (the false-POSITIVE rate). This asks the question that decides
+    whether a null MEANS anything: "if a real directional effect of size d
+    WERE there, how often would I catch it?" Without it, DIRECTIONAL 6 of 84
+    against a chance expectation of 10.5 is compatible both with "no feature
+    carries direction" and with "this corpus cannot see direction at all",
+    and those are different findings. Harvey & Liu (J. Finance 2020) measure
+    that second world at a Type II error of 86.9% even when the true
+    performers earn ~10.66%/yr alpha, which is why the mirror is not
+    optional.
+
+    Method, deliberately identical to null_calibration except for the plant:
+    `per_size` features per grid point are built as
+    `N(0,1) + d * (+1 on tb_pt, -1 on tb_sl, 0 on tb_time)` - a pure
+    DIRECTION channel of known size d - and scored through the SAME
+    `decompose` against the REAL targets, the REAL rows and the REAL day
+    blocks. `detection_rate` is the share flagged DIRECTIONAL. `mde` is the
+    smallest grid size whose detection rate reaches POWER_TARGET; it is None
+    when the grid never reaches it, and None means the corpus cannot resolve
+    ANY effect on this grid - report that as the finding, never as a null.
+
+    Effect size d is in units of the feature's own SD (the noise is N(0,1)),
+    so d=0.10 is "a feature whose mean shifts a tenth of a standard deviation
+    between winners and losers".
+    """
+    y = np.asarray(y, float).reshape(-1)
+    barrier = np.asarray(barrier, dtype=object).reshape(-1)
+    n = y.size
+    resolved = np.isin(barrier, RESOLVED_BARRIERS)
+    up = (barrier == RESOLVED_BARRIERS[0])   # tb_pt = the profit barrier
+    lift = np.where(resolved, np.where(up, 1.0, -1.0), 0.0)
+    rng = np.random.default_rng(seed + 2)
+    out: dict[str, Any] = {
+        "per_size": int(per_size), "reps": reps, "seed": seed,
+        "power_target": POWER_TARGET,
+        "basis": "planted DIRECTION effect vs the real targets/rows/day blocks",
+        "n_resolved": int(resolved.sum()), "grid": []}
+    for d in grid:
+        feats = {f"eff{d:g}_{i:03d}": rng.normal(size=n) + float(d) * lift
+                 for i in range(int(per_size))}
+        rows = decompose(feats, y, barrier, sig, reps=reps, seed=seed)
+        hit = sum(1 for r in rows if r["flag"] == FLAG_DIR)
+        # a DIRECTIONAL flag pointing the WRONG way is not a detection
+        right = sum(1 for r in rows if r["flag"] == FLAG_DIR
+                    and r["direction_auc"] is not None
+                    and r["direction_auc"] > 0.5)
+        out["grid"].append({
+            "effect_sd": float(d), "features": len(rows),
+            "flagged_directional": int(hit),
+            "detected_with_correct_sign": int(right),
+            "detection_rate": round(right / len(rows), 4) if rows else None})
+    reached = [g for g in out["grid"]
+               if g["detection_rate"] is not None
+               and g["detection_rate"] >= POWER_TARGET]
+    out["mde"] = reached[0]["effect_sd"] if reached else None
+    out["note"] = ("mde = smallest planted effect (in feature SDs) detected "
+                   "at >= %.0f%% with the correct sign. None means the grid "
+                   "never reached it: the corpus cannot resolve any effect "
+                   "on this grid, which is a statement about the TEST, not "
+                   "about the market." % (100 * POWER_TARGET))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # production corpus (the champion_skill_report loader, metadata captured)
 # ---------------------------------------------------------------------------
@@ -590,7 +664,8 @@ def _fmt_row(r: dict[str, Any]) -> str:
 
 def build_report(corpus: dict[str, Any], reps: int, seed: int,
                  extra: tuple[dict[str, np.ndarray], dict[str, Any]] | None = None,
-                 null_features: int = 0) -> dict[str, Any]:
+                 null_features: int = 0,
+                 power_per_size: int = 0) -> dict[str, Any]:
     b = corpus["barrier"].astype(str)
     tb = np.isin(b, TB_BARRIERS)
     feats = {nm: corpus["X"][:, i] for i, nm in enumerate(corpus["feature_names"])}
@@ -636,6 +711,11 @@ def build_report(corpus: dict[str, Any], reps: int, seed: int,
         "null_calibration": (null_calibration(corpus["y"][tb], b[tb], corpus["sig"][tb],
                                               null_features, reps=reps, seed=seed)
                              if null_features > 0 else None),
+        "power_calibration": (power_calibration(corpus["y"][tb], b[tb],
+                                                corpus["sig"][tb],
+                                                per_size=power_per_size,
+                                                reps=reps, seed=seed)
+                              if power_per_size > 0 else None),
         "flag_counts": n_flag,
         "unstable_flags": [r["feature"] for r in rows if not r["flag_stable"]],
         "extra": extra_meta,
@@ -657,6 +737,22 @@ def print_report(rep: dict[str, Any], top: int | None) -> None:
           f"~{rep['expected_false_exclusions_at_95_NOMINAL']} CIs exclude 0.5 per channel "
           f"by chance. NOMINAL IS NOT THE BASELINE: the realized rate at this block "
           f"count is higher - measure it with --null-calibration N")
+    pc = rep.get("power_calibration")
+    if pc:
+        _cells = "  ".join(f"{g['effect_sd']:g}sd:{g['detection_rate']:.0%}"
+                           for g in pc["grid"])
+        print(f"  POWER on THIS corpus ({pc['per_size']} planted-direction "
+              f"features per grid point, {pc['n_resolved']} resolved rows): "
+              f"{_cells}")
+        if pc["mde"] is None:
+            print("  -> NO grid effect reached "
+                  f"{pc['power_target']:.0%} detection: this corpus cannot "
+                  "resolve ANY of them. A NULL HERE IS A STATEMENT ABOUT THE "
+                  "TEST, NOT THE MARKET.")
+        else:
+            print(f"  -> minimum detectable effect {pc['mde']:g} SD at "
+                  f"{pc['power_target']:.0%}. A null means 'no effect above "
+                  f"{pc['mde']:g} SD', never 'no effect'.")
     nc = rep.get("null_calibration")
     if nc:
         rates = {ch: nc[ch]["rate"] for ch in ("raw", "resolution", "direction")}
@@ -698,6 +794,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--extra-csv", type=Path, default=None,
                     help="CSV of additional feature columns joined on --key-cols")
     ap.add_argument("--key-cols", default="asset,signal_ts")
+    ap.add_argument("--power-calibration", type=int, default=0, metavar="K",
+                    help="K planted-effect features per grid point: the "
+                         "DETECTION rate (mirror of --null-calibration). "
+                         "Without it a null verdict has no resolution.")
     ap.add_argument("--null-calibration", type=int, default=0, metavar="N",
                     help="score N random N(0,1) features against the real targets and "
                          "day blocks to MEASURE this corpus's false-exclusion rate "
@@ -720,8 +820,11 @@ def main(argv: list[str] | None = None) -> int:
         extra = join_extra_csv(args.extra_csv, keys, corpus["asset"], corpus["sig"])
     if args.null_calibration < 0:
         ap.error("--null-calibration must be >= 0")
+    if args.power_calibration < 0:
+        ap.error("--power-calibration must be >= 0")
     rep = build_report(corpus, args.reps, args.seed, extra,
-                       null_features=args.null_calibration)
+                       null_features=args.null_calibration,
+                       power_per_size=args.power_calibration)
     if args.json:
         print(json.dumps(rep, indent=2, default=str))
     else:

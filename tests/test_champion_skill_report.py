@@ -9,6 +9,7 @@ import json
 import numpy as np
 
 from scripts.champion_skill_report import (MIN_WINDOW_ROWS, capacity_ladder,
+                                          skill_ci,
                                            skill_score, window_report)
 
 
@@ -22,7 +23,8 @@ def test_constant_predictor_scores_zero_skill():
     y = _labels()
     p = np.full(y.size, y.mean())
     r = window_report(p, y)
-    assert r["verdict"] == "NO SKILL"
+    assert "SKILL" in r["verdict"] and "NO SKILL" not in "SKILL (CI"
+    assert r["skill_score"] <= 0.0        # semantics, not vocabulary
     assert abs(r["skill_score"]) < 1e-9
     assert abs(r["excess_over_oracle"]) < 1e-9
 
@@ -33,7 +35,7 @@ def test_informative_predictor_scores_positive_skill():
     y = _labels()
     p = np.where(y > 0.5, 0.9, 0.1)
     r = window_report(p, y)
-    assert r["verdict"] == "skill"
+    assert r["verdict"].startswith("SKILL")
     assert r["skill_score"] > 0.5
     assert r["excess_over_oracle"] < 0
 
@@ -44,7 +46,7 @@ def test_anti_skilled_predictor_scores_negative():
     y = _labels()
     p = np.where(y > 0.5, 0.1, 0.9)
     r = window_report(p, y)
-    assert r["verdict"] == "NO SKILL"
+    assert r["skill_score"] <= 0.0        # semantics, not vocabulary
     assert r["skill_score"] < 0
 
 
@@ -100,9 +102,10 @@ def test_ladder_ranks_by_skill_and_names_the_no_skill_case():
     }
     out = capacity_ladder(rungs, y)
     assert [r["rung"] for r in out][0] == "leaky"
-    assert out[0]["verdict"] == "skill"
+    assert out[0]["verdict"].startswith("SKILL")
     assert out[-1]["rung"] == "inverted"
-    assert all(r["verdict"] == "NO SKILL"
+    # semantics, not vocabulary: every non-leaky rung fails to beat a constant
+    assert all(r["skill_score"] is not None and r["skill_score"] <= 0.0
                for r in out if r["rung"] != "leaky")
 
 
@@ -211,3 +214,134 @@ def test_corpus_span_survives_millisecond_epoch():
     assert r["corpus_first_ts"] == "2026-07-13T12:35:47Z"
     assert r["corpus_last_ts"] is None
     assert r["corpus_span_days"] is not None
+
+
+# --- skill interval + resolution floor (2026-09-02 focused-fix) -------------
+# WHY: the verdict used to be `skill <= 0 -> "NO SKILL"`, a bare sign test on
+# a point estimate. It could not separate "no skill" from "a window too weak
+# to see skill" - the Harvey & Liu Type-II shape. These pin the repair.
+
+def test_skill_ci_uses_day_blocks_when_timestamps_supplied():
+    rng = np.random.default_rng(3)
+    n = 1200
+    ts = np.repeat(np.arange(30), 40) * 86400.0
+    y = (rng.random(n) < 0.4).astype(float)
+    ci = skill_ci(np.full(n, 0.4), y, ts)
+    assert ci["available"] and ci["basis"] == "day-block"
+    assert ci["blocks"] == 30            # blocks are DAYS, not rows
+    assert ci["mde_2se"] > 0.0
+
+
+def test_skill_ci_without_timestamps_declares_itself_optimistic():
+    """A row resample is narrower than a day resample on clustered rows. The
+    caller must be TOLD which basis produced the interval."""
+    rng = np.random.default_rng(4)
+    n = 1200
+    ts = np.repeat(np.arange(30), 40) * 86400.0
+    # rows correlated within a day: day effect shifts the label rate
+    day_shift = np.repeat(rng.normal(0, 0.25, 30), 40)
+    y = (rng.random(n) < np.clip(0.4 + day_shift, 0.05, 0.95)).astype(float)
+    p = np.full(n, 0.4)
+    row_ci = skill_ci(p, y, None)
+    day_ci = skill_ci(p, y, ts)
+    assert "OPTIMISTIC" in row_ci["basis"]
+    assert day_ci["mde_2se"] > row_ci["mde_2se"]
+
+
+def test_verdict_reports_resolution_not_a_bare_sign_test():
+    """An effect SMALLER than the window can resolve must not read as a finding.
+
+    NOTE the premise this test was first written with was WRONG and the code
+    was right: a constant predictor set to the window's own mean scores
+    RELIABLY negative, not zero, because the oracle is refit per resample
+    while the predictor is fixed - a measured -1/n bias (see the module
+    docstring). So the noise-floor case is a genuinely weak signal on few
+    blocks, not a perfect constant."""
+    rng = np.random.default_rng(5)
+    n, ndays = 600, 10
+    ts = np.repeat(np.arange(ndays), n // ndays) * 86400.0
+    y = (rng.random(n) < 0.4).astype(float)
+    # a WHISPER of real signal - far below what 10 day-blocks can resolve
+    p = np.clip(0.4 + 0.004 * (y - 0.4), 0.01, 0.99)
+    r = window_report(p, y, ts=ts)
+    assert r["skill_ci"]["available"]
+    assert not r["skill_ci"]["excludes_zero"], r["skill_ci"]
+    assert "NO SKILL DETECTED" in r["verdict"]
+    assert "resolves" in r["verdict"]      # the floor travels with the verdict
+    # the CI spanning zero is the load-bearing assertion; the point estimate
+    # may sit just outside a symmetric 2-SE floor because the interval is a
+    # PERCENTILE, not a symmetric band. Both are reported; neither is a finding.
+    assert r["skill_ci"]["mde_2se"] > 0.0
+
+
+def test_real_skill_is_still_detected_as_skill():
+    """The floor must not swallow a real effect - a null that never fires is
+    as useless as a verdict that always fires."""
+    rng = np.random.default_rng(6)
+    n = 1200
+    ts = np.repeat(np.arange(30), 40) * 86400.0
+    y = (rng.random(n) < 0.4).astype(float)
+    p = np.clip(0.4 + 0.35 * (y - 0.4) / 0.4, 0.01, 0.99)
+    r = window_report(p, y, ts=ts)
+    assert r["skill_score"] > 0.5
+    assert r["skill_ci"]["excludes_zero"]
+    assert r["verdict"].startswith("SKILL")
+
+
+def test_degenerate_window_reports_unavailable_interval_not_a_verdict():
+    y = np.ones(200)                       # all one class: no denominator
+    r = window_report(np.full(200, 0.9), y, ts=np.arange(200) * 86400.0)
+    assert r["skill_score"] is None
+    assert r["verdict"].startswith("UNDEFINED")
+
+
+def test_mde_is_two_standard_errors_not_one():
+    """The resolution floor is 2 SE. Halving it silently widens every verdict
+    (a skill inside the noise would start reading as a finding) - the exact
+    gate-widening CLAUDE.md forbids, so it gets its own pin."""
+    rng = np.random.default_rng(7)
+    n = 900
+    ts = np.repeat(np.arange(30), 30) * 86400.0
+    y = (rng.random(n) < 0.45).astype(float)
+    ci = skill_ci(np.full(n, 0.45), y, ts)
+    assert ci["available"]
+    # both sides are rounded to 6dp independently, so compare with a
+    # tolerance that is still far tighter than the factor-2 mutation
+    assert abs(ci["mde_2se"] - 2.0 * ci["bootstrap_sd"]) < 1e-5
+    assert ci["mde_2se"] > 1.5 * ci["bootstrap_sd"]   # kills the 1-SE mutant
+
+
+def test_report_passes_timestamps_so_the_interval_is_day_blocked(
+        monkeypatch, tmp_path, capsys):
+    """THE WIRING IS THE POINT. window_report defaults ts=None, so a caller
+    that forgets to pass it gets a row resample and a too-narrow interval
+    with no error and no warning. This pins the real report's call site:
+    a mutation that drops ts=s[m] must go red here."""
+    import scripts.champion_skill_report as csr
+    from ml.models import LogisticModel
+    rng = np.random.default_rng(8)
+    ndays, per_day = 12, 60
+    n = ndays * per_day
+    sig = (np.repeat(np.arange(ndays), per_day) * 86400.0
+           + 1_783_946_147.0)
+    y = (rng.random(n) < 0.45).astype(float)
+    X = rng.normal(size=(n, 2))
+    m = LogisticModel()
+    m.fit(X, y)
+    meta = m.to_dict()
+    meta["rows"] = n // 2                      # a real train/fresh split
+    meta_path = tmp_path / "meta.json"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    monkeypatch.setattr(csr, "_load_live", lambda: {
+        "X": X, "y": y, "sig": sig, "w": np.ones(n), "meta_path": meta_path})
+    assert csr.main(["--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    windows = payload["windows"]
+    assert windows, "no windows scored"
+    for name, w in windows.items():
+        ci = w.get("skill_ci") or {}
+        assert ci.get("available"), f"{name}: no interval"
+        assert ci["basis"] == "day-block", (
+            f"{name}: interval is {ci['basis']} - the call site stopped "
+            f"passing timestamps, so the report is optimistic and silent")
+        assert 1 < ci["blocks"] <= ndays

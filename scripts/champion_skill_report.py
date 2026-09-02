@@ -19,7 +19,29 @@ or beating a deliberately handicapped refit, is not skill — the first
 session to measure this compared against a twin whose calibrator was fit
 in-sample and over-claimed a 0.0397 edge that was 34% its own artifact.
 
-Skill score = 1 - brier / (b*(1-b)).  <= 0 means NO SKILL.
+Skill score = 1 - brier / (b*(1-b)).
+
+A NEGATIVE SCORE IS NOT AUTOMATICALLY A FINDING, on two counts measured
+2026-09-02.
+
+(1) THE METRIC IS NEGATIVELY BIASED BY ~1/n. The oracle constant b is refit
+on whatever window is being scored while the predictor stays fixed, so even
+a PERFECTLY calibrated constant scores below zero. Measured over 3,000 draws
+per size: mean skill -0.005178 at n=200, -0.000982 at n=1,000, -0.000175 at
+n=5,751, -0.000049 at n=20,000, with P(skill<0) at or above 0.978 in every
+cell. Subtract ~1/n before reading a small negative as evidence of anything.
+
+(2) THE VERDICT NOW CARRIES ITS OWN RESOLUTION. `skill <= 0 -> "NO SKILL"`
+was a bare sign test: it returned the same word for a true zero and for a
+window too weak to see an effect, which is the Type-II shape Harvey & Liu
+(J. Finance 2020) measure at 86.9% even when real alpha is present. Every
+window now reports a day-block bootstrap CI and the |skill| it can resolve,
+and says NO SKILL DETECTED - naming the floor - rather than NO SKILL. On the
+2026-09-02 corpus the champion's fresh window read skill -0.0036 against a
+resolution floor of 0.0146: the estimate is four times smaller than the
+smallest effect that window can see, so nothing about skill was established
+in either direction. Its in-sample +0.0536 likewise spans zero on 17 day
+blocks. Do not quote either number as current - re-derive.
 
 SAFE / measurement-plane: reads only, opens no positions, writes nothing,
 alters no order. Run it any time:
@@ -31,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -41,6 +64,14 @@ import numpy as np
 # Brier of the best possible constant is b*(1-b); a window with no label
 # variation makes skill undefined rather than infinite.
 MIN_WINDOW_ROWS = 30
+# Skill-interval settings. These are MEASUREMENT STANDARDS, not tunables:
+# raising reps costs time and lowers nothing, and DAY_S defines the block
+# over which rows are treated as sharing one market path. Do not "fix" a
+# wide interval by shrinking the block - that is the gate-widening
+# CLAUDE.md forbids.
+SKILL_CI_REPS = 400
+SKILL_CI_SEED = 20260902
+DAY_S = 86400.0
 
 
 def corpus_span(sig) -> dict[str, Any]:
@@ -92,12 +123,82 @@ def skill_score(brier: float, base_rate: float) -> float | None:
     return 1.0 - float(brier) / oracle
 
 
+def skill_ci(p: np.ndarray, y: np.ndarray, ts: np.ndarray | None,
+             reps: int = SKILL_CI_REPS,
+             seed: int = SKILL_CI_SEED) -> dict[str, Any]:
+    """Bootstrap interval for the skill score, plus the effect this window
+    could actually RESOLVE.
+
+    WHY THIS EXISTS (2026-09-02). The verdict below used to be a bare sign
+    test on a point estimate: `skill <= 0 -> "NO SKILL"`. That reads a null
+    as a finding, and it is the shape Harvey & Liu (J. Finance 2020) put a
+    number on - a joint multiple-testing null carries a Type II error of
+    86.9% at p<.05 even when the true performers earn ~10.66%/yr alpha. A
+    test that cannot see an effect and a world with no effect produce the
+    same word, so the word was unfalsifiable. It now ships with its own
+    resolution.
+
+    BLOCKS, NOT ROWS. When `ts` is supplied the resample is over CALENDAR
+    DAYS (each day drawn whole), because rows inside a day share the market
+    path and are not independent evidence - the same effective-n reasoning
+    `cohort_eval.cohort_effective_n` applies to concurrent trips and
+    `label_decomposition_report` applies to its day blocks. With `ts=None`
+    the resample is over rows and the interval is OPTIMISTIC; the caller is
+    told which basis was used so a reader never has to guess.
+
+    `mde_2se` is the half-width the window can resolve at ~2 SE. It is a
+    RESOLUTION FLOOR, not a claim about the true effect: a skill score whose
+    magnitude is below it is inside the noise this sample can produce.
+    """
+    y = np.asarray(y, float).reshape(-1)
+    p = np.asarray(p, float).reshape(-1)
+    n = int(y.size)
+    if n < 2:
+        return {"available": False, "reason": "n<2"}
+    rng = np.random.default_rng(seed)
+    if ts is not None and np.asarray(ts).size == n:
+        days = (np.asarray(ts, float) // DAY_S).astype("int64")
+        blocks = [np.flatnonzero(days == u) for u in np.unique(days)]
+        basis = "day-block"
+    else:
+        blocks = None
+        basis = "row (OPTIMISTIC - no timestamps supplied)"
+    nb = len(blocks) if blocks is not None else n
+    draws: list[float] = []
+    for _ in range(int(reps)):
+        if blocks is not None:
+            idx = np.concatenate([blocks[i] for i in rng.integers(0, nb, nb)])
+        else:
+            idx = rng.integers(0, n, n)
+        yy = y[idx]
+        b = float(yy.mean())
+        if b <= 0.0 or b >= 1.0:
+            continue                       # degenerate resample: no denominator
+        s = skill_score(float(np.mean((p[idx] - yy) ** 2)), b)
+        if s is not None and math.isfinite(s):
+            draws.append(s)
+    if len(draws) < max(20, int(reps) // 10):
+        return {"available": False, "reason": "too many degenerate resamples",
+                "basis": basis, "blocks": nb, "draws": len(draws)}
+    arr = np.asarray(draws, float)
+    lo, hi = (float(x) for x in np.percentile(arr, [2.5, 97.5]))
+    sd = float(arr.std(ddof=1))
+    return {"available": True, "basis": basis, "blocks": nb, "reps": len(draws),
+            "ci95": [round(lo, 6), round(hi, 6)],
+            "bootstrap_sd": round(sd, 6),
+            "mde_2se": round(2.0 * sd, 6),
+            "excludes_zero": bool(lo > 0.0 or hi < 0.0)}
+
+
 def window_report(p_cal: np.ndarray, y: np.ndarray,
-                  train_base: float | None = None) -> dict[str, Any]:
+                  train_base: float | None = None,
+                  ts: np.ndarray | None = None) -> dict[str, Any]:
     """Skill of calibrated predictions `p_cal` against labels `y`.
 
     Pure: no I/O, no globals. `train_base` (the training-window base rate)
-    adds the weaker train-constant null for context when supplied.
+    adds the weaker train-constant null for context when supplied. `ts`
+    (signal timestamps, same length as `y`) switches the interval to a
+    day-block resample - supply it whenever you have it.
     """
     y = np.asarray(y, float).reshape(-1)
     p = np.asarray(p_cal, float).reshape(-1)
@@ -126,8 +227,25 @@ def window_report(p_cal: np.ndarray, y: np.ndarray,
     }
     sk = skill_score(brier, base)
     out["skill_score"] = None if sk is None else round(sk, 6)
-    out["verdict"] = ("UNDEFINED (degenerate window)" if sk is None
-                      else "NO SKILL" if sk <= 0.0 else "skill")
+    # THE VERDICT CARRIES ITS OWN RESOLUTION (2026-09-02). A point estimate
+    # thresholded at zero cannot separate "no skill" from "a window too weak
+    # to see skill" - see skill_ci. Both halves are reported, and the
+    # vocabulary now says which one was established.
+    ci = skill_ci(p, y, ts)
+    out["skill_ci"] = ci
+    if sk is None:
+        out["verdict"] = "UNDEFINED (degenerate window)"
+    elif not ci.get("available"):
+        out["verdict"] = ("NO SKILL DETECTED (interval unavailable: %s)"
+                          % ci.get("reason", "unknown"))
+    elif ci["excludes_zero"]:
+        out["verdict"] = ("NEGATIVE SKILL (CI excludes 0)" if sk <= 0.0
+                          else "SKILL (CI excludes 0)")
+    else:
+        # the honest null: the interval spans zero, so this window cannot
+        # tell a true zero from an effect smaller than it can resolve
+        out["verdict"] = ("NO SKILL DETECTED (CI spans 0; this window "
+                          "resolves |skill| > %.4f)" % ci["mde_2se"])
     if train_base is not None:
         out["train_constant_brier"] = round(
             float(np.mean((float(train_base) - y) ** 2)), 6)
@@ -323,7 +441,12 @@ def main(argv: list[str] | None = None) -> int:
         "corpus_last_ts": span["corpus_last_ts"],
         "corpus_span_days": span["corpus_span_days"],
         "corpus_sig_missing": span["sig_missing"],
-        "windows": {k: window_report(p[m], yv[m], train_base)
+        # ts=s[m] is load-bearing, not decoration: without it the skill
+        # interval resamples ROWS, and rows inside a day share the market
+        # path, so the interval comes out too narrow and the verdict too
+        # confident. Pass the timestamps whenever the loader has them.
+        "windows": {k: window_report(p[m], yv[m], train_base,
+                                     ts=(s[m] if s.size == n else None))
                     for k, m in windows.items() if int(m.sum()) > 0},
     }
     fresh = report["windows"].get("fresh_index", {})
@@ -355,6 +478,14 @@ def main(argv: list[str] | None = None) -> int:
               f"{r['oracle_constant_brier']:.5f} "
               f"({r['excess_over_oracle']:+.5f})")
         print(f"    SKILL {r['skill_score']}  -> {r['verdict']}")
+        _ci = r.get("skill_ci") or {}
+        if _ci.get("available"):
+            print(f"    95% CI [{_ci['ci95'][0]:+.5f}, {_ci['ci95'][1]:+.5f}] "
+                  f"on {_ci['blocks']} {_ci['basis']} blocks; this window "
+                  f"resolves |skill| > {_ci['mde_2se']:.5f}")
+        elif _ci:
+            print(f"    95% CI unavailable ({_ci.get('reason')}) - the "
+                  f"verdict above is a point estimate with no resolution")
         print(f"    calibrated p range [{r['p_min']:.4f}, {r['p_max']:.4f}] "
               f"sd {r['p_sd']:.4f}")
     if report.get("ladder"):
