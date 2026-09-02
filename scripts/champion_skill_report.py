@@ -33,8 +33,12 @@ cell. Subtract ~1/n before reading a small negative as evidence of anything.
 
 (2) THE VERDICT NOW CARRIES ITS OWN RESOLUTION. `skill <= 0 -> "NO SKILL"`
 was a bare sign test: it returned the same word for a true zero and for a
-window too weak to see an effect, which is the Type-II shape Harvey & Liu
-(J. Finance 2020) measure at 86.9% even when real alpha is present. Every
+window too weak to see an effect. (An earlier draft of this docstring cited
+Harvey & Liu's 86.9% Type-II rate here. THAT CITATION WAS WRONG AND IS
+STRUCK, 2026-09-02: verified at the primary source, 86.9% is the power of a
+JOINT cross-sectional test over ~3,000 funds under a Fama-French bootstrap,
+and it does NOT transfer to a single pre-registered test of one strategy.
+The general point stands on its own and needs no borrowed number.) Every
 window now reports a day-block bootstrap CI and the |skill| it can resolve,
 and says NO SKILL DETECTED - naming the floor - rather than NO SKILL. On the
 2026-09-02 corpus the champion's fresh window read skill -0.0036 against a
@@ -131,12 +135,19 @@ def skill_ci(p: np.ndarray, y: np.ndarray, ts: np.ndarray | None,
 
     WHY THIS EXISTS (2026-09-02). The verdict below used to be a bare sign
     test on a point estimate: `skill <= 0 -> "NO SKILL"`. That reads a null
-    as a finding, and it is the shape Harvey & Liu (J. Finance 2020) put a
-    number on - a joint multiple-testing null carries a Type II error of
-    86.9% at p<.05 even when the true performers earn ~10.66%/yr alpha. A
-    test that cannot see an effect and a world with no effect produce the
-    same word, so the word was unfalsifiable. It now ships with its own
-    resolution.
+    as a finding: a test that cannot see an effect and a world with no
+    effect produce the same word, so the word was unfalsifiable. It now
+    ships with its own resolution.
+
+    SCOPE NOTE, struck the same day it was written. An earlier draft
+    justified this with Harvey & Liu's 86.9% Type-II rate. Verified at the
+    primary source, that figure is the power of a JOINT cross-sectional
+    test over ~3,000 funds under the Fama-French (2010) bootstrap - it does
+    NOT transfer to a single pre-registered test of one strategy, and using
+    it as a general excuse for a null is exactly the borrowed-number misuse
+    this repo keeps catching. The argument here needs no citation: an
+    interval either excludes zero or it does not, and a report that omits
+    the interval cannot tell you which.
 
     BLOCKS, NOT ROWS. When `ts` is supplied the resample is over CALENDAR
     DAYS (each day drawn whole), because rows inside a day share the market
