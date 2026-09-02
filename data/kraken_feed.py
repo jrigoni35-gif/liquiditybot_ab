@@ -87,6 +87,47 @@ def _pct_str_to_bps(raw) -> Optional[float]:
     return v * 100.0
 
 
+def _volume_str_to_float(raw) -> Optional[float]:
+    """Kraken's TradeVolume volume fields ('volume', 'nextvolume',
+    'tiervolume') are decimal strings denominated in the response's
+    'currency' (e.g. "17482.00"); the top tier reports nextvolume/nextfee
+    as null. Returns None (never a fabricated 0.0) on anything that isn't
+    a finite, non-negative number - an absent tier boundary must read as
+    "unknown", not "zero volume"."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v) or v < 0:
+        return None
+    return v
+
+
+# TradeVolume per-pair tier-context fields beyond 'fee' (FEE-3 remedy):
+# each is parsed with the SAME percent->bps / volume rule as the headline
+# fee and lands under a side-prefixed key ({maker,taker}_<suffix>). None
+# when absent/unparseable - the headline maker_bps/taker_bps keys are the
+# only ones a pair must carry to be reported at all.
+_TIER_CONTEXT_FIELDS = (
+    # (response field, key suffix, parser)
+    ("minfee", "min_bps", _pct_str_to_bps),
+    ("maxfee", "max_bps", _pct_str_to_bps),
+    ("nextfee", "next_bps", _pct_str_to_bps),
+    ("nextvolume", "next_volume", _volume_str_to_float),
+    ("tiervolume", "tier_volume", _volume_str_to_float),
+)
+
+
+def _tier_context(info: dict, side: str) -> dict:
+    return {f"{side}_{suffix}": parser(info.get(field))
+            for field, suffix, parser in _TIER_CONTEXT_FIELDS}
+
+
+# Longest TradeVolume 'currency' string kept verbatim (Kraken asset codes
+# are <= 8 chars); longer = not a currency code -> None, never truncated.
+_MAX_CURRENCY_LEN = 16
+
+
 class KrakenFeed(ThrottledRestClient):
     def __init__(self, config: dict):
         super().__init__(config.get("rate_limit_per_sec", 1))
@@ -387,20 +428,21 @@ class KrakenFeed(ThrottledRestClient):
             return None
         return self._private_post("TradeVolume", {"pair": ",".join(pairs)})
 
-    def get_trade_fee_tiers(self, pairs: list) -> Optional[dict]:
-        """Account's ACTUAL current maker/taker fee, in bps, for each of
-        `pairs` (our compact pair strings, e.g. 'ETHUSD') - the W2-9
-        remainder's read side. Resolves TradeVolume's internal-pair-keyed
-        response back to our pair strings via the same _internal_to_alt map
-        AssetPairs populates for get_tickers (newer listings already have
-        internal == altname, so an empty/stale map still degrades safely).
-        Returns {pair: {"maker_bps": float, "taker_bps": float}} for every
-        pair TradeVolume actually reported and could be parsed cleanly - a
-        pair the account never traded, or one whose fee string doesn't
-        parse, is simply ABSENT (never fabricated, never defaulted).
-        None on missing credentials, a transport failure, or a response
-        that isn't shaped like TradeVolume at all (no 'fees'/'fees_maker'
-        maps) - the caller treats None as "skip this reconciliation"."""
+    def get_trade_fee_schedule(self, pairs: list) -> Optional[dict]:
+        """Account's ACTUAL current fee schedule with its full TIER CONTEXT
+        (FEE-3 remedy): the per-pair map get_trade_fee_tiers returns, PLUS
+        the account-level 30-day volume the tier is set by. Returns
+
+            {"pairs": {pair: {...}},          # see get_trade_fee_tiers
+             "volume_30d": float | None,      # TradeVolume 'volume'
+             "volume_currency": str | None}   # TradeVolume 'currency'
+
+        volume_30d / volume_currency are None (never fabricated) when the
+        response omits or garbles them. Kept OUTSIDE the pair map on
+        purpose: every consumer iterates that map as pairs, so a reserved
+        pseudo-pair key would be read as a pair. None under exactly the
+        same conditions as get_trade_fee_tiers (no credentials, transport
+        failure, not TradeVolume-shaped, or no pair parsed)."""
         if not pairs:
             return None
         result = self.get_trade_volume(pairs)
@@ -425,8 +467,47 @@ class KrakenFeed(ThrottledRestClient):
             maker_bps = _pct_str_to_bps(maker_info.get("fee"))
             if maker_bps is None:
                 continue
-            out[alt] = {"maker_bps": maker_bps, "taker_bps": taker_bps}
-        return out if out else None
+            row = {"maker_bps": maker_bps, "taker_bps": taker_bps}
+            row.update(_tier_context(maker_info, "maker"))
+            row.update(_tier_context(info, "taker"))
+            out[alt] = row
+        if not out:
+            return None
+        currency = result.get("currency")
+        # venue-controlled string that lands verbatim in audit.jsonl /
+        # status.json: keep only a plausible asset code (Kraken's are
+        # <= 8 chars, e.g. "ZUSD"); anything else reads as unknown.
+        if not (isinstance(currency, str)
+                and 0 < len(currency) <= _MAX_CURRENCY_LEN):
+            currency = None
+        return {"pairs": out,
+                "volume_30d": _volume_str_to_float(result.get("volume")),
+                "volume_currency": currency}
+
+    def get_trade_fee_tiers(self, pairs: list) -> Optional[dict]:
+        """Account's ACTUAL current maker/taker fee, in bps, for each of
+        `pairs` (our compact pair strings, e.g. 'ETHUSD') - the W2-9
+        remainder's read side. Resolves TradeVolume's internal-pair-keyed
+        response back to our pair strings via the same _internal_to_alt map
+        AssetPairs populates for get_tickers (newer listings already have
+        internal == altname, so an empty/stale map still degrades safely).
+        Returns {pair: {"maker_bps": float, "taker_bps": float, ...}} for
+        every pair TradeVolume actually reported and could be parsed
+        cleanly - a pair the account never traded, or one whose fee string
+        doesn't parse, is simply ABSENT (never fabricated, never defaulted).
+        The `...` is the ADDITIVE tier context (FEE-3 remedy, each None
+        when the venue omits it): {maker,taker}_min_bps / _max_bps /
+        _next_bps (the pair's schedule floor / ceiling / next-tier rate)
+        and {maker,taker}_next_volume / _tier_volume (the 30-day volume
+        boundary of the next / current tier, in the account's volume
+        currency). fee == max_bps is the "schedule top" signature FEE-3
+        needs to tell an untraded-pair bottom tier from the account rate.
+        None on missing credentials, a transport failure, or a response
+        that isn't shaped like TradeVolume at all (no 'fees'/'fees_maker'
+        maps) - the caller treats None as "skip this reconciliation".
+        Account-level volume lives on get_trade_fee_schedule."""
+        sched = self.get_trade_fee_schedule(pairs)
+        return sched["pairs"] if sched else None
 
     # --- Venue-level safety endpoints -------------------------------------
     def cancel_all_orders_after(self, timeout_sec: int) -> bool:

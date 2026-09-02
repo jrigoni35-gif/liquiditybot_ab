@@ -56,6 +56,13 @@ _LEGAL = {
     "filled": set(), "cancelled": set(), "expired": set(),
 }
 _HISTORY_CAP = 512          # bounded terminal-order retention
+# FEE-3 remedy: TradeVolume tier-context keys (data/kraken_feed.py
+# get_trade_fee_tiers) copied verbatim onto every OM-080 pair payload and
+# the status fee_recon block. Additive; None when the venue omits them.
+_FEE_TIER_CONTEXT_KEYS = tuple(
+    f"{side}_{suffix}" for side in ("maker", "taker")
+    for suffix in ("min_bps", "max_bps", "next_bps", "next_volume",
+                   "tier_volume"))
 
 
 def _passive_poll_prob(sf_base: float, dist_bps: float, sigma_bps: float,
@@ -812,11 +819,18 @@ class OrderManager:
             if not pairs:
                 log.debug("fee reconciliation skipped: no pairs configured")
                 return
-            tiers = self.feed.get_trade_fee_tiers(pairs)
+            schedule = self.feed.get_trade_fee_schedule(pairs)
+            tiers = schedule.get("pairs") if isinstance(schedule, dict) \
+                else None
             if not tiers:
                 log.debug("fee reconciliation skipped: TradeVolume "
                          "unavailable or unparseable")
                 return
+            # FEE-3 remedy: the account-level 30-day volume the tier is
+            # set by rides along on the record (None when the venue omits
+            # it) - it is what confirms/refutes a tier reading.
+            volume_30d = schedule.get("volume_30d")
+            volume_currency = schedule.get("volume_currency")
             pair_results = {}
             mismatched = []
             worst_delta_bps = 0.0
@@ -856,12 +870,21 @@ class OrderManager:
                     "mismatch": bool(mismatch_sources),
                     "mismatch_sources": mismatch_sources,
                 }
+                # FEE-3 remedy: the pair's tier context (schedule floor /
+                # ceiling / next rate, current / next tier volume) goes on
+                # record verbatim - it is what distinguishes "account
+                # rate" from "schedule top". Additive keys, .get() so a
+                # feed that only reports the headline fee yields None.
+                for key in _FEE_TIER_CONTEXT_KEYS:
+                    pair_results[pair][key] = actual.get(key)
                 if mismatch_sources:
                     mismatched.append(pair)
             self._fee_recon_result = {"ts": now,
                                       "verdict": "mismatch" if mismatched
                                       else "ok",
-                                      "pairs": pair_results}
+                                      "pairs": pair_results,
+                                      "volume_30d": volume_30d,
+                                      "volume_currency": volume_currency}
             if mismatched:
                 # compact human summary (pair count + worst delta) - the
                 # full per-pair/per-source detail lives in the audit
@@ -875,7 +898,9 @@ class OrderManager:
                 get_audit().log("order_manager", Code.OM_FEE_RECON_MISMATCH,
                                 msg, {"pairs": pair_results,
                                       "tolerance_bps":
-                                      self.fee_recon_tolerance_bps})
+                                      self.fee_recon_tolerance_bps,
+                                      "volume_30d": volume_30d,
+                                      "volume_currency": volume_currency})
         except Exception:                            # noqa: BLE001
             log.debug("fee reconciliation skipped: unexpected error",
                      exc_info=True)

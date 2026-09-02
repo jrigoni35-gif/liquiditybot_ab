@@ -225,9 +225,28 @@ def read_om080_fee_recon(path) -> tuple:
     core/audit.py's own verify()). No records (file absent, empty, or the
     code never fired) returns (None, None, 0, 0) - never a fabricated 0.0
     deviation."""
+    records = _load_om080_records(path)
+    if not records:
+        return None, None, 0, 0
+    latest = records[-1]
+    pairs = ((latest.get("data") or {}).get("pairs") or {})
+    makers = [_finite_float(v.get("maker_actual_bps")) for v in pairs.values()
+              if isinstance(v, dict)]
+    takers = [_finite_float(v.get("taker_actual_bps")) for v in pairs.values()
+              if isinstance(v, dict)]
+    makers = [m for m in makers if m is not None]
+    takers = [t for t in takers if t is not None]
+    maker_mean = sum(makers) / len(makers) if makers else None
+    taker_mean = sum(takers) / len(takers) if takers else None
+    return maker_mean, taker_mean, len(records), len(pairs)
+
+
+def _load_om080_records(path) -> list:
+    """Every OM-080 record in the audit file, sorted by seq ascending
+    (malformed lines skipped, absent/unreadable file -> [])."""
     p = _resolve(str(path))
     if not p.exists():
-        return None, None, 0, 0
+        return []
     records: list = []
     try:
         with open(p, encoding="utf-8") as f:
@@ -244,21 +263,98 @@ def read_om080_fee_recon(path) -> tuple:
                 if rec.get("code") == Code.OM_FEE_RECON_MISMATCH.value:
                     records.append(rec)
     except OSError:
-        return None, None, 0, 0
-    if not records:
-        return None, None, 0, 0
+        return []
     records.sort(key=lambda r: _finite_float(r.get("seq")) or 0.0)
+    return records
+
+
+# Per-pair tier-context keys OM-080 carries since the FEE-3 remedy
+# (execution/order_manager.py _FEE_TIER_CONTEXT_KEYS). Absent on records
+# written before it -> None, reported as "not recorded", never inferred.
+_TIER_CONTEXT_KEYS = tuple(
+    f"{side}_{suffix}" for side in ("maker", "taker")
+    for suffix in ("min_bps", "max_bps", "next_bps", "next_volume",
+                   "tier_volume"))
+
+
+def read_om080_tier_context(path) -> Optional[dict]:
+    """FEE-3 remedy: the tier CONTEXT of the most recent OM-080 record -
+    the fields that tell an account rate from a schedule top. Returns
+
+        {"seq", "ts", "volume_30d", "volume_currency",
+         "pairs": {pair: {"maker_actual_bps", "taker_actual_bps",
+                          <_TIER_CONTEXT_KEYS>..., "at_schedule_top"}}}
+
+    `at_schedule_top` is True when BOTH headline fees equal their
+    recorded max (the bottom-tier / untraded-pair signature), False when
+    both max fields are recorded and either differs, None when a max is
+    not on the record (pre-remedy rows) - never inferred from absence.
+    None when no OM-080 record exists."""
+    records = _load_om080_records(path)
+    if not records:
+        return None
     latest = records[-1]
-    pairs = ((latest.get("data") or {}).get("pairs") or {})
-    makers = [_finite_float(v.get("maker_actual_bps")) for v in pairs.values()
-              if isinstance(v, dict)]
-    takers = [_finite_float(v.get("taker_actual_bps")) for v in pairs.values()
-              if isinstance(v, dict)]
-    makers = [m for m in makers if m is not None]
-    takers = [t for t in takers if t is not None]
-    maker_mean = sum(makers) / len(makers) if makers else None
-    taker_mean = sum(takers) / len(takers) if takers else None
-    return maker_mean, taker_mean, len(records), len(pairs)
+    data = latest.get("data") or {}
+    raw_pairs = data.get("pairs") or {}
+    pairs: dict = {}
+    for pair, v in raw_pairs.items():
+        if not isinstance(v, dict):
+            continue
+        row = {"maker_actual_bps": _finite_float(v.get("maker_actual_bps")),
+               "taker_actual_bps": _finite_float(v.get("taker_actual_bps"))}
+        for key in _TIER_CONTEXT_KEYS:
+            row[key] = _finite_float(v.get(key))
+        tops = []
+        for side in ("maker", "taker"):
+            fee, mx = row[f"{side}_actual_bps"], row[f"{side}_max_bps"]
+            tops.append(None if fee is None or mx is None
+                        else abs(fee - mx) < 1e-9)
+        row["at_schedule_top"] = (None if any(t is None for t in tops)
+                                  else all(tops))
+        pairs[pair] = row
+    currency = data.get("volume_currency")
+    return {"seq": _finite_float(latest.get("seq")),
+            "ts": latest.get("ts"),
+            "volume_30d": _finite_float(data.get("volume_30d")),
+            "volume_currency": currency if isinstance(currency, str) else None,
+            "pairs": pairs}
+
+
+def _fmt_ctx(v: Optional[float], unit: str = "") -> str:
+    return "not recorded" if v is None else f"{v:.2f}{unit}"
+
+
+def tier_context_lines(ctx: Optional[dict]) -> list:
+    """Human lines for the [1] block's tier-context sub-section."""
+    if not ctx:
+        return []
+    seq = ctx["seq"]
+    seq_txt = (str(int(seq)) if seq is not None and seq == int(seq)
+               else repr(seq))          # greppable against audit.jsonl
+    lines = ["    tier context (FEE-3, most recent OM-080 record "
+             f"seq={seq_txt}):"]
+    vol = ctx["volume_30d"]
+    cur = ctx["volume_currency"] or "?"
+    lines.append("      account 30-day volume = "
+                 + ("not recorded (pre-remedy record)" if vol is None
+                    else f"{vol:.2f} {cur}"))
+    for pair, row in sorted(ctx["pairs"].items()):
+        top = row["at_schedule_top"]
+        verdict = ("SCHEDULE TOP (fee == maxfee on both sides: bottom "
+                   "tier / untraded pair, NOT an account-rate reading)"
+                   if top is True else
+                   "below schedule top (account tier discount in effect)"
+                   if top is False else "undetermined (max not recorded)")
+        lines.append(f"      {pair}: {verdict}")
+        for side in ("maker", "taker"):
+            lines.append(
+                f"        {side}: fee={_fmt_ctx(row[f'{side}_actual_bps'], ' bps')}"
+                f"  min={_fmt_ctx(row[f'{side}_min_bps'], ' bps')}"
+                f"  max={_fmt_ctx(row[f'{side}_max_bps'], ' bps')}"
+                f"  next={_fmt_ctx(row[f'{side}_next_bps'], ' bps')}"
+                f"  tier_volume={_fmt_ctx(row[f'{side}_tier_volume'])}"
+                f"  next_volume={_fmt_ctx(row[f'{side}_next_volume'])}")
+    return lines
 
 
 # ------------------------------------------------------------------ verdict
@@ -309,6 +405,7 @@ def build_report(config_path=DEFAULT_CONFIG,
     round_trip_cfg = maker_cfg + taker_cfg
 
     maker_meas, taker_meas, n_records, n_pairs = read_om080_fee_recon(audit_path)
+    tier_ctx = read_om080_tier_context(audit_path)
     overruns, n_rows, n_dupe = read_postmortem_overruns(postmortem_csv)
     n_rt = len(overruns)
     mean_overrun = sum(overruns) / n_rt if n_rt else None
@@ -350,6 +447,7 @@ def build_report(config_path=DEFAULT_CONFIG,
             lines.append(f"    (context) measured taker-leg = "
                          f"{taker_meas:.2f} bps vs configured "
                          f"{taker_cfg:.2f} bps")
+        lines.extend(tier_context_lines(tier_ctx))
     lines.append("")
 
     lines.append("[2] ROUND-TRIP bps — source: postmortem cost_overrun_bps "

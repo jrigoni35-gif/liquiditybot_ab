@@ -23,7 +23,9 @@ from scripts.cost_truth_report import (
     configured_fees,
     main,
     read_om080_fee_recon,
+    read_om080_tier_context,
     read_postmortem_overruns,
+    tier_context_lines,
 )
 
 POSTMORTEM_HEADER = [
@@ -197,6 +199,99 @@ def test_read_om080_fee_recon_tolerates_malformed_lines(tmp_path):
     maker, taker, n_records, n_pairs = read_om080_fee_recon(p)
     assert n_records == 1
     assert maker == pytest.approx(25.0)
+
+
+# ------------------------------------------------------- OM-080 tier context
+# FEE-3 remedy: the report surfaces the tier context OM-080 now carries -
+# the fields that tell an account rate from a schedule top.
+_CTX_TOP = {   # fee == maxfee on both sides: the untraded-pair signature
+    "maker_actual_bps": 25.0, "taker_actual_bps": 40.0,
+    "maker_min_bps": 0.0, "maker_max_bps": 25.0, "maker_next_bps": 20.0,
+    "maker_next_volume": 50000.0, "maker_tier_volume": 0.0,
+    "taker_min_bps": 10.0, "taker_max_bps": 40.0, "taker_next_bps": 35.0,
+    "taker_next_volume": 50000.0, "taker_tier_volume": 0.0,
+}
+_CTX_DISCOUNT = {   # below max on both sides: an account-tier reading
+    "maker_actual_bps": 22.0, "taker_actual_bps": 38.0,
+    "maker_min_bps": 0.0, "maker_max_bps": 25.0, "maker_next_bps": 20.0,
+    "maker_next_volume": 50000.0, "maker_tier_volume": 10000.0,
+    "taker_min_bps": 10.0, "taker_max_bps": 40.0, "taker_next_bps": 35.0,
+    "taker_next_volume": 50000.0, "taker_tier_volume": 10000.0,
+}
+
+
+def _om080_record_ctx(seq, ts, pairs, volume_30d, volume_currency):
+    rec = _om080_record(seq, ts, pairs)
+    rec["data"]["volume_30d"] = volume_30d
+    rec["data"]["volume_currency"] = volume_currency
+    return rec
+
+
+def test_read_om080_tier_context_latest_record_exact_fields(tmp_path):
+    p = tmp_path / "audit.jsonl"
+    _write_jsonl(p, [
+        _om080_record_ctx(1, 100.0, {"XBTUSD": dict(_CTX_TOP)}, 0.0, "ZUSD"),
+        _om080_record_ctx(2, 200.0, {"XBTUSD": dict(_CTX_DISCOUNT),
+                                     "ETHUSD": dict(_CTX_TOP)},
+                          17482.0, "ZUSD"),
+    ])
+    ctx = read_om080_tier_context(p)
+    assert ctx is not None
+    assert ctx["seq"] == 2.0
+    assert ctx["volume_30d"] == 17482.0
+    assert ctx["volume_currency"] == "ZUSD"
+    assert set(ctx["pairs"]) == {"XBTUSD", "ETHUSD"}
+    xbt = ctx["pairs"]["XBTUSD"]
+    for k, v in _CTX_DISCOUNT.items():
+        assert xbt[k] == v, k
+    assert xbt["at_schedule_top"] is False
+    assert ctx["pairs"]["ETHUSD"]["at_schedule_top"] is True
+
+
+def test_read_om080_tier_context_pre_remedy_record_is_none_not_inferred(tmp_path):
+    """A record written before the remedy carries only the headline fees:
+    every context field reads None and at_schedule_top is None (NOT False -
+    absence of a max is not evidence the fee is below it)."""
+    p = tmp_path / "audit.jsonl"
+    _write_jsonl(p, [_om080_record(1, 1.0, {"XBTUSD": {
+        "maker_actual_bps": 40.0, "taker_actual_bps": 80.0}})])
+    ctx = read_om080_tier_context(p)
+    assert ctx is not None
+    assert ctx["volume_30d"] is None and ctx["volume_currency"] is None
+    row = ctx["pairs"]["XBTUSD"]
+    assert row["maker_actual_bps"] == 40.0
+    assert row["at_schedule_top"] is None
+    for k in _CTX_TOP:
+        if k.endswith("_actual_bps"):
+            continue
+        assert row[k] is None, k
+    lines = "\n".join(tier_context_lines(ctx))
+    assert "undetermined (max not recorded)" in lines
+    assert "not recorded (pre-remedy record)" in lines
+
+
+def test_read_om080_tier_context_absent_is_none(tmp_path):
+    assert read_om080_tier_context(tmp_path / "nope.jsonl") is None
+    assert tier_context_lines(None) == []
+
+
+def test_build_report_prints_tier_context_block(tmp_path):
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps(
+        {"pretrade": {"maker_fee_bps": 22.0, "taker_fee_bps": 38.0}}),
+        encoding="utf-8")
+    audit_path = tmp_path / "audit.jsonl"
+    _write_jsonl(audit_path, [_om080_record_ctx(
+        7, 100.0, {"XBTUSD": dict(_CTX_TOP), "ETHUSD": dict(_CTX_DISCOUNT)},
+        17482.0, "ZUSD")])
+    report = build_report(cfg_path, tmp_path / "missing_pm.csv", audit_path)
+    assert "tier context (FEE-3, most recent OM-080 record seq=7)" in report
+    assert "account 30-day volume = 17482.00 ZUSD" in report
+    assert "XBTUSD: SCHEDULE TOP" in report
+    assert "ETHUSD: below schedule top" in report
+    assert ("taker: fee=38.00 bps  min=10.00 bps  max=40.00 bps  "
+            "next=35.00 bps  tier_volume=10000.00  next_volume=50000.00"
+            in report)
 
 
 # ------------------------------------------------------------------ classify

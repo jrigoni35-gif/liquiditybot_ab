@@ -23,19 +23,25 @@ from execution.order_manager import OrderManager
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
-def _feed(tiers=None, has_creds=True, calls=None):
+def _feed(tiers=None, has_creds=True, calls=None, volume_30d=None,
+          volume_currency=None):
     """Minimal venue stub exposing exactly the surface
     check_fee_reconciliation calls: has_private_credentials() and
-    get_trade_fee_tiers(pairs)."""
+    get_trade_fee_schedule(pairs) (FEE-3 remedy: the pair map rides under
+    "pairs" beside the account-level 30-day volume; None when the venue
+    read fails, exactly like KrakenFeed)."""
     calls = calls if calls is not None else []
 
-    def _get_tiers(pairs):
+    def _get_schedule(pairs):
         calls.append(list(pairs))
-        return tiers
+        if tiers is None:
+            return None
+        return {"pairs": tiers, "volume_30d": volume_30d,
+                "volume_currency": volume_currency}
 
     return types.SimpleNamespace(
         has_private_credentials=lambda: has_creds,
-        get_trade_fee_tiers=_get_tiers), calls
+        get_trade_fee_schedule=_get_schedule), calls
 
 
 def _om(feed, tolerance_bps=1.0, interval_hours=24.0, enabled=True,
@@ -168,7 +174,7 @@ def test_unexpected_exception_from_feed_never_propagates():
         raise RuntimeError("simulated malformed TradeVolume payload")
 
     feed = types.SimpleNamespace(has_private_credentials=lambda: True,
-                                 get_trade_fee_tiers=_boom)
+                                 get_trade_fee_schedule=_boom)
     om = _om(feed)
 
     mark = _audit_mark()
@@ -291,6 +297,77 @@ def test_unwired_pretrade_fee_bps_falls_back_to_order_manager_pair():
     pr = om._fee_recon_result["pairs"]["ETHUSD"]
     assert pr["maker_configured_om_bps"] == pr["maker_configured_pretrade_bps"]
     assert set(pr["mismatch_sources"]) == {"maker_om", "maker_pretrade"}
+
+
+# --------------------------------------------------------------------------
+# FEE-3 remedy: the OM-080 payload and the status fee_recon block carry the
+# full tier context (per-pair schedule floor/ceiling/next rate, tier
+# volumes) and the account-level 30-day volume - verbatim, additive.
+# --------------------------------------------------------------------------
+_TIER_CTX = {
+    "maker_min_bps": 0.0, "maker_max_bps": 25.0, "maker_next_bps": 20.0,
+    "maker_next_volume": 50000.0, "maker_tier_volume": 10000.0,
+    "taker_min_bps": 10.0, "taker_max_bps": 40.0, "taker_next_bps": 35.0,
+    "taker_next_volume": 50000.0, "taker_tier_volume": 10000.0,
+}
+
+
+def _audit_new_records(mark):
+    path, before = mark
+    after = path.read_text(encoding="utf-8") if path.exists() else ""
+    new_lines = after[len(before):].strip().splitlines()
+    return [json.loads(line) for line in new_lines if line.strip()]
+
+
+def test_om080_payload_carries_tier_context_and_account_volume():
+    tiers = {"ETHUSD": {"maker_bps": 22.0, "taker_bps": 38.0, **_TIER_CTX}}
+    feed, _calls = _feed(tiers=tiers, volume_30d=17482.0,
+                        volume_currency="ZUSD")
+    om = _om(feed, tolerance_bps=1.0)            # configured 25/40 -> mismatch
+
+    mark = _audit_mark()
+    om.check_fee_reconciliation(now=1_000.0)
+    recs = [r for r in _audit_new_records(mark)
+            if r["code"] == Code.OM_FEE_RECON_MISMATCH.value]
+    assert len(recs) == 1
+    data = recs[0]["data"]
+    assert data["volume_30d"] == 17482.0
+    assert data["volume_currency"] == "ZUSD"
+    pr = data["pairs"]["ETHUSD"]
+    for k, v in _TIER_CTX.items():
+        assert pr[k] == v, k
+    # legacy keys untouched beside the additive ones
+    assert pr["maker_actual_bps"] == 22.0
+    assert pr["taker_actual_bps"] == 38.0
+    assert pr["mismatch"] is True
+
+    st = om.status()["fee_recon"]
+    assert st["volume_30d"] == 17482.0
+    assert st["volume_currency"] == "ZUSD"
+    for k, v in _TIER_CTX.items():
+        assert st["pairs"]["ETHUSD"][k] == v, k
+
+
+def test_legacy_headline_only_tiers_yield_none_context_not_keyerror():
+    """A feed that reports only the headline fee (pre-remedy shape, or a
+    venue omitting the fields) must still reconcile - with every context
+    key PRESENT and None, never fabricated, never a KeyError swallowed by
+    the fail-safe into a silent skip."""
+    tiers = {"ETHUSD": {"maker_bps": 22.0, "taker_bps": 40.0}}
+    feed, _calls = _feed(tiers=tiers)            # volume defaults None
+    om = _om(feed, tolerance_bps=1.0)
+
+    mark = _audit_mark()
+    om.check_fee_reconciliation(now=1_000.0)
+    assert Code.OM_FEE_RECON_MISMATCH.value in _audit_new_codes(mark), \
+        "reconciliation must still run on a headline-only feed"
+    st = om.status()["fee_recon"]
+    assert st["verdict"] == "mismatch"
+    assert st["volume_30d"] is None
+    assert st["volume_currency"] is None
+    for k in _TIER_CTX:
+        assert k in st["pairs"]["ETHUSD"]
+        assert st["pairs"]["ETHUSD"][k] is None
 
 
 # --------------------------------------------------------------------------
