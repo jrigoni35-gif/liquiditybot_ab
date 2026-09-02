@@ -1,22 +1,22 @@
-# Overfit audit — 2026-09-01 22:56 UTC
+# Overfit audit — 2026-09-02 01:03 UTC
 
-Dataset: live history (12066 rows)
+Dataset: live history (12075 rows)
 
-- **INFO** gap[logistic] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.785 oof_auc=0.504 gap=+0.281; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
-- **INFO** gap[gbt] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.798 oof_auc=0.496 gap=+0.302; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
-- **INFO** gap[mlp] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.767 oof_auc=0.504 gap=+0.264; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
-- **INFO** null-floor[logistic] — OOF Brier 0.3320 vs base-rate constant 0.2477 (base=0.452, n=10055) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
-- **INFO** null-floor[gbt] — OOF Brier 0.2758 vs base-rate constant 0.2477 (base=0.452, n=10055) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
-- **INFO** null-floor[mlp] — OOF Brier 0.3095 vs base-rate constant 0.2477 (base=0.452, n=10055) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
-- **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.501 z=0.2 (limit 3.0)
+- **INFO** gap[logistic] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.784 oof_auc=0.504 gap=+0.280; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
+- **INFO** gap[gbt] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.774 oof_auc=0.497 gap=+0.277; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
+- **INFO** gap[mlp] — INFORMATIONAL (OVER the 0.12 memorization band) - train_auc=0.764 oof_auc=0.507 gap=+0.256; exploration is ON so the corpus is EV-mixed by design (PT-050) - model trust stays enforced by the selection evidence floors + the live governor; this gate arms when ml.exploration.enabled is false
+- **INFO** null-floor[logistic] — OOF Brier 0.3320 vs base-rate constant 0.2477 (base=0.452, n=10060) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
+- **INFO** null-floor[gbt] — OOF Brier 0.2757 vs base-rate constant 0.2477 (base=0.452, n=10060) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
+- **INFO** null-floor[mlp] — OOF Brier 0.3134 vs base-rate constant 0.2477 (base=0.452, n=10060) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
+- **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.498 z=0.6 (limit 3.0)
 - **INFO** pbo space — ml.adaptive_gbt.enabled=true — the adaptive rung is IN the measured selection space
 - **INFO** pbo — evidence-gated to a single family (no model selection to overfit at this live-row count) (space=['logistic'])
 - **PASS** purge: never manufactures out-of-sample edge — unpurged=0.486 purged=0.492 leak_closed=-0.006
 - **INFO** purge note — expanding-window design keeps boundary leak ~0 by construction; shuffle-null [OF-2] is the leak gate
-- **PASS** dof: not starved (>=10 rows per feature) — rows/feature=188.5 (12066 rows / 64 features)
-- **INFO** dof COVERAGE — dead-feature scan UNINFORMATIVE: the fitted GBT consulted only 22/64 features (42 of the 57 'dead' were never split on at all). Read dead_feature_frac as the model's blindness, not the features' deadness; the clustered-MDA report (scripts/interpret_report.py) is the honest ranking.
-- **INFO** dof: dead-feature fraction (exploration — informational) — dead_frac=0.89 (57 near-zero-importance features) — arms when ml.exploration.enabled is false; reduce the schema (prune experiment) or grow the corpus
-- **INFO** dof note — low/zero-importance: ['basis_dir', 'liq_pocket_pull', 'va_pos', 'poc_dist', 'corr_fast', 'corr_shift'] ...
+- **PASS** dof: not starved (>=10 rows per feature) — rows/feature=188.7 (12075 rows / 64 features)
+- **INFO** dof COVERAGE — dead-feature scan UNINFORMATIVE: the fitted GBT consulted only 36/64 features (28 of the 55 'dead' were never split on at all). Read dead_feature_frac as the model's blindness, not the features' deadness; the clustered-MDA report (scripts/interpret_report.py) is the honest ranking.
+- **INFO** dof: dead-feature fraction (exploration — informational) — dead_frac=0.86 (55 near-zero-importance features) — arms when ml.exploration.enabled is false; reduce the schema (prune experiment) or grow the corpus
+- **INFO** dof note — low/zero-importance: ['turbulence_pct', 'funding_dist', 'sigma_bar_pct', 'corr_fast', 'va_pos', 'pd_zone'] ...
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
@@ -25,35 +25,35 @@ Dataset: live history (12066 rows)
 - **INFO** dsr — DEFERRED — 27 conviction-marked live trades < 30 (mixed n=391); mixed-sample dsr=0.000 sr=-0.40; probes are EV-mixed by design (PT-050); gate arms as conviction labels accrue
 - **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
 - **INFO** regime diagnostic caveat — n= below is a raw signal_history.csv count (candidate+live); oof_n= is the deduped/purged X actually OOF-scored — two different counting passes over related but non-identical data
-- **INFO** regime[bull_quiet] — n=2339 (candidate=2326 live=13) base_rate=0.378
+- **INFO** regime[bull_quiet] — n=2341 (candidate=2328 live=13) base_rate=0.378
 - **INFO** regime[bull_quiet] FLAG — insufficient live coverage (13 live < 30) — operator rationale for #103 T4's regime-coverage probe term
-- **INFO** regime[bull_quiet] oof — oof_n=1882 auc=0.493 (pooled 0.496, delta_auc=-0.003) brier=0.2561 (pooled 0.2758, delta_brier=-0.0198)
+- **INFO** regime[bull_quiet] oof — oof_n=1884 auc=0.464 (pooled 0.497, delta_auc=-0.033) brier=0.2561 (pooled 0.2757, delta_brier=-0.0197)
 - **INFO** regime[bull_vol] — n=1454 (candidate=1443 live=11) base_rate=0.450
 - **INFO** regime[bull_vol] FLAG — insufficient live coverage (11 live < 30) — operator rationale for #103 T4's regime-coverage probe term
-- **INFO** regime[bull_vol] oof — oof_n=1431 auc=0.563 (pooled 0.496, delta_auc=+0.068) brier=0.2622 (pooled 0.2758, delta_brier=-0.0137)
-- **INFO** regime[range] — n=9526 (candidate=9216 live=310) base_rate=0.274
-- **INFO** regime[range] oof — oof_n=2249 auc=0.454 (pooled 0.496, delta_auc=-0.042) brier=0.2685 (pooled 0.2758, delta_brier=-0.0074)
-- **INFO** regime[bear] — n=6478 (candidate=6421 live=57) base_rate=0.323
-- **INFO** regime[bear] oof — oof_n=1848 auc=0.443 (pooled 0.496, delta_auc=-0.053) brier=0.2920 (pooled 0.2758, delta_brier=+0.0162)
-- **INFO** regime[crisis] — n=2645 (candidate=2645 live=0) base_rate=0.484
+- **INFO** regime[bull_vol] oof — oof_n=1431 auc=0.561 (pooled 0.497, delta_auc=+0.064) brier=0.2625 (pooled 0.2757, delta_brier=-0.0133)
+- **INFO** regime[range] — n=9527 (candidate=9217 live=310) base_rate=0.274
+- **INFO** regime[range] oof — oof_n=2250 auc=0.459 (pooled 0.497, delta_auc=-0.038) brier=0.2674 (pooled 0.2757, delta_brier=-0.0083)
+- **INFO** regime[bear] — n=6479 (candidate=6422 live=57) base_rate=0.323
+- **INFO** regime[bear] oof — oof_n=1848 auc=0.448 (pooled 0.497, delta_auc=-0.049) brier=0.2913 (pooled 0.2757, delta_brier=+0.0156)
+- **INFO** regime[crisis] — n=2650 (candidate=2650 live=0) base_rate=0.485
 - **INFO** regime[crisis] FLAG — insufficient live coverage (0 live < 30) — operator rationale for #103 T4's regime-coverage probe term
-- **INFO** regime[crisis] oof — oof_n=2645 auc=0.483 (pooled 0.496, delta_auc=-0.013) brier=0.2923 (pooled 0.2758, delta_brier=+0.0164)
+- **INFO** regime[crisis] oof — oof_n=2647 auc=0.486 (pooled 0.497, delta_auc=-0.011) brier=0.2931 (pooled 0.2757, delta_brier=+0.0173)
 - **INFO** regime[unknown] — n=0 — absent from corpus
 - **INFO** learning curve caveat — each point refits gbt on a chronological PREFIX of the corpus (time-purged OOF, deployed protocol) — points are the same statistic across sizes, but none is OF-1's own pooled number
-- **INFO** lc[n=3016] — oof_n=2510 auc=0.576 brier=0.2477
-- **INFO** lc[n=4826] — oof_n=4020 auc=0.588 brier=0.2563
-- **INFO** lc[n=6636] — oof_n=5530 auc=0.577 brier=0.2531
-- **INFO** lc[n=8446] — oof_n=7035 auc=0.555 brier=0.2554
-- **INFO** lc[n=10256] — oof_n=8545 auc=0.513 brier=0.2658
-- **INFO** lc[n=12066] — oof_n=10055 auc=0.483 brier=0.2758
-- **INFO** learning curve trend FLAG — DECLINING (delta_auc=-0.084 < -0.03) — later rows are HURTING skill: regime/era drift inside the training window (check ML-080 mix drift and era_exclusion)
-- **INFO** extras[equity_risk_z] — at-neutral share 36.7% (n=12066) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
-- **INFO** extras[opt_pcr_z] — at-neutral share 37.0% (n=12066) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
-- **INFO** extras[opt_oi_pcr_z] — at-neutral share 37.0% (n=12066) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
-- **INFO** extras[dominance_delta] — at-neutral share 2.7% (n=12066) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
-- **INFO** extras[sent_fear] — at-neutral share 100.0% (n=12066) — feed effectively dark corpus-wide (dead column)
-- **INFO** extras[fear_greed] — at-neutral share 0.0% (n=12066) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
+- **INFO** lc[n=3019] — oof_n=2515 auc=0.578 brier=0.2474
+- **INFO** lc[n=4830] — oof_n=4025 auc=0.596 brier=0.2535
+- **INFO** lc[n=6641] — oof_n=5530 auc=0.577 brier=0.2531
+- **INFO** lc[n=8452] — oof_n=7040 auc=0.555 brier=0.2556
+- **INFO** lc[n=10264] — oof_n=8550 auc=0.513 brier=0.2669
+- **INFO** lc[n=12075] — oof_n=10060 auc=0.483 brier=0.2757
+- **INFO** learning curve trend FLAG — DECLINING (delta_auc=-0.089 < -0.03) — later rows are HURTING skill: regime/era drift inside the training window (check ML-080 mix drift and era_exclusion)
+- **INFO** extras[equity_risk_z] — at-neutral share 36.6% (n=12075) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
+- **INFO** extras[opt_pcr_z] — at-neutral share 37.0% (n=12075) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
+- **INFO** extras[opt_oi_pcr_z] — at-neutral share 37.0% (n=12075) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
+- **INFO** extras[dominance_delta] — at-neutral share 2.7% (n=12075) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
+- **INFO** extras[sent_fear] — at-neutral share 100.0% (n=12075) — feed effectively dark corpus-wide (dead column)
+- **INFO** extras[fear_greed] — at-neutral share 0.0% (n=12075) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
 
-3 passed, 0 failed (80s)
+3 passed, 0 failed (74s)
 
-Corpus: live history (12066 rows)
+Corpus: live history (12075 rows)
