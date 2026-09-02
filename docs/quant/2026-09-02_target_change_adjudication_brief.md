@@ -135,6 +135,21 @@ Approve / defer / reject the bundling of the target change with ALGO-5/GB-1 at t
 next cohort reset. Approval means: pre-register the new gate; then train; then read
 out. Nothing is trained before the registration is written down.
 
+> [!important] SUPERSEDED 2026-09-02 — RECOMMENDATION IS NOW **REJECT**, ON EVIDENCE
+> The trigger this section named ("a power result on the CONTINUOUS target showing it
+> resolves effects the 1-bit target cannot") HAS NOW BEEN RUN, and it came back
+> negative on both halves:
+> - **Power:** minimum detectable effect is **0.05 for BOTH** targets on the same 6,071
+>   rows / 11 day blocks. The continuous target resolves nothing extra — a lateral move.
+> - **Finding:** all 64 features scored against `label_ret_pct` give **5 CI-exclusions
+>   against 6.3 expected by chance** (measured null, 10.0%) — below chance, exactly as
+>   the 1-bit target reads. Largest |Spearman| anywhere 0.1017.
+> So the proposal buys no resolution and finds nothing, against a certain cost of a
+> cohort reset plus one more trial on N. **Reject.** Full account:
+> `docs/quant/2026-09-02_flow_vs_eth_and_target_decision.md` Part 1.
+> The DEFER reasoning below is kept as the record of what was believed before the
+> measurement, per the both-sides rule.
+
 **My recommendation changed on 2026-09-02 and this section says so rather than
 quietly keeping the original.** When this brief was drafted I would have said approve,
 because the 1-bit target could not lose informatively. It can, and it did. I now
