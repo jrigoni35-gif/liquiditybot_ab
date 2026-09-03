@@ -1,20 +1,20 @@
 {
-  "generated_at": 1788475177.5939465,
+  "generated_at": 1788478778.7266972,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788475175.0,
-    "duration_h": 1334.77
+    "end": 1788478770.0,
+    "duration_h": 1335.77
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1195,
-      "signal_records": 428,
+      "records": 854,
+      "signal_records": 435,
       "by_src": {
-        "exploration": 785,
-        "long_book": 194,
-        "ml_governor": 131,
+        "exploration": 437,
+        "long_book": 198,
+        "ml_governor": 134,
         "order_manager": 43,
         "conviction": 24,
         "exit": 13,
@@ -25,11 +25,11 @@
       "top_codes": [
         [
           "SZ-051",
-          379
+          205
         ],
         [
           "ML-070",
-          379
+          205
         ],
         [
           "LB-010",
@@ -40,19 +40,19 @@
           40
         ],
         [
-          "OM-000",
-          27
-        ],
-        [
           "ML-016",
-          27
+          28
         ],
         [
           "ML-042",
-          27
+          28
         ],
         [
           "ML-041",
+          28
+        ],
+        [
+          "OM-000",
           27
         ],
         [
@@ -60,12 +60,12 @@
           26
         ],
         [
-          "CV-030",
-          21
+          "CX-030",
+          22
         ],
         [
-          "CX-030",
-          18
+          "CV-030",
+          21
         ],
         [
           "OM-040",
@@ -73,15 +73,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.343,
+      "dominant_frac": 0.338,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 5024,
+      "records": 5858,
       "by_level": {
-        "INFO": 4996,
-        "WARNING": 26,
+        "INFO": 5827,
+        "WARNING": 29,
         "CRITICAL": 1,
         "ERROR": 1
       },
@@ -92,6 +92,10 @@
         ],
         [
           "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          2
+        ],
+        [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           2
         ],
         [
@@ -121,31 +125,27 @@
         [
           "auto-retrain: 13625 rows (25 new)",
           1
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 993,
-        "thin": 656
+        "spoofy": 1159,
+        "thin": 739
       },
-      "spoofy_frac": 0.602,
+      "spoofy_frac": 0.611,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 589,
+      "cycles_estimate": 706,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 794.63,
+    "equity_end": 794.77,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 126821,
+    "epoch_samples": 127056,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,7 +153,7 @@
     "realized_pnl_total": -0.32,
     "fees_paid_total": 12.5732,
     "open_positions": 2,
-    "samples": 294612
+    "samples": 294847
   },
   "activity": {
     "signal_rows_total": 24052,
@@ -161,12 +161,12 @@
     "candidate_rows": 23648
   },
   "audit": {
-    "records": 76900,
-    "signal_records": 31395,
+    "records": 76916,
+    "signal_records": 31411,
     "by_src": {
       "exploration": 68408,
-      "ml_governor": 2441,
-      "long_book": 2429,
+      "ml_governor": 2445,
+      "long_book": 2441,
       "order_manager": 1786,
       "conviction": 715,
       "startup": 325,
@@ -192,7 +192,7 @@
       ],
       [
         "LB-010",
-        1621
+        1625
       ],
       [
         "OM-000",
@@ -200,7 +200,7 @@
       ],
       [
         "ML-031",
-        888
+        889
       ],
       [
         "CV-030",
@@ -212,19 +212,19 @@
       ],
       [
         "LB-050",
-        489
+        493
       ],
       [
         "ML-016",
-        428
+        429
       ],
       [
         "ML-041",
-        410
+        411
       ],
       [
         "ML-042",
-        363
+        364
       ]
     ],
     "dominant_code": "SZ-047",
@@ -321,10 +321,10 @@
     ]
   },
   "events": {
-    "records": 5024,
+    "records": 5858,
     "by_level": {
-      "INFO": 4996,
-      "WARNING": 26,
+      "INFO": 5827,
+      "WARNING": 29,
       "CRITICAL": 1,
       "ERROR": 1
     },
@@ -335,6 +335,10 @@
       ],
       [
         "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        2
+      ],
+      [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
@@ -364,26 +368,22 @@
       [
         "auto-retrain: 13625 rows (25 new)",
         1
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 993,
-      "thin": 656
+      "spoofy": 1159,
+      "thin": 739
     },
-    "spoofy_frac": 0.602,
+    "spoofy_frac": 0.611,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 589,
+    "cycles_estimate": 706,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.255076763454691,
+    "champion_brier": 0.24462148712500012,
     "brier": "n/a",
     "history_rows": 404,
     "cold": false
@@ -457,13 +457,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 60% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 61% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 34% of 428 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 435 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
