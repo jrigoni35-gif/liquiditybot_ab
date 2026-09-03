@@ -409,36 +409,52 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 ## WATCH LIST (check these, don't assume)
 
-- **ISO-1 — a SECOND cloud workspace shares the `cloud-mirror` bundle label;
-  last-writer-wins on the shared branch.** Opened 2026-09-03, measurement-plane
-  finding, **registered NOT executed** (the remedy is a cross-machine data-plane
-  change with another live session on the other end — operator's call).
-  `sessions/cloud-mirror/` took THREE pushes in ten minutes; this container's
-  sidecar made exactly ONE. Verified two ways: (a) process/log accounting — one
-  `telemetry_backup.py` here, its loop logs *every* push, log holds one at
-  04:44:03, next not due until ~05:14, yet the branch had three by 05:02:53;
-  (b) stamp provenance — the 04:42:43 bundle is stamped `@ 11b27e36` and this
-  container's HEAD has been `db7a12a4` since before its sidecar started. All
-  three commit as `Claude`, so the co-writer is another CLOUD session, not the
-  PC (which pushes `pc-live` as `jrigoni35-gif`). **The 07-18 label split
-  separates cloud from PC; it does NOT separate cloud from cloud** — every
-  container hardcodes the same default (`session-start.sh:182`). Traffic is
-  bidirectional: this session's own boot log shows it ADOPTING the other
-  workspace's `meta_model.json` + `skimmer_active.json`. **No row damage today**
-  (both bundles are 23,429-row reconstructions of one corpus; merge is an
-  append-only union deduped by `position_id`) — the exposure is structural, and
-  `tests/test_telemetry_backup.py:288` records the 2026-07-27 "cloud-mirror
-  corruption" this shape already caused once. Options by blast radius: accept;
-  suffix the label per container; or `LB_BACKUP_DISABLED=1` on dev-bench
-  containers whose bundle adds nothing the PC lacks | `docs/quant/2026-09-03_workspace_isolation.md` §3
-- **ISO-2 — `assurance_check` is RED at HEAD and was before this session.**
-  `FAIL every --self-test has a negative arm and reports a rate ->
-  null-arm-only self-tests: rpe_factor.py`. Reproduced on a **pristine detached
-  checkout of `db7a12a4`** (49 passed/1 failed; the main tree's 50/1 differs only
-  by the corpus section going VACUOUS in a bare worktree, as designed).
-  `scripts/rpe_factor.py` landed in `62d8811e` (2026-08-29). A null arm shows it
-  does not cry wolf, never that it can detect anything — so the fix is a negative
-  arm, not a loosened check | `docs/quant/2026-09-03_workspace_isolation.md` §4
+- ~~**ISO-1 — a SECOND cloud workspace shares the `cloud-mirror` bundle
+  label**~~ **FIXED 2026-09-03 (operator "fix this").** Measured: three pushes
+  to `sessions/cloud-mirror/` in ten minutes, only ONE this container's
+  (verified two ways — the sidecar logs *every* push and held one, next not due
+  for 30 min; and a rival bundle stamped `@ 11b27e36`, a commit this box never
+  was). Bidirectional: this session's boot log shows it ADOPTING the other
+  workspace's `meta_model.json` + `skimmer_active.json`. **The remedy was to
+  delete the writer, not rename it:** the sidecar protects rows THIS box
+  generates, and under the 2026-07-17 one-bot directive the cloud runs no
+  runner, so it generates none — local corpus, `pc-live` bundle and
+  `cloud-mirror` bundle measured **all exactly 23,586 rows**, `pc-live`
+  importing `0 new, 23586 duplicate`. It was re-exporting the PC's own corpus
+  under a second name: no durability bought, isolation lost.
+  `session-start.sh` §6 now gates the sidecar on the same flag as the runner
+  (`LB_CLOUD_RUNNER`, or `LB_BACKUP_FORCE=1`), and an opted-in box gets a
+  per-container label `cloud-<8hex>` persisted at `~/.liquiditybot/backup-label`
+  — needed because `hostname` is **`vm`** in every container, so there was no
+  natural discriminator. 7 pins in `tests/test_session_start_hook.py` execute
+  the REAL shipped block, mutation-verified (old launch restored → all 7 red).
+  This container's live sidecar was stopped. **Residual, expected not defective:
+  the other workspace keeps pushing `cloud-mirror` until IT restarts** and picks
+  up the hook; the existing bundle is left in place and de-prioritises itself,
+  since import is newest-first by `created_at_utc`. **DISCLOSURE:** an early
+  version of the new pin ran with the repo root as cwd and appended 8 fabricated
+  `LAUNCH:` lines to the real `outputs/telemetry_backup.log` — the 2026-07-31
+  contamination class. Quarantined (not deleted) as
+  `outputs/telemetry_backup.log.CONTAMINATED-by-test-20260903T131000Z`, live log
+  restored to its 7 genuine records; no route off-box (`telemetry_backup.log` is
+  not in the bundle allow-list). Pin now runs `cwd=tmp_path` | `docs/quant/2026-09-03_workspace_isolation.md` §3
+- ~~**ISO-2 — `assurance_check` RED: "null-arm-only self-tests: rpe_factor.py"**~~
+  **WITHDRAWN AND FIXED 2026-09-03 — the original diagnosis (mine, earlier the
+  same session) was WRONG.** `rpe_factor.py` ships a real power arm that checks
+  recovered MAGNITUDE against an analytic planted value; it is one of the better
+  self-tests here. It imports pandas at module scope, so `--self-test` exits 1
+  before printing a line, and `check_self_tests` (which required
+  `returncode == 0`) reported "null-arm-only" — a confident, specific, FALSE
+  diagnosis. **Third instance of the same pandas absence this session, in a
+  different mask.** The rule was already written in the same file:
+  assurance_check's C1 branch says "TOOL UNAVAILABLE IS NOT A FINDING ... how
+  the replay gate bricked deploys (2026-07-21/22)"; C2 never got it. I compounded
+  it by relaying the label instead of running the instrument (mindset #4:
+  confident tone is not provenance). Fixed by separating UNVERIFIED from WEAK —
+  an absent THIRD-PARTY dep is `could_not_run` and named in the output; an absent
+  REPO module stays a hard failure. **Gate teeth mutation-verified both ways**
+  (runs-but-weak → still 50/1; missing repo module → still 50/1). Now **51
+  passed, 0 failed**. 4 pins in `tests/test_instrument_contract.py` | `docs/quant/2026-09-03_workspace_isolation.md` §5
 
 - **ERA6-COUNT-1 — no tool counts era-6 accrual; the only gate headline on
   screen pools three cuts.** Measurement-plane (SAFE class), opened

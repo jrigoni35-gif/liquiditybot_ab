@@ -151,3 +151,69 @@ def test_c3_reports_the_path_of_a_violation(tmp_path):
     r = ic.check_one_population(p)
     assert r["ok"] is False
     assert r["violations"][0]["path"] == "deep.nest"
+
+
+# --- C2: UNVERIFIED is not WEAK (2026-09-03) ----------------------------
+# scripts/rpe_factor.py ships a POWER ARM in its own source, but imports
+# pandas at module scope, so on any box without the optional analysis stack
+# `--self-test` exits 1 before printing a line. The checker required
+# returncode==0 and therefore reported it as "null-arm-only" - a confident,
+# specific, WRONG diagnosis of an instrument that is fine. "0 findings" and
+# "the scan is broken" are the SAME OBSERVATION until separated (CLAUDE.md
+# mindset #3), and assurance_check's own C1 branch already applies exactly
+# this rule to a missing tool ("TOOL UNAVAILABLE IS NOT A FINDING ... how the
+# replay gate bricked deploys 2026-07-21/22").
+#
+# The asymmetry is the whole point and is pinned in both directions: a
+# THIRD-PARTY absence is excusable, a REPO module absence is a real breakage.
+
+def _probe(tmp_path, monkeypatch, body: str):
+    """Register one synthetic instrument and run the C2 clause over it."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "probe.py").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(ic, "ROOT", tmp_path)
+    res = ic.check_self_tests(timeout=60)
+    return res, {r["file"]: r for r in res["instruments"]}
+
+
+_REGISTERS = ('import argparse\n'
+              'ap = argparse.ArgumentParser()\n'
+              'ap.add_argument("--self-test", action="store_true")\n')
+
+
+def test_absent_third_party_dep_is_unverified_not_weak(tmp_path, monkeypatch):
+    res, by = _probe(tmp_path, monkeypatch,
+                     "import nonexistent_third_party_pkg\n" + _REGISTERS)
+    rec = by["probe.py"]
+    assert rec["could_not_run"] == "nonexistent_third_party_pkg", rec
+    assert res["unverified"] == ["probe.py"], res
+    # and it must NOT drag the clause red - it is unproven, not disproven
+    assert res["ok"] is True, res
+
+
+def test_absent_REPO_module_is_still_a_real_failure(tmp_path, monkeypatch):
+    """The excuse must never extend to our own packages."""
+    res, by = _probe(tmp_path, monkeypatch,
+                     "from core import not_a_real_module\n" + _REGISTERS)
+    rec = by["probe.py"]
+    assert rec["could_not_run"] is None, rec
+    assert rec["ok"] is False and res["ok"] is False, res
+
+
+def test_a_self_test_that_RUNS_without_a_negative_arm_still_fails(
+        tmp_path, monkeypatch):
+    """The gate's teeth: this is the case the clause exists for."""
+    res, by = _probe(tmp_path, monkeypatch,
+                     _REGISTERS + 'print("SELF-TEST PASS")\n')
+    rec = by["probe.py"]
+    assert rec["could_not_run"] is None and rec["exit"] == 0, rec
+    assert rec["ok"] is False and res["ok"] is False, res
+
+
+def test_a_real_power_arm_passes(tmp_path, monkeypatch):
+    res, by = _probe(
+        tmp_path, monkeypatch,
+        _REGISTERS + 'print("NULL CONTROL ok")\nprint("POWER ARM 1/1")\n')
+    assert by["probe.py"]["ok"] is True, by["probe.py"]
+    assert res["ok"] is True and res["unverified"] == [], res

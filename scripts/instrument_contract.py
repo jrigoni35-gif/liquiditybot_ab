@@ -177,6 +177,25 @@ _NEG_ARM = re.compile(
     r"|not[_ ]flagged|negative arm", re.I)
 _RATE = re.compile(r"\d+\s*/\s*\d+|\d+(?:\.\d+)?\s*%")
 
+# A self-test that COULD NOT RUN is not a weak self-test. Collapsing the two
+# is the same defect assurance_check names a few clauses away ("TOOL
+# UNAVAILABLE IS NOT A FINDING about the incoming code ... how the replay gate
+# bricked deploys 2026-07-21/22"), and it fired for real on 2026-09-03:
+# scripts/rpe_factor.py carries a POWER ARM in its own source (it prints
+# "POWER ARM ... recovered ... 1/1"), but imports pandas at MODULE scope, so on
+# any box without the optional analysis stack it exits 1 before printing a
+# line -- and was reported as "null-arm-only", a confident, specific and WRONG
+# diagnosis of an instrument that is actually fine. "0 findings" and "the scan
+# is broken" are the SAME OBSERVATION until separated (CLAUDE.md mindset #3).
+#
+# Only a THIRD-PARTY absence is excusable. A missing repo module is a real
+# breakage and must still fail: that asymmetry is the whole point, and it is
+# the same rule tests/test_import_integrity.py already applies.
+_ABSENT_DEP = re.compile(
+    r"ModuleNotFoundError: No module named ['\"]([\w.]+)['\"]")
+_REPO_PKGS = ("core", "data", "execution", "ml", "risk", "regime",
+              "strategies", "sentiment", "api", "scripts", "tests")
+
 
 def instruments_with_self_test() -> list[Path]:
     out = []
@@ -195,7 +214,8 @@ def check_self_tests(timeout: int = 180) -> dict:
     rows = []
     for p in instruments_with_self_test():
         rec = {"file": p.name, "ran": False, "exit": None,
-               "has_negative_arm": False, "reports_rate": False, "ok": False}
+               "has_negative_arm": False, "reports_rate": False, "ok": False,
+               "could_not_run": None}
         try:
             r = subprocess.run(  # nosec B603 - fixed argv, repo-local script
                 [sys.executable, str(p), "--self-test"], cwd=str(ROOT),
@@ -208,6 +228,14 @@ def check_self_tests(timeout: int = 180) -> dict:
         blob = (r.stdout or "") + (r.stderr or "")
         rec["ran"] = True
         rec["exit"] = r.returncode
+        _m = _ABSENT_DEP.search(blob)
+        if r.returncode != 0 and _m and _m.group(1).split(".")[0] \
+                not in _REPO_PKGS:
+            # UNVERIFIED, not weak - reported separately so the degraded form
+            # can never be read as (or silence) a real finding.
+            rec["could_not_run"] = _m.group(1)
+            rows.append(rec)
+            continue
         rec["has_negative_arm"] = bool(_NEG_ARM.search(blob))
         rec["reports_rate"] = bool(_RATE.search(blob))
         # A self-test that passes but exercises only a NULL arm proves the
@@ -215,8 +243,10 @@ def check_self_tests(timeout: int = 180) -> dict:
         rec["ok"] = (r.returncode == 0 and rec["has_negative_arm"]
                      and rec["reports_rate"])
         rows.append(rec)
+    verified = [r for r in rows if not r.get("could_not_run")]
     return {"clause": "C2 self-test power", "instruments": rows,
-            "ok": all(r["ok"] for r in rows) if rows else True}
+            "unverified": [r["file"] for r in rows if r.get("could_not_run")],
+            "ok": all(r["ok"] for r in verified) if verified else True}
 
 
 # --- C3: one population ------------------------------------------------

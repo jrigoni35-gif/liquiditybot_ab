@@ -417,13 +417,30 @@ def main():
         if _c1["missing"]:
             print(f"        NAMED BUT NEVER RUN: {', '.join(_c1['missing'])}")
         _c2 = _ic.check_self_tests(timeout=60)
-        _weak = [r["file"] for r in _c2["instruments"] if not r["ok"]]
+        # UNVERIFIED != WEAK. A self-test that could not run (an optional
+        # third-party dep absent on this box) proves nothing about the
+        # instrument and is NOT a finding about the incoming code - the same
+        # rule the C1 branch above applies to a missing tool. Reported by
+        # name so the degraded form names itself instead of masquerading as
+        # a clean pass (2026-09-03: rpe_factor.py has a power arm in its own
+        # source but imports pandas at module scope, and was being reported
+        # as "null-arm-only" on every box without the analysis stack).
+        _unverified = _c2.get("unverified") or []
+        _weak = [r["file"] for r in _c2["instruments"]
+                 if not r["ok"] and not r.get("could_not_run")]
         check("every --self-test has a negative arm and reports a rate",
               not _weak)
         if _weak:
             print(f"        null-arm-only self-tests: {', '.join(_weak)}")
             print("        (a null arm shows it does not cry wolf, never "
                   "that it can detect anything)")
+        if _unverified:
+            _why = ", ".join(
+                f"{r['file']} (no {r['could_not_run']})"
+                for r in _c2["instruments"] if r.get("could_not_run"))
+            print(f"        self-tests UNVERIFIED, could not run: {_why}")
+            print("        (advisory, not a finding - their power is "
+                  "UNPROVEN here, not disproven)")
 
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)

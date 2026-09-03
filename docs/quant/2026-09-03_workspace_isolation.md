@@ -9,7 +9,7 @@ Two directions were measured, because "isolation" has two of them:
 | direction | question | verdict |
 |---|---|---|
 | INBOUND | does this workspace's result depend on state accumulated in another? | **YES — and it was worse than host-state: the suite could not run AT ALL** |
-| OUTBOUND | does this workspace write into another's state? | **YES — a second cloud workspace shares the `cloud-mirror` bundle label, last-writer-wins** |
+| OUTBOUND | does this workspace write into another's state? | **YES — a second cloud workspace shared the `cloud-mirror` bundle label, last-writer-wins. FIXED: the sidecar now follows the runner flag, and opted-in boxes get a per-container label** |
 
 ---
 
@@ -186,17 +186,71 @@ once: `tests/test_telemetry_backup.py:288` documents the 2026-07-27 *"cloud-mirr
 corruption"*, an internally-inconsistent bundle *"every future restore refuses"*,
 caused by two writes landing in the same wall-clock second.
 
-### NOT fixed here — deliberately
+### FIXED 2026-09-03 (second pass, on operator "fix this")
 
-Making the label unique per workspace changes what lands on the shared branch and
-what the PC imports. That is a cross-machine data-plane decision with another live
-session on the other end of it, so it is **registered, not executed**. Options, in
-increasing order of blast radius: leave it (accept last-writer-wins between cloud
-containers); suffix the label per container; or set `LB_BACKUP_DISABLED=1` in
-dev-bench containers whose `outputs/` is a pure reconstruction and whose bundle
-therefore adds nothing the PC does not already have.
+The remedy is not a bigger label — it is **one writer per bundle label**, plus
+deleting the writer that had nothing to write.
 
----
+The sidecar exists to protect rows *this box generated*. Since the 2026-07-17
+one-bot directive the cloud launches no runner, so it generates **none**.
+Measured this session, three ways agreeing: the local corpus, the `pc-live`
+bundle and the `cloud-mirror` bundle are **all exactly 23,586 rows**, and the
+`pc-live` import reports `0 new, 23586 duplicate`. The mirror carried **zero
+rows the PC lacked** — it was re-exporting the PC's own corpus back to the
+branch under a second name. It bought no durability and cost isolation.
+
+`.claude/hooks/session-start.sh` §6 now gates the sidecar on the same flag as
+the runner it exists to protect:
+
+| condition | behaviour |
+|---|---|
+| default (one-bot, no cloud runner) | **retired — no push at all** |
+| `LB_CLOUD_RUNNER=1` or `LB_BACKUP_FORCE=1` | launches under a **per-container** label |
+| `LB_BACKUP_DISABLED=1` | off, as before |
+| sidecar already alive | left alone, no double launch |
+
+The per-container label is `cloud-<8 hex>`, persisted at
+`~/.liquiditybot/backup-label` — outside the repo and outside the bundle
+allow-list, so it survives a container PAUSE and stays *one label per box*. An
+unreadable id file falls back to `cloud-$$` rather than silently becoming the
+old shared constant. This matters because `hostname` is **`vm`** in every one
+of these containers: there was no natural discriminator, which is a large part
+of why N writers stayed invisible.
+
+Pinned by `tests/test_session_start_hook.py` (7 pins), which executes the
+**real** block out of the shipped hook under stubbed `log`/`pgrep`/`setsid`
+rather than a copy. **Mutation-verified**: restoring the old unconditional
+launch turns all 7 red; restoring the fix turns them green, hook byte-identical.
+
+**Immediate remediation:** this container's live sidecar (PID 1437, last push
+13:04:35Z) was stopped, so it no longer writes to the shared branch. The hook
+change only takes effect at another container's next boot — **the other
+workspace is still pushing `cloud-mirror` until it restarts and picks this up**
+(it was at `11b27e36` as recently as 13:00:05Z). That is expected, not a
+residual defect; the existing `sessions/cloud-mirror/` directory is left in
+place and de-prioritises itself naturally, because bundles are imported
+newest-first by `created_at_utc` and a frozen one stops advancing.
+
+### A contamination I caused, and cleaned
+
+Writing that pin, an early version ran the hook block with the **repo root as
+cwd**, so the block's own `>> outputs/telemetry_backup.log` appended **8
+fabricated `LAUNCH:` lines to the operator's real forensics log** — precisely
+the 2026-07-31 test-suite-contamination class this repo already has a
+postmortem for. Caught by reading the file rather than by any guard
+(`conftest`'s `_no_production_outputs_writes` watches module-level path
+constants, not a child process's shell redirect).
+
+Handled per the standing rule — **quarantine, not delete**: the contaminated
+file is preserved as
+`outputs/telemetry_backup.log.CONTAMINATED-by-test-20260903T131000Z` and the
+live log restored to its 7 genuine records. Every injected line contained
+`/bin/echo`, which the real sidecar never writes, so they were unambiguously
+separable. Blast radius was this container only: `telemetry_backup.log` is
+**not** in `session_export.py`'s bundle allow-list, so it had no route to the
+shared branch. The pin now runs with `cwd=tmp_path`, which also gave it a
+*better* observable — the redirect target is the only real evidence a launch
+happened, since the launch line sends the child's stdout straight into it.
 
 ## 4. Result — and what this workspace's green actually is
 
@@ -235,10 +289,11 @@ form. *(CLAUDE.md: "A GREEN IS ONLY AS BIG AS ITS CORPUS.")*
 
 | gate | result | corpus / note |
 |---|---|---|
-| `pytest tests/` (isolated worktree) | **4524 passed, 21 skipped, 2 xfailed, rc=0** | 436.09s |
+| `pytest tests/` (isolated worktree, §1-2 fixes) | **4524 passed, 21 skipped, 2 xfailed, rc=0** | 436.09s |
+| `pytest tests/` (final, all fixes incl. §3+§5) | **4535 passed, 21 skipped, 2 xfailed, rc=0** | 655.12s; +7 hook pins +4 contract pins |
 | `smoke_test.py` | **220 passed, 0 failed** | rc=0 |
-| `assurance_check.py` | **50 passed, 1 FAILED** | pre-existing, see below |
-| `overfit_check.py` | **passed 3, failed 0** (48 informational) | **corpus: live history 13,042 rows** — real market, NOT the planted-signal synthetic (floor 640) |
+| `assurance_check.py` | **51 passed, 0 failed** | was 50/1; the 1 was a MISDIAGNOSIS, see §5 |
+| `overfit_check.py` | **passed 3, failed 0** (48 informational) | **corpus: live history 13,199 rows** — real market, NOT the planted-signal synthetic (floor 640) |
 | `ruff` (CLAUDE.md scope) | clean | rc=0 |
 | `pyright` (shipped scope) | **0 errors, 0 warnings, 0 informations** | ratchet held |
 | `bandit -x ./.venv,./tests` | **0 issues** | rc=0, re-derived without a pipe |
@@ -250,11 +305,70 @@ FILTER's status — CLAUDE.md reading-discipline 7(d). The first such run report
 "exit code 0" for a pytest that had actually exited **2**. Both were re-derived
 writing rc to a file. The trap is live in this repo's own tooling habits.)*
 
-**Pre-existing red, NOT mine, NOT fixed:** `scripts/assurance_check.py` reports
-`FAIL every --self-test has a negative arm and reports a rate ->
-null-arm-only self-tests: rpe_factor.py`. Reproduced on a **pristine detached
-checkout of `db7a12a4`** with no modifications: `49 passed, 1 failed`. (The main
-tree reads `50 passed, 1 failed`; the one-check delta is the corpus section going
-VACUOUS in a bare worktree — exactly the documented behaviour, and an incidental
-confirmation that the mechanism still works.) `rpe_factor.py` arrived in
-`62d8811e` (2026-08-29). Registered, not silently absorbed into this change.
+---
+
+## 5. ISO-2 — I reported this wrong, and the correction is the finding
+
+**What I said first (WRONG):** *"`scripts/rpe_factor.py`'s `--self-test` has
+only a null arm."* I took `assurance_check`'s own words for it:
+
+```
+FAIL  every --self-test has a negative arm and reports a rate
+      null-arm-only self-tests: rpe_factor.py
+```
+
+**What is actually true.** `rpe_factor.py` carries a power arm *in its own
+source* — it prints `POWER ARM planted over-claim -> recovered ... (1/1
+recovered)` and checks the recovered MAGNITUDE against an analytically
+computable planted value, not merely the sign. It is one of the better
+self-tests in the repo. Run it and you get:
+
+```
+$ python scripts/rpe_factor.py --self-test
+ModuleNotFoundError: No module named 'pandas'          rc=1
+```
+
+`check_self_tests` required `returncode == 0`, so on any box without the
+optional analysis stack the self-test **never ran** — and the clause then
+printed a confident, specific and false diagnosis of an instrument that is
+fine. **A third instance of the same pandas absence, wearing a completely
+different mask.**
+
+This is CLAUDE.md mindset rule 3 verbatim — *"'0 findings' and 'the scan is
+broken' are the SAME OBSERVATION until separated"* — and the rule was already
+written down **in the same function's own file**: `assurance_check`'s C1 branch
+forty lines earlier says *"TOOL UNAVAILABLE IS NOT A FINDING about the incoming
+code. Treating it as one is how the replay gate bricked deploys
+(2026-07-21/22)."* The C2 clause simply never got the same treatment. And I
+repeated the error one level up by relaying the label instead of running the
+instrument — rule 4: *confident tone is not provenance.*
+
+### Fixed, without weakening the gate
+
+`check_self_tests` now separates **UNVERIFIED** from **WEAK**: an exit caused by
+an absent THIRD-PARTY module is recorded as `could_not_run` and excluded from
+the verdict; the clause reports it by name so the degraded form cannot read as
+a clean pass. A missing **repo** module stays a hard failure — that asymmetry is
+the whole point, and it is the same rule `test_import_integrity` already applies.
+
+```
+ok    every --self-test has a negative arm and reports a rate
+      self-tests UNVERIFIED, could not run: rpe_factor.py (no pandas)
+      (advisory, not a finding - their power is UNPROVEN here, not disproven)
+
+51 passed, 0 failed        (was 50 passed, 1 failed)
+```
+
+**Mutation-verified in BOTH directions** — the gate keeps its teeth:
+
+| injected probe | verdict | meaning |
+|---|---|---|
+| self-test that RUNS with no negative arm | **50 passed, 1 failed** | still caught |
+| self-test dying on a missing **repo** module | **50 passed, 1 failed** | not excused |
+| absent **third-party** dep | reported UNVERIFIED, clause green | the fix |
+| real power arm | passes | no false positive |
+
+Pinned by 4 new cases in `tests/test_instrument_contract.py` (17 passed).
+
+**So ISO-2 as originally written is withdrawn.** There was never a null-arm
+self-test; there was an instrument that could not run and said something else.
