@@ -13,10 +13,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from scripts import markout_report as mr
+# Optional third-party dep: skip, never break collection (see the note in
+# tests/test_feed_freeze_gate.py - same law, same fix).
+pd = pytest.importorskip("pandas")
+
+from scripts import markout_report as mr  # noqa: E402
 
 HEADER = ("ts,order_id,position_id,purpose,symbol,side,ordertype,post_only,attempt,"
           "fill_size,fill_price,arrival_ref,slip_bps,fees_delta_usd,remaining,reason,exec_era")

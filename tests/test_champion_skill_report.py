@@ -5,6 +5,7 @@ shown to FAIL on a planted defect. Each test plants a predictor whose true
 skill is known by construction and asserts the report recovers its sign.
 """
 import json
+import os
 
 import numpy as np
 
@@ -206,14 +207,26 @@ def test_main_prints_span_from_loaded_rows_and_json_carries_it(
 
 
 def test_corpus_span_survives_millisecond_epoch():
-    """Windows gmtime raises on a ms epoch; the span must degrade to None
-    stamps rather than crash the report over one unit-mixed cell."""
+    """A ms-epoch cell (the unit-mixing class) must DEGRADE, never crash the
+    report over one bad value.
+
+    PLATFORM-SPLIT, not skipped - the 2026-08-22 "wrong OS, not wrong code"
+    precedent. The invariants that carry the defect (no raise, first stamp
+    intact, span arithmetic still reported) are asserted EVERYWHERE; only
+    the far-future stamp branches, because Windows gmtime raises OSError on
+    a year-58501 epoch while POSIX gmtime formats it happily. Asserting the
+    Windows outcome unconditionally made this red on every Linux workspace,
+    which is the host-dependent green this suite is supposed to not have.
+    """
     from scripts.champion_skill_report import corpus_span
     t0 = 1_783_946_147.0
     r = corpus_span([t0, t0 * 1000.0])
     assert r["corpus_first_ts"] == "2026-07-13T12:35:47Z"
-    assert r["corpus_last_ts"] is None
     assert r["corpus_span_days"] is not None
+    if os.name == "nt":
+        assert r["corpus_last_ts"] is None       # unrepresentable, said so
+    else:
+        assert r["corpus_last_ts"] == "58501-01-01T20:23:20Z"
 
 
 # --- skill interval + resolution floor (2026-09-02 focused-fix) -------------

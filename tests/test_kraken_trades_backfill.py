@@ -8,7 +8,12 @@ import json
 
 import pytest
 
-import scripts.kraken_trades_backfill as kb
+# scripts/kraken_trades_backfill.py imports pandas at MODULE scope, so an
+# unguarded import here breaks collection of the whole suite - not just this
+# file - wherever pandas is absent (see tests/test_feed_freeze_gate.py).
+pytest.importorskip("pandas")
+
+import scripts.kraken_trades_backfill as kb  # noqa: E402
 
 PAGE = kb.PAGE
 NS = 1_000_000_000

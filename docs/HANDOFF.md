@@ -409,6 +409,37 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — bundle w
 
 ## WATCH LIST (check these, don't assume)
 
+- **ISO-1 — a SECOND cloud workspace shares the `cloud-mirror` bundle label;
+  last-writer-wins on the shared branch.** Opened 2026-09-03, measurement-plane
+  finding, **registered NOT executed** (the remedy is a cross-machine data-plane
+  change with another live session on the other end — operator's call).
+  `sessions/cloud-mirror/` took THREE pushes in ten minutes; this container's
+  sidecar made exactly ONE. Verified two ways: (a) process/log accounting — one
+  `telemetry_backup.py` here, its loop logs *every* push, log holds one at
+  04:44:03, next not due until ~05:14, yet the branch had three by 05:02:53;
+  (b) stamp provenance — the 04:42:43 bundle is stamped `@ 11b27e36` and this
+  container's HEAD has been `db7a12a4` since before its sidecar started. All
+  three commit as `Claude`, so the co-writer is another CLOUD session, not the
+  PC (which pushes `pc-live` as `jrigoni35-gif`). **The 07-18 label split
+  separates cloud from PC; it does NOT separate cloud from cloud** — every
+  container hardcodes the same default (`session-start.sh:182`). Traffic is
+  bidirectional: this session's own boot log shows it ADOPTING the other
+  workspace's `meta_model.json` + `skimmer_active.json`. **No row damage today**
+  (both bundles are 23,429-row reconstructions of one corpus; merge is an
+  append-only union deduped by `position_id`) — the exposure is structural, and
+  `tests/test_telemetry_backup.py:288` records the 2026-07-27 "cloud-mirror
+  corruption" this shape already caused once. Options by blast radius: accept;
+  suffix the label per container; or `LB_BACKUP_DISABLED=1` on dev-bench
+  containers whose bundle adds nothing the PC lacks | `docs/quant/2026-09-03_workspace_isolation.md` §3
+- **ISO-2 — `assurance_check` is RED at HEAD and was before this session.**
+  `FAIL every --self-test has a negative arm and reports a rate ->
+  null-arm-only self-tests: rpe_factor.py`. Reproduced on a **pristine detached
+  checkout of `db7a12a4`** (49 passed/1 failed; the main tree's 50/1 differs only
+  by the corpus section going VACUOUS in a bare worktree, as designed).
+  `scripts/rpe_factor.py` landed in `62d8811e` (2026-08-29). A null arm shows it
+  does not cry wolf, never that it can detect anything — so the fix is a negative
+  arm, not a loosened check | `docs/quant/2026-09-03_workspace_isolation.md` §4
+
 - **ERA6-COUNT-1 — no tool counts era-6 accrual; the only gate headline on
   screen pools three cuts.** Measurement-plane (SAFE class), opened
   2026-08-30. CLAUDE.md's moratorium says era-6 accrues "from zero" at the
@@ -530,12 +561,20 @@ class (unfenced) unless marked. *A "0 findings" that was never run is not a
 
 **Two lanes FAILED and produced nothing — recorded so they are not
 rediscovered as gaps in the record:**
-- **GAP-1 (fresh-worktree, host-state-independent suite): FAILED, no
-  findings.** Died on a git `core.worktree` redirect — the isolation
-  worktree resolved to a path outside itself, so the harness refused to run
-  there. **The fresh-worktree green remains UNESTABLISHED.** Re-running
-  separately. (Landmine map already warns: the live repo's green depends on
-  accumulated on-disk history.)
+- ~~**GAP-1 (fresh-worktree, host-state-independent suite): FAILED, no
+  findings.**~~ **CLOSED 2026-09-03 — it RAN, and it found the big one.**
+  The `core.worktree` redirect did **not** reproduce (plain
+  `git worktree add --detach`: `core.worktree` unset, toplevel inside
+  itself, `outputs/` absent, code resolving from the worktree) — the
+  redirect was the old orchestration harness's own scratch dir, **not a repo
+  defect**, so the lane had been blocked on its harness for eight days. What
+  the lane then found is NOT host-state-dependence but something worse:
+  **`pytest tests/` ran ZERO tests** — `Interrupted: 3 errors during
+  collection`, rc=2, identical in the isolated worktree AND the live main
+  tree, because three test modules added 09-01/09-02 import pandas
+  unguarded (two of them transitively through `scripts/`). FIXED +
+  mutation-verified pin; see RECENTLY SETTLED and
+  `docs/quant/2026-09-03_workspace_isolation.md`.
 - **GAP-5 (post-commit DoD re-run + independent review of commit
   `8f27a326`): FAILED, no findings.** Died on a StructuredOutput retry cap —
   **a schema defect in the orchestration, not a repo problem.** The
@@ -598,6 +637,7 @@ verification is paid for twice.
 
 | what | verdict | record |
 |---|---|---|
+| Workspace isolation / GAP-1 (09-03) | **FIXED — and the lane that was supposed to find this had been blocked on its own harness for 8 days.** The `core.worktree` redirect that killed GAP-1 did NOT reproduce (plain `git worktree add --detach`: unset, toplevel inside itself, `outputs/` absent) — it was the old orchestration's scratch dir, not a repo defect. What the lane found: **`pytest tests/` ran ZERO tests** — `Interrupted: 3 errors during collection`, rc=2, **identical in the isolated worktree AND the live main tree** — because `test_kraken_trades_backfill` / `test_markout_report` (`e15787b3`, 09-01) and `test_tape_to_candles` (`0593a659`, 09-02) import pandas unguarded, two of them TRANSITIVELY through `scripts/`. `requirements.txt` pins only requests/numpy/defusedxml. **The hook's readiness probe cannot ever catch this**: it is `import main`, and `test_dependency_hygiene` forbids pandas at engine scope precisely so `main` never touches it — the hygiene rule and the probe are each correct and jointly blind (the-method #1). Fixed with the repo's existing `pytest.importorskip` pattern (+1 function-level guard in `test_label_decomposition_report` for a LAZY pandas import that failed at runtime, not collection). Two further reds were the known **"wrong OS, not wrong code"** class (`corpus_last_ts is None` holds only where Windows gmtime raises on a year-58501 epoch) — **platform-SPLIT, not skipped**, per the 08-22 precedent; the `nt` arm is byte-identical, so PC behaviour is unchanged. New pin `test_suite_collects_without_optional_analysis_stack` asserts the PROPERTY (suite still collects) not the pattern, so transitive pulls are caught; absence is SIMULATED via PYTHONPATH stubs so it pins identically on the PC, where the stack IS installed. **Mutation-verified**: guard removed → pin fails naming the offender; restored → green. Isolated result **4524 passed / 21 skipped / 2 xfailed / rc=0**. NOTE the skip count is 4 module-collection entries standing for **~51 tests** — this container's green is genuinely smaller than the PC's, now visibly | `docs/quant/2026-09-03_workspace_isolation.md`; re-derive with `git worktree add --detach <tmp> HEAD && cd <tmp> && env -u LB_OUTPUTS python -m pytest tests/ -q` |
 | `.claude/settings.json` edit flagged UNATTRIBUTED (08-30) | **ATTRIBUTED — owned by the main session, intentional, do NOT revert.** It removed the ORPHAN MCP permission rule `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__list_triggers` after verifying **0 occurrences** of that UUID across `~/.claude.json`, `~/.claude/settings.json`, `.claude/settings.local.json` and `.mcp.json` — i.e. no server config anywhere binds it. Re-parsed after the edit: **PARSE OK, 9 allow entries, `enabledPlugins` preserved**. Rationale: MCP permission rules match on the **name string alone**, with no binding to a server config, so an orphan allow entry is a **standing pre-approval for any tool later registered under that ID**; removing it strictly **NARROWS** permissions. Recorded here so the diff does not read as unowned | this row; re-derive with `git log -p -- .claude/settings.json` |
 | General update pass + data-pull determinism/usefulness audit (08-30, post cut-9) | **DoD matrix full green on `9fdbc389` (clean tree, no code changes this pass — Grafana alert-plane + docs only):** pytest 4422 passed/10 skipped/2 xfailed (563.37s) · smoke_test 220/0 · assurance_check 51/0 (corpus 20,728 rows) · overfit_check passed 3/0 (corpus **live history 10,359 rows**, real not synthetic; OF-4 plateau INERT — flat surface, 0 entries on the replay recording; OF-5 DSR DEFERRED — 26 conviction trades < 30 floor) · ruff clean on the exact CLAUDE.md scope · pyright 0/0/0 on the exact CLAUDE.md scope · bandit 0 issues (61,993 LOC, 66 nosec-skipped) · compileall clean. All 8 gates green, numbers match the cut-9 settlement row exactly (4422/220/51/3), confirming no drift since. **Data-pull audit** (Kraken/OKX/Binance.US/ccxt/moomoo/webdata/ws_feed/context_engine/candle_journal, all 8 live ingestion modules read): no determinism defects found beyond 2 pre-existing minor ones (both BOUNDARY-classed below, DATA-1/DATA-2 — they'd change ML feature values if fixed); no wasted-fetch/unused-field findings (every fetched field grep-verified consumed downstream) | this row; DoD outputs captured this session (not persisted — re-derive per CLAUDE.md's own "a number written into law decays" rule) |
 | ALERT-DRIFT + a bigger delivery defect found underneath it (08-30) | **FIXED, both halves.** (1) Cloud/repo drift closed both directions: `lb-drift-stuck` + `lb-brier-degraded` PROVISIONED live (POST 201, folderUID `liquiditybot-ops`, group `liquiditybot-ml`, interval 60s — verified via `/api/prometheus/grafana/api/v1/rules`, all 4 rules now present); `lb-manip-high` (live since 2026-07-14, never mirrored) exported to `docs/grafana/liquiditybot_manip_alert.yaml`. (2) **Read-only GET surfaced a live defect nobody had closed**: both pre-existing rules (`lb-telemetry-stale`, `lb-manip-high`) had `notification_settings: null` since creation (2026-07-14) and the root notification policy receiver is `"empty"` (zero integrations, confirmed via `/api/v1/provisioning/policies`) — **any firing since 2026-07-14 paged nobody** (the repo's own `liquiditybot_deadman_alert.yaml` had already found and dated this 2026-08-17 as "MANUAL-APPLY", never applied). Fixed by the documented read-modify-write PUT (`notification_settings.receiver = grafana-default-email`) on both rules, verified live via GET after the PUT; the two new rules were provisioned with the setting attached from creation so they never carry the defect. Root policy receiver is still `"empty"`, untouched (smaller blast radius: per-rule override, not a policy-tree change). All 4 YAML files in `docs/grafana/` updated to record what's live and when | this row; `docs/grafana/liquiditybot_deadman_alert.yaml`, `liquiditybot_drift_alert.yaml`, `liquiditybot_brier_alert.yaml`, `liquiditybot_manip_alert.yaml` (new); read/write timestamps 2026-08-30T22:0x — re-derive via `GET /api/v1/provisioning/alert-rules/<uid>` |

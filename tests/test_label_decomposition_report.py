@@ -203,6 +203,11 @@ def test_extra_csv_joins_on_all_key_columns(tmp_path):
     """Two assets share every signal_ts with DIFFERENT values; a join on
     signal_ts alone (or on asset alone) mis-assigns them. Rows are written
     shuffled, with one duplicate key and one unmatched corpus row."""
+    # join_extra_csv imports pandas lazily, so this is the ONE test in the
+    # file that needs it - guarded here rather than at module scope so the
+    # pandas-less workspaces still run the other pins (see the note in
+    # tests/test_feed_freeze_gate.py).
+    pytest.importorskip("pandas")
     ts = np.array([100.0, 200.0, 300.0, 100.0, 200.0, 300.0, 400.0])
     asset = np.array(["ADA", "ADA", "ADA", "SOL", "SOL", "SOL", "ADA"], dtype=object)
     expect = np.array([1.0, 2.0, 3.0, 11.0, 12.0, 13.0, np.nan])

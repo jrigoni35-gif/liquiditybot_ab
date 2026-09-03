@@ -2,6 +2,7 @@
 and its SD-* detectors. Fixtures are minimal synthetic outputs dirs; the audit
 chain is written through the real AuditTrail so chain verification is exercised."""
 import json
+import os
 import time
 from pathlib import Path
 
@@ -540,13 +541,24 @@ def test_eras_section_degrades_without_streams(tmp_path):
 
 def test_millisecond_epoch_signal_ts_degrades_not_raises(tmp_path):
     """Saboteur: a ms-epoch cell (the data-quality audit's unit-mixing
-    class) makes Windows gmtime raise OSError. The digest must survive it
-    with None ISO stamps, never take the hourly checkin down."""
+    class). The digest must survive it and never take the hourly checkin
+    down.
+
+    PLATFORM-SPLIT, not skipped (2026-08-22 "wrong OS, not wrong code"):
+    the never-raises invariant, the intact first stamp, the still-reported
+    span and the ascii-renderable markdown are asserted EVERYWHERE. Only
+    the far-future stamp branches - Windows gmtime raises OSError on a
+    year-58501 epoch, POSIX gmtime formats it - so asserting the Windows
+    outcome unconditionally made this red on every Linux workspace.
+    """
     o = _era_fixture(tmp_path, sig_ts=(T0, T0 * 1000.0))
     e = build_digest(o)["eras"]
     assert e["corpus_first_ts"] == "2026-07-13T12:35:47Z"
-    assert e["corpus_last_ts"] is None            # unrepresentable, said so
     assert e["corpus_span_days"] is not None       # arithmetic still reported
+    if os.name == "nt":
+        assert e["corpus_last_ts"] is None        # unrepresentable, said so
+    else:
+        assert e["corpus_last_ts"] == "58501-01-01T20:23:20Z"
     render_markdown(build_digest(o)).encode("ascii")
 
 

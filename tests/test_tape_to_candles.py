@@ -7,8 +7,15 @@ invented, and OHLCV must come from the trades in THAT window and no other.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from scripts import tape_to_candles as T
+# scripts/tape_to_candles.py -> kraken_trades_backfill imports pandas at
+# MODULE scope, so an unguarded import here breaks collection of the whole
+# suite - not just this file - wherever pandas is absent (see the note in
+# tests/test_feed_freeze_gate.py).
+pytest.importorskip("pandas")
+
+from scripts import tape_to_candles as T  # noqa: E402
 
 
 def _tape(t0: float, n: int, dt: float, price0: float = 100.0):
