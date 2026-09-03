@@ -21,6 +21,7 @@ Record: docs/quant/2026-09-03_workspace_isolation.md
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import textwrap
@@ -59,8 +60,16 @@ def _run(env: dict, *, alive: bool = False, home: Path,
     A trailing `wait` is appended so the backgrounded launch has flushed
     before the assertions read the file.
     """
+    if os.name == "nt":
+        # `.claude/hooks/session-start.sh` is a CLOUD-CONTAINER script: it
+        # exits at line 17 unless CLAUDE_CODE_REMOTE=true, and the PC never
+        # runs it. Exercising it through git-bash on Windows tested nothing
+        # the PC needs and REJECTED a real deploy (2026-09-03, auto_update
+        # battery_detail named this file). The static pin at the bottom of
+        # this module is the cross-platform guard.
+        pytest.skip("session-start.sh is POSIX/cloud-only; static pin covers nt")
     if not shutil.which("bash"):
-        pytest.skip("bash unavailable (Windows without git-bash on PATH)")
+        pytest.skip("bash unavailable")
     (work / "outputs").mkdir(parents=True, exist_ok=True)
     stubs = textwrap.dedent(f"""
         PY=/bin/echo
@@ -69,11 +78,18 @@ def _run(env: dict, *, alive: bool = False, home: Path,
         setsid() {{ echo "LAUNCH: $*"; }}
         nohup() {{ echo "$@"; }}
     """)
+    # INHERIT the ambient environment (a hand-built dict drops SYSTEMROOT /
+    # COMSPEC and breaks subprocess spawn on Windows) and control only the
+    # flags under test, popping any the caller happens to have set.
+    child = {**os.environ, "HOME": str(home)}
+    for k in ("LB_CLOUD_RUNNER", "LB_BACKUP_FORCE",
+              "LB_BACKUP_DISABLED", "LB_BACKUP_LABEL"):
+        child.pop(k, None)
+    child.update(env)
     r = subprocess.run(
         ["bash", "-c", stubs + _block() + "\nwait\n"],
         capture_output=True, encoding="utf-8", errors="replace", timeout=60,
-        cwd=str(work),
-        env={"PATH": "/usr/bin:/bin", "HOME": str(home), **env})
+        cwd=str(work), env=child)
     assert r.returncode == 0, f"block exited {r.returncode}: {r.stderr}"
     launched = work / "outputs" / "telemetry_backup.log"
     return r.stdout, (launched.read_text(encoding="utf-8")

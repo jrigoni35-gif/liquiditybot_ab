@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import inspect
 import math
+import os
 from pathlib import Path
 
 import pytest
@@ -793,7 +794,23 @@ def test_a_hand_written_row_outside_the_vocabulary_is_refused_on_read(
 
 def test_compact_refuses_a_partition_path_outside_the_store(tmp_path,
                                                             monkeypatch):
-    """BELT AND BRACES, verified independently of the read-path check."""
+    """BELT AND BRACES, verified independently of the read-path check.
+
+    PLATFORM-SPLIT, not skipped - the 2026-08-22 "wrong OS, not wrong code"
+    precedent. compact()'s guard is a PATH-RESOLUTION check
+    (`dest.resolve().parent != pdir.resolve()`), and `..\..\ESCAPED` is
+    traversal ONLY where a backslash separates paths. On Windows - the
+    target runtime, and the platform the guard's own comment names ("the
+    store root lives under outputs/, so `..\..` reaches the repo") - it
+    escapes and the guard raises. On POSIX it is a single legal filename,
+    nothing escapes, and the guard is CORRECT to stay silent.
+
+    So the invariant that carries the defect - NOTHING is ever written
+    outside the store root - is asserted on BOTH platforms; only the raise
+    branches. Asserting the Windows outcome unconditionally made this red
+    on any Linux box with polars installed (found 2026-09-03, previously
+    masked because polars was absent and the module skipped).
+    """
     pytest.importorskip("polars")
     import scripts.candle_store as cs
     _ingest(tmp_path, _bars(3), committed_upto=T0 + 2 * IV, asked_from=T0,
@@ -802,9 +819,14 @@ def test_compact_refuses_a_partition_path_outside_the_store(tmp_path,
     escaped = [{**r, "symbol": r"..\..\ESCAPED"} for r in rows]
     monkeypatch.setattr(cj, "canonical_bar_rows", lambda root=None: escaped)
     monkeypatch.setattr(cs.cj, "canonical_bar_rows", lambda root=None: escaped)
-    with pytest.raises(cj.CandleStoreUnreadable):
-        cs.compact(tmp_path, full=True)
+    if os.name == "nt":
+        with pytest.raises(cj.CandleStoreUnreadable):
+            cs.compact(tmp_path, full=True)
+    else:
+        cs.compact(tmp_path, full=True)   # no traversal exists on POSIX
+    # THE invariant, both platforms: nothing landed outside the store root.
     assert list(tmp_path.parent.glob("ESCAPED_*.parquet")) == []
+    assert list(tmp_path.parent.glob("*ESCAPED*")) == []
 
 
 def test_no_tolerance_parameter_exists_anywhere(tmp_path):
