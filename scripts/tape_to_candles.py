@@ -35,7 +35,13 @@ outputs/candles through data.candle_journal.ingest(), which takes the
 single-writer lock ITSELF per call (an O_EXCL per-pid lock, not re-entrant
 - this script must NOT wrap it; the first live run did, and every call
 refused against our own pid while the summary line read as success).
-Touches no ledger. Any journal refusal or zero-accept batch exits non-zero.
+Touches no ledger. Any journal refusal, zero-accept batch, or per-asset
+exception (a malformed tape row, a missing pair directory, anything else)
+exits non-zero and is reported with status CRASHED - never silently, and
+never at the cost of hiding what OTHER assets in the same run did
+(adversarial review, 2026-09-02: an uncaught exception on one asset used
+to abort the whole batch with no summary at all, discarding the visibility
+of bars already committed for assets processed before the crash).
 
     python scripts/tape_to_candles.py --interval 300 --assets all
     python scripts/tape_to_candles.py --interval 900 --assets ETH,BTC,FLOW
@@ -105,29 +111,66 @@ def aggregate(time_s: np.ndarray, price: np.ndarray, volume: np.ndarray,
 def build_asset(asset: str, interval_s: int, *, root: Path | str | None = None,
                 store: TickStore | None = None, now_s: int | None = None) -> dict[str, Any]:
     """Aggregate one asset's tape and commit it. Returns a summary dict;
-    never raises on an empty tape (records it instead)."""
-    store = store or TickStore()
-    pair = kraken_pair(asset)
-    tape = store.load(pair)
-    if tape is None or not len(tape):
+    never raises - on an empty tape, on a malformed tape, or on any other
+    exception from the store/aggregate/ingest calls (records it instead).
+
+    WHY (adversarial review, 2026-09-02, of this file's own first version).
+    The prior version had no defense here: a single corrupted row (e.g. a
+    NaN time_s from a truncated tape write) raised ValueError out of
+    aggregate(), uncaught, and propagated through main()'s list
+    comprehension - killing the ENTIRE multi-asset batch. Reproduced by
+    execution, not argued: a NaN in the second of three assets left the
+    first asset's bars ALREADY COMMITTED to the journal while the third
+    asset was never attempted and main()'s reporting loop never ran at
+    all - a raw traceback, no summary, no way to tell what succeeded. That
+    is the exact failure this script's whole design exists to prevent (see
+    "THE JOURNAL'S OWN STATUS IS THE VERDICT" below) via a path that
+    bypassed the verdict machinery entirely. Every exception here is now
+    caught PER ASSET and reported with the same "failure" key a journal
+    refusal uses, so a bad row on one asset cannot hide the state of any
+    other asset."""
+    try:
+        store = store or TickStore()
+        pair = kraken_pair(asset)
+        tape = store.load(pair)
+        if tape is None or not len(tape):
+            return {"asset": asset, "pair": pair, "interval_s": interval_s,
+                    "status": "NO_TAPE", "bars": 0}
+        bars, upto = aggregate(tape["time_s"].to_numpy(float),
+                               tape["price"].to_numpy(float),
+                               tape["volume"].to_numpy(float), interval_s)
+    except Exception as exc:                                # noqa: BLE001
+        # pair may be unset if kraken_pair() itself raised; fall back to
+        # the raw asset name so the failure line is never missing a column
+        pair = locals().get("pair", asset)
         return {"asset": asset, "pair": pair, "interval_s": interval_s,
-                "status": "NO_TAPE", "bars": 0}
-    bars, upto = aggregate(tape["time_s"].to_numpy(float),
-                           tape["price"].to_numpy(float),
-                           tape["volume"].to_numpy(float), interval_s)
+                "status": "CRASHED", "bars": 0,
+                "failure": f"{type(exc).__name__}: {exc}"}
     if not bars or upto is None:
         return {"asset": asset, "pair": pair, "interval_s": interval_s,
                 "status": "EMPTY", "bars": 0}
-    # note="" on purpose: the journal's `note` is a FROZEN vocabulary
-    # (data.candle_journal.NOTES), not free text - the first run of this
-    # script was refused at lane validation for passing a provenance
-    # sentence here. Provenance lives in this module's docstring and in
-    # committed_by='clock'. The pin that guards this calls the REAL
-    # ingest against a temp root; a fake writer would have accepted it.
-    rep = cj.ingest(asset, interval_s, SOURCE, QUOTE, bars,
-                    committed_upto_s=upto, committed_by=COMMITTED_BY,
-                    asked_from_s=bars[0]["time"], asked_to_s=upto,
-                    status="OK", now_s=now_s, note="", root=root)
+    try:
+        # note="" on purpose: the journal's `note` is a FROZEN vocabulary
+        # (data.candle_journal.NOTES), not free text - the first run of
+        # this script was refused at lane validation for passing a
+        # provenance sentence here. Provenance lives in this module's
+        # docstring and in committed_by='clock'. The pin that guards this
+        # calls the REAL ingest against a temp root; a fake writer would
+        # have accepted it.
+        rep = cj.ingest(asset, interval_s, SOURCE, QUOTE, bars,
+                        committed_upto_s=upto, committed_by=COMMITTED_BY,
+                        asked_from_s=bars[0]["time"], asked_to_s=upto,
+                        status="OK", now_s=now_s, note="", root=root)
+    except Exception as exc:                                # noqa: BLE001
+        # The journal's own write order is "evidence then claim, never
+        # reversed" (data.candle_journal.ingest docstring): a crash here
+        # can leave bars written with coverage not yet claimed, which is
+        # self-healing (a later run re-derives and re-claims it) - never
+        # the reverse. Safe to catch and report per-asset for the same
+        # reason a journal LOCKED refusal is safe to catch below.
+        return {"asset": asset, "pair": pair, "interval_s": interval_s,
+                "status": "CRASHED", "bars": len(bars),
+                "failure": f"ingest raised {type(exc).__name__}: {exc}"}
     # THE JOURNAL'S OWN STATUS IS THE VERDICT, never this script's. The
     # first live run printed "190,712 bars ... in 1.8s" while every row
     # read accepted 0: ingest() had refused (status LOCKED) because main()
@@ -170,10 +213,25 @@ def main(argv: list[str] | None = None) -> int:
     # that is not re-entrant. Holding it around ingest() makes every call
     # refuse against our own pid (measured 2026-09-02: 15 refusals, 0 bars).
     store = TickStore()
-    results = [build_asset(a, args.interval, root=args.root, store=store)
-               for a in assets]
+    # PRINT AS WE GO, PER ASSET, AND CATCH HERE TOO (belt and suspenders).
+    # build_asset() now catches everything it can raise, but a caller
+    # crashing before this line was reproduced once already (adversarial
+    # review, 2026-09-02): a NaN in one asset's tape killed the whole
+    # batch, silently discarding bars already committed for prior assets
+    # because the summary loop never ran. Printing incrementally means a
+    # defect THIS defense-in-depth catch does not anticipate still leaves
+    # every already-processed asset's line on the operator's screen,
+    # rather than none of them.
+    results: list[dict[str, Any]] = []
     failed = 0
-    for r in results:
+    for a in assets:
+        try:
+            r = build_asset(a, args.interval, root=args.root, store=store)
+        except Exception as exc:                            # noqa: BLE001
+            r = {"asset": a, "pair": "?", "interval_s": args.interval,
+                 "status": "CRASHED", "bars": 0,
+                 "failure": f"build_asset raised {type(exc).__name__}: {exc}"}
+        results.append(r)
         line = (f"  {r['asset']:5} {r['pair']:8} {r['interval_s']:>5}s  "
                 f"bars {r['bars']:>7,}  accepted {r.get('bars_accepted', '-'):>7}  "
                 f"dup {r.get('bars_dup', '-'):>5}  status {r['status']}")

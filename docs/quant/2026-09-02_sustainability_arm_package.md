@@ -76,12 +76,35 @@ day blocks. Placebo: random timestamps, same assets, same geometry, same count.
 - Instrument verified: stop hour agrees 99.0% with the venue lane (n=3,704); injection
   entry:=stop → 0.94, side-flip → 1.00.
 
-**Resolution caveat, and why a re-run is queued:** this pass could time a stop only to
-the hour. Sub-hour lanes did not exist when it started; they do now (5 m and 15 m for
-all 15 assets, built from the tape). The 5-minute pass (`wf_f4033e09-41f`) adds the one
-measurement the hour cannot make — the **depth and duration of the sweep beyond the
-stop**, which is what separates a hunt (shallow, short, reverses) from a break. **Slot:
-`[5m]` — to be filled when it lands.**
+**5-minute re-run (`wf_f4033e09-41f`, complete, verifier CONCERNS/agrees=True): the
+verdict does not move — and the sub-hour resolution adds the one measurement the hour
+could not make, which is also null.** Stop located on the production 300 s lane, then
+refined to the exact tape print inside that bar (print sits a median 147 s into its
+bar — the 1-hour pass's tick-repair had already anchored the window correctly; the
+5-minute lane sharpens it further, it does not overturn it). Pooled reversal-through-
+entry, real vs a same-geometry random-entry placebo, 22 day blocks, 1,739 clusters:
+
+| horizon | real | placebo | diff (CI) | power floor |
+|---|---|---|---|---|
+| 30 min | 1.3% | 2.5% | −1.2 pp [−3.1, +0.6] | 5 pp |
+| 2 h | 12.5% | 12.4% | +0.1 pp [−6.8, +7.2] | 15 pp |
+
+**Sweep depth and duration — the new measurement — is also placebo:** median depth
+48 bps in 30 min (placebo 50), 83 bps in 2 h (placebo 92); median time below the stop
+0.6 min (placebo 0.7); the "hunt signature" (shallow excursion that reverses within
+30 min) fires at 5.5% real vs 4.7% placebo, diff +0.8 pp [−1.9, +4.0] against a 5 pp
+floor — null. Rising volume into the stop still does not raise reversal; the stop-share
+of resolved rows *falls* with growth into the resolution (0.600 → 0.493), the opposite
+of the hunt hypothesis. **BTC still does not earn "reliable"**: a second, independently
+designed placebo run by the verifier flips the sign of the "BTC has the highest
+reversal-above-placebo" sentence — that specific ranking claim is struck — but on both
+placebo designs nothing on any triad asset clears its power floor, so the substantive
+conclusion is unchanged. One caveat the verifier flagged and this package inherits:
+power coverage is complete only for the two load-bearing horizons (30 min, 2 h) and the
+hunt-signature share; several secondary rows (other k values, some volume-quintile
+diffs) carry no MDE and must be read as unresolved, not as confirmed nulls.
+
+**Row B is now closed at two independent resolutions with no measured motive found.**
 
 ## 3. Rising volume and outcomes — REFUTED at power floor
 
@@ -152,7 +175,7 @@ section 2 says it is not doing that above the base rate either.
 | # | change | class | verdict from the measurements |
 |---|---|---|---|
 | A | Any spread-conditioned entry or regime-conditioned spread rule | cohort-resetting | **Do not arm.** Spread is 1–5% of cost, tick-pinned on ETH/BTC, and the gate already refuses wide spreads. FLOW's spread is the listing, not a regime. |
-| B | Stop widening, time-decay ladder, or anti-hunt logic (ALGO-5 bundle) | cohort-resetting | **Do not arm on this evidence.** Reversal equals the base rate at every horizon at the hourly lane. Hold for the 5-minute excursion result `[5m]`; if that is also null, ALGO-5's anti-hunt half has no measured motive. |
+| B | Stop widening, time-decay ladder, or anti-hunt logic (ALGO-5 bundle) | cohort-resetting | **Do not arm — confirmed at two independent resolutions.** Reversal equals the base rate, and the 5-minute sweep depth/duration is also placebo. ALGO-5's anti-hunt half has no measured motive. |
 | C | A volume-growth veto or sizing term | cohort-resetting | **Do not arm.** Effect null with the opposite sign; every volume feature NULL through the instrument. |
 | D | Encode Kraken's maintenance-margin / liquidation formula in the repo | **SAFE**, additive | **Arm this** before any live arm ever happens. Every headroom number today uses the bot's own floor because the venue's rule is not in the code. |
 | E | Register an audit code for the margin-block / margin-scale branch and log it through the audit trail | **SAFE**, additive | **Arm this.** A branch that has never fired is currently invisible if it does. |
