@@ -1,20 +1,20 @@
 {
-  "generated_at": 1788453567.9492974,
+  "generated_at": 1788457168.9431973,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788453564.0,
-    "duration_h": 1328.76
+    "end": 1788457160.0,
+    "duration_h": 1329.76
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 2842,
-      "signal_records": 415,
+      "records": 2401,
+      "signal_records": 408,
       "by_src": {
-        "exploration": 2441,
-        "long_book": 180,
-        "ml_governor": 140,
+        "exploration": 2007,
+        "long_book": 176,
+        "ml_governor": 137,
         "order_manager": 41,
         "conviction": 24,
         "exit": 13,
@@ -25,11 +25,11 @@
       "top_codes": [
         [
           "SZ-051",
-          1209
+          992
         ],
         [
           "ML-070",
-          1209
+          992
         ],
         [
           "LB-010",
@@ -40,20 +40,20 @@
           41
         ],
         [
-          "LB-050",
-          32
-        ],
-        [
           "ML-016",
-          30
+          29
         ],
         [
           "ML-042",
-          30
+          29
         ],
         [
           "ML-041",
-          30
+          29
+        ],
+        [
+          "LB-050",
+          28
         ],
         [
           "OM-000",
@@ -73,79 +73,41 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.349,
+      "dominant_frac": 0.355,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 25500,
+      "records": 83,
       "by_level": {
-        "INFO": 25352,
-        "WARNING": 142,
-        "CRITICAL": 4,
-        "ERROR": 2
+        "INFO": 82,
+        "WARNING": 1
       },
       "top_warnings": [
         [
-          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          71
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "Kraken public API error on OHLC: ['EGeneral:Internal error']",
-          3
-        ],
-        [
-          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
-        ],
-        [
-          "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
-        ],
-        [
-          "ML-080: exit-reason mix drift tvd=0.388 over trailing 24h (869/22719 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-          1
-        ],
-        [
-          "auto-retrain: 12521 rows (42 new)",
+          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 5696,
-        "thin": 2609
+        "spoofy": 18,
+        "thin": 10
       },
-      "spoofy_frac": 0.686,
+      "spoofy_frac": 0.643,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3100,
-      "feed_error_events": 2
+      "cycles_estimate": 9,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 794.91,
+    "equity_end": 795.2,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 125417,
+    "epoch_samples": 125652,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,20 +115,20 @@
     "realized_pnl_total": -2.97,
     "fees_paid_total": 12.2938,
     "open_positions": 2,
-    "samples": 293208
+    "samples": 293443
   },
   "activity": {
-    "signal_rows_total": 23991,
+    "signal_rows_total": 23993,
     "live_labeled_trades": 403,
-    "candidate_rows": 23588
+    "candidate_rows": 23590
   },
   "audit": {
-    "records": 76792,
-    "signal_records": 31313,
+    "records": 76797,
+    "signal_records": 31318,
     "by_src": {
       "exploration": 68378,
-      "ml_governor": 2431,
-      "long_book": 2367,
+      "ml_governor": 2432,
+      "long_book": 2371,
       "order_manager": 1783,
       "conviction": 715,
       "startup": 324,
@@ -192,7 +154,7 @@
       ],
       [
         "LB-010",
-        1595
+        1599
       ],
       [
         "OM-000",
@@ -200,7 +162,7 @@
       ],
       [
         "ML-031",
-        883
+        884
       ],
       [
         "CV-030",
@@ -321,63 +283,25 @@
     ]
   },
   "events": {
-    "records": 25500,
+    "records": 83,
     "by_level": {
-      "INFO": 25352,
-      "WARNING": 142,
-      "CRITICAL": 4,
-      "ERROR": 2
+      "INFO": 82,
+      "WARNING": 1
     },
     "top_warnings": [
       [
-        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        71
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "Kraken public API error on OHLC: ['EGeneral:Internal error']",
-        3
-      ],
-      [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        2
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-031: feature drift 18/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.388 over trailing 24h (869/22719 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        1
-      ],
-      [
-        "auto-retrain: 12521 rows (42 new)",
+        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 5696,
-      "thin": 2609
+      "spoofy": 18,
+      "thin": 10
     },
-    "spoofy_frac": 0.686,
+    "spoofy_frac": 0.643,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3100,
-    "feed_error_events": 2
+    "cycles_estimate": 9,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
@@ -407,7 +331,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 13657,
+      "triple_barrier_h432": 13659,
       "triple_barrier": 5328,
       "exit_sim": 2766,
       "legacy": 1781,
@@ -425,7 +349,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 23991,
+    "corpus_rows": 23993,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-03T16:00:00Z",
     "corpus_span_days": 52.14,
@@ -454,16 +378,10 @@
       "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 49, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 9-16ec821e. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
-      "id": "SD-003",
-      "severity": "warn",
-      "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 69% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
-    },
-    {
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 35% of 415 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 36% of 408 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
