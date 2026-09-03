@@ -1,19 +1,19 @@
 {
-  "generated_at": 1788399545.0396063,
+  "generated_at": 1788403149.3918707,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788399535.084,
-    "duration_h": 1313.76
+    "end": 1788403142.0,
+    "duration_h": 1314.76
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 6024,
-      "signal_records": 440,
+      "records": 6019,
+      "signal_records": 435,
       "by_src": {
-        "exploration": 5591,
-        "long_book": 237,
+        "exploration": 5590,
+        "long_book": 233,
         "ml_governor": 130,
         "order_manager": 31,
         "conviction": 24,
@@ -36,7 +36,7 @@
         ],
         [
           "LB-050",
-          90
+          86
         ],
         [
           "ML-031",
@@ -72,22 +72,22 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.327,
+      "dominant_frac": 0.331,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 9332,
+      "records": 10412,
       "by_level": {
-        "INFO": 9262,
-        "WARNING": 67,
+        "INFO": 10337,
+        "WARNING": 72,
         "CRITICAL": 2,
         "ERROR": 1
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          37
+          40
         ],
         [
           "Kraken public API error on OHLC: ['EGeneral:Internal error']",
@@ -127,24 +127,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 2288,
-        "thin": 1143
+        "spoofy": 2516,
+        "thin": 1248
       },
-      "spoofy_frac": 0.667,
+      "spoofy_frac": 0.668,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1346,
+      "cycles_estimate": 1462,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 791.04,
+    "equity_end": 791.47,
     "equity_min": 790.26,
     "equity_max": 806.91,
     "equity_range": 16.65,
     "capital_epochs": 5,
-    "epoch_samples": 121899,
+    "epoch_samples": 122134,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.26,
     "lifetime_equity_max": 100000.03,
@@ -152,20 +152,20 @@
     "realized_pnl_total": -3.47,
     "fees_paid_total": 11.6665,
     "open_positions": 3,
-    "samples": 289690
+    "samples": 289925
   },
   "activity": {
-    "signal_rows_total": 23180,
+    "signal_rows_total": 23268,
     "live_labeled_trades": 398,
-    "candidate_rows": 22782
+    "candidate_rows": 22870
   },
   "audit": {
-    "records": 76645,
-    "signal_records": 31183,
+    "records": 76652,
+    "signal_records": 31190,
     "by_src": {
       "exploration": 68353,
-      "ml_governor": 2385,
-      "long_book": 2308,
+      "ml_governor": 2388,
+      "long_book": 2312,
       "order_manager": 1772,
       "conviction": 715,
       "startup": 324,
@@ -191,7 +191,7 @@
       ],
       [
         "LB-010",
-        1536
+        1540
       ],
       [
         "OM-000",
@@ -215,15 +215,15 @@
       ],
       [
         "ML-016",
-        416
+        417
       ],
       [
         "ML-041",
-        398
+        399
       ],
       [
         "ML-042",
-        351
+        352
       ]
     ],
     "dominant_code": "SZ-047",
@@ -320,17 +320,17 @@
     ]
   },
   "events": {
-    "records": 9332,
+    "records": 10412,
     "by_level": {
-      "INFO": 9262,
-      "WARNING": 67,
+      "INFO": 10337,
+      "WARNING": 72,
       "CRITICAL": 2,
       "ERROR": 1
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        37
+        40
       ],
       [
         "Kraken public API error on OHLC: ['EGeneral:Internal error']",
@@ -370,19 +370,19 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2288,
-      "thin": 1143
+      "spoofy": 2516,
+      "thin": 1248
     },
-    "spoofy_frac": 0.667,
+    "spoofy_frac": 0.668,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1346,
+    "cycles_estimate": 1462,
     "feed_error_events": 1
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.2446923697368585,
+    "champion_brier": 0.24433998003893753,
     "brier": "n/a",
     "history_rows": 398,
     "cold": false
@@ -406,7 +406,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 12847,
+      "triple_barrier_h432": 12935,
       "triple_barrier": 5328,
       "exit_sim": 2765,
       "legacy": 1781,
@@ -424,10 +424,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 23180,
+    "corpus_rows": 23268,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-03T01:05:00Z",
-    "corpus_span_days": 51.52,
+    "corpus_last_ts": "2026-09-03T01:50:00Z",
+    "corpus_span_days": 51.55,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -462,7 +462,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 33% of 440 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 33% of 435 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
