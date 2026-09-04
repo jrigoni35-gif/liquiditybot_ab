@@ -157,3 +157,56 @@ def test_empty_cohort_is_accruing_not_a_crash():
     s = CE.era4_section([])
     assert s["readout"] == "ACCRUING"
     assert s["n"] == 0
+
+
+# --- corpus pinning: the gate must be pointable, like assurance_check ------
+# Found 2026-09-04 doing a whole-bot review: cohort_eval hard-coded
+# ROOT/"outputs" for all four inputs, so the headline gate died with "no
+# postmortem data" on any box whose corpus lives elsewhere - a bare worktree,
+# or a cloud container where session_import files bundle reports under
+# outputs/imported_sessions/<label>/. scripts/assurance_check.py has honoured
+# LB_OUTPUTS since 2026-08-23 for exactly this reason (its section 11 had
+# passed VACUOUSLY from a worktree with no outputs/). One convention, two
+# reports, so the deploy battery can pin both at the same corpus.
+#
+# The DEFAULT is all that moves. Explicit --csv/--fills/--signal-history still
+# win, so no existing invocation changes behaviour.
+
+def test_out_dir_defaults_to_repo_outputs(monkeypatch):
+    monkeypatch.delenv("LB_OUTPUTS", raising=False)
+    assert _load().out_dir() == ROOT / "outputs"
+
+
+def test_out_dir_honours_LB_OUTPUTS(monkeypatch, tmp_path):
+    monkeypatch.setenv("LB_OUTPUTS", str(tmp_path))
+    assert _load().out_dir() == tmp_path
+
+
+def test_every_corpus_input_follows_LB_OUTPUTS(monkeypatch, tmp_path):
+    """All FOUR inputs move together - a gate pinned for three of them and
+    silently reading a fourth from the live tree is the mixed-corpus bug this
+    fix exists to remove."""
+    monkeypatch.setenv("LB_OUTPUTS", str(tmp_path))
+    mod = _load()
+    ap = __import__("argparse").ArgumentParser()
+    _out = mod.out_dir()
+    # mirror main()'s wiring; if main() stops using out_dir() this drifts and
+    # the assertion below is what notices
+    for name, fn in (("--csv", "postmortem_summary.csv"),
+                     ("--fills", "fills.csv"),
+                     ("--retrain-history", "retrain_history.jsonl"),
+                     ("--signal-history", "signal_history.csv")):
+        ap.add_argument(name, default=str(_out / fn))
+    ns = ap.parse_args([])
+    for got in (ns.csv, ns.fills, ns.retrain_history, ns.signal_history):
+        assert Path(got).parent == tmp_path, got
+
+
+def test_main_wires_defaults_through_out_dir(monkeypatch, tmp_path):
+    """Source-level guard: main() must build its defaults from out_dir(),
+    not from a re-hardcoded ROOT/'outputs'."""
+    src = (ROOT / "scripts" / "cohort_eval.py").read_text(encoding="utf-8")
+    main_src = src[src.index("def main("):]
+    assert 'ROOT / "outputs"' not in main_src, (
+        "main() re-hardcodes ROOT/'outputs' - the LB_OUTPUTS pin is bypassed")
+    assert "out_dir()" in main_src

@@ -58,12 +58,31 @@ before the data exists.
 import argparse
 import collections
 import csv
+import os
 import json
 import math
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def out_dir() -> Path:
+    """The corpus this report reads, honouring LB_OUTPUTS.
+
+    The gate used to hard-code ROOT/"outputs", so it could only run where
+    that tree happened to be complete - it died with "no postmortem data"
+    on any box holding its corpus elsewhere (a bare worktree, or a cloud
+    container where session_import files bundle reports under
+    outputs/imported_sessions/<label>/). scripts/assurance_check.py has
+    honoured LB_OUTPUTS since 2026-08-23 for exactly this reason; this is
+    the same lever on the same convention, so the deploy battery can pin
+    BOTH reports at one corpus.
+
+    Explicit --csv/--fills/--signal-history still win: this only moves the
+    DEFAULT, so no existing invocation changes behaviour.
+    """
+    return Path(os.environ.get("LB_OUTPUTS") or (ROOT / "outputs"))
 
 # Legs that OPEN risk - a hedge opens a position exactly as an entry does
 # (main.py debits the entry fee for every non-exit leg). Reconstruction must
@@ -618,12 +637,14 @@ def geometry_breakeven(path, era: str = CURRENT_LABEL_ERA) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=str(ROOT / "outputs" /
-                                         "postmortem_summary.csv"))
-    ap.add_argument("--fills", default=str(ROOT / "outputs" / "fills.csv"))
-    ap.add_argument("--retrain-history", default=str(ROOT / RETRAIN_HISTORY),
+    _out = out_dir()
+    ap.add_argument("--csv", default=str(_out / "postmortem_summary.csv"))
+    ap.add_argument("--fills", default=str(_out / "fills.csv"))
+    ap.add_argument("--retrain-history",
+                    default=str(_out / Path(RETRAIN_HISTORY).name),
                     help="retrain ledger for the model-era join (report-only)")
-    ap.add_argument("--signal-history", default=str(ROOT / SIGNAL_HISTORY),
+    ap.add_argument("--signal-history",
+                    default=str(_out / Path(SIGNAL_HISTORY).name),
                     help="label corpus for the geometry breakeven check")
     ap.add_argument("--json", action="store_true")
     ns = ap.parse_args()

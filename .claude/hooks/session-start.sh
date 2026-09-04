@@ -27,13 +27,44 @@ PY=.venv/bin/python
 if [ ! -x "$PY" ]; then
   python3 -m venv .venv || log "venv create FAILED (bot may not start)"
 fi
-if ! "$PY" -c "import main" 2>/dev/null; then
-  log "installing dependencies"
+# THE PROBE MUST COVER WHAT THE SUITE NEEDS, NOT JUST THE ENGINE (2026-09-03).
+# `import main` alone was STRUCTURALLY BLIND to the dependency whose absence
+# actually bricks the battery: tests/test_dependency_hygiene.py forbids pandas
+# at engine scope ON PURPOSE, so `import main` is GUARANTEED never to touch it.
+# The two rules are each correct and jointly blind. Measured cost: a container
+# reported "dependencies already present", and `pytest tests/` then collected
+# 4,541 tests and ran ZERO - "Interrupted: 3 errors during collection", rc=2.
+# So the probe now asks the engine AND the analysis stack separately, and says
+# which is missing instead of claiming readiness it never checked.
+#
+# pandas/pyarrow/polars stay OUT of requirements.txt deliberately - engine
+# scope must not depend on them (that is the hygiene rule) - but they belong
+# in the venv, which tests/test_dependency_hygiene.py's own docstring states:
+# "it ships in the venv for offline analysis". Absent, ~51 tests skip and
+# scripts/rpe_factor.py's --self-test cannot run at all.
+_need_engine=0; _need_analysis=0
+"$PY" -c "import main" 2>/dev/null || _need_engine=1
+"$PY" -c "import pandas, pyarrow, polars" 2>/dev/null || _need_analysis=1
+if [ "$_need_engine" = 1 ]; then
+  log "installing engine dependencies"
   "$PY" -m pip install -q --upgrade pip          || log "pip upgrade failed (continuing)"
   "$PY" -m pip install -q -r requirements.txt     || log "requirements install failed (continuing)"
   "$PY" -m pip install -q pytest ruff bandit      || log "tooling install failed (continuing)"
+fi
+if [ "$_need_analysis" = 1 ]; then
+  log "installing analysis stack (scripts/tests scope; NOT requirements.txt)"
+  "$PY" -m pip install -q pandas pyarrow polars   || log "analysis stack install failed (continuing)"
+fi
+# Report what is ACTUALLY importable now - a readiness line that was never
+# checked is the artifact this whole block exists to stop producing.
+_eng=missing; _ana=missing
+"$PY" -c "import main" 2>/dev/null && _eng=ok
+"$PY" -c "import pandas, pyarrow, polars" 2>/dev/null && _ana=ok
+if [ "$_eng" = ok ] && [ "$_ana" = ok ]; then
+  log "dependencies ready (engine ok, analysis stack ok)"
 else
-  log "dependencies already present - skipping pip"
+  log "dependencies INCOMPLETE - engine=$_eng analysis=$_ana; the suite will \
+run in DEGRADED form (optional-dep tests skip). This line is the warning."
 fi
 
 # --- 2. code continuity (fast-forward only, best-effort) -------------------

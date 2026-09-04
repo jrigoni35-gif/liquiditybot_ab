@@ -153,3 +153,40 @@ def test_shared_constant_label_is_gone_from_the_hook():
         encoding="utf-8"), (
         "the shared 'cloud-mirror' default is back in the hook - that single "
         "constant IS ISO-1")
+
+
+# --- the readiness probe must cover what the SUITE needs (2026-09-03) ------
+# `import main` alone was structurally blind: test_dependency_hygiene forbids
+# pandas at engine scope on purpose, so `import main` is GUARANTEED never to
+# touch it. The hook printed "dependencies already present" while
+# `pytest tests/` collected 4,541 tests and ran ZERO. Both rules were correct;
+# together they were blind. These pins are cross-platform (no bash needed).
+
+def test_probe_checks_the_analysis_stack_not_just_the_engine():
+    src = HOOK.read_text(encoding="utf-8")
+    assert 'import pandas, pyarrow, polars' in src, (
+        "the readiness probe no longer checks the analysis stack - it is back "
+        "to being blind to the dependency whose absence bricks the battery")
+    assert 'import main' in src, "the engine probe should remain too"
+
+
+def test_probe_reports_incomplete_rather_than_claiming_readiness():
+    """A readiness line that was never checked is the artifact this block
+    exists to stop producing."""
+    src = HOOK.read_text(encoding="utf-8")
+    assert "INCOMPLETE" in src and "DEGRADED" in src, (
+        "the hook must NAME a degraded environment, not silently claim ready")
+
+
+def test_analysis_stack_stays_out_of_requirements_txt():
+    """THE HYGIENE BOUNDARY. pandas et al. belong in the venv, never as an
+    engine dependency - test_dependency_hygiene.py forbids them at engine
+    scope, and pinning them here would make them load-bearing for every
+    deploy, restart and compileall on the PC."""
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    for pkg in ("pandas", "pyarrow", "polars", "statsmodels"):
+        for line in req.splitlines():
+            bare = line.split("#")[0].strip()
+            assert not bare.startswith(pkg), (
+                f"{pkg} was pinned in requirements.txt - that makes an "
+                f"analysis-only dependency load-bearing for the engine")
