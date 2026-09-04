@@ -31,12 +31,37 @@ At the live mid $0.02750 the position is **-$38.84**.
 | "90d −10%/yr, 30d +18%/yr" | **wrong in sign** — point-to-point is 90d **+22.7%/yr**, 30d **+63.3%/yr** (close $0.02760 now vs $0.02610 / $0.02620). Conclusion survives; the numbers do not. | same |
 | Fat tails regime-contaminated (kurt 6.66 old vs −0.26 recent) | **confirmed** — 365d ex-kurt **+6.69**, 30d **−0.45**. Current regime is near-Gaussian *and* lower-vol: 90d **3.31%/d** vs full-sample **4.85%/d**. | same |
 | Biconomy ~69% of reported spot, wash; genuine ~$320k/day | **confirmed** — Biconomy FLOW/USDC **71.8%** ($1,274,642), `trust_score: no_data`. High-trust venues sum to **$359,983/day**. Kraken FLOW/USD is **3.9%** of the real tape. | CoinPaprika `getCoinMarkets` |
-| Binance FLOWUSDT max lev 10x, MMR 5% | **not independently verified** — no Binance endpoint reached this pass. Unchecked, not confirmed. | — |
-| No on-chain forced sellers $0.0240–$0.0290; ankrFLOW/More Markets paused | **not independently verified** — no chain read this pass. Unchecked, not confirmed. | — |
+| Binance FLOWUSDT max lev 10x, MMR 5% | **BLOCKED, still unverified** — `fapi.binance.com` and `api.binance.com` return **HTTP 451** (geo-restricted) from this box; the `data-api.binance.vision` spot mirror answers but carries no leverage/MMR data; the trading-rules page renders its table client-side and fetches as "No Data". Not confirmed, not refuted. | attempted 2026-09-04 |
+| No on-chain forced sellers $0.0240–$0.0290; ankrFLOW/More Markets paused | **CONFIRMED on-chain** — **9/9** More Markets reserves read `PAUSED`; ankrFLOW `paused()` = true. See below. | Flow EVM RPC |
 
-Two rows are "unchecked", not "clean". Recording the distinction because
+One row is BLOCKED, not clean. Recording the distinction because
 "0 findings" and "the scan never ran" are the same observation until
-separated.
+separated. The Binance claim is carried forward as **unknown** — it is
+not load-bearing for the Kraken position, but it must not be quoted as
+verified until an endpoint answers.
+
+## Finding 0 — the chain contradicts the press, and the chain wins
+
+Secondary coverage of the 2026-08-31 ankrFLOW exploit states that **"no
+operational pause was announced"**. Read directly on Flow EVM
+(`monitor/chain_check.py`), on a pool whose `ADDRESSES_PROVIDER()`
+matches the published deployment:
+
+    WFLOW  ankrFLOWEVM  USDC.e  cbBTC  USDF  stgUSDC  WETH  WBTC  PYUSD0
+    -> 9/9 reserves PAUSED ;  ankrFLOW token paused() = true
+
+Announced and enforced are different claims and only the second binds.
+The mechanism is what matters: in Aave V3 the reserve PAUSED flag
+(config bit 60) gates `liquidationCall` alongside supply/borrow/repay/
+withdraw. **No forced seller can execute at ANY price while the pause
+holds** — so the "no forced sellers between $0.0240 and $0.0290" claim
+is structural, not a statement about where liquidation prices sit. It
+also means the claim's failure mode is a single state change, not a
+price move: re-run the check before relying on it.
+
+Separately, the press's **$9.3M** exploit figure is corroborated as
+wrong by a headline in the same result set reading "**drains $410K**",
+consistent with the reconstructed ~$412k face value.
 
 ## Finding 1 — the margin call is a slope, not a level
 

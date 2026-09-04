@@ -78,3 +78,44 @@ def test_fee_tier_reads_the_venue_schedule(vol_30d, maker, taker):
         "fees": [[0, 0.4], [10000, 0.35], [50000, 0.24], [100000, 0.22]],
     }
     assert fee_tier(info, vol_30d) == (maker, taker)
+
+
+# --- chain_check: selectors are load-bearing, so pin the hash ------------
+
+from monitor.chain_check import decode_string, keccak256, selector  # noqa: E402
+
+
+def test_keccak256_known_vectors():
+    assert keccak256(b"").hex() == (
+        "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+    )
+    assert keccak256(b"abc").hex() == (
+        "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+    )
+
+
+@pytest.mark.parametrize(
+    "sig,sel",
+    [
+        ("paused()", "0x5c975abb"),
+        ("totalSupply()", "0x18160ddd"),
+        ("transfer(address,uint256)", "0xa9059cbb"),
+        ("symbol()", "0x95d89b41"),
+        ("getConfiguration(address)", "0xc44b11f7"),
+        ("getReservesList()", "0xd1946dbc"),
+        ("ADDRESSES_PROVIDER()", "0x0542975c"),
+    ],
+)
+def test_selector_matches_known_abi(sig, sel):
+    assert selector(sig) == sel
+
+
+def test_ratio_and_getRatioFor_are_different_selectors():
+    """The reason selectors are derived and never guessed."""
+    assert selector("ratio()") != selector("getRatioFor(address)")
+    assert selector("ratio()") == "0x71ca337d"
+
+
+def test_decode_string_survives_short_and_empty_words():
+    assert decode_string(None) == "?"
+    assert decode_string("0x") == "?"
