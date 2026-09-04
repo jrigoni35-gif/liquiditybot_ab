@@ -1,88 +1,89 @@
 {
-  "generated_at": 1788558014.0673177,
+  "generated_at": 1788561612.5263505,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788558004.0,
-    "duration_h": 1357.77
+    "end": 1788561610.0,
+    "duration_h": 1358.78
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 514,
-      "signal_records": 417,
+      "records": 945,
+      "signal_records": 862,
       "by_src": {
-        "long_book": 206,
-        "ml_governor": 123,
-        "exploration": 122,
-        "order_manager": 39,
+        "long_book": 407,
+        "exploration": 150,
+        "ml_governor": 124,
+        "firewall": 90,
+        "order_manager": 45,
+        "conviction": 44,
+        "startup": 37,
+        "fault": 37,
         "exit": 10,
-        "conviction": 9,
-        "startup": 2,
-        "fault": 2,
         "circuit_breaker": 1
       },
       "top_codes": [
         [
           "LB-010",
-          117
+          182
         ],
         [
-          "SZ-051",
-          46
+          "CX-030",
+          108
         ],
         [
-          "ML-070",
-          46
+          "LB-050",
+          108
+        ],
+        [
+          "FW-050",
+          90
+        ],
+        [
+          "SZ-049",
+          59
         ],
         [
           "ML-031",
           42
         ],
         [
-          "CX-030",
+          "SZ-051",
           40
         ],
         [
-          "LB-050",
+          "ML-070",
           40
         ],
         [
-          "OM-000",
-          25
+          "CG-000",
+          37
+        ],
+        [
+          "FT-020",
+          37
+        ],
+        [
+          "CV-010",
+          36
         ],
         [
           "ML-016",
           24
-        ],
-        [
-          "ML-042",
-          24
-        ],
-        [
-          "ML-041",
-          24
-        ],
-        [
-          "SZ-049",
-          17
-        ],
-        [
-          "OM-040",
-          14
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.281,
-      "retrain_requests": 7,
+      "dominant_frac": 0.211,
+      "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 24217,
+      "records": 24906,
       "by_level": {
-        "INFO": 24013,
-        "WARNING": 198,
-        "CRITICAL": 4,
+        "INFO": 24695,
+        "WARNING": 204,
+        "CRITICAL": 5,
         "ERROR": 2
       },
       "top_warnings": [
@@ -100,14 +101,14 @@
         ],
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          5
+        ],
+        [
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           4
         ],
         [
           "ML-032 RETRAIN REQUESTED: input drift on 33% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          3
-        ],
-        [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           3
         ],
         [
@@ -128,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 6192,
-        "thin": 3014
+        "spoofy": 6493,
+        "thin": 3094
       },
-      "spoofy_frac": 0.673,
+      "spoofy_frac": 0.677,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3287,
-      "feed_error_events": 0
+      "cycles_estimate": 3395,
+      "feed_error_events": 3
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.62,
+    "equity_end": 793.57,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 132238,
+    "epoch_samples": 132456,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,27 +154,27 @@
     "realized_pnl_total": -0.55,
     "fees_paid_total": 12.9077,
     "open_positions": 4,
-    "samples": 300029
+    "samples": 300247
   },
   "activity": {
-    "signal_rows_total": 24736,
+    "signal_rows_total": 24740,
     "live_labeled_trades": 407,
-    "candidate_rows": 24329
+    "candidate_rows": 24333
   },
   "audit": {
-    "records": 77108,
-    "signal_records": 31563,
+    "records": 77565,
+    "signal_records": 32020,
     "by_src": {
-      "exploration": 68460,
-      "long_book": 2504,
-      "ml_governor": 2494,
-      "order_manager": 1804,
-      "conviction": 720,
-      "startup": 326,
+      "exploration": 68503,
+      "long_book": 2708,
+      "ml_governor": 2496,
+      "order_manager": 1816,
+      "conviction": 756,
+      "startup": 361,
+      "fault": 342,
       "exit": 311,
-      "fault": 307,
+      "firewall": 150,
       "engine": 63,
-      "firewall": 60,
       "circuit_breaker": 54,
       "runner": 5
     },
@@ -192,7 +193,7 @@
       ],
       [
         "LB-010",
-        1643
+        1711
       ],
       [
         "OM-000",
@@ -200,7 +201,11 @@
       ],
       [
         "ML-031",
-        910
+        911
+      ],
+      [
+        "LB-050",
+        579
       ],
       [
         "CV-030",
@@ -208,11 +213,7 @@
       ],
       [
         "OM-040",
-        514
-      ],
-      [
-        "LB-050",
-        511
+        526
       ],
       [
         "ML-016",
@@ -228,17 +229,17 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.706,
-    "retrain_requests": 185,
+    "dominant_frac": 0.696,
+    "retrain_requests": 186,
     "kill_switch_events": 7,
     "chain_ok": false,
     "chain_first_break": null,
     "chain_tamper": false,
-    "chain_seams": 10,
+    "chain_seams": 11,
     "chain_torn_tail": false,
     "chain_error": null,
-    "dup_seqs": 38,
-    "fork_divergent_seqs": 38,
+    "dup_seqs": 39,
+    "fork_divergent_seqs": 39,
     "fork_codes": {
       "ML-031": 9,
       "OM-000": 8,
@@ -247,13 +248,13 @@
       "CV-030": 6,
       "SZ-053": 6,
       "LB-010": 5,
+      "CG-000": 4,
       "ML-050": 4,
-      "CG-000": 3,
       "RT-010": 3,
       "FT-020": 3,
+      "SZ-049": 3,
       "ML-070": 3,
       "SZ-047": 2,
-      "SZ-049": 2,
       "OM-040": 2,
       "FT-010": 1,
       "ML-076": 1,
@@ -321,11 +322,11 @@
     ]
   },
   "events": {
-    "records": 24217,
+    "records": 24906,
     "by_level": {
-      "INFO": 24013,
-      "WARNING": 198,
-      "CRITICAL": 4,
+      "INFO": 24695,
+      "WARNING": 204,
+      "CRITICAL": 5,
       "ERROR": 2
     },
     "top_warnings": [
@@ -343,14 +344,14 @@
       ],
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        5
+      ],
+      [
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         4
       ],
       [
         "ML-032 RETRAIN REQUESTED: input drift on 33% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        3
-      ],
-      [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         3
       ],
       [
@@ -371,13 +372,13 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6192,
-      "thin": 3014
+      "spoofy": 6493,
+      "thin": 3094
     },
-    "spoofy_frac": 0.673,
+    "spoofy_frac": 0.677,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3287,
-    "feed_error_events": 0
+    "cycles_estimate": 3395,
+    "feed_error_events": 3
   },
   "model": {
     "monitor_level": 1,
@@ -407,7 +408,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 14399,
+      "triple_barrier_h432": 14403,
       "triple_barrier": 5328,
       "exit_sim": 2769,
       "legacy": 1781,
@@ -425,10 +426,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 24736,
+    "corpus_rows": 24740,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-04T18:05:00Z",
-    "corpus_span_days": 53.23,
+    "corpus_last_ts": "2026-09-04T18:25:00Z",
+    "corpus_span_days": 53.24,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -445,7 +446,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "38 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'ML-031': 9, 'OM-000': 8, 'SZ-051': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'LB-010': 5, 'ML-050': 4, 'CG-000': 3, 'RT-010': 3, 'FT-020': 3, 'ML-070': 3, 'SZ-047': 2, 'SZ-049': 2, 'OM-040': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'ML-016': 1, 'ML-042': 1, 'ML-041': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "39 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'ML-031': 9, 'OM-000': 8, 'SZ-051': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'LB-010': 5, 'CG-000': 4, 'ML-050': 4, 'RT-010': 3, 'FT-020': 3, 'SZ-049': 3, 'ML-070': 3, 'SZ-047': 2, 'OM-040': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'ML-016': 1, 'ML-042': 1, 'ML-041': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
@@ -457,13 +458,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 67% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 68% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
       "severity": "info",
       "title": "audit writer seam(s)",
-      "detail": "10 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
+      "detail": "11 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
   "verdict": "SD-011 audit fork carries divergent payloads"
