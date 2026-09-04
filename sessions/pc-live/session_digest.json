@@ -1,23 +1,23 @@
 {
-  "generated_at": 1788500389.6511006,
+  "generated_at": 1788503990.7246702,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788500376.0,
-    "duration_h": 1341.77
+    "end": 1788503988.0,
+    "duration_h": 1342.77
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 547,
-      "signal_records": 463,
+      "records": 549,
+      "signal_records": 465,
       "by_src": {
-        "long_book": 240,
+        "long_book": 238,
         "ml_governor": 128,
         "exploration": 107,
-        "order_manager": 34,
+        "order_manager": 37,
         "conviction": 23,
-        "exit": 12,
+        "exit": 13,
         "circuit_breaker": 1,
         "startup": 1,
         "fault": 1
@@ -25,7 +25,7 @@
       "top_codes": [
         [
           "LB-010",
-          150
+          148
         ],
         [
           "ML-031",
@@ -48,6 +48,10 @@
           40
         ],
         [
+          "OM-000",
+          27
+        ],
+        [
           "ML-016",
           26
         ],
@@ -60,10 +64,6 @@
           26
         ],
         [
-          "OM-000",
-          24
-        ],
-        [
           "CV-030",
           23
         ],
@@ -73,22 +73,22 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.324,
+      "dominant_frac": 0.318,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 11298,
+      "records": 12108,
       "by_level": {
-        "INFO": 11233,
-        "WARNING": 62,
+        "INFO": 12034,
+        "WARNING": 71,
         "CRITICAL": 2,
         "ERROR": 1
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          23
+          27
         ],
         [
           "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
@@ -115,62 +115,62 @@
           2
         ],
         [
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+          2
+        ],
+        [
           "context source 'dff' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredgrap",
           1
         ],
         [
           "context source 't10y2y' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredg",
           1
-        ],
-        [
-          "context source 'vix' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredgrap",
-          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 2558,
-        "thin": 1257
+        "spoofy": 2764,
+        "thin": 1363
       },
-      "spoofy_frac": 0.671,
+      "spoofy_frac": 0.67,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1413,
+      "cycles_estimate": 1531,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 794.64,
+    "equity_end": 794.49,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 128473,
+    "epoch_samples": 128710,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
     "lifetime_equity_range": 99209.9,
-    "realized_pnl_total": -0.63,
-    "fees_paid_total": 12.6398,
+    "realized_pnl_total": -0.61,
+    "fees_paid_total": 12.7498,
     "open_positions": 2,
-    "samples": 296264
+    "samples": 296501
   },
   "activity": {
-    "signal_rows_total": 24107,
-    "live_labeled_trades": 405,
-    "candidate_rows": 23702
+    "signal_rows_total": 24141,
+    "live_labeled_trades": 406,
+    "candidate_rows": 23735
   },
   "audit": {
-    "records": 77008,
-    "signal_records": 31501,
+    "records": 77016,
+    "signal_records": 31509,
     "by_src": {
       "exploration": 68415,
       "long_book": 2504,
-      "ml_governor": 2455,
-      "order_manager": 1792,
+      "ml_governor": 2459,
+      "order_manager": 1795,
       "conviction": 720,
       "startup": 325,
-      "exit": 309,
+      "exit": 310,
       "fault": 306,
       "engine": 63,
       "firewall": 60,
@@ -196,11 +196,11 @@
       ],
       [
         "OM-000",
-        1282
+        1285
       ],
       [
         "ML-031",
-        895
+        896
       ],
       [
         "CV-030",
@@ -216,15 +216,15 @@
       ],
       [
         "ML-016",
-        430
+        431
       ],
       [
         "ML-041",
-        412
+        413
       ],
       [
         "ML-042",
-        365
+        366
       ]
     ],
     "dominant_code": "SZ-047",
@@ -321,17 +321,17 @@
     ]
   },
   "events": {
-    "records": 11298,
+    "records": 12108,
     "by_level": {
-      "INFO": 11233,
-      "WARNING": 62,
+      "INFO": 12034,
+      "WARNING": 71,
       "CRITICAL": 2,
       "ERROR": 1
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        23
+        27
       ],
       [
         "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
@@ -358,34 +358,34 @@
         2
       ],
       [
+        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+        2
+      ],
+      [
         "context source 'dff' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredgrap",
         1
       ],
       [
         "context source 't10y2y' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredg",
         1
-      ],
-      [
-        "context source 'vix' fetch failed: HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): Max retries exceeded with url: /graph/fredgrap",
-        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 2558,
-      "thin": 1257
+      "spoofy": 2764,
+      "thin": 1363
     },
-    "spoofy_frac": 0.671,
+    "spoofy_frac": 0.67,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1413,
+    "cycles_estimate": 1531,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.24463146500375937,
+    "champion_brier": 0.24470060871125968,
     "brier": "n/a",
-    "history_rows": 405,
+    "history_rows": 406,
     "cold": false
   },
   "postmortems": {
@@ -407,28 +407,28 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 13772,
+      "triple_barrier_h432": 13805,
       "triple_barrier": 5328,
-      "exit_sim": 2767,
+      "exit_sim": 2768,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1230,
+    "fills_rows": 1233,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1024,
       "7-e7d5ca1a": 133,
-      "9-16ec821e": 53,
+      "9-16ec821e": 56,
       "8-ca55e2ba": 10,
       "absent(stale-binary)": 6,
       "4-aeeaae36": 4
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 24107,
+    "corpus_rows": 24141,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-04T00:50:00Z",
-    "corpus_span_days": 52.51,
+    "corpus_last_ts": "2026-09-04T05:20:00Z",
+    "corpus_span_days": 52.7,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -451,7 +451,7 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 53, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 9-16ec821e. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 56, '8-ca55e2ba': 10, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 9-16ec821e. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-003",
@@ -463,7 +463,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 32% of 463 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 32% of 465 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
