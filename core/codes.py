@@ -381,6 +381,20 @@ class Code(str, Enum):
     #   waiting). register() alone only holds pool size CONSTANT at the
     #   restored size (pop-then-append), so without this a shrunk cap was
     #   never enforced against a larger restored pool.
+    ML_UNPARSEABLE_ROW = "ML-087"  # training-load row dropped because a cell
+    #   would not parse. csv.DictReader is built with NO restval, so a SHORT
+    #   row - what an interrupted/torn append leaves - yields None for every
+    #   missing trailing field, and float(None) is a TypeError. Before this
+    #   code that TypeError was OUTSIDE load_training_data's except tuple, so
+    #   one torn tail made the whole corpus unreadable to EVERY consumer
+    #   (overfit_check - a definition-of-done gate - train_meta, learning
+    #   curve, feature stability, interpret) until a human edited the CSV;
+    #   durable_append isolates the fragment in place, so it never healed on
+    #   its own. The drop is now counted (last_load_stats["dropped_parse"])
+    #   and logged, exactly like its ML-015 finiteness sibling: a row that
+    #   vanishes without a counter is indistinguishable from one never
+    #   written. Corpus/labeling plane only - never touches orders, sizing,
+    #   fills or fees.
 
     # ---- profit-tier exit system (TP) -----------------------------------
     # NOTE (cross-reference, registry hygiene 2026-08-17): two EXIT-path

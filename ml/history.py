@@ -274,6 +274,22 @@ LABEL_ERA_TRIPLE_BARRIER = "triple_barrier"
 # keep the un-suffixed era name so nothing already on disk changes
 # meaning; any other horizon self-identifies (triple_barrier_era).
 _TB_LEGACY_MAX_BARS = 96
+
+# ML-087 escalates WARNING -> ERROR only when BOTH conditions hold. Not a
+# tunable and not a decision knob: it changes a LOG LEVEL only, and no gate,
+# sizer or order path reads it.
+#
+# The share alone is NOT sufficient, which a test caught rather than review:
+# on a 12-row fixture a single torn tail row is 8.3% and tripped a 1% share
+# threshold, so a share-only rule cries wolf on every small corpus. The two
+# causes differ on BOTH axes and the rule has to use both:
+#   torn/interrupted append -> a FEW rows, any corpus size (1, rarely 2)
+#   schema change           -> EVERY row, so both count and share are maximal
+# 3 rows is above any plausible tail; 1% is far below any systematic failure.
+# Neither is fitted: no value of the pair in ([2,50], [0.001,0.5]) classifies
+# either case differently.
+_PARSE_DROP_ALARM_SHARE = 0.01
+_PARSE_DROP_ALARM_MIN_ROWS = 3
 LABEL_ERA_UNKNOWN = "unknown"                  # unrecognized barrier string
 
 # gate-truth instrumentation (2026-07-28): the informed-flow component
@@ -1707,6 +1723,7 @@ class HistoryStore:
         now = time.time()
         dropped_clash = 0
         dropped_dirty = 0
+        dropped_parse = 0      # cells that would not parse (ML-087)
         # T3.6 loader seam (config ml.epoch, SHIPPED OFF): resolved ONCE
         # here, not per-row, so the per-row check below is a single call.
         epoch_cutoff = _epoch_cutoff(epoch_cfg)
@@ -1808,7 +1825,19 @@ class HistoryStore:
                     suspect = min(max(float(
                         row.get("manip_suspect") or 0.0), 0.0), 1.0)
                     wr *= 1.0 - min(max(manip_discount, 0.0), 1.0) * suspect
-                except (KeyError, ValueError):
+                # TypeError belongs here for the same reason ValueError does.
+                # DictReader is built with NO restval, so a SHORT row - the
+                # shape an interrupted append leaves behind - yields None for
+                # every missing trailing field, and float(None) raises
+                # TypeError, not ValueError. Outside this tuple it escaped
+                # load_training_data entirely and, because durable_append
+                # isolates the torn fragment in place rather than healing it,
+                # made the corpus permanently unreadable to EVERY consumer
+                # (overfit_check is a definition-of-done gate) until a human
+                # edited the CSV. Counted, never silent: an uncounted drop
+                # reads exactly like a row that was never written.
+                except (KeyError, ValueError, TypeError):
+                    dropped_parse += 1
                     continue
                 # LOAD-PATH BACKSTOP: float('nan')/float('inf') parse cleanly,
                 # so the try above never catches a dirty cell. The write guard
@@ -1845,6 +1874,38 @@ class HistoryStore:
                 f"training load skipped {dropped_dirty} row(s) with "
                 f"non-finite features/label (legacy/imported dirty data) - "
                 f"{len(X)} clean rows remain"))
+        if dropped_parse:
+            # ONE TORN ROW AND A BROKEN SCHEMA ARE NOT THE SAME EVENT, and a
+            # bare non-zero counter cannot tell them apart. Catching TypeError
+            # above turns a systematic cause - a schema change leaving a
+            # FEATURE_NAMES column absent for EVERY row - from a loud crash
+            # into an empty corpus. That matters because an empty corpus is
+            # not loud either: scripts/overfit_check.py substitutes its
+            # planted-signal SYNTHETIC benchmark below len(FEATURE_NAMES)*10
+            # rows and prints a green that "validates the machinery, not the
+            # market". Trading a crash for a green DoD gate would be a strictly
+            # worse failure than the one this fix removes, so the share is
+            # computed and escalated, and last_load_stats carries it for any
+            # consumer that wants to refuse.
+            _seen = len(X) + dropped_parse + dropped_dirty
+            _share = dropped_parse / _seen if _seen else 1.0
+            _msg = (f"training load skipped {dropped_parse} unparseable "
+                    f"row(s) ({_share:.1%} of {_seen} scanned; short/torn "
+                    f"record, or a cell that is not a number) - {len(X)} "
+                    f"clean rows remain. A torn tail is isolated in place by "
+                    f"durable_append and will be re-read on every load until "
+                    f"the file is repaired")
+            if (_share >= _PARSE_DROP_ALARM_SHARE
+                    and dropped_parse >= _PARSE_DROP_ALARM_MIN_ROWS):
+                log.error(tag(
+                    Code.ML_UNPARSEABLE_ROW,
+                    _msg + f". THIS IS NOT A TORN TAIL: {_share:.1%} of the "
+                    f"corpus failed to parse, which is the signature of a "
+                    f"SCHEMA change, not a truncated append. Treat the "
+                    f"remaining rows as an unrepresentative subset and do "
+                    f"NOT read any gate computed on them as a green"))
+            else:
+                log.warning(tag(Code.ML_UNPARSEABLE_ROW, _msg))
         # ---- de Prado corrections (config ml.sample_weights; AFML ch.4) ----
         # KNOWN OMISSION vs the book (2026-07-29 literature audit):
         # sequential bootstrap (AFML sec. 4.5) is deliberately not
@@ -1935,6 +1996,10 @@ class HistoryStore:
                  "Kish ESS %.1f", len(w), uniq_mean, ess_kish)
         self.last_load_stats = {
             "rows": len(w), "dropped_dirty": dropped_dirty,
+            "dropped_parse": dropped_parse,
+            "parse_drop_share": round(
+                dropped_parse / (len(w) + dropped_parse + dropped_dirty), 6)
+            if (len(w) + dropped_parse + dropped_dirty) else 0.0,
             "dropped_clash": dropped_clash,
             "live_clean": sum(1 for m in meta if m[2] == "live"),
             "mean_uniqueness": round(uniq_mean, 4),
