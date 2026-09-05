@@ -47,8 +47,27 @@ log = logging.getLogger("liquiditybot.core.config_guard")
 # leg. Was 25/40 through cut #8; corrected to venue truth 2026-08-29
 # (measured stale-floor finding, injection-confirmed). Strict `<` keeps the
 # live 40/80 config passing exactly at the floor.
-KRAKEN_SPOT_FLOOR_MAKER_BPS = 40.0
-KRAKEN_SPOT_FLOOR_TAKER_BPS = 80.0
+# CORRECTED 2026-09-05 — the 40/80 above was NOT venue truth.
+#
+# Read live from https://api.kraken.com/0/public/AssetPairs (identical across
+# FLOW/ETH/XBT/SOL/LINK-USD, so it is an account-wide spot schedule): the rows
+# are 25/40, 20/35, 14/24, 12/22, ... down to 0/5. **40/80 is not a row, and
+# neither is 22/38.** The comment above calls 25/40 "the retired public bottom
+# tier"; it is not retired - it is the CURRENT zero-volume row.
+#
+# So the 2026-08-29 "stale-floor correction" moved this constant from the
+# venue's real bottom row to a figure the venue has never published, on the
+# same false premise that produced cut #8's fee booking. The floor is now
+# DERIVED from core/venue_fees, which is diffed against the live endpoint by
+# scripts/fee_drift_report.py - a constant that cannot confirm itself is how
+# this went wrong twice.
+#
+# The floor's meaning is unchanged: no spot account pays LESS than the
+# zero-volume row unless it has earned a volume discount, which is exactly
+# what pretrade.allow_sub_floor_fees declares.
+from core.venue_fees import worst_row as _venue_worst_row  # noqa: E402
+
+KRAKEN_SPOT_FLOOR_MAKER_BPS, KRAKEN_SPOT_FLOOR_TAKER_BPS = _venue_worst_row()
 
 # Entry-signal engines main.py:540 can dispatch. NOT a tunable: this is a
 # statement of what the code can construct, so it belongs beside the module
@@ -602,6 +621,27 @@ def validate(config: dict) -> list:
         (fatal if not dry_run else warn)(msg)
     if pt_taker < pt_maker:
         warn("taker fee below maker fee - unusual; double-check the tier")
+    # IS THE BOOKED PAIR A TIER THE VENUE ACTUALLY PUBLISHES?
+    #
+    # This is the check that would have caught both historical fee errors,
+    # and neither the floor above nor the reconciliation below can: cut #8's
+    # 40/80 and cut #9's 22/38 are BOTH absent from Kraken's schedule
+    # entirely. A maker/taker pair matching no row did not come from the
+    # schedule - it came from a screenshot, an average, or a memory of an
+    # older tier - and that provenance is the defect, independent of whether
+    # the number happens to be conservative.
+    #
+    # WARN, not FATAL, deliberately: correcting the booked value is fee
+    # policy, which is cohort-resetting and belongs to an operator
+    # adjudication. A guard must not quietly force a boundary cut. Promoting
+    # this to FATAL should ride that adjudication.
+    from core.venue_fees import is_a_published_row as _is_row
+    if not _is_row(pt_maker, pt_taker):
+        warn(f"configured fees {pt_maker:g}/{pt_taker:g} bps are not a "
+             f"published Kraken tier (rows: 25/40, 20/35, 14/24, 12/22, ...). "
+             f"A pair that matches no row did not come from the venue's "
+             f"schedule. Run scripts/fee_drift_report.py; correcting the "
+             f"booked value is an operator adjudication (cohort-resetting).")
 
     # --- fee-tier reconciliation (W2-9 remainder) -----------------------
     # order_manager.fee_recon periodically compares the CONFIGURED bps

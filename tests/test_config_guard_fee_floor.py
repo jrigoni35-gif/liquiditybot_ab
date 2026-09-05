@@ -1,22 +1,48 @@
-"""The sub-floor fee FATAL must sit at VENUE TRUTH, not the retired tier.
+"""The sub-floor fee FATAL must sit at VENUE TRUTH — measured, not asserted.
 
-Cut #8 (2026-08-28) moved Kraken Tier-1 fees 25/40 -> 40/80 bps. The
-config_guard FATAL whose sole job is "understated fees make the pre-trade
-gate approve net-losing trades" kept a 25/40 floor through the cut, so a
-config anywhere in [25/40, 40/80) - up to HALF the true taker leg - passed
-silently. Measured 2026-08-29 (stated-vs-real audit, injection-confirmed);
-corrected same day. These pins go RED if the floor ever regresses below
-venue truth, so the guard can never again be understated relative to the
-schedule it protects against.
+CORRECTED 2026-09-05, AND THE CORRECTION IS THE POINT OF THIS FILE.
 
-The floor moving is a MEASUREMENT-STANDARD change tied to the exec era, not
-a tunable - when the next era re-prices fees, this floor and these pins move
-WITH it, consciously.
+This suite previously pinned the floor at 40/80 bps and asserted that a config
+booking 25/40 must FATAL as "understated". Both were wrong, and they were
+wrong in the way this repo keeps paying for: a belief about an external system
+was written into a constant, then pinned by a test, so the pin defended the
+error instead of the property.
+
+Read live from https://api.kraken.com/0/public/AssetPairs on 2026-09-05,
+identical across FLOW/ETH/XBT/SOL/LINK-USD (so: an account-wide spot
+schedule, not per-pair). Kraken's published rows are
+
+    >=        $0   25 / 40 bps      <- the zero-volume row: the MOST anyone pays
+    >=   $10,000   20 / 35
+    >=   $50,000   14 / 24
+    >=  $100,000   12 / 22
+    ... down to 0 / 5 at >= $500,000,000
+
+**40/80 is not a row. Neither is 22/38.** The prior header called 25/40 "the
+retired tier"; it is not retired, it is the current zero-volume row. So the
+2026-08-29 "stale-floor correction" moved the constant from the venue's real
+bottom row to a figure the venue has never published — on the same false
+premise that produced cut #8's fee booking.
+
+WHAT THE FLOOR MEANS, restated so it cannot drift again: no spot account pays
+LESS than the zero-volume row unless it has earned a volume discount, which is
+exactly what `pretrade.allow_sub_floor_fees` declares. That is the property.
+The NUMBER is derived from core/venue_fees, which scripts/fee_drift_report.py
+diffs against the live endpoint — because a constant cannot confirm itself,
+and that is how this went wrong twice.
+
+These pins therefore assert the floor AGAINST THE SCHEDULE, never against a
+literal repeated here.
 """
 import pytest
 
 from core.config_guard import (KRAKEN_SPOT_FLOOR_MAKER_BPS,
                                KRAKEN_SPOT_FLOOR_TAKER_BPS, validate)
+from core.venue_fees import (KRAKEN_SPOT_SCHEDULE, binding_row,
+                             fetch_live_schedule, is_a_published_row,
+                             worst_row)
+
+_FLOOR_M, _FLOOR_T = worst_row()
 
 
 def _fatal_msgs(cfg):
@@ -43,38 +69,91 @@ def _cfg(maker, taker, *, dry_run=False, allow_low=False):
     }
 
 
-def test_floor_is_venue_true_40_80():
-    # The constant IS the pin: regressing it to the retired 25/40 tier fails.
-    assert KRAKEN_SPOT_FLOOR_MAKER_BPS == 40.0
-    assert KRAKEN_SPOT_FLOOR_TAKER_BPS == 80.0
+# --------------------------------------------------------- the floor itself
+def test_floor_is_the_venue_zero_volume_row():
+    """The constant must BE the schedule's worst row, not a literal."""
+    assert (KRAKEN_SPOT_FLOOR_MAKER_BPS,
+            KRAKEN_SPOT_FLOOR_TAKER_BPS) == worst_row()
+    assert (KRAKEN_SPOT_FLOOR_MAKER_BPS,
+            KRAKEN_SPOT_FLOOR_TAKER_BPS) == (KRAKEN_SPOT_SCHEDULE[0][1],
+                                             KRAKEN_SPOT_SCHEDULE[0][2])
 
 
-def test_venue_true_fees_pass_exactly_at_the_floor():
-    # The SAFE invariant: the live 40/80 config sits exactly at the floor and
-    # must NOT trip it (strict `<`). If this reddens, the fix broke startup.
-    assert not _has_floor_fatal(_cfg(40.0, 80.0))
+def test_the_floor_is_a_row_the_venue_actually_publishes():
+    """THE REGRESSION PIN. 40/80 passed the old suite and is not a Kraken
+    tier at all. Any floor that is not a published row is, by construction,
+    a number someone made up."""
+    assert is_a_published_row(KRAKEN_SPOT_FLOOR_MAKER_BPS,
+                              KRAKEN_SPOT_FLOOR_TAKER_BPS), (
+        f"floor {KRAKEN_SPOT_FLOOR_MAKER_BPS}/{KRAKEN_SPOT_FLOOR_TAKER_BPS} "
+        f"is not a published Kraken tier")
+    assert not is_a_published_row(40.0, 80.0), \
+        "40/80 must never again read as a venue tier"
+    assert not is_a_published_row(22.0, 38.0), \
+        "22/38 (cut #9's booking) is not a venue tier either"
 
 
-def test_understated_25_40_fatals_in_live():
-    # The exact config that passed BEFORE the correction must now FATAL.
-    assert _has_floor_fatal(_cfg(25.0, 40.0))
+# ------------------------------------------------------------- the behaviour
+def test_the_zero_volume_row_passes_exactly_at_the_floor():
+    """25/40 is venue truth for an account with no volume discount. The old
+    suite asserted it must FATAL - the exact inversion this file corrects."""
+    assert not _has_floor_fatal(_cfg(_FLOOR_M, _FLOOR_T))
 
 
-@pytest.mark.parametrize("maker,taker", [(25.0, 40.0), (30.0, 50.0),
-                                         (39.9, 79.9), (40.0, 79.0)])
-def test_the_whole_gap_below_venue_truth_fatals(maker, taker):
-    # Anything in [old floor, new floor) - the silent-pass band the audit
-    # named - is now caught.
+@pytest.mark.parametrize("maker,taker", [(0.0, 0.0), (5.0, 10.0),
+                                         (12.0, 22.0), (20.0, 35.0),
+                                         (24.9, 39.9)])
+def test_genuinely_sub_floor_fees_fatal_in_live(maker, taker):
+    """Everything strictly below the zero-volume row trips the guard unless
+    a discount is declared - including real discount tiers, which is correct:
+    claiming one without declaring it is what the flag is for."""
+    assert maker < _FLOOR_M or taker < _FLOOR_T, "fixture is not sub-floor"
     assert _has_floor_fatal(_cfg(maker, taker))
 
 
-def test_deleted_fee_keys_fall_below_the_floor_and_fatal():
-    # A config that DELETES the fee keys falls to the guard's 25/40 fallback,
-    # which now sits below the 40/80 floor -> FATAL, as the comment promises.
+def test_fees_above_the_floor_do_not_fatal():
+    """ANTI-RUBBER-STAMP: the guard must be able to stay silent, or every
+    assertion above is satisfied by a guard that fatals unconditionally."""
+    assert not _has_floor_fatal(_cfg(30.0, 50.0))
+    assert not _has_floor_fatal(_cfg(100.0, 200.0))
+
+
+def test_deleted_fee_keys_fall_back_and_are_judged_on_the_fallback():
+    """A config that DELETES the fee keys must not silently pass. Whatever
+    the guard's fallback is, the outcome has to be decidable - assert the
+    behaviour rather than a number, so a fallback change is visible."""
     cfg = {"system": {"dry_run": False}, "pretrade": {}, "order_manager": {}}
-    assert _has_floor_fatal(cfg)
+    msgs = _fatal_msgs(cfg)
+    assert msgs, "a config with no fee keys at all produced no FATAL"
 
 
 def test_allow_sub_floor_escape_still_works():
-    # A genuine volume-tier discount can still opt out (unchanged behavior).
-    assert not _has_floor_fatal(_cfg(20.0, 30.0, allow_low=True))
+    """A genuine volume-tier discount can opt out. Unchanged behaviour, and
+    the shipped config relies on it."""
+    assert not _has_floor_fatal(_cfg(20.0, 35.0, allow_low=True))
+
+
+# ---------------------------------------------------- the anti-rot mechanism
+def test_reference_schedule_still_matches_the_live_venue():
+    """The table cannot confirm itself. When a network is available, diff it
+    against the venue; SKIP - never silently pass - when it is not, because
+    "no drift" and "the check never ran" are the same observation until they
+    are separated."""
+    live = fetch_live_schedule("ETH/USD")
+    if live is None:
+        pytest.skip("venue unreachable - this pin establishes nothing here")
+    assert tuple(live) == tuple(KRAKEN_SPOT_SCHEDULE), (
+        "Kraken's published schedule has MOVED. Update "
+        "core/venue_fees.KRAKEN_SPOT_SCHEDULE and re-stamp "
+        "SCHEDULE_READ_UTC; then re-check the booked fee against it.")
+
+
+def test_binding_row_needs_a_volume_and_refuses_to_guess():
+    """A tier cannot be resolved without a 30-day volume. Returning a
+    plausible default would recreate the struck-literal failure exactly."""
+    assert binding_row(None) is None
+    assert binding_row(-1) is None
+    assert binding_row(0) == (25.0, 40.0)
+    assert binding_row(17_482) == (20.0, 35.0)
+    assert binding_row(10_000) == (20.0, 35.0)      # boundary is inclusive
+    assert binding_row(9_999) == (25.0, 40.0)
