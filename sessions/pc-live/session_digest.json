@@ -1,20 +1,20 @@
 {
-  "generated_at": 1788583250.2616081,
+  "generated_at": 1788586851.9688385,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788583238.0,
-    "duration_h": 1364.78
+    "end": 1788586837.0,
+    "duration_h": 1365.78
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1030,
-      "signal_records": 943,
+      "records": 1027,
+      "signal_records": 940,
       "by_src": {
-        "long_book": 484,
+        "long_book": 480,
         "exploration": 152,
-        "ml_governor": 111,
+        "ml_governor": 112,
         "firewall": 90,
         "startup": 48,
         "fault": 48,
@@ -26,7 +26,7 @@
       "top_codes": [
         [
           "LB-010",
-          195
+          191
         ],
         [
           "CX-030",
@@ -53,16 +53,16 @@
           48
         ],
         [
+          "ML-031",
+          42
+        ],
+        [
           "SZ-051",
           42
         ],
         [
           "ML-070",
           42
-        ],
-        [
-          "ML-031",
-          41
         ],
         [
           "CV-010",
@@ -74,21 +74,21 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.207,
+      "dominant_frac": 0.203,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 3594,
+      "records": 4361,
       "by_level": {
-        "INFO": 3570,
-        "WARNING": 23,
+        "INFO": 4333,
+        "WARNING": 27,
         "CRITICAL": 1
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          14
+          17
         ],
         [
           "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
@@ -128,24 +128,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 887,
-        "thin": 292
+        "spoofy": 1110,
+        "thin": 327
       },
-      "spoofy_frac": 0.752,
+      "spoofy_frac": 0.772,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 558,
+      "cycles_estimate": 676,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.45,
+    "equity_end": 793.44,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 133828,
+    "epoch_samples": 134064,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,20 +153,20 @@
     "realized_pnl_total": -0.55,
     "fees_paid_total": 12.9586,
     "open_positions": 5,
-    "samples": 301619
+    "samples": 301855
   },
   "activity": {
-    "signal_rows_total": 24810,
+    "signal_rows_total": 24827,
     "live_labeled_trades": 407,
-    "candidate_rows": 24403
+    "candidate_rows": 24420
   },
   "audit": {
-    "records": 77712,
-    "signal_records": 32158,
+    "records": 77713,
+    "signal_records": 32159,
     "by_src": {
       "exploration": 68514,
       "long_book": 2804,
-      "ml_governor": 2507,
+      "ml_governor": 2508,
       "order_manager": 1823,
       "conviction": 756,
       "startup": 372,
@@ -200,7 +200,7 @@
       ],
       [
         "ML-031",
-        915
+        916
       ],
       [
         "LB-050",
@@ -228,7 +228,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.693,
+    "dominant_frac": 0.692,
     "retrain_requests": 187,
     "kill_switch_events": 7,
     "chain_ok": false,
@@ -246,8 +246,8 @@
       "CG-000": 30,
       "FT-020": 30,
       "SZ-049": 21,
+      "ML-031": 14,
       "OM-000": 14,
-      "ML-031": 13,
       "SZ-051": 11,
       "ML-070": 7,
       "ML-030": 7,
@@ -325,16 +325,16 @@
     ]
   },
   "events": {
-    "records": 3594,
+    "records": 4361,
     "by_level": {
-      "INFO": 3570,
-      "WARNING": 23,
+      "INFO": 4333,
+      "WARNING": 27,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        14
+        17
       ],
       [
         "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
@@ -374,12 +374,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 887,
-      "thin": 292
+      "spoofy": 1110,
+      "thin": 327
     },
-    "spoofy_frac": 0.752,
+    "spoofy_frac": 0.772,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 558,
+    "cycles_estimate": 676,
     "feed_error_events": 0
   },
   "model": {
@@ -410,7 +410,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 14473,
+      "triple_barrier_h432": 14490,
       "triple_barrier": 5328,
       "exit_sim": 2769,
       "legacy": 1781,
@@ -428,10 +428,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 24810,
+    "corpus_rows": 24827,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-05T01:50:00Z",
-    "corpus_span_days": 53.55,
+    "corpus_last_ts": "2026-09-05T02:40:00Z",
+    "corpus_span_days": 53.59,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -448,7 +448,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "176 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 67, 'CX-030': 62, 'LB-050': 62, 'CG-000': 30, 'FT-020': 30, 'SZ-049': 21, 'OM-000': 14, 'ML-031': 13, 'SZ-051': 11, 'ML-070': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'ML-050': 4, 'RT-010': 3, 'OM-040': 3, 'ML-016': 3, 'ML-042': 3, 'ML-041': 3, 'SZ-047': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'SZ-052': 1, 'ML-032': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "176 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 67, 'CX-030': 62, 'LB-050': 62, 'CG-000': 30, 'FT-020': 30, 'SZ-049': 21, 'ML-031': 14, 'OM-000': 14, 'SZ-051': 11, 'ML-070': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'ML-050': 4, 'RT-010': 3, 'OM-040': 3, 'ML-016': 3, 'ML-042': 3, 'ML-041': 3, 'SZ-047': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'SZ-052': 1, 'ML-032': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
@@ -460,7 +460,7 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 75% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 77% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
