@@ -305,6 +305,10 @@ class SingleInstanceLock:
         self.pid = os.getpid()
         self.stale_after = stale_after_sec
         self.lost_count = 0
+        # Failed heartbeat WRITES, tracked apart from lost_count: a disk error
+        # is not a peer claiming the directory, so it must never reach
+        # forfeited (which exits the runner). Observable, not fatal.
+        self.write_failures = 0
 
     def acquire(self) -> Optional[dict]:
         """Atomically claim the lock. Returns None on success, or the LIVE
@@ -401,9 +405,30 @@ class SingleInstanceLock:
         try:
             atomic_write_json(self.path, {"pid": self.pid,
                                           "heartbeat": time.time()})
-        except OSError:
-            pass                                # lock is advisory; never fatal
+        except OSError as e:
+            # ADVISORY, NEVER FATAL - but never a silent success either. This
+            # used to `pass`, reset lost_count and return True, so a heartbeat
+            # that never landed was indistinguishable from a healthy one at
+            # every reader. The on-disk record then ages out against the 30s
+            # stale window, a peer claims the directory, and two runners share
+            # one outputs/ tree - interleaving appends into the hash-chained
+            # audit - while this process still believes it holds the lock,
+            # because refresh() said so.
+            #
+            # Counted SEPARATELY from lost_count on purpose: `forfeited` means
+            # "a LIVE PEER owns this directory, exit", and a disk error is not
+            # a peer. Routing write failures into it would let transient I/O
+            # terminate the runner, which is worse than the defect above.
+            self.write_failures += 1
+            log.warning(
+                "lock heartbeat write FAILED (%s) - the on-disk record is "
+                "not advancing and will age out against the stale window; "
+                "%d consecutive failure(s). Not fatal and NOT a forfeit: a "
+                "write error is not a peer claiming the directory.",
+                e, self.write_failures)
+            return False
         self.lost_count = 0
+        self.write_failures = 0
         return True
 
     @property
