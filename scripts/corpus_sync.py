@@ -13,8 +13,19 @@ WHAT: fetch the branch, materialize every sessions/<label>/ bundle at the
 tip into a temp dir, and run scripts/session_import.py --apply on each,
 newest bundle first (same ordering rule as the cloud hook: the freshest
 meta_model must win copy-if-absent). session_import is the ONLY writer
-used: dedup by position_id, append-only merge, manifest+sha verification,
-NEVER-list protection for state/status/locks.
+used: dedup by position_id, append-only merge, manifest SELF-CONSISTENCY
+checks, NEVER-list protection for state/status/locks.
+
+The manifest checks are NOT a trust boundary and this line used to read as
+though they were ("manifest+sha verification"). session_import.py says it
+exactly: "Manifests are ATTACKER-AUTHORED... the per-file sha256 are
+self-consistency checks on the bundle's own bytes, not a trust boundary."
+A bundle's sha256 establishes that its bytes are the bytes that were
+bundled - by whoever bundled them. It establishes nothing about whether
+the contents are true, because the same party wrote both. What actually
+guards this path is the strict bare-basename allow-list on every manifest
+string that becomes a path, plus the NEVER-list - controls that do not
+consult the bundle's own claims about itself.
 
 SAFE BESIDE A LIVE RUNNER: the importer appends whole lines to
 signal_history.csv; the training loader's width guard skips a torn seam
