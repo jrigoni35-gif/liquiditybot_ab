@@ -279,10 +279,18 @@ def era4_trips(fills_path, since: float | None = None,
         # ERA PROVENANCE (report-only, added 2026-08-14). THREE-way, because
         # the ledger's own rule ("blank exec_era = pre-stamp, decide by ts")
         # returns the WRONG answer for rows a STALE BINARY wrote: their ts
-        # says era-7 while their fill physics is era-2. csv.DictReader fills a
-        # MISSING trailing field with None, and exec_era is the LAST column
-        # (core/fill_ledger.COLS, index 16 of 17), so "absent" and "blank" are
+        # says era-7 while their fill physics is era-2. csv.DictReader assigns
+        # POSITIONALLY and fills fields the row does not reach with None, and
+        # core/fill_ledger.COLS grows by APPENDING ONLY (pinned by
+        # tests/test_fill_ledger_provenance.py). So a row written by a binary
+        # whose COLS predated a column reads None for it, regardless of how
+        # many columns have been appended since - "absent" and "blank" stay
         # distinguishable exactly where the distinction matters:
+        # (This deliberately no longer cites exec_era's INDEX. It read "the
+        #  LAST column, index 16 of 17" until 2026-09-05, when `book` was
+        #  appended and made that parenthetical false while the logic below
+        #  stayed correct - a positional citation that rots against the very
+        #  append-only discipline it depends on.)
         #   None -> the writer's COLS predates the stamp  -> STALE BINARY
         #   ""   -> stamp-aware writer, pre-stamp row     -> decide by ts
         #   else -> stamped

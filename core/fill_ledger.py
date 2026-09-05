@@ -25,7 +25,7 @@ log = logging.getLogger("liquiditybot.core.fill_ledger")
 COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
         "ordertype", "post_only", "attempt", "fill_size", "fill_price",
         "arrival_ref", "slip_bps", "fees_delta_usd", "remaining", "reason",
-        "exec_era"]
+        "exec_era", "book"]
 
 # EXECUTION-ERA PROVENANCE (CDO review, 2026-08-10). Which fill-simulator
 # regime produced this row. Era membership used to be derivable only by
@@ -142,7 +142,24 @@ def fill_row(order, event, fees_delta: float, now: float) -> dict:
             "fees_delta_usd": f"{float(fees_delta):.6f}",
             "remaining": f"{order.remaining:.10g}",
             "reason": str(order.meta.get("reason", ""))[:80],
-            "exec_era": EXEC_ERA}
+            "exec_era": EXEC_ERA,
+            # BOOK PROVENANCE (2026-09-05). Which book opened this leg. The
+            # value was already in hand at the call site (main.py passes
+            # book=order.meta.get("book","5m") into the order) but was never
+            # recorded, so the ledger could not separate long-book adds from
+            # 5m entries and every cohort reconstruction pooled them. It was
+            # recoverable only by joining signal_history on position_id, which
+            # works but is limited to rows that have been LABELED - an open
+            # position has no label yet, so the join is silently partial
+            # exactly when you are watching a live cohort.
+            #
+            # Appended at the END, per this file's discipline: DictReader
+            # assigns positionally, so a row written by a binary that predates
+            # this column reads book=None, which is the correct meaning
+            # ("writer predates the field") and is distinguishable from ""
+            # (writer knew the field, value absent) - the same three-way the
+            # exec_era stamp relies on one column to its left.
+            "book": str(order.meta.get("book", "") or "")}
 
 
 def append_fill(path: Path, row: dict) -> None:

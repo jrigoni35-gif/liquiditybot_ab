@@ -35,7 +35,32 @@ from execution.order_manager import FillEvent, ManagedOrder
 
 ROOT = Path(__file__).resolve().parents[1]
 
-_OLD_COLS = COLS[:-1]          # the pre-exec_era 16-column schema
+# The pre-exec_era 16-column schema, written out LITERALLY.
+#
+# This was `COLS[:-1]`, a DERIVED fixture, and deriving it was the bug: when
+# `book` was appended on 2026-09-05 the slice silently became 17 columns
+# INCLUDING exec_era, so the migration test below started writing a 17-name
+# header against a 16-value row and kept passing. The fixture drifted out of
+# agreement with what its own comment claimed and the tests went quiet rather
+# than red - the worst failure mode a test has, because it reports green
+# forever. A fixture that stands for a HISTORICAL schema must never be
+# computed from the CURRENT one.
+_OLD_COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
+             "ordertype", "post_only", "attempt", "fill_size", "fill_price",
+             "arrival_ref", "slip_bps", "fees_delta_usd", "remaining",
+             "reason"]
+
+
+def test_old_cols_fixture_has_not_drifted():
+    """Guard the guard: this fixture stands for a frozen historical schema,
+    so it must stay 16 columns and must NOT contain any later-appended
+    field, however COLS grows."""
+    assert len(_OLD_COLS) == 16
+    assert "exec_era" not in _OLD_COLS and "book" not in _OLD_COLS
+    assert COLS[:16] == _OLD_COLS, (
+        "the shipped schema no longer starts with the historical 16 columns - "
+        "either a column was inserted/reordered (which misassigns every "
+        "archived row) or this fixture is wrong")
 
 
 def _order(oid="o1", remaining=0.0):
@@ -67,7 +92,30 @@ def _fresh(path):
 
 # ------------------------------------------------------------- provenance
 def test_new_file_carries_exec_era():
-    assert COLS[-1] == "exec_era"          # append-at-END discipline
+    # APPEND-AT-END, pinned as the PROPERTY rather than as a frozen last
+    # column. This used to read `COLS[-1] == "exec_era"`, which asserted the
+    # opposite of the discipline its own comment named: it froze exec_era in
+    # final position, so the next field appended - exactly what the discipline
+    # calls for - reddened this test. Pinning the immutable PREFIX enforces
+    # append-only (no insert, no reorder, no rename, no delete of a shipped
+    # column) while leaving the tail free to grow, which is what keeps every
+    # historical row readable: csv.DictReader assigns positionally, so a row
+    # written before a column existed reads None for it - the three-way
+    # ("absent" vs "" vs value) that scripts/cohort_eval.py's era provenance
+    # depends on. Reordering or inserting would silently misassign every
+    # archived row instead.
+    _SHIPPED_PREFIX = [
+        "ts", "order_id", "position_id", "purpose", "symbol", "side",
+        "ordertype", "post_only", "attempt", "fill_size", "fill_price",
+        "arrival_ref", "slip_bps", "fees_delta_usd", "remaining", "reason",
+        "exec_era",
+    ]
+    assert COLS[:len(_SHIPPED_PREFIX)] == _SHIPPED_PREFIX, (
+        "fills.csv columns were reordered, renamed or inserted into - every "
+        "archived row would be silently misassigned by DictReader. New fields "
+        "APPEND to the end only.")
+    assert "exec_era" in COLS
+    assert len(COLS) == len(set(COLS)), "duplicate column name in COLS"
     r = _row()
     assert r["exec_era"] == EXEC_ERA
     # Cut #7 (geometry epoch, deployed 2026-08-11T01:33:50Z): era 4 -> 7.
@@ -173,3 +221,57 @@ def test_legitimate_partial_sequence_is_not_collateral(tmp_path):
 def test_om085_is_a_registered_code():
     from core.codes import Code
     assert Code.OM_LEDGER_DUP_REFUSED == "OM-085"
+
+
+# ------------------------------------------------------- book provenance
+def test_fill_row_records_the_book(tmp_path):
+    """BOOK PROVENANCE (2026-09-05). Which book opened a leg was in hand at
+    the call site (main.py passes book=order.meta.get("book","5m")) but was
+    never written, so every cohort reconstruction pooled long-book adds with
+    5m entries and could only separate them by joining signal_history on
+    position_id - a join limited to LABELED rows, hence silently partial
+    exactly while a live cohort is accruing."""
+    r = _row()
+    assert "book" in r, "the ledger still cannot distinguish a long-book add"
+
+
+def test_book_is_blank_not_guessed_when_absent():
+    """A missing book must read as UNKNOWN, never as a fabricated '5m'.
+
+    This is the control_arm ""-vs-0 lesson applied one file over: a blank
+    means 'the writer had no value', a value means 'this is what it was'.
+    Defaulting to "5m" here would make an unattributable leg indistinguishable
+    from a real 5m entry, permanently, in the book of record."""
+    import types
+    order = types.SimpleNamespace(
+        order_id="o1", position_id="p1", purpose="entry", symbol="ETH/USD",
+        side="buy", ordertype="limit", post_only=True, remaining=0.0,
+        arrival_ref=0.0, meta={})                      # no "book" key at all
+    event = types.SimpleNamespace(fill_size=1.0, fill_price=100.0)
+    row = fill_row(order, event, 0.0, 1788000000.0)
+    assert row["book"] == "", (
+        f"absent book was written as {row['book']!r} - a guessed default in "
+        f"the book of record cannot be told from a real reading later")
+
+
+def test_a_row_written_before_book_existed_reads_as_absent(tmp_path):
+    """The append-at-END payoff: an archived 17-field row read against the
+    18-column header must give book=None (writer predates the field) while
+    exec_era still resolves. If this breaks, every historical row is
+    misassigned."""
+    import csv as _csv
+    p = tmp_path / "fills.csv"
+    legacy_cols = [c for c in COLS if c != "book"]
+    with open(p, "w", newline="", encoding="utf-8") as f:
+        w = _csv.writer(f)
+        w.writerow(legacy_cols)
+        w.writerow(["1788000000", "o1", "p1", "entry", "ETH/USD", "buy",
+                    "limit", "1", "0", "1", "100", "", "", "0.1", "0",
+                    "", "9-16ec821e"])
+    # re-read under the CURRENT header, as every reader does
+    with open(p, newline="", encoding="utf-8") as f:
+        rows = list(_csv.DictReader(f))
+    assert rows[0]["exec_era"] == "9-16ec821e", \
+        "exec_era was misassigned by the schema growth - archived rows are corrupt"
+    assert rows[0].get("book") is None, \
+        "a pre-book row must read absent (None), not blank or a value"
