@@ -45,6 +45,36 @@ def test_runway_at_a_flat_price_is_finite_and_short():
     assert ACCOUNT.runway_days(0.80) == pytest.approx(28.12, abs=0.05)
 
 
+# --- repricing: a snapshot is not a current reading ----------------------
+
+def test_equity_at_snapshot_point_reproduces_the_snapshot():
+    assert ACCOUNT.equity_at() == pytest.approx(ACCOUNT.equity, abs=1e-6)
+    assert ACCOUNT.equity_at(ACCOUNT.equity_px, 0.0) == pytest.approx(ACCOUNT.equity, abs=1e-6)
+
+
+def test_equity_reprices_with_price_and_ages_with_carry():
+    # the 2026-09-05 move: mid 0.02855, one day of carry
+    assert ACCOUNT.equity_at(0.02855, 1.0) == pytest.approx(894.45, abs=0.02)
+    # carry alone strictly reduces equity
+    assert ACCOUNT.equity_at(ACCOUNT.equity_px, 1.0) < ACCOUNT.equity_at(ACCOUNT.equity_px, 0.0)
+
+
+def test_runway_follows_the_repriced_equity_not_the_snapshot():
+    """The bug this pins: quoting a stale cushion against a moved market."""
+    stale = ACCOUNT.runway_days(0.80)
+    live = ACCOUNT.runway_days(0.80, 0.02855, 1.0)
+    assert stale == pytest.approx(28.12, abs=0.05)
+    assert live == pytest.approx(58.7, abs=0.2)
+    assert live > stale, "a +3.8% move must lengthen the runway"
+
+
+def test_days_since_snapshot_counts_calendar_days():
+    import datetime as dt
+    assert ACCOUNT.days_since_snapshot(dt.date(2026, 9, 4)) == 0.0
+    assert ACCOUNT.days_since_snapshot(dt.date(2026, 9, 5)) == 1.0
+    assert ACCOUNT.days_since_snapshot(dt.date(2026, 10, 5)) == 31.0
+
+
 def test_halving_the_position_buys_an_order_of_magnitude_of_runway():
     half = Position(
         units=ACCOUNT.units / 2,

@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import math
 import urllib.request
@@ -59,6 +60,7 @@ class Position:
     equity: float = 778.99
     equity_px: float = 0.02723
     carry_per_day: float = 3.78
+    as_of: str = "2026-09-04"
 
     @property
     def cash_balance(self) -> float:
@@ -78,10 +80,29 @@ class Position:
             + self.carry_per_day * day / self.units
         )
 
-    def runway_days(self, level: float = 0.80) -> float:
-        """Days to breach `level` at a perfectly flat price — carry alone."""
-        cushion = self.equity - level * self.used_margin
+    def equity_at(self, px: float | None = None, days: float = 0.0) -> float:
+        """Margin equity repriced to `px`, `days` of carry after the snapshot.
+
+        The snapshot's own equity is a fact about the moment it was read.
+        Quoting it against a later price is how a monitor reports a cured
+        or worsened position as if it were current — reprice, always.
+        """
+        if px is None:
+            px = self.equity_px
+        return self.cash_balance + self.units * (px - self.avg) - self.carry_per_day * days
+
+    def runway_days(
+        self, level: float = 0.80, px: float | None = None, days: float = 0.0
+    ) -> float:
+        """Days to breach `level` at a flat price — carry alone, from (px, days)."""
+        cushion = self.equity_at(px, days) - level * self.used_margin
         return cushion / self.carry_per_day if self.carry_per_day > 0 else math.inf
+
+    def days_since_snapshot(self, today: dt.date | None = None) -> float:
+        """Calendar days since the account figures were read."""
+        if today is None:
+            today = dt.datetime.now(dt.timezone.utc).date()
+        return float((today - dt.date.fromisoformat(self.as_of)).days)
 
 
 def fee_tier(pair_info: dict, volume_30d: float) -> tuple[float, float]:
@@ -105,6 +126,10 @@ def main() -> int:
     ap.add_argument("--equity", type=float, default=Position.equity)
     ap.add_argument("--equity-px", type=float, default=Position.equity_px)
     ap.add_argument("--carry", type=float, default=Position.carry_per_day)
+    ap.add_argument("--as-of", default=Position.as_of,
+                    help="date the account figures were read (ISO)")
+    ap.add_argument("--days-elapsed", type=float, default=None,
+                    help="override carry ageing since --as-of")
     ap.add_argument("--volume-30d", type=float, default=17482.0)
     ap.add_argument("--horizon", type=int, default=31)
     args = ap.parse_args()
@@ -116,6 +141,11 @@ def main() -> int:
         equity=args.equity,
         equity_px=args.equity_px,
         carry_per_day=args.carry,
+        as_of=args.as_of,
+    )
+    aged = (
+        args.days_elapsed if args.days_elapsed is not None
+        else pos.days_since_snapshot()
     )
 
     tick = _get("Ticker", f"pair={PAIR}")[PAIR]
@@ -142,29 +172,36 @@ def main() -> int:
     print(f"  margin_call {call_lvl:.0%}  margin_stop {stop_lvl:.0%}"
           f"  max leverage {max(info['leverage_buy'])}x")
 
-    state = pos.equity / pos.used_margin
     print("\n=== POSITION ===")
     print(f"  {pos.units:,.3f} u @ {pos.avg:.5f}   notional ${pos.units * pos.avg:,.2f}")
-    print(f"  used margin ${pos.used_margin:,.2f}   equity ${pos.equity:,.2f}"
-          f"   margin state {state:.1%}")
+    print(f"  used margin ${pos.used_margin:,.2f}")
+    print(f"  SNAPSHOT {pos.as_of}: equity ${pos.equity:,.2f} @ {pos.equity_px:.5f}"
+          f"  state {pos.equity / pos.used_margin:.1%}   <- as read, NOT current")
+    eq_now = pos.equity_at(mid, aged)
+    print(f"  LIVE (repriced to mid, +{aged:g}d carry): equity ${eq_now:,.2f}"
+          f"  state {eq_now / pos.used_margin:.1%}")
     print(f"  unrealised P&L at mid: ${pos.units * (mid - pos.avg):+,.2f}")
+    if aged > 3:
+        print(f"  !! account figures are {aged:g} days old — re-read the account screen;"
+              f"\n     everything below ages them by carry only, not by deposits,"
+              f" fills or fee debits")
 
-    cushion = pos.equity - call_lvl * pos.used_margin
-    runway = pos.runway_days(call_lvl)
+    cushion = eq_now - call_lvl * pos.used_margin
+    runway = pos.runway_days(call_lvl, mid, aged)
     slope = pos.carry_per_day / pos.units
     print("\n=== THE CARRY CLOCK  (the number pass 1 missed) ===")
-    print(f"  cushion above call ${cushion:,.2f}   carry ${pos.carry_per_day:.2f}/day")
+    print(f"  cushion above call ${cushion:,.2f} (live)   carry ${pos.carry_per_day:.2f}/day")
     print(f"  *** RUNWAY AT A PERFECTLY FLAT PRICE: {runway:.1f} DAYS ***")
     print(f"  call price rises ${slope:.7f}/day ({slope / tick_sz:.2f} tick/day)")
     print(f"  implied rollover {pos.carry_per_day / 6 / (pos.units * pos.avg) * 100:.4f}%/4h")
     print(f"\n  {'day':>5} {'call':>10} {'vs mid':>9} {'liquidation':>13}")
     for day in (0, 7, 14, 21, args.horizon, 60):
-        cp = pos.threshold_px(call_lvl, day)
-        lp = pos.threshold_px(stop_lvl, day)
+        cp = pos.threshold_px(call_lvl, aged + day)
+        lp = pos.threshold_px(stop_lvl, aged + day)
         print(f"  {day:5d} {cp:10.5f} {(cp / mid - 1) * 100:+8.2f}% {lp:13.5f}")
 
     bids = [(float(p), float(v)) for p, v, _ in depth["bids"]]
-    call_now = pos.threshold_px(call_lvl, 0)
+    call_now = pos.threshold_px(call_lvl, aged)
     to_call = sum(p * v for p, v in bids if p >= call_now)
     wall_px, wall_usd = max(((p, p * v) for p, v in bids), key=lambda t: t[1])
     print("\n=== BID BOOK ===")
