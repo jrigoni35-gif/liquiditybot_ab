@@ -655,7 +655,7 @@
       "id": 9,
       "type": "stat",
       "title": "Fees paid",
-      "description": "Cumulative simulated fees. At this account size fees are the binding constraint, so they belong on the front page. Venue-true since cut #8 (era 8-ca55e2ba, 2026-08-28): Kraken Tier-1 40/80 bps on both pricing and booking - the FEE-1 understatement is shipped, not merely a caveat.",
+      "description": "Cumulative simulated fees. At this account size fees are the binding constraint, so they belong on the front page. Priced and booked at the account's real venue tier; the schedule has been corrected twice (cut #8 raised it, cut #9 corrected that over-statement down), so fees booked in this cumulative total carry whichever schedule was live at the time and MUST NOT be read as one series. Live rates: config pretrade.maker_fee_bps / taker_fee_bps. cost_truth_report is the independent cross-check for auditing pre-cut history.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1332,7 +1332,7 @@
       "id": 18,
       "type": "table",
       "title": "Open positions",
-      "description": "One row per open position, joined on symbol. An empty table is AMBIGUOUS and must not be read as a flat book: the same emptiness appears when the runner freezes, because every liquiditybot_position_* series stops being emitted while the positions are still genuinely open (measured 2026-08-15 - 5 open, 0 series). Read the Runner and Data age tiles before concluding anything from an empty table. ERA-8: this book is EXPECTED quiet (derived entry bar 0.8335, conviction entries effectively stopped at true costs) - an empty table now is the strategy's honest position, not a fault; read Runner/Data age to tell that apart from a frozen bot.",
+      "description": "One row per open position, joined on symbol. An empty table is AMBIGUOUS and must not be read as a flat book: the same emptiness appears when the runner freezes, because every liquiditybot_position_* series stops being emitted while the positions are still genuinely open (measured 2026-08-15 - 5 open, 0 series). Read the Runner and Data age tiles before concluding anything from an empty table. NOTE (corrected 2026-09-05): this panel used to assert the book was EXPECTED quiet because cut #8's derived entry bar had risen to 0.8335 and stopped conviction entries. Cut #9 UNWOUND that - it corrected a ~2x fee over-statement, the bar fell and conviction resumed - so an empty table is NO LONGER explained away by cost. Treat it as unexplained until you have checked Runner/Data age and the entry-veto codes; the bar is derived from the live fee stack and is printed on the runner's startup line, so read it there rather than from this text.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"

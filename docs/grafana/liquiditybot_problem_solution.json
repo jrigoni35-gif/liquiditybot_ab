@@ -3089,7 +3089,7 @@
       "id": 45,
       "type": "timeseries",
       "title": "Why entries die (per hour)",
-      "description": "Vetoes in the trailing hour for the five checks that actually fire (roster fixed 2026-08-28 - SZ-021/SZ-030/SZ-049 added, the never-fired PT-040/PT-041 dropped). The line on top is the check killing entries right now, no slope-reading required, and a restart dents one sample, not the view. ERA-8 REALITY: the book is EXPECTED quiet (derived entry bar 0.8335 since cut #8's fee-truth cut, era 8-ca55e2ba) - flat or low lines here are the strategy's honest position at true costs, not a fault; cross-check Data age/Runner before reading a quiet board as broken telemetry. Empty means: this reason code has not fired.",
+      "description": "Vetoes in the trailing hour for the five checks that actually fire (roster fixed 2026-08-28 - SZ-021/SZ-030/SZ-049 added, the never-fired PT-040/PT-041 dropped). The line on top is the check killing entries right now, no slope-reading required, and a restart dents one sample, not the view. CORRECTED 2026-09-05: this said the book was EXPECTED quiet at cut #8's bar of 0.8335. Cut #9 corrected that fee over-statement and the bar fell, so flat or low lines here are NOT explained by cost any more - do not dismiss them; cross-check Data age/Runner before quiet board as broken telemetry. Empty means: this reason code has not fired.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"

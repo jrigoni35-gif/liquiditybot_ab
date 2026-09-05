@@ -886,20 +886,25 @@ def _author_command():
     gauge("Gross exposure", M("liquiditybot_gross_exposure_pct"), 5, 5,
           mx=100.0, unit="percent", decimals=1, steps=BUDGET,
           desc="Notional at risk as a percent of equity.")
-    # FIXED 2026-08-28 (audit top-5 #3): FEE-1 (config fees ~half the
-    # venue's real bottom tier, 25/40 vs Kraken T1 40/80) is RESOLVED, not
-    # merely caveated - cut #8 (exec_era 8-ca55e2ba, 2026-08-28T03:14:13Z)
-    # moved both the pricing and booking sides to venue-true 40/80 bps.
-    # Fees booked BEFORE that cut in this cumulative total still carry the
-    # old understated schedule; cost_truth_report remains the independent
-    # cross-check for anyone auditing pre-cut history.
+    # FEE PROVENANCE, CORRECTED 2026-09-05. This block asserted cut #8's
+    # "venue-true Kraken Tier-1 40/80" as current. It is SUPERSEDED: cut #9
+    # (2026-08-30) established the account's real Tier 3 and moved pricing and
+    # booking to 22/38 bps, because cut #8 had assumed a zero-volume account
+    # and over-stated fees ~2x. The tier has now moved twice in two weeks, so
+    # no rate is written here - the panel text names the mechanism and where to
+    # read the live values, which is the only form that cannot decay into a
+    # false claim on the operator's primary surface.
     stat("Fees paid", M("liquiditybot_fees_total"), 4, 5, unit=USD,
          decimals=2, graph="none", size="compact", steps=GRN,
          desc="Cumulative simulated fees. At this account size fees are the "
-              "binding constraint, so they belong on the front page. "
-              "Venue-true since cut #8 (era 8-ca55e2ba, 2026-08-28): "
-              "Kraken Tier-1 40/80 bps on both pricing and booking - the "
-              "FEE-1 understatement is shipped, not merely a caveat.")
+              "binding constraint, so they belong on the front page. Priced "
+              "and booked at the account's real venue tier; the schedule has "
+              "been corrected twice (cut #8 raised it, cut #9 corrected that "
+              "over-statement down), so fees booked in this cumulative total "
+              "carry whichever schedule was live at the time and MUST NOT be "
+              "read as one series. Live rates: config pretrade.maker_fee_bps "
+              "/ taker_fee_bps. cost_truth_report is the independent "
+              "cross-check for auditing pre-cut history.")
     state("Entries", M("liquiditybot_entries_enabled"), 4, 5, ON_OFF,
           desc="Whether the bot may OPEN new positions. Exits are always "
                "allowed regardless of this.")
@@ -985,11 +990,16 @@ def _author_command():
                "liquiditybot_position_* series stops being emitted while the "
                "positions are still genuinely open (measured 2026-08-15 - 5 "
                "open, 0 series). Read the Runner and Data age tiles before "
-               "concluding anything from an empty table. ERA-8: this book "
-               "is EXPECTED quiet (derived entry bar 0.8335, conviction "
-               "entries effectively stopped at true costs) - an empty table "
-               "now is the strategy's honest position, not a fault; read "
-               "Runner/Data age to tell that apart from a frozen bot.")
+               "concluding anything from an empty table. NOTE (corrected "
+               "2026-09-05): this panel used to assert the book was EXPECTED "
+               "quiet because cut #8's derived entry bar had risen to 0.8335 "
+               "and stopped conviction entries. Cut #9 UNWOUND that - it "
+               "corrected a ~2x fee over-statement, the bar fell and "
+               "conviction resumed - so an empty table is NO LONGER explained "
+               "away by cost. Treat it as unexplained until you have checked "
+               "Runner/Data age and the entry-veto codes; the bar is derived "
+               "from the live fee stack and is printed on the runner's "
+               "startup line, so read it there rather than from this text.")
 
     # ---- activity & budget: what the bot is DOING with the book ----------
     # STREAM 7c (2026-08-28): Exposure-by-asset removed (the positions
@@ -1798,12 +1808,12 @@ def _author_problem():
                     "SZ-030/SZ-049 added, the never-fired PT-040/PT-041 "
                     "dropped). The line on top is the check killing "
                     "entries right now, no slope-reading required, and a "
-                    "restart dents one sample, not the view. ERA-8 "
-                    "REALITY: the book is EXPECTED quiet (derived entry "
-                    "bar 0.8335 since cut #8's fee-truth cut, era "
-                    "8-ca55e2ba) - flat or low lines here are the "
-                    "strategy's honest position at true costs, not a "
-                    "fault; cross-check Data age/Runner before reading a "
+                    "restart dents one sample, not the view. CORRECTED "
+                    "2026-09-05: this said the book was EXPECTED quiet at "
+                    "cut #8's bar of 0.8335. Cut #9 corrected that fee "
+                    "over-statement and the bar fell, so flat or low lines "
+                    "here are NOT explained by cost any more - do not "
+                    "dismiss them; cross-check Data age/Runner before "
                     "quiet board as broken telemetry.")
     bargauge("Were the vetoes right?", _pa("liquiditybot_veto_cf_rate"),
              8, 8, legend="{{code}}", decimals=2, mn=0, mx=1,
