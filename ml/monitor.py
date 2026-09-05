@@ -142,6 +142,24 @@ class ModelMonitor:
         self._feat_buffer: deque = deque(maxlen=300)
         self.drift_share = 0.0
         self.drifting: list = []
+        # DENOMINATOR PROVENANCE (2026-09-05). drift_share divides by every
+        # VOTING feature, but psi() returns exactly 0.0 for any feature whose
+        # decile edges are tied - deliberately, since a degenerate feature
+        # otherwise reports enormous PSI on an identical distribution. Those
+        # features therefore CANNOT contribute to the numerator while still
+        # inflating the denominator. Measured on the live artifact the same
+        # day: 34 of 60 voting features are degenerate (56.7%), so drift_share
+        # is capped at 0.4333 forever against a 0.30 threshold - tripping it
+        # needs 19 of the 26 MEASURABLE features (73%), not the "30% of market
+        # features" the config doc promises.
+        #
+        # Report-only, and deliberately so: drift_share and its trigger are
+        # UNCHANGED here because moving them changes when ML-032 fires and
+        # therefore when the retrain loop runs. These fields make the
+        # denominator visible so the threshold can be adjudicated on evidence.
+        self.drift_measurable = 0
+        self.drift_degenerate = 0
+        self.drift_share_measurable = 0.0
         self._records: deque = deque(maxlen=self.window * 3)
         # champion shadow scores (p, label) recorded ONLY while killed; used
         # solely by _try_shadow_recovery, never by the kill path.
@@ -475,15 +493,26 @@ class ModelMonitor:
         # (their PSI reads window phase, not market state), so counting them
         # kept the share pinned above the retrain trigger on clean data.
         drifting, n_voting = [], 0
+        n_degenerate = 0
         for j, edges in enumerate(train_deciles):
             name = feature_names[j] if j < len(feature_names) else f"f{j}"
             if name in DRIFT_EXCLUDED_FEATURES:
                 continue
             n_voting += 1
+            # A tied-edge feature can never reach the threshold (psi returns
+            # 0.0 by construction), so it is counted for provenance rather
+            # than silently diluting the share.
+            if np.unique(np.asarray(edges, dtype=float)).size < len(edges):
+                n_degenerate += 1
             if psi(edges, X[:, j]) >= self.drift_psi_threshold:
                 drifting.append(name)
         self.drifting = drifting
         self.drift_share = len(drifting) / max(n_voting, 1)
+        self.drift_degenerate = n_degenerate
+        self.drift_measurable = n_voting - n_degenerate
+        self.drift_share_measurable = (
+            len(drifting) / self.drift_measurable if self.drift_measurable
+            else 0.0)
         if self.drift_share >= self.drift_frac_features:
             log.warning("ML-031: feature drift %d/%d shifted "
                         "(PSI>=%.2f): %s", len(drifting),
@@ -768,6 +797,11 @@ class ModelMonitor:
         w = self._windows()
         out = {"level": self.level, "shrinkage": self.shrinkage,
                "drift_share": round(self.drift_share, 3),
+               # The denominator drift_share is computed over, split so a
+               # reader can tell a real 30% from a ceiling of 43%.
+               "drift_measurable": self.drift_measurable,
+               "drift_degenerate": self.drift_degenerate,
+               "drift_share_measurable": round(self.drift_share_measurable, 3),
                "drifting_features": self.drifting[:8],
                "kelly_mult": self.kelly_mult, "use_model": self.use_model,
                "edge_ratio_bump": self.edge_ratio_bump,
