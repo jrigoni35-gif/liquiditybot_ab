@@ -157,3 +157,68 @@ def test_binding_row_needs_a_volume_and_refuses_to_guess():
     assert binding_row(17_482) == (20.0, 35.0)
     assert binding_row(10_000) == (20.0, 35.0)      # boundary is inclusive
     assert binding_row(9_999) == (25.0, 40.0)
+
+
+# ------------------------------- the escape hatch had no floor of its own
+def test_allow_sub_floor_is_not_a_licence_for_ZERO_fees():
+    """THE REGRESSION. allow_sub_floor_fees exists so an account with a genuine
+    volume discount can book below the zero-volume row. It was set true at cut
+    #9 to permit 22/38, and it disabled the floor for ANY value: measured
+    2026-09-05 on the shipped config, 0.0/0.0 and 1.0/1.0 both validated with
+    ZERO fatals.
+
+    Understated fees are the single highest-leverage silent defect available
+    here - they make the pre-trade EV gate admit net-losing trades while every
+    downstream number stays internally consistent. A discount flag must have a
+    floor of its own, and the honest one is the venue's BEST published tier:
+    nobody pays less than that at any volume."""
+    assert _has_floor_fatal(_cfg(0.0, 0.0, allow_low=True)), \
+        "zero fees validated clean under the discount flag"
+    assert _has_floor_fatal(_cfg(1.0, 1.0, allow_low=True))
+    assert _has_floor_fatal(_cfg(0.0, 4.9, allow_low=True)), \
+        "a taker below the venue's cheapest published tier is not a discount"
+
+
+def test_a_genuine_top_tier_discount_still_passes():
+    """ANTI-RUBBER-STAMP, and it must not become a false floor: maker 0 IS a
+    real Kraken tier (>=$10M 30-day volume), so the bound is the best PUBLISHED
+    row, not a made-up positive number."""
+    best_m, best_t = __import__("core.venue_fees", fromlist=["x"]).best_possible_row()
+    assert not _has_floor_fatal(_cfg(best_m, best_t, allow_low=True)), \
+        f"the venue's own best tier {best_m}/{best_t} was rejected as sub-floor"
+    assert not _has_floor_fatal(_cfg(20.0, 35.0, allow_low=True))
+    assert not _has_floor_fatal(_cfg(22.0, 38.0, allow_low=True)), \
+        "the SHIPPED config must keep validating - this change is SAFE only " \
+        "because it does not move the live posture"
+
+
+def test_absent_fee_keys_are_a_FATAL_not_a_silent_default():
+    """Dropping the keys entirely produced ZERO fee fatals (measured
+    2026-09-05), and four consumers then substitute four different fallback
+    schedules. A half-applied fee stage (fee_correction_stage /
+    boundary5_stage rewrite all four together) is the realistic trigger.
+
+    Uses the SHIPPED config with only the fee keys removed. A hand-built
+    minimal dict is not usable here: the first draft of this pin did that and
+    was VACUOUS - 11 unrelated FATALs fired (starting_capital, profit tiers)
+    and satisfied a bare `assert _fatal_msgs(cfg)` for entirely the wrong
+    reason. The assertion must name the subject."""
+    import copy
+    import json as _json
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[1]
+    cfg = copy.deepcopy(_json.loads(
+        (root / "config.json").read_text(encoding="utf-8")))
+    baseline = [m for m in _fatal_msgs(cfg) if "fee" in m.lower()]
+    assert not baseline, (
+        f"the SHIPPED config already has a fee FATAL - this fixture cannot "
+        f"isolate the absent-key case: {baseline}")
+
+    for section in ("pretrade", "order_manager"):
+        for key in ("maker_fee_bps", "taker_fee_bps"):
+            cfg[section].pop(key, None)
+    fee_fatals = [m for m in _fatal_msgs(cfg) if "fee" in m.lower()]
+    assert fee_fatals, (
+        "the fee keys were removed from BOTH pretrade and order_manager and "
+        "no fee FATAL fired - four consumers then substitute four different "
+        "fallback schedules, silently")

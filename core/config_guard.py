@@ -65,6 +65,7 @@ log = logging.getLogger("liquiditybot.core.config_guard")
 # The floor's meaning is unchanged: no spot account pays LESS than the
 # zero-volume row unless it has earned a volume discount, which is exactly
 # what pretrade.allow_sub_floor_fees declares.
+from core.venue_fees import best_possible_row as _venue_best_row  # noqa: E402
 from core.venue_fees import worst_row as _venue_worst_row  # noqa: E402
 
 KRAKEN_SPOT_FLOOR_MAKER_BPS, KRAKEN_SPOT_FLOOR_TAKER_BPS = _venue_worst_row()
@@ -597,6 +598,30 @@ def validate(config: dict) -> list:
     # execution/pretrade.py and execution/order_manager.py still carry their
     # OWN stale 25/40 fallbacks - tracked separately; harmless while the keys
     # are present, but they should follow this floor to venue truth.)
+    # ABSENT IS NOT ZERO AND IT IS NOT 25/40 EITHER.
+    #
+    # These four reads default to the venue's zero-volume row, which passes
+    # every check below - so dropping the keys entirely produced ZERO fee
+    # FATALs (measured 2026-09-05) while four consumers went on to substitute
+    # four DIFFERENT fallback schedules. The realistic trigger is a
+    # half-applied or reverted fee stage: fee_correction_stage.py and
+    # boundary5_stage.py both rewrite all four keys together.
+    #
+    # A silently-defaulted fee is the same failure as a silently-defaulted
+    # anything else in this repo: "the operator did not say" and "the operator
+    # said 25/40" must not be the same bits. Absence is now named.
+    _MISSING = object()
+    _missing_fee_keys = [
+        path for path in ("pretrade.maker_fee_bps", "pretrade.taker_fee_bps",
+                          "order_manager.maker_fee_bps",
+                          "order_manager.taker_fee_bps")
+        if _f(config, path, _MISSING) is _MISSING]
+    if _missing_fee_keys:
+        fatal(f"fee key(s) absent from config: {', '.join(_missing_fee_keys)}. "
+              f"The guard would default them to the venue's zero-volume row "
+              f"while other consumers substitute different fallbacks, so the "
+              f"EV gate and the PnL ledger would price the same trade "
+              f"differently. State the fees explicitly.")
     pt_maker = float(_f(config, "pretrade.maker_fee_bps", 25.0))
     pt_taker = float(_f(config, "pretrade.taker_fee_bps", 40.0))
     om_maker = float(_f(config, "order_manager.maker_fee_bps", 25.0))
@@ -609,6 +634,29 @@ def validate(config: dict) -> list:
         fatal(f"fee mismatch: pretrade ({pt_maker}/{pt_taker}) != "
               f"order_manager ({om_maker}/{om_taker}) - the edge gate and "
               f"the PnL ledger would disagree about costs")
+    # THE DISCOUNT FLAG NEEDS A FLOOR OF ITS OWN.
+    #
+    # allow_sub_floor_fees exists so an account with a genuine volume discount
+    # can book below the zero-volume row, and cut #9 set it true to permit
+    # 22/38. But it disabled the floor for ANY value: measured 2026-09-05 on
+    # the shipped config, 0.0/0.0 and 1.0/1.0 both validated with ZERO fatals.
+    # Understated fees are the highest-leverage silent defect available here -
+    # they make the pre-trade EV gate admit net-losing trades while every
+    # downstream number stays internally consistent.
+    #
+    # The honest bound is the venue's BEST published tier: nobody pays less
+    # than that at any volume, ever. Note it is not a made-up positive number -
+    # maker 0 IS a real Kraken row (>=$10M 30-day volume), so the check is
+    # against the schedule, not against taste.
+    _best_m, _best_t = _venue_best_row()
+    if pt_maker < _best_m or pt_taker < _best_t:
+        (fatal if not dry_run else warn)(
+            f"configured fees {pt_maker:g}/{pt_taker:g} bps are below the "
+            f"CHEAPEST tier Kraken publishes at any volume "
+            f"({_best_m:g}/{_best_t:g}). No account pays less than this, so "
+            f"allow_sub_floor_fees cannot license it - a discount flag is not "
+            f"a licence for zero. Understated fees make the pre-trade gate "
+            f"approve net-losing trades.")
     if not allow_low and (pt_maker < KRAKEN_SPOT_FLOOR_MAKER_BPS
                           or pt_taker < KRAKEN_SPOT_FLOOR_TAKER_BPS):
         msg = (f"configured fees {pt_maker:.0f}/{pt_taker:.0f} bps are below "
