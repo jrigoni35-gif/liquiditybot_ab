@@ -454,6 +454,53 @@ def _champion_at(epochs: list, t):
     return fam
 
 
+def _live_explore_p_win() -> str:
+    """`ml.exploration.p_win` read from the LIVE config, never struck in.
+
+    Returns a DISPLAY STRING, always - never a float. The caller formats it
+    into prose, and an unreadable config must render as the word "unreadable"
+    rather than crashing a report or, worse, silently printing a default that
+    would be indistinguishable from a real reading. Typed and named so a
+    later reader cannot mistake it for a numeric accessor and do arithmetic
+    on it.
+
+    This line used to print a hardcoded 0.7 against "a derived bar near
+    0.567". Both were false at HEAD (config carries 0.85; the bar is the
+    fee-derived one, which cut #9 moved to ~0.677) and docs/HANDOFF.md was
+    quoting this output as authority - a struck constant asserting itself as
+    truth, in the report whose own job is to catch that. The qualitative
+    conclusion was unharmed (the probe constant still exceeds the bar, so a
+    probe still clears by construction); only the magnitudes were wrong,
+    which is exactly how this class of error survives review.
+    """
+    try:
+        with open(ROOT / "config.json", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        v = ((cfg.get("ml") or {}).get("exploration") or {}).get("p_win")
+        return "unreadable" if v is None else str(v)
+    except Exception:                       # noqa: BLE001 - report-only
+        return "unreadable"
+
+
+def _era_ordinal(era: str) -> tuple:
+    """Sort key for an exec_era stamp like '9-16ec821e'.
+
+    Ordered by the CUT NUMBER, not lexicographically: plain string ordering
+    puts '10-...' before '9-...', which would silently hand the "current era"
+    label to a superseded cut the first time the counter passes nine. The
+    sha suffix breaks ties so the key is total and deterministic.
+
+    Derived from the data on purpose - a hardcoded current-era constant is
+    exactly the kind of struck literal that goes stale at the next cut and
+    then asserts itself as truth (the-method recurrence #1).
+    """
+    head, _, rest = str(era).partition("-")
+    try:
+        return (int(head), rest)
+    except ValueError:
+        return (-1, str(era))
+
+
 def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
     """Classify the accruing cohort. Report-only; selects nothing.
 
@@ -465,6 +512,57 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
     prestamp = [t for t in trips if t.get("prestamp_legs")]
     eras = sorted({e for t in trips for e in (t.get("eras") or [])})
     fill_mixed = bool(stale) or len(eras) > 1
+
+    # ---- ERA SEGMENTATION (report-only, added 2026-09-05) ----------------
+    # The accrual counter this section sits beside is the ERA-4 pre-registered
+    # population and is NOT era-scoped: era4_trips selects on five predicates
+    # and exec_era is in NONE of them, so its progress figure pools cuts #7/#8/
+    # #9 - three fee regimes - BY CONSTRUCTION. That is correct for what it
+    # measures and misleading as a readiness number for the era actually
+    # accruing, whose count previously existed in no tool at all.
+    #
+    # Reads only the already-computed per-trip `eras`. No predicate, no band,
+    # and no selection rule is touched: the registration is the law.
+    #
+    # A trip is attributed to an era ONLY if every one of its legs carries that
+    # stamp. A straddler (opened under cut #8, closed under cut #9) is counted
+    # separately and never folded into either side - folding it would import a
+    # pre-fee-correction entry into the accruing cohort, which the moratorium
+    # forbids in as many words.
+    # The three buckets are EXHAUSTIVE by construction and the caller asserts
+    # it: pure + straddling + unstamped == n. A trip whose legs carry no
+    # exec_era at all (pre-stamp rows, or the stale-binary case this section
+    # already reports below) belongs to no era and must be VISIBLE as such -
+    # dropping it from the segmentation would understate the pooled total and
+    # reproduce, in a brand-new counter, the same silent-drop failure the
+    # corpus load path was just fixed for.
+    # PURITY IS OVER ALL LEGS, NOT OVER STAMPED LEGS. era4_trips builds
+    # `eras` from stamped legs only - a leg whose exec_era is absent
+    # (stale_legs) or blank (prestamp_legs) is counted there and NEVER added
+    # to the set. So `len(eras) == 1` alone means "every leg that CARRIED a
+    # stamp agreed", which is a weaker claim than "this trip is wholly inside
+    # that era" and would silently overstate the accruing count the moment a
+    # stale-binary leg lands in the current era. Measured 2026-09-05 on the
+    # live ledger: 87 trips had len(eras)==1 and 4 of them carried an
+    # unstamped leg. Era-9 happened to have none, so the reported count was
+    # right by luck, not by construction - and this report already records
+    # that the stamp HAS failed before.
+    by_era: dict = {}
+    era_straddling = 0
+    era_unstamped = 0
+    era_partial = 0
+    for t in trips:
+        te = t.get("eras") or []
+        unstamped_legs = (t.get("stale_legs") or 0) + (t.get("prestamp_legs") or 0)
+        if len(te) > 1:
+            era_straddling += 1
+        elif len(te) == 1 and not unstamped_legs:
+            by_era[te[0]] = by_era.get(te[0], 0) + 1
+        elif len(te) == 1:
+            era_partial += 1          # one era agreed, but a leg is unattributable
+        else:
+            era_unstamped += 1
+    current_era = max(eras, key=_era_ordinal) if eras else None
 
     champs, straddle = set(), 0
     for t in trips:
@@ -493,6 +591,10 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
         verdict = "CLEAN"
     return {"verdict": verdict, "n": len(trips),
             "stale_trips": len(stale), "prestamp_trips": len(prestamp),
+            "by_era": by_era, "current_era": current_era,
+            "era_straddling_trips": era_straddling,
+            "era_unstamped_trips": era_unstamped,
+            "era_partial_stamp_trips": era_partial,
             "fill_eras": eras, "fill_mixed": fill_mixed,
             "model_known": model_known, "champions": sorted(champs),
             "straddling_trips": straddle, "model_mixed": model_mixed,
@@ -562,7 +664,8 @@ def cohort_composition(trips: list, signal_history_path) -> dict:
 
     Why that breaks the reading rather than merely biasing it: a probe sets
     `p_win = max(p_win, explore_p_win)` (main.py, exploration path) with
-    `ml.exploration.p_win` = 0.7 against a derived entry bar near 0.567, so 0.7
+    `ml.exploration.p_win` (read live, not struck here) against the fee-derived
+    entry bar, which it exceeds, so the exploration constant
     clears the bar BY CONSTRUCTION and the model's own probability is never the
     admitting quantity. A cohort of probes measures the exploration constant,
     not the selector the verdict is about.
@@ -738,6 +841,39 @@ def main() -> int:
     print(" fills.csv, entry-opened only; no postmortem censoring.)")
     print("\n  accrual: %s entry-opened closes toward the verdict gate"
           % e4["progress"])
+    print("  ^ this is the ERA-4 PRE-REGISTERED POPULATION. It is NOT")
+    print("    era-scoped: the selection predicates do not include exec_era,")
+    print("    so this figure POOLS every execution era below, across the")
+    print("    cut-#8 and cut-#9 fee corrections. Do not read it as the")
+    print("    accruing cohort's readiness.")
+    _hg = res["homogeneity"]
+    _cur = _hg.get("current_era")
+    if _hg.get("by_era"):
+        print("\n  PER-ERA SEGMENTATION (report-only; selects nothing):")
+        for _e in sorted(_hg["by_era"], key=_era_ordinal, reverse=True):
+            print("    %-14s %3d trip(s) wholly inside%s"
+                  % (_e, _hg["by_era"][_e],
+                     "   <-- CURRENT, this is what is accruing"
+                     if _e == _cur else ""))
+        if _hg.get("era_partial_stamp_trips"):
+            print("    %-14s %3d trip(s) whose stamped legs agree but which"
+                  % ("(partial)", _hg["era_partial_stamp_trips"]))
+            print("                       ALSO carry an unstamped leg - NOT")
+            print("                       counted as wholly inside any era.")
+        if _hg.get("era_unstamped_trips"):
+            print("    %-14s %3d trip(s) carry NO exec_era stamp on any leg"
+                  % ("(unstamped)", _hg["era_unstamped_trips"]))
+        if _hg.get("era_straddling_trips"):
+            print("    %-14s %3d trip(s) opened in one era and closed in"
+                  % ("(straddling)", _hg["era_straddling_trips"]))
+            print("                       another - counted in NEITHER, because")
+            print("                       pooling across the fee correction is")
+            print("                       what the moratorium forbids.")
+        if _cur:
+            print("\n    CURRENT-ERA ACCRUAL: %d/%d toward the gate."
+                  % (_hg["by_era"].get(_cur, 0), MIN_COHORT_N))
+            print("    The pre-registered machinery is UNCHANGED; this line")
+            print("    only says which of the pooled trips are era-current.")
     print("  COHORT HOMOGENEITY: %s" % res["homogeneity"]["verdict"])
     if e4["n"]:
         print("  gross  mean %+.4f%%  (SE %.4f%%)  median %+.4f%%  win %.1f%%"
@@ -851,11 +987,15 @@ def main() -> int:
         if cp.get("probe_share", 0) > 0.5:
             print("    -> %.0f%% of this cohort are PROBE admissions. A probe sets"
                   % (100 * cp["probe_share"]))
-            print("       p_win = max(p_win, ml.exploration.p_win = 0.7) against a")
-            print("       derived bar near 0.567, so it clears BY CONSTRUCTION and")
-            print("       the model's own p is never the admitting quantity. This")
-            print("       cohort measures the EXPLORATION CONSTANT, not the selector")
-            print("       the verdict is about.")
+            print("       p_win = max(p_win, ml.exploration.p_win = %s) against"
+                  % _live_explore_p_win())
+            print("       the derived entry bar, which it exceeds, so a probe")
+            print("       clears BY CONSTRUCTION and the model's own p is never")
+            print("       the admitting quantity. This cohort measures the")
+            print("       EXPLORATION CONSTANT, not the selector the verdict is")
+            print("       about. (Bar not printed here on purpose: it is derived")
+            print("       from the fee stack and moves at every cut - read it")
+            print("       from the runner's startup line 'p(win) bar=...'.)")
         if cp.get("label_eras_present", 0) > 1:
             print("    -> %d distinct label eras in one cohort - the label axis is"
                   % cp["label_eras_present"])
