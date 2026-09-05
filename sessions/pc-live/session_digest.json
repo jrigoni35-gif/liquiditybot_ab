@@ -1,40 +1,40 @@
 {
-  "generated_at": 1788565230.1451025,
+  "generated_at": 1788568849.3205488,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788565220.0,
-    "duration_h": 1359.78
+    "end": 1788568845.0,
+    "duration_h": 1360.79
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 950,
-      "signal_records": 858,
+      "records": 1068,
+      "signal_records": 976,
       "by_src": {
-        "long_book": 405,
-        "exploration": 159,
-        "ml_governor": 121,
+        "long_book": 498,
+        "exploration": 161,
+        "ml_governor": 120,
         "firewall": 90,
-        "order_manager": 47,
-        "conviction": 43,
-        "startup": 37,
-        "fault": 37,
-        "exit": 10,
+        "order_manager": 51,
+        "startup": 48,
+        "fault": 48,
+        "conviction": 42,
+        "exit": 9,
         "circuit_breaker": 1
       },
       "top_codes": [
         [
           "LB-010",
-          180
+          209
         ],
         [
           "CX-030",
-          108
+          140
         ],
         [
           "LB-050",
-          108
+          140
         ],
         [
           "FW-050",
@@ -42,7 +42,15 @@
         ],
         [
           "SZ-049",
-          59
+          61
+        ],
+        [
+          "CG-000",
+          48
+        ],
+        [
+          "FT-020",
+          48
         ],
         [
           "SZ-051",
@@ -54,15 +62,7 @@
         ],
         [
           "ML-031",
-          42
-        ],
-        [
-          "CG-000",
-          37
-        ],
-        [
-          "FT-020",
-          37
+          41
         ],
         [
           "CV-010",
@@ -70,83 +70,53 @@
         ],
         [
           "OM-000",
-          25
+          29
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.21,
+      "dominant_frac": 0.214,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 25491,
+      "records": 608,
       "by_level": {
-        "INFO": 25266,
-        "WARNING": 218,
-        "CRITICAL": 5,
-        "ERROR": 2
+        "INFO": 604,
+        "WARNING": 4
       },
       "top_warnings": [
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          117
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          6
-        ],
-        [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          5
-        ],
-        [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          5
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          5
-        ],
-        [
-          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-032 RETRAIN REQUESTED: input drift on 33% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          3
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          3
-        ],
-        [
-          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          3
-        ],
-        [
-          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           2
+        ],
+        [
+          "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+          1
+        ],
+        [
+          "auto-retrain: 14367 rows (29 new)",
+          1
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 6671,
-        "thin": 3182
+        "spoofy": 165,
+        "thin": 30
       },
-      "spoofy_frac": 0.677,
+      "spoofy_frac": 0.846,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3495,
-      "feed_error_events": 3
+      "cycles_estimate": 90,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.48,
+    "equity_end": 793.51,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 132661,
+    "epoch_samples": 132889,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -154,24 +124,24 @@
     "realized_pnl_total": -0.55,
     "fees_paid_total": 12.9586,
     "open_positions": 5,
-    "samples": 300452
+    "samples": 300680
   },
   "activity": {
-    "signal_rows_total": 24757,
+    "signal_rows_total": 24772,
     "live_labeled_trades": 407,
-    "candidate_rows": 24350
+    "candidate_rows": 24365
   },
   "audit": {
-    "records": 77577,
-    "signal_records": 32023,
+    "records": 77705,
+    "signal_records": 32151,
     "by_src": {
-      "exploration": 68512,
-      "long_book": 2708,
-      "ml_governor": 2497,
-      "order_manager": 1818,
+      "exploration": 68514,
+      "long_book": 2804,
+      "ml_governor": 2500,
+      "order_manager": 1823,
       "conviction": 756,
-      "startup": 361,
-      "fault": 342,
+      "startup": 372,
+      "fault": 353,
       "exit": 311,
       "firewall": 150,
       "engine": 63,
@@ -193,11 +163,11 @@
       ],
       [
         "LB-010",
-        1711
+        1743
       ],
       [
         "OM-000",
-        1290
+        1295
       ],
       [
         "ML-031",
@@ -205,7 +175,7 @@
       ],
       [
         "LB-050",
-        579
+        611
       ],
       [
         "CV-030",
@@ -217,53 +187,53 @@
       ],
       [
         "ML-016",
-        437
+        438
       ],
       [
         "ML-041",
-        419
+        420
       ],
       [
         "ML-042",
-        372
+        373
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.695,
+    "dominant_frac": 0.693,
     "retrain_requests": 186,
     "kill_switch_events": 7,
     "chain_ok": false,
     "chain_first_break": null,
     "chain_tamper": false,
-    "chain_seams": 11,
+    "chain_seams": 12,
     "chain_torn_tail": false,
     "chain_error": null,
-    "dup_seqs": 51,
-    "fork_divergent_seqs": 51,
+    "dup_seqs": 176,
+    "fork_divergent_seqs": 176,
     "fork_codes": {
+      "LB-010": 67,
+      "CX-030": 62,
+      "LB-050": 62,
+      "CG-000": 30,
+      "FT-020": 30,
+      "SZ-049": 21,
+      "OM-000": 14,
       "SZ-051": 11,
       "ML-031": 10,
-      "OM-000": 9,
       "ML-070": 7,
       "ML-030": 7,
-      "LB-010": 7,
-      "CG-000": 6,
       "CV-030": 6,
       "SZ-053": 6,
-      "FT-020": 5,
-      "SZ-049": 5,
       "ML-050": 4,
       "RT-010": 3,
       "OM-040": 3,
       "SZ-047": 2,
-      "CX-030": 2,
-      "LB-050": 2,
+      "ML-016": 2,
+      "ML-042": 2,
+      "ML-041": 2,
       "FT-010": 1,
       "ML-076": 1,
       "OM-080": 1,
-      "ML-016": 1,
-      "ML-042": 1,
-      "ML-041": 1,
       "SZ-052": 1
     },
     "fork_examples": [
@@ -325,69 +295,39 @@
     ]
   },
   "events": {
-    "records": 25491,
+    "records": 608,
     "by_level": {
-      "INFO": 25266,
-      "WARNING": 218,
-      "CRITICAL": 5,
-      "ERROR": 2
+      "INFO": 604,
+      "WARNING": 4
     },
     "top_warnings": [
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        117
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        6
-      ],
-      [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        5
-      ],
-      [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        5
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        5
-      ],
-      [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 33% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        3
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-        3
-      ],
-      [
-        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        3
-      ],
-      [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         2
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 14367 rows (29 new)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 6671,
-      "thin": 3182
+      "spoofy": 165,
+      "thin": 30
     },
-    "spoofy_frac": 0.677,
+    "spoofy_frac": 0.846,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3495,
-    "feed_error_events": 3
+    "cycles_estimate": 90,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.24499829545505192,
+    "champion_brier": 0.24488272156845825,
     "brier": "n/a",
     "history_rows": 407,
     "cold": false
@@ -411,7 +351,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 14420,
+      "triple_barrier_h432": 14435,
       "triple_barrier": 5328,
       "exit_sim": 2769,
       "legacy": 1781,
@@ -429,10 +369,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 24757,
+    "corpus_rows": 24772,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-04T22:05:00Z",
-    "corpus_span_days": 53.4,
+    "corpus_last_ts": "2026-09-04T23:20:00Z",
+    "corpus_span_days": 53.45,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -449,7 +389,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "51 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'SZ-051': 11, 'ML-031': 10, 'OM-000': 9, 'ML-070': 7, 'ML-030': 7, 'LB-010': 7, 'CG-000': 6, 'CV-030': 6, 'SZ-053': 6, 'FT-020': 5, 'SZ-049': 5, 'ML-050': 4, 'RT-010': 3, 'OM-040': 3, 'SZ-047': 2, 'CX-030': 2, 'LB-050': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'ML-016': 1, 'ML-042': 1, 'ML-041': 1, 'SZ-052': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "176 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 67, 'CX-030': 62, 'LB-050': 62, 'CG-000': 30, 'FT-020': 30, 'SZ-049': 21, 'OM-000': 14, 'SZ-051': 11, 'ML-031': 10, 'ML-070': 7, 'ML-030': 7, 'CV-030': 6, 'SZ-053': 6, 'ML-050': 4, 'RT-010': 3, 'OM-040': 3, 'SZ-047': 2, 'ML-016': 2, 'ML-042': 2, 'ML-041': 2, 'FT-010': 1, 'ML-076': 1, 'OM-080': 1, 'SZ-052': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
@@ -461,13 +401,13 @@
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 68% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 85% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
       "severity": "info",
       "title": "audit writer seam(s)",
-      "detail": "11 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
+      "detail": "12 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode"
     }
   ],
   "verdict": "SD-011 audit fork carries divergent payloads"
