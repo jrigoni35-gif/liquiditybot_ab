@@ -961,6 +961,14 @@ def test_persistence_roundtrip():
     # policy) - now FATAL in live mode (W2-7 guard). This test is about the
     # dry/live resume mismatch, not the EV gate, so restore a valid ratio.
     cfg_live["pretrade"]["min_edge_cost_ratio"] = 1.3
+    # Same shape as the line above, same reason: this fixture set
+    # price_exit_leg=False at :846 because its subject is persistence, not
+    # gate economics - and a live config with the unwind leg deleted from the
+    # EV cost stack is now a FATAL (cost-stack completeness is not a tunable).
+    # Restoring it here makes the LIVE fixture valid; it does not weaken the
+    # guard, which is exercised directly in
+    # tests/test_config_guard_governor_floor_and_exit_leg.py.
+    cfg_live["pretrade"]["price_exit_leg"] = True
     try:
         bot3 = LiquidityBot(cfg_live, okx=MockOKX(prices),
                             binanceus=MockBinanceUS(prices),

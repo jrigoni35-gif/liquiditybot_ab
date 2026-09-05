@@ -84,6 +84,17 @@ _OVERFIT_ROWS_PER_FEATURE = 10
 # mirror cannot drift silently.
 _CAND_QUEUE_CODE_DEFAULT = 200
 
+# ml/calibration.py calibration_gap()'s own `n_bins` default. MIRRORED (not
+# chosen), same contract as _MAIN_ENGINE_FALLBACK / _OVERFIT_ROWS_PER_FEATURE
+# above: calibration_gap RETURNS 0.0 - the perfectly-calibrated value, not a
+# "no data" sentinel - for any window shorter than n_bins, and ml/monitor.py
+# _judge feeds that raw into two of its three verdict clauses. So this is the
+# sample count below which the governor's calibration test cannot convict,
+# and the lower bound on min_trades_to_judge is exactly it.
+# tests/test_config_guard_governor_floor_and_exit_leg.py regex-pins this
+# against calibration_gap's own `def` line so the mirror cannot drift.
+_CALIBRATION_MIN_BINS = 5
+
 # Reference PEAK candidate arrival rate (registrations/hour) for the
 # Little's-law capacity check below. MEASURED, not chosen: 659 offered
 # registrations inside the densest 36h signal_ts window of the
@@ -645,6 +656,41 @@ def validate(config: dict) -> list:
         fatal(f"pretrade.max_data_staleness_ms={pt_stale} must be positive "
               f"- a non-positive staleness gate rejects every quote as "
               f"stale (or trusts a permanently dead one, at exactly 0)")
+    # price_exit_leg: cost-stack COMPLETENESS, not a tunable. Every entry
+    # must be unwound, and execution/pretrade.py adds that unwind leg
+    # (taker fee + half the spread) to est_cost_bps. Falsy DELETES it:
+    # measured 39.0-45.0 bps over spread 2-14 bps at the shipped 22/38
+    # tier, which leaves the stack at ~40% of its true value and drops the
+    # PT-041 edge bar with it (92.99 -> 37.09 bps at a 10bps spread). That
+    # is the documented mechanism by which an 86%-hit-rate book still nets
+    # red - entries priced entry-only never had to clear round-trip cost.
+    # Checked against the READ-SITE's own coercion, `bool(cfg.get(...))`,
+    # so 0 / 0.0 / "" turn the leg off exactly as false does and are caught
+    # by the same clause; an `is False` test would wave them through. A
+    # TRUTHY non-bool is equally a FATAL for the mirror-image reason (the
+    # long_book.context.pause_in_crisis precedent): bool("false") is True,
+    # so an author's "false" silently LEAVES THE LEG ON, the opposite of
+    # what it says. Legitimate leg-off pricing exists only in bare-config
+    # test construction, which never reaches this guard.
+    _leg_raw = _f(config, "pretrade.price_exit_leg", True)
+    if not isinstance(_leg_raw, bool):
+        fatal(f"pretrade.price_exit_leg ({_leg_raw!r}) must be a real "
+              f"boolean, not {type(_leg_raw).__name__} - execution/"
+              f"pretrade.py reads it through bool(), where a string like "
+              f"'false' is TRUE and a 0 is False, so a non-bool silently "
+              f"prices the opposite of what it appears to say")
+    elif not _leg_raw:
+        # magnitude DERIVED from this config's own taker fee, never a
+        # literal: the tier has moved twice (cut #8, cut #9) and a hardcoded
+        # bps figure here would have become a false claim each time.
+        fatal(f"pretrade.price_exit_leg=false deletes the unwind leg (taker "
+              f"fee + half spread) from the pre-trade EV cost stack - at "
+              f"this config's taker fee that is {pt_taker:.0f}bps before the "
+              f"spread term even counts, so the stack under-prices every "
+              f"entry and the PT-041 edge bar falls with it. Cost-stack "
+              f"completeness is not a tunable: entries must clear "
+              f"ROUND-TRIP cost, not entry-only")
+
     pt_impact_eta = float(_f(config, "pretrade.impact_eta", 0.8))
     if pt_impact_eta < 0:
         fatal(f"pretrade.impact_eta={pt_impact_eta} must be >= 0 - it "
@@ -2192,6 +2238,29 @@ def validate(config: dict) -> list:
               f"window_trades ({mon_window}) - the judged window is capped "
               f"at window_trades, so a higher min can never be reached and "
               f"the governor never judges")
+    # LOWER bound (this key had only the upper bound above). The floor is
+    # the calibration binning count, not a taste: ml/calibration.py's
+    # calibration_gap() returns 0.0 for any window shorter than n_bins, and
+    # 0.0 is the PERFECTLY-CALIBRATED value, not a "not enough data"
+    # sentinel. ml/monitor.py _judge consumes it raw in two of its three
+    # verdict clauses (`gap > calibration_gap_max` for degraded, and the
+    # `hit_deficit and gap > ...` conjunct for failing). So a floor below
+    # n_bins lets the governor OPEN its judged window on 1..n_bins-1 scored
+    # closes and, on exactly those windows, the calibration test cannot
+    # convict - it reads clean rather than reading unavailable. Measured on
+    # the real consumer: min_trades_to_judge=4 with four promised-0.99
+    # all-loss closes publishes calibration_gap=0.0; the same evidence at 5
+    # publishes 0.99. This is a measurement-standard floor, NOT a tunable -
+    # the fix for a governor that judges too slowly is more evidence, never
+    # a lower bar.
+    if mon_min_judge < _CALIBRATION_MIN_BINS:
+        fatal(f"ml.monitor.min_trades_to_judge ({mon_min_judge}) must be >= "
+              f"{_CALIBRATION_MIN_BINS} - ml/calibration.py calibration_gap "
+              f"bins into n_bins={_CALIBRATION_MIN_BINS} and returns 0.0, the "
+              f"PERFECTLY-CALIBRATED value, on any shorter window. The "
+              f"governor would judge {mon_min_judge}-close windows with its "
+              f"calibration clause silently reading 'perfect' instead of "
+              f"'unknown', so miscalibration could never convict there")
     mon_shrink_base = float(_f(config, "ml.monitor.shrinkage_base", 0.35))
     mon_shrink_max = float(_f(config, "ml.monitor.shrinkage_max", 0.70))
     if not (0.0 <= mon_shrink_base <= mon_shrink_max <= 1.0):
