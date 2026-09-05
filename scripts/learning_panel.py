@@ -79,16 +79,90 @@ ROUTES: tuple[Route, ...] = (
 _NOWIN = 0x08000000 if os.name == "nt" else 0
 
 
+TAIL_LINES = 15
+# Per-route cap on the retained full text (see _package_result). 256 KB is
+# ~30x the largest real route, so nothing is lost in practice; it exists so a
+# runaway or looping route cannot grow a synced artifact without bound.
+FULL_TEXT_CAP = 256 * 1024
+
+
+def _bounded(text: str, cap: int = FULL_TEXT_CAP) -> str:
+    """Keep the TAIL within `cap` bytes and say so. The tail, not the head:
+    verdict lines are emitted last, and dropping them is what made this field
+    necessary in the first place."""
+    if text is None:
+        return ""
+    if len(text) <= cap:
+        return text
+    dropped = len(text) - cap
+    return (f"[... {dropped} characters truncated at the {cap}-byte "
+            f"per-route cap; head dropped, tail kept ...]\n") + text[-cap:]
+
+
 def _head_tail(stdout: str, stderr: str, ok: bool) -> tuple[list[str], list[str]]:
-    """First 3 non-empty stdout lines, last 15 stdout lines; stderr's tail is
-    appended to `tail` only on a non-OK result (a green route's stderr is
-    noise, a failing one's is often the whole story)."""
-    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    """First 3 non-empty stdout lines, last TAIL_LINES stdout lines; stderr's
+    tail is appended to `tail` only on a non-OK result (a green route's stderr
+    is noise, a failing one's is often the whole story).
+
+    The tail is MARKED when it drops lines. Truncation is fine - silent
+    truncation is not: 14 of 16 routes saturate this window, and an unmarked
+    15-line block is indistinguishable from complete output, which is how
+    cohort_eval's verdict + homogeneity section went missing from every panel
+    without anyone noticing (measured 2026-09-04). The full text is preserved
+    in the result dict's `stdout_full` for the JSON.
+    """
+    all_lines = stdout.splitlines()
+    lines = [ln for ln in all_lines if ln.strip()]
     head = lines[:3]
-    tail = stdout.splitlines()[-15:]
+    tail = all_lines[-TAIL_LINES:]
+    omitted = len(all_lines) - len(tail)
+    if omitted > 0:
+        tail = [f"... ({omitted} earlier lines truncated; "
+                f"full text in the JSON's stdout_full)"] + tail
     if not ok and stderr.strip():
-        tail = tail + ["--- stderr (tail) ---"] + stderr.splitlines()[-15:]
+        err = stderr.splitlines()
+        err_tail = err[-TAIL_LINES:]
+        err_omitted = len(err) - len(err_tail)
+        tail = tail + ["--- stderr (tail) ---"]
+        if err_omitted > 0:
+            tail = tail + [f"... ({err_omitted} earlier stderr lines truncated)"]
+        tail = tail + err_tail
     return head, tail
+
+
+def panel_exit_code(counts: dict) -> int:
+    """0 only when every route produced a measurement.
+
+    The old `main()` ended in an unconditional `return 0`, so a run in which
+    every route failed exited green and the LiquidityBot-LearningPanel-Daily
+    scheduled task recorded LastTaskResult=0 with a TIMEOUT inside it. "The
+    process exited" is not "a measurement was made", and an operator reading
+    Task Scheduler could not tell those apart.
+    """
+    bad = (int(counts.get("failed", 0)) + int(counts.get("timeout", 0))
+           + int(counts.get("error", 0)))
+    return 1 if bad else 0
+
+
+def _package_result(route: "Route", stdout: str, stderr: str, rc,
+                    duration: float, status: str) -> dict:
+    """One shape for all three exit paths, so `stdout_full` can never be
+    present on some and missing on others."""
+    head, tail = _head_tail(stdout, stderr, status == "OK")
+    return {
+        "name": route.name, "status": status, "rc": rc,
+        "duration_sec": duration, "head": head, "tail": tail,
+        # The record: the .md is a summary, this is what a later reader
+        # reconstructs a verdict from. BOUNDED, because learning_panel.json is
+        # bundled and synced off-box - unbounded route output would grow this
+        # file without limit and widen what leaves the machine. The cap is far
+        # above any real route (the largest, cohort_eval, is single-digit KB),
+        # so it preserves the whole reason this field exists while making the
+        # worst case finite. Truncation is MARKED, never silent - that is the
+        # defect this same commit fixes one field up.
+        "stdout_full": _bounded(stdout),
+        "stderr_full": _bounded(stderr),
+    }
 
 
 def _run_route(route: Route) -> dict:
@@ -103,29 +177,23 @@ def _run_route(route: Route) -> dict:
             creationflags=_NOWIN, check=False)
         duration = time.time() - started
         ok = p.returncode == 0
-        head, tail = _head_tail(p.stdout or "", p.stderr or "", ok)
-        return {
-            "name": route.name, "status": "OK" if ok else "FAILED",
-            "rc": p.returncode, "duration_sec": duration,
-            "head": head, "tail": tail,
-        }
+        return _package_result(route, p.stdout or "", p.stderr or "",
+                               p.returncode, duration,
+                               "OK" if ok else "FAILED")
     except subprocess.TimeoutExpired as e:
         duration = time.time() - started
-        head, tail = _head_tail(e.stdout or "" if isinstance(e.stdout, str) else "",
-                                e.stderr or "" if isinstance(e.stderr, str) else "",
-                                False)
-        return {
-            "name": route.name, "status": "TIMEOUT", "rc": None,
-            "duration_sec": duration, "head": head,
-            "tail": tail or [f"timed out after {route.timeout_sec}s"],
-        }
+        out = e.stdout if isinstance(e.stdout, str) else ""
+        err = e.stderr if isinstance(e.stderr, str) else ""
+        res = _package_result(route, out or "", err or "", None, duration,
+                              "TIMEOUT")
+        if not res["tail"]:
+            res["tail"] = [f"timed out after {route.timeout_sec}s"]
+        return res
     except Exception as e:                       # noqa: BLE001 - fail-safe
         duration = time.time() - started
-        return {
-            "name": route.name, "status": "ERROR", "rc": None,
-            "duration_sec": duration, "head": [],
-            "tail": [f"{type(e).__name__}: {e}"],
-        }
+        res = _package_result(route, "", "", None, duration, "ERROR")
+        res["tail"] = [f"{type(e).__name__}: {e}"]
+        return res
 
 
 def _git_head() -> str:
@@ -231,7 +299,10 @@ def main(argv: list[str] | None = None) -> int:
         c = result["counts"]
         print(f"learning_panel: {c['ok']} OK, {c['failed']} FAILED, "
              f"{c['timeout']} TIMEOUT, {c['error']} ERROR -> {PANEL_MD}")
-    return 0
+    # A green exit must mean every route produced a measurement. See
+    # panel_exit_code: the unconditional `return 0` this replaces is why the
+    # daily scheduled task logged LastTaskResult=0 over a TIMEOUT.
+    return panel_exit_code(result["counts"])
 
 
 if __name__ == "__main__":
