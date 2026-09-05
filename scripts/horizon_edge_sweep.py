@@ -75,7 +75,29 @@ HORIZONS = {
     "15min": 900, "1h": 3600, "6h": 21600, "12h": 43200,
     "24h": 86400, "48h": 172800, "72h": 259200,
 }
-FEE_RT = 0.012  # 120 bps true-fee round-trip floor (Kraken T1 40/80, era-5)
+def _fee_rt_from_config() -> float:
+    """Round-trip cost as a FRACTION, read from the live config.
+
+    This was `FEE_RT = 0.012  # Kraken T1 40/80, era-5` — a struck constant at
+    TWICE the real cost. Cut #9 (2026-08-30) corrected the venue tier to the
+    account's true Tier 3, 22/38 bps, so the round trip is 0.006. The sweep's
+    only consumer is `net_edge = abs(spread) - FEE_RT`, so an overstated fee
+    biases every horizon toward "no net edge" — the exact conclusion the
+    project is currently drawing, produced by the instrument rather than the
+    market. That is the-method recurrence #1 in constant form, and it is the
+    same shape as the error cut #9 existed to correct.
+
+    Read, never struck: the tier has moved twice in two weeks. If config is
+    unreadable this RAISES rather than falling back to a literal — a sweep
+    that cannot state its own cost basis must not publish a number.
+    """
+    import json
+    with open(ROOT / "config.json", encoding="utf-8") as fh:
+        pt = json.load(fh)["pretrade"]
+    return (float(pt["maker_fee_bps"]) + float(pt["taker_fee_bps"])) / 10_000.0
+
+
+FEE_RT = _fee_rt_from_config()
 TOL_FRAC = 0.5  # a match must land within 0.5*H of t0+H (effective H in [.5H,1.5H])
 
 # --- feature classification (from ml/features.py, verified against the code) -

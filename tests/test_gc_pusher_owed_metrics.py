@@ -385,3 +385,61 @@ def test_aux_metrics_stay_out_of_collect(tmp_path):
                         "liquiditybot_ml_lineage_events",
                         "liquiditybot_cohort_closes",
                         "liquiditybot_cohort_min_n"}
+
+
+# ---- era-scoped cohort count (2026-09-05) --------------------------------
+# The gauge published era4["n"], the ERA-4 pre-registered population, which
+# CLAUDE.md declares CLOSED (read out COST_BOUND at n=54). That counter is not
+# era-scoped - era4_trips() selects on timestamp and fill-honesty predicates
+# and exec_era is in NONE of them - so it pools every execution era. On the
+# board it renders as the gate headline OVERSHOOTING its target while the era
+# actually accruing sits well short: "done" about a question still open.
+_COHORT_JSON_ERAS = {
+    "era4": {"n": 96, "min_n": 50, "progress": "96/50"},
+    "homogeneity": {
+        "current_era": "9-16ec821e",
+        "by_era": {"7-e7d5ca1a": 56, "8-ca55e2ba": 3, "9-16ec821e": 26},
+        "era_partial_stamp_trips": 4, "era_straddling_trips": 6,
+        "era_unstamped_trips": 1,
+    },
+}
+
+
+@pytest.fixture
+def cohort_env_eras(tmp_path, monkeypatch):
+    script = tmp_path / "fake_cohort_eval_eras.py"
+    script.write_text(
+        "import json\nprint(json.dumps(%s))\n" % json.dumps(_COHORT_JSON_ERAS),
+        encoding="utf-8")
+    monkeypatch.setattr(gp, "COHORT_SCRIPT", script)
+    monkeypatch.setattr(gp, "_cohort_cache",
+                        {"next_attempt": 0.0, "values": None})
+
+
+def test_cohort_gauge_publishes_the_ACCRUING_era_not_the_pooled_count(
+        cohort_env_eras):
+    """THE REGRESSION. Pooled is 96 against a floor of 50 (reads overshot);
+    the accruing era is 26."""
+    m = gp._cohort_metrics(1000.0)
+    n = _val(m, "liquiditybot_cohort_closes")
+    assert n == 26.0, (
+        f"gauge published {n} - 96 is the pooled era-4 population and reads "
+        f"as the gate having overshot, while era-6 is at 26 of 50")
+    assert _val(m, "liquiditybot_cohort_min_n") == 50.0
+
+
+def test_cohort_gauge_still_only_emits_a_count_and_its_floor(cohort_env_eras):
+    """The moratorium bound is unchanged by the era scoping: a COUNT and its
+    pre-registered floor, never a gross/net trend."""
+    m = gp._cohort_metrics(1000.0)
+    assert _names(m) == {"liquiditybot_cohort_closes",
+                         "liquiditybot_cohort_min_n"}
+
+
+def test_cohort_gauge_falls_back_to_pooled_when_segmentation_absent(
+        cohort_env):
+    """An older cohort_eval emits no homogeneity block. The gauge must keep
+    publishing something rather than going dark - a missing gauge and a zero
+    gauge are indistinguishable on a board."""
+    m = gp._cohort_metrics(1000.0)
+    assert _val(m, "liquiditybot_cohort_closes") == 37.0

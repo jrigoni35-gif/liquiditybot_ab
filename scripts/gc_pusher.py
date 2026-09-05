@@ -1202,9 +1202,36 @@ def _run_cohort_eval():
             timeout=COHORT_TIMEOUT_SEC)
         if proc.returncode != 0:
             return None
-        era4 = (json.loads(proc.stdout.decode("utf-8", errors="replace"))
-                .get("era4") or {})
-        n, mn = era4.get("n"), era4.get("min_n")
+        payload = json.loads(proc.stdout.decode("utf-8", errors="replace"))
+        era4 = payload.get("era4") or {}
+        mn = era4.get("min_n")
+        # PUBLISH THE ACCRUING ERA, NOT THE POOLED COUNT.
+        #
+        # This read era4["n"], which is the ERA-4 pre-registered population -
+        # a cohort CLAUDE.md declares CLOSED (it read out COST_BOUND at n=54).
+        # That counter is not era-scoped: era4_trips() selects on timestamp and
+        # fill-honesty predicates and exec_era appears in NONE of them, so it
+        # pools every execution era by construction. On the board that renders
+        # as the gate headline OVERSHOOTING its target (n far past min_n) while
+        # the era actually accruing toward the next readout sits well short of
+        # it - the single most misleading number the glass can show, because it
+        # reads "done" about a question that is still open.
+        #
+        # Prefer the stamp-pure count for the CURRENT era (homogeneity.by_era
+        # keyed by current_era - trips every leg of which carries that stamp,
+        # per docs/quant/2026-09-05_era6_membership_registration.md). Fall back
+        # to the pooled figure only if the segmentation is absent, so an older
+        # cohort_eval still publishes something rather than going dark.
+        #
+        # Still a COUNT and its pre-registered floor only: the moratorium
+        # forbids reading the accruing gate's gross/net as a trend, and this
+        # change does not widen what leaves here.
+        hg = payload.get("homogeneity") or {}
+        cur = hg.get("current_era")
+        by_era = hg.get("by_era") or {}
+        n = by_era.get(cur) if cur and isinstance(by_era, dict) else None
+        if n is None:
+            n = era4.get("n")
         # finiteness enforced HERE: collect()'s NaN choke point does not
         # cover the aux batch, and json.loads happily yields NaN/Infinity
         # — one non-finite gauge invalidates the whole OTLP body
