@@ -794,7 +794,7 @@ def test_a_hand_written_row_outside_the_vocabulary_is_refused_on_read(
 
 def test_compact_refuses_a_partition_path_outside_the_store(tmp_path,
                                                             monkeypatch):
-    """BELT AND BRACES, verified independently of the read-path check.
+    r"""BELT AND BRACES, verified independently of the read-path check.
 
     PLATFORM-SPLIT, not skipped - the 2026-08-22 "wrong OS, not wrong code"
     precedent. compact()'s guard is a PATH-RESOLUTION check

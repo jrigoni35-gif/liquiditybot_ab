@@ -21,7 +21,16 @@
       "Bash(ruff check *)",
       "Bash(/root/.local/bin/pyright *)",
       "Bash(.venv/bin/bandit *)",
-      "Bash(.venv/bin/python -m compileall *)"
+      "Bash(.venv/bin/python -m compileall *)",
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(.venv/Scripts/python.exe scripts/smoke_test.py)",
+      "Bash(.venv/Scripts/python.exe scripts/assurance_check.py)",
+      "Bash(.venv/Scripts/python.exe scripts/overfit_check.py)",
+      "Bash(.venv/Scripts/python.exe -m ruff check *)",
+      "Bash(.venv/Scripts/python.exe -m compileall *)",
+      "Bash(.venv/Scripts/ruff.exe check *)",
+      "Bash(.venv/Scripts/bandit.exe *)",
+      "Bash(.venv/Scripts/pyright.exe *)"
     ]
   },
   "enabledPlugins": {
