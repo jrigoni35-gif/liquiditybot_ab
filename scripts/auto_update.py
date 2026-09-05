@@ -95,14 +95,114 @@ def _deploy_branch() -> str:
     return name
 
 
+# THE INCOMING-CODE BATTERY WALL, and why it moved 1200 -> 2400 on 2026-09-05.
+#
+# A pytest timeout here is a REJECTION (see battery_passes: "battery could not
+# run - refusing the update"). Measured on this box the same day, six runs:
+# 608, 623, 686, 736, 745, 810s. The worst was 67.5% of the old 1200s wall, and
+# the suite gained ~50 tests in a single session.
+#
+# The failure mode is not a slow deploy. Once the suite crosses the wall on the
+# PC, auto_update rejects EVERY update - including the one-line commit that
+# would raise the wall. The deploy channel can no longer carry its own repair,
+# and recovery needs physical access. That is CLAUDE.md's durable law - "a
+# gate's release condition must never depend on the thing it blocks" - which
+# the file already records as having produced four incidents.
+#
+# A FIXED WALL CANNOT SATISFY THIS. Raising 1200 -> 2400 only moves the cliff:
+# the suite still grows toward it, and the repair still has to travel the
+# channel the wall blocked. Two properties are needed, and both are here.
+#
+#  1. THE WALL TRACKS THE SUITE. Derived from the last SUCCESSFUL battery on
+#     this box (persisted in auto_update_state.json), so gradual growth raises
+#     its own ceiling and can never cross it. Only a genuine HANG - more than
+#     GROWTH_K times a known-good run - still trips it, which is the case the
+#     wall exists for. The last-good figure is recorded only after a battery
+#     that COMPLETED, so incoming code cannot inflate its own wall.
+#  2. AN ESCAPE THAT DOES NOT TRAVERSE THE DEPLOY CHANNEL. LB_BATTERY_TIMEOUT_SEC
+#     is an operator override settable on the PC itself. The recovery path for
+#     a blocked deploy channel must not require a deploy - that is the whole
+#     defect, and an env var is the cheapest thing that is outside it.
+#
+# MIN covers today with ~3x margin (worst measured run 2026-09-05: 810s).
+# MAX bounds a real hang so the gate keeps its job.
+BATTERY_TIMEOUT_MIN = 2400
+BATTERY_TIMEOUT_MAX = 4800
+BATTERY_TIMEOUT_GROWTH_K = 3.0
+BATTERY_WARN_FRACTION = 0.5
+# Below this, a run is not a timing sample. A battery that "finished" in
+# under a minute did not execute the suite - it hit a stub, a collection
+# error, or an immediate refusal - and feeding that into a wall derived from
+# observed durations would drag the wall down toward the floor on exactly the
+# runs that tell you least. Not a tunable: it separates "measured" from
+# "did not run", which is the same distinction the rest of this repo insists
+# on everywhere else.
+BATTERY_SAMPLE_MIN_SEC = 60.0
+
+
+def _last_battery_sec() -> "float | None":
+    """Duration of the last battery that RAN TO COMPLETION on this box."""
+    try:
+        st = json.loads((OUT / "auto_update_state.json")
+                        .read_text(encoding="utf-8"))
+        v = float(st.get("last_battery_sec"))
+        return v if v > 0 else None
+    except Exception:                             # noqa: BLE001 - best effort
+        return None
+
+
+def battery_timeout_sec() -> int:
+    """The wall for THIS run. Never raises; always returns a usable number."""
+    env = (os.environ.get("LB_BATTERY_TIMEOUT_SEC") or "").strip()
+    if env:
+        try:
+            v = int(float(env))
+            if v > 0:
+                # Operator override is honoured ABOVE the max: this is the
+                # unblock path for a box that is already stuck, and second-
+                # guessing it would reinstate the trap.
+                return max(v, 60)
+            log(f"LB_BATTERY_TIMEOUT_SEC={env!r} is not positive - ignoring")
+        except ValueError:
+            log(f"LB_BATTERY_TIMEOUT_SEC={env!r} is not a number - ignoring")
+    last = _last_battery_sec()
+    if last is None:
+        return BATTERY_TIMEOUT_MIN
+    return int(max(BATTERY_TIMEOUT_MIN,
+                   min(BATTERY_TIMEOUT_MAX, BATTERY_TIMEOUT_GROWTH_K * last)))
+
+
+def _record_battery_sec(secs: float) -> None:
+    """Persist a COMPLETED battery's duration, merging into the state stamp so
+    _record_outcome's later whole-dict write does not drop it."""
+    try:
+        p = OUT / "auto_update_state.json"
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:                         # noqa: BLE001
+            st = {}
+        st["last_battery_sec"] = round(float(secs), 1)
+        tmp = p.with_suffix(f".{os.getpid()}.battery.tmp")
+        tmp.write_text(json.dumps(st), encoding="utf-8")
+        os.replace(tmp, p)
+    except Exception as e:                        # noqa: BLE001
+        log(f"battery duration stamp failed ({e}) - update itself unaffected")
+
 # One updater at a time: the supervisor's fast cadence plus a manual run could
-# otherwise stack two 20-min batteries and race the fast-forward. Staleness
-# must outlive the worst case with margin. battery_passes now chains TWO 1200s
-# subprocesses back-to-back — pytest then the replay gate — plus fetch/worktree
-# ops, so ~2400s of subprocess time is possible once recordings accrue. Sized
-# above that so a legitimately-long run is never mistaken for a stale lock (which
-# would let a second updater start concurrently and race the fast-forward).
-LOCK_STALE_SEC = 3900.0
+# otherwise stack two batteries and race the fast-forward. Staleness must
+# outlive the worst case with margin. battery_passes chains the pytest wall and
+# the replay gate back-to-back plus fetch/worktree ops, so the in-lock ceiling
+# is BATTERY_TIMEOUT_MAX + 1200 = 6000s of subprocess time. Sized above THAT,
+# not above one leg: a legitimately-long run mistaken for a stale lock lets a
+# second updater start concurrently, race the fast-forward, and — measured
+# 2026-09-05 — sweep the live worktree's contents.
+#
+# Moved WITH the battery wall, deliberately. Raising one without the other is
+# what puts a healthy battery under a stale lock, so the pin in
+# tests/test_auto_update_timeout_semantics.py asserts the relationship rather
+# than either number. NOTE the operator override (LB_BATTERY_TIMEOUT_SEC) can
+# exceed MAX by design; a box using it to unblock itself should raise this too.
+LOCK_STALE_SEC = 7800.0
 # Outcomes that exit 0 ("nothing wrong"), vs real failures that exit 1.
 OK_OUTCOMES = ("updated", "current", "ahead", "dirty", "disabled", "busy")
 
@@ -234,14 +334,35 @@ def battery_passes(worktree: Path) -> bool:
     # The developer battery and the PC's own manual runs keep it HARD, which
     # is where a hygiene regression should be caught.
     env = {**os.environ, "LB_ALLOW_OUTPUT_WRITES": "1"}
+    _wall = battery_timeout_sec()
+    _t0 = time.time()
     try:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
                             "-x", "--no-header"],
                            cwd=str(worktree), capture_output=True, text=True,
-                           timeout=1200, env=env, creationflags=_NOWIN)
+                           timeout=_wall, env=env,
+                           creationflags=_NOWIN)
     except Exception as e:                       # noqa: BLE001
         log(f"battery could not run ({e}) - refusing the update")
         return False
+    # THE MARGIN MUST BE OBSERVABLE BEFORE THE CLIFF. A timeout here rejects
+    # every update including the fix for the timeout, so the operator has to
+    # learn the suite is approaching the wall while there is still room to
+    # raise it. Logged every run; escalated above the warn fraction.
+    _elapsed = time.time() - _t0
+    # Record BEFORE judging the result: the wall must track how long the suite
+    # takes, not how often it passes. A red suite that ran to completion is
+    # still a valid timing sample - a FAST one is not a sample at all.
+    if _elapsed >= BATTERY_SAMPLE_MIN_SEC:
+        _record_battery_sec(_elapsed)
+    _frac = _elapsed / _wall if _wall else 0.0
+    _msg = f"battery ran {_elapsed:.0f}s of the {_wall}s wall ({_frac:.0%})"
+    if _frac >= BATTERY_WARN_FRACTION:
+        log(f"WARNING: {_msg} - the wall self-raises from this figure, but if "
+            f"it is pinned at BATTERY_TIMEOUT_MAX set LB_BATTERY_TIMEOUT_SEC "
+            f"on the box (an override that does NOT need a deploy)")
+    else:
+        log(_msg)
     lines = (p.stdout or "").strip().splitlines()
     tail = lines[-1:] or ["(no output)"]
     log(f"incoming-code battery rc={p.returncode}: {tail[0]}")
@@ -340,6 +461,14 @@ def _run_gate(worktree: Path, py: str, argv: list, env: dict, secs: int):
                            capture_output=True, encoding="utf-8",
                            errors="replace", timeout=secs, env=env,
                            creationflags=_NOWIN)
+    except subprocess.TimeoutExpired:
+        # A HUNG GATE IS NOT A MISSING TOOL. could_not_run exists for the
+        # machine that legitimately lacks ruff or pyright, and this function's
+        # contract is that could_not_run is NEVER a rejection - so returning
+        # True here meant a gate that spins forever ADMITS the deploy to the
+        # live trading PC. "The tool is absent" and "the tool ran and never
+        # finished" are different observations and only one of them may pass.
+        return 1, f"TIMED OUT after {secs}s (gate did not finish)", False
     except Exception as e:                       # noqa: BLE001
         return 1, f"could not run: {e}", True
     # getattr, not attribute access: a real CompletedProcess under
