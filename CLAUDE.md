@@ -8,7 +8,18 @@ INVARIANT below, stop and say so instead of complying.
 
 1. `system.dry_run` defaults to **true**. No code path, config default,
    test fixture, or control command may set it false at runtime. The only
-   road to live: config `dry_run:false` → restart → typed `ARM LIVE`.
+   road to live has **FOUR** steps, not three: delete the
+   `outputs/force_dry.on` sentinel (or boot `--fresh`, which clears it) →
+   config `dry_run:false` → restart → typed `ARM LIVE`.
+   The sentinel step is not optional and is easy to miss because it fails
+   SAFE and silently: `runner.apply_force_dry_sentinel` runs at boot BEFORE
+   the engine reads `system.dry_run` and forces it true whenever that file
+   exists, logging only `sentinel is a no-op this boot` while the config
+   already says dry. **This box has carried that sentinel since
+   2026-08-01** and has logged that line on every boot since; following the
+   three-step version of this instruction here would not reach live, and
+   the reason would not be obvious. `force_dry` moves one way only
+   (LIVE→DRY) — see invariant 2.
 2. `force_dry` is one-way (LIVE→DRY) and must flip **both** `bot.dry_run`
    and `bot.orders.dry_run` (OrderManager caches the flag at init).
 3. Kraken is the **sole execution venue**. OKX / Binance.US / ccxt /
@@ -21,9 +32,13 @@ INVARIANT below, stop and say so instead of complying.
 5. Entries are limit orders only (OM-011); market orders are for the
    exit escalation ladder's final rung. Exits are ALWAYS allowed —
    disarm, faults, and kill switches block new risk, never escapes.
-6. Hash-chained JSONL audit trail and reason codes (SZ-*, VN-*, RP-*,
-   FW-*, ML-*, OM-*, QT-*, PT-*) on every disposition. New behavior =
-   new registered code in `core/codes.py`, never a bare string.
+6. Hash-chained JSONL audit trail and a registered reason code on every
+   disposition. New behavior = new registered code in `core/codes.py`,
+   never a bare string. **`core/codes.py` is the registry and the only
+   authority on which prefixes exist** — no count is written here on
+   purpose. The enumerated list this replaces had drifted to a third of
+   the real families, because a prefix list written into law goes stale
+   the day someone adds one. Re-derive when you need it.
 7. Public interfaces stay stable. Extend with defaults; do not rename or
    change signatures without updating every caller AND the suites.
 
@@ -148,7 +163,15 @@ scripts/overfit_check.py` · `pyright core data execution ml risk regime
 strategies sentiment api main.py runner.py` (type ratchet: shipped scope
 is at ZERO errors — keep it there; tests/scripts are outside the gate)
 · `bandit -c pyproject.toml -r . -x ./.venv,./tests` · `python -m
-compileall -q . -x '.venv'`.
+compileall -q . -x '(\.venv|\.claude)'`.
+*(`.claude` is excluded because agent worktrees live under
+`.claude/worktrees/` and are checkouts of OTHER branches: measured
+2026-09-05, the old `-x '.venv'` form compiled **510** files out of a
+15-day-stale branch on every run, so a syntax error on a branch nobody
+is deploying could redden this gate. `bandit` already excludes it. Use
+`-f` when you actually want to see SyntaxWarnings — `compileall` skips
+files with a current `.pyc`, which is how an invalid escape sequence
+sat green in `tests/` until 2026-09-05.)*
 **A GREEN IS ONLY AS BIG AS ITS CORPUS — read what each gate actually
 measured, not just its exit code.** Several gates degrade *honestly* rather
 than failing, and the degraded form answers a **different question** than this
@@ -160,10 +183,17 @@ ran on.
   validates the **overfit machinery, not the market**, and is NOT evidence the
   deployed strategy is un-overfit. **The corpus prints on the summary line —
   read it every run.**
-- Inside that battery, **OF-4 plateau is inert whenever the replay recording
-  opens no positions** (a plateau test with zero entries cannot tell a plateau
-  from a cliff), and **OF-5 DSR defers below its conviction-trade floor**.
-  Neither is a failure; both are gates that could not fire.
+- Inside that battery, **FOUR of the seven rungs can fail to arm — not two.**
+  Mirror of `scripts/overfit_check.py`'s own summary block (read it there, it
+  is the authority): **OF-1** is informational under exploration; **OF-3** is
+  evidence-gated to a single family, which makes "PBO measures the deployed
+  selection rule" *vacuous* while only one family qualifies; **OF-4** plateau
+  is inert whenever the replay recording opens no positions (a plateau test
+  with zero entries cannot tell a plateau from a cliff); **OF-5** DSR defers
+  below its conviction-trade floor. None is a failure; all four are gates that
+  could not fire. **The number to read is the ARMED count, never the exit
+  code** — `passed 3, failed 0` reads identically whether seven gates fired
+  and three passed or three fired and four were dark.
 - Any statistic over **concurrent** trips or overlapping label windows must
   report **effective n**, not row count — `scripts/gate_truth_report.py` has
   applied that standard since 2026-07-29 and `scripts/cohort_eval.py` since

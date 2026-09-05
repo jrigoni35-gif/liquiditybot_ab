@@ -4,9 +4,14 @@
 > quant-grade risk stack, an audited learning loop, and a pre-registered
 > evaluation gate. One bot, one PC, everything else is a console.
 
-**Read order on day one:** `CLAUDE.md` (the law — hard invariants, the
-era-4 moratorium, definition of done) → this file → `README.md`.
+**Read order on day one:** `CLAUDE.md` (the LAW — hard invariants, the
+accrual moratorium, definition of done) → `docs/HANDOFF.md` (the STATE —
+live gate counts, the open adjudication docket, standing fences, and a
+RECENTLY SETTLED table so you do not re-litigate a decision already made
+with evidence) → this file → `README.md`.
 When chat/tickets conflict with CLAUDE.md, CLAUDE.md wins; stop and say so.
+CLAUDE.md is law, HANDOFF is state; **this file is orientation only — on
+any live number, both of those outrank it.**
 
 ---
 
@@ -16,9 +21,16 @@ A Windows-resident trading bot that trades **paper only** (`system.dry_run`
 defaults true; the only road to live is config + restart + a typed phrase
 at the PC console). It places limit-order entries through a sizing/risk
 stack, labels EVERY gate-confirmed signal (taken or vetoed) for learning,
-and accrues evidence toward a pre-registered strategy verdict (the era-4
-gate, n=50 honest-fill closes). Model investment is frozen until that
-readout; the retrain loop itself keeps running by design.
+and accrues evidence toward a pre-registered strategy verdict (the cohort
+gate, n=50 honest-fill closes). The cohort accruing **now is era-6** —
+`exec_era` `9-16ec821e`, minted by cut #9, the Tier-3 fee correction of
+2026-08-30. Era-4 is CLOSED: it read out **COST_BOUND at n=54**
+(`docs/quant/2026-08-26_why_losing_deep_dive.md`). Model investment is
+frozen by the **2026-08-10 operator adjudication**, which carries no gate
+condition and was NOT lifted by that readout; the retrain loop itself
+keeps running by design. (Era names move with every cut — re-derive,
+never recall: `python -c "from core.fill_ledger import EXEC_ERA;
+print(EXEC_ERA)"`.)
 
 - **Live state**: one always-on PC (`DESKTOP-OS02KQS`) is THE bot.
 - **Observability**: Grafana Cloud (telemetry pushers read shared state
@@ -41,8 +53,10 @@ install.bat                    bash install.sh
 start.bat                      .venv/bin/python runner.py
 ```
 
-Verify: `python scripts/smoke_test.py` (219 checks), then open the
-`.vscode/` tasks — `Bot: status snapshot`, `Definition of Done (full matrix)`.
+Verify: `python scripts/smoke_test.py` — its last line prints
+`passed N, failed 0`; that line IS the check count, which is why none is
+written here. Then open the `.vscode/` tasks — `Bot: status snapshot`,
+`Definition of Done (full matrix)`.
 Cloud/phone sessions: the SessionStart hook installs deps and imports
 telemetry bundles automatically (`docs/PHONE_SESSIONS.md`).
 
@@ -61,10 +75,24 @@ strategies/    signal generation; every confirmed signal -> CandidateLabeler
 ml/            triple-barrier labeling, walk-forward champion, Brier judge, drift
                governor, exploration probes, postmortems, model registry (hash-chained)
 execution/     OrderManager (limit entries, exit ladder), fill ledger (exec_era stamps)
-scripts/       ~60 operational tools: report lenses, gates, supervisor, remote control
+scripts/       operational tools: report lenses, gates, supervisor, remote control
 diode/         C++17 referee (lb_diode.cpp) - independent re-computation of ground truths
-tests/         ~3.9k tests; Windows is the target runtime
+tests/         the suite; Windows is the target runtime
 ```
+
+**Sizes are commands here, not numbers.** Every count this file used to
+hardcode had drifted; a count in a doc is a claim that decays silently, so
+each one below is the command that prints it instead. Run it — do not cite
+this table's existence as the answer.
+
+| what | re-derive with |
+|---|---|
+| operational tools in `scripts/` | `ls scripts/*.py \| wc -l` |
+| tests in the suite | `python -m pytest tests/ -q --collect-only \| tail -1` |
+| smoke checks | `python scripts/smoke_test.py` (last line) |
+| assurance checks | `python scripts/assurance_check.py` (last line) |
+| learning-panel lenses | `python scripts/learning_panel.py --list` |
+| live execution era | `python -c "from core.fill_ledger import EXEC_ERA; print(EXEC_ERA)"` |
 
 Key law points: Kraken is the sole execution venue (triple-gated);
 withdrawals are deny-listed before network I/O; exits are ALWAYS allowed —
@@ -75,16 +103,37 @@ decision paths — knobs live in `config.json`, validated by
 
 ## The two standing fences (why your change may be refused)
 
-1. **Era-4 accrual moratorium**: anything that changes which orders are
-   placed or how they fill (entries, sizing, stop/exit geometry, fill sim,
-   fees, order lifecycle) resets the verdict cohort and needs operator
-   adjudication FIRST. Measurement, reports, tests, docs, telemetry = SAFE.
-2. **Model freeze** (operator-adjudicated): no new model families,
-   features, or meta-labeling until the era-4 gate reads out. The retrain
-   loop continues; the schema does not grow.
+1. **Accrual moratorium — currently era-6** (`exec_era` `9-16ec821e`, cut
+   #9): anything that changes which orders are placed or how they fill
+   (entries, sizing, stop/exit geometry, fill sim, fee booking, order
+   lifecycle) MINTS THE NEXT EXECUTION ERA, restarts accrual from zero,
+   and needs operator adjudication FIRST. Measurement, reports, tests,
+   docs, telemetry = SAFE. The era number advances at every cut — read
+   CLAUDE.md's moratorium heading for the live one, not this sentence's
+   memory of it.
+2. **Model freeze** — authority is the **2026-08-10 operator
+   adjudication**: no new model families, features, or meta-labeling.
+   **This fence has NO gate condition and no expiry.** A cohort readout
+   does not lift it: era-4 already read out (COST_BOUND at n=54) and the
+   freeze stands unchanged. Only a further operator adjudication lifts
+   it. The retrain loop continues; the schema does not grow.
 
-Check accrual any time: VS Code task `Bot: era-4 accrual (n/50)` or the
-`era4` field in the published `pc_status.json`.
+**Reading accrual — a live trap.** The VS Code task is still labelled
+`Bot: era-4 accrual (n/50)` and `pc_status.json` still publishes an
+`era4` field, but that counter belongs to the CLOSED era-4 trigger and
+**is not era-scoped and never was**: `era4_trips()` selects on five
+predicates and `exec_era` appears in none of them, so its total pools
+cuts #7/#8/#9 into one cohort. Informational only — it is not a cut-#9
+readout. For the era actually accruing, run `python
+scripts/cohort_eval.py` and read its **PER-ERA SEGMENTATION** block,
+which marks the current era and counts only trips lying WHOLLY inside it
+(a trip that opened in one era and closed in another is counted in
+neither — that is the moratorium's "nothing pooled across the cut", not a
+rounding choice). Equivalently by hand: freeze a copy of
+`outputs/fills.csv`, then filter `era4_trips(<snap>)` to trips whose
+`eras` list is exactly the current stamp. **Never cite an accruing count
+from memory** — snapshot-stamp it, or read `docs/HANDOFF.md`, which
+carries the value with its stamp.
 
 ## Definition of done (every change)
 
@@ -97,9 +146,13 @@ the sequence: **Definition of Done (full matrix)**.
 degradations: overfit battery substitutes a SYNTHETIC benchmark under its
 row floor (its green then validates machinery, not market — the corpus
 prints on the summary line); OF-4 is inert on zero-entry recordings; DSR
-defers below its conviction floor. Four tests fail on Linux by design
-(they exercise `cmd.exe` batch gates and Windows file locking); they run
-green on the PC, whose pre-deploy battery is the authoritative gate.
+defers below its conviction floor. The tests that encode Windows-only
+semantics (`cmd.exe` batch gates, NT file-locking on rename) are pinned
+`skipif(os.name != "nt")` or platform-SPLIT rather than left to fail off
+Windows — `tests/test_battery_gate.py`, `tests/test_child_log_rotation.py`;
+list them with `grep -n "os.name" tests/*.py`. They are UNSKIPPED on the
+PC, whose pre-deploy battery is the authoritative gate. A skip is not a
+pass: a green suite on Linux has measured strictly less than the PC's.
 
 ## Deploy + coordination
 
@@ -118,8 +171,11 @@ green on the PC, whose pre-deploy battery is the authoritative gate.
 
 ## The learning loop (one paragraph)
 
-Signal → candidate (labeled even when vetoed — 97% of the corpus is
-roads-not-taken) → triple-barrier outcome (h432) → dedup/purge/uniqueness
+Signal → candidate (labeled even when vetoed — the corpus is dominated by
+roads-not-taken; the `disp` column in `outputs/signal_history.csv` carries
+the refusal code, and a bare share quoted without stating how `disp`'s
+blanks were treated is not a measurement) → triple-barrier outcome
+(h432 — `config.json:label_max_bars`) → dedup/purge/uniqueness
 weighting (report n_eff, never row count) → walk-forward champion
 (logistic today) → Brier judge vs base-rate null → drift/calibration
 governor (alarms, never auto-tunes) → budgeted exploration probes buy new
@@ -135,7 +191,7 @@ for why checking is mutual but feeding never is.
 | "Why didn't it trade?" | `core/session_digest.py` output (`outputs/session_digest.md`), then `scripts/lessons_digest.py` |
 | Bot seems frozen | `Bot: status snapshot` task; check `status_stale` in pc_status; single-instance lock in `outputs/runner.lock` |
 | Gate/veto questions | `scripts/gate_efficacy_report.py` (grades every veto against counterfactual outcomes) |
-| Learning questions | `scripts/learning_panel.py` (all 14 lenses, concurrent) |
+| Learning questions | `scripts/learning_panel.py` (every lens, concurrent; `--list` names them) |
 | Fill/era questions | `scripts/cohort_eval.py`; C++ diode for an independent second opinion |
 | Audit integrity | `verify_chain()` — NEVER `AuditTrail().verify()` (constructing the trail is a WRITE) |
 | Logs | `outputs/runner.log` (rotated), `events.jsonl`; audit chain is `outputs/audit.jsonl` |

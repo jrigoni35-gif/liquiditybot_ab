@@ -6,6 +6,17 @@ posture, SEC 15c3-5 order screening), profit-path corrections that
 remove structurally negative-EV behavior at the 25/40bps fee tier, and
 SR 11-7 / OCC 2011-12 model-risk governance over the learning stack.
 
+> **CURRENCY — the fee numbers in this document are HISTORICAL.** Every
+> bps figure below describes the fee schedule in force when rev 3.0 was
+> written. The account has since been corrected to Kraken **Tier 3** by
+> cut #9 (2026-08-30, `exec_era` `9-16ec821e`; decision record
+> `docs/quant/2026-08-29_fee_tier_correction_adjudication.md`). Read the
+> live numbers from `config.json`, never from this page:
+> `python -c "import json;c=json.load(open('config.json'));print(c['pretrade']['maker_fee_bps'], c['pretrade']['taker_fee_bps'])"`.
+> The mechanisms described here (net-Kelly, the structural quoter floor,
+> the pre-trade EV gate) are unchanged by the correction; only the
+> constants they are evaluated against moved.
+
 Every rewritten module is a drop-in interface-compatible replacement.
 Modules already at assurance grade (watchdog, config_guard,
 persistence, sanitize, alerts, runtime, feeds, regimes, sentiment) are
@@ -17,12 +28,17 @@ rewriting sound code for its own sake adds risk, not assurance.
 | module | provides |
 | --- | --- |
 | core/codes.py | global append-only reason-code registry; every reject/clamp/fault/deploy carries one |
-| core/audit.py | hash-chained JSONL audit trail (outputs/audit.jsonl); tampering breaks the chain at the exact record; `verify()` replays it |
+| core/audit.py | hash-chained JSONL audit trail (outputs/audit.jsonl); tampering breaks the chain at the exact record; `verify_chain(path)` replays it read-only |
 | core/fault.py | latching fault manager; INIT/ARMED/DEGRADED/HALTED op-state machine; exits always allowed |
-| core/clock.py | monotonic time authority for intervals; wall time for audit stamps only |
 | ml/contracts.py | versioned feature contract enforced at every inference and training load |
 | ml/registry.py | SHA-256 model identity, immutable artifact archive, model cards, append-only lifecycle ledger (outputs/models/) |
-| scripts/assurance_check.py | offline PBIT: 36 invariant checks, no network |
+| scripts/assurance_check.py | offline PBIT, no network; its last line prints `N passed, M failed` — that line is the check count |
+
+> **`core/clock.py` was DELETED 2026-07-11** (`d7e565b7`) and its row is gone
+> from the spine above. It was never load-bearing: the MissionClock was
+> aspirational time injection that was never adopted, and the engine gets
+> deterministic time through `cycle_once(now)` instead. Do not restore the
+> row from an older copy of this document — the module does not exist.
 
 ## Requirement trace matrix
 
@@ -67,9 +83,10 @@ price, directional volume bursts that close near their extreme — and
 only trades WITH it, with funding and trend sanity vetoes. It emits an
 urgency score consumed by `execution/tactics.py`, which ladders order
 placement: AS quote -> join touch -> improve inside the spread ->
-EV-gated taker cross. The taker rung pays the 40bps stack only when
-the pre-trade gate certifies the edge survives it; every rung below
-stays maker. Tune thresholds via replay sweeps; the new engine has
+EV-gated taker cross. The taker rung pays the full taker cost stack
+(`pretrade.taker_fee_bps`, see the currency note above) only when the
+pre-trade gate certifies the edge survives it; every rung below stays
+maker. Tune thresholds via replay sweeps; the new engine has
 zero paper hours — run it in dry_run before trusting it with size.
 
 ## Behavior deltas from rev 1 (review before relying on old expectations)
@@ -88,18 +105,40 @@ zero paper hours — run it in dry_run before trusting it with size.
 5. The tier ladder actually ladders now; expect fewer, later, larger
    partial exits than the rev-1 behavior of re-firing tier 1.
 6. smoke_test.py updated to the new contracts (bounded firewall
-   config, hermetic resume=False fixtures) — 188 checks.
+   config, hermetic resume=False fixtures). Its check count is printed
+   by the run, not recorded here.
 
 ## Verification procedure
 
 ```bash
-python scripts/assurance_check.py    # 47 invariant checks, offline
-python scripts/smoke_test.py         # 205 end-to-end checks, offline
+python scripts/assurance_check.py    # offline PBIT; prints "N passed, M failed"
+python scripts/smoke_test.py         # offline end-to-end; prints "passed N, failed M"
 python -m bandit -c pyproject.toml -r . -x ./.venv,./tests   # 0 issues
-python - <<'EOF'                     # audit chain integrity
-from core.audit import get_audit; print(get_audit().verify())
+python - <<'EOF'                     # audit chain integrity (READ-ONLY)
+from core.audit import verify_chain; print(verify_chain("outputs/audit.jsonl"))
 EOF
 ```
+
+> **The audit check above must be `verify_chain`, never
+> `get_audit().verify()`.** This block previously said the latter, and it
+> is not read-only: `get_audit()` constructs an `AuditTrail` when the
+> process has no singleton yet (always true in a fresh `python -`), and
+> `AuditTrail.__init__` calls `_adopt_tail()`, which HEALS a torn tail —
+> a WRITE to the live chain of record, performed by a command whose whole
+> purpose was to inspect it without touching it. `verify_chain()` is the
+> documented read-only replay ("NEVER mutates the file", `core/audit.py`)
+> and is what `session_import` and operators use.
+
+**No check count is written into this file.** Both batteries print their
+own totals, and both totals MOVE — checks are added with new behavior, and
+sections skip honestly when their corpus is absent (`assurance_check.py`
+§11 needs the training corpus, §12 the instrument contract), so the number
+is a property of the run, not of the document. This paragraph replaces two
+counts that had each drifted and then contradicted each other inside this
+same file. The pass/fail verdict is `failed 0`; the total is whatever the
+run says. The same drift was already corrected once in `test_windows.bat`
+on 2026-07-11 (`d7e565b7`, "hardcoded stale check counts") — this file was
+missed in that pass.
 
 ## Operations doctrine
 
