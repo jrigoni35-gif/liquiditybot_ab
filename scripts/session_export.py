@@ -58,6 +58,17 @@ PORTABLE = [
 ]
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}
+# Quarantined snapshots (core/persistence._quarantine writes
+# `state.json.rejected_<ts>_<reason>`) are FULL live state under a different
+# name. The exact-name set above cannot see them because the timestamp makes
+# every filename unique, so the one-running-book law is enforced by prefix too.
+NEVER_PREFIXES = ("state.json.rejected_", "state.json.bak.rejected_")
+
+
+def travels(name: str) -> bool:
+    """False if this filename may never leave the box, under any spelling."""
+    return (name not in NEVER
+            and not any(name.startswith(p) for p in NEVER_PREFIXES))
 
 
 def _sha256(path: Path) -> str:
@@ -121,7 +132,7 @@ def export(outputs: str, dest: str, label: str,
     files = {}
     for rel in PORTABLE:
         srcf = out / rel
-        assert Path(rel).name not in NEVER
+        assert travels(Path(rel).name), f"{rel} may never leave this box"
         if not srcf.exists():
             continue
         target = dst / Path(rel).name

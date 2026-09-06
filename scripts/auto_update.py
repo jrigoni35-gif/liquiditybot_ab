@@ -190,19 +190,48 @@ def _record_battery_sec(secs: float) -> None:
 
 # One updater at a time: the supervisor's fast cadence plus a manual run could
 # otherwise stack two batteries and race the fast-forward. Staleness must
-# outlive the worst case with margin. battery_passes chains the pytest wall and
-# the replay gate back-to-back plus fetch/worktree ops, so the in-lock ceiling
-# is BATTERY_TIMEOUT_MAX + 1200 = 6000s of subprocess time. Sized above THAT,
-# not above one leg: a legitimately-long run mistaken for a stale lock lets a
-# second updater start concurrently, race the fast-forward, and — measured
-# 2026-09-05 — sweep the live worktree's contents.
+# outlive the worst case with margin. A legitimately-long run mistaken for a
+# stale lock lets a second updater start concurrently, race the fast-forward,
+# and — measured 2026-09-05 — sweep the live worktree's contents: the reclaim
+# path runs `git worktree remove`, takes rc=255 "Permission denied", and
+# destroys 8 of 8 files and deregisters the worktree ANYWAY while a battery
+# child is still live.
 #
-# Moved WITH the battery wall, deliberately. Raising one without the other is
-# what puts a healthy battery under a stale lock, so the pin in
-# tests/test_auto_update_timeout_semantics.py asserts the relationship rather
-# than either number. NOTE the operator override (LB_BATTERY_TIMEOUT_SEC) can
-# exceed MAX by design; a box using it to unblock itself should raise this too.
-LOCK_STALE_SEC = 7800.0
+# THE CEILING IS NOW DERIVED, BECAUSE THE HAND-WRITTEN ONE WAS WRONG. The
+# previous comment here declared the in-lock ceiling to be
+# "BATTERY_TIMEOUT_MAX + 1200 = 6000s" — it counted the pytest wall and the
+# replay gate and silently omitted EVERY DoD gate. _dod_gates runs 5 hard gates
+# at 900s and 2 advisory gates at 1800s, all inside the lock, so the real
+# additive ceiling is:
+#
+#     4800 (battery MAX) + 1200 (replay) + 5*900 + 2*1800 = 14100s
+#
+# against a 7800s staleness window — a 6300s band in which a peer reads a
+# healthy updater's lock as abandoned. Measured boundary before this fix:
+# 7799s -> BUSY, 7800s -> TWO UPDATERS.
+#
+# Derived from the same constants the gates actually use, so adding a gate or
+# raising a wall moves this automatically. tests/test_auto_update_timeout_
+# semantics.py pins the RELATIONSHIP, never either number.
+# NOTE the operator override (LB_BATTERY_TIMEOUT_SEC) can exceed MAX by design;
+# a box using it to unblock itself should raise this too.
+_HARD_GATE_WALL_SEC = 900
+_ADVISORY_GATE_WALL_SEC = 1800
+_REPLAY_GATE_WALL_SEC = 1200
+_LOCK_STALE_MARGIN = 1.15
+
+
+def _in_lock_ceiling_sec() -> int:
+    """Total subprocess wall a single updater may legitimately hold the lock.
+
+    Sums every timeout that runs INSIDE the lock. Kept a function so the gate
+    tables are the single source of truth: a gate added to _HARD_GATES without
+    touching this file still widens the window.
+    """
+    return int(BATTERY_TIMEOUT_MAX
+               + _REPLAY_GATE_WALL_SEC
+               + len(_HARD_GATES) * _HARD_GATE_WALL_SEC
+               + len(_ADVISORY_GATES) * _ADVISORY_GATE_WALL_SEC)
 # Outcomes that exit 0 ("nothing wrong"), vs real failures that exit 1.
 OK_OUTCOMES = ("updated", "current", "ahead", "dirty", "disabled", "busy")
 
@@ -450,8 +479,53 @@ _ADVISORY_GATES = (
     ("assurance-corpus", ["scripts/assurance_check.py"]),
     ("overfit", ["scripts/overfit_check.py"]),
 )
+
+# Bound here, not at the constant block above, because the derivation counts
+# the gate TABLES and they are defined at this point in the file. See
+# _in_lock_ceiling_sec for why this stopped being a hand-written literal.
+LOCK_STALE_SEC = float(int(_in_lock_ceiling_sec() * _LOCK_STALE_MARGIN))
 _MISSING_TOOL = ("no module named", "modulenotfounderror",
                  "is not recognized", "cannot find")
+# A MISSING TOOL IS NOT A FINDING; BUT A MISSING *REPO* MODULE IS.
+# Until 2026-09-05 the classifier was `any(m in blob.lower() ...)` over the
+# WHOLE stdout+stderr blob. scripts/smoke_test.py:543 traceback.print_exc()s
+# any exception raised by 60 mocked engine cycles, so the needle surface is the
+# entire engine and its dependencies - and a genuine `ModuleNotFoundError: No
+# module named 'strategies.smc'` in OUR OWN code was classified TOOL
+# UNAVAILABLE and `continue`d past the hard gate, ADMITTING the deploy.
+# Verified end-to-end through the real smoke_test on 2026-09-05:
+# classified_TOOL_UNAVAILABLE=True.
+#
+# Two narrowings, both required:
+#  1. Only the FINAL traceback line is inspected. A needle appearing anywhere in
+#     600 lines of gate output is not evidence about why the gate exited.
+#  2. Repo top-level packages are EXCLUDED from the class. If one of our own
+#     modules cannot be imported, that is precisely the breakage the gate is
+#     for, and waving it through is the fail-open this whole guard exists to
+#     prevent.
+_REPO_TOP_LEVEL = ("core", "data", "execution", "ml", "risk", "api",
+                   "strategies", "sentiment", "regime", "scripts", "tests",
+                   "main", "runner")
+
+
+def _classify_missing_tool(blob: str) -> bool:
+    """True only for a genuinely ABSENT EXTERNAL tool.
+
+    A missing repo module returns False so it reaches the gate as the failure
+    it is. "Tool unavailable" and "our code is broken" are the same string and
+    opposite verdicts; separating them is the whole job here.
+    """
+    lines = [ln.strip() for ln in (blob or "").strip().splitlines() if ln.strip()]
+    if not lines:
+        return False
+    last = lines[-1].lower()
+    if not any(m in last for m in _MISSING_TOOL):
+        return False
+    # "No module named 'strategies.smc'" -> strategies
+    m = re.search(r"no module named ['\"]([\w.]+)['\"]", last)
+    if m and m.group(1).split(".")[0] in _REPO_TOP_LEVEL:
+        return False
+    return True
 
 
 def _run_gate(worktree: Path, py: str, argv: list, env: dict, secs: int):
@@ -478,7 +552,7 @@ def _run_gate(worktree: Path, py: str, argv: list, env: dict, secs: int):
     # data/_http.py - never assume a double has the full surface.
     blob = (getattr(p, "stdout", "") or "") + (getattr(p, "stderr", "") or "")
     tail = (blob.strip().splitlines() or ["(no output)"])[-1][:160]
-    missing = any(m in blob.lower() for m in _MISSING_TOOL)
+    missing = _classify_missing_tool(blob)
     return p.returncode, tail, missing
 
 
@@ -493,7 +567,8 @@ def _dod_gates(worktree: Path, py: str) -> bool:
     # fix. Popped, not merely left unset.
     env.pop("LB_OUTPUTS", None)
     for name, argv in _HARD_GATES:
-        rc, tail, missing = _run_gate(worktree, py, argv, env, 900)
+        rc, tail, missing = _run_gate(worktree, py, argv, env,
+                                      _HARD_GATE_WALL_SEC)
         if missing:
             log(f"DoD {name}: TOOL UNAVAILABLE ({tail}) - advisory, not "
                 f"blocking (a missing tool is not a finding)")
@@ -509,7 +584,8 @@ def _dod_gates(worktree: Path, py: str) -> bool:
     # same way _replay_gate_passes points the replay gate at live recordings.
     adv_env = {**env, "LB_OUTPUTS": str(OUT.resolve())}
     for name, argv in _ADVISORY_GATES:
-        rc, tail, missing = _run_gate(worktree, py, argv, adv_env, 1800)
+        rc, tail, missing = _run_gate(worktree, py, argv, adv_env,
+                                      _ADVISORY_GATE_WALL_SEC)
         verdict = "TOOL UNAVAILABLE" if missing else f"rc={rc}"
         log(f"DoD {name} (ADVISORY, corpus={OUT.resolve()}) {verdict}: {tail}")
     return True

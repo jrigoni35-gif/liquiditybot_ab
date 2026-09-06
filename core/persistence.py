@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -789,20 +790,60 @@ class StateStore:
                           f"next generation")
         return None
 
+    def _quarantine(self, reason: str) -> None:
+        """Preserve a REJECTED snapshot before the write cadence destroys it.
+
+        WHY THIS EXISTS (verified 2026-09-05, reproduction failed before the
+        fix). `restore()` returning False starts the bot fresh, and the runner's
+        periodic `snapshot()` (unconditional on whether a restore succeeded)
+        then overwrites the primary and rolls it onto `.bak`. At the shipped
+        `system.snapshot_interval_sec = 30` BOTH generations of the rejected
+        state are gone inside ~60 seconds. Measured on a seeded valid snapshot:
+        `recoverable anywhere on disk: False` after cadence #2.
+
+        THE REACHABLE TRIGGER IS THE ARMED-LIVE RESTART. The version check has
+        never fired (`SNAPSHOT_VERSION` has one commit in its history: "Initial
+        commit"). The paper<->live mismatch below fires on exactly the boot
+        where `dry_run` flips false - step 3 of CLAUDE.md invariant 1's
+        four-step road to live - which is the boot whose prior state is most
+        worth keeping and the one where the operator is least able to redo it.
+
+        Copies, never moves: `restore()`'s semantics are unchanged and the
+        caller still starts fresh. Best-effort by construction - a quarantine
+        that raised would turn a recoverable start into a crash loop.
+        """
+        stamp = int(time.time())
+        tag = "".join(c if c.isalnum() else "_" for c in reason)[:40]
+        for src in (self.path, self.path.with_suffix(".json.bak")):
+            try:
+                if not src.exists():
+                    continue
+                dst = src.with_name(f"{src.name}.rejected_{stamp}_{tag}")
+                shutil.copy2(src, dst)
+                log.warning("snapshot quarantined: %s -> %s (%s)",
+                            src, dst.name, reason)
+            except OSError as e:
+                log.error("could not quarantine %s (%s) - the rejected "
+                          "snapshot will be overwritten by the next cadence",
+                          src, e)
+
     def restore(self, bot) -> bool:
         data = self._pick_snapshot()
         if data is None:
             log.error("no usable snapshot generation - starting fresh")
+            self._quarantine("unreadable")
             return False
         if data.get("version") != SNAPSHOT_VERSION:
             log.warning(f"snapshot version {data.get('version')} != "
                         f"{SNAPSHOT_VERSION} - starting fresh")
+            self._quarantine("version_mismatch")
             return False
         if bool(data.get("dry_run", True)) != bot.dry_run:
             log.warning(
                 f"snapshot was taken with dry_run={data.get('dry_run')} but bot "
                 f"is running dry_run={bot.dry_run} - refusing to mix paper and "
                 f"live state; starting fresh (use --fresh to silence this)")
+            self._quarantine("paper_live_mismatch")
             return False
 
         # portfolio

@@ -70,6 +70,44 @@ FORBIDDEN_PRIVATE_ENDPOINTS = frozenset({
     "Withdraw", "WithdrawInfo", "WithdrawStatus", "WithdrawCancel",
     "WalletTransfer", "WithdrawMethods", "WithdrawAddresses",
 })
+# CLAUDE.md invariant #4 has exactly ONE mechanical enforcement point (the
+# membership test in _private_post). Until 2026-09-05 that test compared the
+# RAW caller string against the set above, so **56 of 56** trivial respellings
+# missed it and reached `requests` - `withdraw`, `WITHDRAW`, `Withdraw ` (a
+# trailing space), `Withdraw\n`, `Balance/../Withdraw`, `wallettransfer`.
+#
+# Most of those are self-defeating at the venue (the signed path and the wire
+# path diverge, so Kraken answers EAPI:Invalid signature) - but "the ATTACK
+# fails at the counterparty" is not the same guarantee as "the CALL cannot be
+# made", and an invariant this file calls permanent should not rest on the
+# remote end's URL normalisation. Lowercase `withdraw` in particular is both
+# correctly signed AND correctly addressed; whether Kraken's private path is
+# case-sensitive is unknown and CANNOT be settled without attempting a real
+# withdrawal. So it is settled in the code instead.
+#
+# Reachability today is nil: every one of the 12 call sites passes a string
+# literal. This is defence-in-depth on a hard invariant, and it is cheap.
+_FORBIDDEN_NORMALIZED = frozenset(e.casefold() for e in FORBIDDEN_PRIVATE_ENDPOINTS)
+# Legitimate Kraken private endpoints are bare CamelCase names. A separator of
+# any kind means the caller is constructing a path, not naming an endpoint.
+_ENDPOINT_SEPARATORS = ("/", "\\", "..", "?", "#", "%")
+
+
+def _endpoint_is_forbidden(endpoint: str) -> bool:
+    """True if `endpoint` names a withdrawal/transfer verb under ANY spelling.
+
+    Normalises case and surrounding whitespace, and refuses anything carrying a
+    path separator outright - a bare verb is the only shape a real call has, so
+    a separator is either an attempt to smuggle a denied verb past a membership
+    test or a caller bug, and both should stop here.
+    """
+    raw = str(endpoint)
+    squashed = raw.strip().casefold()
+    if squashed in _FORBIDDEN_NORMALIZED:
+        return True
+    if any(sep in raw for sep in _ENDPOINT_SEPARATORS):
+        return True
+    return False
 
 
 def _pct_str_to_bps(raw) -> Optional[float]:
@@ -212,8 +250,8 @@ class KrakenFeed(ThrottledRestClient):
             log.error(f"Kraken private call to {endpoint} blocked: no API credentials configured.")
             return None
 
-        if endpoint in FORBIDDEN_PRIVATE_ENDPOINTS:
-            log.critical(f"BLOCKED: private endpoint {endpoint} is on the "
+        if _endpoint_is_forbidden(endpoint):
+            log.critical(f"BLOCKED: private endpoint {endpoint!r} is on the "
                         f"permanent deny list (withdrawals/transfers are "
                         f"never allowed from this bot)")
             return None

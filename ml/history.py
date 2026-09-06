@@ -22,6 +22,7 @@ import hashlib
 import math
 import os
 import logging
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -2308,6 +2309,14 @@ class HorizonShadowStore:
                           exc_info=True)
 
 
+# `cand-<8 hex salt>-<seq>` — the shape register() mints (see _id_salt,
+# os.urandom(4).hex()). An id matching this is unique across launches by
+# construction and must SURVIVE restore(); one that does not (a bare pre-salt
+# `cand-{seq}`) is the collision case and gets re-minted. Anchored both ends so
+# a foreign or malformed id cannot pass as salted.
+_SALTED_CAND_ID = re.compile(r"^cand-[0-9a-f]{8}-\d+$")
+
+
 class CandidateLabeler:
     """Labels EVERY gate-confirmed signal - taken or vetoed - via
     triple-barrier on the subsequent price path. This is the dataset
@@ -2953,7 +2962,24 @@ class CandidateLabeler:
         # per-launch salt is unique, so re-minting every restored id under it
         # is collision-proof against the file; advancing the shared _seq keeps
         # new registrations disjoint from the re-minted ones too.
+        # ...BUT ONLY FOR IDS THAT ARE ACTUALLY AT RISK OF COLLIDING.
+        # Re-minting UNCONDITIONALLY (the behaviour until 2026-09-05) severs the
+        # corpus join key on every restart: core/persistence.py restores the
+        # POSITION's candidate_id unchanged, so the two halves disagree the
+        # moment the labeler renames its side. Measured on the real training
+        # path (_scan_live_dedup_keys): **79 of 187 cited candidate ids
+        # orphaned, 42.2%**, and a restored id drifts again on every subsequent
+        # restart.
+        #
+        # The collision this guards against is specific and is NOT general: a
+        # BARE pre-salt `cand-{seq}` id could be reused after a filesystem
+        # rollback reset the counter (lived 2026-07-14). An id that already
+        # carries a per-launch salt (os.urandom(4).hex(), line 2420) is unique
+        # by construction against every other launch, so re-minting it buys
+        # nothing and costs the join. Keep those; re-mint only the bare ones.
         for c in self._cands:
+            if _SALTED_CAND_ID.match(str(c.get("id", ""))):
+                continue                      # already collision-proof
             self._seq += 1
             c["id"] = f"cand-{self._id_salt}-{self._seq}"
         self._last_reg = {}
