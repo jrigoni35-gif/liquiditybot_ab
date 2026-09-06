@@ -1,19 +1,19 @@
 {
-  "generated_at": 1788723758.4475796,
+  "generated_at": 1788727359.6884992,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788723754.0,
-    "duration_h": 1403.82
+    "end": 1788727353.0,
+    "duration_h": 1404.82
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 6317,
-      "signal_records": 963,
+      "records": 6583,
+      "signal_records": 971,
       "by_src": {
-        "exploration": 5399,
-        "long_book": 480,
+        "exploration": 5657,
+        "long_book": 488,
         "ml_governor": 141,
         "firewall": 90,
         "conviction": 75,
@@ -26,19 +26,19 @@
       "top_codes": [
         [
           "SZ-051",
-          2676
+          2805
         ],
         [
           "ML-070",
-          2676
+          2805
         ],
         [
           "LB-010",
-          205
+          209
         ],
         [
           "LB-050",
-          170
+          174
         ],
         [
           "CX-030",
@@ -74,22 +74,22 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.213,
+      "dominant_frac": 0.215,
       "retrain_requests": 11,
       "kill_switch_events": 2
     },
     "events": {
-      "records": 19031,
+      "records": 20267,
       "by_level": {
-        "INFO": 18986,
-        "WARNING": 41,
+        "INFO": 20220,
+        "WARNING": 43,
         "CRITICAL": 2,
         "ERROR": 2
       },
       "top_warnings": [
         [
           "turbulence spike: 67.9 (p99 >= p95)",
-          15
+          16
         ],
         [
           "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 3172,
-        "thin": 1729
+        "spoofy": 3408,
+        "thin": 1842
       },
-      "spoofy_frac": 0.647,
+      "spoofy_frac": 0.649,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1765,
+      "cycles_estimate": 1882,
       "feed_error_events": 2
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.62,
+    "equity_end": 793.72,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 142930,
+    "epoch_samples": 143165,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -154,20 +154,20 @@
     "realized_pnl_total": -0.57,
     "fees_paid_total": 13.9216,
     "open_positions": 2,
-    "samples": 310721
+    "samples": 310956
   },
   "activity": {
-    "signal_rows_total": 25897,
+    "signal_rows_total": 25914,
     "live_labeled_trades": 412,
-    "candidate_rows": 25485
+    "candidate_rows": 25502
   },
   "audit": {
-    "records": 83420,
-    "signal_records": 32521,
+    "records": 83687,
+    "signal_records": 32530,
     "by_src": {
-      "exploration": 73859,
-      "long_book": 2984,
-      "ml_governor": 2630,
+      "exploration": 74117,
+      "long_book": 2992,
+      "ml_governor": 2631,
       "order_manager": 1838,
       "conviction": 795,
       "startup": 372,
@@ -181,11 +181,11 @@
     "top_codes": [
       [
         "ML-070",
-        26613
+        26742
       ],
       [
         "SZ-051",
-        24107
+        24236
       ],
       [
         "SZ-047",
@@ -193,7 +193,7 @@
       ],
       [
         "LB-010",
-        1848
+        1852
       ],
       [
         "OM-000",
@@ -201,11 +201,11 @@
       ],
       [
         "ML-031",
-        948
+        949
       ],
       [
         "LB-050",
-        681
+        685
       ],
       [
         "CV-030",
@@ -333,17 +333,17 @@
     ]
   },
   "events": {
-    "records": 19031,
+    "records": 20267,
     "by_level": {
-      "INFO": 18986,
-      "WARNING": 41,
+      "INFO": 20220,
+      "WARNING": 43,
       "CRITICAL": 2,
       "ERROR": 2
     },
     "top_warnings": [
       [
         "turbulence spike: 67.9 (p99 >= p95)",
-        15
+        16
       ],
       [
         "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
@@ -383,12 +383,12 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 3172,
-      "thin": 1729
+      "spoofy": 3408,
+      "thin": 1842
     },
-    "spoofy_frac": 0.647,
+    "spoofy_frac": 0.649,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1765,
+    "cycles_estimate": 1882,
     "feed_error_events": 2
   },
   "model": {
@@ -419,7 +419,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 15558,
+      "triple_barrier_h432": 15575,
       "triple_barrier": 5328,
       "exit_sim": 2771,
       "legacy": 1781,
@@ -437,7 +437,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 25897,
+    "corpus_rows": 25914,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-06T16:25:00Z",
     "corpus_span_days": 55.16,
