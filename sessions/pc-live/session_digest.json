@@ -1,48 +1,48 @@
 {
-  "generated_at": 1788666129.2109723,
+  "generated_at": 1788669730.6728492,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788666122.0,
-    "duration_h": 1387.81
+    "end": 1788669728.0,
+    "duration_h": 1388.81
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1937,
-      "signal_records": 875,
+      "records": 2160,
+      "signal_records": 862,
       "by_src": {
-        "exploration": 1115,
-        "long_book": 369,
-        "ml_governor": 133,
+        "exploration": 1350,
+        "long_book": 360,
+        "ml_governor": 137,
         "firewall": 90,
-        "conviction": 80,
-        "order_manager": 48,
+        "conviction": 75,
         "startup": 47,
         "fault": 47,
+        "order_manager": 46,
         "exit": 7,
         "circuit_breaker": 1
       },
       "top_codes": [
         [
           "SZ-051",
-          529
+          647
         ],
         [
           "ML-070",
-          529
+          647
         ],
         [
           "LB-010",
-          144
+          145
         ],
         [
           "LB-050",
-          109
+          110
         ],
         [
           "CX-030",
-          102
+          100
         ],
         [
           "FW-050",
@@ -66,7 +66,7 @@
         ],
         [
           "CV-030",
-          44
+          39
         ],
         [
           "CV-010",
@@ -74,78 +74,35 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.165,
-      "retrain_requests": 10,
+      "dominant_frac": 0.168,
+      "retrain_requests": 11,
       "kill_switch_events": 2
     },
     "events": {
-      "records": 24886,
+      "records": 147,
       "by_level": {
-        "INFO": 24695,
-        "WARNING": 188,
-        "CRITICAL": 3
+        "INFO": 147
       },
-      "top_warnings": [
-        [
-          "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          119
-        ],
-        [
-          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          4
-        ],
-        [
-          "turbulence spike: 67.9 (p99 >= p95)",
-          4
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
-        ],
-        [
-          "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          2
-        ],
-        [
-          "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-          2
-        ],
-        [
-          "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-          1
-        ]
-      ],
+      "top_warnings": [],
       "liquidity_tally": {
-        "spoofy": 6020,
-        "thin": 1914
+        "spoofy": 32,
+        "thin": 10
       },
-      "spoofy_frac": 0.759,
+      "spoofy_frac": 0.762,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 3229,
-      "feed_error_events": 3
+      "cycles_estimate": 16,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 793.97,
+    "equity_end": 793.81,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 139187,
+    "epoch_samples": 139421,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,21 +110,21 @@
     "realized_pnl_total": -0.57,
     "fees_paid_total": 13.9216,
     "open_positions": 2,
-    "samples": 306978
+    "samples": 307212
   },
   "activity": {
-    "signal_rows_total": 25418,
+    "signal_rows_total": 25462,
     "live_labeled_trades": 412,
-    "candidate_rows": 25006
+    "candidate_rows": 25050
   },
   "audit": {
-    "records": 78919,
-    "signal_records": 32350,
+    "records": 79167,
+    "signal_records": 32362,
     "by_src": {
-      "exploration": 69529,
-      "long_book": 2858,
-      "ml_governor": 2586,
-      "order_manager": 1837,
+      "exploration": 69765,
+      "long_book": 2864,
+      "ml_governor": 2591,
+      "order_manager": 1838,
       "conviction": 795,
       "startup": 372,
       "fault": 353,
@@ -180,7 +137,7 @@
     "top_codes": [
       [
         "ML-070",
-        24448
+        24566
       ],
       [
         "SZ-047",
@@ -188,11 +145,11 @@
       ],
       [
         "SZ-051",
-        21942
+        22060
       ],
       [
         "LB-010",
-        1785
+        1788
       ],
       [
         "OM-000",
@@ -200,11 +157,11 @@
       ],
       [
         "ML-031",
-        937
+        938
       ],
       [
         "LB-050",
-        618
+        621
       ],
       [
         "CV-030",
@@ -212,24 +169,24 @@
       ],
       [
         "OM-040",
-        530
+        531
       ],
       [
         "ML-016",
-        451
+        452
       ],
       [
         "ML-041",
-        433
+        434
       ],
       [
         "ML-042",
-        386
+        387
       ]
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.688,
-    "retrain_requests": 193,
+    "retrain_requests": 194,
     "kill_switch_events": 9,
     "chain_ok": false,
     "chain_first_break": null,
@@ -332,68 +289,25 @@
     ]
   },
   "events": {
-    "records": 24886,
+    "records": 147,
     "by_level": {
-      "INFO": 24695,
-      "WARNING": 188,
-      "CRITICAL": 3
+      "INFO": 147
     },
-    "top_warnings": [
-      [
-        "ML-085: censored 1 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        119
-      ],
-      [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        4
-      ],
-      [
-        "turbulence spike: 67.9 (p99 >= p95)",
-        4
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 19/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        3
-      ],
-      [
-        "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        2
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 37% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        2
-      ],
-      [
-        "ML-085: censored 2 unresolvable candidate(s) older than the label horizon (432 bars) + margin (24 bars) with stale/absent bars - no label ro",
-        2
-      ],
-      [
-        "ML-080: exit-reason mix drift tvd=0.331 over trailing 24h (709/24568 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
-        1
-      ]
-    ],
+    "top_warnings": [],
     "liquidity_tally": {
-      "spoofy": 6020,
-      "thin": 1914
+      "spoofy": 32,
+      "thin": 10
     },
-    "spoofy_frac": 0.759,
+    "spoofy_frac": 0.762,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 3229,
-    "feed_error_events": 3
+    "cycles_estimate": 16,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.24482576964088917,
+    "champion_brier": 0.2449183634327864,
     "brier": "n/a",
     "history_rows": 412,
     "cold": false
@@ -417,7 +331,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 15079,
+      "triple_barrier_h432": 15123,
       "triple_barrier": 5328,
       "exit_sim": 2771,
       "legacy": 1781,
@@ -435,10 +349,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 25418,
+    "corpus_rows": 25462,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-06T02:05:00Z",
-    "corpus_span_days": 54.56,
+    "corpus_last_ts": "2026-09-06T02:45:00Z",
+    "corpus_span_days": 54.59,
     "signal_ts_missing": 0
   },
   "streams_present": {
