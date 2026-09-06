@@ -846,6 +846,32 @@ class LiquidityBot:
         # cost stack underestimating fees, not just OrderManager's own
         # booking bps - both config blocks are in scope here, _pt_cfg reused
         # from above.
+        # CUT #10 (B4): INVARIANT #3 BECOMES AN ASSERTION, NOT A DEFAULT.
+        # `self.kraken = kraken or KrakenFeed(...)` makes the execution feed an
+        # unchecked injectable constructor parameter, and the venue-adapter
+        # layer that enforces name == "kraken" is NOT on this path (the router
+        # is constructed above and never read; zero VN- codes in 27MB of
+        # audit). Verified 2026-09-05: a live submit on a non-Kraken feed
+        # PLACED, wire payload emitted. The invariant rested on a default
+        # value. A deny-list rather than an allow-list, deliberately: tests
+        # inject SimpleNamespace / MockKraken doubles and must keep working;
+        # what may NEVER reach OrderManager is one of the real read-only
+        # venues. FeedRecorder wraps the feed, so unwrap before checking.
+        _exec_feed = getattr(self.kraken, "_feed", self.kraken)
+        _readonly = [OKXFeed, BinanceUSFeed, MoomooFeed, WebDataFeed, ContextFeed]
+        try:
+            from data.ccxt_feed import CCXTFeed as _CCXT
+        except Exception:                        # noqa: BLE001 - optional dep
+            _CCXT = None
+        if _CCXT is not None:
+            _readonly.append(_CCXT)
+        if isinstance(_exec_feed, tuple(_readonly)):
+            raise RuntimeError(tag(
+                Code.VN_ROGUE_EXECUTION,
+                f"INVARIANT #3: {type(_exec_feed).__name__} was handed to "
+                f"OrderManager as the execution feed. Kraken is the SOLE "
+                f"execution venue; every other feed is read-only data. "
+                f"Refusing to construct the engine."))
         self.orders = OrderManager(self.kraken, config.get("order_manager", {}),
                                 dry_run=self.dry_run,
                                 firewall=self.firewall, pair_meta=pair_meta,

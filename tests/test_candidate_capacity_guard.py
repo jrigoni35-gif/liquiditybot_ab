@@ -144,19 +144,31 @@ def test_shipped_config_is_coherent_and_clears_demand():
     assert not [m for m in _warns(cfg) if "max_open_candidates" in m]
 
 
-def test_short_horizon_leaves_the_old_cap_coherent():
-    """200 was a CORRECT size for the 8h era (demand at 96 bars is under
-    200) - the guard must not rewrite that history: this check is about
-    the pairing, not about the number 200."""
-    assert _demand(96) <= 200
+def test_short_horizon_leaves_a_horizon_sized_cap_coherent():
+    """This check is about the PAIRING (cap vs horizon), not about a number.
+
+    200 WAS a correct size for the 8h era at the 18.3/h rate measured
+    2026-08-16. Cut #10 (2026-09-06) re-measured the peak on the check's own
+    36h-window statistic at 43.7/h (two independent derivations), and at that
+    rate even an 8h horizon demands ceil(43.7 x 8) = 350 - so 200 @ 8h is
+    now UNDERSIZED and the guard is right to say so. History is not being
+    rewritten; the arrival rate moved 2.4x. What survives, and what this
+    pins: demand scales with horizon, a cap sized FOR the horizon is clean,
+    and a cap that was sized for an older rate is flagged."""
+    assert _demand(96) < _demand(432), "demand must scale with the horizon"
     cfg = _shipped()
-    cfg["ml"]["max_open_candidates"] = 200
     cfg["ml"]["label_max_bars"] = 96
     # 96 < time_stop.max_bars_no_progress (480): no clock inversion; and
     # shipped shadow horizons exceed 96, so drop them to keep the fixture
     # about THIS check
     cfg["ml"]["multi_horizon"]["horizons_bars"] = [24, 48, 96]
+    cfg["ml"]["max_open_candidates"] = _demand(96) + 50     # sized for 8h
     assert not [m for m in _fatals(cfg) if "max_open_candidates" in m]
+    assert not [m for m in _warns(cfg) if "max_open_candidates" in m]
+    cfg["ml"]["max_open_candidates"] = 200                  # the 18.3/h-era size
+    assert [m for m in _fatals(cfg) + _warns(cfg) if "max_open_candidates" in m], (
+        "200 @ 8h is undersized at the re-measured 43.7/h and the guard "
+        "must say so - it went silent")
 
 
 # --- guard: bounds on the key itself ---------------------------------------

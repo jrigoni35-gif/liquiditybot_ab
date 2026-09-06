@@ -1,7 +1,7 @@
 # Cut #10 — the verified-defects boundary (era-7) — operator adjudication
 
 **Date:** 2026-09-06
-**Class:** COHORT-RESETTING. Mints `exec_era` `10-<sha>`; era-7 accrual begins
+**Class:** COHORT-RESETTING. Mints `exec_era` `10-a5acfe2d`; era-7 accrual begins
 from zero at the runner restart. Era-6 rows stay citable AS era-6 and may not
 be pooled across this cut.
 **Authority:** operator, 2026-09-06 — "Approve all", then the bundled-boundary

@@ -91,43 +91,42 @@ INVARIANT below, stop and say so instead of complying.
   legitimate change moves numbers, re-baseline consciously at 200×1200 —
   never widen a gate to silence CI.
 
-## Accrual moratorium — era-6 (cut #9, Tier-3 fee correction, 2026-08-30)
+## Accrual moratorium — era-7 (cut #10, verified-defects boundary + E1 fee correction, 2026-09-06)
 
-**The era-4 cohort is CLOSED.** It ran to its pre-registered n=50, read
-out **COST_BOUND** at n=54 (`docs/quant/2026-08-26_why_losing_deep_dive.md`),
-and that readout discharged the batching condition owed-88 was waiting
-on. Its numbers stay citable AS era-4; nothing accruing now may be pooled
-with them.
-
-**Cut #8's fee premise was WRONG and is SUPERSEDED.** Cut #8 (2026-08-28,
-`exec_era` `8-ca55e2ba`, "boundary #5") booked venue-true Kraken **Tier-1**
-40/80 bps as "conservative", ASSUMING a zero-volume account. The operator's
-Kraken app (2026-08-29) proved the account is real **Tier 3 = 22/38 bps** on
-$17,482 30-day spot volume — cut #8 over-stated fees ~2x (the-method #1
-recurrence: a struck fee schedule asserting itself as truth; booked median
-~65bps and OM-080 n=0 were the unheeded warnings). Cut #8's era-5 accrual
-never reached its n=50 readout; those rows stay citable AS era-5 (accrued at
-the over-stated 40/80) but are SUPERSEDED — nothing may be pooled across the
-fee correction.
-
-**Cut #9 — the TIER-3 FEE CORRECTION** (`exec_era` `9-16ec821e`) was minted
-2026-08-30 under explicit operator ARM ("fee correction only"; dry_run STAYS
-true), applying `scripts/fee_correction_stage.py --apply`: pricing and
-booking fees 40/80 → the real **22/38 bps**, the profit-taking break-even
-`est_fee_bps` 80 → 38, the label round-trip cost 1.2% → **0.6%**, and
-`allow_sub_floor_fees` → true (22/38 sits below the 40/80 `KRAKEN_SPOT_FLOOR`
-tripwire, which STAYS as the understated-fee guard; the account genuinely
-holds a Tier-3 volume discount). Consequence, chosen knowingly: the derived
-entry bar FALLS **0.8335 → 0.6772** (conviction resumes, back inside the live
-confidence band, out of cut-8's probe-only regime), and the give-back ratchet
-now arms inside an **82bps** break-even buffer (GB-1, still docketed with
-ALGO-5). The correction buys an HONEST readout, not a winning strategy: net
-stays undetermined-leaning-negative at real fees — the median clears the rake,
-the fat tail loses, an ALGO-5 problem EXCLUDED from this cut (its net-CI spans
-zero on fills alone; needs the candle re-sim). Decision record:
+**Era-4 is CLOSED** (read out COST_BOUND at n=54,
+`docs/quant/2026-08-26_why_losing_deep_dive.md`). **Cut #8's 40/80 fee premise
+was WRONG and is SUPERSEDED** (era-5 never read out; rows citable AS era-5).
+**Cut #9** (`exec_era` `9-16ec821e`, 2026-08-30) corrected fees to 22/38 and
+began era-6; its rows stay citable AS era-6. Nothing may be pooled across any
+of these cuts. Full history of #8/#9: `docs/HANDOFF.md` ERA sections and
 `docs/quant/2026-08-29_fee_tier_correction_adjudication.md`.
 
-**Era-6 accrual begins at the cut #9 runner restart**, from zero, on the
+**Cut #10 — the VERIFIED-DEFECTS BOUNDARY** (`exec_era` `10-a5acfe2d`, see
+`core/fill_ledger.py`) was minted 2026-09-06 under explicit operator approval
+("Approve all" → the bundled-boundary option → "finish any changes pending";
+the accrual-reset consequence was stated before the option was chosen;
+dry_run STAYS true). It lands six defects that had each been CONFIRMED by
+execution and adversarially re-verified
+(`docs/quant/2026-09-05_verified_findings_batch.md`) and then held behind the
+era-6 fences: B1 watchdog fail-open on never-delivered books, B2 `est_fee_bps`
+absent-default 0.0, B3 NaN equity failing OPEN in sizing, B4 the execution
+feed as an unchecked injectable, B5 fill-ledger dedup disarming silently, B6
+the candidate-capacity constant 2.4x stale. Plus **E1's finding**: cut #9's
+22/38 is NOT a published Kraken row; the binding row at the measured $17,482
+volume is **20/35**, so fees, `est_fee_bps` (38 → 35) and the label round-trip
+cost (0.60% → 0.55%) move with it and the derived entry bar falls
+**0.6772 → 0.6642**. Decision record:
+`docs/quant/2026-09-06_cut10_boundary_adjudication.md`.
+
+**Deliberately NOT bundled — do not re-propose them:** ALGO-5 was adjudicated
+**"do not arm"** on 2026-09-02 (two independent resolutions;
+`docs/quant/2026-09-02_sustainability_arm_package.md` row B) — being pre-named
+was a queue position, never a mandate. GB-1 is **REFUTED at HEAD**: the
+2026-07-30 arm cost floor in `risk/profit_tiers.py` makes the effective
+give-back arm `cost/(1−frac)` = 1.27% at 76 bps, verified live on every open
+position. **There is therefore no second reset queued behind cut #10.**
+
+**Era-7 accrual begins at the cut #10 runner restart**, from zero, on the
 same pre-registered machinery (`scripts/cohort_eval.py` — untouched by
 the cut: the gate, its bands and its selection rule are exactly as
 registered). Until it reads out:
@@ -137,10 +136,9 @@ registered). Until it reads out:
   changes to entry decisioning, position sizing, stop/exit geometry
   (placement, nudges, time limits — the cut-#7 lesson: geometry changes
   trip outcomes even when fills don't move), the fill simulator, fee
-  booking, or the order lifecycle. The ALGO-5 amendment (stop widths +
-  time-decay ladder at ~30 uncensored paths), bundled with GB-1, is
-  PRE-NAMED as the next such adjudication; CONC-1 (concurrency/
-  uniqueness) is named for the one after.
+  booking, or the order lifecycle. **CONC-1** (concurrency/uniqueness) is
+  now the PRE-NAMED next adjudication; **B7** (historical `candidate_id`
+  backfill) and **QT-1** are docketed behind it.
 - **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
   export, and bug fixes that do not alter which orders are placed or how
   they fill.

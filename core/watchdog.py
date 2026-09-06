@@ -137,7 +137,16 @@ class Watchdog:
 
         # --- staleness ---------------------------------------------------
         for a in assets:
-            age = now - book_ts.get(a, now)
+            # CUT #10 (B1): a book that NEVER arrived is STALE, not fresh.
+            # `get(a, now)` read a never-delivered asset as age 0 - neither
+            # warn-stale nor critical-stale - so an asset the feed silently
+            # dropped never tripped the sweep. The fail-closed sibling in
+            # main.py (`get(asset, 0.0)`, age == now) had it right all along;
+            # this was the fail-open half, pinned as a strict xfail in
+            # tests/test_fail_open_pins.py until the boundary that could carry
+            # it. Entry-decisioning consequence: entries_blocked now flips True
+            # for a never-delivered asset. That is the intended reading.
+            age = now - book_ts.get(a, 0.0)
             if age >= self.stale_warn_sec:
                 st.stale_assets.append(a)
             if age >= self.stale_critical_sec:

@@ -130,7 +130,11 @@ def test_new_file_carries_exec_era():
     # correction only"; cut #8 over-stated fees ~2x vs the real 22/38 tier):
     # era 8 -> 9, sha 16ec821e (the fee_tier_correction adjudication commit).
     # The assertion changing here IS the record of the bump, per convention.
-    assert EXEC_ERA == "9-16ec821e", (
+    # Cut #10 (verified-defects boundary + E1 fee correction 22/38 -> 20/35,
+    # applied 2026-09-06 by scripts/cut10_stage.py --apply under operator
+    # approval): era 9 -> 10, sha a5acfe2d (the cut10_boundary_adjudication
+    # commit, committed alone and first so the code commit could name it).
+    assert EXEC_ERA == "10-a5acfe2d", (
         "era constant must name the CURRENT era and its boundary commit - "
         "if you bumped it deliberately, this pin moves in the same commit")
     import re

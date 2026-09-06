@@ -18,6 +18,8 @@ import logging
 import os
 from pathlib import Path
 
+from core.codes import Code, tag
+
 log = logging.getLogger("liquiditybot.core.fill_ledger")
 
 # fixed column order: the file must stay machine-readable as fields grow —
@@ -84,7 +86,18 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # instant is stamped in docs/HANDOFF.md and the vault boundary row in this
 # same session. Rows stamped 9-16ec821e are exactly the rows a binary
 # carrying this constant wrote - which is the only claim the stamp makes.
-EXEC_ERA = "9-16ec821e"
+# 10-a5acfe2d: cut #10, the VERIFIED-DEFECTS BOUNDARY (era-7), minted
+# 2026-09-06 under operator approval. Stamp names the decision-record commit
+# (docs/quant/2026-09-06_cut10_boundary_adjudication.md), the same shape as
+# cut #9 (16ec821e record -> 59bdcf87 code). What changed on the fill axis:
+# fee BOOKING 22/38 -> 20/35 (E1: 22/38 was not a published row; 20/35 is the
+# binding row at the measured $17,482/30d volume), est_fee_bps 38 -> 35,
+# label round-trip cost 0.60% -> 0.55%, plus six confirmed defects on the
+# entry/sizing/exit/order-lifecycle path (B1-B6). Every fill booked after this
+# stamp is on a different cost manifold AND a different decision path than
+# every fill before it - do not pool across it. Era-6 rows stay citable AS
+# era-6.
+EXEC_ERA = "10-a5acfe2d"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order
@@ -118,7 +131,9 @@ def _dup_key(row: dict) -> tuple:
 dedup_disarmed = 0
 
 
-def _load_keys(path: Path) -> set:
+def _load_keys(path: Path) -> "set | None":
+    """The dedup key set, or None if the ledger could not be read (cut #10,
+    B5). None means UNKNOWN and the caller must not treat it as clean."""
     keys = set()
     try:
         with open(path, newline="", encoding="utf-8") as f:
@@ -139,10 +154,26 @@ def _load_keys(path: Path) -> set:
         # needs operator sign-off (docketed B5). Logging it does not.
         global dedup_disarmed
         dedup_disarmed += 1
-        log.exception("fill-ledger dedup DISARMED: could not read %s - a "
-                      "replayed fill can now re-land in realized P&L "
-                      "(occurrence #%d)", path, dedup_disarmed)
+        log.exception("fill-ledger dedup key cache UNLOADABLE: could not read "
+                      "%s (occurrence #%d) - the append path will scan the "
+                      "ledger directly, and refuse the row if that fails too",
+                      path, dedup_disarmed)
+        # CUT #10 (B5): None, not an empty set. An empty set is
+        # indistinguishable from "this ledger has no rows yet" and DISARMED
+        # dedup silently; None says "unknown" and the caller must not treat
+        # unknown as clean.
+        return None
     return keys
+
+
+def _key_on_disk(path: Path, key: tuple) -> bool:
+    """Direct scan: is `key` already in the ledger? Raises OSError if the
+    ledger cannot be read - the caller decides what unknowable means."""
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if _dup_key(r) == key:
+                return True
+    return False
 
 
 def fill_row(order, event, fees_delta: float, now: float) -> dict:
@@ -211,8 +242,39 @@ def append_fill(path: Path, row: dict) -> None:
         key_cache = _seen_keys.get(str(path))
         if key_cache is None:
             key_cache = _load_keys(path) if not new_file else set()
-            _seen_keys[str(path)] = key_cache
+            # CUT #10 (B5): close the rotation window. An os.replace landing
+            # between the new_file check above and the load leaves the cache
+            # describing a file that no longer exists; re-derive new_file
+            # AFTER the load so the header decision matches the file we will
+            # actually append to.
+            new_file = not path.exists() or path.stat().st_size == 0
+            if key_cache is not None:
+                _seen_keys[str(path)] = key_cache      # only cache a real load
         k = _dup_key(row)
+        if key_cache is None:
+            # The cache could not be loaded. FAIL CLOSED: scan the ledger
+            # directly for THIS key; if even that fails, the replay question
+            # is unknowable and the row is refused. Before cut #10 this path
+            # cached an EMPTY set and appended blind - a replayed fill re-
+            # landed in realized P&L with zero log output (measured: byte-0
+            # lock -> rows = 3, duplicate landed).
+            try:
+                dup = (not new_file) and _key_on_disk(path, k)
+            except OSError:
+                log.error(tag(
+                    Code.OM_LEDGER_DEDUP_UNKNOWN,
+                    f"fill row REFUSED: dedup state unknowable for {path} "
+                    f"(order_id={row.get('order_id')} size="
+                    f"{row.get('fill_size')} px={row.get('fill_price')}). "
+                    f"A lost row is recoverable from the audit trail; a "
+                    f"duplicate in realized P&L is not."))
+                return
+            if dup:
+                log.warning("OM-085: duplicate fill row REFUSED on direct "
+                            "scan (order_id=%s) - cache was unloadable",
+                            row.get("order_id"))
+                return
+            key_cache = set()          # this append only; not cached
         if k in key_cache:
             log.warning(
                 "OM-085: duplicate fill row REFUSED (order_id=%s size=%s "

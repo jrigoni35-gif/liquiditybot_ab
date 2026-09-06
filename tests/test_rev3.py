@@ -159,7 +159,14 @@ PT_LEGACY = {"tier_1": {"trigger_pct_gain": 1.0, "close_pct_of_position": 25},
              "tier_3": {"trigger_pct_gain": 3.5, "close_pct_of_position": 25},
              "tier_4": {"trigger_pct_gain": 5.0, "close_pct_of_position": 25},
              "trailing_stop": {"enabled": True, "activate_after_tier": 2,
-                               "trail_pct": 1.0}}
+                               "trail_pct": 1.0},
+             # cut #10 (B2): the ABSENT est_fee_bps default moved 0.0 -> the
+             # venue's worst taker row (fail conservative), which arms a
+             # break-even floor this legacy fixture never had. The two-arg
+             # CALL SHAPE this test pins is unchanged; the fixture states the
+             # cost world it was written in (none) explicitly, as it should
+             # have from the start.
+             "est_fee_bps": 0}
 
 
 def test_tiers_legacy_two_arg_call_still_exact():

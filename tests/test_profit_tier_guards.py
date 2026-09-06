@@ -70,7 +70,13 @@ def _pos(direction="long", entry=100.0, tier_closed=0, confidence=0.0,
 
 # -- 23. short-side tier take mirrors the long side's magnitude -------------
 def test_short_side_tier_take_mirrors_long_magnitude():
-    cfg = {"tier_1": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25}}
+    # est_fee_bps EXPLICIT (cut #10, B2): the absent-key default moved from
+    # 0.0 ("fees are free") to the venue's worst taker row, which arms a
+    # break-even floor whose price form is asymmetric between long and short
+    # (entry*(1+buf) vs entry*(1-buf)) and broke the mirror by 0.004. This
+    # pin's subject is the MIRROR, not fees; explicit 0 is documented-legal.
+    cfg = {"tier_1": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25},
+           "est_fee_bps": 0}
     long_action = ProfitTierEngine(cfg).evaluate(_pos("long"), 102.0)
     short_action = ProfitTierEngine(cfg).evaluate(_pos("short"), 98.0)
     assert short_action.should_close_partial and short_action.is_profit_take

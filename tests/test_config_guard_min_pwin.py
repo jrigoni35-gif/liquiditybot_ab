@@ -77,10 +77,16 @@ def test_probe_clearance_interlock_warns_before_the_trickle_dies():
     # fixtures of the cost world; the interlock's claim - probes dying at
     # SZ-023 must WARN before the trickle dies - is unchanged. (cut #8's
     # figures were breakeven 0.8335, clearance 0.0165, margin 0.013.)
+    # RE-BASELINED AGAIN at cut #10 (2026-09-06, E1 fee correction 22/38 ->
+    # 20/35): the derived bar falls 0.6772 -> 0.6642, shipped clearance is
+    # ~0.186, and closing it under 0.005 now takes a margin of ~0.183
+    # (bar 0.6642 + 0.183 = 0.8472 vs p_win 0.85). Cut #9's 0.17 left a
+    # 0.016 clearance at the new bar and stopped warning - the fixture had
+    # gone stale, not the interlock.
     assert not any("exploration.p_win" in m and "clearance" in m
                    for m in _sev(_CFG, "WARN"))
     cfg = _cfg()
-    cfg["position_sizer"]["p_bar_edge_margin"] = 0.17  # bar ~0.847 vs 0.85
+    cfg["position_sizer"]["p_bar_edge_margin"] = 0.183  # bar ~0.847 vs 0.85
     assert any("clearance" in m for m in _sev(cfg, "WARN"))
 
 

@@ -47,8 +47,14 @@ def test_git_failure_is_not_read_as_zero_references(tmp_path):
 def test_a_real_no_match_is_still_a_real_no_match():
     """ANTI-RUBBER-STAMP: rc=1 is git successfully reporting no matches. If
     that also fails closed, nothing is ever collectable and the tool is inert."""
+    import uuid
     from scripts.outputs_gc import reachable
-    refs = reachable("a-name-that-appears-in-no-tracked-file-zzz9", ROOT)
+    # RUNTIME-BUILT NEEDLE. The first draft used a literal string - which then
+    # appeared in exactly one tracked file: this test. It passed only while the
+    # file was untracked and self-matched the moment it was committed
+    # (2026-09-06). A needle that exists in no file cannot be written into one.
+    needle = "no-such-file-" + uuid.uuid4().hex
+    refs = reachable(needle, ROOT)
     assert refs == [], f"a genuine no-match failed closed: {refs}"
 
 
@@ -142,7 +148,12 @@ def test_the_cost_tool_fallback_is_a_PUBLISHED_row():
     from core.venue_fees import is_a_published_row
     from scripts.fee_anatomy_report import _booked_fees
     assert is_a_published_row(25.0, 40.0), "fallback row is not on the schedule"
-    assert _booked_fees() == (22.0, 38.0)
+    # DERIVED, not a literal - this pin hardcoded (22.0, 38.0) in the very
+    # batch whose lesson was "derive, don't hardcode", and cut #10's fee
+    # correction to 20/35 reddened it the next day. The property is that the
+    # tool reads what the BOOK says, whatever the book says.
+    pt = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))["pretrade"]
+    assert _booked_fees() == (float(pt["maker_fee_bps"]), float(pt["taker_fee_bps"]))
 
 
 # ------------------------------------------------------------------ S14
@@ -188,7 +199,9 @@ def test_fill_ledger_dedup_failure_is_logged(tmp_path, caplog):
     missing = tmp_path / "nope" / "fills.csv"       # parent does not exist
     with caplog.at_level(logging.ERROR):
         keys = FL._load_keys(missing)
-    assert keys == set()
+    # cut #10 (B5): the failure returns None ("unknown"), never an empty set
+    # ("clean") - the append path then scans directly or refuses.
+    assert keys is None
     assert FL.dedup_disarmed == before + 1, "the disarm was not counted"
     assert caplog.records, "dedup disarmed with no log record at all"
 

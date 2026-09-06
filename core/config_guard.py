@@ -129,32 +129,27 @@ _CALIBRATION_MIN_BINS = 5
 # busy-hour signals. Re-derive from signal_history.csv the same way before
 # moving this; it is a measurement, and moving it without a new
 # measurement is how the 8h-era cap survived a 36h horizon.
-_CAND_REF_PEAK_ARRIVALS_PER_H = 18.3
-# [!] THE NAME SAYS PEAK; THE VALUE IS A 36-HOUR SUSTAINED AVERAGE.
-# Measured 2026-09-06 on outputs/signal_history.csv (25,840 rows, 337 lineages,
-# 2,032 populated hour-bins), MAX-per-lineage seq-span within a calendar hour:
-#     peak 75/h · p99 55/h · p95 46/h · MEDIAN 17/h
-# 18.3 sits at the MEDIAN hourly rate, not the peak — consistent with its own
-# derivation above ("659/36h = 18.3/h sustained"), which is a sustained figure
-# the constant's name then reads as a peak.
+_CAND_REF_PEAK_ARRIVALS_PER_H = 43.7
+# MOVED AT CUT #10 (B6, 2026-09-06), and moved WITH ml.max_open_candidates
+# (1200 -> 1800) in the same operator-adjudicated boundary. Re-derived the
+# SAME WAY the docstring above demands - max seq-span over a rolling window of
+# exactly the label horizon (36h = label_max_bars 432 x 5m), per lineage,
+# full-width windows only (>= 95% of 36h) - on the full corpus at the time
+# (outputs/signal_history.csv, 25,840 rows, 337 lineages, 7,528 qualifying
+# windows): max 43.7/h (lineage 97211d06), p99 43.1, p95 42.5, median 37.5.
+# Two independent derivations agree on 43.7 to the tenth. The shipped 18.3
+# was the same statistic measured 2026-08-16 on a single 36h window three
+# weeks earlier; the corpus outgrew it 2.4x. Demand at 43.7/h x 36h = 1574
+# slots; the cap is set with ~15% headroom.
 #
-# DELIBERATELY NOT MOVED, and this is not deference to the old number:
-#  1. Which statistic is CORRECT depends on the capacity check's semantics. It
-#     is Little's law over a 36h label horizon, and a queue sized for 36h is
-#     not necessarily overflowed by a one-hour burst that drains. Sustained may
-#     genuinely be the right input; the DEFECT may be the NAME.
-#  2. Three derivations disagree on the peak (43.7/h from the 2026-09-05
-#     verification pass, 75/h here, and a first attempt of mine returned an
-#     absurd 21,600/h because a sliding window floored its span at 1s — that
-#     scan was broken, and it is recorded here so nobody repeats it).
-#  3. Raising this ARMS the FATAL below against ml.max_open_candidates=1200.
-#     dry_run=True downgrades that to a warning, so nothing happens today —
-#     but at the armed-live boot it becomes a HARD BOOT REFUSAL. Correcting
-#     the constant without also adjudicating capacity (docketed B6) would
-#     silently plant a live-arm blocker.
-# OWED: settle sustained-vs-peak against the check's own semantics, then move
-# the constant and the cap together under B6. Until then treat the capacity
-# check as UNPROVEN rather than as passing.
+# WHAT WAS SETTLED FIRST, because the first attempt got it wrong: an hourly
+# BIN of the same data reads peak 75/h, p95 46, MEDIAN 17 - which made 18.3
+# look like "the median mislabelled as a peak". It is not. This check is
+# Little's law over the HORIZON, so the horizon-window sustained rate is the
+# statistic, and on that statistic 18.3 was simply stale. A sliding window
+# that floored its span at 1s produced 21,600/h and was discarded as a broken
+# scan. Re-derive on the horizon window, never on hour bins, before moving
+# this again.
 
 
 class ConfigError(RuntimeError):
@@ -636,10 +631,15 @@ def validate(config: dict) -> list:
     # anything else in this repo: "the operator did not say" and "the operator
     # said 25/40" must not be the same bits. Absence is now named.
     _MISSING = object()
+    # profit_taking.est_fee_bps joined this list at cut #10 (B2): its code
+    # default was 0.0 ("fees are free") and computed a 6 bps break-even floor
+    # against a booked 76. The code default is now the venue's worst taker
+    # row, and this FATAL means production never reaches ANY default.
     _missing_fee_keys = [
         path for path in ("pretrade.maker_fee_bps", "pretrade.taker_fee_bps",
                           "order_manager.maker_fee_bps",
-                          "order_manager.taker_fee_bps")
+                          "order_manager.taker_fee_bps",
+                          "profit_taking.est_fee_bps")
         if _f(config, path, _MISSING) is _MISSING]
     if _missing_fee_keys:
         fatal(f"fee key(s) absent from config: {', '.join(_missing_fee_keys)}. "

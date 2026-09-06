@@ -150,11 +150,16 @@ def test_apply_refuses_against_the_applied_live_config(tmp_path, monkeypatch,
     # applied TO (40/80). boundary5_stage --apply against it therefore DRIFTS
     # (its FROM 25/40 no longer matches) and refuses - the stager stays inert
     # against a world that moved past it, which is the safety property this
-    # test pins. Verify the live config is at cut #9's applied TO:
-    from scripts import fee_correction_stage as fc9
-    for key, _frm, to in fc9.EDITS:
+    # test pins. Cut #10 (2026-09-06, scripts/cut10_stage.py) then SUPERSEDED
+    # cut #9 the same way - 22/38 was not a published Kraken row; the binding
+    # row at the measured volume is 20/35 - so the live config is now at cut
+    # #10's applied TO, and it is THAT latest cut this pin holds the config
+    # to. Every superseded stager (boundary5, fee_correction) drifts against
+    # it and stays inert, which is the safety property under test.
+    from scripts import cut10_stage as latest
+    for key, _frm, to in latest.EDITS:
         assert b5._get(cfg, key) == to, (
-            f"{key}: the live config.json is not at cut #9's applied TO value "
+            f"{key}: the live config.json is not at cut #10's applied TO value "
             "- the cut was reverted or hand-edited; re-derive, do not relax")
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")

@@ -40,15 +40,11 @@ def test_zero_margin_read_fails_closed_in_live():
     assert lev <= 1.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="FAIL-OPEN, adjudication-pending (docs/HANDOFF docket, watchdog "
-    "SWEEP family): a book that never arrived (asset absent from book_ts) "
-    "reads age 0 (FRESH) via `book_ts.get(a, now)` in core/watchdog.py:140, "
-    "so it is neither warn-stale nor critical-stale. The fail-closed sibling "
-    "in main.py:4356 uses `get(asset, 0.0)` (age == now -> stale). Fixing the "
-    "watchdog is a staleness-geometry change gated behind operator "
-    "adjudication; do not fix mid-era.")
+# FIXED at cut #10 (2026-09-06, era-7 boundary, operator-adjudicated as B1).
+# This was a strict xfail from its creation until that boundary: the pin was a
+# working detector of a fail-open the moratorium forbade fixing mid-era. The
+# marker comes off in the SAME commit as the fix, exactly as the docket said
+# it must - a strict xfail that starts passing reds the whole suite.
 def test_never_delivered_book_reads_stale():
     wd = Watchdog({"stale_warn_sec": 30.0, "stale_critical_sec": 120.0})
     # BTC never delivered a book (empty book_ts). DESIRED: it is STALE, not

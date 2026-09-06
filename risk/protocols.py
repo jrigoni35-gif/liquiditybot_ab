@@ -369,6 +369,23 @@ class RiskProtocolStack:
         # HARD vetoes: budget/heat return 0.0 = NO new risk. An error computing
         # them fails CLOSED (block new risk), never open.
         try:
+            # CUT #10 (B3): a non-finite or non-positive equity FAILS CLOSED.
+            # Traced before the fix: spent_fracs(nan) -> max(nan, 0.0) keeps
+            # the NaN (Python max returns its first argument when every
+            # comparison is False) -> budget_taper_mult returns NaN -> both
+            # `m <= EPS` and `m < 0.999` are False -> no multiply, no reason,
+            # multiplier 1.0. The hard veto whose whole contract is "fails
+            # CLOSED, never open" failed open on the one input it could not
+            # arithmetic on, and said nothing. A finite 7000 on the same stack
+            # correctly gave 0.0 + RP-041. Same predicate reanchor_week uses.
+            if not (isinstance(equity, (int, float))
+                    and math.isfinite(equity) and equity > EPS):
+                reasons.append(tag(
+                    Code.RP_EQUITY_NONFINITE,
+                    f"equity={equity!r} is not finite and positive — the "
+                    f"loss-budget and heat vetoes cannot be evaluated; "
+                    f"failing CLOSED (no new risk)"))
+                return 0.0, reasons
             if self.bd_enabled:
                 sd, sw = self.spent_fracs(equity)
                 s = max(sd, sw)

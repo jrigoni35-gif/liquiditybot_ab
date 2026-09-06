@@ -139,6 +139,13 @@ class Code(str, Enum):
                                      # order, sim earned the fill again). The
                                      # ledger keeps the FIRST copy; the trade
                                      # itself is unaffected. Owed 62.
+    OM_LEDGER_DEDUP_UNKNOWN = "OM-086" # cut #10 (B5): the dedup key cache could
+                                     # not be loaded AND a direct on-disk scan
+                                     # also failed, so whether this fill is a
+                                     # replay is UNKNOWABLE. The row is REFUSED
+                                     # (fail closed) rather than appended blind:
+                                     # a lost row is recoverable from the audit
+                                     # trail, a duplicate in realized P&L is not.
     OM_CANCEL_UNCONFIRMED = "OM-090" # a venue CancelOrder returned no
                                      # confirmation (rate limit / 5xx /
                                      # venue error - _private_post returns
@@ -247,6 +254,13 @@ class Code(str, Enum):
     RP_BUDGET_REANCHORED = "RP-042"  # operator re-anchored a loss budget (audited override for bug-attributable consumption; reason required)
     RP_HEAT_CAP = "RP-050"           # portfolio heat headroom capped size
     RP_HEAT_FULL = "RP-051"          # portfolio heat at max: no new risk
+    RP_EQUITY_NONFINITE = "RP-052"   # cut #10 (B3): equity NaN/inf/<=0 reached
+                                     # the hard-veto stack. Before this code the
+                                     # NaN flowed max(nan,0)->nan through
+                                     # budget_taper_mult, both comparisons read
+                                     # False, and the multiplier stayed 1.0 with
+                                     # NO reason emitted - the sizing veto
+                                     # failed OPEN. Now fails CLOSED: 0.0.
     RP_WARMUP = "RP-060"             # component neutral: insufficient observations
     RP_WEEK_CLOSED = "RP-070"        # weekly ledger: week closed, pools rolled
     RP_MONTH_CLOSED = "RP-071"       # monthly ledger: month closed, goal graded

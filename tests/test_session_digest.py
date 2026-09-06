@@ -440,7 +440,12 @@ def test_signal_history_without_exec_era_reports_unavailable_not_empty(tmp_path)
     assert "unavailable" in e["rows_per_era"]
     assert "no exec_era column" in e["rows_per_era"]["unavailable"]
     assert e["rows_per_label_era"] == {"triple_barrier_h24": 1}
-    assert e["current_era"] == "9-16ec821e"     # core/fill_ledger.EXEC_ERA
+    # DERIVED from the constant the digest cites, not a literal: the pin's own
+    # comment named the source and then hardcoded the value beside it, so
+    # every era bump reddened it (cut #10, 2026-09-06). The property is that
+    # the digest reports the stamp core/fill_ledger currently mints.
+    from core.fill_ledger import EXEC_ERA
+    assert e["current_era"] == EXEC_ERA
     assert e["era_source"] == "core.fill_ledger.EXEC_ERA"
 
 

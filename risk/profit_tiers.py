@@ -71,6 +71,21 @@ from core.codes import Code, tag
 from risk.protocols import give_back_stop
 from core.sanitize import safe_float as _f
 
+
+def _venue_worst_taker_bps() -> float:
+    """The venue's most expensive PUBLISHED taker row - the fail-conservative
+    default for an ABSENT est_fee_bps (cut #10, B2). Read from
+    core.venue_fees so it tracks the schedule; 40.0 (Kraken's zero-volume
+    taker) only if that module is unavailable."""
+    try:
+        from core.venue_fees import worst_row
+        return float(worst_row()[1])
+    except Exception:                             # noqa: BLE001 - fallback
+        return 40.0
+
+
+_WORST_TAKER_BPS = _venue_worst_taker_bps()
+
 log = logging.getLogger("liquiditybot.risk.profit_tiers")
 
 _BAR_MINUTES = 5.0     # matches the data feeds' candle interval
@@ -215,7 +230,20 @@ class ProfitTierEngine:
         self.vol_scaled = bool(cfg.get("vol_scaled", True))
         self.be_after_tier = int(cfg.get("be_after_tier", 1))
         self.be_buffer_bps = _f(cfg.get("be_buffer_bps", 6.0), 6.0)
-        self.est_fee_bps = max(_f(cfg.get("est_fee_bps", 0.0)), 0.0)
+        # CUT #10 (B2): the ABSENT-key default was 0.0 - "fees are free" - so
+        # the long book's break-even/give-back floor ((2*fee + buffer)/1e4)
+        # computed 6 bps where the booked schedule gives 76 bps at 20/35.
+        # Latent in the shipped config (the key is present; give-back arms
+        # at 5% < tier_1 8%, 0 divergences over a 1921-point sweep) but real
+        # in the code, and a half-applied stage or a stripped test config
+        # would surface it silently. An ABSENT key now defaults to the
+        # venue's WORST published taker row (fail conservative: a wider floor
+        # holds exits longer, never tighter), and core/config_guard FATALs on
+        # its absence so production never reaches this default at all. An
+        # EXPLICIT 0 stays legal - it is the quant-trials world and several
+        # fixtures depend on it.
+        self.est_fee_bps = max(_f(cfg.get("est_fee_bps", _WORST_TAKER_BPS)),
+                               0.0)
         self.chandelier_k = max(_f(cfg.get("chandelier_k", 3.0), 3.0), 0.5)
         self.chandelier_bars = max(int(cfg.get("chandelier_bars", 6)), 1)
         self.tighten_after_bars = max(int(cfg.get("tighten_after_bars", 96)), 1)
