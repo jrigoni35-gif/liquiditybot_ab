@@ -113,10 +113,38 @@ _OPEN_PURPOSES = ("entry", "hedge")
 # NOT independently reconciled: OM-080 (execution/order_manager.py:767)
 # has never fired on this box, so no venue measurement of the ACCOUNT's
 # actual row exists. These constants settle the SCHEDULE, never the ROW.
-KRAKEN_T1_MAKER_BPS = 40.0      # $0+        - this account (spot vol $0)
-KRAKEN_T1_TAKER_BPS = 80.0
-KRAKEN_T5_MAKER_BPS = 15.0      # deep-tier floor, for the headroom row
-KRAKEN_T5_TAKER_BPS = 30.0
+# 40/80 IS NOT A PUBLISHED KRAKEN ROW and is ~2x the booked 22/38 (cut #9).
+# The live schedule (core/venue_fees.py, read from api.kraken.com) runs
+# 25/40, 20/35, 14/24, 12/22 … 0/5 — 40/80 appears nowhere in it at any
+# volume. Derived from the booked config for the same reason as
+# scripts/fee_anatomy_report.py; fallback is the venue's WORST published row,
+# because over-stating cost with a REAL row is the conservative failure and a
+# fictional row is not conservative, it is just wrong.
+def _booked_fees() -> tuple:
+    try:
+        _pt = json.loads((Path(__file__).resolve().parents[1] / "config.json")
+                         .read_text(encoding="utf-8")).get("pretrade", {})
+        return (float(_pt["maker_fee_bps"]), float(_pt["taker_fee_bps"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return (25.0, 40.0)
+
+
+def _venue_floor() -> tuple:
+    """Kraken's cheapest PUBLISHED row, read from core.venue_fees."""
+    try:
+        from core.venue_fees import best_possible_row
+        return best_possible_row()
+    except Exception:                             # noqa: BLE001 - report tool
+        return (0.0, 5.0)
+
+
+KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS = _booked_fees()
+# The "deep-tier floor" headroom row was 15/30, which — like the 40/80 above —
+# is NOT a row Kraken publishes at any volume. Taken from the live schedule
+# instead, so the headroom figure describes reachable reality. (Reaching it
+# needs ~572x this account's measured 30-day volume; the headroom row is a
+# bound, not a plan.)
+KRAKEN_T5_MAKER_BPS, KRAKEN_T5_TAKER_BPS = _venue_floor()
 
 
 def _f(v):

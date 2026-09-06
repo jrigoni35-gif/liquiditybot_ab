@@ -39,6 +39,7 @@ heat guard   total open notional (corr-weighted) capped as a fraction of
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections import deque
@@ -47,6 +48,12 @@ from typing import Optional
 import numpy as np
 
 from core.codes import Code, tag
+
+# This module had NO logger until 2026-09-06. Its silent-skip defects (the
+# loss-budget anchor roll, the NaN taper) were therefore unreportable by
+# construction: there was nothing to report them WITH. Routed through
+# `logging` per CLAUDE.md, so JsonlLogHandler picks it up like everything else.
+log = logging.getLogger(__name__)
 
 EPS = 1e-12
 
@@ -137,6 +144,11 @@ class RiskProtocolStack:
 
     def __init__(self, cfg: Optional[dict] = None):
         cfg = cfg or {}
+        # Times observe() declined to roll the loss-budget anchors because
+        # equity was not finite and positive. Report-only; surfaced in the
+        # runner status block so a DEAD guard and a HEALTHY day stop looking
+        # byte-identical on the board. Never a decision input.
+        self.anchor_skips = 0
         self.enabled = bool(cfg.get("enabled", True))
         vt = cfg.get("vol_target", {}) or {}
         self.vt_enabled = bool(vt.get("enabled", False))
@@ -209,6 +221,31 @@ class RiskProtocolStack:
                     self._day_key, self._day_anchor = dk, float(equity)
                 if self._week_key != wk:
                     self._week_key, self._week_anchor = wk, float(equity)
+            else:
+                # THE SKIP IS NOW VISIBLE. This is the every-cycle hot path,
+                # and a non-finite or non-positive equity previously skipped
+                # the anchor roll with NO return, NO log and NO reason code -
+                # contrast reanchor_week a few lines down, which returns False
+                # on the same predicate. The consequence is that the
+                # loss-budget anchors silently stop advancing while every
+                # reader is told the stack is healthy.
+                #
+                # Worse, the status triple is BYTE-IDENTICAL for a dead guard
+                # and a healthy day: ARMED {12.0, 5.0, 0.0} vs DEAD
+                # {0.0, 0.0, 1.0} vs HEALTHY {0.0, 0.0, 1.0} through
+                # runner.py's status block - the Grafana board cannot tell them
+                # apart. `anchors_set` below is what separates them.
+                #
+                # OBSERVABILITY HALF ONLY. Making the NaN path fail CLOSED
+                # (multiplier 0.0 + a veto) is an entry-decisioning and sizing
+                # change and needs operator sign-off (docketed B3).
+                self.anchor_skips += 1
+                log.warning(tag(
+                    Code.RP_WARMUP,
+                    f"loss-budget anchors NOT rolled: equity={equity!r} is "
+                    f"not finite and positive (skip #{self.anchor_skips}); "
+                    f"day/week anchors are stale and the budget taper is "
+                    f"reading a frozen denominator"))
             for sym, px in (marks or {}).items():
                 if not (isinstance(px, (int, float)) and math.isfinite(px)
                         and px > EPS):

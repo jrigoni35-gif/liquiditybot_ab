@@ -47,11 +47,29 @@ ROOT = Path(__file__).resolve().parents[1]
 # structurally taker and must not be pooled into the entry-maker rate).
 _OPEN_PURPOSES = ("entry", "hedge")
 
-# Kraken spot Tier-1 (this account, spot 30d volume $0 in dry-run). Same
-# constants as scripts/cost_attribution.py; NOT venue-reconciled (OM-080 has
-# never fired — schedule, not the account's verified row).
-KRAKEN_T1_MAKER_BPS = 40.0
-KRAKEN_T1_TAKER_BPS = 80.0
+# THE "VENUE-TRUE" DEFAULT WAS NEITHER VENUE-TRUE NOR CURRENT.
+# 40/80 is not a row Kraken publishes at ANY volume (the live schedule read
+# from api.kraken.com/0/public/AssetPairs runs 25/40, 20/35, 14/24, 12/22 …
+# 0/5 — see core/venue_fees.py), and it is ~2x the schedule this bot has
+# actually booked since cut #9 (22/38). Every figure this tool called
+# "VENUE-TRUE" was inflated accordingly: median 120.85 -> 60.41 bps, aggregate
+# $775.84 -> $371.38, maker prize $202.71 -> $76.02.
+#
+# Read the BOOKED schedule instead of a module literal, so the report cannot
+# drift from the book again. --maker-bps/--taker-bps still override, and the
+# fallback is the venue's WORST published row (25/40) rather than a number
+# that appears nowhere in the schedule: if config is unreadable, over-stating
+# cost with a REAL row is the conservative failure.
+def _booked_fees() -> tuple:
+    try:
+        _pt = json.loads((Path(__file__).resolve().parents[1] / "config.json")
+                         .read_text(encoding="utf-8")).get("pretrade", {})
+        return (float(_pt["maker_fee_bps"]), float(_pt["taker_fee_bps"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return (25.0, 40.0)          # venue's worst PUBLISHED row
+
+
+KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS = _booked_fees()
 
 # Exit-reason prefixes whose taker fill is STRUCTURAL: the position must be
 # allowed out and cannot honestly rest as a passive maker.

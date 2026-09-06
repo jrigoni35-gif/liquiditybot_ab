@@ -127,10 +127,20 @@ def merge_skimmer_universe(config: dict,
     return extra
 
 
+#: How often recording retention runs during the loop. Retention is an
+#: age/count policy, not a hot path; hourly is far more often than the
+#: multi-day retention window and costs a directory scan.
+_REC_PRUNE_SEC = 3600.0
+
+
 class BotRunner:
     def __init__(self, config: dict, bot: LiquidityBot | None = None,
                  start_paused: bool = False, resume: bool = True,
                  lock: SingleInstanceLock | None = None):
+        # Recording-retention cadence state. Set BEFORE any path that may call
+        # _prune_recordings_now, which runs during recording setup below.
+        self._rec_prune_args: tuple | None = None
+        self._last_rec_prune = 0.0
         self.config = config
         self._lock = lock
         # C1: the lock heartbeat runs on its OWN daemon thread, started before
@@ -211,23 +221,20 @@ class BotRunner:
             from data.recording import (DEFAULT_MAX_FILE_MB,
                                         DEFAULT_RETAIN_DAYS,
                                         DEFAULT_RETAIN_FILES, SinkRotator,
-                                        pnl_snapshot, prune_recordings,
+                                        pnl_snapshot,
                                         session_sink, update_sidecar)
             sys_cfg = config["system"]
             rec_dir = sys_cfg.get("recording_dir", "outputs/recordings")
             rc = sys_cfg.get("recording", {}) or {}
             now = time.time()
             # retention: keep months of session files bounded (age + count) so
-            # a long-running recorder never fills the disk
-            try:
-                dropped = prune_recordings(
-                    rec_dir, rc.get("retain_days", DEFAULT_RETAIN_DAYS),
-                    rc.get("retain_files", DEFAULT_RETAIN_FILES), now)
-                if dropped:
-                    log.info("recording retention pruned %d old session(s)",
-                             len(dropped))
-            except Exception:
-                log.exception("recording prune failed - continuing")
+            # a long-running recorder never fills the disk. Also runs on the
+            # telemetry cadence (see _prune_recordings_now) - at boot ALONE it
+            # never fired again in a long-lived process.
+            self._rec_prune_args = (
+                rec_dir, rc.get("retain_days", DEFAULT_RETAIN_DAYS),
+                rc.get("retain_files", DEFAULT_RETAIN_FILES))
+            self._prune_recordings_now(now)
             # Recording SETUP is fail-soft: a bad recording_dir (OSError) or a
             # non-numeric max_file_mb (ValueError) must DISABLE recording, never
             # take down the boot — record_feeds is default-true now. On failure
@@ -995,6 +1002,13 @@ class BotRunner:
                 "heat_frac": round(float(heat), 4),
                 "heat_cap_frac": rp.ht_max,
                 "dd_throttle_mult": round(float(throttle), 4),
+                # DEAD-GUARD DISCRIMINATOR (2026-09-05). Without these two the
+                # status triple above is byte-identical for an ARMED stack on a
+                # quiet day and a stack whose anchors stopped rolling because
+                # equity went non-finite: both read {0.0, 0.0, 1.0}. The board
+                # could not tell "nothing spent" from "the guard is dead".
+                "anchors_set": bool(getattr(rp, "_day_key", None) is not None),
+                "anchor_skips": int(getattr(rp, "anchor_skips", 0)),
                 # The drawdown ITSELF, not just its derived throttle. It was
                 # computed here and discarded, so the only drawdown an
                 # operator could see was second-hand through the multiplier -
@@ -1484,6 +1498,21 @@ class BotRunner:
         return self._cycle_fail_streak
 
     # ------------------------------------------------------------------
+    def _prune_recordings_now(self, now: float) -> None:
+        """Apply recording retention. Fail-soft: a prune fault never touches
+        trading, and a runner constructed without recording is a no-op."""
+        if not self._rec_prune_args:
+            return
+        rec_dir, retain_days, retain_files = self._rec_prune_args
+        try:
+            from data.recording import prune_recordings
+            dropped = prune_recordings(rec_dir, retain_days, retain_files, now)
+            if dropped:
+                log.info("recording retention pruned %d old session(s)",
+                         len(dropped))
+        except Exception:
+            log.exception("recording prune failed - continuing")
+
     def _run_paused_order_maintenance(self, now: float) -> None:
         """W2-6: while PAUSED, exit-purpose orders already in flight (an
         operator flatten_all, or a resting exit from before the pause) must
@@ -1665,6 +1694,21 @@ class BotRunner:
                         if now - bot._last_snapshot >= bot.snapshot_sec:
                             bot.store.snapshot(bot)
                             bot._last_snapshot = now
+                        # RECORDING RETENTION ON A CADENCE, not once at boot.
+                        # prune_recordings was called only from BotRunner
+                        # .__init__, so a process that stays up for weeks never
+                        # pruned again - and on a box that restarts constantly
+                        # the opposite harm appeared instead: retention counts
+                        # SESSIONS, so boots every ~27s evicted ~1.3 days of
+                        # recording history per 9 minutes (measured 2026-09-05,
+                        # two stamped snapshots: span 12.468 d -> 11.172 d).
+                        # Running it on the telemetry cadence decouples
+                        # retention from restart frequency in both directions.
+                        # Isolated with the rest of telemetry: a prune fault
+                        # never touches trading.
+                        if now - self._last_rec_prune >= _REC_PRUNE_SEC:
+                            self._last_rec_prune = now
+                            self._prune_recordings_now(now)
                         # skimmer watch tick: self-throttled (round-robin, one
                         # candidate per eval interval); isolated with the rest
                         # of telemetry — a skimmer fault never touches trading

@@ -355,8 +355,19 @@ def test_sizer_and_filter():
                   "tier_2": {"trigger_pct_gain": 2.0, "close_pct_of_position": 25},
                   "tier_3": {"trigger_pct_gain": 3.5, "close_pct_of_position": 25},
                   "tier_4": {"trigger_pct_gain": 5.0, "close_pct_of_position": 25}}
+    # PASS THE LIVE COST BLOCK. This was the only bare `PositionSizer(`
+    # construction outside tests/, and without a pretrade config the sizer
+    # falls back to internal defaults descending from the RETIRED 25/40
+    # schedule - so a Definition-of-Done gate sized Kelly against a cost world
+    # the bot has not traded since cut #9 (booked 22/38). Verified 2026-09-05:
+    # injecting 22/38 keeps this gate green (220/0) while injecting 40/80 REDS
+    # it on SZ-030 - the gate is live, it was just aimed at the wrong manifold.
+    _pretrade = json.loads(
+        (Path(__file__).resolve().parents[1] / "config.json")
+        .read_text(encoding="utf-8")).get("pretrade", {})
     sizer = PositionSizer({"min_p_win": 0.55, "entry_cooldown_min": 0},
-                          profit_cfg, {"stop_loss_pct": 2.0})
+                          profit_cfg, {"stop_loss_pct": 2.0},
+                          pretrade_cfg=_pretrade)
     inv = InventoryManager({})
     lev = LeverageGovernor({"use_margin": False}).decide(
         PortfolioState(10000), {}, 10000, 60.0, 2.0, 0.0)
@@ -368,9 +379,13 @@ def test_sizer_and_filter():
     vol = VolState("ETH", sigma_annual_pct=50.0)
     liq = LiquidityState("ETH", size_mult=1.0)
 
-    # edge_p above the honest net breakeven (~0.632 after the maker+taker
-    # round-trip cost fix): d1 must APPROVE on a genuine edge; d2/d3 veto on
-    # regime/direction regardless of p, so they share the same probability.
+    # edge_p above the honest net breakeven. NO LITERAL: the 0.632 this
+    # comment used to quote was wrong the day it was written (that
+    # construction computed 0.6902 at 86c62fd8), and the sizer now receives
+    # the LIVE pretrade block, so the bar moves with config.json. The
+    # quantity is 1/(1+b_net) - re-derive, never quote.
+    # d1 must APPROVE on a genuine edge; d2/d3 veto on regime/direction
+    # regardless of p, so they share the same probability.
     edge_p = 0.72
     d1 = sizer.size("ETH", "long", 2000.0, edge_p, 10000, state, bull, vol, liq,
                     1.0, inv, lev, {})
@@ -579,7 +594,13 @@ def test_entry_fill_exit_path():
     # clear is the net-Kelly breakeven, which moves with the fee constants
     # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
     # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
-    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # compounding fix. DO NOT QUOTE A BREAKEVEN LITERAL HERE: the figure
+    # long written as 0.632 was never what this construction computed -
+    # at 86c62fd8 (2026-07-15), the day the comment was written, the
+    # identical tiers/stop/fallbacks gave 0.6902. Wrong when written, not
+    # merely stale. The quantity is 1/(1+b_net); re-derive it, and note the
+    # sizer's ENTRY bar is p_bar_base (0.55 by default), a different number.
+    # (the maker+taker
     # round-trip cost fix). Subject is the order pipeline, not cost policy,
     # so the forced entry must clear net-Kelly to produce an order.
     cfg["ml"]["cold_start_prior_p"] = forced_entry_prior(cfg)
@@ -832,7 +853,13 @@ def test_persistence_roundtrip():
     # clear is the net-Kelly breakeven, which moves with the fee constants
     # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
     # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
-    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # compounding fix. DO NOT QUOTE A BREAKEVEN LITERAL HERE: the figure
+    # long written as 0.632 was never what this construction computed -
+    # at 86c62fd8 (2026-07-15), the day the comment was written, the
+    # identical tiers/stop/fallbacks gave 0.6902. Wrong when written, not
+    # merely stale. The quantity is 1/(1+b_net); re-derive it, and note the
+    # sizer's ENTRY bar is p_bar_base (0.55 by default), a different number.
+    # (the maker+taker
     # round-trip cost fix). This test's subject is persistence, not gate
     # economics, so the synthetic entry must clear net-Kelly to have a
     # position to snapshot (0.62 now sits below breakeven -> SZ-030 veto).
@@ -1572,7 +1599,13 @@ def test_record_replay_sweep():
     # clear is the net-Kelly breakeven, which moves with the fee constants
     # (0.6902 -> 0.8335 at cut #8, 2026-08-28). Historic note: the old
     # hardcoded 0.72 cleared the ~0.690 bar of the 2026-07-29 payoff-
-    # compounding fix (itself 0.66 vs the flat-weighted 0.632 - the maker+taker
+    # compounding fix. DO NOT QUOTE A BREAKEVEN LITERAL HERE: the figure
+    # long written as 0.632 was never what this construction computed -
+    # at 86c62fd8 (2026-07-15), the day the comment was written, the
+    # identical tiers/stop/fallbacks gave 0.6902. Wrong when written, not
+    # merely stale. The quantity is 1/(1+b_net); re-derive it, and note the
+    # sizer's ENTRY bar is p_bar_base (0.55 by default), a different number.
+    # (the maker+taker
     # round-trip cost fix). Subject is the recorder, not cost policy.
     cfg["ml"]["cold_start_prior_p"] = forced_entry_prior(cfg)
     cfg["pretrade"]["min_edge_cost_ratio"] = 0.1

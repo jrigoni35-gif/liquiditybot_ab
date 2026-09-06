@@ -329,10 +329,34 @@ def _job_status() -> str:
         import ctypes
         from ctypes import wintypes
         k32 = ctypes.windll.kernel32
+        # WHOSE JOB THIS DESCRIBES: the CALLING process's. That is correct for
+        # a self-diagnostic - run inside pc_supervisor it answers about
+        # pc_supervisor - but it means a value obtained by importing this
+        # function from a shell, a test, or an agent describes THAT process and
+        # says nothing about the live supervisor. An earlier verification pass
+        # read exactly this result and mis-attributed it; the answer for the
+        # 2026-08-16 blackout must come from the supervisor's OWN log line.
+        #
+        # ARGTYPES OR THIS CALL NEVER SUCCEEDS. Without them ctypes defaults a
+        # HANDLE return/param to C int, and GetCurrentProcess() returns the
+        # PSEUDO-HANDLE -1: truncated to a 32-bit int it is no longer a valid
+        # handle, so the call fails with ERROR_INVALID_HANDLE (6) every time.
+        # Full-file scan of outputs/pc_supervisor.log (631,479 B, 7,394 lines,
+        # 2026-07-15 -> 2026-09-05): 13 of 13 occurrences are
+        # "unknown (IsProcessInJob failed)" - ZERO successes, ever. The
+        # forensic answer this function exists to give has never been given,
+        # and the 2026-08-16 blackout question it was meant to settle is still
+        # open because of it.
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.GetCurrentProcess.argtypes = []
+        k32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE,
+                                       ctypes.POINTER(wintypes.BOOL)]
+        k32.IsProcessInJob.restype = wintypes.BOOL
         in_job = wintypes.BOOL(0)
         if not k32.IsProcessInJob(k32.GetCurrentProcess(), None,
                                   ctypes.byref(in_job)):
-            return "unknown (IsProcessInJob failed)"
+            return (f"unknown (IsProcessInJob failed, err="
+                    f"{ctypes.get_last_error() if hasattr(ctypes, 'get_last_error') else '?'})")
         if not in_job.value:
             return "not in a job - children survive this process's exit"
 

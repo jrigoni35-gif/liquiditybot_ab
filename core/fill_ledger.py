@@ -111,6 +111,13 @@ def _dup_key(row: dict) -> tuple:
             str(row.get("fill_price", "")), str(row.get("remaining", "")))
 
 
+#: Count of times the dedup key cache could not be loaded. A read failure
+#: leaves `keys` EMPTY, which is indistinguishable from "this ledger has no
+#: rows yet" - so a replayed fill re-lands in the P&L book and nothing says so.
+#: Report-only; nothing reads it as a decision input.
+dedup_disarmed = 0
+
+
 def _load_keys(path: Path) -> set:
     keys = set()
     try:
@@ -118,7 +125,23 @@ def _load_keys(path: Path) -> set:
             for r in csv.DictReader(f):
                 keys.add(_dup_key(r))
     except OSError:
-        pass
+        # WAS `pass`, SILENTLY. The contrast is inside this same file: the
+        # append path at the bottom logs its OSError with log.exception, while
+        # this one - the guard that keeps a duplicate fill OUT of realized
+        # P&L - swallowed it and produced ZERO output. Measured 2026-09-05:
+        # locking byte 0 of fills.csv, or an os.replace rotation landing
+        # between the new_file check and this call, gives `rows = 3` with a
+        # duplicate landed and no log record anywhere.
+        #
+        # THIS IS THE OBSERVABILITY HALF ONLY. Making dedup FAIL CLOSED changes
+        # whether a fill row reaches outputs/fills.csv, which feeds realized
+        # P&L -> equity -> loss budget -> sizing; that is a booking change and
+        # needs operator sign-off (docketed B5). Logging it does not.
+        global dedup_disarmed
+        dedup_disarmed += 1
+        log.exception("fill-ledger dedup DISARMED: could not read %s - a "
+                      "replayed fill can now re-land in realized P&L "
+                      "(occurrence #%d)", path, dedup_disarmed)
     return keys
 
 

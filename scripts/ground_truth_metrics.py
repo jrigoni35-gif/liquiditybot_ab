@@ -52,6 +52,16 @@ from pathlib import Path
 
 import numpy as np
 
+# DERIVED, not written (2026-09-05). A literal era goes stale the instant
+# ml.label_max_bars moves, and this selects which rows the report may see.
+# Same derivation as scripts/build_trading_dashboard.py:158-160.
+_LMB = int(json.loads((Path(__file__).resolve().parents[1]
+                       / "config.json").read_text(encoding="utf-8")
+                      )["ml"]["label_max_bars"])
+CURRENT_LABEL_ERA = ("triple_barrier" if _LMB == 96
+                     else f"triple_barrier_h{_LMB}")
+
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -314,7 +324,7 @@ def build_report() -> dict:
         st = json.loads((OUT / "status.json").read_text(encoding="utf-8"))
         le = (st.get("ml", {}).get("load_stats", {})
                 .get("label_era", {}))
-        cur = le.get("triple_barrier_h432", {}).get("by_reason", {})
+        cur = le.get(CURRENT_LABEL_ERA, {}).get("by_reason", {})
         obs = [cur.get(k, {}).get("rows", 0)
                for k in ("tb_pt", "tb_sl", "tb_time")]
         tot = sum(obs)

@@ -1022,7 +1022,25 @@ class HistoryStore:
                 existing = f.readline().strip().split(",")
             if existing == self._header:
                 return
-            bak = self.path.with_suffix(f".bak_{int(time.time())}")
+            # ONE-SECOND RESOLUTION CLOBBERS. `int(time.time())` gave two
+            # rotations inside the same second the SAME backup name, and
+            # os.replace overwrote the first silently - while the log line
+            # below printed "old file kept at ..." BOTH times. A second writer
+            # to this corpus is a documented shape, not a hypothetical
+            # (scripts/corpus_sync.py:176 says so in as many words), and there
+            # have been 17 rotations in ~50 days. Measured before this fix:
+            # "SAME-SECOND: ORIGINAL CORPUS SURVIVES ANYWHERE ON DISK: False".
+            #
+            # ns + pid is unique per writer BY CONSTRUCTION: a collision needs
+            # two rotations from the SAME pid in the SAME nanosecond, and
+            # distinct writers differ by pid regardless of clock resolution.
+            # (An earlier draft added an O_EXCL create/unlink handshake before
+            # the replace - that opens a TOCTOU window between the unlink and
+            # the replace and buys nothing the name does not already give.)
+            # NOTE ml/history.py's OTHER rotation site uses Path.rename, which
+            # already raises FileExistsError on Windows - deliberately NOT
+            # unified, because that one is already safe.
+            bak = self.path.with_suffix(f".bak_{time.time_ns()}_{os.getpid()}")
             os.replace(self.path, bak)      # cross-platform atomic
             log.warning(f"history schema changed - old file kept at {bak}")
             # Invalidate the derived LIVE counters (2026-08-06). Both caches

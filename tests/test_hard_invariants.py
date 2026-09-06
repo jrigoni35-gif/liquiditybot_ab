@@ -3,9 +3,20 @@
 These are the CLAUDE.md HARD INVARIANTS that must never regress silently:
 
   #3  Kraken is the SOLE execution venue. VenueAdapter.execution_eligible
-      requires name == "kraken"; the live Smart Order Router refuses to
-      route to anything else even if a rival quote lies about being
-      eligible and is cheaper.
+      requires name == "kraken", and a rival quote that lies about being
+      eligible and is cheaper is still refused.
+      READ THIS BEFORE TRUSTING THE #3 SECTION BELOW (measured 2026-09-05):
+      the adapter/router layer these tests exercise is NOT ON THE PRODUCTION
+      ORDER PATH. `import runner, main` succeeds with execution.venue_adapters
+      made un-importable; `venue_adapters in sys.modules` is False after a
+      real import; `.route(` appears repo-wide only in this file; main.py
+      constructs `self.router` and never reads it, handing OrderManager the
+      Kraken feed directly; and 26,973,374 B of outputs/audit.jsonl contains
+      ZERO `VN-` codes (needle control OM-011|LB-000|CV-000 -> 264).
+      So these are ADAPTER-CONTRACT pins: they prove the layer refuses a
+      non-Kraken venue IF it is ever wired up. They do not prove the running
+      bot consults it, because it does not. Wiring it is an order-lifecycle
+      change and is docketed for operator adjudication (B4).
   #4  Withdrawals/transfers are impossible. The Kraken private-endpoint
       deny list blocks Withdraw/WalletTransfer/etc. BEFORE any network I/O.
 
@@ -119,9 +130,12 @@ def test_kraken_place_is_accepted_in_ack_only_mode():
     assert ack.accepted
 
 
-# ===================================================================== #
-# INVARIANT #3 (LIVE PATH) — the Smart Order Router routes only to Kraken #
-# ===================================================================== #
+# ======================================================================= #
+# INVARIANT #3 (ADAPTER CONTRACT) — the Smart Order Router routes only to  #
+# Kraken. NOT the live path: see the module docstring. This section was     #
+# headed "(LIVE PATH)" until 2026-09-05, which was false — the router is    #
+# constructed and never read, and the audit trail carries zero VN- codes.   #
+# ======================================================================= #
 def _quote(venue, fee_bps, eligible, now):
     from execution.routing import VenueQuote
     return VenueQuote(venue=venue, best_bid=99.0, best_ask=100.0,

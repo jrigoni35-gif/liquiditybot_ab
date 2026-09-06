@@ -119,11 +119,24 @@ def reachable(name: str, root: Path) -> list[str]:
             ["git", "grep", "-l", "--fixed-strings", name, "--",
              "*.py", "*.bat", "*.ps1", "*.json", "*.md"],
             capture_output=True, text=True, cwd=str(root), timeout=60)
-        return [h for h in r.stdout.split() if h]
     except (OSError, subprocess.SubprocessError):
         # Cannot prove unreachable -> treat as REACHABLE. Failing closed is
         # the only safe direction for a tool that moves data.
         return ["<git unavailable - assumed reachable>"]
+    # THE RETURN CODE IS PART OF THE ANSWER. Until 2026-09-05 only the
+    # EXCEPTION path failed closed; a git that RAN and failed - rc=128 on a
+    # non-git root, the exact shape of a worktree or an unpacked deliverable -
+    # returned empty stdout, which `[h for h in r.stdout.split()]` renders as
+    # `[]`, i.e. "0 references, safe to collect". Measured: a referenced corpus
+    # file archived, `{'moved': 1, 'bytes_freed': 31}`.
+    #
+    # "git failed" and "nothing references this" are the SAME OBSERVATION until
+    # separated, and this function already knew the right answer for the other
+    # failure mode two lines up. rc 0 = matches, rc 1 = a real no-match; any
+    # other rc is git declining to answer.
+    if r.returncode not in (0, 1):
+        return ["<git unavailable - assumed reachable>"]
+    return [h for h in r.stdout.split() if h]
 
 
 def survey(outputs: Path, root: Path, gen0_days: int) -> dict:

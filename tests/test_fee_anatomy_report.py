@@ -103,9 +103,17 @@ def test_structural_vs_deferrable_split(fills):
     cf = far.compute(fills)["exit_counterfactual"]
     assert cf["structural_n"] == 1          # tb_sl
     assert cf["deferrable_n"] == 1          # tier 1
-    # deferrable notional = exit A = 1*101 = 101; prize @ 40bps drop = 0.404
+    # deferrable notional = exit A = 1*101 = 101. The PRIZE is that notional
+    # times the taker->maker saving, so it is DERIVED from the schedule the
+    # tool is benchmarking against, not a literal: it was hardcoded at 40bps
+    # (the 80-40 spread of an invented 40/80 row) and re-baselined 2026-09-06
+    # when the tool started reading the BOOKED schedule. At 22/38 the spread is
+    # 16bps and the prize is 0.1616. Deriving it means the next fee change
+    # re-baselines this pin automatically instead of reddening it.
+    _spread = far.KRAKEN_T1_TAKER_BPS - far.KRAKEN_T1_MAKER_BPS
+    assert _spread > 0, "taker must exceed maker or the prize is meaningless"
     assert cf["deferrable_notional"] == pytest.approx(101.0)
-    assert cf["deferrable_prize_usd"] == pytest.approx(101 * 40 / 1e4)
+    assert cf["deferrable_prize_usd"] == pytest.approx(101 * _spread / 1e4)
     # structural floor = exit B = 199; NOT capturable
     assert cf["structural_notional"] == pytest.approx(199.0)
 

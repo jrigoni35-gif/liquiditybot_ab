@@ -131,8 +131,17 @@ class VenueAdapter:
     @property
     def execution_eligible(self) -> bool:
         """A venue may execute only if it is (a) enabled, (b) structurally
-        allowed to be eligible, and (c) the invariant venue. (c) makes the
-        kraken-sole-execution rule impossible to bypass by subclassing."""
+        allowed to be eligible, and (c) the invariant venue.
+
+        (c) IS NOT BYPASS-PROOF AGAINST SUBCLASSING, and the previous sentence
+        here claimed it was. Refuted by construction 2026-09-05: this is a
+        plain `@property`, so a subclass overriding it reaches the wire (a
+        `LiarAdapter` returning True got "WIRE REACHED"). Python has no
+        mechanism that makes an overridable property un-overridable, so the
+        honest statement is the narrow one: every adapter that does NOT
+        override this is held to the kraken-only rule, and `place()` re-checks
+        it on entry. Defence against accident, not against a subclass written
+        to defeat it."""
         return (self.enabled and self.can_be_execution_eligible
                 and self.name == EXECUTION_INVARIANT_VENUE)
 

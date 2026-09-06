@@ -26,14 +26,40 @@ import scripts.cost_attribution as ca
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_benchmarks_against_the_verified_tier_not_the_struck_one():
-    """16/26 was struck 2026-08-07 and keeps being reintroduced from
-    secondary fee blogs that still publish 0.25/0.40 as current."""
-    assert ca.KRAKEN_T1_MAKER_BPS == 40.0
-    assert ca.KRAKEN_T1_TAKER_BPS == 80.0
+def test_benchmarks_against_the_BOOKED_schedule_not_a_struck_or_invented_one():
+    """RE-BASELINED 2026-09-06, and the old assertion was itself the defect
+    this test exists to prevent.
+
+    Its intent is right: a struck schedule (16/26, dropped 2026-08-07) keeps
+    being reintroduced from secondary fee blogs. But it asserted 40/80 as "the
+    verified tier", and 40/80 is **not a row Kraken publishes at any volume** -
+    the live schedule read from api.kraken.com runs 25/40, 20/35, 14/24, 12/22
+    ... 0/5. So the pin against a struck schedule was itself pinning an
+    INVENTED one, ~2x the booked 22/38. Third instance of that shape this
+    session (see core/venue_fees.py's register).
+
+    The durable property is not a literal: the tool must benchmark against
+    whatever the bot has BOOKED, so it can never drift from the book again."""
+    import json
+    pt = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))["pretrade"]
+    assert ca.KRAKEN_T1_MAKER_BPS == float(pt["maker_fee_bps"])
+    assert ca.KRAKEN_T1_TAKER_BPS == float(pt["taker_fee_bps"])
+    assert (ca.KRAKEN_T1_MAKER_BPS, ca.KRAKEN_T1_TAKER_BPS) != (40.0, 80.0), \
+        "the invented 40/80 row is back"
+    assert (ca.KRAKEN_T1_MAKER_BPS, ca.KRAKEN_T1_TAKER_BPS) != (16.0, 26.0), \
+        "the struck 16/26 schedule is back"
     assert not hasattr(ca, "KRAKEN_MAKER_BPS"), \
         "the struck 16/26 constants must not come back"
     assert not hasattr(ca, "KRAKEN_TAKER_BPS")
+
+
+def test_the_headroom_row_is_one_the_venue_actually_publishes():
+    """The 'deep-tier floor' was 15/30 - also not a published row. A headroom
+    figure computed against a tier that does not exist is not a bound."""
+    from core.venue_fees import is_a_published_row
+    assert is_a_published_row(ca.KRAKEN_T5_MAKER_BPS, ca.KRAKEN_T5_TAKER_BPS), \
+        (f"headroom row {ca.KRAKEN_T5_MAKER_BPS}/{ca.KRAKEN_T5_TAKER_BPS} is "
+         f"not on Kraken's published schedule")
 
 
 def test_tier1_is_the_expensive_row_not_the_conservative_one():

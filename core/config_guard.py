@@ -130,6 +130,31 @@ _CALIBRATION_MIN_BINS = 5
 # moving this; it is a measurement, and moving it without a new
 # measurement is how the 8h-era cap survived a 36h horizon.
 _CAND_REF_PEAK_ARRIVALS_PER_H = 18.3
+# [!] THE NAME SAYS PEAK; THE VALUE IS A 36-HOUR SUSTAINED AVERAGE.
+# Measured 2026-09-06 on outputs/signal_history.csv (25,840 rows, 337 lineages,
+# 2,032 populated hour-bins), MAX-per-lineage seq-span within a calendar hour:
+#     peak 75/h · p99 55/h · p95 46/h · MEDIAN 17/h
+# 18.3 sits at the MEDIAN hourly rate, not the peak — consistent with its own
+# derivation above ("659/36h = 18.3/h sustained"), which is a sustained figure
+# the constant's name then reads as a peak.
+#
+# DELIBERATELY NOT MOVED, and this is not deference to the old number:
+#  1. Which statistic is CORRECT depends on the capacity check's semantics. It
+#     is Little's law over a 36h label horizon, and a queue sized for 36h is
+#     not necessarily overflowed by a one-hour burst that drains. Sustained may
+#     genuinely be the right input; the DEFECT may be the NAME.
+#  2. Three derivations disagree on the peak (43.7/h from the 2026-09-05
+#     verification pass, 75/h here, and a first attempt of mine returned an
+#     absurd 21,600/h because a sliding window floored its span at 1s — that
+#     scan was broken, and it is recorded here so nobody repeats it).
+#  3. Raising this ARMS the FATAL below against ml.max_open_candidates=1200.
+#     dry_run=True downgrades that to a warning, so nothing happens today —
+#     but at the armed-live boot it becomes a HARD BOOT REFUSAL. Correcting
+#     the constant without also adjudicating capacity (docketed B6) would
+#     silently plant a live-arm blocker.
+# OWED: settle sustained-vs-peak against the check's own semantics, then move
+# the constant and the cap together under B6. Until then treat the capacity
+# check as UNPROVEN rather than as passing.
 
 
 class ConfigError(RuntimeError):

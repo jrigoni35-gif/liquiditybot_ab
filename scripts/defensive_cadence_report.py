@@ -23,6 +23,7 @@ touches engine state, config, or any ledger.
 from __future__ import annotations
 
 import csv
+import json
 import math
 import sys
 import time
@@ -43,7 +44,15 @@ CUT7_TS = 1786412030.0                   # 2026-08-11T01:33:50Z exactly (e7d5ca1
 # item 69's split was measured through it. Re-derived three times
 # (catch-up filing x2, tonight's datetime check); vault owed-measurements
 # item 78 records the history.
-H432 = "triple_barrier_h432"
+# DERIVED, not written (2026-09-05). A literal era goes stale the instant
+# ml.label_max_bars moves, and this selects which rows the report may see.
+# Same derivation as scripts/build_trading_dashboard.py:158-160.
+_LMB = int(json.loads((Path(__file__).resolve().parents[1]
+                       / "config.json").read_text(encoding="utf-8")
+                      )["ml"]["label_max_bars"])
+H432 = ("triple_barrier" if _LMB == 96
+                     else f"triple_barrier_h{_LMB}")
+
 
 
 def _f(x, default=float("nan")):

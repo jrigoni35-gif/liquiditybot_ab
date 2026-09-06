@@ -415,7 +415,17 @@ def era4_section(trips):
 # an operator adjudication; this exists so the question cannot go unnoticed.
 RETRAIN_HISTORY = "outputs/retrain_history.jsonl"
 SIGNAL_HISTORY = "outputs/signal_history.csv"
-CURRENT_LABEL_ERA = "triple_barrier_h432"
+# DERIVED, not written. A literal here goes stale the moment
+# ml.label_max_bars moves, and this constant selects which rows the cohort gate
+# — the single number the project waits on — is even allowed to see. Same
+# derivation as scripts/build_trading_dashboard.py:158-160 and
+# scripts/gc_pusher.py, which have always done it correctly; this file,
+# ground_truth_metrics.py and defensive_cadence_report.py were the three that
+# still spelled it out.
+_LABEL_MAX_BARS = int(json.loads(
+    (ROOT / "config.json").read_text(encoding="utf-8"))["ml"]["label_max_bars"])
+CURRENT_LABEL_ERA = ("triple_barrier" if _LABEL_MAX_BARS == 96
+                     else f"triple_barrier_h{_LABEL_MAX_BARS}")
 
 
 def deploy_epochs(path) -> list:
