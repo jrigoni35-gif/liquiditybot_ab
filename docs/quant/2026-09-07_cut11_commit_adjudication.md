@@ -1,7 +1,7 @@
 # Cut #11 — the COMMIT configuration (era-8) — operator adjudication
 
 **Date:** 2026-09-07
-**Class:** COHORT-RESETTING. Mints `exec_era` `11-<sha>`; era-8 accrual
+**Class:** COHORT-RESETTING. Mints `exec_era` `11-6e584923`; era-8 accrual
 begins from zero at the runner restart. Era-7 (2 closed trips at staging)
 stays citable AS era-7.
 **Authority:** operator, 2026-09-07, verbatim: *"Okay then let's take the
@@ -53,7 +53,7 @@ hedging.enabled                 true  -> false   (a hedged bet cannot end clearl
 position_sizer.min_ticket_usd   15    -> 60      (x4 on the probe floor)
 ```
 
-Code half: `core/fill_ledger.py` `EXEC_ERA` `10-a5acfe2d` → `11-<sha>`.
+Code half: `core/fill_ledger.py` `EXEC_ERA` `10-a5acfe2d` → `11-6e584923`.
 
 **Why these four, each with its number.**
 

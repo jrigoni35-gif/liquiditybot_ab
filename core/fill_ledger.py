@@ -97,7 +97,18 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # stamp is on a different cost manifold AND a different decision path than
 # every fill before it - do not pool across it. Era-6 rows stay citable AS
 # era-6.
-EXEC_ERA = "10-a5acfe2d"
+# 11-6e584923: cut #11, the COMMIT configuration (era-8), minted 2026-09-07
+# under the operator's explicit objective ("make it do things that would make
+# it have to either end with a positive or negative PnL"). Stamp names the
+# decision-record commit (docs/quant/2026-09-07_cut11_commit_adjudication.md).
+# What changed on the fill axis: NO HEDGE LEGS (hedger disabled - hedge fills
+# were 159 of 1,245 and 40% of all fees), universe cut to the four majors
+# (PAXG/ETH/BTC/LINK - the alt tail was the measured loss channel), probe
+# ticket floor $15 -> $60 (x4: outcomes in dollars, not cents). Fees, stop/TP
+# geometry, the model and the exploration budget are UNCHANGED. Every fill
+# after this stamp is a committed, unhedged, larger bet on a narrower book -
+# do not pool it with era-7 or earlier.
+EXEC_ERA = "11-6e584923"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order

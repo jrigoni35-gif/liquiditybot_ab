@@ -73,6 +73,30 @@ It labels and points, never substitutes; primary sources always win.
 
 ---
 
+## ERA-8 BEGINS HERE — cut #11, the COMMIT configuration (2026-09-07)
+
+**Operator objective, verbatim:** *"Make it do things that would make it have
+to either end with a positive or negative PnL."* Three zero-makers that are
+not the model removed, nothing else touched: **hedger OFF** (159/1,245
+fills, 40% of all fees, cancels the bet by construction; no hedge was open
+at staging and the stage REFUSES if one is), **universe → PAXG/ETH/BTC/LINK**
+(alts −$3.67/27 trips, 15/22 alt exits stop-losses; skimmer OFF or the
+universe re-widens at every boot), **probe ticket floor $15 → $60**
+(`size_scale` clamped to 1.0, already there; the floor was the only lever).
+Fees 20/35, geometry, model, budget (5/day → ~4 fills/day), time-stop,
+give-back UNTOUCHED. Expected under H0: ~−$1.3/day (larger than before;
+accepted as the price of a readable sign). **Read points registered:** n=50
+lean (~2 weeks), n=100 verdict (~4 weeks); STOP never reverts to the hedged
+12-asset book. Design pass (`wf_83900ef6-2d2`) recommended fewer trades
+instead; recorded and overridden with the reason. Record:
+`docs/quant/2026-09-07_cut11_commit_adjudication.md`; stage
+`scripts/cut11_stage.py`; pins `tests/test_cut11_commit.py`.
+
+`exec_era` is **`11-6e584923`**. Built on branch `cut11`; LIVE only after
+merge to main + runner restart (dev box: push alone restarts nothing).
+
+---
+
 ## ERA-7 BEGINS HERE — cut #10, the verified-defects boundary + E1 fee correction (2026-09-06)
 
 **Six CONFIRMED defects landed as one operator-approved boundary, plus the
@@ -825,6 +849,7 @@ verification is paid for twice.
 
 | what | verdict | record |
 |---|---|---|
+| CUT #11 staged — the COMMIT configuration: hedger off, majors only, $60 probes (09-07) | Operator-directed pivot from 'perfect the measurement of zero' to 'force a sign'. Design pass picked fewer-trades (best case +5¢/day, hedger on); overridden on the operator's stated objective, the universe cut kept. **Under H0 the loss GROWS (~−$1.3/day)** — knowingly. Verdict machinery: n=50 lean, n=100 verdict, day-block CIs, STOP ≠ revert. TP width is the pre-named next lever (label-era encodes horizon only → deferred). Stage refuses with an open hedge (hedger disabled emits no unwinds). Mutation on the pins verified | `docs/quant/2026-09-07_cut11_commit_adjudication.md` |
 | 47 remaining findings VERIFIED by execution; 7 SAFE fixed (batch 3), 29 SAFE + 9 BOUNDARY docketed WITH evidence (09-07) | 25-agent pass over the 4 truncated-verdict highs, all 33 medium/low, all 10 candle findings: **36 CONFIRMED+SAFE, 9 BOUNDARY, ~14 REFUTED (several the verifiers' own earlier verdicts), 4 ALREADY_FIXED, 16 CANNOT_DETERMINE.** Fixed: **h7** ARM LIVE gate had NO pytest pin (neutering it reddened 0 of 2,027 tests) — pinned at `_live_order_allowed`, submit-site pin docketed; **h5** fill-ledger width guard one-directional → ragged rows on any unknown header column, and the LIVE 17-col ledger has silently lost `book` on every fill since 39f36e49 — rows now always match the file header, loss counted + warned once; **migration DONE 2026-09-07T10:09Z** under operator approval: runner stopped (16s), `migrate_fills_schema` 1,254 rows → 18 cols uniform (was 17×1249 + 16×6), backup `fills.csv.preschema_1788775767`, runner relaunched pid 21840 on batch-3 code; LLVM added to the user PATH → `tests/test_cpp_diode.py` 8 passed; **h44** deploy-gate bandit scanned 82 files vs the law's 195 (planted B602×7: gate 2, law 14) — argv = law; **h41 residual** a red HARD gate whose last line said 'cannot find' was `continue`d → deploy ADMITTED — a HARD gate now skips only on proof its own tool is absent (rc 127/9009 or `No module named <tool>`); **h31/36** supervisor self-handoff inherited its own log handle and overwrote the exit-forensics line (2/2 injections; 0 exit lines across 23 handoffs) — `own_log=False`; **h18** cost_attribution ratio literal 65.0 printed ×1.182 against a 20/35 book — derived; **h19** 11 naive local timestamps in report provenance → UTC. **Highest-value SAFE still open** (with evidence in the register): h16 cost tools pool three fee schedules with no `--era`; h63 C++ diode harness dark (LLVM not on PATH) and blind to two cut mutants; h13 four fee-fallback vintages on dry-run boots (touches execution modules — held); h62 vacuous negative control under `pytest tests/`; h53 state.json 3.35MB/30s ∝ horizon². **BOUNDARY (sign-off)**: h21 `min_half_spread_bps=26` binds silently; h10 `purpose` string is the sole key for five exemptions; h24 NaN mark → equity NaN → hard stop silent; **c0–c7: five SMC features are binary/null/saturated/volatility-proxies** (`fvg_liq_confluence` ≈ null, `fvg_pull` polarity dead, POC single-bin, missingness==neutral 7/7, FVG count ≈ volatility) — model-side, FROZEN 08-10 | `docs/quant/2026-09-07_verified_findings_register_47.md` (register verbatim); `tests/test_verified_findings_batch3.py` |
 | Closeout to a level point: 3 boot instruments made honest, E2/E3/per-era gross measured, bridge branch verdict (09-06/07) | **Per-era gross is a TABLE, not a number**: era-7 (`7-e7d5ca1a`, n=56) is the only era whose gross clears zero (+$0.17/trip, trip-bootstrap CI [+0.03,+0.34], optimistic); **era-9 gross spans zero** (−$0.06, [−0.22,+0.11], n=29); the +$0.0255 quoted 09-05 belongs to no era. **E2 REFUTES the Simons pass's expected null**: oracle-MFE median clears the 55bps fee line within a day on every core pair (ETH 8h @152 indep windows; BTC/PAXG 16h; SUI 4h; ARB/MINA/FLOW 1–2h) — the instruments CAN pay the rake; MAE is symmetric (random-walk shape) so the question is SELECTION. At the shipped 36h horizon median MFE on the majors (132–178bps) sits **below the 240bps TP barrier** → only the top ~25–30% of paths can reach TP by construction = the 30–35% shadow win rate, derived from the tape. That is geometry = ALGO-5 = refused; **filed, not acted on**. **E3 null holds** (MFE percentile 0.526, SE 0.046) but the harness is **coverage-starved: 452/500 trips skipped** (recordings evicted by the S3 retention defect); owed = re-run on the parquet tape at n≈340 and at E2's horizons. **Closeout (SAFE, `4bb6f3ae`)**: give-back WARN now reads the EFFECTIVE arm (was firing every boot on the raw 0.6% while the floored arm is 0.917%); `momentum_bear_max` −0.34→−0.1111 = the value the runtime already substituted every boot (the literal EXCLUDED −1/3 by 0.0067 of rounding — the first pin draft asserted the wrong invariant and that failure surfaced it); fill_hazard panel wall 300→900 from a measured 159s. **Bridge branch NOT merged**: gated merge reverted on bandit B404/B603 in `scripts/vscode_bridge.py` (no fixed-argv nosec); branch + worktree retained; merge path documented | `docs/quant/2026-09-06_e2_horizon_curve_and_per_era_gross.md`; closeout pins `tests/test_closeout_2026_09_06.py` |
 | CUT #10 minted — six verified defects + E1 fee correction, one reset (09-06) | B1–B6 landed (see ERA-7 header); config 22/38→**20/35**, est_fee 38→35, label cost 0.60→0.55, cap 1200→1800; derived bar 0.6772→**0.6642**. **ALGO-5 NOT bundled** (adjudicated *do not arm* 09-02 — the bundle was first proposed on a stale docket read and retracted before code). **GB-1 REFUTED at HEAD** (arm cost floor since 07-30 → effective arm 1.27%; live on both open positions). **No second reset queued.** E1 full-population: 92% of fees on exit+hedge at taker, 60% taker mix; paper `fees_delta_usd` == configured bps to the digit (a restatement, not a measurement) | `docs/quant/2026-09-06_cut10_boundary_adjudication.md`; stamp in `core/fill_ledger.py` |

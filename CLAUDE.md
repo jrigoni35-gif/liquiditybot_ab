@@ -91,61 +91,53 @@ INVARIANT below, stop and say so instead of complying.
   legitimate change moves numbers, re-baseline consciously at 200×1200 —
   never widen a gate to silence CI.
 
-## Accrual moratorium — era-7 (cut #10, verified-defects boundary + E1 fee correction, 2026-09-06)
+## Accrual moratorium — era-8 (cut #11, the COMMIT configuration, 2026-09-07)
 
-**Era-4 is CLOSED** (read out COST_BOUND at n=54,
-`docs/quant/2026-08-26_why_losing_deep_dive.md`). **Cut #8's 40/80 fee premise
-was WRONG and is SUPERSEDED** (era-5 never read out; rows citable AS era-5).
-**Cut #9** (`exec_era` `9-16ec821e`, 2026-08-30) corrected fees to 22/38 and
-began era-6; its rows stay citable AS era-6. Nothing may be pooled across any
-of these cuts. Full history of #8/#9: `docs/HANDOFF.md` ERA sections and
-`docs/quant/2026-08-29_fee_tier_correction_adjudication.md`.
+**History in one line each, all citable AS their era, none poolable across a
+cut:** era-4 CLOSED (COST_BOUND n=54); cut #8's 40/80 premise SUPERSEDED;
+cut #9 (`9-16ec821e`) fees 22/38; cut #10 (`10-a5acfe2d`, 2026-09-06) six
+verified defects + E1 fee correction to the published 20/35 row, era-7 (2
+closed trips). Records: `docs/HANDOFF.md` ERA sections, `docs/quant/`.
 
-**Cut #10 — the VERIFIED-DEFECTS BOUNDARY** (`exec_era` `10-a5acfe2d`, see
-`core/fill_ledger.py`) was minted 2026-09-06 under explicit operator approval
-("Approve all" → the bundled-boundary option → "finish any changes pending";
-the accrual-reset consequence was stated before the option was chosen;
-dry_run STAYS true). It lands six defects that had each been CONFIRMED by
-execution and adversarially re-verified
-(`docs/quant/2026-09-05_verified_findings_batch.md`) and then held behind the
-era-6 fences: B1 watchdog fail-open on never-delivered books, B2 `est_fee_bps`
-absent-default 0.0, B3 NaN equity failing OPEN in sizing, B4 the execution
-feed as an unchecked injectable, B5 fill-ledger dedup disarming silently, B6
-the candidate-capacity constant 2.4x stale. Plus **E1's finding**: cut #9's
-22/38 is NOT a published Kraken row; the binding row at the measured $17,482
-volume is **20/35**, so fees, `est_fee_bps` (38 → 35) and the label round-trip
-cost (0.60% → 0.55%) move with it and the derived entry bar falls
-**0.6772 → 0.6642**. Decision record:
-`docs/quant/2026-09-06_cut10_boundary_adjudication.md`.
+**Cut #11 — the COMMIT CONFIGURATION** (`exec_era` `11-6e584923`) was minted
+2026-09-07 under the operator's explicit objective, verbatim: *"Make it do
+things that would make it have to either end with a positive or negative
+PnL."* Three periods had read zero-shaped. Three zero-makers that are NOT
+the model were removed and nothing else changed: the **hedger** (a hedge leg
+cancels the bet by construction; 40% of all fees), the **alt-coin universe**
+(the measured loss channel; now PAXG/ETH/BTC/LINK only, skimmer OFF so the
+universe cannot re-widen at boot), and the **$18 probe ticket** (floor
+`min_ticket_usd` 15 → 60; `size_scale` is clamped to 1.0 and was already
+there). Fees, stop/TP geometry, the model, the exploration budget, time-stop
+and give-back are UNTOUCHED. dry_run STAYS true. Expected under H0 (coin
+flip): −fee/trip ≈ −$0.33 at a $60 ticket, ~−$1.3/day — LARGER than before,
+accepted knowingly as the price of a readable sign. Decision record:
+`docs/quant/2026-09-07_cut11_commit_adjudication.md`. The design pass's own
+recommendation (fewer trades) is recorded there and overridden with the reason.
 
-**Deliberately NOT bundled — do not re-propose them:** ALGO-5 was adjudicated
-**"do not arm"** on 2026-09-02 (two independent resolutions;
-`docs/quant/2026-09-02_sustainability_arm_package.md` row B) — being pre-named
-was a queue position, never a mandate. GB-1 is **REFUTED at HEAD**: the
-2026-07-30 arm cost floor in `risk/profit_tiers.py` makes the effective
-give-back arm `cost/(1−frac)` = 1.27% at 76 bps, verified live on every open
-position. **There is therefore no second reset queued behind cut #10.**
-
-**Era-7 accrual begins at the cut #10 runner restart**, from zero, on the
-same pre-registered machinery (`scripts/cohort_eval.py` — untouched by
-the cut: the gate, its bands and its selection rule are exactly as
-registered). Until it reads out:
+**Era-8 accrual begins at the cut #11 runner restart**, from zero, on the
+same pre-registered machinery (`scripts/cohort_eval.py` — untouched). Read
+points are REGISTERED: **n=50 = the lean** (sign + CI, act only if the CI
+excludes zero); **n=100 = the verdict** (CONTINUE iff net > 0 with CI
+excluding −fee; STOP on no-gross-edge or cost-bound — and STOP does NOT
+revert to the hedged 12-asset book, which is the measured loss channel).
+Until it reads out:
 
 - **COHORT-RESETTING — forbidden without operator adjudication** (any of
-  these mints the next execution-era boundary and restarts accrual):
-  changes to entry decisioning, position sizing, stop/exit geometry
-  (placement, nudges, time limits — the cut-#7 lesson: geometry changes
-  trip outcomes even when fills don't move), the fill simulator, fee
-  booking, or the order lifecycle. **CONC-1** (concurrency/uniqueness) is
-  now the PRE-NAMED next adjudication; **B7** (historical `candidate_id`
-  backfill) and **QT-1** are docketed behind it.
+  these mints the next boundary and restarts accrual): changes to entry
+  decisioning, position sizing, stop/exit geometry (placement, nudges, time
+  limits), the fill simulator, fee booking, the order lifecycle, the
+  universe, the hedger, or the probe ticket. **The one thing not to touch
+  during the run is anything.** Take-profit width (240 bps vs the majors'
+  36 h median oracle move of 132–178) is the PRE-NAMED next lever, deferred
+  because the label-era name encodes the horizon only and a width change
+  would mix two geometries under one era; CONC-1 behind it.
 - **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
   export, and bug fixes that do not alter which orders are placed or how
   they fill.
 - Do not read the accruing gate numbers as a trend; do not retune on
-  them. The registration is the law; the readout (NO_GROSS_EDGE /
-  COST_BOUND / CONTINUE) names which decision has become decidable — it
-  never decides.
+  them. The registration is the law; the readout names which decision has
+  become decidable — it never decides.
 - Model-side investment is FROZEN per the 2026-08-10 operator
   adjudication (no new families, features, or meta-labeling); the
   retrain loop itself continues by design.

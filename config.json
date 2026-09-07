@@ -32,10 +32,7 @@
         "PAXG/USD",
         "ETH/USD",
         "BTC/USD",
-        "SUI/USD",
-        "ARB/USD",
-        "MINA/USD",
-        "FLOW/USD"
+        "LINK/USD"
       ],
       "_paxg_doc": "PAXG (2026-08-05, operator): gold as a TANGIBLE investment, the top rung of the tangible-value ladder the haven gradient measures (regime/haven.py) - PAXG > BTC > ETH > alts. Redeemable for an allocated bar, so its value survives every counterparty in this list; near-zero crypto beta makes it the one universe member whose drawdowns are not the others' drawdowns. No special-casing anywhere: gold's low vol flows through the SAME vol-scaled brackets, sizer and labeler as everything else - sigma-scaled geometry tightens on its own, which is the point of scaling by sigma instead of hardcoded percentages. Kraken only. [doc corrected 2026-08-27 config audit: this note's original 'Kraken spot only; the bot holds no margin anywhere' was already stale when written - leverage.use_margin has been true since 57a20f89 (2026-07-12, deliberate); see the leverage section]",
       "rate_limit_per_sec": 3,
@@ -404,7 +401,7 @@
     "max_same_side_positions_per_asset": 2
   },
   "hedging": {
-    "enabled": true,
+    "enabled": false,
     "max_net_delta_pct_of_equity": 20,
     "rebalance_band_pct": 8,
     "min_hedge_correlation": 0.55,
@@ -446,7 +443,7 @@
     "p_bar_mode": "derived",
     "p_bar_edge_margin": 0.0,
     "_p_bar_doc": "2026-07-27 drought diagnosis (operator-directed fix): the entry p(win) bar was an absolute literal sitting BELOW the net-Kelly breakeven (0.632 at current tiers/stop/fees) - a phantom the config guard had flagged (entries in [0.55, breakeven) passed the bar only to die SZ-030 one step later), and any tier/fee change silently re-breaks an absolute number. mode 'derived' pins the bar to the geometry: max(1/(1+b_net) + p_bar_edge_margin, min_p_win); min_p_win's remaining role is the FLOOR. edge_margin ships 0.0 = pure de-phantomization, no new fitted number - raising it is a gate-tightening decision that must clear the overfit discipline (quant trials, never tuned to a backtest peak). INTERLOCK: ml.exploration.p_win (0.64, the synthetic probe p) must clear the derived bar or the F0b probe trickle dies at SZ-023 - config_guard WARNs when clearance drops below 0.005. mode 'absolute' reverts to the historical literal bar.",
-    "min_ticket_usd": 15,
+    "min_ticket_usd": 60,
     "explore_floor_mult": 1.2,
     "_explore_floor_mult_doc": "lifted 2026-08-27 (config audit item 8; overfit discipline - IDENTICAL to the code default 1.2 that has always run, behavior-preserving, runtime A/B byte-verified). Exploration label-acquisition floor: probe tickets floor at max(min_ticket_usd, pretrade.min_order_usd x this). The sizer floors at the MARK but the pre-trade gate recomputes notional at the QUOTE (a maker buy rests below the mark), so a ticket floored to exactly min_order lands cents under and dies PT-031 - the margin covers the quote gap + lot rounding (SZ-044). The 6e57ebd7->ae4b5314 history is why decision-path knobs do not live only in code. config_guard FATALs outside [1.0, 5.0]: below 1.0 recreates the PT-031 death this knob exists to prevent; above 5.0 it is a probe SIZING lever in disguise, not a floor margin.",
     "tier_reach_decay": 0.65,
@@ -1112,7 +1109,7 @@
   },
   "skimmer": {
     "_doc": "asset skimmer: scan a candidate pool beyond the core trading_pairs, rank tradability (spread cost / book depth / bar activity), and PROMOTE the best into the active universe at the NEXT RESTART (runner.main merges outputs/skimmer_active.json into trading_pairs on the live path only - replay/overfit stay pinned to the recorded universe). Core pairs are permanent; at most max_extra promotions, keeping the worst-case REST-fallback budget (3 req/s with WS down) inside the ~12-pair envelope. Watching costs <=2 REST calls per evaluation, one candidate round-robin per loop pass, each at most once per eval_every_min. Promoted assets face every existing rail (EV gate, sizer, protocols, heat, firewall, manip gate); demotion only removes them from the NEXT boot - open positions keep their exits. apply_in_live=false means promotions apply in dry-run only until explicitly enabled for live.",
-    "enabled": true,
+    "enabled": false,
     "apply_in_live": false,
     "candidates": [
       "SOL/USD",

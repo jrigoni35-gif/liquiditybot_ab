@@ -134,7 +134,10 @@ def test_new_file_carries_exec_era():
     # applied 2026-09-06 by scripts/cut10_stage.py --apply under operator
     # approval): era 9 -> 10, sha a5acfe2d (the cut10_boundary_adjudication
     # commit, committed alone and first so the code commit could name it).
-    assert EXEC_ERA == "10-a5acfe2d", (
+    # Cut #11 (the COMMIT configuration, 2026-09-07, operator-directed): era
+    # 10 -> 11, sha 6e584923 (the cut11_commit_adjudication commit, committed
+    # alone and first on branch cut11).
+    assert EXEC_ERA == "11-6e584923", (
         "era constant must name the CURRENT era and its boundary commit - "
         "if you bumped it deliberately, this pin moves in the same commit")
     import re
