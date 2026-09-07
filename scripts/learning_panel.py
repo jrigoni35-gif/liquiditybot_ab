@@ -67,7 +67,14 @@ ROUTES: tuple[Route, ...] = (
     Route("corpus_linkage", "corpus_linkage_report.py", 900),
     Route("feature_stability", "feature_stability.py", 900),
     Route("horizon", "horizon_report.py", 300),
-    Route("fill_hazard", "fill_hazard_report.py", 300),
+    # 300 -> 900 on 2026-09-06: the daily 05:30 run TIMED OUT at 300s (panel
+    # LastResult=1), while a same-day foreground run measured 159s wall on the
+    # current recording corpus. The route scans outputs/recordings/, which
+    # grows with the runner, and shares the box with the 05:30 cadence. 900s
+    # is ~5.7x the measured run - a WALL against a hang, not a standard; it
+    # is an offline daily report and a longer wall costs nothing. Re-measure
+    # (time python scripts/fill_hazard_report.py) before moving it again.
+    Route("fill_hazard", "fill_hazard_report.py", 900),
     Route("defensive_cadence", "defensive_cadence_report.py", 300),
     Route("interpret", "interpret_report.py", 900),
     Route("ground_truth", "ground_truth_metrics.py", 900),

@@ -2554,9 +2554,24 @@ def validate(config: dict) -> list:
         # only fire for the wrong reason.
         be_buf_bps = float(_f(config, "profit_taking.be_buffer_bps", 6.0)) \
             + 2.0 * float(_f(config, "profit_taking.est_fee_bps", 0.0))
-        if arm * 100.0 <= be_buf_bps:
-            warn(f"give_back.arm_gain_pct={arm}% arms inside the "
-                 f"break-even buffer ({be_buf_bps:.0f}bps) - the locked "
+        # THE EFFECTIVE ARM, NOT THE RAW KNOB (2026-09-06). This WARN fired on
+        # every boot since cut #9 by comparing the STATIC arm_gain_pct to the
+        # buffer - but risk/profit_tiers._give_back_candidate has carried an
+        # ARM COST FLOOR since 2026-07-30: arm = max(arm, cost_pct/(1-frac)),
+        # where cost_pct is the position's round-trip fee (maker+taker bps,
+        # stamped at entry). At 20/35 and frac 0.4 the effective arm is
+        # 0.55/0.6 = 0.917%, comfortably above the 0.76% buffer, so the WARN
+        # was a stale instrument reading a knob the runtime no longer arms on
+        # directly (GB-1 was refuted at HEAD on exactly this). Mirror the
+        # runtime's own formula so the guard warns about the arm that ACTUALLY
+        # fires; a raw knob below the floor is simply inert, not a defect.
+        rt_fee_pct = (float(_f(config, "pretrade.maker_fee_bps", 0.0))
+                      + float(_f(config, "pretrade.taker_fee_bps", 0.0))) / 100.0
+        eff_arm = max(arm, rt_fee_pct / max(1.0 - gbf, 0.05))
+        if eff_arm * 100.0 <= be_buf_bps:
+            warn(f"give_back EFFECTIVE arm {eff_arm:.3f}% (raw arm_gain_pct="
+                 f"{arm}%, cost floor {rt_fee_pct:.2f}%/(1-{gbf})) arms inside "
+                 f"the break-even buffer ({be_buf_bps:.0f}bps) - the locked "
                  f"share of such small moves is fee noise")
 
     # --- conviction runner (rev 6 entry-conviction leash) -------------------
