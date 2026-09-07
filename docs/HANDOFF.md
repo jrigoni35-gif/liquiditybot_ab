@@ -360,6 +360,20 @@ means one execution-era reset instead of seven). Each item below alters
 entry decisioning, geometry, fills, or model schema — **all
 cohort-resetting, none shippable mid-era.**
 
+**OPERATOR-FLAGGED REFERENCE (2026-09-07, filed on directive, NOT
+assessed):** Flow "Forte" network upgrade — Flow Actions (composable DeFi
+connectors incl. `IncrementFiPoolLiquidityConnectors`,
+`IncrementFiFlashloanConnectors`, `ERC4626SinkConnectors`), native
+**Scheduled Transactions** (on-chain time scheduler, "rebalancing without
+external keepers"), Fix128/UFix128 math; two dev surfaces, Cadence-native
+and Flow EVM (Solidity / Foundry / Hardhat / ethers.js). Operator's words,
+verbatim, mid-assessment: *"Stop and include this no matter what."* Filed
+at vault `raw/research/2026-09-07_flow_forte_pointer.md` with the pasted
+excerpts; it sits beside `concepts/treynor-black-alpha-isolation` §6 route 3
+(structural edge — liquidity provision / spread capture) because that is
+the conversation it arrived in. **Any use is an invariant-3 (sole venue)
+adjudication by the operator; nothing in the bot changed.**
+
 **BOUNDARY PRINCIPLE (2026-08-22, measured):** the regime-invariant
 edge is the **cost-aware rejection stack** — `SZ-030` net-Kelly f*<=0
 and `SZ-046` held 6.0% / 16.0% at identical n and identical separation
