@@ -790,7 +790,7 @@ def build_report(root: Path = ROOT, fills_path: Optional[Path] = None,
                  tick_store: bool = False, tick_root: Optional[Path] = None) -> Row:
     fills_path = fills_path or (root / "outputs" / "fills.csv")
     candle_dir = candle_dir or (root / "outputs" / "candles" / "parquet")
-    read_at = _dt.datetime.now().isoformat(timespec="seconds")
+    read_at = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
     all_rows, entries = load_fills(fills_path)
     lanes = load_lanes(candle_dir) if candle_dir.exists() else {}
     scored, skipped = score_fills(entries, lanes)

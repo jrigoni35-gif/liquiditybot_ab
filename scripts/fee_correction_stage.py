@@ -128,7 +128,7 @@ def main() -> int:
         print("EXEC_ERA (core/fill_ledger.py) to 9-... and restart the runner.")
         return 0
 
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     backup = CONFIG.with_name(f"config.json.pre-cut9-{stamp}")
     # RESTORE HAZARD (same as cut #8): restoring this backup by hand does NOT
     # revert the era - EXEC_ERA is a code constant. Restoring is itself a

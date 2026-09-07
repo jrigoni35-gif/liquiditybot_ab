@@ -128,7 +128,7 @@ def main() -> int:
         print("carries the full decision record.")
         return 0
 
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     backup = CONFIG.with_name(f"config.json.pre-boundary5-{stamp}")
     # RESTORE HAZARD (2026-08-28 review verdict). This backup is the exact
     # pre-cut config; restoring it by hand does NOT revert the era: the

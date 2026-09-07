@@ -178,8 +178,8 @@ def scan(outputs: Path) -> dict:
         t = [_f(r, TS) for r in rs if _f(r, TS)]
         if not t:
             return None
-        return [dt.datetime.fromtimestamp(min(t)).isoformat(timespec="minutes"),
-                dt.datetime.fromtimestamp(max(t)).isoformat(timespec="minutes")]
+        return [dt.datetime.fromtimestamp(min(t), dt.timezone.utc).isoformat(timespec="minutes"),
+                dt.datetime.fromtimestamp(max(t), dt.timezone.utc).isoformat(timespec="minutes")]
 
     live_agg = _agg(live)
     all_agg = _agg(live + orphans)
@@ -190,9 +190,9 @@ def scan(outputs: Path) -> dict:
 
     return {
         "ok": True,
-        "read_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "read_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "boundary_ts": boundary,
-        "boundary_iso": dt.datetime.fromtimestamp(boundary).isoformat(
+        "boundary_iso": dt.datetime.fromtimestamp(boundary, dt.timezone.utc).isoformat(
             timespec="seconds"),
         "boundary_source": "scripts/cohort_eval.py CAPITAL_EPOCH_TS (imported)",
         "live_rows": len(live), "live_keys": len(live_keys),

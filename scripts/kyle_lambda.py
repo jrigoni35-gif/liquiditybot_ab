@@ -163,7 +163,7 @@ def estimate(rows: list[dict], min_n: int) -> dict:
         out.append(res)
     out.sort(key=lambda d: (d["kind"] != "taker", -d["n"]))
     return {"cells": out, "skipped_rows": skipped, "min_n": min_n,
-            "read_at": dt.datetime.now().isoformat(timespec="seconds")}
+            "read_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
 
 
 def _render(res: dict, fee_bps: float) -> None:

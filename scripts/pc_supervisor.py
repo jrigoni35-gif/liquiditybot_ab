@@ -924,7 +924,15 @@ def tick() -> None:
         log("pc_supervisor.py changed on disk -> restarting on the new code")
         if _LOCK is not None:
             _LOCK.release()
-        _spawn([PY, str(_SELF)])
+        # own_log=False (h31/h36, verified 2026-09-07). With the default the
+        # successor inherited THIS process's open log handle and wrote to it
+        # through a file pointer that lagged EOF by a constant, so every
+        # successor print overwrote the parent's final appends - including
+        # the atexit exit-forensics line: present at t=1.5s, GONE at t=5.5s,
+        # 2/2 injections. Production log: 0 "process exit (pid" lines across
+        # 23 post-08-16 self-handoffs, 29 torn fragments, 53 exact dups. The
+        # successor keeps its own log via log(); stdout goes to DEVNULL.
+        _spawn([PY, str(_SELF)], own_log=False)
         raise SystemExit(0)
 
     # 7) dashboard auto-import: deploy-changed docs/grafana/*.json reach

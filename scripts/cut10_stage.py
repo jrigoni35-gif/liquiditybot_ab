@@ -144,7 +144,7 @@ def main() -> int:
         print("decision-record commit>, run the DoD, commit, push.")
         return 0
 
-    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     backup = CONFIG.with_name(f"config.json.pre-cut10-{stamp}")
     # RESTORE HAZARD (same as cuts #8/#9): restoring this backup by hand does
     # NOT revert the era - EXEC_ERA is a code constant, and the code half of

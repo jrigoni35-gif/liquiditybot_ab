@@ -129,6 +129,10 @@ def _dup_key(row: dict) -> tuple:
 #: rows yet" - so a replayed fill re-lands in the P&L book and nothing says so.
 #: Report-only; nothing reads it as a decision input.
 dedup_disarmed = 0
+#: Fills appended to a ledger narrower than COLS (fields silently not
+#: persisted). Report-only. Paired with a once-per-file WARNING.
+fields_dropped = 0
+_width_warned: set = set()
 
 
 def _load_keys(path: Path) -> "set | None":
@@ -302,8 +306,33 @@ def append_fill(path: Path, row: dict) -> None:
             try:
                 with open(path, newline="", encoding="utf-8") as hf:
                     hdr = next(csv.reader(hf), None)
-                if hdr and all(c in COLS for c in hdr):
+                if hdr:
+                    # ALWAYS the file's own width (h5, verified 2026-09-07).
+                    # The old guard adopted the header only when it was a
+                    # subset of COLS; a file whose header carried any column
+                    # this build does not know fell through and got an
+                    # 18-column row - RAGGED, measured [18,18,18,17]. A row
+                    # written to the file's header can never be ragged;
+                    # unknown columns get "" and missing ones are DROPPED,
+                    # counted, and warned once per file, because the live
+                    # ledger is at 17 columns and has been silently losing
+                    # `book` on every fill since 39f36e49 (2026-09-05). The
+                    # cure for the loss is scripts/migrate_fills_schema with
+                    # the runner stopped; this only makes it visible.
                     cols = hdr
+                    lost = [c for c in COLS if c not in hdr]
+                    if lost:
+                        global fields_dropped
+                        fields_dropped += 1
+                        if str(path) not in _width_warned:
+                            _width_warned.add(str(path))
+                            log.warning(
+                                "fill ledger %s is at %d columns; %s are NOT "
+                                "persisted on any fill until "
+                                "scripts/migrate_fills_schema runs with the "
+                                "runner stopped (occurrences counted in "
+                                "core.fill_ledger.fields_dropped)",
+                                path, len(hdr), lost)
             except (OSError, StopIteration):
                 pass
         with open(path, "a", newline="", encoding="utf-8") as f:

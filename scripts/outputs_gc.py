@@ -192,7 +192,7 @@ def collect(res: dict, outputs: Path) -> dict:
     Never unlinks. The manifest is the point: after this runs, the bytes are
     reclaimed but the CLAIM that they were redundant remains auditable.
     """
-    arch = outputs / "archive" / ("gc-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    arch = outputs / "archive" / ("gc-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%SZ"))
     moved, freed = [], 0
     arch.mkdir(parents=True, exist_ok=True)
     for it in res["items"]:
@@ -207,7 +207,7 @@ def collect(res: dict, outputs: Path) -> dict:
         moved.append(it["file"])
         freed += it["bytes"]
     manifest = {
-        "generated": dt.datetime.now().isoformat(timespec="seconds"),
+        "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "tool": "scripts/outputs_gc.py",
         "basis": ("refcount 0 = every row key and every column present in "
                   "this artifact is present in the live corpus"),

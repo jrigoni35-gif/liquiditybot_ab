@@ -272,15 +272,23 @@ def main() -> int:
 
     # --- 2. what each fee schedule would cost, holding fills constant.
     # --- Round trip = entry leg + exit leg, so 2x the per-leg rate.
+    # Labels DERIVED from the numbers they describe (h18, 2026-09-07): the
+    # literal "(25/40)", "(40/80)", "(40/40)", "(15/15)" were three struck
+    # schedules deep and read as current. KRAKEN_T1_* is the BOOKED schedule
+    # since cut #10's S8 fix; KRAKEN_T5_* is the venue's published floor.
+    _bm, _bt = _booked_fees()
+    cfg_key = f"configured ({_bm:.0f}/{_bt:.0f})"
     schedules = {
-        "configured (25/40)": None,          # measured, filled below
-        "Kraken T1 maker/taker (40/80)": (KRAKEN_T1_MAKER_BPS
-                                          + KRAKEN_T1_TAKER_BPS) / 100.0,
-        "Kraken T1 maker/maker (40/40)": 2 * KRAKEN_T1_MAKER_BPS / 100.0,
-        "Kraken T5 maker/maker (15/15)": 2 * KRAKEN_T5_MAKER_BPS / 100.0,
+        cfg_key: None,                        # measured, filled below
+        f"tool schedule maker/taker ({KRAKEN_T1_MAKER_BPS:.0f}/{KRAKEN_T1_TAKER_BPS:.0f})":
+            (KRAKEN_T1_MAKER_BPS + KRAKEN_T1_TAKER_BPS) / 100.0,
+        f"tool schedule maker/maker ({KRAKEN_T1_MAKER_BPS:.0f}/{KRAKEN_T1_MAKER_BPS:.0f})":
+            2 * KRAKEN_T1_MAKER_BPS / 100.0,
+        f"venue floor maker/maker ({KRAKEN_T5_MAKER_BPS:.0f}/{KRAKEN_T5_MAKER_BPS:.0f})":
+            2 * KRAKEN_T5_MAKER_BPS / 100.0,
         "zero fees": 0.0,
     }
-    schedules["configured (25/40)"] = mean_c
+    schedules[cfg_key] = mean_c
 
     # --- 3. decompose the mean into its two degrees of freedom. A mean is
     # --- a summary; win rate and payoff ratio are the things a strategy
@@ -346,10 +354,15 @@ def main() -> int:
     else:
         print("   -> post_only IS booking a different rate (%.1f vs %.1f)."
               % (m1, m0))
-    print("   Kraken TIER 1 (this account, spot vol $0): maker %.0f / "
-          "taker %.0f bps  -> configured 25/40 is x%.3f of venue"
-          % (KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS,
-             65.0 / (KRAKEN_T1_MAKER_BPS + KRAKEN_T1_TAKER_BPS)))
+    # ratio DERIVED (h18): it was `65.0 / (T1 maker+taker)` - a struck
+    # 25/40 round trip hard-coded against a schedule that has since moved
+    # twice - and printed x1.182 while the book said 20/35. It is now the
+    # booked round trip over the tool's schedule: 1.000 unless the two drift.
+    _bm2, _bt2 = _booked_fees()
+    print("   tool schedule: maker %.0f / taker %.0f bps  -> configured "
+          "%.0f/%.0f is x%.3f of it"
+          % (KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS, _bm2, _bt2,
+             (_bm2 + _bt2) / (KRAKEN_T1_MAKER_BPS + KRAKEN_T1_TAKER_BPS)))
     print("   NOT venue-reconciled: OM-080 has never fired on this box,")
     print("   so the account's actual ROW is unverified (schedule only).")
     print("   observed rates: %s" % rate_hist.most_common(4))

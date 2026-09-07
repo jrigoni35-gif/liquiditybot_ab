@@ -458,8 +458,8 @@ _HARD_GATES = (
     ("compileall", ["-m", "compileall", "-q", "core", "data", "execution",
                     "ml", "risk", "regime", "strategies", "sentiment", "api",
                     "main.py", "runner.py"]),
-    ("bandit", ["-m", "bandit", "-c", "pyproject.toml", "-q", "-r",
-                "core", "data", "execution", "ml", "risk", "api"]),
+    ("bandit", ["-m", "bandit", "-c", "pyproject.toml", "-q", "-r", ".",
+                "-x", "./.venv,./tests"]),
     ("smoke", ["scripts/smoke_test.py"]),
     # assurance_check contains BOTH code-dependent checks (the taker ladder
     # must stay suppressed in spoofy liquidity) and corpus-dependent ones
@@ -507,6 +507,33 @@ _REPO_TOP_LEVEL = ("core", "data", "execution", "ml", "risk", "api",
                    "strategies", "sentiment", "regime", "scripts", "tests",
                    "main", "runner")
 
+
+
+# rc a shell gives when the COMMAND itself does not exist: POSIX 127,
+# Windows cmd 9009. Anything else is the tool running and failing.
+_CMD_NOT_FOUND_RC = (127, 9009)
+
+
+def _hard_gate_tool_absent(argv: list, rc: int, tail: str) -> bool:
+    """True only if the gate's OWN tool is provably missing.
+
+    For `python -m <tool>` gates that means the interpreter reported
+    `No module named '<tool>'` on its final line, or the shell could not find
+    the command at all (rc 127 / 9009). A script-based gate (smoke_test,
+    assurance_check) runs under the interpreter that is running this file,
+    so its tool cannot be absent - any red is a real red.
+    """
+    if rc in _CMD_NOT_FOUND_RC:
+        return True
+    if "-m" in argv:
+        tool = argv[argv.index("-m") + 1]
+        last = (tail or "").strip().splitlines()[-1:] or [""]
+        # quotes optional: CPython prints `No module named 'ruff'`; an older
+        # fixture in tests/test_dod_gates.py says `No module named ruff`. Both
+        # are the interpreter naming the gate's own tool as absent.
+        return bool(re.search(rf"No module named ['\"]?{re.escape(tool)}\b",
+                              last[0]))
+    return False
 
 def _classify_missing_tool(blob: str) -> bool:
     """True only for a genuinely ABSENT EXTERNAL tool.
@@ -569,7 +596,14 @@ def _dod_gates(worktree: Path, py: str) -> bool:
     for name, argv in _HARD_GATES:
         rc, tail, missing = _run_gate(worktree, py, argv, env,
                                       _HARD_GATE_WALL_SEC)
-        if missing:
+        # A HARD gate is skipped ONLY when its own tool is provably absent -
+        # never on a needle in a red run's last line. Verified 2026-09-07
+        # (h41 residual): a red gate whose final line said "cannot find" (a
+        # library FileNotFoundError, a pytest-style summary) was classified
+        # TOOL UNAVAILABLE by the substring rule and `continue`d - the deploy
+        # was ADMITTED on a red HARD gate. The classifier is right for the
+        # advisory gates; a hard gate needs proof the tool is missing.
+        if missing and _hard_gate_tool_absent(argv, rc, tail):
             log(f"DoD {name}: TOOL UNAVAILABLE ({tail}) - advisory, not "
                 f"blocking (a missing tool is not a finding)")
             continue
