@@ -1,26 +1,26 @@
 {
-  "generated_at": 1788774188.9629378,
+  "generated_at": 1788777790.8435786,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1788774178.0,
-    "duration_h": 1417.82
+    "end": 1788777785.0,
+    "duration_h": 1418.82
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 7651,
-      "signal_records": 452,
+      "records": 7648,
+      "signal_records": 449,
       "by_src": {
         "exploration": 7199,
-        "long_book": 223,
-        "ml_governor": 153,
-        "conviction": 36,
+        "long_book": 221,
+        "ml_governor": 152,
+        "conviction": 34,
         "order_manager": 29,
         "exit": 7,
+        "startup": 2,
+        "fault": 2,
         "circuit_breaker": 1,
-        "startup": 1,
-        "fault": 1,
         "engine": 1
       },
       "top_codes": [
@@ -34,7 +34,7 @@
         ],
         [
           "LB-010",
-          119
+          117
         ],
         [
           "LB-050",
@@ -42,11 +42,11 @@
         ],
         [
           "ML-031",
-          39
+          38
         ],
         [
           "CV-030",
-          36
+          34
         ],
         [
           "ML-016",
@@ -70,19 +70,19 @@
         ],
         [
           "ML-032",
-          11
+          10
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.263,
-      "retrain_requests": 11,
+      "dominant_frac": 0.261,
+      "retrain_requests": 10,
       "kill_switch_events": 2
     },
     "events": {
-      "records": 6925,
+      "records": 7852,
       "by_level": {
-        "INFO": 6901,
-        "WARNING": 23,
+        "INFO": 7815,
+        "WARNING": 36,
         "CRITICAL": 1
       },
       "top_warnings": [
@@ -128,24 +128,24 @@
         ]
       ],
       "liquidity_tally": {
-        "spoofy": 1867,
-        "thin": 847
+        "spoofy": 1996,
+        "thin": 999
       },
-      "spoofy_frac": 0.688,
+      "spoofy_frac": 0.666,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 867,
+      "cycles_estimate": 978,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 791.51,
+    "equity_end": 791.66,
     "equity_min": 790.13,
     "equity_max": 806.91,
     "equity_range": 16.78,
     "capital_epochs": 5,
-    "epoch_samples": 146211,
+    "epoch_samples": 146437,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 790.13,
     "lifetime_equity_max": 100000.03,
@@ -153,24 +153,24 @@
     "realized_pnl_total": -1.2,
     "fees_paid_total": 14.6318,
     "open_positions": 5,
-    "samples": 314002
+    "samples": 314228
   },
   "activity": {
-    "signal_rows_total": 26549,
+    "signal_rows_total": 26587,
     "live_labeled_trades": 414,
-    "candidate_rows": 26135
+    "candidate_rows": 26173
   },
   "audit": {
-    "records": 85393,
-    "signal_records": 32640,
+    "records": 85399,
+    "signal_records": 32646,
     "by_src": {
       "exploration": 75713,
       "long_book": 3035,
-      "ml_governor": 2674,
+      "ml_governor": 2678,
       "order_manager": 1852,
       "conviction": 800,
-      "startup": 373,
-      "fault": 354,
+      "startup": 374,
+      "fault": 355,
       "exit": 318,
       "firewall": 150,
       "engine": 64,
@@ -216,15 +216,15 @@
       ],
       [
         "ML-016",
-        471
+        472
       ],
       [
         "ML-041",
-        453
+        454
       ],
       [
         "ML-042",
-        406
+        407
       ]
     ],
     "dominant_code": "SZ-047",
@@ -332,10 +332,10 @@
     ]
   },
   "events": {
-    "records": 6925,
+    "records": 7852,
     "by_level": {
-      "INFO": 6901,
-      "WARNING": 23,
+      "INFO": 7815,
+      "WARNING": 36,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -381,19 +381,19 @@
       ]
     ],
     "liquidity_tally": {
-      "spoofy": 1867,
-      "thin": 847
+      "spoofy": 1996,
+      "thin": 999
     },
-    "spoofy_frac": 0.688,
+    "spoofy_frac": 0.666,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 867,
+    "cycles_estimate": 978,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.24454307791367358,
+    "champion_brier": 0.24454070374797798,
     "brier": "n/a",
     "history_rows": 414,
     "cold": false
@@ -417,7 +417,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 16209,
+      "triple_barrier_h432": 16247,
       "triple_barrier": 5328,
       "exit_sim": 2772,
       "legacy": 1781,
@@ -426,20 +426,19 @@
     "fills_rows": 1254,
     "fills_torn_rows": 0,
     "fills_per_era": {
-      "prestamp": 1024,
+      "prestamp": 1030,
       "7-e7d5ca1a": 133,
       "9-16ec821e": 68,
       "8-ca55e2ba": 10,
       "10-a5acfe2d": 9,
-      "absent(stale-binary)": 6,
       "4-aeeaae36": 4
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 26549,
+    "corpus_rows": 26587,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-07T09:00:00Z",
-    "corpus_span_days": 55.85,
+    "corpus_last_ts": "2026-09-07T09:55:00Z",
+    "corpus_span_days": 55.89,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -462,13 +461,13 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "7 exec_era keys on fills.exec_era: {'prestamp': 1024, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, 'absent(stale-binary)': 6, '4-aeeaae36': 4}; current era 10-a5acfe2d. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "6 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '4-aeeaae36': 4}; current era 10-a5acfe2d. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-003",
       "severity": "warn",
       "title": "liquidity vetoed feed-wide",
-      "detail": "liquidity classified 'spoofy' on 69% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
+      "detail": "liquidity classified 'spoofy' on 67% of NON-LIQUID cycles (last 48h; liquid cycles are unlogged, so this is a share of degraded cycles, not of all cycles - cross-check status regimes for absolute prevalence). Spoofy suppresses sizing/taker on the affected asset. On a near-zero-spread feed this is likely a classifier miscalibration, not real spoofing  -  inspect the book source"
     },
     {
       "id": "SD-010",
