@@ -106,9 +106,17 @@ class Position:
 
 
 def fee_tier(pair_info: dict, volume_30d: float) -> tuple[float, float]:
-    """(maker, taker) percent for `volume_30d`, straight off AssetPairs."""
+    """(maker, taker) percent for `volume_30d`, straight off AssetPairs.
+
+    Returns (nan, nan) when the venue publishes an empty schedule (Kraken
+    started returning `fees: []` for FLOWUSD on 2026-09-08). NaN, not a
+    guessed number: a fee the venue did not state is unknown, and the
+    caller prints it as such.
+    """
 
     def pick(rows: list[list[float]]) -> float:
+        if not rows:
+            return math.nan
         hit = rows[0][1]
         for floor, fee in rows:
             if volume_30d >= floor:
@@ -168,7 +176,11 @@ def main() -> int:
         f"   [1 tick = {tick_sz / mid * 1e4:.1f} bps — this is the spread floor]"
     )
     print(f"  24h volume ${vol24:,.0f} on {int(tick['t'][1])} trades")
-    print(f"  fees at ${args.volume_30d:,.0f}/30d: maker {maker}% / taker {taker}%")
+    if math.isnan(maker) or math.isnan(taker):
+        print(f"  fees at ${args.volume_30d:,.0f}/30d: NOT PUBLISHED by AssetPairs"
+              " (empty schedule) — read the account's fee tier from the app")
+    else:
+        print(f"  fees at ${args.volume_30d:,.0f}/30d: maker {maker}% / taker {taker}%")
     print(f"  margin_call {call_lvl:.0%}  margin_stop {stop_lvl:.0%}"
           f"  max leverage {max(info['leverage_buy'])}x")
 

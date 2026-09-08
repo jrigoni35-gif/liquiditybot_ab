@@ -149,3 +149,12 @@ def test_ratio_and_getRatioFor_are_different_selectors():
 def test_decode_string_survives_short_and_empty_words():
     assert decode_string(None) == "?"
     assert decode_string("0x") == "?"
+
+
+def test_fee_tier_empty_schedule_is_nan_not_a_guess():
+    """Kraken returned `fees: []` for FLOWUSD on 2026-09-08 and the monitor
+    crashed. An unpublished fee is unknown, never a fallback number."""
+    import math
+
+    maker, taker = fee_tier({"fees": [], "fees_maker": []}, 17482.0)
+    assert math.isnan(maker) and math.isnan(taker)
