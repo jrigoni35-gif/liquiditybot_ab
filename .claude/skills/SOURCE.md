@@ -14,3 +14,10 @@ project scope, vendored unmodified with LICENSE.md and PROVENANCE.md.
 Read-only analysis methodology (trade classification, buy/sell pressure,
 wash-trading screen). Scripts optionally need `httpx` (not a repo dependency;
 `--demo` mode works without network). No hooks, no settings changes.
+
+---
+
+Skill: flow-position-analysis (repo-native, 2026-09-08). Wrapper that runs
+the market-microstructure METHOD on Kraken + Flow through the repo's own
+read-only instruments: monitor/pass2.py, monitor/tape.py, monitor/book.py,
+monitor/chain_check.py, monitor/flow_transfers.py. No hooks, no settings.
