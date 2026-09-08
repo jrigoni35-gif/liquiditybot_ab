@@ -47,20 +47,21 @@ log = logging.getLogger("liquiditybot.core.config_guard")
 # leg. Was 25/40 through cut #8; corrected to venue truth 2026-08-29
 # (measured stale-floor finding, injection-confirmed). Strict `<` keeps the
 # live 40/80 config passing exactly at the floor.
-# CORRECTED 2026-09-05 — the 40/80 above was NOT venue truth.
+# CORRECTED 2026-09-05, AND THAT CORRECTION WAS ITSELF WRONG (2026-09-08).
 #
-# Read live from https://api.kraken.com/0/public/AssetPairs (identical across
-# FLOW/ETH/XBT/SOL/LINK-USD, so it is an account-wide spot schedule): the rows
-# are 25/40, 20/35, 14/24, 12/22, ... down to 0/5. **40/80 is not a row, and
-# neither is 22/38.** The comment above calls 25/40 "the retired public bottom
-# tier"; it is not retired - it is the CURRENT zero-volume row.
-#
-# So the 2026-08-29 "stale-floor correction" moved this constant from the
-# venue's real bottom row to a figure the venue has never published, on the
-# same false premise that produced cut #8's fee booking. The floor is now
-# DERIVED from core/venue_fees, which is diffed against the live endpoint by
-# scripts/fee_drift_report.py - a constant that cannot confirm itself is how
-# this went wrong twice.
+# On 09-05 this block declared, from a read of /0/public/AssetPairs, that the
+# rows were 25/40, 20/35, 14/24 ... and that "40/80 is not a row, and neither
+# is 22/38". That endpoint was still serving Kraken's LEGACY ladder (by 09-08
+# it serves no fee arrays at all); the venue's fee page and the operator's
+# 2026-08-29 app screenshot both carry the CURRENT ladder: Tier 1 40/80 at
+# $0, Tier 2 30/60 at $2.5K, Tier 3 22/38 at $10K, Tier 4 20/35 at $25K ...
+# 0/5 at $500M, granted by the best of 30-day volume OR assets on platform.
+# So 40/80 IS the zero-volume row after all (cut #8 had the row, not the
+# account); 22/38 IS Tier 3 (cut #9 was right); and cut #10's E1 "correction"
+# to 20/35 booked Tier 4, which needs $25,000 of volume or $50k on platform.
+# The floor is DERIVED from core/venue_fees, which is diffed against the live
+# PAGE by scripts/fee_drift_report.py - a constant that cannot confirm
+# itself, read from the wrong source, is how this went wrong THREE times.
 #
 # The floor's meaning is unchanged: no spot account pays LESS than the
 # zero-volume row unless it has earned a volume discount, which is exactly
@@ -696,22 +697,25 @@ def validate(config: dict) -> list:
         warn("taker fee below maker fee - unusual; double-check the tier")
     # IS THE BOOKED PAIR A TIER THE VENUE ACTUALLY PUBLISHES?
     #
-    # This is the check that would have caught both historical fee errors,
-    # and neither the floor above nor the reconciliation below can: cut #8's
-    # 40/80 and cut #9's 22/38 are BOTH absent from Kraken's schedule
-    # entirely. A maker/taker pair matching no row did not come from the
-    # schedule - it came from a screenshot, an average, or a memory of an
-    # older tier - and that provenance is the defect, independent of whether
-    # the number happens to be conservative.
+    # A maker/taker pair matching no row did not come from the schedule - it
+    # came from a screenshot, an average, or a memory of an older tier - and
+    # that provenance is the defect, independent of whether the number
+    # happens to be conservative. (2026-09-08: this check is only as good as
+    # the table behind it. With the legacy-ladder table it passed cut #10's
+    # 20/35 and rejected cut #9's 22/38 - the reverse of the truth. It cannot
+    # tell WHICH published row the account qualifies for; only a 30-day
+    # volume / AoP reading can, and that is scripts/fee_drift_report.py's job.)
     #
     # WARN, not FATAL, deliberately: correcting the booked value is fee
     # policy, which is cohort-resetting and belongs to an operator
     # adjudication. A guard must not quietly force a boundary cut. Promoting
     # this to FATAL should ride that adjudication.
+    from core.venue_fees import KRAKEN_SPOT_SCHEDULE as _rows
     from core.venue_fees import is_a_published_row as _is_row
     if not _is_row(pt_maker, pt_taker):
+        head = ", ".join(f"{m:g}/{t:g}" for _v, m, t in _rows[:4])
         warn(f"configured fees {pt_maker:g}/{pt_taker:g} bps are not a "
-             f"published Kraken tier (rows: 25/40, 20/35, 14/24, 12/22, ...). "
+             f"published Kraken tier (rows: {head}, ...). "
              f"A pair that matches no row did not come from the venue's "
              f"schedule. Run scripts/fee_drift_report.py; correcting the "
              f"booked value is an operator adjudication (cohort-resetting).")

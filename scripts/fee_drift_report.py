@@ -1,14 +1,24 @@
 """Does what we BOOK agree with what the venue CHARGES? Report-only.
 
-THE RECURRENCE THIS CLOSES. The booked fee has been wrong three times in three
-weeks, and each correction was itself a struck literal that set up the next
-error:
+THE RECURRENCE THIS CLOSES - AND COMMITTED ONCE ITSELF. The booked fee has
+been wrong four times in four weeks, and each correction was itself a struck
+literal that set up the next error:
 
-    original   25/40 bps   understated vs the venue
-    cut #8     40/80 bps   assumed a zero-volume account; ~2x over-stated
-    cut #9     22/38 bps   from an account screenshot - and not a published
-                           row at all (the venue's rows are 25/40, 20/35,
-                           14/24, 12/22; 22/38 matches none of them)
+    original   25/40 bps   the legacy API ladder's bottom row
+    cut #8     40/80 bps   assumed a zero-volume account (~2x the real tier;
+                           it IS Tier 1 of the current ladder)
+    cut #9     22/38 bps   from the operator's app screenshot - and RIGHT:
+                           Tier 3 of the current ladder
+    cut #10    20/35 bps   booked on THIS script's 2026-09-06 verdict that
+                           22/38 "is not a published row" and 20/35 binds at
+                           $17,482 - both false: the reference table had been
+                           read from a JSON endpoint still serving the LEGACY
+                           ladder (it serves none by 2026-09-08). 20/35 is
+                           Tier 4 (>= $25,000 30-day OR >= $50k assets on
+                           platform). See core/venue_fees.py.
+
+The live authority is now the venue's fee PAGE (fetch_page_schedule); the
+JSON endpoint is a second route that must agree or be reported as DIFFERS.
 
 Nobody was careless. The defect is structural: a fee lived in the source as a
 constant with no relationship to the venue that charges it, so nothing could
@@ -40,7 +50,7 @@ sys.path.insert(0, str(ROOT))
 
 from core.venue_fees import (  # noqa: E402
     KRAKEN_SPOT_SCHEDULE, SCHEDULE_READ_UTC, binding_row,
-    fetch_live_schedule, is_a_published_row)
+    fetch_live_schedule, fetch_page_schedule, is_a_published_row)
 
 
 def _cfg() -> dict:
@@ -118,9 +128,26 @@ def main() -> int:
         print("\n  live venue        : SKIPPED (--offline)")
         live = None
     else:
-        live = fetch_live_schedule(args.pair)
+        # Two routes. The PAGE is what the venue keeps current (the authority);
+        # the JSON endpoint served the LEGACY ladder until at least 2026-09-05
+        # and no arrays by 2026-09-08. Either agreeing with the table is
+        # evidence; the two disagreeing with EACH OTHER is drift too.
+        live = fetch_page_schedule()
+        src = "fee page"
+        api = fetch_live_schedule(args.pair)
+        if api is not None:
+            print(f"\n  JSON endpoint     : serves fee arrays again for {args.pair} "
+                  f"({'AGREES' if tuple(api) == tuple(KRAKEN_SPOT_SCHEDULE) else 'DIFFERS'} "
+                  f"with the reference table)")
+            if tuple(api) != tuple(KRAKEN_SPOT_SCHEDULE):
+                drift.append("the JSON endpoint's fee arrays differ from the "
+                             "page-derived reference table - resolve which "
+                             "source the venue keeps current before booking.")
+        else:
+            print("\n  JSON endpoint     : no fee arrays (as measured 2026-09-08) "
+                  "- not an authority; the page is")
         if live is None:
-            print("\n  live venue        : UNREACHABLE")
+            print(f"\n  live venue        : UNREACHABLE ({src})")
             print("    Not a clean result. The reference table above is what "
                   "the venue published when last read; it cannot confirm "
                   "itself, so this run establishes nothing about drift "
@@ -128,7 +155,7 @@ def main() -> int:
         else:
             same = tuple(live) == tuple(KRAKEN_SPOT_SCHEDULE)
             print(f"\n  live venue        : {'AGREES' if same else 'DIFFERS'} "
-                  f"with the reference table ({args.pair})")
+                  f"with the reference table ({src})")
             if not same:
                 print("    live rows:")
                 for vol, m, t in live:

@@ -94,7 +94,8 @@ def test_cut9_unwound_boundary5s_runner_exit_shift_on_the_old_path():
     out = simulate_exit_policy(c, h, ll, 0, +1, 0.0, _flat_policy(),
                                max_bars=96, cost_pct=0.5)
     # which cost world this ran in: cut #9 shipped 38; cut #10 (2026-09-06,
-    # E1: 22/38 was not a published row, binding is 20/35) moved it to 35.
+    # E1, on a legacy-ladder premise corrected 2026-09-08: 22/38 IS Tier 3,
+    # 20/35 is Tier 4) moved it to 35.
     # The outcome below is computed at the explicit cost_pct=0.5 passed above
     # and does not read this key - the pin is a world-stamp, not an input.
     assert _CFG["profit_taking"]["est_fee_bps"] == 35    # the cut, as shipped

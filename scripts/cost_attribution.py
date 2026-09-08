@@ -113,10 +113,11 @@ _OPEN_PURPOSES = ("entry", "hedge")
 # NOT independently reconciled: OM-080 (execution/order_manager.py:767)
 # has never fired on this box, so no venue measurement of the ACCOUNT's
 # actual row exists. These constants settle the SCHEDULE, never the ROW.
-# 40/80 IS NOT A PUBLISHED KRAKEN ROW and is ~2x the booked 22/38 (cut #9).
-# The live schedule (core/venue_fees.py, read from api.kraken.com) runs
-# 25/40, 20/35, 14/24, 12/22 … 0/5 — 40/80 appears nowhere in it at any
-# volume. Derived from the booked config for the same reason as
+# 40/80 IS Tier 1 of the venue's current ladder (fee page 2026-09-08: 40/80,
+# 30/60, 22/38, 20/35 … 0/5 — the 09-05 note here that it "appears nowhere"
+# came from a legacy-ladder read of the JSON endpoint, see core/venue_fees.py)
+# but ~2x the account's real Tier 3 (22/38, app screenshot 2026-08-29).
+# Derived from the booked config for the same reason as
 # scripts/fee_anatomy_report.py; fallback is the venue's WORST published row,
 # because over-stating cost with a REAL row is the conservative failure and a
 # fictional row is not conservative, it is just wrong.

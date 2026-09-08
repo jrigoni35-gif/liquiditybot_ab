@@ -32,11 +32,13 @@ def test_benchmarks_against_the_BOOKED_schedule_not_a_struck_or_invented_one():
 
     Its intent is right: a struck schedule (16/26, dropped 2026-08-07) keeps
     being reintroduced from secondary fee blogs. But it asserted 40/80 as "the
-    verified tier", and 40/80 is **not a row Kraken publishes at any volume** -
-    the live schedule read from api.kraken.com runs 25/40, 20/35, 14/24, 12/22
-    ... 0/5. So the pin against a struck schedule was itself pinning an
-    INVENTED one, ~2x the booked 22/38. Third instance of that shape this
-    session (see core/venue_fees.py's register).
+    verified tier" for THIS account, whose 2026-08-29 tier was 3 (22/38) -
+    ~2x the real tier. (Corrected 2026-09-08: 40/80 IS a published row - Tier
+    1, the zero-volume row of the venue's current ladder - the 09-06 claim
+    that it was not came from a legacy-ladder read of the JSON endpoint; see
+    core/venue_fees.py's register. The assertion below is about the BOOKED
+    value, which must not regress to the zero-volume row while the account
+    holds a discount tier.)
 
     The durable property is not a literal: the tool must benchmark against
     whatever the bot has BOOKED, so it can never drift from the book again."""

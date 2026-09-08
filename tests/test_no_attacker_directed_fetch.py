@@ -141,20 +141,37 @@ def test_venue_fee_source_is_a_constant_not_a_field():
     shape this file exists to forbid."""
     src = (ROOT / "core" / "venue_fees.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "fetch_live_schedule")
-    urlopen_args = [
-        c.args[0] for c in ast.walk(fn)
-        if isinstance(c, ast.Call) and c.args
-        and ((isinstance(c.func, ast.Attribute) and c.func.attr == "urlopen")
-             or (isinstance(c.func, ast.Name) and c.func.id == "urlopen"))
-    ]
-    assert urlopen_args, "no urlopen call found - has the fetch been renamed?"
-    for arg in urlopen_args:
-        assert isinstance(arg, ast.Name) and arg.id == "SCHEDULE_SOURCE", (
-            "the fee-schedule endpoint is not the module constant "
-            "SCHEDULE_SOURCE. If it ever becomes a value read from a payload, "
-            "the schedule would be confirming itself.")
+    # Both fetchers: the JSON endpoint and, since 2026-09-08, the fee PAGE
+    # (the venue stopped serving fee arrays over JSON). Each must open ONLY
+    # its own module constant.
+    expected = {"fetch_live_schedule": "SCHEDULE_SOURCE",
+                "fetch_page_schedule": "SCHEDULE_PAGE"}
+    seen = set()
+    for fn in ast.walk(tree):
+        if not (isinstance(fn, ast.FunctionDef) and fn.name in expected):
+            continue
+        seen.add(fn.name)
+        urlopen_args = [
+            c.args[0] for c in ast.walk(fn)
+            if isinstance(c, ast.Call) and c.args
+            and ((isinstance(c.func, ast.Attribute) and c.func.attr == "urlopen")
+                 or (isinstance(c.func, ast.Name) and c.func.id == "urlopen"))
+        ]
+        assert urlopen_args, f"no urlopen call in {fn.name} - has the fetch been renamed?"
+        for arg in urlopen_args:
+            # Either urlopen(CONST, ...) or urlopen(Request(CONST, headers=...), ...):
+            # the page fetcher needs a User-Agent (the venue 403s the default),
+            # so the constant may sit one call deeper - but it must be the
+            # FIRST argument of that Request, never a computed value.
+            if isinstance(arg, ast.Call) and arg.args and (
+                    (isinstance(arg.func, ast.Attribute) and arg.func.attr == "Request")
+                    or (isinstance(arg.func, ast.Name) and arg.func.id == "Request")):
+                arg = arg.args[0]
+            assert isinstance(arg, ast.Name) and arg.id == expected[fn.name], (
+                f"{fn.name} opens something other than the module constant "
+                f"{expected[fn.name]}. If it ever becomes a value read from a "
+                f"payload, the schedule would be confirming itself.")
+    assert seen == set(expected), f"fetchers missing from venue_fees: {set(expected) - seen}"
 
 
 def test_location_field_set_is_not_empty():

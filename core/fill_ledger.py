@@ -90,8 +90,13 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # 2026-09-06 under operator approval. Stamp names the decision-record commit
 # (docs/quant/2026-09-06_cut10_boundary_adjudication.md), the same shape as
 # cut #9 (16ec821e record -> 59bdcf87 code). What changed on the fill axis:
-# fee BOOKING 22/38 -> 20/35 (E1: 22/38 was not a published row; 20/35 is the
-# binding row at the measured $17,482/30d volume), est_fee_bps 38 -> 35,
+# fee BOOKING 22/38 -> 20/35 (E1's premise, as adjudicated then: "22/38 was
+# not a published row; 20/35 binds at $17,482/30d". CORRECTED 2026-09-08:
+# both false - 22/38 IS Tier 3 and 20/35 is Tier 4 (>= $25,000 or >= $50k
+# assets on platform); the reference table E1 trusted was the venue's LEGACY
+# ladder. The era-7/8 booking is therefore 5 bps/round-trip UNDER the row
+# the 08-29 volume supports; re-booking is cohort-resetting and docketed,
+# see docs/quant/2026-09-08_fee_ladder_correction.md), est_fee_bps 38 -> 35,
 # label round-trip cost 0.60% -> 0.55%, plus six confirmed defects on the
 # entry/sizing/exit/order-lifecycle path (B1-B6). Every fill booked after this
 # stamp is on a different cost manifold AND a different decision path than

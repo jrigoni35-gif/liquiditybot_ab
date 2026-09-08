@@ -47,26 +47,30 @@ ROOT = Path(__file__).resolve().parents[1]
 # structurally taker and must not be pooled into the entry-maker rate).
 _OPEN_PURPOSES = ("entry", "hedge")
 
-# THE "VENUE-TRUE" DEFAULT WAS NEITHER VENUE-TRUE NOR CURRENT.
-# 40/80 is not a row Kraken publishes at ANY volume (the live schedule read
-# from api.kraken.com/0/public/AssetPairs runs 25/40, 20/35, 14/24, 12/22 …
-# 0/5 — see core/venue_fees.py), and it is ~2x the schedule this bot has
-# actually booked since cut #9 (22/38). Every figure this tool called
-# "VENUE-TRUE" was inflated accordingly: median 120.85 -> 60.41 bps, aggregate
-# $775.84 -> $371.38, maker prize $202.71 -> $76.02.
+# THE "VENUE-TRUE" DEFAULT WAS THE WRONG ROW FOR THIS ACCOUNT.
+# 40/80 IS a row Kraken publishes - Tier 1, the zero-volume row of the
+# current ladder (fee page 2026-09-08; the 09-05 claim here that it "is not a
+# row at any volume" came from a legacy-ladder read of the JSON endpoint, see
+# core/venue_fees.py) - but the account sat at Tier 3 (22/38) on 2026-08-29,
+# so every figure this tool called "VENUE-TRUE" was ~2x inflated: median
+# 120.85 -> 60.41 bps, aggregate $775.84 -> $371.38, maker prize $202.71 ->
+# $76.02.
 #
 # Read the BOOKED schedule instead of a module literal, so the report cannot
 # drift from the book again. --maker-bps/--taker-bps still override, and the
-# fallback is the venue's WORST published row (25/40) rather than a number
-# that appears nowhere in the schedule: if config is unreadable, over-stating
-# cost with a REAL row is the conservative failure.
+# fallback is the venue's WORST published row, READ FROM core.venue_fees
+# (the 09-05 version hardcoded 25/40 here - the legacy bottom row - which is
+# the exact struck-literal shape the schedule module exists to end): if
+# config is unreadable, over-stating cost with a REAL row is the conservative
+# failure.
 def _booked_fees() -> tuple:
     try:
         _pt = json.loads((Path(__file__).resolve().parents[1] / "config.json")
                          .read_text(encoding="utf-8")).get("pretrade", {})
         return (float(_pt["maker_fee_bps"]), float(_pt["taker_fee_bps"]))
     except (OSError, ValueError, KeyError, TypeError):
-        return (25.0, 40.0)          # venue's worst PUBLISHED row
+        from core.venue_fees import worst_row
+        return worst_row()           # venue's worst PUBLISHED row, derived
 
 
 KRAKEN_T1_MAKER_BPS, KRAKEN_T1_TAKER_BPS = _booked_fees()

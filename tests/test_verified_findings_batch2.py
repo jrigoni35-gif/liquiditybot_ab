@@ -145,9 +145,20 @@ def test_the_cost_tool_fallback_is_a_PUBLISHED_row():
     """If config is unreadable the fallback must be a row that EXISTS. Over-
     stating cost with a real row is conservative; a fictional row is not
     conservative, it is just wrong."""
-    from core.venue_fees import is_a_published_row
+    from core.venue_fees import is_a_published_row, worst_row
+    import scripts.fee_anatomy_report as far
     from scripts.fee_anatomy_report import _booked_fees
-    assert is_a_published_row(25.0, 40.0), "fallback row is not on the schedule"
+    # UNREADABLE CONFIG -> the fallback. (The 09-06 version of this pin
+    # asserted a literal 25/40 - the legacy ladder's bottom row - which the
+    # 2026-09-08 schedule correction rightly reddened: pin the PROPERTY.)
+    _orig = far.json.loads
+    far.json.loads = lambda *_a, **_k: (_ for _ in ()).throw(ValueError("planted"))
+    try:
+        fb = _booked_fees()
+    finally:
+        far.json.loads = _orig
+    assert is_a_published_row(*fb), f"fallback row {fb} is not on the schedule"
+    assert fb == worst_row(), "fallback must be the venue's worst row, derived"
     # DERIVED, not a literal - this pin hardcoded (22.0, 38.0) in the very
     # batch whose lesson was "derive, don't hardcode", and cut #10's fee
     # correction to 20/35 reddened it the next day. The property is that the

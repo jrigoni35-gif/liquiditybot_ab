@@ -23,14 +23,22 @@ that belong to it, plus the fee-booking correction E1 surfaced the same day.
       "config books 22/38, which is NOT a row in the venue's schedule ...
       binding tier is 20/35 - OVER-stating the round trip by 5 bps (9.1%)".
       22/38 was cut #9's reading of a screenshot; 20/35 is the published row
-      the account actually binds to. Cascade, same shape as cut #9:
+      the account actually binds to. [CORRECTED 2026-09-08, after this stage
+      ran: the drift report's reference table was the venue's LEGACY ladder,
+      read from a JSON endpoint that now serves no fee arrays. On the venue's
+      current ladder 22/38 IS Tier 3 (the screenshot was right) and 20/35 is
+      Tier 4 (>= $25,000 30-day OR >= $50k assets on platform). This stage
+      therefore booked a row the 08-29 volume did not qualify for; the
+      re-booking is cohort-resetting and docketed. History kept verbatim
+      above.] Cascade, same shape as cut #9:
         pretrade / order_manager maker,taker   22/38 -> 20/35
         profit_taking.est_fee_bps (taker)       38 -> 35
         ml.label_round_trip_cost_pct            0.60 -> 0.55  (= (20+35)/100)
       Derived entry bar (risk/position_sizer p_bar_mode=derived, same helper
       cut #9 used): 0.6772 -> 0.6642. allow_sub_floor_fees STAYS true (20/35
-      is below the 25/40 zero-volume tripwire, and it is a genuine published
-      discount row - which is what that flag exists for).
+      is below the zero-volume tripwire - 25/40 on the legacy table this
+      stage read, 40/80 on the venue's current ladder - and it is a genuine
+      published discount row, which is what that flag exists for).
 
 COHORT-RESETTING. Applying this and the code half mints exec_era 10-<sha> and
 era-7 accrual restarts from zero at the runner restart. Era-6 rows stay
