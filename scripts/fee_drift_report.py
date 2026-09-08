@@ -65,6 +65,11 @@ def main() -> int:
     ap.add_argument("--volume-30d", type=float, default=None,
                     help="30-day USD volume; without it the binding tier "
                          "CANNOT be resolved and is reported UNKNOWN")
+    ap.add_argument("--aop-usd", type=float, default=None,
+                    help="assets on platform (USD); the venue grants the "
+                         "better of the volume tier and the AoP tier. "
+                         "Optional: without it the volume tier is a LOWER "
+                         "BOUND on the discount")
     ap.add_argument("--pair", default="ETH/USD")
     args = ap.parse_args()
 
@@ -105,13 +110,15 @@ def main() -> int:
               "volume is a PRIVATE TradeVolume read (FEE-3 on the docket); "
               "until that is armed, pass the figure explicitly to compare.")
     else:
-        row = binding_row(args.volume_30d)
+        row = binding_row(args.volume_30d, aop_usd=args.aop_usd)
         if row is None:
             print(f"\n  binding tier      : UNKNOWN (bad volume "
                   f"{args.volume_30d!r})")
         else:
             m, t = row
-            print(f"\n  binding tier at ${args.volume_30d:,.0f}/30d"
+            aop = (f" + AoP ${args.aop_usd:,.0f}" if args.aop_usd is not None
+                   else " (AoP unknown: a LOWER BOUND on the discount)")
+            print(f"\n  binding tier at ${args.volume_30d:,.0f}/30d{aop}"
                   f"   : maker {m:g} / taker {t:g} bps"
                   f"   (round trip {m + t:g} bps)")
             if abs(m - booked_m) > 1e-9 or abs(t - booked_t) > 1e-9:

@@ -61,10 +61,22 @@ Tier 3. If the real 30-day volume has decayed below $10k with < $20k AoP
 no credentials resolve on this box), the row is **Tier 2 30/60** and the
 booking under-states the round trip by **35 bps (64%)**.
 
-**Effect on the era-8 readout** ("net $/trip at booked fees"): optimistic by
-≥ 5 bps per round trip (≈ $0.03 on a $60 ticket) at Tier 3; by 35 bps
-(≈ $0.21, most of the −$0.33 H0 expectation) at Tier 2. Read the n=50 lean
-with this bias named; re-booking waits for the boundary.
+**Effect on the era-8 readout** ("net $/trip at booked fees") — as written
+from the 08-29 volume: optimistic by ≥ 5 bps per round trip at Tier 3, by
+35 bps at Tier 2.
+
+**SUPERSEDED THE SAME SESSION BY THE OPERATOR'S READING (app, 2026-09-08
+17:51 device time; vault `raw/quant/2026-09-08_kraken_fee_tier_reading.md`
++ screenshot):** **Tier 5**, 30-day spot volume **$69,652.65**, AoP
+**$822.24**. `binding_row(69652.65, aop_usd=822.24)` → **15/30**; the app's
+"30,348.35 more volume / 199,178.76 more AoP to the next tier" reproduce
+from the table to the cent (third route on the ladder, and the AoP column
+confirmed). Corrected drift report: *config books 20/35 but the binding
+tier is 15/30 — **OVER-stating the round trip by 10 bps (22.2%)**.* The
+account's real volume quadrupled since 08-29 — the tier is ROLLING and
+driven by the operator's own trading — so the booked 20/35 now over-charges
+the sim by $0.06 per $60 round trip: the era-8 readout is **conservative**,
+not optimistic. Direction corrected on HANDOFF the same session.
 
 ## 4. Changes (SAFE) — file map
 
@@ -95,9 +107,11 @@ names the row; the boundary books it with the same cascade cut #10 used
 moves: era-8 accrues at 20/35 with the bias in §3 named on every readout.
 
 ## 6. What this check could not see
-Whether the account's AoP crosses $20k/$50k; whether the real 30-day volume
-is above $10k today; whether Kraken applies the "Spot Maker Rebate" table to
-any pair this bot trades (page: "a select number of low-liquidity pairs" —
-not the majors, [I]). The page parser is pinned on a planted page and on the
+~~Whether the account's AoP crosses $20k/$50k; whether the real 30-day volume
+is above $10k today~~ — **seen 2026-09-08 (operator's app): AoP $822.24,
+volume $69,652.65, Tier 5.** Still unseen: whether Kraken applies the "Spot
+Maker Rebate" table to any pair this bot trades (page: "a select number of
+low-liquidity pairs" — not the majors, [I]); the UTC time of the reading
+(the screenshot shows device time 17:51). The page parser is pinned on a planted page and on the
 live page as of 09-08; a redesign of the page reads as UNREACHABLE (skip),
 never as agreement.

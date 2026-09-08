@@ -223,6 +223,28 @@ def test_the_not_a_row_warning_names_the_current_ladder_not_a_literal():
     assert "25/40" not in warns[0] and "14/24" not in warns[0]
 
 
+def test_drift_report_takes_aop_and_reproduces_the_operators_reading():
+    """The venue grants the better of the volume tier and the AoP tier. The
+    report must (a) let AoP lift the row and (b) reproduce the operator's
+    2026-09-08 app reading: Tier 5 = 15/30 on $69,652.65 with AoP $822.24,
+    and say the booked 20/35 OVER-states."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    def run(*args):
+        r = subprocess.run([sys.executable, str(root / "scripts" / "fee_drift_report.py"),
+                            "--offline", *args], capture_output=True, text=True,
+                           cwd=str(root), timeout=120)
+        return r.stdout
+    out = run("--volume-30d", "0", "--aop-usd", "20000")
+    assert "maker 22 / taker 38" in out, out            # AoP lifts $0 volume to Tier 3
+    out = run("--volume-30d", "69652.65", "--aop-usd", "822.24")
+    assert "maker 15 / taker 30" in out and "AoP $822" in out, out
+    out_lb = run("--volume-30d", "69652.65")
+    assert "LOWER BOUND" in out_lb, out_lb
+
+
 # ------------------------------- the escape hatch had no floor of its own
 def test_allow_sub_floor_is_not_a_licence_for_ZERO_fees():
     assert _has_floor_fatal(_cfg(0.0, 0.0, allow_low=True)), \
