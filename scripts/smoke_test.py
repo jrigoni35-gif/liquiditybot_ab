@@ -432,7 +432,7 @@ def test_inventory_and_hedge():
     add2 = inv.can_add(state, "ETH", "short", 500.0, 10000.0, marks)
     check("inventory allows risk-reducing opposite add", add2.allowed)
 
-    hedger = HedgeEngine({"max_net_delta_pct_of_equity": 15,
+    hedger = HedgeEngine({"enabled": True, "max_net_delta_pct_of_equity": 15,
                           "rebalance_band_pct": 5, "min_hedge_usd": 50},
                          {"ETH": "ETH/USD", "BTC": "BTC/USD"})
     corr = CorrState(corr_fast={("BTC", "ETH"): 0.85},

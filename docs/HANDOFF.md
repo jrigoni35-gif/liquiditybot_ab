@@ -461,7 +461,7 @@ bundled FIRST, then REG-8 v2, then SWEEP-0/1. Authority:
 | **REG-8 v2** | **dissolve** the crisis gate rather than replace it: DELETE the turbulence clause (predicates 2→1), ROUTE turbulence → existing governor `shrinkage` (uncertainty, not veto), ROUTE breadth+absolute stress → existing `RiskProtocolStack` (which already owns the hard stops). Zero new gates, zero new modules. Phase 0 SAFE now | `docs/quant/2026-08-22_REG8_crisis_predicate_algorithm.md` |
 | **TURB-1** | the crisis trigger is DEFECTIVE AS DEPLOYED: fires ~7% by construction on stationary noise, measures co-movement atypicality not stress (a correlated crash never fires; one decoupling asset blacks out the book), broadcast as one scalar | `docs/quant/2026-08-22_turbulence_instrument_verification.md` |
 | REG-7 | taxonomy vs measured occupancy: retire extinct `bull_volatile`, split `range`, rename `bear`→`drift_down` | `docs/quant/2026-08-20_REG7_taxonomy_occupancy_prereg.md` |
-| SWEEP-0 | **CRITICAL** `derisk_actions` can force-close a HEDGE with zero hedge coordination (no cooldown arm, no FW-070) | `docs/quant/2026-08-20_codebase_sweep_docket.md` |
+| ~~SWEEP-0~~ | **CLOSED 2026-09-09** — `derisk_actions`' hedge closes now route through `HedgeEngine.note_external_unwind()` (`main.py` derisk loop, after the submit so the accounting follows the close, not the intent). Cooldown arms, FW-070 counts. Pinned by `tests/test_hedger_failsafe_and_sweep0.py` | `docs/quant/2026-08-20_codebase_sweep_docket.md` |
 | SWEEP-1 | **CRITICAL** margin-health veto FAILS OPEN — **RE-CONFIRMED by injection 2026-08-29** (`risk/leverage.py:75`: a 0.0/failed `TradeBalance` read takes the `elif margin_level_pct > 0:` no-constraint path → full ladder to region_cap 10× authorized on the fetch failure the buffer exists to survive; reason list byte-identical to healthy). Happy-path-only test coverage let it persist. **xfail pin waiting** (`tests/test_fail_open_pins.py`). Fix is COHORT-RESETTING **and non-trivial**: in dry-run the fetch never runs so margin is always 0.0 — a naive 0.0→block caps ALL dry-run leverage; the real fix must separate dry-run-unknown from live-fetch-failed | same + stated-vs-real audit (session cdb03d59) |
 | **SWEEP-1b** | **book-staleness sibling of SWEEP-1** (`core/watchdog.py:140`): a never-delivered book reads as fresh (age 0) instead of stale — a never-delivered book is not flagged in `stale_assets`. Symptom injection-confirmed; xfail pin waiting (`tests/test_fail_open_pins.py`). COHORT-RESETTING (staleness gates entry). Sibling live paths (main.py:4356/4779) use the fail-closed default | same |
 | SWEEP-3/5/8 | watchdog PNL-velocity input, CVaR buffer lookup, fast_cycle fetch loop | same |
@@ -913,6 +913,36 @@ verification is paid for twice.
 ---
 
 ## RECENTLY SETTLED — do not re-litigate, do not re-implement
+
+**2026-09-09 — hedger OFF-state hardened, SWEEP-0 closed, CLAUDE.md fee claim
+corrected (SAFE class; hedger is `enabled:false`, no order path changed).**
+
+- `execution/hedging.py` `enabled` now defaults **False** (was True). Era-8's
+  hedger-OFF state rested on one config literal, so deleting or renaming the
+  `hedging` block re-armed a COHORT-RESETTING subsystem with no code diff and
+  no failing test. All 7 construction sites now pass `enabled` explicitly.
+  `core/config_guard.py` FATALs a block that is PRESENT but silent about
+  `enabled`; an ABSENT block stays clean (engine default is fail-safe, and
+  the absent-block-is-clean convention is preserved).
+- **SWEEP-0 closed** — see the docket row.
+- **CLAUDE.md's "40% of all fees" was wrong twice** and is corrected in place:
+  it counted hedge OPEN legs only (round trip is **$315.72 = 80.0%**, double-
+  derived against `hedge_sim`), and it omitted the scope — **all 159 hedge
+  fills are ADA/USD shorts inside one 10.4 h window on 2026-08-07**, the
+  pre-`cf454d5e` churn incident, **zero in the 32 days since**, on an asset
+  the cut-#11 universe no longer trades. Cut #11's decision stands; what does
+  not stand is citing that evidence as a property of the guarded hedger.
+- **Residual, docketed not fixed:** a disabled hedger does not unwind an
+  already-open hedge (`evaluate()` returns [] before the unwind branch). That
+  predates this change; block DELETION now reaches it, where `cut11_stage.py`
+  intercepts only the config FLIP. Characterised by
+  `test_disabled_engine_does_not_unwind_an_open_hedge`. Changing it is hedger
+  behaviour = COHORT-RESETTING.
+- Matrix: pytest 4847p/11s/1xf · smoke 220/0 · assurance 51/0 · overfit
+  **3 ARMED all pass, 4 dark** (OF-1 exploration-informational, OF-3 single-
+  family, OF-4 zero-entry replay, OF-5 DSR inert at N=7) on the **live
+  16,991-row corpus, not the synthetic substitute** · ruff clean · pyright 0
+  · bandit 0 · compileall clean.
 
 | what | verdict | record |
 |---|---|---|

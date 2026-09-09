@@ -44,7 +44,8 @@ def _corr(rho, n_pairs=None):
 
 
 def _engine(**over):
-    cfg = {"max_net_delta_pct_of_equity": 10.0, "rebalance_band_pct": 4.0,
+    cfg = {"enabled": True,
+           "max_net_delta_pct_of_equity": 10.0, "rebalance_band_pct": 4.0,
            "min_hedge_usd": 5.0, "corr_min_samples": 12,
            "rehedge_cooldown_sec": 600.0, "churn_max_unwinds": 3,
            "churn_window_sec": 900.0}

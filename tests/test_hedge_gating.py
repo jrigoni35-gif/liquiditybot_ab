@@ -83,7 +83,7 @@ def _bot(state, entries_enabled=True, halted=False):
     b.watchdog = Watchdog({"enabled": True, "tick_jump_quarantine_pct": 8.0})
 
     b.state = state
-    b.hedger = HedgeEngine({}, b.symbol_map)     # REAL engine, not stubbed
+    b.hedger = HedgeEngine({"enabled": True}, b.symbol_map)     # REAL engine, not stubbed
     b.corr = types.SimpleNamespace(state=_FakeCorr())
 
     b.hedge_submits = []

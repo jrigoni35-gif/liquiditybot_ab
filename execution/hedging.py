@@ -46,7 +46,14 @@ class HedgeAction:
 class HedgeEngine:
     def __init__(self, config: dict, symbol_map: dict):
         cfg = config or {}
-        self.enabled = bool(cfg.get("enabled", True))
+        # FAIL-SAFE DEFAULT (was True). The hedger is COHORT-RESETTING under
+        # the era-8 moratorium and has run OFF since cut #11 (2026-09-07) —
+        # but that OFF state lived entirely in one config literal, so
+        # deleting or renaming the `hedging` block re-armed it with no code
+        # diff and no failing test. No config now means no hedging; turning
+        # it ON is an explicit act. core/config_guard.py additionally refuses
+        # a block that is present but silent about `enabled`.
+        self.enabled = bool(cfg.get("enabled", False))
         self.max_net_delta_pct = float(cfg.get("max_net_delta_pct_of_equity", 20.0))
         self.rebalance_band_pct = float(cfg.get("rebalance_band_pct", 8.0))
         self.min_corr = float(cfg.get("min_hedge_correlation", 0.55))
@@ -80,7 +87,7 @@ class HedgeEngine:
         # uptime is 0.5h; an amnesiac cooldown would reset every deploy)
         self._last_unwind: dict = {}     # asset -> ts of last unwind emit
         self._unwind_ts: dict = {}       # asset -> recent unwind ts list
-        self._latched: dict = {}         # asset -> latch ts (FW-060)
+        self._latched: dict = {}         # asset -> latch ts (FW-070)
         self.symbol_map = symbol_map   # asset -> Kraken symbol
 
     # ---- churn-guard restart state (rides the snapshot) -----------------
@@ -112,6 +119,26 @@ class HedgeEngine:
                 f"{self.churn_window_sec:.0f}s; re-hedging frozen until "
                 f"estimator warm + {self.churn_window_sec:.0f}s elapsed "
                 f"(unwinds stay allowed)"))
+
+    def note_external_unwind(self, asset: str, now: float) -> None:
+        """Account a hedge close this engine did NOT emit (SWEEP-0).
+
+        `inventory.derisk_actions` force-closes positions straight through
+        main.py's derisk loop, which never consults the hedge engine. A
+        derisk-forced close of a HEDGE position therefore armed no cooldown
+        and never reached the FW-070 counter — leaving the churn backstop
+        blind to precisely the loop it exists to stop: derisk closes the
+        hedge -> net delta breaches the cap -> evaluate() re-opens it ->
+        derisk closes it again, at cycle cadence, which is the 2026-08-07
+        ADA shape with the guard bypassed.
+
+        Routing such a close through the same accounting as an emitted
+        unwind closes that hole. It gates OPENS only; the unwind path never
+        consults any of this (invariant 5 — escapes are never blocked,
+        whoever initiated them), and the FW-070 latch still auto-releases on
+        warm + window, independent of the action it gates.
+        """
+        self._record_unwind(asset, now)
 
     def _open_blocked(self, asset: str, warm: bool, now: float) -> "str | None":
         """None = open allowed; else the (logged-by-caller) block reason.

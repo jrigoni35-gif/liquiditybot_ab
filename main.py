@@ -2971,6 +2971,15 @@ class LiquidityBot:
                 if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
                         and self._mark_fresh(pos.symbol, now):
                     self._submit_exit(pos, act.close_pct, act.reason, now=now)
+                    # SWEEP-0: a derisk-forced close of a HEDGE bypasses the
+                    # hedge engine entirely, so before this it armed no
+                    # cooldown and never reached the FW-070 counter — the
+                    # churn backstop was blind to the re-open loop it exists
+                    # to stop. Account it as an unwind. AFTER the submit, so
+                    # the accounting follows the close and not the intent.
+                    if getattr(pos, "is_hedge", False):
+                        self.hedger.note_external_unwind(
+                            self._asset_of(pos.symbol), now)
             except Exception:
                 self._exit_eval_failures += 1
                 log.exception("derisk action raised - other positions still "

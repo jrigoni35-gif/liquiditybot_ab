@@ -29,7 +29,7 @@ def _pos(pid, symbol, direction, entry, size):
 
 
 def _hedger():
-    return HedgeEngine({"max_net_delta_pct_of_equity": 15,
+    return HedgeEngine({"enabled": True, "max_net_delta_pct_of_equity": 15,
                         "rebalance_band_pct": 5, "min_hedge_usd": 50},
                        SYMBOLS)
 

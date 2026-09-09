@@ -2070,7 +2070,7 @@ def test_short_entry_marketable_sell_hedge_open_also_clears_the_bid(
     bot.state.add_position(Position(
         "eth1", "ETH/USD", "long", 2_000.0, 2.5, 2.5,
         datetime.datetime.now(datetime.timezone.utc)))
-    bot.hedger = HedgeEngine({}, bot.symbol_map)
+    bot.hedger = HedgeEngine({"enabled": True}, bot.symbol_map)
 
     bot._hedge_actions(1_700_000_000.0, equity=10_000.0)
 

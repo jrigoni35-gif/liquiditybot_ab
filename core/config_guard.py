@@ -3534,6 +3534,19 @@ def validate(config: dict) -> list:
                       f"not via a negative weight")
 
     # --- hedging ---------------------------------------------------------
+    # A COHORT-RESETTING subsystem must not inherit its on/off state from a
+    # code default. Era-8 runs the hedger OFF (cut #11, 2026-09-07) and that
+    # state lived in one config literal; HedgeEngine now defaults OFF, so a
+    # DELETED block is fail-safe. The remaining ambiguous case is a block
+    # that is PRESENT but silent about `enabled`, and it is refused here. An
+    # ABSENT block stays clean, per the repo convention that module defaults
+    # apply to an absent block (cf. _conviction_checks).
+    _h_block = _f(config, "hedging")
+    if isinstance(_h_block, dict) and "enabled" not in _h_block:
+        fatal('hedging block is present but does not set "enabled" - the '
+              'hedger is COHORT-RESETTING under the era-8 moratorium, so its '
+              'on/off state must be explicit in config, never inherited from '
+              'a code default. Add "enabled": false (or true).')
     h_beta_floor = float(_f(config, "hedging.beta_floor", 0.1))
     h_eq_frac = float(_f(config, "hedging.max_equity_frac", 0.5))
     if not (0.0 <= h_beta_floor < 1.0):

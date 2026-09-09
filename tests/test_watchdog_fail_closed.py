@@ -123,7 +123,7 @@ def _bot():
     b.inventory = types.SimpleNamespace(
         inventory_ratio=lambda *a, **k: 0.0, soft_cap_pct=50.0,
         hard_cap_pct=100.0, derisk_actions=lambda *a, **k: [])
-    b.hedger = HedgeEngine({}, b.symbol_map)       # REAL engine, not stubbed
+    b.hedger = HedgeEngine({"enabled": True}, b.symbol_map)       # REAL engine, not stubbed
     b.postmortem = types.SimpleNamespace(record_marks=_noop, poll=lambda now: [])
     b.markout = types.SimpleNamespace(poll=_noop, record_fill=_noop,
                                       snapshot=lambda: {})

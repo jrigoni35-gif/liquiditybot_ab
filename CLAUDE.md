@@ -104,7 +104,8 @@ closed trips). Records: `docs/HANDOFF.md` ERA sections, `docs/quant/`.
 things that would make it have to either end with a positive or negative
 PnL."* Three periods had read zero-shaped. Three zero-makers that are NOT
 the model were removed and nothing else changed: the **hedger** (a hedge leg
-cancels the bet by construction; 40% of all fees), the **alt-coin universe**
+cancels the bet by construction; **80% of all lifetime booked fees** — see
+the scope note below), the **alt-coin universe**
 (the measured loss channel; now PAXG/ETH/BTC/LINK only, skimmer OFF so the
 universe cannot re-widen at boot), and the **$18 probe ticket** (floor
 `min_ticket_usd` 15 → 60; `size_scale` is clamped to 1.0 and was already
@@ -141,6 +142,32 @@ Until it reads out:
 - Model-side investment is FROZEN per the 2026-08-10 operator
   adjudication (no new families, features, or meta-labeling); the
   retrain loop itself continues by design.
+
+**Hedger evidence — READ THE SCOPE BEFORE CITING IT (corrected 2026-09-09).**
+The line above used to read "40% of all fees". Two things were wrong with it,
+both re-derived twice from `outputs/imported_sessions/pc-live/fills.csv`
+(1,262 fills, ledger 2026-07-20 → 09-08):
+
+- **Netting.** 40.0% / $157.84 counts hedge **OPEN legs only** (`purpose ==
+  "hedge"`); every matching close is booked under `purpose == "exit"`. The
+  round-trip footprint is **$315.72 = 80.0%** of the $394.89 lifetime booked
+  total — the figure `scripts/hedge_sim.py` computes independently and agrees
+  with to the cent. The old number understated by exactly 2×.
+- **Scope, which is the bigger one.** All **159** hedge fills in this bot's
+  entire history are **ADA/USD shorts inside one 10.4-hour window on
+  2026-08-07** — the churn incident that `cf454d5e` fixed the same day. There
+  have been **zero hedge fills in the 32 days since**, and ADA is not in the
+  cut-#11 universe. So this evidence is a property of one pre-fix runaway on
+  one delisted asset, NOT of the hedger as it now runs. `hedge_sim`'s
+  registered verdict says the rest: whether the POST-fix hedger would pay is
+  **UNRECONSTRUCTABLE-FROM-HISTORY** (n_episodes = 4, no CI computed), and
+  nothing measured supports or refutes it.
+
+Cut #11's decision is not disturbed by either correction — a bigger fee
+footprint argues the same direction. What changes is what may be *claimed*:
+"the hedger is a loss channel" is not established for the guarded hedger.
+Records: `docs/quant/2026-08-28_hedge_sim_results.md`,
+`docs/quant/2026-09-06_cut10_boundary_adjudication.md:69-77`.
 
 ## Definition of done (every change, every session)
 
