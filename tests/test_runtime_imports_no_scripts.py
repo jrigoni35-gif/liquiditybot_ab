@@ -36,17 +36,49 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# The shipped decision tree, mirroring CLAUDE.md's pyright line.
-RUNTIME_TREES = ("core", "data", "execution", "ml", "risk", "regime",
-                 "strategies", "sentiment", "api")
+# NOT the runtime tree: analysis, tooling, docs and generated state. Anything
+# else at top level that is an importable package IS runtime and gets swept.
+NON_RUNTIME_DIRS = frozenset({
+    "tests", "scripts", "docs", "outputs", "diode", "tools", "build", "dist",
+})
+
+# The shipped decision tree as it stands today, mirroring CLAUDE.md's pyright
+# line. This is a RATCHET, not the sweep list — see _runtime_trees().
+EXPECTED_RUNTIME_TREES = frozenset({
+    "core", "data", "execution", "ml", "risk", "regime",
+    "strategies", "sentiment", "api",
+})
 RUNTIME_FILES = ("main.py", "runner.py")
 
 FORBIDDEN_ROOT = "scripts"
 
 
+def _runtime_trees() -> set[str]:
+    """Top-level importable packages, DISCOVERED — never hardcoded.
+
+    The first cut of this file swept a hardcoded 9-name tuple. An adversarial
+    review mutation-confirmed the hole: a `scripts/` import placed in any
+    package outside that tuple was invisible to the guard, so the fence went
+    green on exactly the edit it exists to stop. A hardcoded sweep list is a
+    guard that silently narrows every time the codebase grows.
+
+    Discovery fails SAFE in the only direction that matters: an unrecognised
+    top-level package is swept (more coverage), never skipped. `NON_RUNTIME_DIRS`
+    is a deny-list rather than the runtime set being an allow-list, so
+    forgetting to update anything results in MORE scanning, not less.
+    """
+    return {
+        p.name for p in REPO_ROOT.iterdir()
+        if p.is_dir()
+        and not p.name.startswith(".")
+        and p.name not in NON_RUNTIME_DIRS
+        and (p / "__init__.py").is_file()
+    }
+
+
 def _runtime_files() -> list[Path]:
     out: list[Path] = []
-    for tree in RUNTIME_TREES:
+    for tree in sorted(_runtime_trees()):
         d = REPO_ROOT / tree
         if not d.is_dir():
             continue
@@ -121,9 +153,60 @@ def test_the_scan_actually_reaches_the_runtime_tree():
     names = {p.name for p in files}
     assert "main.py" in names and "runner.py" in names
     swept = {p.relative_to(REPO_ROOT).parts[0] for p in files}
-    for tree in RUNTIME_TREES:
+    for tree in EXPECTED_RUNTIME_TREES:
         if (REPO_ROOT / tree).is_dir():
             assert tree in swept, f"{tree}/ was not swept"
+
+
+def test_discovery_finds_every_expected_runtime_tree():
+    """Discovery must not silently NARROW below the known runtime set.
+
+    If a package stops being discovered (an `__init__.py` deleted, a rename),
+    the fence would quietly stop scanning it and stay green.
+    """
+    missing = {t for t in EXPECTED_RUNTIME_TREES
+               if (REPO_ROOT / t).is_dir()} - _runtime_trees()
+    assert not missing, (
+        f"these shipped packages are no longer discovered: {sorted(missing)} - "
+        f"the fence has silently narrowed")
+
+
+def test_a_new_top_level_package_is_swept_automatically(tmp_path, monkeypatch):
+    """THE PIN for the mutation an audit used to break the first cut.
+
+    A new top-level runtime package must be swept WITHOUT anyone editing this
+    file. Built in a scratch tree so the real repo is untouched.
+    """
+    import tests.test_runtime_imports_no_scripts as mod
+
+    for tree in ("core", "markov"):          # one known, one brand new
+        (tmp_path / tree).mkdir()
+        (tmp_path / tree / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "markov" / "chain.py").write_text(
+        "from scripts.util import helper\n", encoding="utf-8")
+
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+    assert "markov" in mod._runtime_trees(), "a new package was not discovered"
+    assert "scripts" not in mod._runtime_trees(), "scripts/ must stay excluded"
+
+    offenders = [p for p in mod._runtime_files()
+                 if mod._imports_forbidden_root(p)]
+    assert offenders, "the planted import in a NEW package was not caught"
+
+
+def test_non_runtime_dirs_are_excluded_from_the_sweep(tmp_path, monkeypatch):
+    """Control for the test above: without this, a discovery function that
+    returned EVERY directory would also pass it."""
+    import tests.test_runtime_imports_no_scripts as mod
+
+    for name in ("tests", "scripts", "docs"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
+    monkeypatch.setattr(mod, "REPO_ROOT", tmp_path)
+    assert mod._runtime_trees() == set(), (
+        f"non-runtime dirs leaked into the sweep: {mod._runtime_trees()}")
 
 
 @pytest.mark.parametrize("snippet", [
