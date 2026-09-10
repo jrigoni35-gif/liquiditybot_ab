@@ -1,4 +1,4 @@
-# Overfit audit — 2026-09-10 14:24 UTC
+# Overfit audit — 2026-09-10 14:59 UTC
 
 Dataset: live history (17510 rows)
 
@@ -57,6 +57,6 @@ Dataset: live history (17510 rows)
 - **INFO** extras[sent_fear] — at-neutral share 100.0% (n=17510) — feed effectively dark corpus-wide (dead column)
 - **INFO** extras[fear_greed] — at-neutral share 0.0% (n=17510) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
 
-4 passed, 0 failed (124s)
+4 passed, 0 failed (111s)
 
 Corpus: live history (17510 rows)
