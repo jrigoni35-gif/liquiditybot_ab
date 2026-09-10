@@ -66,13 +66,35 @@ def _runtime_trees() -> set[str]:
     top-level package is swept (more coverage), never skipped. `NON_RUNTIME_DIRS`
     is a deny-list rather than the runtime set being an allow-list, so
     forgetting to update anything results in MORE scanning, not less.
+
+    That fail-safe claim was FALSE for one shape until 2026-09-10, and the
+    docstring above asserted it anyway. Requiring `__init__.py` skipped PEP 420
+    NAMESPACE packages, which are importable with no `__init__.py` at all - so
+    a new top-level runtime tree created without one was invisible to the
+    fence, the precise hole this function was written to close, reintroduced
+    one level down. A directory holding importable `.py` files is now swept
+    whether or not it declares `__init__.py`.
+
+    Measured when the branch was added: it changes NOTHING on this tree - all
+    nine runtime packages already carry `__init__.py`, and every other
+    top-level directory is in NON_RUNTIME_DIRS. It is a fence for the tree's
+    future, so it cannot be verified by observing today's behaviour; the
+    injection test at the bottom of this file plants a namespace package with
+    a forbidden import and proves the sweep reaches it.
     """
+    def _importable(p: Path) -> bool:
+        if (p / "__init__.py").is_file():
+            return True
+        # PEP 420: no marker file, so presence of any module is the signal.
+        return any(q for q in p.rglob("*.py") if "__pycache__" not in q.parts)
+
     return {
         p.name for p in REPO_ROOT.iterdir()
         if p.is_dir()
         and not p.name.startswith(".")
+        and p.name != "__pycache__"
         and p.name not in NON_RUNTIME_DIRS
-        and (p / "__init__.py").is_file()
+        and _importable(p)
     }
 
 
@@ -237,3 +259,43 @@ def test_the_guard_does_not_fire_on_mentions_or_lookalikes(tmp_path, snippet):
     p = tmp_path / "innocent.py"
     p.write_text(snippet, encoding="utf-8")
     assert not _imports_forbidden_root(p), f"false positive on: {snippet!r}"
+
+
+def test_a_pep420_namespace_package_is_discovered_and_swept():
+    """INJECTION, because observation cannot see this one.
+
+    Every runtime package on this tree already carries `__init__.py`, so the
+    namespace branch in `_runtime_trees` changes no verdict today and a
+    passing suite is not evidence it works. This plants a real top-level
+    package with NO `__init__.py` -- discovery reads the filesystem under
+    REPO_ROOT, so tmp_path cannot stand in -- and walks the full chain:
+    discovered as a runtime tree, included in the swept file list, and its
+    forbidden import reported.
+
+    Under the pre-2026-09-10 predicate (`(p / "__init__.py").is_file()`) the
+    first assertion fails, which is what makes this test non-vacuous.
+    """
+    import shutil
+
+    pkg = REPO_ROOT / "_pep420_probe_pkg"
+    mod = pkg / "leaky.py"
+    assert not pkg.exists(), "probe directory already present -- stale run?"
+    try:
+        pkg.mkdir()
+        mod.write_text("from scripts.util import helper\n", encoding="utf-8")
+        assert not (pkg / "__init__.py").is_file(), (
+            "the probe must be a NAMESPACE package or it tests nothing")
+
+        assert pkg.name in _runtime_trees(), (
+            "a PEP 420 namespace package was not discovered as a runtime "
+            "tree -- a new top-level package without __init__.py can import "
+            "scripts/ with nothing to stop it")
+        assert mod in set(_runtime_files()), (
+            "discovered the tree but did not sweep its modules")
+        hits = _imports_forbidden_root(mod)
+        assert hits and all(FORBIDDEN_ROOT in h for h in hits), (
+            "swept the module but did not report its forbidden import: %r"
+            % (hits,))
+    finally:
+        shutil.rmtree(pkg, ignore_errors=True)
+    assert not pkg.exists(), "probe directory survived the test"
