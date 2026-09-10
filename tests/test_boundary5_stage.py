@@ -156,10 +156,19 @@ def test_apply_refuses_against_the_applied_live_config(tmp_path, monkeypatch,
     # #10's applied TO, and it is THAT latest cut this pin holds the config
     # to. Every superseded stager (boundary5, fee_correction) drifts against
     # it and stays inert, which is the safety property under test.
-    from scripts import cut10_stage as latest
-    for key, _frm, to in latest.EDITS:
+    # Cut #11 (2026-09-07, cut11_stage) and cut #12 (2026-09-08, cut12_stage:
+    # FEE-4, the account's real Tier 5 = 15/30) each superseded the one before
+    # on the keys they touch; the live config is at the LATEST cut's TO for
+    # every key, layered in order. Every superseded stager drifts and stays
+    # inert - the safety property under test.
+    from scripts import cut10_stage, cut11_stage, cut12_stage
+    expected = {}
+    for stage in (cut10_stage, cut11_stage, cut12_stage):
+        for key, _frm, to in stage.EDITS:
+            expected[key] = (stage.__name__, to)
+    for key, (owner, to) in expected.items():
         assert b5._get(cfg, key) == to, (
-            f"{key}: the live config.json is not at cut #10's applied TO value "
+            f"{key}: the live config.json is not at {owner}'s applied TO value "
             "- the cut was reverted or hand-edited; re-derive, do not relax")
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")

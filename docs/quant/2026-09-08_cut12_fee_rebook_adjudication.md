@@ -77,6 +77,54 @@ readout** (`scripts/fee_drift_report.py --volume-30d <v> --aop-usd <a>`) and
 name the drift on the readout. If the tier falls below 5 during era-9 the
 readout is optimistic by the difference; if it rises, conservative.
 
+## 7. Erratum — same session, from the adversarial review of the diff (appended in the code commit; the record above is kept verbatim as committed)
+
+- **§4 era-8 counts were RECALLED, not re-derived.** Re-derived from
+  `outputs/fills.csv` (mtime 18:56:12Z, read 23:29:51Z) and corroborated by
+  `scripts/cohort_eval.py` per-era segmentation: era-8 at staging holds
+  **4 entries** (BTC $67 09-07 15:50Z; ETH $60 09-08 05:30Z; PAXG $68
+  13:50Z; PAXG $86 18:56Z) and **1 closed trip** (ETH `9699a06a`, exit
+  18:47:58Z "tier trail"). Open book at staging: ETH ×1, BTC ×2, PAXG ×2,
+  all long (the PAXG short closed 13:22Z `tb_time`). Era-8's CLOSING count
+  is whatever `cohort_eval` reports at the restart — nothing above is final.
+- **§3 "geometry untouched" is false in the way cuts #9 and #10 were also
+  silently false.** `ml/labeling.barrier_geometry` floors σ at
+  `pt_cost_mult·cost/pt_mult`; the floor binds whenever the 5 m σ is below
+  cost/2 (the usual case). Verified 2026-09-08: at σ_bar 0.10% the label's
+  PT moves **220 → 180 bps** and SL **165 → 135 bps**; the live bracket
+  (`main.py`, same helper on `est_cost_bps`) shrinks identically; the
+  break-even/trail floor (`2·est_fee + buffer`) drops 76 → 66 bps. All
+  under the same `label_era` (`triple_barrier_h432`, horizon-only). This is
+  the inherited cascade shape, not a new change class — but it is a
+  geometry change and is now said. The "240 bps TP" cited as the next lever
+  was cut #9's world; it is 180 now.
+- **§4 H0 per day and the accrual rate — corrected twice.** The morning's
+  "heat cap → 2–3 entries/day ceiling, 0 while pre-era positions sit"
+  conflated two books: the 83 daily `RP-050` heat vetoes are the LONG
+  BOOK's hourly add attempts (`LB-010`), whose two positions are the
+  "pre-era" ones; the 5 m book placed 3 entries on 09-08 and its 12 vetoes
+  were cooldown/crowded. ≈ 3 entries/day → n=50 in ~2–3 weeks; H0 ≈
+  −$0.8/day. Two instrument errors, both mine: a needle matching two
+  populations, and `events.jsonl` rotating at 5 MB (a live-file "24 h" scan
+  was a 55-minute tail). The long book is an operator docket item.
+- **Go-live happened at 23:47:45Z by supervisor relaunch, before merge**
+  (heartbeat starvation under the DoD + workflow load; the relaunched
+  runner booted from the applied working tree and printed
+  `fees=15/30bps`). Era-8's closing count is therefore FINAL at that
+  instant: **4 entries, 1 closed trip** (`cohort_eval`: 1 wholly inside).
+  The old runner stopped cycling on the forfeited lock. The committed tree
+  differs from the booted one only in docs/tests/guard list; a deliberate
+  restart on the merged commit follows the DoD.
+- **W4 (pre-existing, now load-bearing):** the runtime tier verifier
+  `order_manager.fee_recon` (OM-080/TradeVolume) has never fired on this box
+  — no credentials. The rolling-tier rule is manual until FEE-3 is armed.
+- Fixes landed with this erratum: `tests/test_config_guard_min_pwin.py`
+  re-baselined to the new bar (0.183 → 0.209); `scripts/cut12_stage.py` now
+  also refuses unless the staged label cost equals the staged fee round
+  trip; `core/config_guard.py` FATALs a label cost below the booked fee
+  round trip (the half-applied-stage hazard `profit_tiers.py` names);
+  `main()`'s refusal paths are pinned.
+
 ## 6. Go-live (era-cut procedure, as cuts #10/#11)
 
 Record commit (this file, alone) → `EXEC_ERA = "12-<sha>"` + pins + CLAUDE.md

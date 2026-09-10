@@ -174,8 +174,16 @@ def test_guard_rejects_incoherent_sim_fill():
                                         "fill_frac_max": 0.3}}}))
     assert any("queue_tol_frac" in m for m in fatals(
         {"order_manager": {"sim_fill": {"queue_tol_frac": -1.0}}}))
-    assert not any("sim_fill" in m for m in fatals(
-        {"order_manager": {"sim_fill": {}}}))       # defaults coherent
+    # defaults coherent: the RANGE checks stay silent on an empty block. Since
+    # 2026-09-08 the ABSENCE check does not - passive_base_prob and queue_aware
+    # are era-booked keys whose code defaults (0.45 / False) are the pre-XV-021
+    # flattering simulator (tests/test_config_guard_absent_keys.py) - so that
+    # one FATAL is filtered out here and pinned positively right after.
+    empty = fatals({"order_manager": {"sim_fill": {}}})
+    assert not any("sim_fill" in m and "absent from config" not in m
+                   for m in empty)
+    assert any("order_manager.sim_fill.passive_base_prob" in m
+               and "order_manager.sim_fill.queue_aware" in m for m in empty)
 
 
 # ------------------------------------------- owed 57 / era boundary #4

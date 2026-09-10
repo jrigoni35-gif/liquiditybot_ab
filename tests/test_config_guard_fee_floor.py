@@ -258,9 +258,40 @@ def test_a_genuine_top_tier_discount_still_passes():
     best_m, best_t = __import__("core.venue_fees", fromlist=["x"]).best_possible_row()
     assert not _has_floor_fatal(_cfg(best_m, best_t, allow_low=True)), \
         f"the venue's own best tier {best_m}/{best_t} was rejected as sub-floor"
-    assert not _has_floor_fatal(_cfg(20.0, 35.0, allow_low=True)), \
-        "the SHIPPED config must keep validating - this change is SAFE only " \
-        "because it does not move the live posture"
+    # the SHIPPED fees, read from config.json - not a literal that goes stale
+    # at the next cut (the 09-05 version asserted 20/35 and "passed" only
+    # because the fixture is synthetic)
+    import json as _json
+    from pathlib import Path as _P
+    pt = _json.loads((_P(__file__).resolve().parents[1] / "config.json")
+                     .read_text(encoding="utf-8"))["pretrade"]
+    assert not _has_floor_fatal(_cfg(pt["maker_fee_bps"], pt["taker_fee_bps"], allow_low=True)), \
+        "the SHIPPED config must keep validating"
+
+
+def test_label_cost_below_the_booked_round_trip_is_FATAL():
+    """The half-applied fee stage (cut #12 review): fees moved, label cost
+    not. Under-costed labels are the dangerous direction -> FATAL when the
+    key is explicitly present; equal or over-costed passes; absent key is
+    the other guard's business."""
+    import copy
+    import json as _json
+    from pathlib import Path as _P
+    shipped = _json.loads((_P(__file__).resolve().parents[1] / "config.json")
+                          .read_text(encoding="utf-8"))
+    def fatals(cfg):
+        return [m for m in _fatal_msgs(cfg) if "label_round_trip_cost_pct" in m
+                and "BOOKED round trip" in m]
+    assert not fatals(shipped), "the shipped config must be coherent"
+    rt = (shipped["pretrade"]["maker_fee_bps"] + shipped["pretrade"]["taker_fee_bps"]) / 100.0
+
+    def with_label(cost):
+        c = copy.deepcopy(shipped)
+        c["ml"]["label_round_trip_cost_pct"] = cost
+        return c
+    assert fatals(with_label(rt - 0.05)), "label cost below the booked round trip validated clean"
+    assert not fatals(with_label(rt))
+    assert not fatals(with_label(rt + 0.10)), "over-costing the label is allowed"
 
 
 def test_absent_fee_keys_are_a_FATAL_not_a_silent_default():

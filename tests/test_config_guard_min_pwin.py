@@ -85,8 +85,12 @@ def test_probe_clearance_interlock_warns_before_the_trickle_dies():
     # gone stale, not the interlock.
     assert not any("exploration.p_win" in m and "clearance" in m
                    for m in _sev(_CFG, "WARN"))
+    # RE-BASELINED AGAIN at cut #12 (2026-09-08, FEE-4 20/35 -> 15/30): the
+    # derived bar falls 0.6642 -> 0.6381; cut #10's 0.183 now leaves a 0.029
+    # clearance and stops warning (the adversarial review of the cut caught
+    # it: 0.205 silent, 0.207 fires). 0.209 -> bar 0.8471 vs p_win 0.85.
     cfg = _cfg()
-    cfg["position_sizer"]["p_bar_edge_margin"] = 0.183  # bar ~0.847 vs 0.85
+    cfg["position_sizer"]["p_bar_edge_margin"] = 0.209  # bar ~0.847 vs 0.85
     assert any("clearance" in m for m in _sev(cfg, "WARN"))
 
 

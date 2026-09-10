@@ -79,9 +79,10 @@ def test_shipped_regime_block_raises_no_fatal():
 
 # ------------------------------------------------------ 2. give-back WARN
 def test_shipped_config_does_not_warn_on_a_floored_arm():
-    """At 20/35 and giveback_frac 0.4 the EFFECTIVE arm is 0.55/0.6 = 0.917%
-    against a 0.76% buffer. The old check read the raw 0.6% and warned on
-    every boot; the guard must now be silent here."""
+    """At 20/35 and giveback_frac 0.4 the EFFECTIVE arm was 0.55/0.6 = 0.917%
+    against a 0.76% buffer; at cut #12's 15/30 it is 0.45/0.6 = 0.75% against
+    0.66% (margin 9 bps, still clear). The old check read the raw 0.6% and
+    warned on every boot; the guard must be silent here."""
     warns = [m for m in _sev(_cfg(), "WARN") if "give_back" in m and "arms inside" in m]
     assert not warns, f"stale WARN still fires on the raw knob: {warns}"
 

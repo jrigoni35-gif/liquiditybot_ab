@@ -113,7 +113,24 @@ COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
 # geometry, the model and the exploration budget are UNCHANGED. Every fill
 # after this stamp is a committed, unhedged, larger bet on a narrower book -
 # do not pool it with era-7 or earlier.
-EXEC_ERA = "11-6e584923"
+# 12-10d4d0c2: cut #12, FEE-4 (era-9), minted 2026-09-08 under operator
+# approval ("Re-book now ... Yes do a reset"). Stamp names the decision-record
+# commit (docs/quant/2026-09-08_cut12_fee_rebook_adjudication.md). What
+# changed on the fill axis: fee BOOKING 20/35 -> 15/30 - the account's real
+# Tier 5 from the operator's Kraken-app reading (30-day spot $69,652.65, AoP
+# $822.24; vault raw/quant/2026-09-08_kraken_fee_tier_reading.md), reproduced
+# by core/venue_fees.binding_row; est_fee_bps 35 -> 30; label round-trip cost
+# 0.55% -> 0.45%. No other KEY moved - but the cost floor in
+# ml/labeling.barrier_geometry pins the barriers, so label PT 220 -> 180 bps
+# and SL 165 -> 135 (sigma_bar 0.10%), the live bracket likewise, and the
+# BE/trail floor 76 -> 66 bps, under the same label_era name (cuts #9/#10
+# had the same consequence, unsaid). Era-8's closing count is whatever
+# scripts/cohort_eval.py reports at the restart (staging read 23:29Z:
+# 4 entries, 1 closed trip - NOT a final figure). The tier ROLLS with the
+# operator's real trading (Tier 3 on 08-29, Tier 5 on 09-08): every fill
+# after this stamp is booked at 15/30 - re-read the tier at each cohort
+# readout and name the drift; never pool across this stamp.
+EXEC_ERA = "12-10d4d0c2"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------
 # THE DEFECT THIS BLOCKS: the ledger is fsync-durable PER FILL, but order

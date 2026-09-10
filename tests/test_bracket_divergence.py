@@ -428,7 +428,9 @@ _ALLOWED_REL = {
     "core/config_guard.py", "config.json",
 }
 _SKIP_DIRS = {".venv", "__pycache__", ".git", "node_modules", "tests",
-             "docs", ".superpowers", ".claude"}
+             "docs", ".superpowers", ".claude", "outputs"}
+# outputs added 2026-09-08 (same reason as tests/test_ofi_feature.py): it is
+# gitignored runtime state and agent scratch, never the decision path.
 # .claude added 2026-07-30: agent worktrees (.claude/worktrees/<id>/) are
 # full repo CHECKOUTS living under the repo root — walking into one finds
 # that checkout's own legitimate telemetry-surface files and fails this

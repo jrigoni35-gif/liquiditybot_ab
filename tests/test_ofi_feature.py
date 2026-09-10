@@ -359,7 +359,11 @@ _ALLOWED_REL = {
     # this gate protects ("no gate/sizer/exit/execution module reads them").
 }
 _SKIP_DIRS = {".venv", "__pycache__", ".git", "node_modules", "tests",
-              "docs", ".superpowers", ".claude"}
+              "docs", ".superpowers", ".claude", "outputs"}
+# outputs added 2026-09-08: it is gitignored runtime state and agent scratch
+# (outputs/reports/<study>/scratch/*.py); a purity pin over the DECISION
+# PATH must never read it - a measurement script mentioning a v9 key
+# reddened this pin mid-cut, which is the scan measuring the wrong corpus.
 # .claude: agent worktrees (.claude/worktrees/<id>/) are full repo
 # checkouts under the repo root - walking into one finds that checkout's
 # own legitimate producer/consumer files and fails this grep with
