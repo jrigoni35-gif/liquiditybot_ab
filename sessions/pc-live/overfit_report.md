@@ -1,4 +1,4 @@
-# Overfit audit — 2026-09-10 14:59 UTC
+# Overfit audit — 2026-09-10 15:46 UTC
 
 Dataset: live history (17510 rows)
 
@@ -10,10 +10,12 @@ Dataset: live history (17510 rows)
 - **INFO** null-floor[mlp] — OOF Brier 0.2984 vs base-rate constant 0.2443 (base=0.425, n=14590) — LOSES TO THE NULL: negative skill, sizing on this model's p(win) is worse than sizing on the base rate
 - **PASS** shuffle: destroyed labels learn nothing OOF — mean_auc=0.498 z=0.7 (limit 3.0)
 - **INFO** pbo space — ml.adaptive_gbt.enabled=true — the adaptive rung is IN the measured selection space
-- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.23 over 6 configs / 70 splits (mean winner: gbt_d2_lr05)
-- **INFO** pbo argmax stress — raw argmax selection pbo=0.49 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
+- **INFO** schema-ab — outputs/feature_reports/stability_20260910-154425.json: pruned 39/64 column(s) for the gbt_d3_lr05_schema_ab arm (regime one-hots exempt)
+- **PASS** pbo: DEPLOYED selection (simplicity ladder) not dominated by luck — pbo=0.44 over 7 configs / 70 splits (mean winner: gbt_d2_lr05)
+- **INFO** pbo argmax stress — raw argmax selection pbo=0.71 — the worst-case rule the ladder exists to avoid; gate is on the rule the bot actually runs
 - **INFO** pbo edge purge — label-window purge active: edge_purged_frac=0.138, combos_dropped=0
 - **INFO** pbo note — 0.2 < pbo <= 0.5: selection has luck in it — expected at this sample size; keep the simplicity-ladder margin
+- **INFO** pbo experiment[gbt_d3_lr05_schema_ab] — base=gbt_d3_lr05 pbo=0.70 ladder_winner=gbt_d3_lr05_schema_ab mean_winner=gbt_d3_lr05_schema_ab
 - **PASS** purge: never manufactures out-of-sample edge — unpurged=0.486 purged=0.492 leak_closed=-0.006
 - **INFO** purge note — expanding-window design keeps boundary leak ~0 by construction; shuffle-null [OF-2] is the leak gate
 - **PASS** dof: not starved (>=10 rows per feature) — rows/feature=273.6 (17510 rows / 64 features)
@@ -57,6 +59,6 @@ Dataset: live history (17510 rows)
 - **INFO** extras[sent_fear] — at-neutral share 100.0% (n=17510) — feed effectively dark corpus-wide (dead column)
 - **INFO** extras[fear_greed] — at-neutral share 0.0% (n=17510) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
 
-4 passed, 0 failed (111s)
+4 passed, 0 failed (117s)
 
 Corpus: live history (17510 rows)
