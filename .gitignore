@@ -30,6 +30,18 @@ config.json.pre-*
 Thumbs.db
 .DS_Store
 
+# session scratch from shell redirects. `err1.log` (0 bytes) sat untracked at
+# the root for a day; zero .log files are tracked, so this rule can never
+# shadow a real artifact. The sibling hazard has no ignore rule because it
+# CANNOT have one: a Windows file literally named NUL - created when a bash
+# redirect writes to `2>NUL` instead of `2>/dev/null` - makes `git add -A`
+# abort with `fatal: mmap failed: Invalid argument` (measured rc=128, after
+# listing only 18 of 26 paths, so a real `add -A` stages a PARTIAL set and
+# reports failure). It is unlinkable through Git Bash, which resolves the
+# name to the null device and silently no-ops; delete it from PowerShell:
+#     cmd /c del "\\?\<repo>\NUL"
+*.log
+
 # superpowers: isolated worktrees for parallel/pinned analysis
 .worktrees/
 # Claude Code isolation worktrees live INSIDE the repo (.claude/worktrees/
