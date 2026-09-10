@@ -79,6 +79,21 @@ ROUTES: tuple[Route, ...] = (
     Route("interpret", "interpret_report.py", 900),
     Route("ground_truth", "ground_truth_metrics.py", 900),
     Route("walkforward_lab", "walkforward_lab.py", 300),
+    # Surfaces the macro-regime HMM's transition matrix, dwell times and
+    # steady state - quantities regime/macro_regime.py fits daily and then
+    # discards. 300s is ~31x a measured 9.6s wall (4 assets x 720 daily bars,
+    # 3 EM restarts each, 2026-09-09); it scales with the traded universe, not
+    # with the recording corpus, so it does not grow the way fill_hazard did.
+    # Re-measure (time python scripts/regime_chain_report.py) before moving it.
+    Route("regime_chain", "regime_chain_report.py", 300),
+    # The order lifecycle as an absorbing Markov chain, read off the audit
+    # trail: per-poll fill hazard, expected polls to absorption, and P(fill)
+    # vs P(expire) for the three purposes separately. 300s against a measured
+    # 0.27s wall (1,712 terminals over an 85k-line audit.jsonl, warm cache,
+    # 2026-09-09) — a WALL against a hang, not a standard. It scans the whole
+    # audit trail, which the runner grows without bound, so re-measure
+    # (time python scripts/order_chain_report.py) before moving it.
+    Route("order_chain", "order_chain_report.py", 300),
 )
 
 # Windows: a windowless parent spawning children otherwise pops a console
