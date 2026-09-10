@@ -573,6 +573,94 @@ def _era_key_absence_checks(config: dict) -> list:
              f"absence is not a value.")]
 
 
+def _cost_stack_range_checks(config: dict) -> list:
+    """The cost-stack knobs PreTradeGate SILENTLY CLAMPS, plus the one with no
+    ceiling at all.
+
+    THE SHAPE. `execution/pretrade.py:107-111` builds three of these with
+    `min(max(float(cfg.get(...)), lo), hi)`. A config value outside that window
+    is not rejected and not reported - it is rewritten. Set
+    `adverse_selection_kappa: 99` and the gate runs at 2.0; set it to -5 and the
+    gate runs at 0.0 with the adverse-selection term DISABLED. Either way the
+    operator's stated intent and the deployed behaviour differ, permanently and
+    silently, and every downstream number is computed against a value that
+    appears nowhere. A clamp is the right defence inside the hot path; it is the
+    wrong place to DECIDE, because nothing there can say so.
+
+    `impact_eta` is the opposite defect: `:911` fatals only on negative, so it
+    has no ceiling. `impact_bps = eta * sigma_daily * sqrt(Q/ADV)`, so the
+    plausible typo is a decimal slip - `8.0` for `0.8` - which multiplies the
+    impact term ten-fold and quietly vetoes entries that should clear. That
+    failure reads as "the market got expensive", not "the config is wrong",
+    which is the recurrence this repo keeps paying for. The 5.0 ceiling is a
+    TYPO FENCE, not a tuned bound: published square-root-impact coefficients sit
+    near 0.5-1.5, so 5.0 admits more than three times the top of any defensible
+    view while still catching the slip it exists for. It was drafted at 10.0 and
+    corrected before shipping - 10.0 would have let the very example above
+    (8.0 for 0.8) through, i.e. the docstring would have claimed a fence the
+    number did not build.
+
+    ZERO IS REPORTED, NOT REFUSED. `impact_eta: 0` and
+    `adverse_selection_kappa: 0` are inside every clamp and are legitimate
+    choices ("switch this term off"), but they DELETE a cost term from the stack
+    that gates entries, so they warn. The repo's standing position is that
+    cost-stack completeness is not a tunable - see the round-trip fee check
+    above, which uses the same wording - but a deliberate zero is a decision, and
+    a guard that fatals on decisions gets deleted as noise.
+
+    Verified against the shipped config before shipping this: eta 0.8,
+    kappa 0.35, maker_fill_p0 0.45, p_fill_floor 0.05 - all interior, guard
+    stays 0 FATAL.
+    """
+    out: list = []
+    # (dotted key, lo, hi, what the term does). No default column on purpose:
+    # this reads with `_f(..., None)` so an ABSENT key is skipped rather than
+    # judged against a default the guard invented. Absence is pinned elsewhere
+    # (tests/test_config_guard_absent_keys.py); range is this function's job.
+    clamped = [
+        ("pretrade.adverse_selection_kappa", 0.0, 2.0,
+         "scales the adverse-selection charge on a passive fill"),
+        ("pretrade.maker_fill_p0", 0.01, 1.0,
+         "is the base maker fill probability the EV gate weighs"),
+        ("pretrade.p_fill_floor", 0.001, 1.0,
+         "floors that fill probability so EV can never divide by zero"),
+        ("pretrade.impact_eta", 0.0, 5.0,
+         "scales the square-root market-impact cost term"),
+    ]
+    for key, lo, hi, what in clamped:
+        raw = _f(config, key, None)
+        if raw is None:
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            out.append(("FATAL", f"{key}={raw!r} is not a number - it {what}"))
+            continue
+        if val < lo or val > hi:
+            where = ("execution/pretrade.py clamps it into "
+                     f"[{lo:g}, {hi:g}] and says nothing"
+                     if key != "pretrade.impact_eta"
+                     else "nothing clamps it, so it applies in full")
+            out.append((
+                "FATAL",
+                f"{key}={val:g} is outside [{lo:g}, {hi:g}] - it {what}, and "
+                f"{where}. The deployed value would not be the configured one. "
+                f"Fix the config rather than relying on the clamp."))
+    for key in ("pretrade.impact_eta", "pretrade.adverse_selection_kappa"):
+        raw = _f(config, key, None)
+        try:
+            if raw is not None and float(raw) == 0.0:
+                out.append((
+                    "WARN",
+                    f"{key}=0 DISABLES a cost term the entry gate weighs. "
+                    f"Legitimate as a deliberate choice, but every EV number "
+                    f"below it is then computed without that charge - confirm "
+                    f"this is intended and not a cleared field."))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def _label_cost_vs_booked_checks(config: dict) -> list:
     """THE HALF-APPLIED FEE STAGE (cut #12 adversarial review, 2026-09-08).
     Every fee cut (#9, #10, #12) moves the label cost WITH the booked
@@ -908,11 +996,13 @@ def validate(config: dict) -> list:
               f"completeness is not a tunable: entries must clear "
               f"ROUND-TRIP cost, not entry-only")
 
-    pt_impact_eta = float(_f(config, "pretrade.impact_eta", 0.8))
-    if pt_impact_eta < 0:
-        fatal(f"pretrade.impact_eta={pt_impact_eta} must be >= 0 - it "
-              f"scales the market-impact cost term; negative would PAY the "
-              f"entry for taking liquidity")
+    # pretrade.impact_eta is now owned end-to-end by _cost_stack_range_checks:
+    # it covers the negative case this block used to, ADDS the missing ceiling,
+    # and reports a non-numeric value instead of raising. The bare
+    # `float(_f(...))` that stood here raised ValueError straight out of
+    # validate() on a typo'd string, which took the WHOLE validator down - so a
+    # single bad character disabled every other FATAL check in this file. Found
+    # 2026-09-10 by the test written to assert the opposite.
 
     # label_mode coherence (2026-07-26 signal-quality task,
     # task-signalquality-brief.md): only two values are wired
@@ -942,6 +1032,7 @@ def validate(config: dict) -> list:
              f"triple-barrier labels understate cost and will mislabel "
              f"net-losing trades as wins, biasing the model to overtrade")
     findings.extend(_label_cost_vs_booked_checks(config))
+    findings.extend(_cost_stack_range_checks(config))
     if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
         fatal("ml.label_spread_cap_bps must be >= 0")
 
