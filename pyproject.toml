@@ -113,4 +113,12 @@ skips = ["B101"]
 # so a stale bridge worktree leaked 3 phantom findings back in. `.claude`
 # also holds agent/IDE tooling (hooks/, skills/) that is never in the shipped
 # deliverable and is outside the bot's attack surface — none of it is product.
-exclude_dirs = [".venv", "tests", ".worktrees", ".claude"]
+# `outputs` added 2026-09-10 for the same reason, and it was overdue: that
+# tree is GITIGNORED RUNTIME STATE plus agent scratch, so nothing in it is in
+# the shipped deliverable or the attack surface. Measured that day, the
+# documented `test_windows.bat` invocation returned rc=1 on SIX Low findings
+# (B110/B112/B404), every one of them under `outputs/reports/*/scratch/` from
+# a measurement study - a gate reading a corpus nothing ships, reddening a cut
+# whose shipped code was clean. `tests/test_ofi_feature.py` and
+# `tests/test_bracket_divergence.py` already skip `outputs` for this reason.
+exclude_dirs = [".venv", "tests", ".worktrees", ".claude", "outputs"]
