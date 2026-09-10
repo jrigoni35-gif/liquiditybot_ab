@@ -94,6 +94,15 @@ ROUTES: tuple[Route, ...] = (
     # audit trail, which the runner grows without bound, so re-measure
     # (time python scripts/order_chain_report.py) before moving it.
     Route("order_chain", "order_chain_report.py", 300),
+    # The bot's REASONING as a chain over registered reason codes: which code
+    # follows which, self-loop rates, long-run share, and a chi-square test of
+    # whether the current code predicts the next at all (so a chain that is
+    # really a histogram says so). 300s against a measured 0.60s wall over an
+    # 86k-line / 29 MB audit.jsonl (3 runs, 2026-09-10) - it scans the WHOLE
+    # audit trail, which the runner grows without bound, so this is the route
+    # to re-measure first when the panel starts running long:
+    #   time python scripts/reason_chain_report.py
+    Route("reason_chain", "reason_chain_report.py", 300),
 )
 
 # Windows: a windowless parent spawning children otherwise pops a console
