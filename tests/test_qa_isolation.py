@@ -291,3 +291,84 @@ def test_replay_rebinds_retrain_history_default(replay_prepared):
     assert not _under_outputs(rl.RETRAIN_HISTORY_PATH_DEFAULT), (
         "replay leaves ml.retrain_log.RETRAIN_HISTORY_PATH_DEFAULT at %s"
         % rl.RETRAIN_HISTORY_PATH_DEFAULT)
+
+
+# ---------------------------------------------------------------------------
+# The two singletons the CONFIG cannot carry (ninth instance of the class).
+#
+# qa_redirect_paths can only move keys that exist in a config dict. The audit
+# trail and the model registry are process-wide singletons reached through
+# core.audit.get_audit() / ml.registry.get_registry(), so every test above is
+# structurally blind to them - which is why this instance survived the eighth.
+#
+# WHY THESE PINS PLANT A BAD STATE FIRST. tests/conftest.py:81-86 redirects
+# both singletons in a session-scoped autouse fixture, so inside pytest they
+# are ALREADY safe. A test that merely asserted "the audit is not under
+# outputs/" would therefore pass whether or not scripts/replay.py ever gained
+# its fix - the exact vacuity this repo refuses. Each pin below installs a
+# production-shaped path first, asserts that control, and only then proves the
+# replay entrypoint moves it. Nothing here ever opens the real trail: the
+# planted path is a name under outputs/ that is never written.
+# ---------------------------------------------------------------------------
+
+_PROBE_AUDIT = "outputs/_qa_isolation_probe_audit.jsonl"
+_PROBE_MODELS = "outputs/_qa_isolation_probe_models"
+
+
+@pytest.fixture
+def singletons_planted():
+    """Point both singletons at production-shaped paths, restore afterwards."""
+    import core.audit as ca
+    import ml.registry as mr
+    saved_a, saved_r = ca._AUDIT, mr._REGISTRY
+    try:
+        ca._AUDIT = ca.AuditTrail(_PROBE_AUDIT, fsync=False)
+        mr._REGISTRY = mr.ModelRegistry(_PROBE_MODELS)
+        yield ca, mr
+    finally:
+        ca._AUDIT, mr._REGISTRY = saved_a, saved_r
+
+
+def test_the_planted_state_is_actually_bad(singletons_planted):
+    """Control. If this ever stops failing the two pins below go vacuous."""
+    ca, mr = singletons_planted
+    assert _under_outputs(str(ca.get_audit().path))
+    assert _under_outputs(str(mr.get_registry().dir))
+
+
+def test_replay_preparation_redirects_both_singletons(singletons_planted):
+    """THE invariant: preparing a replay config moves the singletons that no
+    config key can reach."""
+    from main import load_config
+    from scripts.replay import prepare_replay_config
+    ca, mr = singletons_planted
+    prepare_replay_config(load_config(str(ROOT / "config.json")))
+    assert not _under_outputs(str(ca.get_audit().path)), (
+        "replay left the audit singleton at %s - synthetic dispositions "
+        "would append to the production hash-chained trail"
+        % ca.get_audit().path)
+    assert not _under_outputs(str(mr.get_registry().dir)), (
+        "replay left the model registry at %s" % mr.get_registry().dir)
+
+
+def test_make_offline_recording_isolates_BEFORE_building_an_engine(
+        monkeypatch, tmp_path):
+    """Ordering matters, not just occurrence: the redirect has to happen
+    before any engine component exists, because construction itself audits.
+
+    The spy raises, so the 60-cycle recording never runs - if the call were
+    moved below the LiquidityBot construction this test would build a bot
+    (slow) and then fail on the missing exception, and if it were removed
+    entirely it fails immediately. Either way it cannot pass by accident."""
+    import scripts.replay as rp
+    import scripts.overfit_check as oc
+
+    class _Called(Exception):
+        pass
+
+    def _spy():
+        raise _Called
+
+    monkeypatch.setattr(rp, "isolate_qa_singletons", _spy)
+    with pytest.raises(_Called):
+        oc.make_offline_recording(tmp_path / "rec")
