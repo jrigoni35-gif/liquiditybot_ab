@@ -187,6 +187,12 @@ def test_control_arm_absent_from_decision_code():
             or "__pycache__" in parts
             or "tests" in parts
             or ".claude" in parts
+            # `outputs` is gitignored runtime state and agent scratch
+            # (outputs/reports/<study>/scratch/*.py). Measured 2026-09-09: a
+            # measurement study's scripts mentioning the column turned this
+            # pin red on a clean decision path - the scan was reading a
+            # corpus nothing ships. Same fix as test_ofi_feature.py.
+            or "outputs" in parts
         ):
             continue
         if path.resolve() in allow:

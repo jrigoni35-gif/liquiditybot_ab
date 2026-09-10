@@ -525,6 +525,80 @@ def _long_book_checks(config: dict) -> list:
     return out
 
 
+_ABSENT = object()
+
+
+def _era_key_absence_checks(config: dict) -> list:
+    """Era-booked keys whose ABSENCE reads a code default the era was never
+    booked at (config debug 2026-09-08; the fee-key failure class, six more
+    instances). Hoisted out of validate() on 2026-09-09 because pyright
+    stopped analysing validate() for complexity. The consumer and its silent
+    fallback, each read at HEAD on branch cut12 that day - line numbers rot,
+    the needles do not:
+      ml.label_round_trip_cost_pct  -> 0.5   ml/history.py
+          cfg.get("label_round_trip_cost_pct", 0.5)
+      order_manager.sim_fill.passive_base_prob -> 0.45
+          execution/order_manager.py sf.get("passive_base_prob", 0.45)
+          (the pre-XV-021 simulator: ~9x the measured passive fill rate)
+      order_manager.sim_fill.queue_aware -> False
+          execution/order_manager.py sf.get("queue_aware", False)
+          (flat-Poisson fills; the starvation WARN ALSO disappears)
+      position_sizer.min_ticket_usd -> 25.0  risk/position_sizer.py
+          cfg.get("min_ticket_usd", 25.0) - and 15 in this file's probe-
+          floor check: two consumers, two defaults, neither the booked $60
+      ml.exploration.size_scale -> 0.25  main.py
+          _ex.get("size_scale", 0.25) (a silent 4x probe shrink)
+      hedging.enabled -> True  execution/hedging.py
+          cfg.get("enabled", True) (the hedger, OFF since cut #11, ON again)
+    Measured 2026-09-08 BEFORE this check, shipped config: deleting any of
+    the first five -> 0 FATAL (queue_aware: 3 WARN -> 2); deleting
+    hedging.enabled -> 0 FATAL. Pinned per key, with the fee keys as the
+    positive control: tests/test_config_guard_absent_keys.py."""
+    missing = [
+        path for path in ("ml.label_round_trip_cost_pct",
+                          "order_manager.sim_fill.passive_base_prob",
+                          "order_manager.sim_fill.queue_aware",
+                          "position_sizer.min_ticket_usd",
+                          "ml.exploration.size_scale",
+                          "hedging.enabled")
+        if _f(config, path, _ABSENT) is _ABSENT]
+    if not missing:
+        return []
+    return [("FATAL",
+             f"era-booked key(s) absent from config: {', '.join(missing)}. "
+             f"Each reads a code default the accruing era was never booked "
+             f"at (core/config_guard._era_key_absence_checks names the "
+             f"consumer and its fallback), so 'the operator did not say' "
+             f"would silently become a value. State the key explicitly; "
+             f"absence is not a value.")]
+
+
+def _label_cost_vs_booked_checks(config: dict) -> list:
+    """THE HALF-APPLIED FEE STAGE (cut #12 adversarial review, 2026-09-08).
+    Every fee cut (#9, #10, #12) moves the label cost WITH the booked
+    maker+taker round trip - risk/profit_tiers.py names the hazard of a
+    stage that moves one and not the other, and until this check nothing
+    at runtime enforced it: fees 15/30 with the label left at 0.55 booted
+    clean. A label cost BELOW the booked round trip is the dangerous
+    direction (labels call net-losing trades wins); FATAL when the key is
+    explicitly present. Over-costing the label is allowed."""
+    raw = _f(config, "ml.label_round_trip_cost_pct", None)
+    if raw is None:
+        return []
+    label_cost = float(raw)
+    pt_maker = float(_f(config, "pretrade.maker_fee_bps", 25.0))
+    pt_taker = float(_f(config, "pretrade.taker_fee_bps", 40.0))
+    booked_rt_pct = (pt_maker + pt_taker) / 100.0
+    if label_cost + 1e-9 >= booked_rt_pct:
+        return []
+    return [("FATAL",
+             f"ml.label_round_trip_cost_pct={label_cost:.2f}% is below the "
+             f"BOOKED round trip {booked_rt_pct:.2f}% (pretrade "
+             f"{pt_maker:g}+{pt_taker:g} bps): a fee stage moved the fees "
+             f"and not the label cost. The four fee-derived keys move "
+             f"together (scripts/cut12_stage.py) or not at all.")]
+
+
 def validate(config: dict) -> list:
     """Pure check: returns [(severity, message), ...]. No side effects."""
     findings = []
@@ -648,6 +722,31 @@ def validate(config: dict) -> list:
               f"while other consumers substitute different fallbacks, so the "
               f"EV gate and the PnL ledger would price the same trade "
               f"differently. State the fees explicitly.")
+    # --- era-booked keys whose ABSENCE reads a default the era was never
+    # booked at (config debug 2026-09-08; the fee-key failure class above,
+    # six more instances). The consumer and its silent fallback, each read at
+    # HEAD on branch cut12 that day - line numbers rot, the needles do not:
+    #   ml.label_round_trip_cost_pct  -> 0.5   ml/history.py:2397
+    #       cfg.get("label_round_trip_cost_pct", 0.5)
+    #   order_manager.sim_fill.passive_base_prob -> 0.45
+    #       execution/order_manager.py:236 sf.get("passive_base_prob", 0.45)
+    #       (the pre-XV-021 simulator: ~9x the measured passive fill rate)
+    #   order_manager.sim_fill.queue_aware -> False
+    #       execution/order_manager.py:246 sf.get("queue_aware", False)
+    #       (flat-Poisson fills; the starvation WARN below ALSO disappears)
+    #   position_sizer.min_ticket_usd -> 25.0  risk/position_sizer.py:119
+    #       cfg.get("min_ticket_usd", 25.0) - and 15 in THIS file's probe-
+    #       floor check, _f(config, "position_sizer.min_ticket_usd", 15):
+    #       two consumers, two defaults, neither the booked $60
+    #   ml.exploration.size_scale -> 0.25  main.py:1066
+    #       _ex.get("size_scale", 0.25) (a silent 4x probe shrink)
+    #   hedging.enabled -> True  execution/hedging.py:49
+    #       cfg.get("enabled", True) (the hedger, OFF since cut #11, ON again)
+    # Measured 2026-09-08 BEFORE this block, shipped config: deleting any of
+    # the first five -> 0 FATAL (queue_aware: 3 WARN -> 2); deleting
+    # hedging.enabled -> 0 FATAL. Pinned per key, with the fee keys as the
+    # positive control: tests/test_config_guard_absent_keys.py.
+    findings.extend(_era_key_absence_checks(config))
     pt_maker = float(_f(config, "pretrade.maker_fee_bps", 25.0))
     pt_taker = float(_f(config, "pretrade.taker_fee_bps", 40.0))
     om_maker = float(_f(config, "order_manager.maker_fee_bps", 25.0))
@@ -660,6 +759,7 @@ def validate(config: dict) -> list:
         fatal(f"fee mismatch: pretrade ({pt_maker}/{pt_taker}) != "
               f"order_manager ({om_maker}/{om_taker}) - the edge gate and "
               f"the PnL ledger would disagree about costs")
+
     # THE DISCOUNT FLAG NEEDS A FLOOR OF ITS OWN.
     #
     # allow_sub_floor_fees exists so an account with a genuine volume discount
@@ -841,6 +941,7 @@ def validate(config: dict) -> list:
              f"maker round-trip {maker_rt_pct:.2f}% ({pt_maker:.0f}bps x2) - "
              f"triple-barrier labels understate cost and will mislabel "
              f"net-losing trades as wins, biasing the model to overtrade")
+    findings.extend(_label_cost_vs_booked_checks(config))
     if float(_f(config, "ml.label_spread_cap_bps", 60.0)) < 0:
         fatal("ml.label_spread_cap_bps must be >= 0")
 

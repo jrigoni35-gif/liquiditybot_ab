@@ -98,7 +98,8 @@ def test_cut9_unwound_boundary5s_runner_exit_shift_on_the_old_path():
     # 20/35 is Tier 4) moved it to 35.
     # The outcome below is computed at the explicit cost_pct=0.5 passed above
     # and does not read this key - the pin is a world-stamp, not an input.
-    assert _CFG["profit_taking"]["est_fee_bps"] == 35    # the cut, as shipped
+    # cut #12 (2026-09-08, FEE-4: the account's real Tier 5) moved it to 30.
+    assert _CFG["profit_taking"]["est_fee_bps"] == 30    # the cut, as shipped
     assert out.barrier == "tier"                         # cleared to tier 4
     assert out.label == 1
     assert abs(out.ret_pct - 2.875) < 1e-6               # full four-tier run

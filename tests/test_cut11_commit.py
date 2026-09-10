@@ -58,9 +58,14 @@ def test_the_universe_change_took_effect_in_the_engine(monkeypatch):
 # --------------------------------------------------------- the untouched
 def test_the_things_that_must_NOT_move_during_era_8_did_not():
     """Every one of these restarts the count if it moves. Values are the
-    cut-#10 world, as shipped."""
+    cut-#10 world as shipped, EXCEPT fees, which cut #12 (2026-09-08) moved
+    to the account's real Tier 5 - held there by tests/test_cut12_fees.py."""
     c = _cfg()
-    assert c["pretrade"]["maker_fee_bps"] == 20.0 and c["pretrade"]["taker_fee_bps"] == 35.0
+    # Fees moved at cut #12 (2026-09-08, FEE-4: the account's real Tier 5,
+    # 15/30) - era-8 closed there. The fee pin lives in tests/test_cut12_fees.py;
+    # here only the shape that cut #11 owns is held.
+    from core.venue_fees import is_a_published_row
+    assert is_a_published_row(c["pretrade"]["maker_fee_bps"], c["pretrade"]["taker_fee_bps"])
     assert c["ml"]["label_pt_cost_mult"] == 4.0 and c["ml"]["label_pt_vol_mult"] == 8
     assert c["ml"]["label_sl_vol_mult"] == 6 and c["ml"]["label_max_bars"] == 432
     assert c["ml"]["exploration"]["admission"]["budget"]["tokens_per_day"] == 5.0

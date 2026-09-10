@@ -73,6 +73,67 @@ It labels and points, never substitutes; primary sources always win.
 
 ---
 
+## ERA-9 BEGINS HERE — cut #12, FEE-4: the row the account holds (2026-09-08)
+
+**Operator approval, verbatim:** *"Re-book now: era-8 has 2 entries and 0
+closed trips — a boundary today resets about one day of accrual, nearly
+free, and era-8 then runs at the fees you actually pay. Yes do a reset."*
+**The fact, three routes:** Kraken-app screenshot 2026-09-08 — **Tier 5,
+30-day spot volume $69,652.65, AoP $822.24**; the venue's fee page as raw
+text (2026-09-08T20:15:29Z); `core/venue_fees.binding_row(69652.65,
+aop_usd=822.24)` → **15/30**, and the app's next-tier distances (30,348.35
+volume / 199,178.76 AoP) reproduce from the table to the cent. The booked
+20/35 was Tier 4 (cut #10's E1, on a legacy ladder — see RECENTLY SETTLED
+"FEE LADDER CORRECTED") and over-stated the round trip by 10 bps.
+**Six keys, the cut-#9/#10 cascade, nothing else:** `pretrade` +
+`order_manager` maker/taker 20/35 → **15/30**; `profit_taking.est_fee_bps`
+35 → **30**; `ml.label_round_trip_cost_pct` 0.55 → **0.45**; derived entry
+bar **0.6642 → 0.6381**; guard 0 FATAL / 3 WARN (the pre-existing three).
+No other KEY moved — universe, hedger OFF, skimmer OFF, $60 floor, budget,
+time-stop, give-back, model, heat cap 0.35. **The barrier geometry moves
+with the cost by construction** (`ml/labeling.barrier_geometry` floors σ at
+`pt_cost_mult·cost/pt_mult`; verified: label PT 220 → 180 bps, SL 165 →
+135 at σ_bar 0.10%; the live bracket likewise; BE/trail floor 76 → 66 bps;
+same `label_era`) — the cut-#9/#10 cascade shape, said this time (record
+§7 erratum). dry_run STAYS true. **Era-8 closes at this restart** — count
+it with `scripts/cohort_eval.py` THEN (staging read 23:29Z: 4 entries,
+1 closed trip; open book ETH ×1, BTC ×2, PAXG ×2 long — two of them the
+LONG BOOK's, see the ERA-8 WATCH correction). **Era-9 accrues from
+zero**; read points n=50 / n=100 as registered at cut #11; H0 ≈ −$0.27/trip
+at 45 bps, ≈ −$0.8/day at the ~3 entries/day the 5 m book showed on
+09-08 (n=50 ≈ 2–3 weeks).
+**The tier ROLLS** (Tier 3 on 08-29 → Tier 5 on 09-08, on the operator's
+real trading): re-read it at every readout with `fee_drift_report
+--volume-30d <v> --aop-usd <a>` and name the drift; never chase it
+mid-era. The runtime verifier (`order_manager.fee_recon` / OM-080) has
+never fired on this box — no credentials — so the rule is manual until
+FEE-3 is armed. Record `docs/quant/2026-09-08_cut12_fee_rebook_adjudication.md`
+(commit `10d4d0c2` = the stamp; §7 erratum from the adversarial review);
+stage `scripts/cut12_stage.py` (refuses on drift, on a TO row the reading
+does not bind, and on an incoherent cascade); pins `tests/test_cut12_fees.py`.
+
+`exec_era` is **`12-10d4d0c2`**. Built on branch `cut12`. **LIVE since
+2026-09-08T23:47:45Z — earlier than planned and not by a deliberate act:**
+the supervisor logged "runner stale/absent -> relaunching" at 23:41:21Z
+(the old runner's heartbeat starved under the cut's DoD battery plus two
+workflows' agents running pytest concurrently), the relaunched runner
+booted from the working tree — branch `cut12`, config already applied —
+took the single-instance lock (pid 6664) and printed `runner starting: …
+fees=15/30bps … resumed=True`; a second spawn at 23:45Z backed off ("peer
+runner healthy"); the old runner (pid 7808, era-8 at 20/35) stopped
+cycling at 23:46Z on the forfeited lock and had exited by 23:49Z — one
+runner, pid 6664, lock heartbeat fresh (supervisor `STALE_SEC` is 120 s on
+`status.json`'s `written_at`; that is the margin the battery ate). Every fill from that boot is
+stamped `12-10d4d0c2`. **Era-8 closed at 23:47:45Z: 4 entries, 1 closed
+trip** (`fills.csv` mtime 18:56Z; `cohort_eval` 1 wholly inside) — FINAL.
+The merged tree differs from the 23:44Z boot only in docs, tests and the
+guard's absent-key list (no behaviour); a deliberate restart on the
+merged commit follows the DoD so the era's boot line names committed
+code. Lesson filed: run a cut's DoD at below-normal priority, or expect
+the supervisor to relaunch mid-battery.
+
+---
+
 ## ERA-8 BEGINS HERE — cut #11, the COMMIT configuration (2026-09-07)
 
 **Operator objective, verbatim:** *"Make it do things that would make it have
@@ -95,25 +156,27 @@ instead; recorded and overridden with the reason. Record:
 `exec_era` is **`11-6e584923`**. Built on branch `cut11`; LIVE only after
 merge to main + runner restart (dev box: push alone restarts nothing).
 
-**ERA-8 WATCH, day 1 (2026-09-08 11:21Z; re-derive, never recall):** LIVE
-since the 09-07 15:40Z restart. **2 entries** ($67 BTC 09-07 15:50Z, $60 ETH
-09-08 05:30Z), **0 closed era-8 trips** (the two era-8-stamped exits closed
-era-7 positions — straddlers, unpoolable). **Since 09-08 02h every sizing
-pass has been vetoed, 34 of 34, on `RP-050` portfolio heat 0.37–0.39 against
-`risk.heat.max_portfolio_heat_frac` 0.35** (heat = corr-weighted open
-notional / equity; open notional ≈ $305 on $789.69: ETH `e602d04f` $47 built
-from three $15–16 adds across eras 9→10 since **08-31**, BTC `99ec3b2c` $32
-from two adds eras 9→10, PAXG short $99 era-10, plus the two era-8 tickets).
-Cap = $276 of notional; $178 of it is held by PRE-era positions; headroom
-for at most one more $60 ticket until something closes. **Consequence not
-modelled at cut #11:** the "~4 fills/day" the registration assumed was the
-$18-ticket rate. At $60 the heat cap binds at ~4 concurrent positions ×
-36–40 h holds ≈ **2–3 entries/day ceiling, 0/day while the stale positions
-sit** — n=50 reads **4–7 weeks**, not 2. Not a bug; the risk stack doing what
-it is for. The heat cap is risk-stack = COHORT-RESETTING and was NOT
-touched; whether to (a) wait, (b) adjudicate a heat-cap change as the next
-boundary, or (c) let the two pre-era positions run off first is the
-OPERATOR's call. Retrain loop healthy (auto-retrain 09:59Z, 16,688 rows,
+**ERA-8 WATCH, day 1 (2026-09-08 11:21Z — CORRECTED 23:38Z; re-derive,
+never recall):** LIVE since the 09-07 15:40Z restart. **The 11:21Z reading
+conflated two books.** The "34 of 34 sizing vetoes on `RP-050` heat" were
+the **LONG BOOK's** hourly add attempts (`LB-010`, 83 in the 24 h to 23:38Z,
+4 per hour every hour, heat 0.34–0.39 vs the 0.35 cap; `LB-000` placed 0) —
+its two positions (`book: long`: ETH `e602d04f` since 08-31, BTC `99ec3b2c`
+since 09-04; 12% thesis stops, first tier at +8%, no time stop) are the
+"pre-era positions" and hold 2 of the 5 slots and ~$78 of heat. The **5 m
+BOOK was not blocked**: 4 era-8 entries by 23:29Z (BTC $67 09-07 15:50Z,
+ETH $60 05:30Z, PAXG $68 13:50Z, PAXG $86 18:56Z — `outputs/fills.csv`, two
+routes with `cohort_eval`), 1 closed trip (ETH, tier trail 18:47Z), and 12
+vetoes of its own all day (SZ-020 cooldown ×5, SZ-043 crowded ×4, SZ-022
+×3 — not heat). **Accrual rate ≈ 3 entries/day → n=50 in ~2–3 weeks**, not
+4–7. Instrument errors that produced the morning reading, both mine: a
+needle ("sizer vetoed") matching two populations, and `events.jsonl`
+rotating at 5 MB so a "last-24 h" scan of the live file was a 55-minute
+tail (union `events.jsonl.1`). The heat cap still binds the long book's
+adds and shares the slot count with the 5 m book; the long book was in no
+cut's "untouched" list and is now an OPERATOR item (keep it inside the
+era-9 accounting, or disable it at a boundary — see OPEN DOCKET). The heat
+cap is risk-stack = COHORT-RESETTING and was NOT touched. Retrain loop healthy (auto-retrain 09:59Z, 16,688 rows,
 challenger REJECT); fill-hazard L1 regenerated by the scheduled task,
 verdict NO again (`docs/quant/2026-09-08_fill_hazard_l1.md`, untracked).
 **OPERATOR DECISION (2026-09-08), verbatim: "I'll just wait it out."** →
@@ -410,9 +473,43 @@ excerpts; it sits beside `concepts/treynor-black-alpha-isolation` §6 route 3
 the conversation it arrived in. **Any use is an invariant-3 (sole venue)
 adjudication by the operator; nothing in the bot changed.**
 
-**FEE-4 — RE-BOOK FEES TO THE ROW THE ACCOUNT ACTUALLY HOLDS (docketed
-2026-09-08, cohort-resetting, rides the next boundary):** the booked 20/35
-is Tier 4. **Inputs SUPPLIED by the operator 2026-09-08 (app screenshot,
+**LONG BOOK — OPERATOR DECISION OWED (surfaced 2026-09-08 by the config
+debug pass; cohort-resetting either way):** `long_book.enabled` is true —
+a BTC/ETH accumulation book with 12% thesis stops, tiers at +8/15/25/40%,
+no time stop, its own `ProfitTierEngine` and ladder (`main.py`
+`_long_book_cycle`). It was in NO cut's "untouched" list (#10, #11, #12)
+and is running inside era-9: its two positions (ETH since 08-31, BTC since
+09-04) hold 2 of the 5 slots and ~$78 of heat, and it attempts an add every
+hour that the heat cap denies (`LB-010` ×83 on 09-08, `LB-000` ×0). Its
+trips are not the 5 m book's trips, **and `cohort_eval` WOULD pool them:**
+`outputs/fills.csv` has a `book` column (since 09-05) that the writer
+never populates (`core/fill_ledger.py:239-249`, by design "book=None"),
+and `cohort_eval.py` does not segment by book [K, 23:40Z] — any long-book
+close during era-9 lands in the cohort. Stamp the book on the ledger
+(SAFE, provenance only) before the n=50 read, and segment. Options: (a)
+keep it and write it INTO the era-9 slot/heat accounting explicitly; (b)
+`enabled=false` at a boundary so the readable-sign book is the 5 m book
+alone — `enabled` gates only the ADD cycle (`main.py` `_long_book_cycle`
+returns at its first check), while the two open positions' exits run in
+the general exit loop (`pos.book == "long"` routes at `main.py:1829, 2005,
+2069, 2110` to the long tier engine built at `:895`) [K from the call
+sites; pin it by injection before any flip]. Do NOT lift its min ticket or
+touch its ladder mid-era. Evidence: this row; config-debug
+judge (`outputs/reports/config_debug_2026-09-08/`); ERA-8 WATCH correction.
+
+**SIGNAL-QUALITY GATE — CANDIDATE, evidence pending (2026-09-08):** the
+operator asked for "a run of number theories … see what happens when
+quality of signals are focused on" and approved the study to go beyond
+read-only. Workflow `wf_b11a8349-ceb` (8 theories + a walk-forward
+quality-focus experiment + 3 refuters) runs at filing; its record lands in
+`docs/quant/` when done. Any gate on decision-time signal quality is
+entry-decisioning = COHORT-RESETTING; it rides a boundary only with the
+study's measured evidence and the operator's go. Nothing is staged.
+
+**FEE-4 — ADOPTED AS CUT #12 (2026-09-08, `12-10d4d0c2`; see the ERA-9
+header). Kept here for the standing RULE it leaves behind:** the tier
+rolls — re-read it at every readout, book it only at a boundary. History of
+the item: the booked 20/35 was Tier 4. **Inputs SUPPLIED by the operator 2026-09-08 (app screenshot,
 vault `raw/quant/2026-09-08_kraken_fee_tier_reading.md`): Tier 5, 30-day
 spot volume $69,652.65, AoP $822.24 → binding row 15/30.** Booked 20/35
 OVER-states the round trip by 10 bps (22.2%; $0.06 per $60 ticket). The
