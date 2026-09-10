@@ -458,8 +458,16 @@ _HARD_GATES = (
     ("compileall", ["-m", "compileall", "-q", "core", "data", "execution",
                     "ml", "risk", "regime", "strategies", "sentiment", "api",
                     "main.py", "runner.py"]),
+    # `-x` mirrors pyproject.toml's exclude_dirs. This gate lagged BOTH later
+    # additions: `./.claude` (agent worktrees are checkouts of other branches)
+    # and `./outputs` (gitignored runtime state + agent scratch). Measured
+    # 2026-09-10, the equivalent invocation returned rc=1 on six Low findings
+    # that all lived under outputs/reports/, which on the deploy path is a
+    # HARD gate - a measurement study's scratch could have blocked a deploy of
+    # clean shipped code. The config carries the same list so a bare `bandit`
+    # run agrees with this one.
     ("bandit", ["-m", "bandit", "-c", "pyproject.toml", "-q", "-r", ".",
-                "-x", "./.venv,./tests"]),
+                "-x", "./.venv,./tests,./.claude,./outputs"]),
     ("smoke", ["scripts/smoke_test.py"]),
     # assurance_check contains BOTH code-dependent checks (the taker ladder
     # must stay suppressed in spoofy liquidity) and corpus-dependent ones
