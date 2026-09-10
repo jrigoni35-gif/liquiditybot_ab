@@ -22,9 +22,18 @@ defaults true; the only road to live is config + restart + a typed phrase
 at the PC console). It places limit-order entries through a sizing/risk
 stack, labels EVERY gate-confirmed signal (taken or vetoed) for learning,
 and accrues evidence toward a pre-registered strategy verdict (the cohort
-gate, n=50 honest-fill closes). The cohort accruing **now is era-6** —
-`exec_era` `9-16ec821e`, minted by cut #9, the Tier-3 fee correction of
-2026-08-30. Era-4 is CLOSED: it read out **COST_BOUND at n=54**
+gate, n=50 honest-fill closes). **Which era is accruing is not written here**
+— this passage named era-6 / `9-16ec821e` / cut #9 for three cuts after it
+stopped being true (corrected 2026-09-10; ground truth at the time was
+`12-10d4d0c2`). Read it from the code that stamps it, which cannot go stale:
+
+```
+python -c "from core.fill_ledger import EXEC_ERA; print(EXEC_ERA)"
+python scripts/cohort_eval.py        # the accruing count, per era
+```
+
+The ERA sections of `docs/HANDOFF.md` carry each era's history and its
+minting cut. Era-4 is CLOSED: it read out **COST_BOUND at n=54**
 (`docs/quant/2026-08-26_why_losing_deep_dive.md`). Model investment is
 frozen by the **2026-08-10 operator adjudication**, which carries no gate
 condition and was NOT lifted by that readout; the retrain loop itself
@@ -103,8 +112,10 @@ decision paths — knobs live in `config.json`, validated by
 
 ## The two standing fences (why your change may be refused)
 
-1. **Accrual moratorium — currently era-6** (`exec_era` `9-16ec821e`, cut
-   #9): anything that changes which orders are placed or how they fill
+1. **Accrual moratorium** (the accruing era is whatever
+   `python -c "from core.fill_ledger import EXEC_ERA; print(EXEC_ERA)"`
+   prints — this line named a stale one for three cuts, so it names none):
+   anything that changes which orders are placed or how they fill
    (entries, sizing, stop/exit geometry, fill sim, fee booking, order
    lifecycle) MINTS THE NEXT EXECUTION ERA, restarts accrual from zero,
    and needs operator adjudication FIRST. Measurement, reports, tests,
