@@ -77,6 +77,21 @@ from ml.history import (  # noqa: E402
 ADMITTED = {"entered", "capped"}
 # Blank disposition = registered but never reached a gate verdict; it is the
 # closest thing to an unconditional sample and serves as the baseline.
+#
+# THE BASELINE IS A CLOSED COHORT. It cannot grow, and an unchanged baseline
+# across two runs is the EXPECTED reading, not a stale cache. `_rows()`
+# re-reads the live CSV on every invocation - there is no caching layer - but
+# `ml/history.py`'s `register()` has stamped every candidate's default
+# disposition as the literal "confirmed" since commit 8ceb5c3a
+# (2026-07-20T16:12:14Z), so no row minted after that instant can ever land in
+# the ""-bucket. The ERA-CONFOUND GUARD directly below says the same thing
+# from the other side; it is repeated HERE, at the definition, because on
+# 2026-09-08 a session re-ran this report over a corpus that had grown by
+# thousands of rows, saw a byte-identical baseline, and spent its remaining
+# turns treating a closed cohort as an instrument defect. The explanation was
+# already in this file, eleven lines further down, and that was eleven lines
+# too far. Re-derive rather than trusting any count written here:
+#   python scripts/gate_efficacy_report.py --json
 BASELINE = ""
 
 # ERA-CONFOUND GUARD (2026-08-27, hardened 2026-08-27 fix-wave). The
