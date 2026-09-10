@@ -1213,6 +1213,13 @@ class LiquidityBot:
         self.conviction = ConvictionFormula(
             config.get("conviction", {}) or {})
         self._entry_rotation = 0            # round-robin offset, see _entry_assets
+        # Entry-sweep absorption counts (core.codes EN family). PURE
+        # OBSERVATION: incremented beside existing control flow, never consulted
+        # by it. Three of these states had no registered code at all, so the
+        # reason-code chain could not distinguish "nothing was rejected" from
+        # "everything was absorbed before the first disposition mark".
+        self._entry_absorb: dict = {}
+        self._entry_absorb_emitted = 0.0    # monotonic of the last EN-000 tick
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
         self._stop_hit: dict = {}           # position_id -> bool
@@ -1869,6 +1876,44 @@ class LiquidityBot:
             self.candidates.mark_disposition(asset, direction, code)
         except Exception:
             log.exception("candidate disposition mark failed (%s)", code)
+
+    def _absorb(self, key) -> None:
+        """Count one entry-sweep absorption. Guarded: bookkeeping never breaks
+        the entry loop, exactly as _mark_cand is guarded."""
+        try:
+            k = key.value if isinstance(key, Code) else str(key)
+            self._entry_absorb[k] = self._entry_absorb.get(k, 0) + 1
+        except Exception:              # pragma: no cover - defensive only
+            log.exception("entry-absorb count failed")
+
+    def entry_absorb_status(self) -> dict:
+        """The absorption vector for status.json. A COPY: the caller must not
+        be able to mutate the engine's counters, and StatusWriter serialises
+        whatever it is handed."""
+        return dict(self._entry_absorb)
+
+    def _emit_absorb_summary(self, now: float) -> None:
+        """One EN-000 audit record per hour carrying the whole vector.
+
+        Rate-limited on purpose. slow_cycle runs every 30 s over a 4-asset
+        universe, so a per-event record would add ~11,520 rows/day to a trail
+        that reached 87k in two months. Hourly costs 24 and still gives
+        scripts/reason_chain_report.py a durable series to build transition
+        counts from. Counters are NOT reset - the vector is cumulative for the
+        process, so a reader differences two records rather than trusting that
+        no tick was missed.
+        """
+        if not self._entry_absorb:
+            return
+        if now - self._entry_absorb_emitted < 3600.0:
+            return
+        self._entry_absorb_emitted = now
+        try:
+            get_audit().log("entry_sweep", Code.EN_SWEEP_SUMMARY,
+                            "entry-sweep absorption vector (cumulative)",
+                            dict(self._entry_absorb))
+        except Exception:              # pragma: no cover - defensive only
+            log.exception("EN-000 emit failed")
 
     def _ledger_fill(self, order, event, fees_delta: float,
                      now: float) -> None:
@@ -4518,11 +4563,15 @@ class LiquidityBot:
         # status gauge is a blind operator). The WATCHDOG block stays a
         # hard return: it trips on data quality - candidates registered
         # from suspect feeds would poison the training set.
+        # cumulative EN-000 tick; rate-limited inside, placed BEFORE the
+        # watchdog return so a sweep that never reaches the loop still reports
+        self._emit_absorb_summary(now)
         if not self.entries_enabled:
             can_enter = False
         if self.watchdog.state.entries_blocked:
             log.info(f"watchdog blocking entries: "
                      f"{self.watchdog.state.reasons}")
+            self._absorb(Code.EN_WATCHDOG_BLOCKED)   # kills the WHOLE sweep
             return
         if abs(self._equity_drift_pct) > self.max_equity_drift_pct:
             log.warning(f"equity drift {self._equity_drift_pct:+.2f}% vs "
@@ -4536,7 +4585,9 @@ class LiquidityBot:
             # Minor #10 (C4 review): book-aware - a resting LONG-book bid
             # (now living for hours, not ~25s) must not block the 5m
             # book's own entries on the same asset.
+            self._absorb("arrivals")
             if self.orders.has_open(asset, "entry", book="5m"):
+                self._absorb(Code.EN_OPEN_ENTRY)
                 continue
 
             signal = self.gates.evaluate_asset(asset, v)
@@ -4605,6 +4656,7 @@ class LiquidityBot:
                 "ts": now,
             }
             if not signal.all_confirmed or not signal.direction:
+                self._absorb(Code.EN_SIGNAL_UNCONFIRMED)
                 continue
 
             macro_state = self.macro.state(asset)

@@ -653,6 +653,33 @@ class Code(str, Enum):
                                      # crisis regime - CX-030 rides along
                                      # for the unknown case)
 
+    # ---- entry-sweep observability (EN) — main.slow_cycle entry loop ------
+    # THE HOLE THESE CLOSE. The entry loop's disposition codes start at the
+    # `capped` mark; every rejection BEFORE it left NO registered code, so the
+    # reason-code Markov chain (scripts/reason_chain_report.py) could not see
+    # them at all. Measured 2026-09-10 by line-tracing main.py: on the offline
+    # fixture 100% of candidates were absorbed at states with no code, which
+    # reads identically to "nothing was rejected". An absorbing state outside
+    # the observed alphabet is not a quiet gate, it is an invisible one.
+    #
+    # EMITTED AS A PERIODIC VECTOR, NOT PER EVENT, and the volume is why:
+    # slow_cycle runs every 30 s (poll 5 s x slow_cycle_every_n 6) over a
+    # 4-asset universe, so per-event emission would add ~11,520 records/day
+    # against a trail that took two months to reach 87k at ~1,450/day. EN-000
+    # carries the whole count vector on a rate-limited tick instead; these
+    # names are its KEYS, which is what keeps invariant 6 (a registered code,
+    # never a bare string) without drowning the trail it is meant to explain.
+    EN_SWEEP_SUMMARY = "EN-000"      # periodic entry-sweep absorption vector
+    EN_WATCHDOG_BLOCKED = "EN-010"   # slow_cycle returned before the loop:
+                                     # watchdog entries_blocked (stale data /
+                                     # venue divergence). Kills the whole
+                                     # sweep, not one asset.
+    EN_OPEN_ENTRY = "EN-020"         # asset skipped: a 5m entry order is
+                                     # already resting on it
+    EN_SIGNAL_UNCONFIRMED = "EN-030" # asset skipped: gates did not confirm or
+                                     # gave no direction. The single largest
+                                     # absorber, and the one nothing recorded.
+
 
 def tag(code: Code, detail: str) -> str:
     """Canonical 'CODE: detail' string used in reasons lists and audit. Also
