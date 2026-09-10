@@ -417,8 +417,17 @@ def make_offline_recording(tmpdir: Path) -> str:
     from data.replay import FeedRecorder
     from main import LiquidityBot, load_config
     from strategies.signal_gates import SignalResult
+    from scripts.replay import isolate_qa_singletons
     from scripts.smoke_test import (MockOKX, MockBinanceUS, MockKraken,
                                     qa_redirect_paths)
+
+    # This function CONSTRUCTS a LiquidityBot, so it carries the audit/registry
+    # redirect obligation that main() discharges at :825 - and as a LIBRARY
+    # entrypoint it did not. pytest is covered by tests/conftest.py:81's
+    # autouse fixture; the exposed caller is an ad-hoc script importing this
+    # function directly. See scripts/replay.isolate_qa_singletons for the
+    # measured contamination.
+    isolate_qa_singletons()
 
     shutil.rmtree(tmpdir, ignore_errors=True)
     tmpdir.mkdir(parents=True)

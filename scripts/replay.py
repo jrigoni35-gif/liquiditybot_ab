@@ -54,6 +54,58 @@ def set_dotted(cfg: dict, dotted: str, raw: str):
     node[keys[-1]] = val
 
 
+def isolate_qa_singletons() -> None:
+    """Point the process-wide audit + registry singletons at scratch paths.
+
+    THE HOLE THIS CLOSES. `core/audit.py:423` and `ml/registry.py:337` both
+    say QA harnesses "MUST call this before constructing any engine
+    component" - and both put that obligation on the CALLER, which makes it a
+    convention rather than a mechanism.
+
+    Be precise about who actually forgot, because the obvious suspects did
+    NOT (verified 2026-09-10, and an earlier draft of this docstring got it
+    wrong): `tests/conftest.py:81-86` redirects both singletons in a
+    session-scoped autouse fixture, so the pytest suite is covered; and all
+    four shipped script callers - `sweep.py`, `archetype_battery.py`,
+    `replay_gate.py`, `smoke_test.py` - call both functions themselves.
+
+    The exposed party is the caller that is neither: an ad-hoc analysis
+    script that imports `run_replay` / `make_offline_recording` as LIBRARY
+    functions outside pytest. Nothing warned it, and four separate call sites
+    each independently remembering the same rule is exactly the shape that
+    decays. That is how the trail below was polluted, including by this
+    session's own C5 diagnosis probes.
+
+    Measured on this tree 2026-09-10: bucketing `outputs/audit.jsonl`'s 476
+    `CG-000` session-start records by `data.starting_capital_usd` gave
+    {800: 98, 5000: 264, 10000: 114} - only 98 of 476 sessions carry the
+    production bot's capital, and 10000 is `make_offline_recording`'s own
+    literal. The chain carries 59 `prev`/`h` linkage breaks and 29
+    backward-`seq` steps, the signature of two writers with independent
+    counters appending to one file. Ninth instance of the QA-writes-production
+    class; `prepare_replay_config`'s own docstring records the eighth, and
+    `configure_audit`'s records SD-007.
+
+    A convention cannot be enforced by the module that documents it. This
+    makes it a MECHANISM: the redirect happens on the way IN, so an importer
+    cannot forget it.
+
+    Deliberately PERMANENT for the interpreter rather than restored on exit.
+    A restoring context manager would hand the singleton back to
+    `outputs/audit.jsonl` the moment the call returned, re-exposing every
+    later engine construction in the same process - and a pytest run builds
+    thousands. Permanence cannot reach the live bot: no production entrypoint
+    imports this module (`runner.py` and `main.py` mention replay only in
+    comments and via `data.replay`), and the redirect fires on CALL, never on
+    import.
+    """
+    from core.audit import configure_audit
+    from ml.registry import configure_registry
+    tmp = Path(tempfile.gettempdir())
+    configure_audit(tmp / "liqbot_replay_audit.jsonl")
+    configure_registry(tmp / "liqbot_replay_models")
+
+
 def prepare_replay_config(config: dict) -> dict:
     """Deep-copy and fully QA-isolate a config for a replay run.
 
@@ -71,6 +123,9 @@ def prepare_replay_config(config: dict) -> dict:
     missing paths to qa_redirect_paths so smoke, replay, sweep and the
     gate stay covered together.
     """
+    # the audit + model-registry singletons are NOT config-carried, so
+    # qa_redirect_paths below cannot reach them - see isolate_qa_singletons
+    isolate_qa_singletons()
     cfg = copy.deepcopy(config)
     cfg["system"]["dry_run"] = True
     cfg["system"]["record_feeds"] = False
@@ -102,6 +157,9 @@ def run_replay(config: dict, recording: str, quiet: bool = True, *,
     is byte-identical to the pre-hook behavior; pinned by
     tests/test_replay_mutate_hook.py.
     """
+    # belt and braces: prepare_replay_config already isolates, but a future
+    # edit that stops routing through it must not silently re-open the hole
+    isolate_qa_singletons()
     cfg = prepare_replay_config(config)
 
     players = load_session(recording)
@@ -152,11 +210,11 @@ def run_replay(config: dict, recording: str, quiet: bool = True, *,
 
 def main():
     # replayed bots audit their dispositions and record model lifecycle
-    # events; keep synthetic records out of the production trail/ledger
-    from core.audit import configure_audit
-    from ml.registry import configure_registry
-    configure_audit(Path(tempfile.gettempdir()) / "liqbot_replay_audit.jsonl")
-    configure_registry(Path(tempfile.gettempdir()) / "liqbot_replay_models")
+    # events; keep synthetic records out of the production trail/ledger.
+    # One source of truth so the __main__ path and the library path cannot
+    # drift to different scratch locations - they did not, but nothing
+    # stopped them.
+    isolate_qa_singletons()
     ap = argparse.ArgumentParser()
     ap.add_argument("--recording", required=True)
     ap.add_argument("--config", default="config.json")
