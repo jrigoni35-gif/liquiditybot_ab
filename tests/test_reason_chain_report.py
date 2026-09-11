@@ -140,8 +140,20 @@ def test_an_empty_corpus_is_declared_inapplicable_not_answered():
 # steady state
 # --------------------------------------------------------------------------
 
+def _ergodic_chain():
+    """Every state has outgoing mass, so a stationary distribution EXISTS.
+    _informative_chain does not qualify - B/C/D are terminal there, mass drains
+    out of the transient set and no stationary distribution over it exists."""
+    from collections import Counter as _C
+    trans = {"A": _C({"B": 70, "C": 30}),
+             "B": _C({"A": 50, "C": 50}),
+             "C": _C({"A": 20, "B": 80})}
+    exits = _C({"A": 100, "B": 100, "C": 100})
+    return trans, exits
+
+
 def test_steady_state_is_a_distribution():
-    trans, exits = _informative_chain()
+    trans, exits = _ergodic_chain()
     ss = steady_state(trans, exits)
     assert ss, "no steady state returned for a well-formed chain"
     assert abs(sum(ss.values()) - 1.0) < 1e-6, f"does not sum to 1: {sum(ss.values())}"
@@ -282,3 +294,86 @@ def test_load_transitions_returns_the_sequences_the_control_needs():
     out = load_transitions(p)
     assert "sequences" in out, "sequences dropped - the order control is dead"
     assert out["sequences"]["ETH"] == ["PT-040", "SZ-023", "PT-040"]
+
+
+# --------------------------------------------------------------------------
+# CONVERGENCE — red-team OBJ-2, conceded
+#
+# steady_state ran a FIXED 500 power iterations and published the 500th iterate
+# as "long-run" share. The live matrix has |lambda_2| = 0.996195, so 1e-12 needs
+# 7,249 iterations: the loop stopped ~6,750 short and its convergence break
+# could never fire. Three independent routes put the top shares at
+# 32.26/29.13/23.79; the shipped default printed 34.59/28.61/21.54.
+#
+# The contract is now: iterate to a criterion, or return {} as an EXPLICIT
+# UNKNOWN. Empty is never backfilled with a uniform prior - that would read as
+# "the bot spends equal time in every reason", a claim about the world made
+# from a failure of the solver.
+# --------------------------------------------------------------------------
+
+def _slow_mixing_chain():
+    """Two near-absorbing lobes joined by a thin bridge: |lambda_2| close to 1,
+    so a small iteration budget cannot reach the limit.
+
+    ASYMMETRIC on purpose. The first version of this fixture used equal bridge
+    weights, which makes the uniform start vector ALREADY the fixed point - it
+    converged on iteration 1 and the refusal test passed for the wrong reason
+    (it never had anything to refuse). Unequal weights put the start vector far
+    from the limit, which is what the test needs."""
+    from collections import Counter as _C
+    trans = {"A": _C({"A": 999, "B": 1}), "B": _C({"B": 990, "A": 10})}
+    exits = _C({"A": 1000, "B": 1000})
+    return trans, exits
+
+
+def test_a_non_converged_result_is_REFUSED_not_published():
+    """THE regression. A tight iteration cap on a slow-mixing chain must yield
+    an explicit empty, not a snapshot dressed as a limit."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=5)
+    assert out == {}, f"a 5-iteration snapshot was published as long-run: {out}"
+
+
+def test_the_same_chain_converges_when_given_the_iterations():
+    """The other half: the refusal must be about convergence, not a solver that
+    always gives up."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=200_000)
+    assert out, "the chain never converged even with the full budget"
+    assert abs(sum(out.values()) - 1.0) < 1e-9
+    # ASYMMETRIC bridge (1/1000 out of A vs 10/1000 out of B) -> A holds ~10x
+    # the long-run mass. Derived from the chain, not copied from a run:
+    # pi_A/pi_B = (B->A)/(A->B) = 10/1 exactly.
+    assert abs(out["A"] / out["B"] - 10.0) < 1e-6
+
+
+def test_an_empty_result_is_not_backfilled_with_a_uniform_prior():
+    """A uniform vector would be indistinguishable from a real answer to every
+    downstream reader. Empty must stay empty."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=3)
+    assert out == {}
+    assert not any(abs(v - 0.5) < 1e-9 for v in out.values())
+
+
+def test_the_deprecated_iters_argument_cannot_shorten_the_run():
+    """`iters` is kept for old callers but must never act as a stopping rule -
+    passing the old default of 500 must NOT reintroduce the defect."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, 500)
+    assert out, ("iters=500 was treated as a stopping rule again - that is the "
+                 "exact contract that shipped a non-converged vector")
+
+
+def test_a_DRAINING_chain_yields_an_explicit_unknown():
+    """_informative_chain's successors (B/C/D) are terminal: mass leaves the
+    transient set and never returns, so there is no stationary distribution
+    over it. The honest answer is {} - and the OLD fixed-iteration code
+    published a drained vector here instead, which is the same defect OBJ-2
+    named on the live matrix."""
+    trans, exits = _informative_chain()
+    assert steady_state(trans, exits) == {}

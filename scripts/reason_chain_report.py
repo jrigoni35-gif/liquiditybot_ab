@@ -340,12 +340,34 @@ def markov_information_test(trans: dict, exits: Counter) -> dict[str, Any]:
     }
 
 
-def steady_state(trans: dict, exits: Counter, iters: int = 500) -> dict:
-    """Long-run share of reasoning time per code, by power iteration.
+def steady_state(trans: dict, exits: Counter, iters: int = 0, *,
+                 tol: float = 1e-12, max_iters: int = 200_000) -> dict:
+    """Long-run share of reasoning time per code, iterated TO A CRITERION.
 
-    Power iteration rather than an eigensolver: the matrix is sparse, large
-    and not guaranteed irreducible, and an eigensolver would hand back a
-    complex vector for a reducible chain with no warning.
+    THE DEFECT THIS REPLACES (red-team panel OBJ-2, 2026-09-11, conceded).
+    This ran a FIXED 500 power iterations and published the 500th iterate as
+    "long-run" share. Measured on the live trail, the transition matrix has
+    |lambda_2| = 0.996195, so reaching 1e-12 needs 7,249 iterations - the loop
+    stopped roughly 6,750 short and the convergence break could never fire. The
+    published per-code figures were a non-converged snapshot presented as a
+    limit.
+
+    It now iterates until the L1 change falls under `tol`, and returns {} -
+    an EXPLICIT UNKNOWN - if `max_iters` is exhausted. Empty is never silently
+    replaced by a uniform prior, which would read as "the bot spends equal time
+    in every reason", a claim about the world made from a failure of the solver.
+    That contract is copied deliberately from `regime_chain_report._steady_state`,
+    which had it right first.
+
+    `iters` is kept as a DEPRECATED positional for callers that passed it; a
+    non-zero value is treated as a floor on max_iters, never as a stopping rule.
+
+    The old docstring justified avoiding an eigensolver on the grounds that one
+    "would hand back a complex vector for a reducible chain with no warning".
+    That was false, and falsified by this repo's own code: the sibling above
+    takes np.real, checks |lambda - 1| > 1e-6, and returns None on a defective
+    matrix. The real reason to iterate here is that this matrix is sparse and
+    grows with the code registry; it is not that the alternative is unsafe.
     """
     states = sorted(set(list(trans.keys()) + [b for s in trans.values() for b in s]))
     if not states:
@@ -353,7 +375,9 @@ def steady_state(trans: dict, exits: Counter, iters: int = 500) -> dict:
     idx = {s: i for i, s in enumerate(states)}
     n = len(states)
     v = [1.0 / n] * n
-    for _ in range(iters):
+    cap = max(int(max_iters), int(iters) if iters else 0)
+    converged = False
+    for _step in range(cap):
         nv = [0.0] * n
         for a, succ in trans.items():
             tot = exits.get(a, 0)
@@ -366,10 +390,20 @@ def steady_state(trans: dict, exits: Counter, iters: int = 500) -> dict:
         if s <= 0:
             break
         nv = [x / s for x in nv]
-        if max(abs(nv[i] - v[i]) for i in range(n)) < 1e-12:
+        if max(abs(nv[i] - v[i]) for i in range(n)) < tol:
             v = nv
+            converged = True
             break
         v = nv
+    if not converged:
+        # EXPLICIT UNKNOWN. Publishing the last iterate here is what shipped
+        # before and it is what the panel caught: a non-converged snapshot read
+        # as a limit. An empty result is rendered as "not available"; it is
+        # never backfilled with a uniform prior.
+        log.warning("steady_state did not converge in %d iterations (tol %g) - "
+                    "returning EMPTY rather than publishing a non-limit",
+                    cap, tol)
+        return {}
     return {states[i]: v[i] for i in range(n)}
 
 
