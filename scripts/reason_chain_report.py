@@ -313,7 +313,10 @@ def permutation_order_test(sequences: dict, n_perm: int = 200,
     Deterministic seed: a report that prints a different verdict on each run is
     not a measurement.
     """
-    rng = random.Random(seed)
+    # nosec B311 - a permutation NULL for a statistical test, not a
+    # security primitive. The seed is fixed deliberately: a report that
+    # prints a different verdict on each run is not a measurement.
+    rng = random.Random(seed)  # nosec B311
     obs_trans, obs_exits = _transitions_from(sequences)
     observed, tested = _chi2_total(obs_trans, obs_exits)
     if tested == 0:
