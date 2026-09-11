@@ -5,8 +5,15 @@ registered reason codes (SAFE class, report-only).
 WHAT THIS IS. Invariant 6 requires a registered reason code on every
 disposition, and `core/codes.py` is the registry. That makes the bot's
 reasoning a DISCRETE STATE SPACE that is already fully instrumented and
-hash-chained: 201 registered codes, and the audit trail records which fired,
-in order, with `seq`. Every other learning instrument here reads OUTCOMES —
+hash-chained: the audit trail records which code fired, in order, with `seq`.
+
+(The registry SIZE is deliberately NOT written here. This docstring said "201
+registered codes" while `registered_codes()` returned 206 twelve lines later -
+red-team OBJ-9, conceded. A count in a docstring decays the day someone adds a
+code, which is the exact recurrence CLAUDE.md names; the report emits
+`len(registered_codes())` at runtime, so read it there.)
+
+Every other learning instrument here reads OUTCOMES —
 did the trade win, did the order fill, what regime were we in. This one reads
 WHY: given the engine just emitted this reason, which reason comes next?
 

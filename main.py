@@ -1908,11 +1908,24 @@ class LiquidityBot:
 
         Rate-limited on purpose. slow_cycle runs every 30 s over a 4-asset
         universe, so a per-event record would add ~11,520 rows/day to a trail
-        that reached 87k in two months. Hourly costs 24 and still gives
+        that reached 87k in two months. Hourly costs 24. Counters are NOT reset
+        - the vector is cumulative for the process, so a reader DIFFERENCES two
+        records rather than trusting that no tick was missed.
+
+        WHAT THIS IS NOT FOR, corrected 2026-09-11 (red-team OBJ-8, conceded).
+        The commit that added this claimed it "gives
         scripts/reason_chain_report.py a durable series to build transition
-        counts from. Counters are NOT reset - the vector is cumulative for the
-        process, so a reader differences two records rather than trusting that
-        no tick was missed.
+        counts from". It does not, and cannot. That report builds transitions
+        from SEQUENCES of `code` fields; EN-010/020/030 are never emitted as
+        their own records, they exist only as KEYS INSIDE this vector, and a
+        cumulative count snapshot cannot yield a transition no matter who reads
+        it. Verified: zero EN codes appear anywhere in the report's corpus.
+
+        The consumers this DOES serve are status.json `entry_absorb` (the live
+        gauge, per-instance) and core/code_stats (the process tally behind
+        by_prefix and the exported liquiditybot_code_count). Differencing two
+        EN-000 records gives a rate over the interval between them - that is
+        the durable series, and it is a rate, not a chain.
         """
         if not self._entry_absorb:
             return

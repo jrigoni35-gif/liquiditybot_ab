@@ -15,7 +15,12 @@ a brick, not a gate. The invariant is MONOTONE ARMING — a family that arms
 today must not stop arming tomorrow.
 
 WHY A SET AND NOT A COUNT. Measured 2026-09-10: two runs about an hour apart
-reported 3 then 4 armed, because `dof: not starved` armed as the corpus grew
+reported 3 then 4 armed. (The CAUSE was mis-attributed to `dof: not starved`
+arming as the corpus grew - red-team OBJ-14, conceded. `dof` calls check()
+unconditionally so it is ALWAYS armed and has no dark state; the observation
+stands, the mechanism does not, and the runs are gone. The derivable
+fragility is `pbo`, evidence-gated at min_live_rows=60 against a measured
+n_live=63 - a three-row margin.)  The original text continued: as the corpus grew
 past its rows-per-feature floor. A hardcoded count was stale within the hour;
 a set names WHICH families, so growth reads as NEWLY ARMED rather than drift.
 """
@@ -196,3 +201,62 @@ def test_expected_families_are_bare_keys_not_full_names():
     would never match armed_families() and the ratchet would silently pass."""
     for fam in EXPECTED_ARMED:
         assert ":" not in fam and fam == fam.strip() and fam
+
+
+# --------------------------------------------------------------------------
+# CORPUS ABSENT != SILENT SUBSTITUTION — red-team OBJ-13, conceded
+#
+# test_windows.bat:57 vetoes on ANY non-zero exit, so returning 4 on a tree with
+# no corpus at all printed "OVERFIT GATES FAILED - do not arm" for every
+# worktree-resident agent, with zero defect in the code. That is a permanently
+# red gate, which this module's own docstring calls a brick rather than a gate.
+#
+# The hazard exit 4 exists for is a corpus that EXISTS and got silently swapped
+# out under the row floor - something was there and nobody chose to ignore it.
+# Nothing was substituted when there is nothing to substitute.
+# --------------------------------------------------------------------------
+
+_OK_REPORT = [("PASS", "shuffle", ""), ("PASS", "pbo", ""),
+              ("PASS", "purge", ""), ("PASS", "dof", "")]
+_EXPECTED = {"shuffle", "pbo", "purge", "dof"}
+
+
+def _quiet(*_a, **_k):
+    return None
+
+
+def test_an_absent_corpus_does_not_brick_the_gate():
+    from scripts.overfit_check import arming_exit_code
+    rc = arming_exit_code(_OK_REPORT, _EXPECTED, 0, _quiet,
+                          on_synthetic=True, forced_synthetic=False,
+                          corpus_absent=True)
+    assert rc == 0, (
+        "a tree with no corpus exits non-zero, so every worktree agent reads "
+        "OVERFIT GATES FAILED with nothing wrong")
+
+
+def test_a_THIN_corpus_still_vetoes():
+    """The other half. If this ever returns 0 the silent-substitution hazard is
+    unguarded again, and that is the case exit 4 was created for."""
+    from scripts.overfit_check import arming_exit_code
+    rc = arming_exit_code(_OK_REPORT, _EXPECTED, 0, _quiet,
+                          on_synthetic=True, forced_synthetic=False,
+                          corpus_absent=False)
+    assert rc == 4
+
+
+def test_an_absent_corpus_cannot_mask_a_real_failure():
+    """Precedence must hold: something measured and said no outranks an
+    environment note."""
+    from scripts.overfit_check import arming_exit_code
+    rc = arming_exit_code(_OK_REPORT, _EXPECTED, 1, _quiet,
+                          on_synthetic=True, forced_synthetic=False,
+                          corpus_absent=True)
+    assert rc == 1
+
+
+def test_forced_synthetic_is_still_deliberate_and_green():
+    from scripts.overfit_check import arming_exit_code
+    assert arming_exit_code(_OK_REPORT, _EXPECTED, 0, _quiet,
+                            on_synthetic=True, forced_synthetic=True,
+                            corpus_absent=False) == 0

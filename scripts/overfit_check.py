@@ -129,7 +129,8 @@ def armed_families(report) -> set:
 
 def arming_exit_code(report, expected, fail_n: int, emit=print, *,
                      on_synthetic: bool = False,
-                     forced_synthetic: bool = False) -> int:
+                     forced_synthetic: bool = False,
+                     corpus_absent: bool = False) -> int:
     """0 green, 1 a gate FAILED, 3 arming REGRESSED, 4 SILENT synthetic.
 
     Pure (given `emit`) so the policy is unit-testable rather than only
@@ -144,6 +145,17 @@ def arming_exit_code(report, expected, fail_n: int, emit=print, *,
          is DELIBERATE (CI runs it on purpose) and stays green; the
          under-the-row-floor fallback is the one nobody chose.
       3  arming regressed - a family that fired before did not this run.
+
+    CORPUS ABSENT IS NOT A SILENT SUBSTITUTION (red-team OBJ-13, conceded).
+    `test_windows.bat:57` vetoes on ANY non-zero, so returning 4 on a tree with
+    no corpus AT ALL printed "OVERFIT GATES FAILED - do not arm" for every
+    worktree-resident agent, with zero defect in the code - a permanently red
+    gate, which this same docstring elsewhere calls a brick rather than a gate.
+    The hazard 4 exists for is a corpus that EXISTS and was silently swapped
+    out because it fell under the row floor: something was there, and nobody
+    chose to ignore it. An absent corpus is an ENVIRONMENT, reported loudly and
+    exiting 0 - the battery still validated the machinery, and there was nothing
+    to be silent about.
 
     The synthetic case was found by an adversarial audit re-testing the
     EXPECTED_ARMED ratchet added minutes earlier and showing it did NOT
@@ -162,6 +174,11 @@ def arming_exit_code(report, expected, fail_n: int, emit=print, *,
     if fail_n:
         return 1
     if on_synthetic:
+        if not forced_synthetic and corpus_absent:
+            emit("  ^^ NO CORPUS on this tree - the battery validated the "
+                 "MACHINERY, not the market. Not a defect and not a silent "
+                 "substitution: there was nothing to substitute. Exit 0.")
+            return 1 if fail_n else 0
         if not forced_synthetic:
             emit("  ^^ SILENT SYNTHETIC SUBSTITUTION: the corpus fell under "
                  "the row floor and the battery scored the planted-signal "
@@ -1390,8 +1407,28 @@ def main() -> int:
     #
     # WHY A SET AND NOT A COUNT, and why a ratchet and not a target:
     #   * a count goes stale immediately - measured this session, two runs
-    #     ~1h apart reported 3 then 4 armed, because `dof: not starved`
-    #     armed as the corpus grew past its rows/feature floor;
+    #     ~1h apart reported 3 then 4 armed.
+    #
+    #     THE CAUSE WAS MIS-ATTRIBUTED (red-team OBJ-14, conceded). The
+    #     original text blamed `dof: not starved` arming as the corpus grew
+    #     past its rows/feature floor. It cannot have been: `check("dof: not
+    #     starved...")` runs UNCONDITIONALLY at the OF-7 site, so it always
+    #     emits PASS or FAIL and is therefore ALWAYS armed - it has no dark
+    #     state to come out of. The 3->4 OBSERVATION stands; the mechanism
+    #     named for it does not, and the original runs are gone so it is not
+    #     now re-derivable. Recorded as un-derived rather than replaced with a
+    #     second guess.
+    #
+    #     THE FRAGILITY THAT IS derivable, and matters more: `pbo` IS
+    #     evidence-gated on live rows. Measured 2026-09-11, n_live = 63
+    #     against a min_live_rows floor of 60 - a THREE-ROW margin. An era
+    #     reset or a label-era migration that drops four rows takes `pbo`
+    #     dark, this ratchet returns 3, and test_windows.bat vetoes on a
+    #     corpus movement rather than a code defect. That is a gate whose
+    #     release condition depends on something the change under test does
+    #     not control, and it is the shape CLAUDE.md warns about in four
+    #     separate incidents. Watch it; do not silently drop `pbo` from the
+    #     set to clear a red - that is the widening this file forbids.
     #   * demanding all seven arm would exit non-zero today and stay there
     #     until the corpus and the conviction-trade count grow, which is a
     #     brick, not a gate. OF-5 is documented UNPASSABLE at N=7.
@@ -1402,7 +1439,8 @@ def main() -> int:
     # lowering a floor").
     return arming_exit_code(REPORT, EXPECTED_ARMED, FAIL_N,
                             on_synthetic=on_synthetic,
-                            forced_synthetic=bool(args.force_synthetic))
+                            forced_synthetic=bool(args.force_synthetic),
+                            corpus_absent=not Path(hist_path).exists())
 
 
 if __name__ == "__main__":
