@@ -863,7 +863,31 @@ def deflated_sharpe(sr_observed: float, n_returns: int, skew: float = 0.0,
         return {"dsr": None, "reason": "track too short"}
     trials = max(int(n_trials), 1)
     if var_trial_sr is None:
-        var_trial_sr = max(sr_observed ** 2, 0.01)
+        # V is the VARIANCE OF SR ACROSS TRIALS, and it is unidentified here -
+        # no ledger records per-trial SR. The fallback until 2026-09-11 was
+        # max(sr_observed**2, 0.01), which is not a null dispersion at all: it
+        # sets sqrt(V) = |SR|, so sr0 = k(N)*|SR| becomes PROPORTIONAL TO THE
+        # STATISTIC BEING TESTED. Two consequences, both measured:
+        #
+        #   * for every N >= 4, k(N) >= 1, so sr0 >= |SR| for any sample and
+        #     DSR < 0.5 always - OF-5's `dsr >= 0.90` was unsatisfiable by
+        #     construction (exhaustive sweep, 518,616 combinations, 0 passing);
+        #   * worse, it is INVERTED. At n=30, N=7 the old fallback scored
+        #     SR 0.20 -> DSR 0.340, SR 0.50 -> 0.163, SR 0.75 -> 0.084. A
+        #     BETTER track scored WORSE. That is a sign error in behaviour, not
+        #     a conservative choice.
+        #
+        # The principled null substitute is the SAMPLING VARIANCE of a Sharpe
+        # estimate under H0: Var(SR_hat) ~ (1 + SR^2/2)/n -> 1/n as SR -> 0.
+        # Under the null the trial SRs ARE that dispersion, so 1/n is what the
+        # deflation should scale by when the trials were not recorded.
+        # Restores monotonicity (n=30, N=7: SR 0.30 -> 0.597, 0.50 -> 0.895,
+        # 0.75 -> 0.991) and leaves the 0.90 gate untouched - the bar did not
+        # move, it became meetable by evidence instead of by nothing.
+        #
+        # Pass `var_trial_sr` explicitly the moment a trial ledger records
+        # per-trial SR; a measured dispersion beats any null substitute.
+        var_trial_sr = 1.0 / max(n, 1)
     # expected max SR under H0 across `trials` tries — Bailey & LdP's own
     # form: sqrt(V)*[(1-gamma)*Z^-1(1-1/N) + gamma*Z^-1(1-1/(N*e))] with
     # exact inverse-normal quantiles. The previous sqrt(2 ln N)

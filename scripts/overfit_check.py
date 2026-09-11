@@ -96,7 +96,7 @@ REPORT: list = []
 # conviction floor and documented unpassable at N=7). Add a family when it
 # starts arming - the script prints NEWLY ARMED to prompt exactly that. Never
 # remove one to get green; that is the widening CLAUDE.md forbids.
-EXPECTED_ARMED = {"shuffle", "pbo", "purge", "dof"}
+EXPECTED_ARMED = {"shuffle", "pbo", "purge", "dof", "dsr"}
 
 
 def check(name: str, ok: bool, detail: str = ""):
@@ -746,54 +746,60 @@ def resolve_dsr_trials(configured: int, ledger_path) -> tuple:
     p = _P(ledger_path)
     if not p.exists():
         return configured, (f"OF-5 trials: assumed N={configured} "
-                            f"(no ledger at {p}; var=SR^2 fallback)")
+                            f"(no ledger at {p}; var=1/n null fallback)")
     try:
         m = measured_trials(read_ledger(p))
     except (OSError, ValueError) as e:
         return configured, (f"OF-5 trials: ledger INVALID or unreadable "
                             f"({e}); assumed N={configured}, "
-                            f"var=SR^2 fallback")
+                            f"var=1/n null fallback")
     measured = int(m["n_trials"])
     if measured > configured:
         return measured, (f"OF-5 trials: measured N={measured} from ledger "
-                          f"({m['by_source']}); var=SR^2 fallback (v0.1)")
+                          f"({m['by_source']}); var=1/n null fallback (v0.1)")
     return configured, (f"OF-5 trials: measured N={measured} < configured; "
                         f"ratchet holds configured {configured}")
 
 
-def dsr_gate_reachable(n_trials: int, gate: float = 0.90) -> tuple:
+def dsr_gate_reachable(n_trials: int, gate: float = 0.90,
+                       n_returns: int = 30) -> tuple:
     """Is OF-5's `dsr >= gate` ATTAINABLE AT ALL at this trial count?
 
-    deflated_sharpe's default nuisance parameter is
-    `var_trial_sr = max(sr_observed**2, 0.01)` (ml/overfit.py:866) — the
-    dispersion of SR ACROSS trials is UNIDENTIFIED here (no ledger
-    records per-trial SR), so the code substitutes the observed SR
-    itself. That substitution makes the rejection threshold PROPORTIONAL
-    to the statistic being tested:
+    IT WAS NOT, AND THE CAUSE IS NOW FIXED AT SOURCE (2026-09-11). The
+    unidentified nuisance parameter `var_trial_sr` - the dispersion of SR
+    ACROSS trials, which no ledger records - used to fall back to
+    `max(sr_observed**2, 0.01)`. That set sqrt(V) = |SR|, making the rejection
+    threshold PROPORTIONAL to the statistic under test:
 
-        sr0 = k(N) * |SR|,  k(N) = (1-g)Z'(1-1/N) + g*Z'(1-1/(N e))
+        sr0 = k(N) * |SR|,   k(N) crossing 1.0 between N=3 and N=4
 
-    and k(N) crosses 1.0 between N=3 and N=4. For every N >= 4 the
-    threshold therefore EXCEEDS the observed SR no matter how large that
-    SR is, z < 0, and DSR < 0.5 < gate — the gate cannot be passed by any
-    sample. At the shipped default N=7 an exhaustive sweep of 518,616
-    (SR, n, skew, kurtosis) combinations found 0 passing and a maximum
-    attainable DSR of 0.4262 (2026-08-31).
+    so for every N >= 4, sr0 >= |SR| for ANY sample, z <= 0, DSR < 0.5 < gate.
+    An exhaustive sweep of 518,616 (SR, n, skew, kurtosis) combinations found 0
+    passing and a maximum attainable DSR of 0.4262 (2026-08-31). Worse, it was
+    INVERTED - a larger observed SR produced a SMALLER DSR.
 
-    Returns (reachable, k, max_dsr_bound). Report-only: this NEVER
-    changes the threshold or the verdict — it lets the run SAY that a
-    green is unreachable instead of a reader mistaking a deferred gate
-    for a satisfied one. The real repair is a var_trial_sr measured from
-    a trial ledger that records per-trial SR (v0.1 records none), which
-    is a decision this file must not make on its own."""
+    `ml.overfit.deflated_sharpe` now falls back to the SAMPLING VARIANCE of a
+    Sharpe estimate under H0, Var(SR_hat) -> 1/n, so sr0 = k(N)/sqrt(n) no
+    longer depends on the statistic. The gate is reachable, monotone in SR, and
+    the 0.90 bar is UNCHANGED - it became meetable by evidence, not lowered.
+
+    Returns (reachable, k, sr0). `k` is the pure trial-count multiplier,
+    obtained by passing var_trial_sr=1.0 so sqrt(V)=1 - the old code inferred
+    it by passing SR=1.0, a trick that only worked because of the very fallback
+    being replaced, and that would now silently return sr0 mislabelled as k.
+    """
+    import math
+
     from ml.overfit import deflated_sharpe
-    k = deflated_sharpe(1.0, 1000, n_trials=max(int(n_trials), 1)
-                        )["sr0_threshold"]
-    if k < 1.0:
-        return True, k, None
-    # k>=1 => sr0 >= |SR| for every |SR| >= 0.1 (the 0.01 var floor), and
-    # for |SR| < 0.1 the floor pins sr0 = 0.1*k > |SR|. Either way z <= 0.
-    return False, k, 0.5
+    N = max(int(n_trials), 1)
+    n = max(int(n_returns), 3)
+    k = deflated_sharpe(1.0, 1000, n_trials=N,
+                        var_trial_sr=1.0)["sr0_threshold"]
+    sr0 = deflated_sharpe(0.0, n, n_trials=N)["sr0_threshold"]
+    # With sr0 independent of SR, some attainable SR clears it: reachable.
+    # Guard the pathological case anyway rather than asserting it.
+    probe = deflated_sharpe(sr0 + 10.0 / math.sqrt(n), n, n_trials=N)["dsr"]
+    return (probe is not None and probe >= gate), k, sr0
 
 
 def dsr_verdict(name: str, dsr: float, detail: str, reachable: bool,
@@ -820,12 +826,30 @@ def dsr_verdict(name: str, dsr: float, detail: str, reachable: bool,
     treating what a gate was meant to prove as UNPROVEN rather than proven
     either way.
 
-    SELF-HEALING BY CONSTRUCTION. Reachability is recomputed every run from
-    dsr_gate_reachable(), not from a date or a constant someone must
-    remember. The moment a trial ledger records per-trial SR, var_trial_sr
-    stops being the SR^2 fallback, k drops below 1, and this gate arms and
-    grades normally with no edit here. Until then it abstains loudly, and
-    the abstention names the repair rather than the symptom.
+    THE CAUSE IS NOW FIXED, SO THIS GRADES AGAIN (2026-09-11, operator
+    decision: "replace the threshold"). The abstention was the right answer to
+    an unsatisfiable predicate, but it left a PRE-REGISTERED rung out of the
+    exit code, which is a different and worse problem - red-team OBJ-15. The
+    repair went to the root: `ml.overfit.deflated_sharpe`'s unidentified
+    var_trial_sr no longer falls back to max(SR**2, 0.01) - which made sr0
+    proportional to the statistic under test, and was INVERTED besides (at
+    n=30, N=7 it scored SR 0.20 -> DSR 0.340 but SR 0.75 -> 0.084) - but to
+    the sampling variance of a Sharpe estimate under H0, Var(SR_hat) -> 1/n.
+
+    sr0 = k(N)/sqrt(n) is now independent of the statistic, reachability
+    recomputes to True, and this branch grades normally with the 0.90 bar and
+    the n=30 floor BOTH UNCHANGED. At n=30, N=7 the gate now needs a per-trip
+    Sharpe near 0.5-0.75 to pass: demanding, attainable, and monotone in the
+    right direction.
+
+    SELF-HEALING BY CONSTRUCTION, and it healed. Reachability is recomputed
+    every run from dsr_gate_reachable(), never from a date or a remembered
+    constant, so this re-armed itself the moment the fallback changed - no
+    edit in this function. The abstention path stays as the guard it was: if a
+    future change makes the acceptance region empty again, OF-5 says so rather
+    than failing forever. A measured per-trial SR dispersion still beats the
+    null substitute; pass var_trial_sr explicitly when a trial ledger records
+    one.
 
     Returns "graded" or "abstained" so callers and tests can assert which.
     """
