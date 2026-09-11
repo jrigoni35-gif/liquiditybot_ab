@@ -70,6 +70,7 @@ def test_the_shipped_config_has_no_fatal_findings(shipped):
     ("maker_fill_p0", 0.01, 1.0),
     ("p_fill_floor", 0.001, 1.0),
     ("impact_eta", 0.0, 5.0),
+    ("miss_cost_bps", 0.0, 20.0),
 ])
 def test_every_shipped_value_is_interior_to_its_window(shipped, key, lo, hi):
     """Non-vacuous coverage: the key must EXIST and sit inside its bounds. If a
@@ -92,6 +93,8 @@ def test_every_shipped_value_is_interior_to_its_window(shipped, key, lo, hi):
     ("p_fill_floor", -0.5, "a negative probability floor"),
     ("impact_eta", 8.0, "the decimal slip: 8.0 typed for 0.8"),
     ("impact_eta", -1.0, "negative would PAY for taking liquidity"),
+    ("miss_cost_bps", 999.0, "red-team OBJ-16: silently became 20.0"),
+    ("miss_cost_bps", -1.0, "a negative opportunity cost"),
 ])
 def test_a_value_outside_its_window_is_FATAL(shipped, key, val, why):
     hits = _fatals(_with(shipped, key, val), key)
@@ -138,3 +141,33 @@ def test_the_warning_says_what_is_lost(shipped):
     msg = _warns(_with(shipped, "impact_eta", 0.0), "impact_eta")[0]
     assert "DISABLES" in msg
     assert "cost term" in msg
+
+
+# --------------------------------------------------------------------------
+# THE META-PIN — red-team OBJ-16
+#
+# The first cut of this guard covered THREE of the four knobs that
+# execution/pretrade.py silently clamps. Adding the fourth by hand fixes today
+# and not tomorrow: a fifth clamp added to pretrade.py would be missed exactly
+# the same way. This reads the clamps out of the SOURCE and requires the guard
+# to cover every one, so the omission cannot recur silently.
+# --------------------------------------------------------------------------
+
+def test_every_clamped_pretrade_knob_is_guarded():
+    import re
+
+    src = (REPO_ROOT / "execution" / "pretrade.py").read_text(encoding="utf-8")
+    # self.X = min(max(float(cfg.get("KEY", ...)), LO), HI)
+    pat = re.compile(
+        r"min\(\s*max\(\s*float\(\s*cfg\.get\(\s*[\"']([A-Za-z0-9_]+)[\"']",
+        re.S)
+    clamped = set(pat.findall(src))
+    assert clamped, "no clamped knobs found - the scan broke, it did not pass"
+
+    guard = (REPO_ROOT / "core" / "config_guard.py").read_text(encoding="utf-8")
+    missing = [k for k in sorted(clamped)
+               if f'"pretrade.{k}"' not in guard]
+    assert not missing, (
+        "execution/pretrade.py silently clamps these, and core/config_guard.py "
+        "does not refuse an out-of-range value for them - so a typo is "
+        "rewritten instead of reported: " + ", ".join(missing))

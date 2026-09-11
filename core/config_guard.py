@@ -626,6 +626,14 @@ def _cost_stack_range_checks(config: dict) -> list:
          "floors that fill probability so EV can never divide by zero"),
         ("pretrade.impact_eta", 0.0, 5.0,
          "scales the square-root market-impact cost term"),
+        # Added 2026-09-11 (red-team OBJ-16, conceded). execution/pretrade.py
+        # :113-114 clamps this to [0.0, 20.0] exactly like the three above, and
+        # the first cut of this guard covered three of the four. Injected to
+        # confirm before fixing: miss_cost_bps=999 produced ZERO findings and
+        # the gate ran at 20.0. Three of four is the shape that reads as
+        # coverage and is not.
+        ("pretrade.miss_cost_bps", 0.0, 20.0,
+         "prices the opportunity cost of NOT filling, inside the same EV gate"),
     ]
     for key, lo, hi, what in clamped:
         raw = _f(config, key, None)
