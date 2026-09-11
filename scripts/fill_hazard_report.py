@@ -497,6 +497,18 @@ def render_report(cfg_view: dict, rows: list, stats: dict,
         f" `polling_interval_sec={cfg_view['polling_interval_sec']}` ->"
         f" horizon T={T} polls; `queue_aware="
         f"{cfg_view['queue_aware']}`.",
+        "- **NO IS NOT 'THE SIM IS SOUND'.** NO means this test could not"
+        " show the constant comparator misstates F(T) by more than the"
+        " threshold, on this corpus, at this power. It is a failure to"
+        " reject, not evidence of absence - reading it as a clean bill of"
+        " health affirms the null (red-team OBJ-4, conceded: a commit"
+        " message did exactly that). DEFERRED is the explicit underpowered"
+        " verdict; NO carries power but still only BOUNDS the misstatement.",
+        "- **CONSECUTIVE RUNS ARE NOT INDEPENDENT.** These reports read a"
+        " ROLLING WINDOW over one recording store: the 2026-09-08 and"
+        " 2026-09-10 runs shared 7 of their 9 days. Two agreeing reports are"
+        " close to one fit seen twice, and must not be cited as mutual"
+        " corroboration.",
         f"- verdict rule: YES iff rel misstatement of F(T) >"
         f" {REL_MISSTATE_MAX:.0%} AND LR p < {ALPHA}; the constant"
         " comparator is the BEST-FIT constant hazard (shape test — the"

@@ -55,10 +55,21 @@ def _live_era() -> str:
     return str(EXEC_ERA)
 
 
+# Root-level prose that is NOT under docs/ but is read at least as often.
+# CLAUDE.md is the important one: red-team OBJ-10, conceded - it is loaded into
+# EVERY session, it is the file whose own parenthetical says "a number written
+# into it decays into a false claim", and this scanner could not see it because
+# the corpus was docs/**/*.md. The file most exposed to the defect was the one
+# file exempt from the check for it.
+_ROOT_DOCS = ("CLAUDE.md", "README.md", "AGENTS.md")
+
+
 def _doc_files() -> list[Path]:
-    if not DOCS.is_dir():
-        return []
-    return sorted(p for p in DOCS.rglob("*.md") if p.is_file())
+    out = []
+    if DOCS.is_dir():
+        out += [p for p in DOCS.rglob("*.md") if p.is_file()]
+    out += [REPO_ROOT / n for n in _ROOT_DOCS if (REPO_ROOT / n).is_file()]
+    return sorted(set(out))
 
 
 # Prose WRAPS. The defect this file exists for had the currency phrase and the
@@ -70,6 +81,11 @@ def _doc_files() -> list[Path]:
 # control test, not by review. Two lines of lookahead covers markdown wrapping
 # at any sane column without reaching into an unrelated paragraph.
 _LOOKAHEAD = 2
+# Prose wraps BOTH ways. The motivating defect happened to put the literal
+# AFTER the currency phrase, so the first cut looked only forward - but
+# "`exec_era` `9-16ec821e` is the cohort accruing now" wraps the other way and
+# was invisible (red-team OBJ-10). Symmetric window, same span.
+_LOOKBEHIND = 2
 
 
 def _stale_currency_claims(live: str, files=None) -> list[str]:
@@ -83,7 +99,8 @@ def _stale_currency_claims(live: str, files=None) -> list[str]:
         for n, line in enumerate(lines, 1):
             if not CURRENCY.search(line):
                 continue
-            window = " ".join(lines[n - 1:n - 1 + 1 + _LOOKAHEAD])
+            lo = max(0, n - 1 - _LOOKBEHIND)
+            window = " ".join(lines[lo:n - 1 + 1 + _LOOKAHEAD])
             seen: set = set()
             for era in ERA_LITERAL.findall(window):
                 if era != live and era not in seen:
@@ -179,3 +196,50 @@ def test_the_scan_actually_reaches_the_docs_tree():
     assert len(files) > 20, f"only {len(files)} docs scanned"
     names = {p.name for p in files}
     assert {"ONBOARDING.md", "HANDOFF.md"} <= names
+
+
+# --------------------------------------------------------------------------
+# CORPUS + DIRECTION — red-team OBJ-10, conceded
+# --------------------------------------------------------------------------
+
+def test_the_scan_actually_reaches_CLAUDE_md():
+    """The file loaded into every session, and the one whose own parenthetical
+    says a number written into it decays into a false claim, was EXEMPT from
+    the check for exactly that. Non-vacuity: assert it is in the corpus, not
+    merely that the suite is green."""
+    names = {p.name for p in _doc_files()}
+    assert "CLAUDE.md" in names, "the law file is not scanned for stale eras"
+
+
+def test_a_stale_era_in_CLAUDE_md_would_be_caught(tmp_path):
+    """Injection against the real shape: CLAUDE.md's accrual section pairs a
+    currency phrase with an exec_era literal."""
+    d = tmp_path / "CLAUDE.md"
+    d.write_text(
+        "## Accrual moratorium\n"
+        "The cohort accruing now is `9-16ec821e`, minted by cut #9.\n",
+        encoding="utf-8")
+    assert _stale_currency_claims("12-10d4d0c2", files=[d])
+
+
+def test_a_literal_BEFORE_the_currency_phrase_is_caught(tmp_path):
+    """Prose wraps both ways. The first cut looked only FORWARD, so a line
+    reading '`exec_era` `9-16ec821e` / is the cohort accruing now' was
+    invisible - the same defect class the file exists for, mirrored."""
+    d = tmp_path / "doc.md"
+    d.write_text(
+        "the stamp is `exec_era` `9-16ec821e`\n"
+        "and that is the cohort accruing now on this box.\n",
+        encoding="utf-8")
+    hits = _stale_currency_claims("12-10d4d0c2", files=[d])
+    assert hits, "a backward-wrapped stale claim was missed"
+
+
+def test_the_live_era_before_the_phrase_is_still_allowed(tmp_path):
+    """The widened window must not manufacture false positives."""
+    d = tmp_path / "doc.md"
+    d.write_text(
+        "the stamp is `exec_era` `12-10d4d0c2`\n"
+        "and that is the cohort accruing now.\n",
+        encoding="utf-8")
+    assert not _stale_currency_claims("12-10d4d0c2", files=[d])
