@@ -185,7 +185,104 @@ def test_the_real_trail_classifies_without_losing_records():
             except json.JSONDecodeError:
                 recs.append({"_unparseable": True})
     out = classify(recs, production_capital(REPO_ROOT / "config.json"))
+    # CONSERVATION is the invariant: the classifier relabels, it never drops.
     assert len(out) == len(recs)
-    assert sum(1 for lab, _ in out if lab == "UNCLASSIFIED") == 0, (
+    # The original assertion here was `UNCLASSIFIED == 0`, and it encoded the
+    # tool's OVER-CLAIMING (red-team OBJ-5). Before the inference ceiling every
+    # record was assigned, including 12,114 whose class rested on an
+    # extrapolation spanning a median 6.75 days. Zero-unclassified was never a
+    # property worth pinning - it was the absence of honesty. What IS pinned:
+    # the trail opens with a session start, so nothing is unclassified for the
+    # ONE reason that would indicate a broken reader.
+    pre_start = sum(1 for lab, why in out
+                    if lab == "UNCLASSIFIED" and why == "before any session start")
+    assert pre_start == 0, (
         "the real trail opens with a session start; unclassified records mean "
         "the CG-000 payload shape changed and this tool has gone blind")
+
+
+# --------------------------------------------------------------------------
+# THE INFERENCE CEILING — red-team OBJ-5, conceded
+#
+# The idle rule hands a synthetic session's context back to the live bot after
+# SESSION_IDLE_S, and that handed-back context STICKS until the next CG-000 is
+# READ. Production CG-000s are rare - one per boot - so "a 300 second rule"
+# licensed an extrapolation whose measured span was a MEDIAN of 6.75 DAYS and a
+# MAX of 25.99 days: 1,943x its own threshold. Past a ceiling that is not an
+# inference, it is an assumption, and the honest label is UNCLASSIFIED.
+# --------------------------------------------------------------------------
+
+def test_an_inference_past_the_ceiling_becomes_UNCLASSIFIED():
+    from scripts.audit_quarantine import classify
+    recs = [
+        _rec(SESSION_START, 0.0, PROD),        # class READ here
+        _rec("LB-010", 10.0),
+        _rec(SESSION_START, 1000.0, SYN),      # fixture burst
+        _rec("OM-020", 1000.4),
+        _rec("LB-010", 400_000.0),             # ~4.6 days after the last read
+    ]
+    labels = [lab for lab, _ in classify(recs, PROD, max_infer_s=6 * 3600.0)]
+    assert labels[-1] == "UNCLASSIFIED", (
+        "a record 4.6 days past the last confirmed reading was claimed as "
+        "production by inference")
+
+
+def test_an_inference_inside_the_ceiling_is_still_reclaimed():
+    """The other half: the ceiling must bound the inference, not abolish it."""
+    from scripts.audit_quarantine import classify
+    recs = [
+        _rec(SESSION_START, 0.0, PROD),
+        _rec(SESSION_START, 1000.0, SYN),
+        _rec("OM-020", 1000.4),
+        _rec("LB-010", 5000.0),                # 83 min after the last read
+    ]
+    out = classify(recs, PROD, max_infer_s=6 * 3600.0)
+    assert out[-1] == ("PRODUCTION", "inferred")
+
+
+def test_a_fresh_reading_restarts_the_inference_clock():
+    """A CG-000 that is READ must reset the span, or a long-lived process would
+    drift into UNCLASSIFIED despite reporting its class regularly."""
+    from scripts.audit_quarantine import classify
+    recs = [
+        _rec(SESSION_START, 0.0, PROD),
+        _rec(SESSION_START, 400_000.0, PROD),  # read again, far later
+        _rec(SESSION_START, 400_100.0, SYN),
+        _rec("OM-020", 400_100.4),
+        _rec("LB-010", 401_000.0),             # 15 min after the SECOND read
+    ]
+    out = classify(recs, PROD, max_infer_s=6 * 3600.0)
+    assert out[-1] == ("PRODUCTION", "inferred")
+
+
+def test_conservation_holds_with_the_ceiling():
+    """Records are never dropped - the ceiling relabels, it does not delete."""
+    from scripts.audit_quarantine import classify
+    recs = [_rec(SESSION_START, 0.0, PROD)] + [
+        _rec("LB-010", float(i) * 100_000) for i in range(1, 8)]
+    out = classify(recs, PROD, max_infer_s=3600.0)
+    assert len(out) == len(recs)
+
+
+def test_the_SHIPPED_default_ceiling_actually_bounds_the_inference():
+    """Pins the DEFAULT, not just the mechanism.
+
+    The three tests above all pass `max_infer_s` explicitly, so they exercise
+    the parameter and say nothing about the value that ships. Mutation-tested:
+    raising MAX_INFER_S to 10**12 left every one of them green - the ceiling
+    could have been removed from the deployed tool without a single red test.
+    Calling classify() with NO ceiling argument is what closes that."""
+    from scripts.audit_quarantine import MAX_INFER_S, classify
+    assert MAX_INFER_S < 24 * 3600.0, (
+        "the shipped ceiling exceeds a day, which is not an inference")
+    recs = [
+        _rec(SESSION_START, 0.0, PROD),
+        _rec(SESSION_START, 1000.0, SYN),
+        _rec("OM-020", 1000.4),
+        # comfortably past any sane ceiling, using the SHIPPED default
+        _rec("LB-010", MAX_INFER_S * 4),
+    ]
+    out = classify(recs, PROD)          # no max_infer_s -> the default
+    assert out[-1][0] == "UNCLASSIFIED", (
+        "with the shipped default, a record far past the last confirmed "
+        "reading is still claimed as production by inference")

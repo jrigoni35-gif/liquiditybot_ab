@@ -28,19 +28,24 @@ inherits that synthetic label until the bot next reboots. Measured on the
 following 38 long_book/exploration/fault records as synthetic, and 86 synthetic
 sessions span a gap larger than any real burst.
 
-So a session also CLOSES on an idle gap. Measured session shape on that trail:
+So a session also CLOSES on an idle gap. `SESSION_IDLE_S` defaults to 300 s:
+the fixture class writes ~1-second bursts, so any threshold well above that and
+below the live bot's own cadence bounds it. Records after a synthetic session
+closes, but before the next `CG-000`, revert to the last PRODUCTION context -
+the live bot is the only continuously-running writer - and are reported as
+INFERRED, not folded into production, because that reversion is an inference.
 
-    capital   sessions   median records   median duration   median max-gap
-    800 (prod)      98            9             398 s            176 s
-    5000            264          28            1251 s            181 s
-    10000           114          10             1.1 s            1.0 s
+THE SESSION-SHAPE TABLE THAT USED TO SIT HERE IS DELETED, and the deletion is
+the point (red-team OBJ-5 prong 3, conceded). It read "800 (prod): median
+duration 398 s, median max-gap 176 s" and those figures NO LONGER REPRODUCE - on
+2026-09-11 the same computation over 88 production sessions gives 1563.1 s and
+511.5 s. A number written into a docstring decays, which is the exact recurrence
+this repo names, and I wrote one into the tool whose subject is decayed numbers.
 
-The fixture class (10000, `make_offline_recording`) writes ~1-second bursts, so
-any threshold well above 1 s and below the live bot's own cadence bounds it.
-`SESSION_IDLE_S` defaults to 300 s. Records after a synthetic session closes,
-but before the next `CG-000`, revert to the last PRODUCTION context - the live
-bot is the only continuously-running writer - and are counted as RECLAIMED and
-reported separately, because that reversion is an inference, not a reading.
+Worse, the re-measurement moves the THRESHOLD's own justification: a median
+production max-gap of 511.5 s is ABOVE `SESSION_IDLE_S`, so the rule closes
+sessions that were merely quiet. `--session-shape` recomputes the table on
+demand; read it there and treat 300 s as a floor under review, not a fact.
 
 Records are never silently dropped: production + synthetic + unclassified
 always equals the input line count, and the tool asserts it.
@@ -61,6 +66,16 @@ SESSION_START = "CG-000"
 # multi-hour gaps that marked the leaked sessions.
 SESSION_IDLE_S = 300.0
 
+# HARD CEILING ON THE INFERENCE (red-team OBJ-5, conceded). The idle rule hands
+# a synthetic session's context back to the live bot after SESSION_IDLE_S, and
+# the handed-back context then STICKS until the next CG-000 is READ. Production
+# CG-000s are rare - the bot emits one at boot - so "a 300 second rule" licensed
+# an extrapolation whose measured span was a MEDIAN of 6.75 DAYS and a MAX of
+# 25.99 days, 1,943x its own threshold. Beyond this ceiling a record is not
+# inferred, it is assumed; it is labelled UNCLASSIFIED instead, which is an
+# honest unknown rather than a production row nobody can defend.
+MAX_INFER_S = 6 * 3600.0
+
 
 def production_capital(config_path: Path) -> float:
     """The shipped starting capital. Read, never hardcoded - see the docstring."""
@@ -79,7 +94,8 @@ def _capital_of(rec: dict):
 
 
 def classify(records: list, prod_capital: float,
-             idle_s: float = SESSION_IDLE_S) -> list:
+             idle_s: float = SESSION_IDLE_S,
+             max_infer_s: float = MAX_INFER_S) -> list:
     """Label every record PRODUCTION / SYNTHETIC / UNCLASSIFIED.
 
     Returns a list of (label, reason) parallel to `records`.
@@ -89,6 +105,7 @@ def classify(records: list, prod_capital: float,
     cur_ts = None       # ts of the last record attributed to it
     last_prod = None    # last capital known to be production
     inferred = False    # is the CURRENT context the result of an idle close?
+    confirmed_ts = None  # ts of the last class actually READ from a CG-000
     for rec in records:
         ts = rec.get("ts")
         ts = ts if isinstance(ts, (int, float)) else None
@@ -98,6 +115,7 @@ def classify(records: list, prod_capital: float,
             if cap is not None:
                 cur, cur_ts = cap, ts
                 inferred = False        # a real reading resets the inference
+                confirmed_ts = ts       # ...and anchors the inference clock
                 if cap == prod_capital:
                     last_prod = cap
 
@@ -110,6 +128,11 @@ def classify(records: list, prod_capital: float,
 
         if cur is None:
             out.append(("UNCLASSIFIED", "before any session start"))
+            continue
+        if (inferred and ts is not None and confirmed_ts is not None
+                and (ts - confirmed_ts) > max_infer_s):
+            # past the ceiling this is an assumption, not an inference
+            out.append(("UNCLASSIFIED", "inference span exceeded"))
             continue
         label = "PRODUCTION" if cur == prod_capital else "SYNTHETIC"
         # "inferred" STICKS until the next CG-000. Counting only the transition
