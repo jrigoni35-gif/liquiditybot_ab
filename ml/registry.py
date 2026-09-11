@@ -282,7 +282,23 @@ class ModelRegistry:
                         "sha256": actual}
             expected = self._last_registered_hash(str(artifact_path))
         if expected is None:
-            log.warning("ML-060: %s has no registry pedigree — loading "
+            # ML-061, not ML-060: that code means "artifact registered" and
+            # this is its opposite. Emitting both under one value made the
+            # frequency tally unreadable - "has a pedigree" and "has none"
+            # summed into the same bucket (found 2026-09-10).
+            #
+            # bump() reaches core/code_stats, the central {code: count} ledger
+            # that status.json/by_prefix and the exported
+            # liquiditybot_code_count read. Without it this warning is a log
+            # line nobody aggregates, so "the champion has been loading with
+            # unknown provenance for three weeks" stays invisible - which is
+            # exactly the question a provenance gate exists to answer. Lazy
+            # import keeps this module's import graph as thin as it already is;
+            # code_stats depends only on threading + collections.
+            from core.code_stats import bump as _bump_code
+            from core.codes import Code as _Code
+            _bump_code(_Code.ML_NO_PEDIGREE.value)
+            log.warning("ML-061: %s has no registry pedigree — loading "
                         "with unknown provenance", artifact_path)
             return {"ok": None, "model_id": actual[:12], "sha256": actual}
         ok = actual == expected

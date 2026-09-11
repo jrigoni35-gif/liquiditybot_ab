@@ -44,6 +44,7 @@ from typing import Callable, Deque, Optional
 import numpy as np
 
 from core.audit import get_audit
+from core import code_stats
 from core.codes import Code, tag
 from core.goals import evaluate_goal
 from core.sanitize import safe_float
@@ -1883,6 +1884,16 @@ class LiquidityBot:
         try:
             k = key.value if isinstance(key, Code) else str(key)
             self._entry_absorb[k] = self._entry_absorb.get(k, 0) + 1
+            # Join the CENTRAL tally too, not just this local dict.
+            # core/code_stats is the repo's existing aggregate - every other
+            # registered code lands there and is surfaced by status.json
+            # by_prefix and the exported liquiditybot_code_count. A private
+            # counter beside it would be a second, invisible answer to the same
+            # question. The local dict still earns its place: code_stats has no
+            # DENOMINATOR, so "60% of candidates died at EN-030" is not
+            # computable from it - `arrivals` lives here and is not a Code.
+            if isinstance(key, Code):
+                code_stats.bump(k)
         except Exception:              # pragma: no cover - defensive only
             log.exception("entry-absorb count failed")
 

@@ -201,3 +201,36 @@ def test_the_counter_is_never_READ_by_the_decision_path():
 def test_absorb_returns_nothing_so_no_caller_can_branch_on_it():
     s = _Stub()
     assert s._absorb(Code.EN_OPEN_ENTRY) is None
+
+
+# --------------------------------------------------------------------------
+# the counts must reach the CENTRAL tally, not just a private dict
+#
+# core/code_stats is this repo's existing aggregate: every registered code lands
+# there and status.json by_prefix + the exported liquiditybot_code_count read
+# it. The first cut of this feature kept only a private dict, which is a second
+# and invisible answer to the same question. The local dict still earns its
+# place because code_stats carries no DENOMINATOR - "60% of candidates died at
+# EN-030" needs `arrivals`, which is not a Code and has no home there.
+# --------------------------------------------------------------------------
+
+def test_registered_codes_reach_the_central_tally():
+    from core import code_stats
+    before = code_stats.snapshot().get("EN-030", 0)
+    s = _Stub()
+    s._absorb(Code.EN_SIGNAL_UNCONFIRMED)
+    after = code_stats.snapshot().get("EN-030", 0)
+    assert after == before + 1, (
+        "EN-030 did not reach core/code_stats - the entry-sweep counts would "
+        "be invisible to status.json by_prefix and to Grafana")
+
+
+def test_a_non_code_key_does_NOT_pollute_the_central_tally():
+    """`arrivals` is a denominator, not a reason code. Bumping it into the
+    registered-code ledger would put an unregistered string in an aggregate
+    whose whole contract is that its keys are registered codes."""
+    from core import code_stats
+    s = _Stub()
+    s._absorb("arrivals")
+    assert "arrivals" not in code_stats.snapshot()
+    assert s._entry_absorb["arrivals"] == 1     # but the local view has it
