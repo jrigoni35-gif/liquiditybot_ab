@@ -103,7 +103,7 @@ this table's existence as the answer.
 | learning-panel lenses | `python scripts/learning_panel.py --list` |
 | live execution era | `python -c "from core.fill_ledger import EXEC_ERA; print(EXEC_ERA)"` |
 
-Key law points: Kraken is the sole execution venue (triple-gated);
+Key law points: Kraken is the sole execution venue — enforced by a DENY-LIST at `main.py` ~:861 that refuses to construct the engine if a read-only venue class reaches `OrderManager` (`VN_ROGUE_EXECUTION`), NOT by `VenueAdapter.execution_eligible`, which is not on that path (re-derived 2026-09-10: zero `VN-*` in 87,640 audit records, and the router is constructed and never read);
 withdrawals are deny-listed before network I/O; exits are ALWAYS allowed —
 kill switches block new risk, never escapes; every disposition carries a
 registered reason code (never a bare string); no fitted literals in
