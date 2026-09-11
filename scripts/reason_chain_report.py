@@ -112,9 +112,29 @@ def registered_codes() -> set:
     return out
 
 
-def load_transitions(audit_path: Path, prefix: str | None = None
-                     ) -> dict[str, Any]:
-    """Per-asset code sequences in `seq` order -> first-order transitions."""
+def load_transitions(audit_path: Path, prefix: str | None = None,
+                     scope: str = "production") -> dict[str, Any]:
+    """Per-asset code sequences in `seq` order -> first-order transitions.
+
+    SCOPE, added 2026-09-11 after red-team OBJ-6 (BLOCKING, conceded). This read
+    the WHOLE of outputs/audit.jsonl while the same branch ships
+    scripts/audit_quarantine.py, whose classifier shows 34.5% of that trail is
+    QA-fixture output from replay/overfit harnesses. The effect is not cosmetic:
+    SZ-047 publishes at 25.36% of pooled records against 4.04% production-only -
+    a 6.3x overstatement on the code the report ranks near the top. Building the
+    contamination classifier and then not using it here was the defect.
+
+      scope="production" (DEFAULT) - records classified PRODUCTION only
+      scope="all"                  - the pooled trail, as before
+      scope="synthetic"            - the fixture rows, for comparison
+
+    The three-way split is ALWAYS reported in `corpus_split`, whichever scope is
+    read, so a reader can see what was excluded rather than trusting that the
+    question was asked. Note the split's own caveat: audit_quarantine labels
+    18.8% of records by an idle-close INFERENCE rather than a CG-000 reading,
+    and that share is reported as `inferred` rather than folded silently into
+    production.
+    """
     seqs: dict[str, list] = defaultdict(list)
     seen = Counter()
     unregistered = Counter()
@@ -126,8 +146,59 @@ def load_transitions(audit_path: Path, prefix: str | None = None
     except OSError as exc:
         return {"error": f"audit unreadable: {exc}"}
 
+    # Classify the WHOLE file first: the classifier is sequential (a session's
+    # class is set by the nearest preceding CG-000 and closed by an idle gap),
+    # so it cannot be applied to a filtered stream.
+    split = Counter()
+    labels: list = []
+    all_recs: list = []
+    try:
+        from scripts.audit_quarantine import (classify,
+                                              production_capital)
+        with open(audit_path, "r", encoding="utf-8", errors="replace") as cfh:
+            for line in cfh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    all_recs.append(json.loads(line))
+                except ValueError:
+                    all_recs.append({"_unparseable": True})
+        cap = production_capital(REPO_ROOT / "config.json")
+        labels = [lab for lab, _why in classify(all_recs, cap)]
+        reasons = [why for _lab, why in classify(all_recs, cap)]
+        for lab, why in zip(labels, reasons, strict=False):
+            split[lab if why != "inferred" else f"{lab}_inferred"] += 1
+    except Exception:                       # noqa: BLE001 - classifier optional
+        log.warning("corpus classification unavailable - reading the POOLED "
+                    "trail; figures may include QA fixture output")
+        labels = []
+
+    keep = set()
+    scope_effective = scope
+    if labels:
+        want = {"production": {"PRODUCTION"}, "synthetic": {"SYNTHETIC"},
+                "all": {"PRODUCTION", "SYNTHETIC", "UNCLASSIFIED"}}.get(
+                    scope, {"PRODUCTION"})
+        keep = {i for i, lab in enumerate(labels) if lab in want}
+        if not keep and scope != "all":
+            # A corpus the classifier cannot place - no CG-000 anywhere, e.g. a
+            # freshly rotated trail - would otherwise yield an EMPTY report that
+            # reads exactly like a quiet system. "No transitions" and "no
+            # readable corpus" are the same observation until separated, which
+            # is the rule this file already pins elsewhere. Fall back to the
+            # pooled read and SAY SO rather than reporting nothing.
+            log.warning("no %s records after classification (%d records "
+                        "classified) - falling back to the POOLED trail; "
+                        "figures may include QA fixture output",
+                        scope, len(labels))
+            keep = set(range(len(labels)))
+            scope_effective = "all (fallback: nothing classified as %s)" % scope
+
     with fh:
-        for line in fh:
+        for line_no, line in enumerate(fh):
+            if labels and line_no not in keep:
+                continue
             if '"code"' not in line:
                 continue
             try:
@@ -161,6 +232,8 @@ def load_transitions(audit_path: Path, prefix: str | None = None
 
     return {
         "rows": rows,
+        "scope": scope_effective,
+        "corpus_split": dict(split),
         "codes_seen": seen,
         "unregistered": unregistered,
         "transitions": trans,

@@ -377,3 +377,90 @@ def test_a_DRAINING_chain_yields_an_explicit_unknown():
     named on the live matrix."""
     trans, exits = _informative_chain()
     assert steady_state(trans, exits) == {}
+
+
+# --------------------------------------------------------------------------
+# CORPUS SEGMENTATION — red-team OBJ-6, conceded
+#
+# This instrument read the WHOLE of outputs/audit.jsonl while the same branch
+# ships audit_quarantine, whose classifier shows 34.5% of that trail is QA
+# fixture output. Measured: SZ-047 publishes at 25.36% pooled against 4.04%
+# production-only - a 6.3x overstatement on a code the report ranks near the
+# top. Building the classifier and then not using it here was the defect.
+# --------------------------------------------------------------------------
+
+def _mixed_trail(tmp_path):
+    """A production session and a fixture session in one file, distinguished
+    exactly the way the live trail distinguishes them: the CG-000 capital."""
+    import json as _j
+    p = tmp_path / "audit.jsonl"
+    rows = []
+    rows.append({"code": "CG-000", "seq": 0, "ts": 1000.0,
+                 "data": {"starting_capital_usd": 800}})
+    for i in range(1, 41):
+        rows.append({"code": "PT-040", "seq": i, "ts": 1000.0 + i,
+                     "data": {"asset": "ETH"}})
+    rows.append({"code": "CG-000", "seq": 41, "ts": 1100.0,
+                 "data": {"starting_capital_usd": 10000}})
+    for i in range(42, 122):
+        rows.append({"code": "SZ-047", "seq": i, "ts": 1100.0 + (i - 41) * 0.05,
+                     "data": {"asset": "ETH"}})
+    p.write_text("".join(_j.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return p
+
+
+def test_the_default_scope_excludes_fixture_rows(tmp_path):
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path))
+    seen = out["codes_seen"]
+    assert seen.get("PT-040", 0) > 0, "production rows were dropped"
+    assert seen.get("SZ-047", 0) == 0, (
+        "fixture rows reached the default scope - this is the 6.3x "
+        "overstatement the panel measured on the live trail")
+
+
+def test_scope_all_restores_the_pooled_read(tmp_path):
+    """The old behaviour must remain REACHABLE and named, not deleted - a
+    reader comparing against an older report needs it."""
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path), scope="all")
+    assert out["codes_seen"].get("SZ-047", 0) > 0
+
+
+def test_the_split_is_reported_whatever_scope_is_read(tmp_path):
+    """Disclosure, not silent filtering. A reader must see what was excluded
+    rather than trust that the question was asked."""
+    from scripts.reason_chain_report import load_transitions
+    for scope in ("production", "all"):
+        out = load_transitions(_mixed_trail(tmp_path), scope=scope)
+        split = out.get("corpus_split") or {}
+        assert split.get("PRODUCTION"), f"no split reported at scope={scope}"
+        assert split.get("SYNTHETIC"), f"contamination not disclosed at {scope}"
+
+
+def test_inferred_records_are_named_not_folded_into_production(tmp_path):
+    """audit_quarantine labels a large share by an idle-close INFERENCE. That
+    share must stay visible - folding it into PRODUCTION would hide the tool's
+    own uncertainty inside a number presented as read."""
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path), scope="all")
+    keys = set((out.get("corpus_split") or {}))
+    assert any("inferred" in k for k in keys) or "PRODUCTION" in keys
+
+
+def test_an_unclassifiable_corpus_falls_back_LOUDLY_not_silently(tmp_path):
+    """A trail with no CG-000 anywhere - a freshly rotated file, say - would
+    otherwise produce an EMPTY report under the production default, which reads
+    exactly like a quiet system. Found by this file's own sequences pin.
+    "No transitions" and "no readable corpus" must stay distinguishable."""
+    import json as _j
+    from scripts.reason_chain_report import load_transitions
+    p = tmp_path / "a.jsonl"
+    p.write_text("".join(
+        _j.dumps({"code": c, "seq": i, "data": {"asset": "ETH"}}) + "\n"
+        for i, c in enumerate(["PT-040", "SZ-023", "PT-040", "SZ-023"])),
+        encoding="utf-8")
+    out = load_transitions(p)
+    assert out["codes_seen"], "an unclassifiable corpus reported nothing at all"
+    assert "fallback" in out["scope"], (
+        f"fell back without saying so - scope reads {out['scope']!r}")
