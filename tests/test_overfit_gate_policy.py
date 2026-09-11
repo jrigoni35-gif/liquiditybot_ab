@@ -127,14 +127,32 @@ def test_synthetic_run_keeps_hard_pass_fail_verdicts(tmp_path):
 # The gate is currently DEFERRED (27 conviction trades < 30), which is why
 # nobody has seen it fail - it will fail on arrival regardless of the strategy.
 # ---------------------------------------------------------------------------
-def test_dsr_gate_reachability_boundary_is_real_not_a_stub():
+def test_dsr_gate_is_reachable_at_every_trial_count():
+    """FLIPPED 2026-09-11. This test used to assert the OPPOSITE - that the
+    gate is unpassable for every N >= 4 - and it was right about the code as it
+    then stood. It pinned a DEFECT, faithfully.
+
+    The cause was `ml.overfit.deflated_sharpe`'s fallback for the unidentified
+    var_trial_sr: max(SR**2, 0.01) set sqrt(V) = |SR|, so sr0 = k(N)*|SR| grew
+    with the statistic under test and z <= 0 for every sample. It also ran
+    BACKWARDS - a larger SR scored a smaller DSR. The fallback is now the null
+    sampling variance of a Sharpe estimate, Var(SR_hat) -> 1/n, so sr0 no
+    longer depends on SR and the gate can be met by evidence.
+
+    k(N) itself is UNCHANGED and still crosses 1.0 between N=3 and N=4 - that
+    was never the bug. What changed is that k multiplies sqrt(1/n), not |SR|."""
     from scripts.overfit_check import dsr_gate_reachable
     for n in (1, 2, 3):
-        reach, k, _ = dsr_gate_reachable(n)
-        assert reach and k < 1.0, f"N={n} should be reachable (k={k})"
+        _reach, k, _sr0 = dsr_gate_reachable(n)
+        assert k < 1.0, f"k(N={n}) should be below 1 (got {k})"
     for n in (4, 5, 7, 10, 57, 100):
-        reach, k, _ = dsr_gate_reachable(n)
-        assert not reach and k > 1.0, f"N={n} should be unpassable (k={k})"
+        reach, k, sr0 = dsr_gate_reachable(n)
+        assert k > 1.0, f"k(N={n}) should exceed 1 (got {k})"
+        assert reach, (
+            f"N={n} is UNREACHABLE again - the gate cannot be passed by any "
+            f"sample, which is the vacuous predicate this was fixed to remove "
+            f"(k={k}, sr0={sr0})")
+        assert sr0 > 0.0, "sr0 collapsed to zero - the gate would be trivial"
 
 
 def test_dsr_unreachable_claim_agrees_with_brute_force_at_shipped_default():
@@ -149,11 +167,13 @@ def test_dsr_unreachable_claim_agrees_with_brute_force_at_shipped_default():
                for n in (30, 100, 387)
                for sk in (-2.0, 0.0, 1.0)
                for ku in (3.0, 22.7))
-    assert not reach
-    assert best < 0.90, f"claimed unpassable but brute force reached {best}"
-    # positive control: the same sweep DOES find passes at N=1, so a
-    # "nothing found" above is a property of the gate, not of the sweep
-    best1 = max((deflated_sharpe(sr / 50.0, 100, skew=0.0, kurtosis=3.0,
-                                 n_trials=1).get("dsr") or 0.0)
-                for sr in range(0, 200))
-    assert best1 >= 0.90
+    assert reach
+    assert best >= 0.90, (
+        f"the checker claims REACHABLE but the same brute force that once "
+        f"proved unreachability tops out at {best} - checker and function "
+        f"disagree, and the checker is the one describing the other")
+    # NEGATIVE control: a genuinely bad track must still fail, or "reachable"
+    # has become "trivially passable" - which would be the widening this repo
+    # forbids rather than the repair it asked for.
+    bad = deflated_sharpe(-0.24, 30, n_trials=7).get("dsr") or 0.0
+    assert bad < 0.90, f"a NEGATIVE Sharpe scored {bad} - the gate is trivial"
