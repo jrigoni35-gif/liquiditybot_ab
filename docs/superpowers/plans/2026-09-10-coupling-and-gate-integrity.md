@@ -21,6 +21,76 @@ of a running bot). Last commit `cea23515`.
 
 ---
 
+
+## EXECUTION STATUS — updated 2026-09-10 end of session
+
+Commits on `claude/markov-instruments`; cut #12 went to `main` as its own commit
+(`feea9612`) by operator decision, unbundled from this branch's work.
+
+DONE, each mutation-verified:
+  A1 A2   overfit gate + reason-code chain                  c915e043 ec08c3e9
+  B0      resolved by cut #12 landing on main               feea9612
+  C1      import fence, incl. the PEP 420 residual          8e0768c4 7a0e5459
+  C3      stale prose + doc-currency pin                    a4218167
+  C4a     cost-stack knobs the code silently clamps         66646687
+  D5      test-skip census ratchet                          b841d5d9
+  O1      all 4 scheduled tasks S4U + boot trigger          ab8c5640 (RUN)
+  HYG-1   the four gate tools pinned                        bef0b023
+  HYG-2/3 NUL + err1.log removed, *.log ignored             f9a0611f
+  HYG-4   REFUTED - see below
+  HYG-8   bandit ./outputs in all three runners             65db3158
+  NEW-1   replay harness isolates the audit singleton       d5bcc633
+          + quarantine/seam tool for the rows already there d8542e53
+  T11     entry-sweep absorption counters (EN family)       32191298
+
+FINDINGS THAT DID NOT SURVIVE RE-MEASUREMENT, recorded so they are not redone:
+
+  * HYG-4 ("stop the daily task writing untracked reports into the tracked docs
+    tree") read the situation BACKWARDS. Four fill-hazard reports and a
+    signal-quality doc are already TRACKED - it is a deliberately versioned
+    dated series. The only defect was that three were never committed (1c5f0426).
+
+  * B0 "REVERSED - lost uncommitted work" was WRONG. The deleted
+    `tests/test_config_guard_cost_basis.py` pinned a DUPLICATE check written and
+    reverted in the same session (needle `cost basis split`, asserting
+    `barrier_geometry` - strings cut #12's check never emits). Cut #12's own
+    check is alive at core/config_guard.py:576 and pinned at
+    tests/test_config_guard_fee_floor.py:272. Deleting it was correct. The
+    finding inferred loss from surviving bytecode without checking WHOSE check
+    it pinned.
+
+  * T16 ("ml/registry.py ok=None fail-open silently accepted") is wrong on both
+    counts. `verify()` DOES consult `verify_chain()` (:275); a broken chain
+    returns ok=False with a CRITICAL ML-011 and refuses to treat the pedigree as
+    evidence. `ok=None` happens only for an artifact with no pedigree at all and
+    is NOT silent - ML-060 warning, documented as deliberate so a hand-trained
+    model still loads. RESIDUAL, small: nothing AGGREGATES how often ok=None
+    occurs, so "the champion has loaded with unknown provenance for three weeks"
+    is invisible. Docketed, not built.
+
+STILL OPEN:
+  T12   C5 fixture repair - THE BLOCKER, and larger than this plan estimated.
+        Root-caused by line-tracing: absorption into ENTERED is exactly 0. The
+        chain is drift -> fair-value lag -> watchdog + FW-050 (all three clear
+        as drift -> 0, dose-response 277/148/56/40 bps max lag, rejects 45/9/0),
+        and then the TERMINAL absorber is the fill simulator itself: 20 orders
+        place, resting 50.4 bps out, where this repo's own calibrated hazard
+        gives 0.12 expected fills. Zero fills is CORRECT behaviour, not a bug.
+        Making the fixture open positions therefore needs near-touch quoting or
+        a taker path - both touch decisioning and need operator adjudication.
+        Two earlier hypotheses of mine died here: `_candles` forward-drift
+        (planted the fix, INERT) and candle sigma driving the AS spread
+        (REFUTED, 8x sigma reduction moved deviations 9 bps).
+  T13   OF-4 axis - depends on T12
+  T6    reason_chain_report pins
+  T8    invariant-3 docs (the ONBOARDING half)
+  T14   venue open-order reconciler (report-only first)
+  T15   signal_history sidecar integrity
+  Metamorphic couplings - blocked by T12, and PROVEN blocked: a replay-parity
+  test written this session passed and then SURVIVED a real behaviour mutation
+  (`_entry_rotation += 1`), because every outcome field is 0 in both arms. Any
+  property built on this fixture passes for the wrong reason.
+
 ## BLOCKER — resolve before B-series or C-series can commit
 
 ### B0. `core/config_guard.py` is shared with cut-12's uncommitted work

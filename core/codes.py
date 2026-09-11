@@ -294,6 +294,14 @@ class Code(str, Enum):
     ML_CHAMP_RESCORED = "ML-042"     # incumbent rescored on fresh OOF; badge realigned before gating
     ML_KILL_SWITCH = "ML-050"        # model output disabled (level 2+)
     ML_REGISTERED = "ML-060"         # artifact registered
+    ML_NO_PEDIGREE = "ML-061"        # artifact loaded with UNKNOWN
+                                     # provenance: no registry row for
+                                     # it. Split off ML-060 2026-09-10 -
+                                     # that code means "registered" and
+                                     # ml/registry.py was ALSO emitting
+                                     # it for the opposite event, so any
+                                     # tally over ML-060 pooled "has a
+                                     # pedigree" with "has none".
     ML_EXPLORATION = "ML-070"        # dry-run paper exploration entry (active learning)
     ML_UNTEACHABLE_UNWIND = "ML-071"  # learning-phase unwind: full book, zero pending labels
     ML_EXPLORE_AGGRESSIVE = "ML-072"  # conviction-scaled full-size exploration
