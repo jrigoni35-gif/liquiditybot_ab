@@ -94,8 +94,24 @@ def test_the_installed_version_is_inside_its_declared_window(tool):
 
 
 def test_the_window_is_a_window_not_a_wildcard():
-    """A pin with no ceiling is not a pin. Guards against someone 'fixing' a
-    red by widening the range to everything."""
+    """A pin with no real ceiling is not a pin.
+
+    Red-team OBJ-11, conceded: the first cut asserted only `hi != (9999,)`,
+    which any other large number defeats - `<9998` passed. A named-constant
+    check guards against one literal, not against the BEHAVIOUR (widening a
+    range until a red goes away). This bounds the ceiling RELATIVE to the floor
+    instead, so no single edit can open the window arbitrarily."""
     for name, (lo, hi) in _parse_pins().items():
-        assert _ver_tuple(hi) > _ver_tuple(lo), f"{name}: ceiling <= floor"
-        assert _ver_tuple(hi) != (9999,), f"{name}: wildcard ceiling"
+        lo_t, hi_t = _ver_tuple(lo), _ver_tuple(hi)
+        assert hi_t > lo_t, f"{name}: ceiling <= floor"
+        # The ceiling may not exceed the floor's leading component by more than
+        # one step. Catches <9998, <500, and every other "just make it pass".
+        head_lo, head_hi = lo_t[0], hi_t[0]
+        assert head_hi <= head_lo + 1, (
+            f"{name}: ceiling {hi} is more than one major beyond floor {lo} - "
+            f"that is a wildcard wearing a number. Bump the FLOOR consciously "
+            f"instead of opening the window.")
+        if head_hi == head_lo and len(lo_t) > 1 and len(hi_t) > 1:
+            assert hi_t[1] <= lo_t[1] + 1, (
+                f"{name}: same-major ceiling {hi} is more than one minor beyond "
+                f"floor {lo}")

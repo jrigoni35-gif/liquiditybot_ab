@@ -23,7 +23,18 @@
 # Bumping one of these is a CONSCIOUS act: raise the pin, run the full battery,
 # and read what changed. tests/test_tool_versions.py fails if the installed
 # version leaves the declared range, so drift cannot arrive unannounced.
+# CEILINGS RE-TIGHTENED 2026-09-11 (red-team OBJ-11, conceded). The first cut
+# used <1.2 for pyright and justified it by the 2026-09-10 incident in which
+# pyright moved under the repo and the gate changed colour with no source
+# change. It could not have caught that: pyright releases inside 1.1.x, so
+# 1.1.500 sat happily inside <1.2. A ceiling that cannot catch the incident
+# quoted as its reason is decoration.
+#
+# pyright and ruff are the two whose MINOR/PATCH series routinely add checks -
+# the event that turns a clean tree red or lets a caught defect through - so
+# their ceilings now sit inside the series. pytest and bandit keep next-major
+# ceilings: their patch releases do not change what the gate accepts.
 pytest>=9.1,<10
 ruff>=0.15.20,<0.16
 bandit>=1.9,<2
-pyright>=1.1.414,<1.2
+pyright>=1.1.414,<1.1.500

@@ -33,13 +33,21 @@ TESTS = REPO_ROOT / "tests"
 # The static skip surface as measured 2026-09-10. RAISE THIS CONSCIOUSLY, in the
 # same commit as the skip you are adding, and say in the message why the referee
 # may stand down. Lowering it is always welcome.
-MAX_SKIP_MARKERS = 31
+MAX_SKIP_MARKERS = 29
 
 _SKIP = re.compile(r"pytest\.mark\.skipif|pytest\.mark\.skip\b|pytest\.skip\b")
 
 
 def _test_files() -> list:
-    return sorted(p for p in TESTS.glob("*.py") if p.name.startswith("test_"))
+    """Every test file EXCEPT this one.
+
+    Red-team OBJ-12, conceded: the census counted 2 of its OWN detector's
+    string literals (the `pytest.mark.skipif` / `pytest.skip` patterns it
+    matches on), so the ratchet was 2 above the real surface and - worse -
+    coupled to this file's own formatting in both directions. Reformatting the
+    detector would have moved a number that is supposed to measure the SUITE."""
+    return sorted(p for p in TESTS.glob("*.py")
+                  if p.name.startswith("test_") and p.name != Path(__file__).name)
 
 
 def _skip_sites(path: Path) -> list:
