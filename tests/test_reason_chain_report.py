@@ -192,3 +192,93 @@ def test_unparseable_rows_are_skipped_not_fatal(tmp_path):
                  encoding="utf-8")
     out = load_transitions(p)
     assert not out.get("error"), f"a single bad line killed the corpus: {out}"
+
+
+# --------------------------------------------------------------------------
+# THE ORDER CONTROL — the pin that the first version of this file lacked
+#
+# Adversarial review 2026-09-11 ran within-group permutation against the SHIPPED
+# instrument and got 32/32 codes informative with the IDENTICAL affirmative
+# verdict on order-destroyed data. The tests in this file passed while that was
+# true, because the synthetic chains above have no GROUPS - and the defect was
+# precisely that the null pools successors globally while transitions are built
+# per group, so a code concentrated in one group produces a large chi-square
+# from composition alone.
+#
+# The control is now the test. These pins are written so they FAIL if anyone
+# reverts to a global-pool null.
+# --------------------------------------------------------------------------
+
+def _grouped_no_order(n: int = 400):
+    """Two groups with very different COMPOSITION but no temporal structure:
+    within each group the code stream is i.i.d. This is exactly the shape that
+    fooled the old test - group composition masquerading as a Markov chain."""
+    import random as _r
+    rng = _r.Random(11)
+    g1 = [rng.choice(["A", "A", "A", "B"]) for _ in range(n)]
+    g2 = [rng.choice(["C", "C", "C", "D"]) for _ in range(n)]
+    return {"g1": g1, "g2": g2}
+
+
+def _grouped_with_order(n: int = 400):
+    """Same two groups, but each stream strictly alternates - real order."""
+    g1 = ["A" if i % 2 == 0 else "B" for i in range(n)]
+    g2 = ["C" if i % 2 == 0 else "D" for i in range(n)]
+    return {"g1": g1, "g2": g2}
+
+
+def test_composition_without_order_is_REFUSED():
+    """THE regression. i.i.d. streams inside differing groups must NOT be
+    reported as carrying order information."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_no_order(), n_perm=120)
+    assert res.get("applicable") is True
+    assert res.get("carries_order_information") is False, (
+        f"group composition was reported as order information: {res}")
+    assert "NO ORDER INFORMATION" in res.get("verdict", "")
+
+
+def test_genuine_order_IS_detected():
+    """The other half. Without this the control passes on a test wired to
+    always refuse."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_with_order(), n_perm=120)
+    assert res.get("carries_order_information") is True, (
+        f"a strictly alternating stream was not detected as ordered: {res}")
+
+
+def test_the_empirical_p_never_claims_zero():
+    """Add-one smoothing: with n_perm draws you cannot honestly report p=0."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_with_order(), n_perm=50)
+    assert res["p_empirical"] > 0.0
+    # the floor is 1/(n_perm+1), but the reported value is ROUNDED to 4dp, so
+    # compare against the rounded floor rather than the exact one - asserting
+    # the exact value here failed on 0.0196 vs 0.019607..., which is a test
+    # bug, not an instrument bug.
+    assert res["p_empirical"] >= round(1.0 / (50 + 1), 4) - 1e-9
+
+
+def test_the_test_is_deterministic():
+    """A report that prints a different verdict each run is not a measurement."""
+    from scripts.reason_chain_report import permutation_order_test
+    a = permutation_order_test(_grouped_no_order(), n_perm=60)
+    b = permutation_order_test(_grouped_no_order(), n_perm=60)
+    assert a["observed_chi2"] == b["observed_chi2"]
+    assert a["p_empirical"] == b["p_empirical"]
+
+
+def test_load_transitions_returns_the_sequences_the_control_needs():
+    """Without ordered per-group sequences the control cannot be run at all,
+    and the instrument silently reverts to the composition-confounded test."""
+    from scripts.reason_chain_report import load_transitions
+    import json as _j
+    import tempfile
+    from pathlib import Path as _P
+    p = _P(tempfile.mkdtemp()) / "a.jsonl"
+    p.write_text("".join(
+        _j.dumps({"code": c, "seq": i, "data": {"asset": "ETH"}}) + "\n"
+        for i, c in enumerate(["PT-040", "SZ-023", "PT-040"])), encoding="utf-8")
+    out = load_transitions(p)
+    assert "sequences" in out, "sequences dropped - the order control is dead"
+    assert out["sequences"]["ETH"] == ["PT-040", "SZ-023", "PT-040"]

@@ -19,7 +19,8 @@ answers them. The feature corpus is 64 continuous columns of which the overfit
 battery reports the large majority near-zero importance; the reason space is
 small, discrete, complete, and already audited.
 
-**THE MARKOV ASSUMPTION IS TESTED, NOT ASSUMED.** A transition matrix can
+**THE MARKOV ASSUMPTION IS TESTED BY DESTROYING TIME ORDER.** A transition
+matrix can
 always be estimated; that it MEANS anything requires P(next | current) to
 differ from P(next). This report computes that comparison per code (a
 chi-square against the unconditional successor distribution) and prints an
@@ -61,6 +62,7 @@ import json
 import logging
 import math
 import os
+import random
 import sys
 import time
 from collections import Counter, defaultdict
@@ -149,9 +151,9 @@ def load_transitions(audit_path: Path, prefix: str | None = None
     trans: dict = defaultdict(Counter)
     self_loops = Counter()
     exits = Counter()
-    for asset, pairs in seqs.items():
+    for _asset, pairs in seqs.items():
         pairs.sort(key=lambda t: t[0])
-        for (_, a), (_, b) in zip(pairs, pairs[1:]):
+        for (_, a), (_, b) in zip(pairs, pairs[1:], strict=False):
             trans[a][b] += 1
             exits[a] += 1
             if a == b:
@@ -163,6 +165,13 @@ def load_transitions(audit_path: Path, prefix: str | None = None
         "unregistered": unregistered,
         "transitions": trans,
         "exits": exits,
+        # ORDERED per-group code sequences, kept rather than discarded so the
+        # order-destroying control below can actually be run. Without these the
+        # information test has no way to ask "would this verdict survive if I
+        # shuffled time?", which is the only question that separates temporal
+        # structure from group composition.
+        "sequences": {g: [c for _, c in sorted(pairs, key=lambda x: x[0])]
+                      for g, pairs in seqs.items()},
         "self_loops": self_loops,
         "groups": len(seqs),
         "audit_path": str(audit_path),
@@ -170,6 +179,107 @@ def load_transitions(audit_path: Path, prefix: str | None = None
             time.strftime("%Y-%m-%dT%H:%M:%SZ",
                           time.gmtime(audit_path.stat().st_mtime))
             if audit_path.exists() else None),
+    }
+
+
+def _chi2_total(trans: dict, exits: Counter) -> tuple:
+    """Summed chi-square of every testable row against the POOLED successor
+    distribution, plus the number of rows tested. Extracted so the identical
+    statistic can be computed on permuted data."""
+    pooled: Counter = Counter()
+    for _a, succ in trans.items():
+        pooled.update(succ)
+    total = sum(pooled.values())
+    if total == 0:
+        return (0.0, 0)
+    stat_sum, tested = 0.0, 0
+    for a, succ in trans.items():
+        n = exits.get(a, 0)
+        if n < MIN_EXITS_FOR_RATES:
+            continue
+        tested += 1
+        for b, p_tot in pooled.items():
+            exp = n * (p_tot / total)
+            if exp < 5.0:
+                continue
+            stat_sum += (succ.get(b, 0) - exp) ** 2 / exp
+    return (stat_sum, tested)
+
+
+def _transitions_from(sequences: dict) -> tuple:
+    trans: dict = defaultdict(Counter)
+    exits: Counter = Counter()
+    for seq in sequences.values():
+        for a, b in zip(seq, seq[1:], strict=False):
+            trans[a][b] += 1
+            exits[a] += 1
+    return (dict(trans), exits)
+
+
+def permutation_order_test(sequences: dict, n_perm: int = 200,
+                           seed: int = 20260911) -> dict[str, Any]:
+    """Does the chain's structure survive DESTROYING time order?
+
+    THE DEFECT THIS REPLACES (found by adversarial review 2026-09-11, and it
+    had shipped). The analytic test below compares each code's successors to a
+    GLOBALLY pooled distribution while transitions are built PER GROUP. A code
+    concentrated in one asset's stream therefore produces a large chi-square
+    from GROUP COMPOSITION alone, with no temporal structure whatsoever.
+    Measured on the live trail: within-group permutation - which destroys order
+    and preserves every marginal - returned 32/32 codes informative and the
+    IDENTICAL affirmative verdict. A safeguard advertised as "the Markov
+    assumption is TESTED, not assumed" could not tell the real trail from
+    shuffled noise.
+
+    The control is now the test. Permute within each group, recompute the same
+    summed statistic, and report where the observed value falls in that null.
+    An observed statistic inside the permutation null means the matrix below is
+    group composition wearing a matrix's clothes - the permuted data would have
+    produced it too.
+
+    Deterministic seed: a report that prints a different verdict on each run is
+    not a measurement.
+    """
+    rng = random.Random(seed)
+    obs_trans, obs_exits = _transitions_from(sequences)
+    observed, tested = _chi2_total(obs_trans, obs_exits)
+    if tested == 0:
+        return {"applicable": False, "reason": "no row had enough exits"}
+
+    null = []
+    for _ in range(n_perm):
+        shuffled = {}
+        for g, seq in sequences.items():
+            s = list(seq)
+            rng.shuffle(s)
+            shuffled[g] = s
+        pt, pe = _transitions_from(shuffled)
+        null.append(_chi2_total(pt, pe)[0])
+
+    n_ge = sum(1 for v in null if v >= observed)
+    p_emp = (n_ge + 1) / (n_perm + 1)          # add-one, never reports p=0
+    null_sorted = sorted(null)
+    q95 = null_sorted[int(0.95 * (len(null_sorted) - 1))] if null_sorted else 0.0
+    carries = p_emp < 0.05
+    return {
+        "applicable": True,
+        "observed_chi2": round(observed, 1),
+        "null_median": round(null_sorted[len(null_sorted) // 2], 1),
+        "null_q95": round(q95, 1),
+        "n_perm": n_perm,
+        "p_empirical": round(p_emp, 4),
+        "rows_tested": tested,
+        "carries_order_information": carries,
+        "verdict": (
+            "ORDER CARRIES INFORMATION: the observed structure exceeds what "
+            "within-group shuffling produces"
+            if carries else
+            "NO ORDER INFORMATION: shuffling time reproduces this structure, so "
+            "the matrix below is GROUP COMPOSITION, not a Markov chain. Do not "
+            "read the transition table as temporal structure."),
+        "note": ("within-group permutation null, order destroyed and every "
+                 "marginal preserved; add-one empirical p so p=0 is never "
+                 "claimed"),
     }
 
 
@@ -183,7 +293,7 @@ def markov_information_test(trans: dict, exits: Counter) -> dict[str, Any]:
     wearing a matrix's clothes, and this is what says so.
     """
     pooled = Counter()
-    for a, succ in trans.items():
+    for _a, succ in trans.items():
         pooled.update(succ)
     total = sum(pooled.values())
     if total == 0:
@@ -317,6 +427,11 @@ def build_report(prefix: str | None = None,
     base.update({
         "status": "ok",
         "markov_test": markov_information_test(trans, exits),
+        # The ORDER control. markov_test alone cannot separate temporal
+        # structure from group composition - measured 2026-09-11, it
+        # returned the identical affirmative on a within-group permuted
+        # corpus. This one destroys order and is the verdict that counts.
+        "order_test": permutation_order_test(loaded.get("sequences") or {}),
         "codes": rows,
         "unregistered_codes": dict(loaded["unregistered"]),
     })
