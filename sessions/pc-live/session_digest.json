@@ -1,32 +1,32 @@
 {
-  "generated_at": 1789086609.2639318,
+  "generated_at": 1789090210.6711543,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789086598.0,
-    "duration_h": 1504.61
+    "end": 1789090207.0,
+    "duration_h": 1505.61
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1882,
-      "signal_records": 1807,
+      "records": 1885,
+      "signal_records": 1810,
       "by_src": {
-        "long_book": 641,
+        "long_book": 643,
         "conviction": 280,
         "order_manager": 255,
         "firewall": 222,
         "exploration": 208,
         "fault": 112,
         "startup": 100,
-        "ml_governor": 51,
+        "ml_governor": 52,
         "exit": 7,
         "runner": 6
       },
       "top_codes": [
         [
           "LB-010",
-          273
+          275
         ],
         [
           "OM-040",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.151,
+      "dominant_frac": 0.152,
       "retrain_requests": 5,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 10678,
+      "records": 11192,
       "by_level": {
-        "INFO": 10210,
-        "WARNING": 435,
+        "INFO": 10723,
+        "WARNING": 436,
         "CRITICAL": 33
       },
       "top_warnings": [
@@ -128,24 +128,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 1683,
+        "thin": 1761,
         "spoofy": 10
       },
       "spoofy_frac": 0.006,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 814,
+      "cycles_estimate": 816,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 784.92,
+    "equity_end": 784.69,
     "equity_min": 783.77,
     "equity_max": 806.91,
     "equity_range": 23.14,
     "capital_epochs": 5,
-    "epoch_samples": 161332,
+    "epoch_samples": 161570,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 783.77,
     "lifetime_equity_max": 100000.03,
@@ -153,7 +153,7 @@
     "realized_pnl_total": -3.78,
     "fees_paid_total": 18.031,
     "open_positions": 5,
-    "samples": 329123
+    "samples": 329361
   },
   "activity": {
     "signal_rows_total": 27988,
@@ -161,12 +161,12 @@
     "candidate_rows": 27563
   },
   "audit": {
-    "records": 87628,
-    "signal_records": 34751,
+    "records": 87631,
+    "signal_records": 34754,
     "by_src": {
       "exploration": 75970,
-      "long_book": 3771,
-      "ml_governor": 2825,
+      "long_book": 3773,
+      "ml_governor": 2826,
       "order_manager": 2120,
       "conviction": 1163,
       "startup": 476,
@@ -192,7 +192,7 @@
       ],
       [
         "LB-010",
-        2229
+        2231
       ],
       [
         "OM-000",
@@ -200,7 +200,7 @@
       ],
       [
         "ML-031",
-        1014
+        1015
       ],
       [
         "LB-050",
@@ -240,7 +240,7 @@
     "dup_seqs": 677,
     "fork_divergent_seqs": 677,
     "fork_codes": {
-      "LB-010": 267,
+      "LB-010": 269,
       "LB-050": 193,
       "CX-030": 190,
       "SZ-051": 153,
@@ -251,7 +251,7 @@
       "SZ-049": 99,
       "CV-010": 56,
       "CV-030": 48,
-      "ML-031": 42,
+      "ML-031": 43,
       "OM-040": 34,
       "OM-000": 27,
       "ML-030": 19,
@@ -334,10 +334,10 @@
     ]
   },
   "events": {
-    "records": 11418,
+    "records": 11932,
     "by_level": {
-      "INFO": 10901,
-      "WARNING": 480,
+      "INFO": 11414,
+      "WARNING": 481,
       "CRITICAL": 37
     },
     "top_warnings": [
@@ -383,12 +383,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 1839,
+      "thin": 1917,
       "spoofy": 10
     },
     "spoofy_frac": 0.005,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 882,
+    "cycles_estimate": 884,
     "feed_error_events": 6
   },
   "model": {
@@ -459,7 +459,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "677 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 267, 'LB-050': 193, 'CX-030': 190, 'SZ-051': 153, 'ML-070': 149, 'FW-050': 126, 'FT-020': 110, 'CG-000': 103, 'SZ-049': 99, 'CV-010': 56, 'CV-030': 48, 'ML-031': 42, 'OM-040': 34, 'OM-000': 27, 'ML-030': 19, 'ML-016': 15, 'ML-042': 15, 'ML-041': 14, 'CV-000': 14, 'RT-010': 10, 'ML-032': 9, 'FT-010': 8, 'PT-061': 7, 'ML-076': 6, 'ML-050': 6, 'SZ-053': 6, 'LB-000': 4, 'SZ-052': 3, 'SZ-047': 2, 'OM-080': 1, 'SZ-046': 1, 'OM-013': 1, 'LB-021': 1, 'ML-040': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "677 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 269, 'LB-050': 193, 'CX-030': 190, 'SZ-051': 153, 'ML-070': 149, 'FW-050': 126, 'FT-020': 110, 'CG-000': 103, 'SZ-049': 99, 'CV-010': 56, 'CV-030': 48, 'ML-031': 43, 'OM-040': 34, 'OM-000': 27, 'ML-030': 19, 'ML-016': 15, 'ML-042': 15, 'ML-041': 14, 'CV-000': 14, 'RT-010': 10, 'ML-032': 9, 'FT-010': 8, 'PT-061': 7, 'ML-076': 6, 'ML-050': 6, 'SZ-053': 6, 'LB-000': 4, 'SZ-052': 3, 'SZ-047': 2, 'OM-080': 1, 'SZ-046': 1, 'OM-013': 1, 'LB-021': 1, 'ML-040': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
