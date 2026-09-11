@@ -1,4 +1,4 @@
-# Overfit audit — 2026-09-11 20:13 UTC
+# Overfit audit — 2026-09-11 21:29 UTC
 
 Dataset: live history (17978 rows)
 
@@ -23,9 +23,8 @@ Dataset: live history (17978 rows)
 - **INFO** plateau[position_sizer.min_p_win] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[profit_taking.chandelier_k] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
 - **INFO** plateau[pretrade.min_edge_cost_ratio] — flat surface (pnl [0.0, 0.0, 0.0], entries [0, 0, 0]) — parameter inert on this recording
-- **INFO** OF-5 trials: assumed N=7 (no ledger at C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\outputs\trial_ledger.csv; var=SR^2 fallback)
-- **INFO** dsr REACHABILITY — UNPASSABLE at N=7: the var_trial_sr=SR^2 fallback makes sr0 = 1.387x|SR|, so the rejection threshold scales with the statistic and dsr>=0.90 is attainable for NO sample (exhaustive sweep 2026-08-31: 0/518616 combinations pass at N=7, max dsr 0.4262). This gate cannot produce a green — read any OF-5 line below as INERT, not as evidence. Repair needs a var_trial_sr MEASURED from per-trial SR (trial_ledger v0.1 records none), never a threshold move.
-- **INFO** dsr: P(true SR > 0) on conviction-only sample [ABSTAINED - gate unsatisfiable] — dsr=0.002 sr=-0.24 n=30 (probes excluded: 404) | NOT GRADED: at n_trials=7 the threshold is sr0=1.387x|SR|, so dsr>=0.90 is attainable for NO sample and a FAIL here would carry no information. Floors and thresholds are UNCHANGED. Repair: record per-trial SR so var_trial_sr is MEASURED rather than the SR^2 fallback; this arms itself when that lands.
+- **INFO** OF-5 trials: assumed N=7 (no ledger at C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\outputs\trial_ledger.csv; var=1/n null fallback)
+- **FAIL** dsr: P(true SR > 0) on conviction-only sample — dsr=0.006 sr=-0.24 n=30 (probes excluded: 404)
 - **INFO** regime diagnostic caveat — stratum auc/brier below are concatenated-OOF over all scored rows, while the pooled figures they're compared against are MEAN-OF-FOLDS (OF-1's own convention) — the delta is indicative, not a rebasing of the same statistic
 - **INFO** regime diagnostic caveat — n= below is a raw signal_history.csv count (candidate+live); oof_n= is the deduped/purged X actually OOF-scored — two different counting passes over related but non-identical data
 - **INFO** regime[bull_quiet] — n=4065 (candidate=4036 live=29) base_rate=0.386
@@ -57,6 +56,6 @@ Dataset: live history (17978 rows)
 - **INFO** extras[sent_fear] — at-neutral share 100.0% (n=17978) — feed effectively dark corpus-wide (dead column)
 - **INFO** extras[fear_greed] — at-neutral share 0.0% (n=17978) — feed live for most of the corpus; consider the missingness-indicator column (schema bump) if this family earns model importance
 
-4 passed, 0 failed (116s)
+4 passed, 1 failed (115s)
 
 Corpus: live history (17978 rows)
