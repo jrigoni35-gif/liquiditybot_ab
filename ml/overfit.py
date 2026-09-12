@@ -25,7 +25,10 @@ backtest looked great":
   DEFLATED SHARPE     multiple testing on live results. Corrects an
                       observed Sharpe for the number of trials, skew,
                       kurtosis and track length (Bailey & LdP 2014);
-                      returns P(true SR > 0 | trials).
+                      returns P(true SR > SR0 | trials), where SR0 is
+                      the EXPECTED MAXIMUM Sharpe under the null across
+                      those trials — NOT zero. `psr_zero` in the same
+                      result is the P(true SR > 0) reading.
 
 Everything here is pure computation over arrays already produced by the
 existing pipeline — no network, deterministic under seed, replay-safe.
@@ -854,10 +857,29 @@ def _norm_ppf(p: float) -> float:
 def deflated_sharpe(sr_observed: float, n_returns: int, skew: float = 0.0,
                     kurtosis: float = 3.0, n_trials: int = 1,
                     var_trial_sr: float | None = None) -> dict:
-    """Bailey & López de Prado (2014). Returns DSR = P(true SR > 0)
+    """Bailey & López de Prado (2014). Returns DSR = P(true SR > SR0)
     after correcting for track length, non-normality and the number of
     strategy trials that produced the observed SR. SR units: per period
-    of the return series. Needs n_returns >= ~20 to mean anything."""
+    of the return series. Needs n_returns >= ~20 to mean anything.
+
+    SR0 IS NOT ZERO, AND THIS DOCSTRING SAID IT WAS until 2026-09-11.
+    The returned probability is measured against `sr0_threshold` = the
+    EXPECTED MAXIMUM Sharpe under the null across `n_trials` tries, which
+    is strictly positive for trials > 1 (0.2532 at n=30, N=7). The two
+    coincide only at n_trials == 1, where e_max is set to 0.0 below.
+
+    The mislabel is not cosmetic: it inverts how the number reads. A
+    reader seeing "dsr=0.006" under the old label concluded "0.6% chance
+    the edge is positive". The true statement was "0.6% chance the true
+    per-trip Sharpe exceeds +0.2532" — a far weaker claim, and not the
+    one an operator would act on. The quantity the old label described is
+    now returned alongside as `psr_zero` (Bailey & LdP's PSR at SR*=0),
+    and OF-5 prints it next to the graded number — read it there, per
+    run. NO SAMPLE FIGURE IS WRITTEN HERE ON PURPOSE: this docstring is
+    the wrong place for a number that moves with the corpus, which is the
+    decay `scripts/audit_quarantine.py` had to delete a table over.
+    Found by a literature pass that read the code before the papers;
+    the-method #1, the instrument was the first suspect."""
     n = int(n_returns)
     if n < 3:
         return {"dsr": None, "reason": "track too short"}
@@ -906,8 +928,15 @@ def deflated_sharpe(sr_observed: float, n_returns: int, skew: float = 0.0,
         1.0 - skew * sr_observed +
         (kurtosis - 1.0) / 4.0 * sr_observed ** 2, 1e-9) / (n - 1))
     z = (sr_observed - sr0) / denom
+    # psr_zero = PSR at SR*=0: the SAME statistic with the trials deflation
+    # removed, i.e. what the gate's label claimed to be reporting until
+    # 2026-09-11. Additive key (invariant 7) - no caller's behaviour changes,
+    # and it is deliberately NOT what dsr_verdict grades. It exists so the
+    # sign question ("is the edge positive at all?") and the multiple-testing
+    # question ("does it clear the best of N tries?") stop being conflated.
     return {"dsr": float(_norm_cdf(z)), "sr0_threshold": float(sr0),
-            "z": float(z), "n": n, "trials": trials}
+            "z": float(z), "n": n, "trials": trials,
+            "psr_zero": float(_norm_cdf(sr_observed / denom))}
 
 
 # ---------------------------------------------------------------------------
