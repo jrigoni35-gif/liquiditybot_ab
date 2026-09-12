@@ -1,8 +1,15 @@
-# OF-3 (PBO): it is DRIFT, not overfitting - and the 0.5 line is miscalibrated too
+# OF-3 (PBO): the rung cannot resolve what it is being asked to resolve
 
-**2026-09-12.** Three findings, and they do not cancel: the gate's threshold
-is miscalibrated, the observed reading is nonetheless real, and its CAUSE is
-non-stationarity rather than the overfitting the rung is named for. Everything below was re-derived by running the shipped estimator; the
+**2026-09-12.** THIS DOCUMENT HAS BEEN CORRECTED TWICE, and the
+corrections are the finding. It first said the red was overfitting; then that
+it was drift; the measurements below now say the rung cannot separate either
+from its own noise on this corpus. Each retraction came from running a control
+the previous version had not run.
+
+The standing conclusion: **OF-3's red is not evidence about the strategy.** It
+is a statistic swinging further on modelling choices than the distance to its
+own threshold, over a corpus whose TARGET DEFINITION changed twice inside the
+measured window. Everything below was re-derived by running the shipped estimator; the
 commands are beside the numbers so the next reader re-runs rather than quotes.
 
 ## What happened
@@ -145,3 +152,99 @@ returns `X, y, w, sig, res, source, n_live`, not `X, y, sig, ...`), and its
 verdict line printed *"fails on pure noise more often than not"* out of
 `above >= len(vals)//2`, which is True at 2-of-5. The harness now reports the
 two rates separately and draws no conclusion at all.
+
+
+---
+
+# CORRECTION 2026-09-12 (later the same day): two controls that were never run
+
+An adversarial quant review asked for two controls this document had not run.
+Both were executed. Both weaken what is written above, and one refutes it.
+
+## 1. THE TARGET CHANGED TWICE INSIDE THE CORPUS
+
+Measured from the stored per-row barrier geometry in signal_history.csv
+(`pt_frac` / `sl_frac`), all under the SAME `label_era='triple_barrier_h432'`:
+
+| day | PT bps | SL bps | base rate y=1 |
+|---|---|---|---|
+| 09-04 / 09-05 | **240** | 180 | 0.268 / 0.591 |
+| 09-06 / 09-07 | **220** | 165 | 0.429 / 0.390 |
+| 09-08 onward | **180** | 135 | 0.173 / 0.190 |
+
+CLAUDE.md predicted exactly this for cut #12: the barrier floor moves with the
+cost, "under the same `label_era` name, which encodes the horizon only". So a
+CSCV block mean is being compared across a class-balance shift from ~0.4-0.6
+down to ~0.19. The in-sample winner MUST mis-rank out-of-sample whenever the
+two sides of a split straddle 09-08, because the two sides are answering
+different questions.
+
+**This also demotes a witness.** ML-080 (exit-reason mix drift) is a MECHANICAL
+CONSEQUENCE of tightening PT/SL by 40/30 bps, not independent corroboration.
+The earlier claim of "four instruments, one cause" DOUBLE-COUNTED its evidence.
+
+## 2. THE END-SWAP REFUTES "ONLY THE RECENT TAIL ANTI-SELECTS"
+
+The trailing-truncation column drops the recent k% - which also shrinks T. The
+control holds T fixed and swaps which END is kept:
+
+| slice | rows | pbo |
+|---|---|---|
+| full | 18,016 | **0.900** |
+| keep-OLDEST 60% | 10,809 | 0.014 |
+| **keep-NEWEST 60%** | 10,809 | **0.414** |
+
+**The recent half does not anti-select on its own** - 0.414 PASSES the 0.5 gate
+and sits inside the null band (median 0.279, sd 0.294). The 0.900 therefore
+lives in the CROSS-HALF combinations: the two ends are mutually
+non-generalising. "Only the recent tail anti-selects" is WITHDRAWN.
+
+The ordering (full > newest > oldest) is robust - it survives the
+parameterisation change below - so a directional heterogeneity conclusion
+stands. The strong sentence does not.
+
+## 3. THE VERDICT IS DRIVEN BY A WEIGHTING CHOICE, NOT BY THE STRATEGY
+
+Full corpus, 2x2 isolating the two carried-over inputs:
+
+| cell | n_live | weights | pbo | ncfg |
+|---|---|---|---|---|
+| **A (shipped)** | 63 | de Prado | **0.9000** | 6 |
+| B | 63 | uniform | **0.5429** | 6 |
+| C | None | de Prado | 0.8857 | 8 |
+| D | None | uniform | 0.4714 | 8 |
+
+**A->B, identical space and identical 70 combos, sample weights alone: -0.357.**
+A->C, the evidence gate alone: -0.014, negligible.
+
+The weighting is not a mistake - `scripts/overfit_check.py` argues for it
+deliberately, because OF-3 certifies the DEPLOYED selection rule and must fit
+the way the deployed trainer fits. But the consequence is unavoidable:
+
+  * the statistic moves **0.357** on a defensible modelling choice
+  * the distance from the shipped reading to the gate is **0.400**
+  * the null's standard deviation is **0.294**
+  * the gate false-positives on pure noise **40%** of the time
+
+**A gate cannot adjudicate a question finer than its own sensitivity to
+arbitrary-but-defensible choices.** That is the finding.
+
+## WHAT THIS MEANS FOR THE RED
+
+Do NOT read OF-3's red as evidence that the deployed selection rule is
+overfitting. Do not read it as market drift either. On this corpus the rung is
+over-taxed: a label-geometry change inside the window, a threshold that trips
+on noise two times in five, and a verdict that moves most of the way to that
+threshold on the weighting alone.
+
+**Owed, and it is an OPERATOR question, not a code fix:** the `label_era` token
+encodes the horizon only, so a barrier-geometry change is invisible to every
+consumer that segments by it. Either extend the token to carry the barrier
+multipliers, or segment OF-3 by geometry. CLAUDE.md already names this hazard
+as the reason take-profit width is the PRE-NAMED next lever and was deferred -
+"a DELIBERATE width change would mix two geometries under one era". The cut
+#12 fee rebook moved the width anyway, through the cost floor in
+`ml/labeling.barrier_geometry`.
+
+Harnesses: `scratchpad/pbo_endswap.py`, `scratchpad/pbo_2x2.py`,
+`scratchpad/pbo_null2.py`, `scratchpad/pbo_drift.py`.
