@@ -1,21 +1,21 @@
 {
-  "generated_at": 1789205463.3756359,
+  "generated_at": 1789209067.0320845,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789205460.0,
-    "duration_h": 1537.62
+    "end": 1789209061.0,
+    "duration_h": 1538.62
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1882,
-      "signal_records": 1780,
+      "records": 1874,
+      "signal_records": 1772,
       "by_src": {
-        "long_book": 623,
+        "long_book": 619,
         "order_manager": 277,
         "exploration": 244,
-        "conviction": 231,
+        "conviction": 227,
         "firewall": 222,
         "startup": 93,
         "fault": 93,
@@ -24,12 +24,12 @@
       },
       "top_codes": [
         [
-          "LB-010",
+          "OM-040",
           250
         ],
         [
-          "OM-040",
-          250
+          "LB-010",
+          246
         ],
         [
           "FW-050",
@@ -72,15 +72,15 @@
           45
         ]
       ],
-      "dominant_code": "LB-010",
-      "dominant_frac": 0.14,
+      "dominant_code": "OM-040",
+      "dominant_frac": 0.141,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 17885,
+      "records": 17887,
       "by_level": {
-        "INFO": 17791,
+        "INFO": 17793,
         "WARNING": 85,
         "CRITICAL": 8,
         "ERROR": 1
@@ -103,12 +103,12 @@
           3
         ],
         [
-          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+          "ML-031: feature drift 25/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           3
         ],
         [
-          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
+          "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+          3
         ],
         [
           "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
@@ -123,29 +123,29 @@
           2
         ],
         [
-          "ML-031: feature drift 25/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bp",
           2
         ]
       ],
       "liquidity_tally": {
         "thin": 2945,
-        "spoofy": 53
+        "spoofy": 52
       },
-      "spoofy_frac": 0.018,
+      "spoofy_frac": 0.017,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1126,
+      "cycles_estimate": 1148,
       "feed_error_events": 2
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 787.55,
+    "equity_end": 787.46,
     "equity_min": 783.09,
     "equity_max": 806.91,
     "equity_range": 23.82,
     "capital_epochs": 5,
-    "epoch_samples": 169169,
+    "epoch_samples": 169407,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 783.09,
     "lifetime_equity_max": 100000.03,
@@ -153,7 +153,7 @@
     "realized_pnl_total": -3.9,
     "fees_paid_total": 20.293,
     "open_positions": 5,
-    "samples": 336960
+    "samples": 337198
   },
   "activity": {
     "signal_rows_total": 28441,
@@ -161,12 +161,12 @@
     "candidate_rows": 28007
   },
   "audit": {
-    "records": 87872,
-    "signal_records": 34906,
+    "records": 87873,
+    "signal_records": 34907,
     "by_src": {
       "exploration": 76068,
       "long_book": 3809,
-      "ml_governor": 2886,
+      "ml_governor": 2887,
       "order_manager": 2151,
       "conviction": 1170,
       "startup": 476,
@@ -200,7 +200,7 @@
       ],
       [
         "ML-031",
-        1047
+        1048
       ],
       [
         "LB-050",
@@ -237,8 +237,8 @@
     "chain_seams": 59,
     "chain_torn_tail": false,
     "chain_error": null,
-    "dup_seqs": 805,
-    "fork_divergent_seqs": 805,
+    "dup_seqs": 806,
+    "fork_divergent_seqs": 806,
     "fork_codes": {
       "LB-010": 308,
       "LB-050": 201,
@@ -250,8 +250,8 @@
       "FT-020": 114,
       "CG-000": 107,
       "CV-010": 83,
-      "OM-040": 77,
-      "ML-031": 75,
+      "OM-040": 78,
+      "ML-031": 76,
       "CV-030": 50,
       "OM-000": 46,
       "ML-016": 23,
@@ -335,10 +335,10 @@
     ]
   },
   "events": {
-    "records": 23124,
+    "records": 23501,
     "by_level": {
-      "INFO": 22540,
-      "WARNING": 541,
+      "INFO": 22916,
+      "WARNING": 542,
       "CRITICAL": 42,
       "ERROR": 1
     },
@@ -385,12 +385,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 3893,
+      "thin": 3936,
       "spoofy": 54
     },
     "spoofy_frac": 0.014,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1445,
+    "cycles_estimate": 1476,
     "feed_error_events": 8
   },
   "model": {
@@ -461,7 +461,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "805 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 308, 'LB-050': 201, 'CX-030': 198, 'SZ-051': 192, 'ML-070': 188, 'FW-050': 154, 'SZ-049': 117, 'FT-020': 114, 'CG-000': 107, 'CV-010': 83, 'OM-040': 77, 'ML-031': 75, 'CV-030': 50, 'OM-000': 46, 'ML-016': 23, 'ML-042': 22, 'ML-041': 22, 'ML-030': 19, 'CV-000': 19, 'PT-061': 16, 'SZ-052': 14, 'ML-032': 14, 'RT-010': 10, 'FT-010': 8, 'SZ-053': 7, 'LB-000': 7, 'ML-076': 6, 'ML-050': 6, 'SZ-047': 2, 'LB-021': 2, 'OM-080': 1, 'SZ-046': 1, 'OM-013': 1, 'ML-040': 1, 'LB-020': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "806 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 308, 'LB-050': 201, 'CX-030': 198, 'SZ-051': 192, 'ML-070': 188, 'FW-050': 154, 'SZ-049': 117, 'FT-020': 114, 'CG-000': 107, 'CV-010': 83, 'OM-040': 78, 'ML-031': 76, 'CV-030': 50, 'OM-000': 46, 'ML-016': 23, 'ML-042': 22, 'ML-041': 22, 'ML-030': 19, 'CV-000': 19, 'PT-061': 16, 'SZ-052': 14, 'ML-032': 14, 'RT-010': 10, 'FT-010': 8, 'SZ-053': 7, 'LB-000': 7, 'ML-076': 6, 'ML-050': 6, 'SZ-047': 2, 'LB-021': 2, 'OM-080': 1, 'SZ-046': 1, 'OM-013': 1, 'ML-040': 1, 'LB-020': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
