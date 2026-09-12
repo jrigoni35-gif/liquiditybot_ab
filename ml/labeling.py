@@ -34,13 +34,22 @@ def barrier_geometry(sigma_bar: float, cost_pct: float, pt_mult: float,
                      sl_mult: float, pt_cost_mult: float) -> tuple:
     """(pt_frac, sl_frac) for the triple-barrier bet, cost-floored.
 
-    WHY the floor (spec D2, 2026-07-27; cost figure fee-truth-refreshed
-    2026-08-29): sigma-scaled barriers at typical 5m vol put the profit
-    target ~1% out while the round-trip cost is now ~1.2% (config
-    label_round_trip_cost_pct at cut #8, venue-true 40/80 fees + spread;
-    was 0.5% pre-cut) — at that cost the round trip can equal or exceed
-    the profit distance and the AVERAGE bracket bet is EV-negative
-    regardless of signal. Flooring the SIGMA
+    WHY the floor (spec D2, 2026-07-27): sigma-scaled barriers at typical
+    5 m vol put the profit target on the same order as the round-trip cost,
+    and at that point the round trip can equal or exceed the profit distance
+    — the AVERAGE bracket bet is then EV-negative regardless of signal.
+
+    NO COST FIGURE IS WRITTEN HERE ON PURPOSE (2026-09-10). This docstring
+    carried "~1.2% ... at cut #8, venue-true 40/80 fees" long after cuts #9,
+    #10 and #12 had re-booked the fee row; against the shipped config it was
+    2.7x the live value, in the single most-cited coupling in this repo — the
+    first thing a newcomer reads to learn it. The cost is a LIVE quantity that
+    moves with the venue tier every re-book, so re-derive it, never quote a
+    figure from prose:
+        python -c "import json;print(json.load(open('config.json'))['ml']['label_round_trip_cost_pct'])"
+    It tracks the booked fee row (pretrade maker+taker over 100) and moves
+    with it at every cut — read both, never one.
+    Flooring the SIGMA
     INPUT (never the distances) keeps pt:sl at its configured ratio by
     construction: sigma_eff = max(sigma_bar,
     pt_cost_mult * cost_frac / pt_mult), so at the floor the profit

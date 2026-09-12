@@ -1,0 +1,466 @@
+"""Pins for scripts/reason_chain_report.py — shipped UNPINNED, which is the
+finding as much as anything in it.
+
+ec08c3e9 landed a 410-line statistical instrument with zero tests, in a session
+whose three sibling instruments (regime_chain_report, order_chain_report,
+audit_quarantine) carry 25, 17 and 13 pins each. CLAUDE.md is explicit: "New
+behavior gets a test in the same commit." It did not.
+
+That matters more than usual for THIS file. It is a measurement instrument, and
+this repo's own standing orientation is that the measurement plane is the
+least-governed code in the tree - "the code that tells you whether the governed
+code works is the code nothing governs". An unpinned chi-square is exactly that
+shape: it cannot fail loudly, it can only be quietly wrong.
+
+THE PIN THAT MATTERS MOST is the vacuity control. `markov_information_test`
+exists to answer "does knowing the current code tell you anything about the
+next one", and its own docstring names the failure it guards: "a chain whose
+rows all match the pooled distribution is a histogram wearing a matrix's
+clothes". So the tests below feed it exactly that - a chain built so every row
+EQUALS the pooled successor distribution - and require it to report NOT
+informative. A test that only fed it real data could never separate "the
+instrument works" from "the instrument always says yes".
+"""
+from __future__ import annotations
+
+import sys
+from collections import Counter
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.reason_chain_report import (  # noqa: E402
+    MIN_EXITS_FOR_RATES, _wilson, load_transitions, markov_information_test,
+    registered_codes, steady_state)
+
+
+# --------------------------------------------------------------------------
+# Wilson interval
+# --------------------------------------------------------------------------
+
+def test_wilson_on_no_observations_is_not_a_claim():
+    assert _wilson(0, 0) == (0.0, 0.0)
+
+
+def test_wilson_brackets_the_point_estimate():
+    lo, hi = _wilson(30, 100)
+    assert lo < 0.30 < hi
+    assert 0.0 <= lo and hi <= 1.0
+
+
+def test_wilson_narrows_as_n_grows():
+    """The whole reason to use an interval: more evidence, tighter claim."""
+    w_small = _wilson(3, 10)
+    w_big = _wilson(300, 1000)
+    assert (w_big[1] - w_big[0]) < (w_small[1] - w_small[0])
+
+
+def test_wilson_stays_inside_the_unit_interval_at_the_edges():
+    """A naive normal interval goes negative at k=0 and past 1 at k=n. Wilson
+    is chosen precisely so a rate at the boundary is still reportable.
+
+    NOTE the tolerance on the upper edge: _wilson(20, 20) returns
+    0.9999999999999998, not 1.0. Asserting equality there is a float trap, and
+    the first cut of this test fell into it."""
+    lo, hi = _wilson(0, 20)
+    assert lo == 0.0 and 0.0 < hi < 1.0
+    lo, hi = _wilson(20, 20)
+    assert 0.0 < lo < 1.0 and hi <= 1.0 and hi > 0.99
+
+
+# --------------------------------------------------------------------------
+# THE VACUITY CONTROL
+# --------------------------------------------------------------------------
+
+def _uninformative_chain(n_per_row: int = 200):
+    """Every row IS the pooled distribution: successors are independent of the
+    current state. A transition matrix in shape, a histogram in fact."""
+    pooled = {"B": 0.5, "C": 0.3, "D": 0.2}
+    trans, exits = {}, Counter()
+    for a in ("X", "Y", "Z"):
+        trans[a] = Counter({b: int(p * n_per_row) for b, p in pooled.items()})
+        exits[a] = sum(trans[a].values())
+    return trans, exits
+
+
+def _informative_chain(n_per_row: int = 200):
+    """Each state has a strongly preferred successor - knowing where you are
+    genuinely tells you where you go."""
+    rows = {"X": {"B": 190, "C": 5, "D": 5},
+            "Y": {"B": 5, "C": 190, "D": 5},
+            "Z": {"B": 5, "C": 5, "D": 190}}
+    trans = {a: Counter(v) for a, v in rows.items()}
+    exits = Counter({a: sum(v.values()) for a, v in rows.items()})
+    return trans, exits
+
+
+def test_a_histogram_wearing_a_matrix_is_reported_as_UNINFORMATIVE():
+    """THE control. If this ever passes as informative the instrument is
+    asserting structure that is not there, which is worse than silence."""
+    trans, exits = _uninformative_chain()
+    res = markov_information_test(trans, exits)
+    assert res.get("applicable") is True
+    assert res.get("codes_tested", 0) > 0, (
+        "nothing was tested, so 'not informative' proves nothing - that is the "
+        "broken-scan reading, not the null reading")
+    assert res.get("codes_informative") == 0, (
+        f"rows identical to the pooled distribution were reported as "
+        f"informative: {res.get('top')}")
+
+
+def test_a_genuinely_state_dependent_chain_IS_detected():
+    """The other half of the control. Without this, a test suite that only
+    checked the null case would pass on an instrument hard-wired to say no."""
+    trans, exits = _informative_chain()
+    res = markov_information_test(trans, exits)
+    assert res.get("codes_informative", 0) == 3, (
+        f"a chain where each state has a 95% preferred successor was not "
+        f"detected as informative - the test cannot distinguish signal: {res}")
+    assert "CARRIES information" in res.get("verdict", "")
+
+
+def test_thin_rows_are_not_tested_rather_than_tested_badly():
+    """Below MIN_EXITS_FOR_RATES a chi-square on a handful of counts is noise.
+    The instrument must DECLINE, not guess."""
+    trans = {"X": Counter({"B": 2, "C": 1})}
+    exits = Counter({"X": 3})
+    assert 3 < MIN_EXITS_FOR_RATES
+    res = markov_information_test(trans, exits)
+    assert res.get("codes_tested", 0) == 0
+    assert not res.get("codes_informative")
+
+
+def test_an_empty_corpus_is_declared_inapplicable_not_answered():
+    res = markov_information_test({}, Counter())
+    assert res.get("applicable") is False
+
+
+# --------------------------------------------------------------------------
+# steady state
+# --------------------------------------------------------------------------
+
+def _ergodic_chain():
+    """Every state has outgoing mass, so a stationary distribution EXISTS.
+    _informative_chain does not qualify - B/C/D are terminal there, mass drains
+    out of the transient set and no stationary distribution over it exists."""
+    from collections import Counter as _C
+    trans = {"A": _C({"B": 70, "C": 30}),
+             "B": _C({"A": 50, "C": 50}),
+             "C": _C({"A": 20, "B": 80})}
+    exits = _C({"A": 100, "B": 100, "C": 100})
+    return trans, exits
+
+
+def test_steady_state_is_a_distribution():
+    trans, exits = _ergodic_chain()
+    ss = steady_state(trans, exits)
+    assert ss, "no steady state returned for a well-formed chain"
+    assert abs(sum(ss.values()) - 1.0) < 1e-6, f"does not sum to 1: {sum(ss.values())}"
+    assert all(v >= 0.0 for v in ss.values())
+
+
+def test_steady_state_on_an_empty_chain_is_empty_not_a_crash():
+    assert steady_state({}, Counter()) == {}
+
+
+def test_steady_state_favours_the_absorbing_direction():
+    """A chain that funnels into D must put more long-run mass on D than on a
+    state nothing points at."""
+    trans = {"X": Counter({"D": 100}), "D": Counter({"D": 100})}
+    exits = Counter({"X": 100, "D": 100})
+    ss = steady_state(trans, exits)
+    assert ss.get("D", 0.0) > ss.get("X", 0.0)
+
+
+# --------------------------------------------------------------------------
+# corpus handling
+# --------------------------------------------------------------------------
+
+def test_registered_codes_is_not_empty_and_holds_real_codes():
+    """If this ever returns empty, every 'unregistered code' judgement the
+    report makes becomes vacuously true."""
+    codes = registered_codes()
+    assert len(codes) > 50, f"only {len(codes)} registered codes discovered"
+    assert "PT-040" in codes or "SZ-023" in codes
+
+
+def test_a_missing_corpus_REPORTS_not_raises(tmp_path):
+    """It must SAY it could not read, rather than raising into the caller or -
+    worse - returning an empty chain, which reads exactly like a quiet system.
+    'No transitions' and 'no corpus' are the same observation until separated."""
+    out = load_transitions(tmp_path / "nope.jsonl")
+    assert isinstance(out, dict)
+    assert out.get("error"), f"a missing corpus returned no error marker: {out}"
+
+
+def test_unparseable_rows_are_skipped_not_fatal(tmp_path):
+    """One torn line must not silence the whole corpus - the audit trail is
+    append-only under a live writer and a torn tail is expected, not exotic."""
+    p = tmp_path / "audit.jsonl"
+    p.write_text('{"code": "PT-040", "data": {"asset": "ETH"}, "ts": 1}\n'
+                 'not json at all\n'
+                 '{"code": "SZ-023", "data": {"asset": "ETH"}, "ts": 2}\n',
+                 encoding="utf-8")
+    out = load_transitions(p)
+    assert not out.get("error"), f"a single bad line killed the corpus: {out}"
+
+
+# --------------------------------------------------------------------------
+# THE ORDER CONTROL — the pin that the first version of this file lacked
+#
+# Adversarial review 2026-09-11 ran within-group permutation against the SHIPPED
+# instrument and got 32/32 codes informative with the IDENTICAL affirmative
+# verdict on order-destroyed data. The tests in this file passed while that was
+# true, because the synthetic chains above have no GROUPS - and the defect was
+# precisely that the null pools successors globally while transitions are built
+# per group, so a code concentrated in one group produces a large chi-square
+# from composition alone.
+#
+# The control is now the test. These pins are written so they FAIL if anyone
+# reverts to a global-pool null.
+# --------------------------------------------------------------------------
+
+def _grouped_no_order(n: int = 400):
+    """Two groups with very different COMPOSITION but no temporal structure:
+    within each group the code stream is i.i.d. This is exactly the shape that
+    fooled the old test - group composition masquerading as a Markov chain."""
+    import random as _r
+    rng = _r.Random(11)
+    g1 = [rng.choice(["A", "A", "A", "B"]) for _ in range(n)]
+    g2 = [rng.choice(["C", "C", "C", "D"]) for _ in range(n)]
+    return {"g1": g1, "g2": g2}
+
+
+def _grouped_with_order(n: int = 400):
+    """Same two groups, but each stream strictly alternates - real order."""
+    g1 = ["A" if i % 2 == 0 else "B" for i in range(n)]
+    g2 = ["C" if i % 2 == 0 else "D" for i in range(n)]
+    return {"g1": g1, "g2": g2}
+
+
+def test_composition_without_order_is_REFUSED():
+    """THE regression. i.i.d. streams inside differing groups must NOT be
+    reported as carrying order information."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_no_order(), n_perm=120)
+    assert res.get("applicable") is True
+    assert res.get("carries_order_information") is False, (
+        f"group composition was reported as order information: {res}")
+    assert "NO ORDER INFORMATION" in res.get("verdict", "")
+
+
+def test_genuine_order_IS_detected():
+    """The other half. Without this the control passes on a test wired to
+    always refuse."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_with_order(), n_perm=120)
+    assert res.get("carries_order_information") is True, (
+        f"a strictly alternating stream was not detected as ordered: {res}")
+
+
+def test_the_empirical_p_never_claims_zero():
+    """Add-one smoothing: with n_perm draws you cannot honestly report p=0."""
+    from scripts.reason_chain_report import permutation_order_test
+    res = permutation_order_test(_grouped_with_order(), n_perm=50)
+    assert res["p_empirical"] > 0.0
+    # the floor is 1/(n_perm+1), but the reported value is ROUNDED to 4dp, so
+    # compare against the rounded floor rather than the exact one - asserting
+    # the exact value here failed on 0.0196 vs 0.019607..., which is a test
+    # bug, not an instrument bug.
+    assert res["p_empirical"] >= round(1.0 / (50 + 1), 4) - 1e-9
+
+
+def test_the_test_is_deterministic():
+    """A report that prints a different verdict each run is not a measurement."""
+    from scripts.reason_chain_report import permutation_order_test
+    a = permutation_order_test(_grouped_no_order(), n_perm=60)
+    b = permutation_order_test(_grouped_no_order(), n_perm=60)
+    assert a["observed_chi2"] == b["observed_chi2"]
+    assert a["p_empirical"] == b["p_empirical"]
+
+
+def test_load_transitions_returns_the_sequences_the_control_needs():
+    """Without ordered per-group sequences the control cannot be run at all,
+    and the instrument silently reverts to the composition-confounded test."""
+    from scripts.reason_chain_report import load_transitions
+    import json as _j
+    import tempfile
+    from pathlib import Path as _P
+    p = _P(tempfile.mkdtemp()) / "a.jsonl"
+    p.write_text("".join(
+        _j.dumps({"code": c, "seq": i, "data": {"asset": "ETH"}}) + "\n"
+        for i, c in enumerate(["PT-040", "SZ-023", "PT-040"])), encoding="utf-8")
+    out = load_transitions(p)
+    assert "sequences" in out, "sequences dropped - the order control is dead"
+    assert out["sequences"]["ETH"] == ["PT-040", "SZ-023", "PT-040"]
+
+
+# --------------------------------------------------------------------------
+# CONVERGENCE — red-team OBJ-2, conceded
+#
+# steady_state ran a FIXED 500 power iterations and published the 500th iterate
+# as "long-run" share. The live matrix has |lambda_2| = 0.996195, so 1e-12 needs
+# 7,249 iterations: the loop stopped ~6,750 short and its convergence break
+# could never fire. Three independent routes put the top shares at
+# 32.26/29.13/23.79; the shipped default printed 34.59/28.61/21.54.
+#
+# The contract is now: iterate to a criterion, or return {} as an EXPLICIT
+# UNKNOWN. Empty is never backfilled with a uniform prior - that would read as
+# "the bot spends equal time in every reason", a claim about the world made
+# from a failure of the solver.
+# --------------------------------------------------------------------------
+
+def _slow_mixing_chain():
+    """Two near-absorbing lobes joined by a thin bridge: |lambda_2| close to 1,
+    so a small iteration budget cannot reach the limit.
+
+    ASYMMETRIC on purpose. The first version of this fixture used equal bridge
+    weights, which makes the uniform start vector ALREADY the fixed point - it
+    converged on iteration 1 and the refusal test passed for the wrong reason
+    (it never had anything to refuse). Unequal weights put the start vector far
+    from the limit, which is what the test needs."""
+    from collections import Counter as _C
+    trans = {"A": _C({"A": 999, "B": 1}), "B": _C({"B": 990, "A": 10})}
+    exits = _C({"A": 1000, "B": 1000})
+    return trans, exits
+
+
+def test_a_non_converged_result_is_REFUSED_not_published():
+    """THE regression. A tight iteration cap on a slow-mixing chain must yield
+    an explicit empty, not a snapshot dressed as a limit."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=5)
+    assert out == {}, f"a 5-iteration snapshot was published as long-run: {out}"
+
+
+def test_the_same_chain_converges_when_given_the_iterations():
+    """The other half: the refusal must be about convergence, not a solver that
+    always gives up."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=200_000)
+    assert out, "the chain never converged even with the full budget"
+    assert abs(sum(out.values()) - 1.0) < 1e-9
+    # ASYMMETRIC bridge (1/1000 out of A vs 10/1000 out of B) -> A holds ~10x
+    # the long-run mass. Derived from the chain, not copied from a run:
+    # pi_A/pi_B = (B->A)/(A->B) = 10/1 exactly.
+    assert abs(out["A"] / out["B"] - 10.0) < 1e-6
+
+
+def test_an_empty_result_is_not_backfilled_with_a_uniform_prior():
+    """A uniform vector would be indistinguishable from a real answer to every
+    downstream reader. Empty must stay empty."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, max_iters=3)
+    assert out == {}
+    assert not any(abs(v - 0.5) < 1e-9 for v in out.values())
+
+
+def test_the_deprecated_iters_argument_cannot_shorten_the_run():
+    """`iters` is kept for old callers but must never act as a stopping rule -
+    passing the old default of 500 must NOT reintroduce the defect."""
+    from scripts.reason_chain_report import steady_state
+    trans, exits = _slow_mixing_chain()
+    out = steady_state(trans, exits, 500)
+    assert out, ("iters=500 was treated as a stopping rule again - that is the "
+                 "exact contract that shipped a non-converged vector")
+
+
+def test_a_DRAINING_chain_yields_an_explicit_unknown():
+    """_informative_chain's successors (B/C/D) are terminal: mass leaves the
+    transient set and never returns, so there is no stationary distribution
+    over it. The honest answer is {} - and the OLD fixed-iteration code
+    published a drained vector here instead, which is the same defect OBJ-2
+    named on the live matrix."""
+    trans, exits = _informative_chain()
+    assert steady_state(trans, exits) == {}
+
+
+# --------------------------------------------------------------------------
+# CORPUS SEGMENTATION — red-team OBJ-6, conceded
+#
+# This instrument read the WHOLE of outputs/audit.jsonl while the same branch
+# ships audit_quarantine, whose classifier shows 34.5% of that trail is QA
+# fixture output. Measured: SZ-047 publishes at 25.36% pooled against 4.04%
+# production-only - a 6.3x overstatement on a code the report ranks near the
+# top. Building the classifier and then not using it here was the defect.
+# --------------------------------------------------------------------------
+
+def _mixed_trail(tmp_path):
+    """A production session and a fixture session in one file, distinguished
+    exactly the way the live trail distinguishes them: the CG-000 capital."""
+    import json as _j
+    p = tmp_path / "audit.jsonl"
+    rows = []
+    rows.append({"code": "CG-000", "seq": 0, "ts": 1000.0,
+                 "data": {"starting_capital_usd": 800}})
+    for i in range(1, 41):
+        rows.append({"code": "PT-040", "seq": i, "ts": 1000.0 + i,
+                     "data": {"asset": "ETH"}})
+    rows.append({"code": "CG-000", "seq": 41, "ts": 1100.0,
+                 "data": {"starting_capital_usd": 10000}})
+    for i in range(42, 122):
+        rows.append({"code": "SZ-047", "seq": i, "ts": 1100.0 + (i - 41) * 0.05,
+                     "data": {"asset": "ETH"}})
+    p.write_text("".join(_j.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return p
+
+
+def test_the_default_scope_excludes_fixture_rows(tmp_path):
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path))
+    seen = out["codes_seen"]
+    assert seen.get("PT-040", 0) > 0, "production rows were dropped"
+    assert seen.get("SZ-047", 0) == 0, (
+        "fixture rows reached the default scope - this is the 6.3x "
+        "overstatement the panel measured on the live trail")
+
+
+def test_scope_all_restores_the_pooled_read(tmp_path):
+    """The old behaviour must remain REACHABLE and named, not deleted - a
+    reader comparing against an older report needs it."""
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path), scope="all")
+    assert out["codes_seen"].get("SZ-047", 0) > 0
+
+
+def test_the_split_is_reported_whatever_scope_is_read(tmp_path):
+    """Disclosure, not silent filtering. A reader must see what was excluded
+    rather than trust that the question was asked."""
+    from scripts.reason_chain_report import load_transitions
+    for scope in ("production", "all"):
+        out = load_transitions(_mixed_trail(tmp_path), scope=scope)
+        split = out.get("corpus_split") or {}
+        assert split.get("PRODUCTION"), f"no split reported at scope={scope}"
+        assert split.get("SYNTHETIC"), f"contamination not disclosed at {scope}"
+
+
+def test_inferred_records_are_named_not_folded_into_production(tmp_path):
+    """audit_quarantine labels a large share by an idle-close INFERENCE. That
+    share must stay visible - folding it into PRODUCTION would hide the tool's
+    own uncertainty inside a number presented as read."""
+    from scripts.reason_chain_report import load_transitions
+    out = load_transitions(_mixed_trail(tmp_path), scope="all")
+    keys = set((out.get("corpus_split") or {}))
+    assert any("inferred" in k for k in keys) or "PRODUCTION" in keys
+
+
+def test_an_unclassifiable_corpus_falls_back_LOUDLY_not_silently(tmp_path):
+    """A trail with no CG-000 anywhere - a freshly rotated file, say - would
+    otherwise produce an EMPTY report under the production default, which reads
+    exactly like a quiet system. Found by this file's own sequences pin.
+    "No transitions" and "no readable corpus" must stay distinguishable."""
+    import json as _j
+    from scripts.reason_chain_report import load_transitions
+    p = tmp_path / "a.jsonl"
+    p.write_text("".join(
+        _j.dumps({"code": c, "seq": i, "data": {"asset": "ETH"}}) + "\n"
+        for i, c in enumerate(["PT-040", "SZ-023", "PT-040", "SZ-023"])),
+        encoding="utf-8")
+    out = load_transitions(p)
+    assert out["codes_seen"], "an unclassifiable corpus reported nothing at all"
+    assert "fallback" in out["scope"], (
+        f"fell back without saying so - scope reads {out['scope']!r}")

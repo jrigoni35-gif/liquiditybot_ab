@@ -80,6 +80,24 @@ log = logging.getLogger("liquiditybot.scripts.overfit")
 PASS_N, FAIL_N = 0, 0
 REPORT: list = []
 
+# The gate families observed to ARM on this box's live corpus, keyed by the
+# token before the ':' in each check() name. A RATCHET, read at the bottom of
+# main(): a family here that stops arming exits 3 (see the block there for
+# why monotone-arming rather than "all seven must arm"). Measured 2026-09-10
+# on the live-history corpus, two runs an hour apart:
+#   shuffle  OF-2 shuffle-null
+#   pbo      OF-3 PBO on the deployed simplicity ladder
+#   purge    OF-6 purged/embargoed CV
+#   dof      OF-7 "not starved" (>=10 rows per feature); the OTHER dof line,
+#            the dead-feature fraction, is info() under exploration and never
+#            enters REPORT as PASS/FAIL, so this key stays unambiguous
+# NOT here, and deliberately: OF-1 (informational under exploration), OF-4
+# (plateau inert on a zero-entry recording), OF-5 (DSR deferred below its
+# conviction floor and documented unpassable at N=7). Add a family when it
+# starts arming - the script prints NEWLY ARMED to prompt exactly that. Never
+# remove one to get green; that is the widening CLAUDE.md forbids.
+EXPECTED_ARMED = {"shuffle", "pbo", "purge", "dof", "dsr"}
+
 
 def check(name: str, ok: bool, detail: str = ""):
     global PASS_N, FAIL_N
@@ -96,6 +114,94 @@ def check(name: str, ok: bool, detail: str = ""):
 def info(name: str, detail: str = ""):
     print(f"  --    {name}" + (f"  {detail}" if detail else ""))
     REPORT.append(("INFO", name, detail))
+
+
+def armed_families(report) -> set:
+    """The gate families that actually FIRED, keyed by the token before ':'.
+
+    INFO lines are excluded by construction: a gate that could not fire is
+    not an armed gate, which is the whole distinction this file's summary
+    prints and the exit code did not carry.
+    """
+    return {str(name).split(":")[0].strip()
+            for kind, name, _ in report if kind in ("PASS", "FAIL")}
+
+
+def arming_exit_code(report, expected, fail_n: int, emit=print, *,
+                     on_synthetic: bool = False,
+                     forced_synthetic: bool = False,
+                     corpus_absent: bool = False) -> int:
+    """0 green, 1 a gate FAILED, 3 arming REGRESSED, 4 SILENT synthetic.
+
+    Pure (given `emit`) so the policy is unit-testable rather than only
+    observable by running a 2-minute battery.
+
+    Precedence, and why:
+      1  a real FAILURE outranks everything - something measured and said no.
+      4  a SILENT synthetic substitution outranks an arming regression,
+         because it invalidates every rung above it at once: the battery
+         measured the planted-signal benchmark, so "which gates armed" is a
+         fact about the fixture, not about the strategy. `--force-synthetic`
+         is DELIBERATE (CI runs it on purpose) and stays green; the
+         under-the-row-floor fallback is the one nobody chose.
+      3  arming regressed - a family that fired before did not this run.
+
+    CORPUS ABSENT IS NOT A SILENT SUBSTITUTION (red-team OBJ-13, conceded).
+    `test_windows.bat:57` vetoes on ANY non-zero, so returning 4 on a tree with
+    no corpus AT ALL printed "OVERFIT GATES FAILED - do not arm" for every
+    worktree-resident agent, with zero defect in the code - a permanently red
+    gate, which this same docstring elsewhere calls a brick rather than a gate.
+    The hazard 4 exists for is a corpus that EXISTS and was silently swapped
+    out because it fell under the row floor: something was there, and nobody
+    chose to ignore it. An absent corpus is an ENVIRONMENT, reported loudly and
+    exiting 0 - the battery still validated the machinery, and there was nothing
+    to be silent about.
+
+    The synthetic case was found by an adversarial audit re-testing the
+    EXPECTED_ARMED ratchet added minutes earlier and showing it did NOT
+    cover this: forcing the corpus under the row floor with no CLI flag
+    still exited 0. Worse, the synthetic fixture ARMS ALL SEVEN rungs while
+    the live corpus arms four - so the ratchet is not merely blind here, it
+    is SATISFIED by the substitution. A roster check alone would have made
+    the silent case look better than the real one.
+    """
+    armed = armed_families(report)
+    newly_armed = sorted(armed - set(expected))
+    went_dark = sorted(set(expected) - armed)
+    if newly_armed:
+        emit(f"  ^^ NEWLY ARMED: {newly_armed} - add to EXPECTED_ARMED so "
+             f"the ratchet holds the new floor")
+    if fail_n:
+        return 1
+    if on_synthetic:
+        if not forced_synthetic and corpus_absent:
+            emit("  ^^ NO CORPUS on this tree - the battery validated the "
+                 "MACHINERY, not the market. Not a defect and not a silent "
+                 "substitution: there was nothing to substitute. Exit 0.")
+            return 1 if fail_n else 0
+        if not forced_synthetic:
+            emit("  ^^ SILENT SYNTHETIC SUBSTITUTION: the corpus fell under "
+                 "the row floor and the battery scored the planted-signal "
+                 "benchmark without anyone asking for it. Every rung above "
+                 "measured the FIXTURE. This is not a green about the "
+                 "strategy. Re-read the corpus line; do NOT lower the floor "
+                 "to make it go away.")
+            return 4
+        # DELIBERATE synthetic run: the ROSTER CHECK DOES NOT APPLY. Which
+        # families arm against a planted-signal fixture is a property of the
+        # fixture, not of the corpus - tests/test_audit_ml_offline.py stubs
+        # `pbo` outright for speed, and reading that stub as an arming
+        # regression would make the ratchet fire on its own test harness.
+        # (It did, first run: 'ARMING REGRESSED: [pbo]', exit 3 against a
+        # test asserting 0. The suite caught it; the fix is here, not there.)
+        return 0
+    if went_dark:
+        emit(f"  ^^ ARMING REGRESSED: {went_dark} armed before and did not "
+             f"this run. A gate that stopped firing is not a pass; read WHY "
+             f"above (corpus, exploration flag, evidence gate) before "
+             f"treating this battery as green.")
+        return 3
+    return 0
 
 
 def gate_is_informational(explore_on: bool, on_synthetic: bool) -> bool:
@@ -328,8 +434,17 @@ def make_offline_recording(tmpdir: Path) -> str:
     from data.replay import FeedRecorder
     from main import LiquidityBot, load_config
     from strategies.signal_gates import SignalResult
+    from scripts.replay import isolate_qa_singletons
     from scripts.smoke_test import (MockOKX, MockBinanceUS, MockKraken,
                                     qa_redirect_paths)
+
+    # This function CONSTRUCTS a LiquidityBot, so it carries the audit/registry
+    # redirect obligation that main() discharges at :825 - and as a LIBRARY
+    # entrypoint it did not. pytest is covered by tests/conftest.py:81's
+    # autouse fixture; the exposed caller is an ad-hoc script importing this
+    # function directly. See scripts/replay.isolate_qa_singletons for the
+    # measured contamination.
+    isolate_qa_singletons()
 
     shutil.rmtree(tmpdir, ignore_errors=True)
     tmpdir.mkdir(parents=True)
@@ -631,54 +746,123 @@ def resolve_dsr_trials(configured: int, ledger_path) -> tuple:
     p = _P(ledger_path)
     if not p.exists():
         return configured, (f"OF-5 trials: assumed N={configured} "
-                            f"(no ledger at {p}; var=SR^2 fallback)")
+                            f"(no ledger at {p}; var=1/n null fallback)")
     try:
         m = measured_trials(read_ledger(p))
     except (OSError, ValueError) as e:
         return configured, (f"OF-5 trials: ledger INVALID or unreadable "
                             f"({e}); assumed N={configured}, "
-                            f"var=SR^2 fallback")
+                            f"var=1/n null fallback")
     measured = int(m["n_trials"])
     if measured > configured:
         return measured, (f"OF-5 trials: measured N={measured} from ledger "
-                          f"({m['by_source']}); var=SR^2 fallback (v0.1)")
+                          f"({m['by_source']}); var=1/n null fallback (v0.1)")
     return configured, (f"OF-5 trials: measured N={measured} < configured; "
                         f"ratchet holds configured {configured}")
 
 
-def dsr_gate_reachable(n_trials: int, gate: float = 0.90) -> tuple:
+def dsr_gate_reachable(n_trials: int, gate: float = 0.90,
+                       n_returns: int = 30) -> tuple:
     """Is OF-5's `dsr >= gate` ATTAINABLE AT ALL at this trial count?
 
-    deflated_sharpe's default nuisance parameter is
-    `var_trial_sr = max(sr_observed**2, 0.01)` (ml/overfit.py:866) — the
-    dispersion of SR ACROSS trials is UNIDENTIFIED here (no ledger
-    records per-trial SR), so the code substitutes the observed SR
-    itself. That substitution makes the rejection threshold PROPORTIONAL
-    to the statistic being tested:
+    IT WAS NOT, AND THE CAUSE IS NOW FIXED AT SOURCE (2026-09-11). The
+    unidentified nuisance parameter `var_trial_sr` - the dispersion of SR
+    ACROSS trials, which no ledger records - used to fall back to
+    `max(sr_observed**2, 0.01)`. That set sqrt(V) = |SR|, making the rejection
+    threshold PROPORTIONAL to the statistic under test:
 
-        sr0 = k(N) * |SR|,  k(N) = (1-g)Z'(1-1/N) + g*Z'(1-1/(N e))
+        sr0 = k(N) * |SR|,   k(N) crossing 1.0 between N=3 and N=4
 
-    and k(N) crosses 1.0 between N=3 and N=4. For every N >= 4 the
-    threshold therefore EXCEEDS the observed SR no matter how large that
-    SR is, z < 0, and DSR < 0.5 < gate — the gate cannot be passed by any
-    sample. At the shipped default N=7 an exhaustive sweep of 518,616
-    (SR, n, skew, kurtosis) combinations found 0 passing and a maximum
-    attainable DSR of 0.4262 (2026-08-31).
+    so for every N >= 4, sr0 >= |SR| for ANY sample, z <= 0, DSR < 0.5 < gate.
+    An exhaustive sweep of 518,616 (SR, n, skew, kurtosis) combinations found 0
+    passing and a maximum attainable DSR of 0.4262 (2026-08-31). Worse, it was
+    INVERTED - a larger observed SR produced a SMALLER DSR.
 
-    Returns (reachable, k, max_dsr_bound). Report-only: this NEVER
-    changes the threshold or the verdict — it lets the run SAY that a
-    green is unreachable instead of a reader mistaking a deferred gate
-    for a satisfied one. The real repair is a var_trial_sr measured from
-    a trial ledger that records per-trial SR (v0.1 records none), which
-    is a decision this file must not make on its own."""
+    `ml.overfit.deflated_sharpe` now falls back to the SAMPLING VARIANCE of a
+    Sharpe estimate under H0, Var(SR_hat) -> 1/n, so sr0 = k(N)/sqrt(n) no
+    longer depends on the statistic. The gate is reachable, monotone in SR, and
+    the 0.90 bar is UNCHANGED - it became meetable by evidence, not lowered.
+
+    Returns (reachable, k, sr0). `k` is the pure trial-count multiplier,
+    obtained by passing var_trial_sr=1.0 so sqrt(V)=1 - the old code inferred
+    it by passing SR=1.0, a trick that only worked because of the very fallback
+    being replaced, and that would now silently return sr0 mislabelled as k.
+    """
+    import math
+
     from ml.overfit import deflated_sharpe
-    k = deflated_sharpe(1.0, 1000, n_trials=max(int(n_trials), 1)
-                        )["sr0_threshold"]
-    if k < 1.0:
-        return True, k, None
-    # k>=1 => sr0 >= |SR| for every |SR| >= 0.1 (the 0.01 var floor), and
-    # for |SR| < 0.1 the floor pins sr0 = 0.1*k > |SR|. Either way z <= 0.
-    return False, k, 0.5
+    N = max(int(n_trials), 1)
+    n = max(int(n_returns), 3)
+    k = deflated_sharpe(1.0, 1000, n_trials=N,
+                        var_trial_sr=1.0)["sr0_threshold"]
+    sr0 = deflated_sharpe(0.0, n, n_trials=N)["sr0_threshold"]
+    # With sr0 independent of SR, some attainable SR clears it: reachable.
+    # Guard the pathological case anyway rather than asserting it.
+    probe = deflated_sharpe(sr0 + 10.0 / math.sqrt(n), n, n_trials=N)["dsr"]
+    return (probe is not None and probe >= gate), k, sr0
+
+
+def dsr_verdict(name: str, dsr: float, detail: str, reachable: bool,
+                k: float, n_trials: int) -> str:
+    """Grade OF-5 — or ABSTAIN when its acceptance region is empty.
+
+    THE BOMB THIS DEFUSES (found 2026-09-10, two conviction trades from
+    detonating). OF-5 arms at 30 conviction-marked trades; the corpus stood
+    at 28. Once armed it calls check(dsr >= 0.90) — and dsr_gate_reachable()
+    proves that for every n_trials >= 4 the threshold sr0 = k*|SR| with
+    k >= 1, so dsr < 0.5 < 0.90 for EVERY possible sample. The gate would
+    have armed and then failed forever, turning CLAUDE.md's definition of
+    done permanently red on a predicate no code change to the STRATEGY could
+    ever satisfy.
+
+    WHY ABSTAIN IS THE SOUND ANSWER, AND WHY THIS IS NOT LOWERING A FLOOR.
+    A predicate that returns FAIL for every input in its domain carries
+    exactly as much information as one that returns PASS for every input:
+    none. It is the vacuous test this repo already refuses, wearing the
+    opposite sign. The n=30 conviction floor is UNCHANGED. The dsr >= 0.90
+    threshold is UNCHANGED. The statistic is still computed and still
+    printed. The only thing that changes is that an UNSATISFIABLE gate stops
+    rendering a verdict it cannot support — which is what CLAUDE.md means by
+    treating what a gate was meant to prove as UNPROVEN rather than proven
+    either way.
+
+    THE CAUSE IS NOW FIXED, SO THIS GRADES AGAIN (2026-09-11, operator
+    decision: "replace the threshold"). The abstention was the right answer to
+    an unsatisfiable predicate, but it left a PRE-REGISTERED rung out of the
+    exit code, which is a different and worse problem - red-team OBJ-15. The
+    repair went to the root: `ml.overfit.deflated_sharpe`'s unidentified
+    var_trial_sr no longer falls back to max(SR**2, 0.01) - which made sr0
+    proportional to the statistic under test, and was INVERTED besides (at
+    n=30, N=7 it scored SR 0.20 -> DSR 0.340 but SR 0.75 -> 0.084) - but to
+    the sampling variance of a Sharpe estimate under H0, Var(SR_hat) -> 1/n.
+
+    sr0 = k(N)/sqrt(n) is now independent of the statistic, reachability
+    recomputes to True, and this branch grades normally with the 0.90 bar and
+    the n=30 floor BOTH UNCHANGED. At n=30, N=7 the gate now needs a per-trip
+    Sharpe near 0.5-0.75 to pass: demanding, attainable, and monotone in the
+    right direction.
+
+    SELF-HEALING BY CONSTRUCTION, and it healed. Reachability is recomputed
+    every run from dsr_gate_reachable(), never from a date or a remembered
+    constant, so this re-armed itself the moment the fallback changed - no
+    edit in this function. The abstention path stays as the guard it was: if a
+    future change makes the acceptance region empty again, OF-5 says so rather
+    than failing forever. A measured per-trial SR dispersion still beats the
+    null substitute; pass var_trial_sr explicitly when a trial ledger records
+    one.
+
+    Returns "graded" or "abstained" so callers and tests can assert which.
+    """
+    if reachable:
+        check(name, (dsr or 0.0) >= 0.90, detail)
+        return "graded"
+    info(f"{name} [ABSTAINED - gate unsatisfiable]",
+         f"{detail} | NOT GRADED: at n_trials={n_trials} the threshold is "
+         f"sr0={k:.3f}x|SR|, so dsr>=0.90 is attainable for NO sample and a "
+         f"FAIL here would carry no information. Floors and thresholds are "
+         f"UNCHANGED. Repair: record per-trial SR so var_trial_sr is MEASURED "
+         f"rather than the SR^2 fallback; this arms itself when that lands.")
+    return "abstained"
 
 
 # ---------------------------------------------------------------------------
@@ -1134,10 +1318,11 @@ def main() -> int:
     if len(conviction) >= 30:
         r = np.array(conviction)
         d, sr = _dsr_of(r)
-        check("dsr: P(true SR > 0) on conviction-only sample",
-              (d.get("dsr") or 0) >= 0.90,
-              f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
-              f"(probes excluded: {len(mixed) - len(conviction)})")
+        dsr_verdict("dsr: P(true SR > 0) on conviction-only sample",
+                    d.get("dsr") or 0.0,
+                    f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
+                    f"(probes excluded: {len(mixed) - len(conviction)})",
+                    _reach, _k, _dsr_trials)
     elif _explore_on:
         note = ""
         if len(mixed) >= 30:
@@ -1156,10 +1341,11 @@ def main() -> int:
         # sample (no probes are entering anymore)
         r = np.array(mixed)
         d, sr = _dsr_of(r)
-        check("dsr: P(true SR > 0) after trials correction",
-              (d.get("dsr") or 0) >= 0.90,
-              f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
-              f"(conviction-marked subset still {len(conviction)} < 30)")
+        dsr_verdict("dsr: P(true SR > 0) after trials correction",
+                    d.get("dsr") or 0.0,
+                    f"dsr={d.get('dsr'):.3f} sr={sr:.2f} n={len(r)} "
+                    f"(conviction-marked subset still {len(conviction)} < 30)",
+                    _reach, _k, _dsr_trials)
 
     # ---- regime-stratified OOF diagnostic (#103 T3, report-only) ---------
     print("[diagnostic] regime-stratified OOF (report-only, no gate)")
@@ -1233,7 +1419,52 @@ def main() -> int:
     if on_synthetic:
         print("  ^^ validates the OVERFIT MACHINERY, not the market - NOT "
               "evidence the deployed strategy is un-overfit")
-    return 0 if FAIL_N == 0 else 1
+
+    # DARK != PASS, IN THE RETURN TYPE (2026-09-10).
+    #
+    # Everything above already SAYS which gates could not fire. None of it
+    # reached the exit code: `return 0 if FAIL_N == 0` is blind to how many
+    # gates armed, so a battery that measured four of seven rungs and a
+    # battery that measured all seven both hand back 0. CLAUDE.md's
+    # definition-of-done consumes this script by exit code, and a machine
+    # (or a tired reader) reads 0 as "done".
+    #
+    # WHY A SET AND NOT A COUNT, and why a ratchet and not a target:
+    #   * a count goes stale immediately - measured this session, two runs
+    #     ~1h apart reported 3 then 4 armed.
+    #
+    #     THE CAUSE WAS MIS-ATTRIBUTED (red-team OBJ-14, conceded). The
+    #     original text blamed `dof: not starved` arming as the corpus grew
+    #     past its rows/feature floor. It cannot have been: `check("dof: not
+    #     starved...")` runs UNCONDITIONALLY at the OF-7 site, so it always
+    #     emits PASS or FAIL and is therefore ALWAYS armed - it has no dark
+    #     state to come out of. The 3->4 OBSERVATION stands; the mechanism
+    #     named for it does not, and the original runs are gone so it is not
+    #     now re-derivable. Recorded as un-derived rather than replaced with a
+    #     second guess.
+    #
+    #     THE FRAGILITY THAT IS derivable, and matters more: `pbo` IS
+    #     evidence-gated on live rows. Measured 2026-09-11, n_live = 63
+    #     against a min_live_rows floor of 60 - a THREE-ROW margin. An era
+    #     reset or a label-era migration that drops four rows takes `pbo`
+    #     dark, this ratchet returns 3, and test_windows.bat vetoes on a
+    #     corpus movement rather than a code defect. That is a gate whose
+    #     release condition depends on something the change under test does
+    #     not control, and it is the shape CLAUDE.md warns about in four
+    #     separate incidents. Watch it; do not silently drop `pbo` from the
+    #     set to clear a red - that is the widening this file forbids.
+    #   * demanding all seven arm would exit non-zero today and stay there
+    #     until the corpus and the conviction-trade count grow, which is a
+    #     brick, not a gate. OF-5 is documented UNPASSABLE at N=7.
+    # So the invariant is MONOTONE ARMING: a gate that arms today must not
+    # stop arming tomorrow. That is a regression and gets its own code.
+    # This lowers no floor - it strictly ADDS a failure the exit code could
+    # not previously express (CLAUDE.md: "DO NOT fix any of these by
+    # lowering a floor").
+    return arming_exit_code(REPORT, EXPECTED_ARMED, FAIL_N,
+                            on_synthetic=on_synthetic,
+                            forced_synthetic=bool(args.force_synthetic),
+                            corpus_absent=not Path(hist_path).exists())
 
 
 if __name__ == "__main__":

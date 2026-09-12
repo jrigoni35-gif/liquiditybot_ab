@@ -458,8 +458,16 @@ _HARD_GATES = (
     ("compileall", ["-m", "compileall", "-q", "core", "data", "execution",
                     "ml", "risk", "regime", "strategies", "sentiment", "api",
                     "main.py", "runner.py"]),
+    # `-x` mirrors pyproject.toml's exclude_dirs. This gate lagged BOTH later
+    # additions: `./.claude` (agent worktrees are checkouts of other branches)
+    # and `./outputs` (gitignored runtime state + agent scratch). Measured
+    # 2026-09-10, the equivalent invocation returned rc=1 on six Low findings
+    # that all lived under outputs/reports/, which on the deploy path is a
+    # HARD gate - a measurement study's scratch could have blocked a deploy of
+    # clean shipped code. The config carries the same list so a bare `bandit`
+    # run agrees with this one.
     ("bandit", ["-m", "bandit", "-c", "pyproject.toml", "-q", "-r", ".",
-                "-x", "./.venv,./tests"]),
+                "-x", "./.venv,./tests,./.claude,./outputs"]),
     ("smoke", ["scripts/smoke_test.py"]),
     # assurance_check contains BOTH code-dependent checks (the taker ladder
     # must stay suppressed in spoofy liquidity) and corpus-dependent ones
@@ -701,6 +709,44 @@ def _runner_pid():
         return None
 
 
+# THE ASYMMETRY THIS CLOSES (measured 2026-09-10, arithmetic not opinion).
+# runner.py withholds its heartbeat once a cycle exceeds
+# system.lock_progress_max_stall_sec (config.json = 300s), and _runner_pid()
+# above calls a pid GONE once its heartbeat is _HEARTBEAT_FRESH_SEC (60s)
+# stale. So a genuinely WEDGED loop stops looking like a kill target at
+# 300 + 60 = 360s -- while _FORCE_KILL_AFTER_SEC is only 150s. The escalation
+# therefore could not reach the case it exists for, and the one runner it
+# COULD still reach at 150s was a healthy-but-slow one (whose heartbeat is by
+# definition fresh). Production log bears this out: 16 "not force-killing
+# (possible PID reuse)" declines against 8 kills.
+#
+# The fix is NOT a bigger grace for everyone -- that would make the healthy
+# slow cycle worse. It is to separate the two cases using evidence the lock
+# already carries: same pid + STALE heartbeat = wedged loop, escalate NOW;
+# same pid + FRESH heartbeat = alive and slow, extend to a hard cap instead
+# of killing at 150s. 420s = the 360s blind point plus margin, and it is a
+# WALL, not a standard. LB_FORCE_KILL_MAX_WAIT_SEC overrides per box.
+_FORCE_KILL_MAX_WAIT_SEC = float(
+    os.environ.get("LB_FORCE_KILL_MAX_WAIT_SEC", "420"))
+
+
+def _runner_lock_state():
+    """(pid, heartbeat_age_s) from runner.lock, or (None, None).
+
+    Deliberately NOT _runner_pid(): that returns None on a stale heartbeat,
+    which erases the very signal needed to tell a wedged loop from an exited
+    process. This reader keeps the age so the caller can decide.
+    """
+    try:
+        d = json.loads((OUT / "runner.lock").read_text(encoding="utf-8"))
+        pid = d.get("pid")
+        if not isinstance(pid, int):
+            return (None, None)
+        return (pid, time.time() - float(d.get("heartbeat", 0) or 0))
+    except (OSError, ValueError, TypeError):
+        return (None, None)
+
+
 def _should_escalate(orig_pid, cur_pid) -> bool:
     """Force-kill ONLY when the SAME pid still holds the lock after the grace
     window (the soft stop was ignored). A changed or absent pid means the runner
@@ -756,17 +802,50 @@ def _force_kill(pid) -> None:
 
 
 def _escalate_if_stuck(orig_pid, read_pid, wait_sec, poll_sec, kill_fn,
-                       sleep_fn=time.sleep, now_fn=time.time) -> str:
-    """Wait out the grace window; force-kill iff the same runner pid survives it.
+                       sleep_fn=time.sleep, now_fn=time.time,
+                       lock_state_fn=None, max_wait_sec=None) -> str:
+    """Wait out the grace window, distinguishing a WEDGED loop from a SLOW one.
+
     Injectable timing/readers so the decision is unit-testable without sleeping.
-    Returns 'no_pid' | 'restarted' | 'force_killed'."""
+    Returns 'no_pid' | 'restarted' | 'wedged_killed' | 'force_killed'.
+
+    Three cases, separated by the lock's heartbeat age (see the block above
+    _runner_lock_state for why the old single-threshold form could not reach
+    the wedged case at all):
+      * pid changed/absent AND the lock is not a same-pid stale wedge
+        -> 'restarted', no kill.
+      * same pid, heartbeat STALE -> the loop is wedged; escalate immediately
+        rather than waiting out a window it will never leave.
+      * same pid, heartbeat FRESH -> alive and slow; extend the deadline to
+        the hard cap instead of killing a healthy runner mid-cycle.
+    The extension only ever fires on POSITIVE evidence of a live heartbeat and
+    is re-checked every poll, so a runner that wedges partway through the base
+    window is still caught inside it.
+    """
     if orig_pid is None:
         return "no_pid"
-    deadline = now_fn() + wait_sec
-    while now_fn() < deadline:
+    lock_state_fn = lock_state_fn or _runner_lock_state
+    cap = max(float(max_wait_sec if max_wait_sec is not None
+                    else _FORCE_KILL_MAX_WAIT_SEC), float(wait_sec))
+    t0 = now_fn()
+    limit = wait_sec
+    while now_fn() - t0 < limit:
         sleep_fn(poll_sec)
         if not _should_escalate(orig_pid, read_pid()):
+            pid2, age = lock_state_fn()
+            if (pid2 == orig_pid and age is not None
+                    and age >= _HEARTBEAT_FRESH_SEC):
+                log(f"runner pid {orig_pid} still holds the lock but its "
+                    f"heartbeat is {age:.0f}s stale - the LOOP is wedged; "
+                    f"escalating now")
+                kill_fn(orig_pid)
+                return "wedged_killed"
             return "restarted"
+        if limit == wait_sec and cap > wait_sec:
+            pid2, age = lock_state_fn()
+            if (pid2 == orig_pid and age is not None
+                    and age < _HEARTBEAT_FRESH_SEC):
+                limit = cap   # confirmed healthy + slow: extend to the cap
     kill_fn(orig_pid)
     return "force_killed"
 
@@ -790,6 +869,9 @@ def _signal_restart() -> None:
             "stale-heartbeat relaunch")
     elif outcome == "restarted":
         log("runner exited on the soft stop - clean restart")
+    elif outcome == "wedged_killed":
+        log("runner loop was wedged (lock held, heartbeat stale) - killed so "
+            "the supervisor relaunches on the new code")
 
 
 _BATTERY_DETAIL = ""            # failing-test detail from the last battery run

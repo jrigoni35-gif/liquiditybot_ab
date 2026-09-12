@@ -1313,6 +1313,12 @@ class BotRunner:
             "watchdog": bot.watchdog.status(),
             "equity_drift_pct": round(bot._equity_drift_pct, 3),
             "monitor": bot.monitor.status(),
+            # entry-sweep absorption counts (core.codes EN family).
+            # EXTENDS the schema, breaks nothing: a reader that does
+            # not know the key ignores it. Surfaces the three states
+            # that had no registered code, so a zero-entry stretch can
+            # be told apart from a stretch nothing even evaluated.
+            "entry_absorb": bot.entry_absorb_status(),
             "conviction": bot.conviction.status()
                 if hasattr(bot, "conviction") else {},
             "long_book": self._long_book_status(bot, now)

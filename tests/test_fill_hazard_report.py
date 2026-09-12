@@ -12,6 +12,7 @@ frame-gap guard excludes such tapes from hazard-age fitting and that
 the report discloses the gap distribution + exclusion count.
 """
 import json
+from pathlib import Path
 import math
 
 import numpy as np
@@ -307,3 +308,35 @@ def test_sigma_fallback_footnoted(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "estimate_sigma_bps" in text
     assert "1 of 2 fitted tape(s)" in text
+
+
+# --------------------------------------------------------------------------
+# THE TWO CAVEATS — red-team OBJ-4, conceded
+#
+# A commit message read "both hazard reports still verdict NO ... so the fill
+# simulator's SHAPE is sound". NO means this test could not show a misstatement
+# above threshold; it is a failure to reject, not evidence of absence, and
+# treating it as a clean bill of health affirms the null. The same message cited
+# two reports as mutual corroboration - they read a ROLLING WINDOW over one
+# recording store and shared 7 of their 9 days.
+#
+# Both caveats now ship IN the report, because the misreading happens where the
+# number is read, not where it is computed.
+# --------------------------------------------------------------------------
+
+def test_the_report_says_NO_is_not_a_clean_bill_of_health():
+    import scripts.fill_hazard_report as fh
+    src = Path(fh.__file__).read_text(encoding="utf-8")
+    assert "NO IS NOT" in src, (
+        "the report no longer warns that a NO verdict is a failure to reject "
+        "rather than evidence the simulator is sound")
+    assert "affirms the null" in src
+
+
+def test_the_report_says_consecutive_runs_are_not_independent():
+    import scripts.fill_hazard_report as fh
+    src = Path(fh.__file__).read_text(encoding="utf-8")
+    assert "NOT INDEPENDENT" in src
+    assert "ROLLING WINDOW" in src, (
+        "the report no longer warns that consecutive runs share corpus, so two "
+        "agreeing reports will be cited as corroboration again")

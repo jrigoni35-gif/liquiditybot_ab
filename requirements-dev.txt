@@ -1,0 +1,40 @@
+# Gate tools for CLAUDE.md's definition of done. Bounded pins in the same
+# idiom as requirements.txt: a floor for the behaviour we rely on, a ceiling
+# so a future `pip install` cannot silently change what GREEN MEANS.
+#
+# WHY THESE NEED PINNING AT ALL, measured 2026-09-10: not one gate tool was
+# version-pinned in any tracked file, while CLAUDE.md requires pyright's
+# shipped scope to sit at ZERO errors. A gate tool is not an ordinary
+# dependency - it decides whether a change ships. An unpinned one can move the
+# bar under the repo with no diff, and the failure is silent in the worst
+# direction: the battery still prints PASS.
+#
+# This is not hypothetical here. On 2026-09-10 pyright went RED mid-session
+# with "Please install the new version or set PYRIGHT_PYTHON_FORCE_VERSION to
+# `latest`" and then GREEN after an install, with zero source changes between
+# the two runs. The tool moved, not the code.
+#
+# CEILINGS ARE TIGHTER THAN requirements.txt's <next-major, on purpose. For a
+# runtime library a major bump is the risk. For a linter or type checker a
+# MINOR bump routinely adds checks, which is exactly the event that turns a
+# clean tree red (or, worse, lets a previously-caught defect through). ruff is
+# pre-1.0, so its minors are its majors.
+#
+# Bumping one of these is a CONSCIOUS act: raise the pin, run the full battery,
+# and read what changed. tests/test_tool_versions.py fails if the installed
+# version leaves the declared range, so drift cannot arrive unannounced.
+# CEILINGS RE-TIGHTENED 2026-09-11 (red-team OBJ-11, conceded). The first cut
+# used <1.2 for pyright and justified it by the 2026-09-10 incident in which
+# pyright moved under the repo and the gate changed colour with no source
+# change. It could not have caught that: pyright releases inside 1.1.x, so
+# 1.1.500 sat happily inside <1.2. A ceiling that cannot catch the incident
+# quoted as its reason is decoration.
+#
+# pyright and ruff are the two whose MINOR/PATCH series routinely add checks -
+# the event that turns a clean tree red or lets a caught defect through - so
+# their ceilings now sit inside the series. pytest and bandit keep next-major
+# ceilings: their patch releases do not change what the gate accepts.
+pytest>=9.1,<10
+ruff>=0.15.20,<0.16
+bandit>=1.9,<2
+pyright>=1.1.414,<1.1.500

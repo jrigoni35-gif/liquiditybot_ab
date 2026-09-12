@@ -24,8 +24,28 @@ INVARIANT below, stop and say so instead of complying.
    and `bot.orders.dry_run` (OrderManager caches the flag at init).
 3. Kraken is the **sole execution venue**. OKX / Binance.US / ccxt /
    moomoo are read-only data. IBKR/DMA/prime/FIX adapters exist as
-   hard-off stubs; `VenueAdapter.execution_eligible` requires
-   `name == "kraken"` — do not relax it, do not subclass around it.
+   hard-off stubs.
+   **The enforcement is a DENY-LIST in `main.py` (~:861), not the venue
+   adapter.** If the feed handed to `OrderManager` is one of the real
+   read-only venue classes — OKX / BinanceUS / Moomoo / WebData / Context /
+   ccxt — engine construction RAISES `VN_ROGUE_EXECUTION`. `FeedRecorder`
+   wraps the feed, so the check unwraps `_feed` first. Deliberately a
+   deny-list and not an allow-list: the suite injects `SimpleNamespace` /
+   `MockKraken` doubles and must keep constructing. Pinned three ways by
+   `tests/test_cut10_boundary.py` — rogue refused, wrapped rogue refused,
+   and an anti-rubber-stamp case proving doubles still work.
+   **`VenueAdapter.execution_eligible` is NOT on this path** and this file
+   named it as the enforcement until 2026-09-10. Re-derived that day:
+   `execution_eligible` appears only in `execution/routing.py` and
+   `execution/venue_adapters.py`, never in `main.py` / `runner.py` /
+   `execution/order_manager.py`, and a full-range scan of all 87,640 audit
+   records found ZERO `VN-*` of any kind. The router is constructed and never
+   read. Cut #10 (B4) fixed the code after a 2026-09-05 measurement in which
+   a live submit on a non-Kraken feed PLACED with a wire payload emitted —
+   the invariant had rested on a default value — but the LAW kept citing the
+   layer that had never guarded it. Do not relax the deny-list, do not
+   subclass around it, and do not restore a claim that the adapter enforces
+   this.
 4. Withdrawals/transfers are impossible: the endpoint deny-list
    (Withdraw, WithdrawInfo, WalletTransfer, WithdrawAddresses) blocks
    before any network I/O. Never add withdrawal capability in any form.

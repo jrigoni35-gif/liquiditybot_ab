@@ -6,9 +6,20 @@ adjustments ("playbooks") derived from published, battle-tested quant
 models rather than ad-hoc rules:
 
   * Hamilton (1989) Markov regime switching  -> Gaussian HMM over daily
-    returns + volatility, implemented in pure numpy (Baum-Welch EM +
-    Viterbi). States are relabeled each fit by their return/vol profile
-    so "bull"/"bear"/"range" are stable semantic labels, not raw indices.
+    returns + volatility, implemented in pure numpy (scaled Baum-Welch EM;
+    the state is read off the POSTERIOR MARGINAL at the last bar via
+    `posteriors()` + argmax, NOT a Viterbi path decode - this docstring
+    claimed "+ Viterbi" until 2026-09-09 and no Viterbi has ever existed in
+    this module; the claim is struck rather than implemented, because
+    switching to a path decode would change labels, which changes playbooks,
+    which is COHORT-RESETTING). States are relabeled each fit by their
+    return/vol profile so "bull"/"bear"/"range" are stable semantic labels,
+    not raw indices.
+
+    The fitted transition matrix `GaussianHMM.A` is the Markov chain itself.
+    Nothing in the decision path reads it; `scripts/regime_chain_report.py`
+    (SAFE, report-only) surfaces it - dwell times, steady state, and the
+    chain-implied vs realized occupancy gap.
   * Time-series momentum (Moskowitz, Ooi, Pedersen 2012) -> 1m/3m/6m
     lookback trend votes. This is the "use past cycles" logic: TSMOM's
     documented edge is precisely that the past 1-12 month cycle predicts

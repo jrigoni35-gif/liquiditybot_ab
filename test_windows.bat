@@ -73,7 +73,7 @@ if exist .venv\Scripts\pyright.exe set "PYRIGHT=.venv\Scripts\pyright.exe"
 
 echo.
 echo === bandit security scan ===
-%PY% -m bandit -c pyproject.toml -r . -x ./.venv,./tests,./.claude -q || (echo BANDIT FAILED & exit /b 1)
+%PY% -m bandit -c pyproject.toml -r . -x ./.venv,./tests,./.claude,./outputs -q || (echo BANDIT FAILED & exit /b 1)
 
 echo.
 echo === compileall ===
