@@ -63,10 +63,10 @@ FINDINGS THAT DID NOT SURVIVE RE-MEASUREMENT, recorded so they are not redone:
     counts. `verify()` DOES consult `verify_chain()` (:275); a broken chain
     returns ok=False with a CRITICAL ML-011 and refuses to treat the pedigree as
     evidence. `ok=None` happens only for an artifact with no pedigree at all and
-    is NOT silent - ML-060 warning, documented as deliberate so a hand-trained
+    is NOT silent - **ML-061** warning (ML-060 means "artifact registered"; this line said ML-060 until red-team OBJ-16, 2026-09-12), documented as deliberate so a hand-trained
     model still loads. RESIDUAL, small: nothing AGGREGATES how often ok=None
     occurs, so "the champion has loaded with unknown provenance for three weeks"
-    is invisible. Docketed, not built.
+    is invisible. **BUILT in the same commit that wrote this line (b6e1633a) - "Docketed, not built" was false the moment it shipped; red-team OBJ-16, conceded.**
 
 STILL OPEN:
   T12   C5 fixture repair - THE BLOCKER, and larger than this plan estimated.

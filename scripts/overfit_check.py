@@ -299,34 +299,17 @@ def dsr_sample_span(live_rows: list) -> dict:
     for row in live_rows:
         if str(row.get("probe", "")).strip() != "0":
             continue
-        try:
-            t = float(row.get("ts"))
-        except (TypeError, ValueError):
+        t = _usable_epoch(row.get("ts"))
+        if t is None:
             rejected += 1
             continue
-        # float() ACCEPTS "nan" and "inf", and a millisecond stamp parses
-        # fine as a number - so a try/except around float() is NOT a
-        # validity check. Unguarded, each of those reaches
-        # datetime.fromtimestamp() in dsr_disclosure and raises ValueError /
-        # OverflowError / OSError respectively, from a call site with no
-        # enclosing try inside a DEFINITION-OF-DONE gate: one bad row would
-        # abort the whole battery with a traceback, which test_windows.bat
-        # renders as "OVERFIT GATES FAILED - do not arm".
-        #
-        # NOT HYPOTHETICAL: `ml/history.py:180` reads this same file with
-        # `float(row.get("ts") or "nan")` - the repo's own loader deliberately
-        # mints NaN for a missing ts. A full-column scan of all rows found the
-        # corpus clean on 2026-09-11, so this was latent, not live; it is
-        # fixed before it is load-bearing rather than after.
-        #
-        # UPPER BOUND 4e9 is ~2096 and is a SCHEMA check, not a date opinion:
-        # a seconds epoch cannot plausibly exceed it, while a millisecond
-        # stamp (~1.79e12 today) blows straight past - the exact unit-mixing
-        # this repo has already been bitten by in the candle path.
-        if not (t == t) or t in (float("inf"), float("-inf")) \
-                or not (0.0 < t < 4e9):
-            rejected += 1
-            continue
+        # The validity check lives in `_usable_epoch` above, shared with the
+        # deployed-era sentinel. It is NOT a try/except around float():
+        # float() accepts "nan", "inf" and a millisecond stamp, each of which
+        # then reaches datetime.fromtimestamp() in dsr_disclosure and raises
+        # ValueError / OverflowError / OSError from a call site inside a
+        # DEFINITION-OF-DONE gate. NOT HYPOTHETICAL: `ml/history.py:180` reads
+        # this same file with `float(row.get("ts") or "nan")`.
         ts.append(t)
     if not ts:
         return {"available": False, "n": 0, "rejected": rejected}
@@ -367,6 +350,37 @@ def dsr_sample_span(live_rows: list) -> dict:
 # spam "NEWLY ARMED" every run or, added to EXPECTED_ARMED, fire "ARMING
 # REGRESSED" (exit 3) on every run where the era is still young.
 OF5_SENTINEL_MIN_N = 10
+
+# ONE-SIDED 95%. The predicate is `ok = ub95 >= 0` - a single-tailed question
+# ("has the deployed era DEMONSTRATED a loss?"), so a two-tailed 1.96 runs it
+# at alpha=0.025 and halves the advertised sensitivity IN THE NOT-FIRING
+# DIRECTION (red-team OBJ-12, conceded). For an anti-silencing alarm that is
+# the dangerous way to be wrong. 1.645 is also the repo's shipped convention
+# for exactly this shape: `ml/monitor.py:79 wilson_ucb(..., z=1.645)`,
+# docstring "One-sided 95% Wilson UPPER bound". The alpha is now stated on the
+# printed line rather than implied by a field name.
+SENTINEL_Z = 1.645
+
+
+def _usable_epoch(value):
+    """A parsed, RANGE-CHECKED unix epoch, or None. Shared, deliberately.
+
+    `float()` accepts "nan", "inf" and a millisecond stamp, so a try/except
+    around it is not a validity check - the lesson `dsr_sample_span` was fixed
+    for, which the sentinel then repeated with worse consequences (a single ms
+    stamp built a ~54,000-year span and halved every other trip's uniqueness).
+    Both callers use this one function so the two cannot drift apart again.
+
+    Upper bound 4e9 is ~2096 and is a SCHEMA check, not a date opinion: a
+    seconds epoch cannot plausibly exceed it, while a millisecond stamp
+    (~1.79e12 today) blows straight past."""
+    try:
+        t = float(value)
+    except (TypeError, ValueError):
+        return None
+    if t != t or t in (float("inf"), float("-inf")):       # NaN / +-inf
+        return None
+    return t if 0.0 < t < 4e9 else None
 
 
 def _exec_era_now() -> str:
@@ -416,43 +430,108 @@ def dsr_deployed_segment(live_rows: list, fills_path, exec_era: str) -> dict:
         return {"available": False,
                 "reason": "fill ledger carries no exec_era column"}
 
-    stamps, opened = {}, {}
+    # PURITY IS OVER ALL LEGS, NOT OVER STAMPED LEGS. `cohort_eval.py:557`
+    # refutes the weaker form verbatim and in advance: building `eras` from
+    # stamped legs only makes `len(eras) == 1` mean "every leg that CARRIED a
+    # stamp agreed", which silently overstates the accruing count the moment a
+    # stale-binary or pre-stamp leg lands in the current era. The first cut of
+    # this function used exactly that weaker form while its docstring claimed
+    # to reuse cohort_eval's standard (red-team OBJ-10, conceded). A trip with
+    # ANY unstamped leg is now IMPURE and excluded.
+    stamps, opened, unstamped = {}, {}, set()
     for f in fills:
-        pid = f.get("position_id", "")
+        pid = f.get("position_id") or ""
+        if not pid:
+            # "" is a legal dict key on both sides of this join, so a blank
+            # position_id would merge every unattributed fill into one
+            # pseudo-trip and then match blank-pid history rows against it
+            # (red-team OBJ-13: injection returned n=4 total=-26.00 where the
+            # correct answer was n=1 +1.00). `ml/history.py:1786` already
+            # guards this exact join on this exact file; the gate was the
+            # outlier. core/fill_ledger.py writes `order.position_id or ""`,
+            # so the blank is reachable from the shipped writer.
+            continue
         era = (f.get("exec_era") or "").strip()
         if era:
             stamps.setdefault(pid, set()).add(era)
-        try:
-            t = float(f.get("ts"))
-        except (TypeError, ValueError):
-            continue
-        opened[pid] = min(opened.get(pid, t), t)
+        else:
+            unstamped.add(pid)
+        t = _usable_epoch(f.get("ts"))
+        if t is not None:
+            opened[pid] = min(opened.get(pid, t), t)
 
+    # ONE POPULATION. The first cut appended to `pnl` BEFORE the span checks
+    # and `continue`d afterwards, so a trip could enter the mean while leaving
+    # `spans` - n and n_eff were then computed over DIFFERENT sets. Measured
+    # (red-team OBJ-8, conceded): one close-ts written in milliseconds creates
+    # a ~54,000-year span that overlaps every other trip, halving their
+    # uniqueness. n stayed 16, n_eff fell 16.000 -> 8.500, SE inflated x1.372
+    # and ub95 moved -0.2151 -> -0.0173 on an UNCHANGED book. Any book whose
+    # true ub95 lies in [-0.198, 0) was silenced by a single malformed row -
+    # a silencing defect inside the instrument built to prevent silencing.
+    # A trip now enters only if its PnL, its open and its close are ALL
+    # usable, and every exclusion is counted and disclosed.
     pnl, spans = [], []
+    dropped = {"blank_pid": 0, "impure_era": 0, "bad_pnl": 0, "no_open": 0,
+               "bad_close": 0}
+    dropped_pnl = 0.0
     for r in rows:
-        pid = r.get("position_id", "")
-        if stamps.get(pid) != {exec_era}:      # wholly-inside only
+        pid = r.get("position_id") or ""
+        if not pid:
+            dropped["blank_pid"] += 1
             continue
         try:
-            pnl.append(float(r.get("net_pnl_usd")))
+            value = float(r.get("net_pnl_usd"))
         except (TypeError, ValueError):
+            value = None
+        if pid in unstamped:
+            # UNATTRIBUTABLE, not "belongs to another era". A trip carrying an
+            # unstamped leg cannot be placed in ANY era, so if ledger stamping
+            # degrades, a losing book quietly stops being measurable by this
+            # guard. Its PnL is accumulated so the disclosure can say what
+            # left the statistic - counting the trips but not the money would
+            # understate the channel.
+            dropped["impure_era"] += 1
+            dropped_pnl += value or 0.0
             continue
-        try:
-            t_close, t_open = float(r.get("ts")), opened.get(pid)
-        except (TypeError, ValueError):
+        if stamps.get(pid) != {exec_era}:
+            continue        # simply a different era - not an exclusion
+        if value is None:
+            dropped["bad_pnl"] += 1
             continue
-        if t_open is not None and t_close > t_open:
-            spans.append({"t_open": t_open, "t": t_close})
+        t_open = opened.get(pid)
+        t_close = _usable_epoch(r.get("ts"))
+        if t_open is None:
+            dropped["no_open"] += 1
+            dropped_pnl += value
+            continue
+        if t_close is None or t_close <= t_open:
+            dropped["bad_close"] += 1
+            dropped_pnl += value
+            continue
+        pnl.append(value)
+        spans.append({"t_open": t_open, "t": t_close})
 
     n = len(pnl)
+    excluded = sum(dropped.values())
     if n == 0:
-        return {"available": True, "n": 0, "era": exec_era}
+        # dropped_pnl BELONGS HERE. Omitting it made the DEFERRED line print
+        # "$+0.00 of PnL is not in this statistic" while 19 unattributable
+        # conviction trips worth -$18.91 sat outside it - the disclosure
+        # built to expose a silencing channel was itself silent, because
+        # `seg.get("dropped_pnl", 0.0)` fell back to the default. Caught by
+        # running it against the live ledger rather than reading it.
+        return {"available": True, "n": 0, "era": exec_era,
+                "dropped": dropped, "excluded": excluded,
+                "dropped_pnl": dropped_pnl}
     mean = sum(pnl) / n
     var = sum((x - mean) ** 2 for x in pnl) / (n - 1) if n > 1 else 0.0
     sd = var ** 0.5
     # EFFECTIVE n, per CLAUDE.md: an SE on nominal n is optimistic by
     # sqrt(n/n_eff), and a too-narrow CI makes this alarm fire EARLY - the
     # wrong direction for a sentinel whose credibility is the whole point.
+    # `spans` and `pnl` are now the SAME trips, so this deflation describes
+    # the sample it is applied to.
     n_eff = float(n)
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -465,46 +544,78 @@ def dsr_deployed_segment(live_rows: list, fills_path, exec_era: str) -> dict:
     se = sd / (n_eff ** 0.5) if n_eff > 0 else float("inf")
     return {"available": True, "n": n, "era": exec_era, "mean": mean,
             "sd": sd, "n_eff": n_eff, "se": se,
-            "ub95": mean + 1.96 * se, "total": sum(pnl)}
+            "z": SENTINEL_Z, "alpha": 0.05,
+            "ub95": mean + SENTINEL_Z * se, "total": sum(pnl),
+            "dropped": dropped, "excluded": excluded,
+            "dropped_pnl": dropped_pnl}
 
 
 def dsr_sentinel_verdict(seg: dict, min_n: int = OF5_SENTINEL_MIN_N) -> tuple:
     """(armed, ok, detail) for the deployed-era sentinel. Pure.
 
     ARMS only with >= min_n trips wholly inside the current era. FAILS only
-    when the 95% UPPER bound on mean net PnL per trip is BELOW ZERO - i.e.
-    the deployed configuration has DEMONSTRATED a loss, not merely failed to
-    demonstrate a profit. That asymmetry is deliberate: OF-5 already reports
-    the failure-to-demonstrate side, and an alarm that fires on ordinary
-    statistical silence would be cried wolf until it was ignored, which is
-    the silencing this exists to prevent."""
+    when the ONE-SIDED 95% upper bound (z=1.645, alpha=0.05) on mean net PnL
+    per trip is BELOW ZERO - i.e. the deployed configuration has DEMONSTRATED
+    a loss, not merely failed to demonstrate a profit. That asymmetry is
+    deliberate: OF-5 already reports the failure-to-demonstrate side, and an
+    alarm that fires on ordinary statistical silence would be cried wolf until
+    it was ignored, which is the silencing this exists to prevent.
+
+    IT NEVER EXCULPATES (red-team OBJ-11, conceded). The first cut's passing
+    branch asserted the pooled red was "legacy drag, not a regression" - an
+    affirmative all-clear from a test with single-digit power at its own
+    arming floor. At n=10 the detectable loss is roughly 4x the registered H0
+    bleed of -$0.27/trip, so "did not fire" there is almost uninformative. The
+    passing branch now PRINTS ITS OWN MDE and says only that no loss was
+    demonstrated AT THAT SENSITIVITY. A guard that says "all clear" at 6-10%
+    power is a silencing device wearing a green badge."""
     if not seg.get("available"):
         return (False, None,
                 f"INDETERMINATE - {seg.get('reason', 'no ledger')}; the "
                 f"deployed era cannot be segmented, so a regression in it "
                 f"would be INVISIBLE. Fix the ledger read before trusting "
                 f"any OF-5 reading.")
+    drop = seg.get("dropped") or {}
+    excl = seg.get("excluded") or 0
+    drop_note = ""
+    if excl:
+        shown = ", ".join(f"{k}={v}" for k, v in drop.items() if v)
+        drop_note = (f" [{excl} conviction trip(s) EXCLUDED ({shown}); "
+                     f"${seg.get('dropped_pnl', 0.0):+.2f} of PnL is not in "
+                     f"this statistic - an exclusion that removes losers is "
+                     f"itself a silencing channel, so read this count]")
     n = seg.get("n", 0)
     if n < min_n:
         return (False, None,
                 f"DEFERRED - {n} conviction trips wholly inside era "
                 f"{seg.get('era')} < {min_n}. The deployed configuration is "
-                f"not yet separately measurable; OF-5's pooled FAIL says "
-                f"NOTHING about it either way.")
+                f"not yet separately measurable; OF-5's pooled verdict says "
+                f"NOTHING about it either way.{drop_note}")
     ok = seg["ub95"] >= 0.0
+    # MDE: the per-trip mean this sample could actually resolve. Solving
+    # mean + z*se < 0 gives mean < -z*sd/sqrt(n_eff). Printed in BOTH
+    # branches - a green is only as big as its power.
+    mde = -SENTINEL_Z * seg["sd"] / (seg["n_eff"] ** 0.5) \
+        if seg["n_eff"] > 0 else float("-inf")
     detail = (f"era={seg['era']} n={n} n_eff={seg['n_eff']:.1f} "
               f"mean=${seg['mean']:+.3f}/trip total=${seg['total']:+.2f} "
-              f"ub95=${seg['ub95']:+.3f}")
+              f"ub95=${seg['ub95']:+.3f} (one-sided 95%, z={SENTINEL_Z}) "
+              f"MDE=${mde:+.3f}/trip")
     if ok:
         return (True, True,
-                f"{detail} - the deployed era has NOT demonstrated a loss. "
-                f"OF-5's pooled FAIL is legacy drag, not a regression.")
+                f"{detail} - NO LOSS DEMONSTRATED AT THIS SENSITIVITY. That "
+                f"is NOT an all-clear, and it says NOTHING about why OF-5's "
+                f"pooled gate is red: this test can only resolve a mean "
+                f"worse than ${mde:+.3f}/trip, against a registered H0 bleed "
+                f"of about -$0.27/trip. Read it as 'not yet decidable', and "
+                f"read the MDE before quoting this line.{drop_note}")
     return (True, False,
-            f"{detail} - REGRESSION: the 95% upper bound on the DEPLOYED "
-            f"era's mean net PnL is BELOW ZERO. This is NOT the documented "
-            f"legacy-pooling red. The configuration running right now has "
-            f"demonstrated a loss on its own trips. Do not dismiss this as "
-            f"the known OF-5 failure; it is a different predicate.")
+            f"{detail} - REGRESSION: the one-sided 95% upper bound on the "
+            f"DEPLOYED era's mean net PnL is BELOW ZERO. This is NOT the "
+            f"documented legacy-pooling red. The configuration running right "
+            f"now has demonstrated a loss on its own trips. Do not dismiss "
+            f"this as the known OF-5 failure; it is a different "
+            f"predicate.{drop_note}")
 
 
 def report_dsr_sentinel(live_rows: list, fills_path, exec_era: str) -> tuple:
@@ -559,7 +670,7 @@ def dsr_disclosure(d: dict, live_rows: list) -> str:
     return (
         f"SIGN READING: {sign}. This, NOT the graded dsr, is the 'is the "
         f"edge positive' number - dsr is P(true SR > sr0) where sr0 is the "
-        f"expected max under the null across N trials. A dsr FAIL beside a "
+        f"expected max under the null across N trials. A red dsr beside a "
         f"PSR near 0.5 means UNDERPOWERED, not harmful. || CORPUS: {corpus}. "
         f"NOT era-scoped: signal_history.csv has no exec_era column (the "
         f"stamp lives in core/fill_ledger.py, keyed by position_id), so this "
@@ -1666,13 +1777,6 @@ def main() -> int:
                     _reach, _k, _dsr_trials)
         info("dsr READ THIS WITH THE VERDICT",
              dsr_disclosure(d, live_rows))
-        # The anti-silencing rung. OF-5's pooled FAIL is adjudicated and
-        # expected; THIS one is not, and it is the only line here that can
-        # say the DEPLOYED configuration is losing.
-        report_dsr_sentinel(
-            live_rows,
-            Path(__file__).resolve().parents[1] / "outputs" / "fills.csv",
-            _exec_era_now())
     elif _explore_on:
         note = ""
         if len(mixed) >= 30:
@@ -1697,6 +1801,20 @@ def main() -> int:
                     f"sr0={d.get('sr0_threshold'):.3f} "
                     f"(conviction-marked subset still {len(conviction)} < 30)",
                     _reach, _k, _dsr_trials)
+
+    # THE ANTI-SILENCING RUNG, hoisted OUT of the four-way branch above
+    # (red-team OBJ-2, conceded). It was originally called only inside the
+    # `len(conviction) >= 30` arm, so in the file's own designed
+    # post-exploration steady state - exploration off, conviction < 30,
+    # mixed >= 30 - the pooled verdict still armed the "dsr" family while the
+    # sentinel emitted NOTHING, and `went_dark` stayed empty so the arming
+    # ratchet saw nothing either. The guard was silent in exactly the branch
+    # the system is heading for. It depends on the fill ledger and the current
+    # era, NOT on the pooled sample, so it belongs outside every arm.
+    report_dsr_sentinel(
+        live_rows,
+        Path(__file__).resolve().parents[1] / "outputs" / "fills.csv",
+        _exec_era_now())
 
     # ---- regime-stratified OOF diagnostic (#103 T3, report-only) ---------
     print("[diagnostic] regime-stratified OOF (report-only, no gate)")

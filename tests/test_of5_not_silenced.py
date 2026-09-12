@@ -53,11 +53,43 @@ def test_the_conviction_floor_is_still_thirty():
     """CLAUDE.md: the n=30 conviction floor is a MEASUREMENT STANDARD, not a
     tunable. Raising it is the cheapest way to silence OF-5 — the gate would
     simply DEFER and the red would vanish with nothing looking broken."""
-    src = inspect.getsource(oc.main)
-    assert "len(conviction) >= 30" in src, (
-        "the OF-5 conviction floor is no longer the literal 30. If it was "
-        "RAISED the gate now defers and its red is silenced; if it was "
-        "LOWERED that is the floor-moving CLAUDE.md forbids outright")
+    floors = _conviction_floors()
+    assert floors == [30], (
+        f"the OF-5 conviction floor(s) read {floors}, not [30]. RAISED -> the "
+        f"gate defers and its red is silenced; LOWERED -> that is the "
+        f"floor-moving CLAUDE.md forbids outright")
+
+
+def _conviction_floors():
+    """Every literal N in an `len(conviction) >= N` test inside main(), read
+    from the AST.
+
+    NOT a source-substring check. The substring form was satisfied by a
+    COMMENT in this very file: a note added 2026-09-12 quoting
+    `len(conviction) >= 30` kept the pin green while the real predicate was
+    mutated to 60. That is the fourth instance of the-method's "test pin
+    satisfied by a comment" recurrence in one session - the third was this
+    file's own dsr-bar pin. The AST carries no comments and no docstring can
+    forge a Compare node, so this form cannot repeat it."""
+    import ast
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(oc.main)))
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+            continue
+        if not isinstance(node.ops[0], ast.GtE):
+            continue
+        left = node.left
+        if not (isinstance(left, ast.Call)
+                and getattr(left.func, "id", None) == "len"
+                and left.args
+                and getattr(left.args[0], "id", None) == "conviction"):
+            continue
+        rhs = node.comparators[0]
+        if isinstance(rhs, ast.Constant) and isinstance(rhs.value, int):
+            out.append(rhs.value)
+    return sorted(out)
 
 
 def _grade(dsr):
@@ -139,11 +171,43 @@ def test_split_dsr_samples_does_not_filter_by_era():
 # ---------------------------------------------------------------------------
 
 def _seg(n, mean, sd=1.0, era=ERA):
-    """A segment dict shaped like dsr_deployed_segment's real return."""
-    se = sd / (n ** 0.5)
-    return {"available": True, "n": n, "era": era, "mean": mean, "sd": sd,
-            "n_eff": float(n), "se": se, "ub95": mean + 1.96 * se,
-            "total": mean * n}
+    """A segment BUILT BY THE REAL CODE, never hand-assembled.
+
+    The first version of this helper hand-rolled the dict INCLUDING its own
+    copy of `ub95 = mean + 1.96*se`. Mutation proved that vacuous: changing
+    the shipped z to 0.0 or 19.6 left all 42 pins green, because every
+    assertion read the fixture's arithmetic rather than the module's
+    (red-team OBJ-12). Synthesising rows and running dsr_deployed_segment is
+    the only way these pins can see the shipped constant.
+
+    Rows are laid out strictly sequentially (no overlap) so n_eff == n and
+    the dispersion under test is the one asked for."""
+    import csv as _csv
+    import tempfile
+    vals = _spread(n, mean, sd)
+    d = Path(tempfile.mkdtemp())
+    fills_p = d / "fills.csv"
+    with open(fills_p, "w", encoding="utf-8", newline="") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["ts", "position_id", "exec_era"])
+        for i in range(n):
+            w.writerow([1_700_000_000.0 + i * 7200.0, f"p{i}", era])
+    rows = [{"position_id": f"p{i}", "net_pnl_usd": str(vals[i]),
+             "probe": "0", "ts": str(1_700_000_000.0 + i * 7200.0 + 600.0)}
+            for i in range(n)]
+    return dsr_deployed_segment(rows, fills_p, ERA)
+
+
+def _spread(n, mean, sd):
+    """n values with EXACTLY the requested mean and sample sd (ddof=1)."""
+    if n < 2 or sd == 0:
+        return [mean] * n
+    base = [(-1.0) ** i for i in range(n)]          # alternating +-1
+    m = sum(base) / n
+    centred = [b - m for b in base]
+    cur = (sum(c * c for c in centred) / (n - 1)) ** 0.5
+    k = sd / cur if cur else 0.0
+    return [round(mean + c * k, 6) for c in centred]
 
 
 def test_sentinel_FAILS_when_the_deployed_era_has_demonstrated_a_loss():
@@ -302,3 +366,219 @@ def test_the_span_still_reports_the_pooling_it_cannot_fix():
         [{"probe": "0", "ts": "1700000000.0", "net_pnl_usd": "1"},
          {"probe": "0", "ts": "1700864000.0", "net_pnl_usd": "1"}])
     assert span["available"] and abs(span["days"] - 10.0) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# 5. THE SILENCING CHANNELS THE RED-TEAM PANEL FOUND (2026-09-12)
+#
+# Every pin below exists because the FIRST cut of this guard could be silenced
+# and none of the original 11 pins could see it. Each is an injection.
+# ---------------------------------------------------------------------------
+
+def test_one_millisecond_timestamp_cannot_silence_the_alarm(tmp_path):
+    """OBJ-8, CONCEDED. n was built from `pnl` and n_eff from `spans`, and a
+    trip could enter one without the other. A single close-ts written in
+    milliseconds creates a ~54,000-year span that overlaps every other trip,
+    halving their uniqueness: n stayed 16, n_eff fell 16.000 -> 8.500, SE
+    inflated x1.372 and ub95 moved -0.2151 -> -0.0173 on an UNCHANGED book.
+    Any book whose true ub95 lay in [-0.198, 0) was silenced by one row."""
+    n = 16
+    fills = _write_fills(tmp_path, [(1_700_000_000.0 + i * 7200.0, f"p{i}",
+                                     ERA) for i in range(n)])
+    vals = _spread(n, -0.95, 1.5)
+    good = [_row(f"p{i}", vals[i], 1_700_000_000.0 + i * 7200.0 + 600.0)
+            for i in range(n)]
+    base = dsr_deployed_segment(good, fills, ERA)
+
+    poisoned = [dict(r) for r in good]
+    poisoned[0]["ts"] = str(float(poisoned[0]["ts"]) * 1000.0)   # ms stamp
+    after = dsr_deployed_segment(poisoned, fills, ERA)
+
+    assert after["n_eff"] <= after["n"], "n_eff escaped its own population"
+    assert abs(after["n_eff"] - after["n"]) < 1e-6, (
+        f"n={after['n']} but n_eff={after['n_eff']:.3f}: the deflation is "
+        f"computed over a DIFFERENT set of trips than the mean, which is "
+        f"the OBJ-8 silencing channel")
+    assert after["ub95"] <= base["ub95"] + 1e-9, (
+        "a malformed timestamp moved ub95 TOWARD zero - it made the alarm "
+        "quieter on an unchanged book")
+    assert after["excluded"] >= 1 and after["dropped"]["bad_close"] >= 1, (
+        "the malformed row was absorbed silently instead of being counted")
+
+
+def test_an_unstamped_leg_makes_a_trip_IMPURE(tmp_path):
+    """OBJ-1 + OBJ-10, CONCEDED. `cohort_eval.py:557` states the rule this
+    guard claimed to reuse: PURITY IS OVER ALL LEGS, NOT OVER STAMPED LEGS.
+    Testing `stamps.get(pid) == {era}` only asks whether every leg that
+    CARRIED a stamp agreed - so a trip with a blank or absent exec_era leg
+    counted as wholly-inside. No original fixture row carried one, so no pin
+    could fail on the only case where the two rules diverge."""
+    p = tmp_path / "fills.csv"
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("ts,position_id,exec_era\n")
+        fh.write(f"100.0,clean,{ERA}\n")
+        fh.write(f"100.0,blank_leg,{ERA}\n")
+        fh.write("200.0,blank_leg,\n")            # BLANK exec_era
+        fh.write(f"100.0,absent_leg,{ERA}\n")
+        fh.write("300.0,absent_leg\n")            # SHORT row: field ABSENT
+    rows = [_row("clean", +1.0, 1_700_000_000.0),
+            _row("blank_leg", -50.0, 1_700_000_100.0),
+            _row("absent_leg", -50.0, 1_700_000_200.0)]
+    seg = dsr_deployed_segment(rows, p, ERA)
+    assert seg["n"] == 1, (
+        f"n={seg['n']}: a trip with an unstamped leg was counted as wholly "
+        f"inside the era, which overstates the accruing count the moment a "
+        f"stale-binary leg lands in the current era")
+    assert seg["total"] == 1.0
+
+
+def test_a_blank_position_id_cannot_merge_trips(tmp_path):
+    """OBJ-13, CONCEDED. An empty string is a legal dict key on BOTH sides of
+    the join, so every unattributed fill merged into one pseudo-trip that
+    then matched every blank-pid history row. Injection returned n=4
+    total=-26.00 where the correct answer was n=1 +1.00.
+    core/fill_ledger.py writes `order.position_id or ""`, so the blank is
+    reachable from the shipped writer, and ml/history.py:1786 already guards
+    this exact join on this exact file."""
+    p = _write_fills(tmp_path, [(100.0, "real", ERA), (100.0, "", ERA)])
+    rows = [_row("real", +1.0, 1_700_000_000.0)] + [
+        _row("", -9.0, 1_700_000_100.0 + i) for i in range(3)]
+    seg = dsr_deployed_segment(rows, p, ERA)
+    assert seg["n"] == 1 and seg["total"] == 1.0, (
+        f"blank-pid rows leaked in: n={seg['n']} total={seg['total']}")
+    assert seg["dropped"]["blank_pid"] == 3
+
+
+def test_the_shipped_z_is_one_sided_and_reaches_the_verdict():
+    """OBJ-12, CONCEDED. `ok = ub95 >= 0` is a single-tailed question, so a
+    two-tailed 1.96 ran it at alpha=0.025 - half the advertised sensitivity,
+    in the NOT-FIRING direction. Worse, the old fixture recomputed ub95
+    itself, so mutating the shipped z to 0.0 or 19.6 left all 42 pins green.
+    This pin reads the constant THROUGH the module."""
+    from scripts.overfit_check import SENTINEL_Z
+    assert 1.0 < SENTINEL_Z < 2.0
+    seg = _seg(20, -0.30, sd=1.0)
+    assert abs(seg["z"] - SENTINEL_Z) < 1e-12
+    expected = seg["mean"] + SENTINEL_Z * seg["se"]
+    assert abs(seg["ub95"] - expected) < 1e-9, (
+        "ub95 is not computed from the shipped z - a mutation of the "
+        "constant would not be visible to any assertion here")
+    assert abs(SENTINEL_Z - 1.645) < 1e-9, (
+        "the one-sided 95% z moved; ml/monitor.py:79 wilson_ucb uses 1.645 "
+        "for this exact shape and the printed line names alpha=0.05")
+
+
+def test_the_passing_branch_never_exculpates_the_pooled_red():
+    """OBJ-11, CONCEDED. The old passing branch asserted OF-5's pooled FAIL
+    was legacy drag - an affirmative all-clear from a test with single-digit
+    power at its own arming floor. A guard that says all clear at 6-10%
+    power is a silencing device wearing a green badge."""
+    armed, ok, detail = dsr_sentinel_verdict(_seg(12, -0.05, sd=1.5))
+    assert armed is True and ok is True
+    assert "legacy drag" not in detail, (
+        "the passing branch still exculpates the pooled FAIL")
+    assert "MDE=" in detail, (
+        "a passing sentinel must print the loss it could actually have "
+        "resolved - a green is only as big as its power")
+    assert "NOT an all-clear" in detail
+
+
+def test_the_MDE_is_worse_than_the_registered_H0_bleed_at_the_floor():
+    """The number that justifies the previous pin, computed not asserted: at
+    the arming floor the detectable loss is several times the registered H0
+    bleed of -$0.27/trip, and that must be printed."""
+    seg = _seg(OF5_SENTINEL_MIN_N, -0.05, sd=1.5)
+    _, ok, detail = dsr_sentinel_verdict(seg)
+    mde = -1.645 * seg["sd"] / (seg["n_eff"] ** 0.5)
+    assert ok is True
+    assert abs(mde) > 0.27, (
+        "if the MDE ever becomes finer than the H0 bleed, the exculpatory "
+        "wording may be revisited - until then it may not")
+    assert f"{mde:+.3f}" in detail
+
+
+def test_exclusions_are_counted_and_surfaced_not_dropped(tmp_path):
+    """An exclusion that removes losers is itself a silencing channel."""
+    p = _write_fills(tmp_path, [(100.0, "a", ERA), (100.0, "b", ERA)])
+    rows = [_row("a", -1.0, 1_700_000_000.0),
+            _row("b", -99.0, "nan")]           # unusable close
+    seg = dsr_deployed_segment(rows, p, ERA)
+    assert seg["n"] == 1 and seg["excluded"] == 1
+    assert abs(seg["dropped_pnl"] + 99.0) < 1e-9
+    _, _, detail = dsr_sentinel_verdict(seg)
+    assert "EXCLUDED" in detail and "-99.00" in detail, (
+        "a $99 loser left the statistic without appearing in the message")
+
+
+def test_the_sentinel_is_called_OUTSIDE_the_conviction_branch():
+    """OBJ-2, CONCEDED. The call sat inside `if len(conviction) >= 30`, so in
+    the file's own designed post-exploration steady state (exploration off,
+    conviction < 30, mixed >= 30) the pooled verdict armed the dsr family
+    while the sentinel emitted nothing and went_dark stayed empty. The guard
+    was silent in exactly the branch the system is heading for."""
+    lines = inspect.getsource(oc.main).splitlines()
+    calls = [ln for ln in lines if "report_dsr_sentinel(" in ln]
+    assert calls, "the sentinel call site is gone"
+    for ln in calls:
+        indent = len(ln) - len(ln.lstrip())
+        assert indent == 4, (
+            f"report_dsr_sentinel is nested at indent {indent}, i.e. inside a "
+            f"branch of the OF-5 if/elif/else chain. It depends on the fill "
+            f"ledger and the era, NOT on the pooled sample, and must fire in "
+            f"every branch. Line: {ln.strip()[:80]}")
+
+
+def test_the_DEFERRED_branch_also_discloses_excluded_PnL(tmp_path):
+    """The n==0 early return omitted `dropped_pnl`, so the DEFERRED line
+    printed "$+0.00 of PnL is not in this statistic" while 19 unattributable
+    conviction trips worth -$18.91 sat outside it - `seg.get("dropped_pnl",
+    0.0)` fell back to the default.
+
+    A disclosure that goes silent in the branch the guard spends most of its
+    life in is no disclosure at all. Caught by RUNNING the sentinel against
+    the live ledger, not by reading it."""
+    p = tmp_path / "fills.csv"
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("ts,position_id,exec_era\n")
+        fh.write(f"100.0,a,{ERA}\n")
+        fh.write("200.0,a,\n")          # unstamped leg -> unattributable
+    seg = dsr_deployed_segment([_row("a", -18.91, 1_700_000_000.0)], p, ERA)
+    assert seg["n"] == 0
+    assert "dropped_pnl" in seg, "the DEFERRED return dropped the key"
+    assert abs(seg["dropped_pnl"] + 18.91) < 1e-9
+    _, _, detail = dsr_sentinel_verdict(seg)
+    assert "-18.91" in detail, (
+        "a losing trip left the statistic without appearing in the DEFERRED "
+        "message - the exclusion channel is invisible exactly where the "
+        "guard sits today")
+
+
+def test_sentinel_prose_never_leaks_a_STATUS_TOKEN_into_the_report():
+    """The sentinel's INFO text lands in outputs/overfit_report.md on EVERY
+    run, including the synthetic-benchmark runs that CI gates on.
+
+    `tests/test_overfit_check_ci.py` asserts `"FAIL" not in report` as its
+    proxy for "no rung failed". When the sentinel was hoisted out of the
+    conviction branch (OBJ-2) its DEFERRED message - which read "OF-5's
+    pooled FAIL says NOTHING about it either way" - started reaching that
+    report and reddened TWO pre-existing CI tests that had nothing to do
+    with this change.
+
+    The prose was reworded rather than the pin loosened: bending an existing
+    gate to accommodate a new change is the silencing pattern this whole file
+    exists to prevent. This pin keeps the constraint visible so the next
+    author does not reintroduce the token and then 'fix' the CI test."""
+    for n, mean, sd in ((0, 0.0, 0.0), (3, -5.0, 1.0), (20, -0.05, 1.5),
+                        (20, -2.0, 0.5)):
+        seg = _seg(n, mean, sd) if n else {"available": True, "n": 0,
+                                           "era": ERA, "dropped": {},
+                                           "excluded": 0, "dropped_pnl": 0.0}
+        _, _, detail = dsr_sentinel_verdict(seg)
+        for token in ("FAIL", "PASS"):
+            assert token not in detail, (
+                f"the sentinel emitted the bare report-status token "
+                f"{token!r} at n={n}. It reaches outputs/overfit_report.md "
+                f"on every run and trips the report-level substring checks "
+                f"in tests/test_overfit_check_ci.py")
+    _, _, indet = dsr_sentinel_verdict({"available": False, "reason": "x"})
+    assert "FAIL" not in indet and "PASS" not in indet
