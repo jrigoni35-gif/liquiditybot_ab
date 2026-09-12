@@ -685,7 +685,9 @@ def render(res: dict) -> None:
     print("  SR0 is the expected MAX Sharpe under H0 across `trials` tries.")
     print("  Trial count is UNMEASURED in this repo, and so is the trial-SR")
     print("  dispersion the deflation scales by - deflated_sharpe falls back")
-    print("  to var=SR^2, which is an assumption, not a reading. The GRID is")
+    print("  to var=1/n (the null-consistent closure; it was var=SR^2 and")
+    print("  inverted until 2026-09-11), which is an assumption, not a")
+    print("  reading. The GRID is")
     print("  the result; any single row of it is a hypothesis about N.")
 
     mt = res["mintrl"]
