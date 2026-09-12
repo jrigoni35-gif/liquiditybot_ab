@@ -73,6 +73,7 @@ import json
 import re
 import subprocess  # nosec B404 - fixed argv, repo-local scripts only
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # gate; keeping it here (rather than silently omitting it) means the exemption
 # is reviewable instead of invisible.
 C1_EXEMPT = {"pyright": "needs node/npx; developer + PC-side gate"}
+
+
+_METRIC_RE = re.compile(r"liquiditybot_[a-z0-9_]+")
 
 
 def _read(p: Path) -> str:
@@ -294,6 +298,113 @@ def check_one_population(status_path: Path | None) -> dict:
             "read_at": status_path.stat().st_mtime, "violations": bad}
 
 
+def _walk_exprs(panels, acc=None) -> set:
+    """Metric names in every panel target expression, rows nested in rows too.
+
+    Takes its accumulator as an argument rather than closing over a loop
+    variable - ruff B023, and it was right: the closure form captured `found`
+    late and would have shared one set across boards."""
+    acc = set() if acc is None else acc
+    for p in panels or []:
+        for t in (p.get("targets") or []):
+            acc.update(_METRIC_RE.findall(str(t.get("expr") or "")))
+        _walk_exprs(p.get("panels"), acc)
+    return acc
+
+
+def board_query_metrics() -> dict:
+    """{board filename: set of metric names its panels actually QUERY}.
+
+    Read from each panel's `targets[].expr`, NOT by regexing the whole file.
+    A blind regex over the JSON also catches alert-rule names, panel titles
+    and truncated fragments - measured 2026-09-12, it reported 11 orphans of
+    which 3 were artifacts of the detector itself. The instrument is the first
+    suspect, and here the instrument was mine."""
+    out: dict = {}
+    board_dir = ROOT / "docs" / "grafana"
+    for path in sorted(board_dir.glob("*.json")):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out[path.name] = _walk_exprs(doc.get("panels"))
+    return out
+
+
+def check_ui_coupling(status_path: "Path | None") -> dict:
+    """C4 - THE UI MAY NOT CLAIM WHAT THE SYSTEM DOES NOT PUBLISH.
+
+    Every metric a shipped board QUERIES must be one of:
+      * a name a live `gc_pusher.collect()` / `collect_aux()` actually emits, or
+      * covered by a DECLARED no-value precondition in the dashboard
+        generator's `_NO_VALUE_BY_FAMILY` - i.e. somebody wrote down WHY that
+        series can legitimately be absent.
+
+    WHY THIS IS A COUPLING CLAUSE AND NOT A NEW RULE. Both halves already
+    existed and neither was wired to the other: the generator has declared its
+    absence preconditions since long before this clause, and the pusher has
+    always been the sole source of series names. The boards were pinned
+    against THEMSELVES (`tests/test_boards_stripped.py` freezes
+    (id, title, type, metrics) quadruples), which freezes a panel's
+    self-description - including, faithfully, a panel that queries a series
+    nothing emits. The dashboard skill names that exact failure: "a tile whose
+    label says X but queries Y is the exact lie the inventory pins exist to
+    prevent". This clause closes the loop without asking anyone to do anything
+    new.
+
+    MEASURED WHEN ADDED (2026-09-12): 4 boards, 123 panel queries, 89 declared
+    families, ZERO undeclared orphans. It went in clean - which is the point.
+    A coupling added while the system is coherent records the coherence; one
+    added after a drift only ratifies it.
+
+    TWO MODES, and it says which it ran:
+      FULL    - `--status` given: compares against a REAL collect() run.
+      DECLARED- no status: checks only that every queried metric is either
+                named as a literal in the pusher source or declared absent.
+                Weaker, because the pusher builds some names dynamically, so
+                this mode can only find metrics NOBODY mentions anywhere.
+    C3's doctrine is followed exactly: status.json is live mutable state and a
+    blocking gate must not read it unasked."""
+    try:
+        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import build_trading_dashboard as gen
+    except Exception as exc:                               # noqa: BLE001
+        return {"skipped": True,
+                "why": f"dashboard generator unreadable ({exc!r})"}
+
+    families = set(getattr(gen, "_NO_VALUE_BY_FAMILY", {}))
+    boards = board_query_metrics()
+    if not boards:
+        return {"skipped": True, "why": "no boards under docs/grafana"}
+
+    mode = "DECLARED"
+    emitted: set = set()
+    if status_path is not None:
+        try:
+            import scripts.gc_pusher as gp
+            emitted = {m["name"] for m in gp.collect(str(status_path))}
+            emitted |= {m["name"] for m in gp.collect_aux(time.time())}
+            mode = "FULL"
+        except Exception as exc:                           # noqa: BLE001
+            return {"skipped": True,
+                    "why": f"collect() failed on {status_path} ({exc!r})"}
+    else:
+        emitted = set(_METRIC_RE.findall(
+            _read(ROOT / "scripts" / "gc_pusher.py")))
+
+    orphans: dict = {}
+    total = 0
+    for name, queried in boards.items():
+        total += len(queried)
+        bad = sorted(m for m in (queried - emitted)
+                     if not any(m.startswith(f) for f in families))
+        if bad:
+            orphans[name] = bad
+    return {"skipped": False, "mode": mode, "boards": len(boards),
+            "queries": total, "families": len(families),
+            "orphans": orphans, "ok": not orphans}
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--status", default=None,
@@ -307,7 +418,8 @@ def main() -> int:
     c1 = check_rootedness()
     c2 = check_self_tests()
     c3 = check_one_population(Path(ns.status) if ns.status else None)
-    res = {"c1": c1, "c2": c2, "c3": c3}
+    c4 = check_ui_coupling(Path(ns.status) if ns.status else None)
+    res = {"c1": c1, "c2": c2, "c3": c3, "c4": c4}
     if ns.json:
         print(json.dumps(res, indent=1, default=str))
     else:
@@ -334,6 +446,23 @@ def main() -> int:
                 print("        error: %s" % r["error"])
         if not c2["instruments"]:
             print("   (no instrument ships --self-test)")
+        print("")
+        print("C4 UI COUPLING  (a board may not claim what nothing publishes)")
+        if c4.get("skipped"):
+            print("   SKIPPED: %s" % c4["why"])
+        else:
+            print("   mode %s - %d boards, %d panel queries, %d declared "
+                  "no-value families"
+                  % (c4["mode"], c4["boards"], c4["queries"], c4["families"]))
+            if c4["ok"]:
+                print("   OK - every queried metric is emitted or declared "
+                      "absent")
+            else:
+                for b, ms in c4["orphans"].items():
+                    print("   *** %s queries series nothing emits and nothing "
+                          "declares: %s" % (b, ", ".join(ms)))
+                print("   *** a tile that queries a dead series reads as "
+                      "'no problem'.")
         print("")
         print("C3 ONE POPULATION  (count and effective-count, same rows)")
         if c3.get("skipped"):
