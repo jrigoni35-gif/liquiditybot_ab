@@ -1,7 +1,8 @@
-# OF-3 (PBO): the gate's 0.5 line is miscalibrated, AND the reading is elevated
+# OF-3 (PBO): it is DRIFT, not overfitting - and the 0.5 line is miscalibrated too
 
-**2026-09-12.** Both statements are true at once and they have different
-owners. Everything below was re-derived by running the shipped estimator; the
+**2026-09-12.** Three findings, and they do not cancel: the gate's threshold
+is miscalibrated, the observed reading is nonetheless real, and its CAUSE is
+non-stationarity rather than the overfitting the rung is named for. Everything below was re-derived by running the shipped estimator; the
 commands are beside the numbers so the next reader re-runs rather than quotes.
 
 ## What happened
@@ -62,7 +63,7 @@ distribution. THIS IS A REAL SIGNAL and it is not the instrument's fault.
 The two do not cancel. The gate is wrong about *where the line goes*, and the
 current sample is still beyond the line wherever it goes.
 
-## The rival hypothesis, NOT yet tested
+## The rival hypothesis - TESTED, and it wins
 
 PBO partitions the corpus into 8 **contiguous time blocks**. That design
 cannot separate:
@@ -78,12 +79,48 @@ drift tvd=0.325 over the trailing 24h; `status.monitor.drift_share_measurable
 = 0.889`. Drift also explains the lurch on 26 rows, which overfitting does
 not.
 
-**OWED:** recompute pbo on trailing-truncated corpora (drop the most recent
-k% and re-measure). A monotone fall locates the signal in the recent tail
-(drift; the fix is a retrain, and OF-3 is reporting a real problem under a
-misleading NAME). A flat column means the whole sample anti-selects
-(selection; the strategy owns it). Harness written, not yet run:
-`scratchpad/pbo_drift.py`.
+**MEASURED 2026-09-12T15:21Z, and it is drift.** Trailing truncation, same
+shipped geometry, `rows are time-ordered: True` (checked, so the truncation
+really does drop the recent tail):
+
+| keep | rows | pbo | argmax |
+|---|---|---|---|
+| **100%** | 18,016 | **0.900** | 0.843 |
+| 95% | 17,115 | 0.757 | 0.743 |
+| 90% | 16,214 | 0.800 | 0.643 |
+| 80% | 14,412 | 0.600 | 0.400 |
+| 70% | 12,611 | **0.214** | 0.214 |
+| 60% | 10,809 | **0.014** | 0.014 |
+| 50% | 9,008 | 0.286 | 0.243 |
+
+**Drop the most recent 30% and the gate goes GREEN.** Overfitting is a
+property of a selection rule over the whole sample and would give a FLAT
+column; this is a cliff, and it is located in time. The readings at 70/60/50%
+(0.214, 0.014, 0.286) sit at or below the null median of 0.279 - i.e. on older
+data, selection is indistinguishable from noise, which is exactly what six
+statistically identical configs should look like. Only the recent tail
+anti-selects.
+
+READ WITH ITS ERROR BARS: the null study puts sd at 0.294, so any SINGLE row
+here is noisy (the 50% row breaking monotonicity is within that). The COLUMN
+is the evidence - a fall from 0.900 to 0.014 across four consecutive
+truncations is not sampling noise.
+
+**So OF-3 is reporting a real problem under a misleading NAME.** The model
+selected on the past does not generalise to the present because the present is
+distributionally different - which is what `ML-031` (20-26/60 features past
+PSI 0.25), `ML-032` (RETRAIN REQUESTED, 32-40% of features) and `ML-080`
+(exit-reason tvd 0.325) have been saying for two days. Four instruments, one
+cause.
+
+**The fix is a retrain, not a selection change.** Note the standing gap:
+auto-retrain runs hourly and `retrain_flag` is true, but no new champion
+artifact has been written since 2026-09-10 18:56 - challengers are not beating
+the incumbent on a corpus whose recent tail has moved. That is the thread to
+pull, and it is a MODEL question, not a gate question.
+
+Harness: `scratchpad/pbo_drift.py` (truncation column),
+`scratchpad/pbo_null2.py` (the null).
 
 ## Re-derive, do not quote
 
