@@ -248,3 +248,53 @@ as the reason take-profit width is the PRE-NAMED next lever and was deferred -
 
 Harnesses: `scratchpad/pbo_endswap.py`, `scratchpad/pbo_2x2.py`,
 `scratchpad/pbo_null2.py`, `scratchpad/pbo_drift.py`.
+
+---
+
+# ERRATUM 2026-09-12 (third correction): THE POINT ESTIMATES ARE NOT STABLE TO ONE ROW
+
+A red-team panel objected that every figure above is quoted to four decimals
+with no reproduction band. Re-derived here by a second route — calling
+`ml.overfit.model_space_pbo` directly at truncated T, with a determinism
+control run first (same array twice -> identical pbo, so what follows is
+discontinuity, not RNG):
+
+| rows | pbo | median lambda |
+|---|---|---|
+| 18,020 | **0.1857** | +0.9163 |
+| 18,019 | 0.1857 | +0.9163 |
+| 18,018 | 0.1857 | +0.9163 |
+| **18,017** | **0.9000** | -0.2877 |
+| 18,015 | 0.9000 | -0.2877 |
+| 18,010 | 0.6286 | -0.2877 |
+
+**Band over ten rows: 0.7143. Three of six readings would be RED, three GREEN,
+on the same corpus one row apart.** The same day this document was written,
+`scripts/overfit_check.py` reported `pbo=0.19 ... PASS` on the live corpus.
+
+What this does to the sections above:
+
+* The **0.900** that §2 and §3 analyse is one side of a coin flip in T, not a
+  stable reading. Every four-decimal figure above inherits that band.
+* §3's headline effect (weights move pbo **-0.357**) is measured between two
+  cells that each carry a 0.714 band. It cannot be attributed to the weights.
+* §2's slice ordering (full > newest > oldest) is not safe either — the panel
+  also measured that the two "ends" **share 33.3% of their rows** by
+  construction (`k = int(T*0.60)`, overlap `2k-T = 0.2T`), so "the two ends"
+  and "cross-half combinations" describe a partition that was never run.
+* §1's geometry table is a calendar-day proxy for a stored quantity. Grouped by
+  the actual `pt_frac` bucket the corpus records, the target changed **more
+  than twice** — the panel puts it at five levels including a 480 bps floor on
+  08-29 — and the largest excursion sits inside the slice that reads the
+  *lowest* pbo. The blamed tightening has the wrong sign.
+
+**The document's conclusion is unchanged and now rests on better evidence:
+OF-3's reading is not evidence about the strategy.** It was over-taxed before;
+it is now measured as discontinuous in the corpus size itself. Do not read
+0.900 as a verdict. Do not read today's 0.19 as an exoneration either — it is
+the other face of the same coin.
+
+**Owed, unchanged and still an OPERATOR question:** `label_era` encodes the
+horizon only, so a barrier-geometry change is invisible to every consumer that
+segments by it. The rest of the panel's docket (17 surviving objections) is
+recorded in the session transcript; nothing was built from it.
