@@ -360,6 +360,10 @@ def test_collect_aux_isolates_a_raising_collector(monkeypatch):
     # 2026-08-31: ceiling-bar collector joined the composition; patched out
     # like its siblings so this pin tests ISOLATION, not live outputs/.
     monkeypatch.setattr(gp, "_ceiling_bar_metrics", lambda now: [])
+    # 2026-09-12: overfit-battery collector joined the composition;
+    # patched out like its siblings so this pin keeps testing
+    # ISOLATION rather than the live outputs/overfit_report.md.
+    monkeypatch.setattr(gp, "_overfit_gate_metrics", lambda ts: [])
     out = gp.collect_aux(1000.0)          # must not raise
     assert _names(out) == {"liquiditybot_ml_orphan_ratio"}
 
