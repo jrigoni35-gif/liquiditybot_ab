@@ -209,112 +209,59 @@ _LEARNING_STRIPPED_PANELS = frozenset()  # a re-strip = ZERO panels (2026-08-30)
 _PROBLEM_PANELS = frozenset({
     (1, "Overall posture", "stat", ("liquiditybot_op_state",)),
     (2, "Halted?", "stat", ("liquiditybot_halted",)),
-    (3, "New trades blocked?", "stat",
-     ("liquiditybot_watchdog_entries_blocked",)),
+    (3, "New trades blocked?", "stat", ("liquiditybot_watchdog_entries_blocked",)),
     (4, "Active faults", "stat", ("liquiditybot_fault_count",)),
     (5, "Risk firewall", "stat", ("liquiditybot_firewall_fault",)),
     (6, "Data age", "stat", ("liquiditybot_status_age_sec",)),
     (7, "What the pager watches", "row", ()),
-    (8, "Model worse than naive by", "stat",
-     ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
-    # the judge-window disambiguator: the tile that says whether an empty
-    # Brier tile means "filling" or "judge dead"
-    (9, "Trades the judge has scored", "stat",
-     ("liquiditybot_ml_window_trades",)),
-    (10, "Drift stuck while degraded", "stat",
-     ("liquiditybot_ml_drift_share", "liquiditybot_monitor_level")),
+    (8, "Model worse than naive by", "stat", ("liquiditybot_ml_baseline_brier", "liquiditybot_ml_brier")),
+    (9, "Trades the judge has scored", "stat", ("liquiditybot_ml_window_trades",)),
+    (10, "Drift stuck while degraded", "stat", ("liquiditybot_ml_drift_share", "liquiditybot_monitor_level")),
     (11, "Model governor", "stat", ("liquiditybot_monitor_level",)),
     (12, "Faults & rejections", "row", ()),
-    # FIXED (STREAM 7c, 2026-08-28 audit top-5 #4): filtered to actual
-    # trip codes (code=~"FW-.*"); the unfiltered form also plotted four
-    # always-present lifecycle counters under a "by code" title.
-    (13, "Firewall trips by code", "timeseries",
-     ("liquiditybot_firewall_count",)),
+    (13, "Firewall trips by code", "timeseries", ("liquiditybot_firewall_count",)),
     (14, "Decisions by family", "timeseries", ("liquiditybot_code_count",)),
     (15, "Venue rejects", "stat", ("liquiditybot_order_venue_rejects",)),
-    (16, "Dead-man failures", "stat",
-     ("liquiditybot_order_deadman_failures",)),
-    (17, "Exit-check failures", "stat",
-     ("liquiditybot_exit_eval_failures",)),
-    (18, "Cycle failures in a row", "stat",
-     ("liquiditybot_cycle_consecutive_failures",)),
-    # MERGED (audit id=19+20): one tile, two series.
-    (19, "Model & feature faults", "bargauge",
-     ("liquiditybot_ml_contract_failed", "liquiditybot_ml_infer_faults")),
+    (16, "Dead-man failures", "stat", ("liquiditybot_order_deadman_failures",)),
+    (17, "Exit-check failures", "stat", ("liquiditybot_exit_eval_failures",)),
+    (18, "Cycle failures in a row", "stat", ("liquiditybot_cycle_consecutive_failures",)),
+    (19, "Model & feature faults", "bargauge", ("liquiditybot_ml_contract_failed", "liquiditybot_ml_infer_faults")),
     (20, "Staleness & feeds", "row", ()),
     (21, "Feed latency", "stat", ("liquiditybot_feed_latency_ms",)),
     (22, "Price marks age", "stat", ("liquiditybot_marks_age_sec",)),
     (23, "Kraken feed", "stat", ("liquiditybot_ws_kraken_connected",)),
     (24, "Feed reconnects", "stat", ("liquiditybot_ws_kraken_reconnects",)),
-    # MERGED (audit id=26+27+28, "the watchdog trio"): one bargauge.
-    (25, "Feed watchdog", "bargauge",
-     ("liquiditybot_watchdog_critical_stale", "liquiditybot_watchdog_divergent",
-      "liquiditybot_watchdog_stale_assets")),
-    # renamed from "Do the books add up?" — the recompute runs in LIVE
-    # mode only — on a dry-run bot the old title over a green 0.00
-    # rendered a check that never ran as a check that passed. Gated on
-    # the bot's own mode report (`and dry_run == 0`): in paper mode the
-    # expression returns EMPTY and the tile shows its honest no_value
-    # text instead of the initializer 0.00.
-    (26, "Books cross-check (live mode)", "stat",
-     ("liquiditybot_dry_run", "liquiditybot_equity_drift_pct")),
-    # MERGED (STREAM 7c, audit): "Telemetry" folded into id=6 Data age.
+    (25, "Feed watchdog", "bargauge", ("liquiditybot_watchdog_critical_stale", "liquiditybot_watchdog_divergent", "liquiditybot_watchdog_stale_assets")),
+    (26, "Books cross-check (live mode)", "stat", ("liquiditybot_dry_run", "liquiditybot_equity_drift_pct")),
     (27, "Runner", "stat", ("liquiditybot_running",)),
     (28, "Risk brakes", "row", ()),
-    (29, "Daily loss budget used", "gauge",
-     ("liquiditybot_rp_daily_budget_used_frac",)),
-    (30, "Weekly loss budget used", "gauge",
-     ("liquiditybot_rp_weekly_budget_used_frac",)),
-    (31, "Drawdown vs the hard stop", "timeseries",
-     ("liquiditybot_rp_drawdown_mtm_pct", "liquiditybot_rp_hard_stop_dd_pct")),
+    (29, "Daily loss budget used", "gauge", ("liquiditybot_rp_daily_budget_used_frac",)),
+    (30, "Weekly loss budget used", "gauge", ("liquiditybot_rp_weekly_budget_used_frac",)),
+    (31, "Drawdown vs the hard stop", "timeseries", ("liquiditybot_rp_drawdown_mtm_pct", "liquiditybot_rp_hard_stop_dd_pct")),
     (32, "Size taper", "stat", ("liquiditybot_rp_taper_mult",)),
     (33, "Drawdown throttle", "stat", ("liquiditybot_rp_dd_throttle_mult",)),
     (34, "Portfolio heat", "stat", ("liquiditybot_rp_heat_frac",)),
     (35, "Assets circuit-broken", "stat", ("liquiditybot_cb_tripped_count",)),
-    (36, "Circuit-breaker cooldown left", "bargauge",
-     ("liquiditybot_cb_paused_hours_left",)),
-    (37, "Loss streak by asset", "bargauge",
-     ("liquiditybot_perf_asset_cur_loss_streak",)),
-    (38, "Audit & self-health", "row", ()),
-    (39, "Audit writes dropped", "stat",
-     ("liquiditybot_audit_dropped_writes",)),
-    (40, "Audit tail truncations", "stat",
-     ("liquiditybot_audit_tail_truncations",)),
-    (41, "Bad values dropped by exporter", "stat",
-     ("liquiditybot_gauges_dropped_nonfinite",)),
-    (42, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
-    # the entry/order funnel: liquiditybot_code_count_detail consumed by a
-    # panel, and the OM-040 timeout-cancel share of clean terminals on
-    # glass (report-only; the TTL/maker-offset levers it informs are
-    # execution-geometry fenced). STREAM 7c (2026-08-28 audit + operator
-    # instruction "keep per-hour, drop cumulative"): the cumulative
-    # "Why entries die" timeseries is RETIRED — its own per-hour
-    # companion (below) answers the same question with no slope-reading,
-    # and is now the sole "why" chart with a roster fixed to the codes
-    # that actually fire (SZ-021/SZ-030/SZ-049 in, never-fired PT-040/
-    # PT-041 out).
-    (43, "Why entries die", "row", ()),
-    (44, "Timeout-cancel share", "stat",
-     ("liquiditybot_order_terminal_orders",
-      "liquiditybot_order_timeout_cancels")),
-    (45, "Why entries die (per hour)", "timeseries",
-     ("liquiditybot_code_count_detail",)),
-    (46, "Were the vetoes right?", "bargauge",
-     ("liquiditybot_veto_cf_rate",)),
-    (47, "Anti-selective gates", "stat",
-     ("liquiditybot_veto_anti_selective",)),
-    (48, "Candidate baseline win rate", "stat",
-     ("liquiditybot_veto_baseline_rate",)),
-    # MUTATED (STREAM 7c, 2026-08-28 — the audit's one permitted new
-    # element, landed as a mutation of the existing "Confounded verdicts"
-    # tile): per-code label-era overlap bargauge at the report's own
-    # 0.05/0.5 policy thresholds, plus the admitted-vs-baseline headline
-    # (liquiditybot_admitted_era_overlap, EXTEND-ONLY exporter addition)
-    # riding as an extra bar. Replaces a bare count with which codes and
-    # how far from readable.
-    (49, "Verdict comparability (label-era overlap vs baseline)",
-     "bargauge",
-     ("liquiditybot_admitted_era_overlap", "liquiditybot_veto_era_overlap")),
+    (36, "Circuit-breaker cooldown left", "bargauge", ("liquiditybot_cb_paused_hours_left",)),
+    (37, "Loss streak by asset", "bargauge", ("liquiditybot_perf_asset_cur_loss_streak",)),
+    (38, "Overfit battery — the pre-registered gates", "row", ()),
+    (39, "Verdict", "stat", ("liquiditybot_overfit_stale",)),
+    (40, "Gates FAILING", "stat", ("liquiditybot_overfit_failed",)),
+    (41, "Gates ARMED", "stat", ("liquiditybot_overfit_armed",)),
+    (42, "Verdict age", "stat", ("liquiditybot_overfit_report_age_sec",)),
+    (43, "Which gate is red", "bargauge", ("liquiditybot_overfit_rung_passed",)),
+    (44, "Audit & self-health", "row", ()),
+    (45, "Audit writes dropped", "stat", ("liquiditybot_audit_dropped_writes",)),
+    (46, "Audit tail truncations", "stat", ("liquiditybot_audit_tail_truncations",)),
+    (47, "Bad values dropped by exporter", "stat", ("liquiditybot_gauges_dropped_nonfinite",)),
+    (48, "Cycles since restart", "stat", ("liquiditybot_cycle",)),
+    (49, "Why entries die", "row", ()),
+    (50, "Timeout-cancel share", "stat", ("liquiditybot_order_terminal_orders", "liquiditybot_order_timeout_cancels")),
+    (51, "Why entries die (per hour)", "timeseries", ("liquiditybot_code_count_detail",)),
+    (52, "Were the vetoes right?", "bargauge", ("liquiditybot_veto_cf_rate",)),
+    (53, "Anti-selective gates", "stat", ("liquiditybot_veto_anti_selective",)),
+    (54, "Candidate baseline win rate", "stat", ("liquiditybot_veto_baseline_rate",)),
+    (55, "Verdict comparability (label-era overlap vs baseline)", "bargauge", ("liquiditybot_admitted_era_overlap", "liquiditybot_veto_era_overlap")),
 })
 _PROBLEM_STRIPPED_PANELS = frozenset()   # a re-strip = ZERO panels (2026-08-30)
 

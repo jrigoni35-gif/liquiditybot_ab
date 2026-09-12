@@ -1716,6 +1716,59 @@ def _author_problem():
                   "trip the circuit breaker.")
 
     # ---- the audit trail's own health ------------------------------------
+    # ---- the pre-registered gates ----------------------------------------
+    # ADDED 2026-09-12. Nothing on any board carried overfit-battery state -
+    # `grep -c overfit_` in gc_pusher.py returned 0 - so a pre-registered gate
+    # could go red and no operator surface would say so. It happened: OF-3
+    # (pbo) went red and sat unnoticed behind OF-5's operator-adjudicated red,
+    # because `overfit_check` exits 1 on ANY failing rung and the record had an
+    # explanation ready for rc=1. "Which gate" is therefore the whole point of
+    # this row, and it is why the bargauge is labelled per RUNG.
+    #
+    # These tiles are STALENESS-GATED AT THE SOURCE: the report is written only
+    # when a human runs the battery, so `_overfit_gate_metrics` stops emitting
+    # rung values past OVERFIT_STALE_AFTER_SEC (the DL-6 shape). The "Verdict"
+    # tile is therefore the tile to read FIRST - when it says STALE the bars
+    # below it go no-data BY DESIGN, which is the honest-absence contract, not
+    # an outage.
+    row("Overfit battery — the pre-registered gates")
+    state("Verdict", M("liquiditybot_overfit_stale"), 4, 6,
+          {"1": ("STALE", "red"), "0": ("fresh", "green")},
+          no_value="never run",
+          desc="Whether the battery's verdict still describes the current "
+               "corpus. STALE means nobody has run `scripts/overfit_check.py` "
+               "recently - the rung bars stop publishing rather than paint an "
+               "old verdict in healthy colour, which is the failure mode the "
+               "Brier incident taught. Read this tile before the bars.")
+    stat("Gates FAILING", M("liquiditybot_overfit_failed"), 4, 6,
+         decimals=0, graph="none", steps=ZERO_BAD, no_value="—",
+         desc="How many pre-registered rungs said no. Zero is the only good "
+              "number. This counts RUNGS, not exit codes: the battery exits 1 "
+              "on any failure, so a second red is invisible in the exit code "
+              "and visible only here and in the bars.")
+    stat("Gates ARMED", M("liquiditybot_overfit_armed"), 4, 6,
+         decimals=0, graph="none", no_value="—",
+         desc="How many rungs actually FIRED. CLAUDE.md: 'the number to read "
+              "is the ARMED count, never the exit code' - four of the seven "
+              "can fail to arm, and 'passed 3, failed 0' reads identically "
+              "whether seven fired and three passed or three fired and four "
+              "were dark.")
+    stat("Verdict age", M("liquiditybot_overfit_report_age_sec"), 4, 6,
+         unit="s", decimals=0, graph="none", steps=AGE_STEPS,
+         no_value="never run",
+         desc="Seconds since outputs/overfit_report.md was written. This is "
+              "a DoD tool, not a bot tick, so a large age is a statement "
+              "about the OPERATOR's cadence, not about the bot.")
+    bargauge("Which gate is red", M("liquiditybot_overfit_rung_passed"),
+             8, 6, decimals=0, legend="{{rung}}", mn=0, mx=1,
+             no_value="no fresh verdict",
+             desc="One bar per pre-registered rung: 1 passed, 0 failed. This "
+                  "is the tile that stops a second failure hiding behind the "
+                  "first - on 2026-09-12 `dsr` and `pbo` were both 0 while "
+                  "the exit code could only say '1'. Empty here means the "
+                  "verdict is stale or the battery has never run, NOT that "
+                  "every gate is green.")
+
     row("Audit & self-health")
     stat("Audit writes dropped", M("liquiditybot_audit_dropped_writes"),
          6, 5, decimals=0, graph="none", steps=ZERO_BAD,
@@ -2089,6 +2142,13 @@ _NV_JUDGE = f"window filling (<{JUDGE_MIN} scored closes) or judge down"
 # tier "section" the series cannot exist until the runner writes that block
 # Every string restates the ACTUAL guard in scripts/gc_pusher.py; the
 # file:line of each guard is in the comment beside it.
+# Tile text, so <= 60 chars (tests/test_dashboard_no_value.py pins the
+# limit - a no-value string that overflows its tile tells the operator
+# nothing). The reasoning lives in the registry comment below, which
+# has no such limit.
+_NV_OVERFIT = "no fresh verdict - run scripts/overfit_check.py"
+_NV_OVERFIT_ALWAYS = "telemetry exporter not publishing"
+
 _NO_VALUE_BY_FAMILY = {
     # gc_pusher.py _veto_quality_metrics: cached subprocess over
     # gate_efficacy_report --json every 30 min; drops (never re-serves) on
@@ -2101,6 +2161,23 @@ _NO_VALUE_BY_FAMILY = {
     # name itself doesn't share that prefix.
     "liquiditybot_admitted_": ("event",
                                "veto-quality collector not published yet"),
+    # ---- overfit battery: gc_pusher.py _overfit_gate_metrics -------------
+    # The report is written by a HUMAN/DoD run of scripts/overfit_check.py,
+    # never by a bot tick, so absence here has TWO distinct causes and the
+    # board must not conflate them with "all green":
+    #   * never run on this tree      -> report_missing=1, stale=1, no rungs
+    #   * run, but older than the line -> stale=1, no rungs (the DL-6 shape)
+    # The rung/summary families therefore go ABSENT deliberately whenever the
+    # verdict would be stale - that is the guard working, not an outage.
+    "liquiditybot_overfit_rung_passed": ("event", _NV_OVERFIT),
+    "liquiditybot_overfit_passed": ("event", _NV_OVERFIT),
+    "liquiditybot_overfit_failed": ("event", _NV_OVERFIT),
+    "liquiditybot_overfit_armed": ("event", _NV_OVERFIT),
+    # These two are pushed on EVERY tick including the stale and missing
+    # paths, so their absence means the exporter itself is down.
+    "liquiditybot_overfit_stale": ("event", _NV_OVERFIT_ALWAYS),
+    "liquiditybot_overfit_report_age_sec": ("event", _NV_OVERFIT_ALWAYS),
+    "liquiditybot_overfit_report_missing": ("event", _NV_OVERFIT_ALWAYS),
     # ---- event-gated ----------------------------------------------------
     # order_manager.py:730-731  "maker_share": ... if fills else None
     "liquiditybot_order_maker_share": ("event", "awaiting first fill"),

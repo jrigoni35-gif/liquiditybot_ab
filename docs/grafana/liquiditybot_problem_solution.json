@@ -2701,7 +2701,7 @@
     {
       "id": 38,
       "type": "row",
-      "title": "Audit & self-health",
+      "title": "Overfit battery — the pre-registered gates",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2717,6 +2717,385 @@
     {
       "id": 39,
       "type": "stat",
+      "title": "Verdict",
+      "description": "Whether the battery's verdict still describes the current corpus. STALE means nobody has run `scripts/overfit_check.py` recently - the rung bars stop publishing rather than paint an old verdict in healthy colour, which is the failure mode the Brier incident taught. Read this tile before the bars.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "never run",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "STALE",
+                  "color": "#FF453A",
+                  "index": 0
+                },
+                "0": {
+                  "text": "fresh",
+                  "color": "#30D158",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_overfit_stale{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "Gates FAILING",
+      "description": "How many pre-registered rungs said no. Zero is the only good number. This counts RUNGS, not exit codes: the battery exits 1 on any failure, so a second red is invisible in the exit code and visible only here and in the bars.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "#FF453A",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_overfit_failed{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Gates ARMED",
+      "description": "How many rungs actually FIRED. CLAUDE.md: 'the number to read is the ARMED count, never the exit code' - four of the seven can fail to arm, and 'passed 3, failed 0' reads identically whether seven fired and three passed or three fired and four were dark.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_overfit_armed{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "Verdict age",
+      "description": "Seconds since outputs/overfit_report.md was written. This is a DoD tool, not a bot tick, so a large age is a statement about the OPERATOR's cadence, not about the bot.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 12,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#30D158",
+                "value": null
+              },
+              {
+                "color": "#FFD60A",
+                "value": 60
+              },
+              {
+                "color": "#FF453A",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "never run"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "text": {
+          "titleSize": 14,
+          "valueSize": 34
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_overfit_report_age_sec{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "bargauge",
+      "title": "Which gate is red",
+      "description": "One bar per pre-registered rung: 1 passed, 0 failed. This is the tile that stops a second failure hiding behind the first - on 2026-09-12 `dsr` and `pbo` were both 0 while the exit code could only say '1'. Empty here means the verdict is stale or the battery has never run, NOT that every gate is green.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "grafanacloud-prom"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#0A84FF",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no fresh verdict",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "max(liquiditybot_overfit_rung_passed{job=\"liquiditybot\"})",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{rung}}"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "row",
+      "title": "Audit & self-health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "panels": [],
+      "fieldConfig": {
+        "defaults": {}
+      }
+    },
+    {
+      "id": 45,
+      "type": "stat",
       "title": "Audit writes dropped",
       "description": "Audit-trail records that could not be written. The hash chain must never lose a link - any number here is urgent.",
       "datasource": {
@@ -2727,7 +3106,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 57
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -2786,7 +3165,7 @@
       ]
     },
     {
-      "id": 40,
+      "id": 46,
       "type": "stat",
       "title": "Audit tail truncations",
       "description": "Times a partial line was cut from the audit tail on recovery. Expected zero outside crash recovery.",
@@ -2798,7 +3177,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 57
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -2857,7 +3236,7 @@
       ]
     },
     {
-      "id": 41,
+      "id": 47,
       "type": "stat",
       "title": "Bad values dropped by exporter",
       "description": "NaN/Infinity values the telemetry exporter refused to push. Rising means something upstream is emitting garbage.",
@@ -2869,7 +3248,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 57
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -2928,7 +3307,7 @@
       ]
     },
     {
-      "id": 42,
+      "id": 48,
       "type": "stat",
       "title": "Cycles since restart",
       "description": "Decision cycles since the runner last started - a restart shows as this resetting to zero (lifetime total: liquiditybot_cycle_lifetime).",
@@ -2940,7 +3319,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 57
+        "y": 64
       },
       "fieldConfig": {
         "defaults": {
@@ -2995,7 +3374,7 @@
       ]
     },
     {
-      "id": 43,
+      "id": 49,
       "type": "row",
       "title": "Why entries die",
       "collapsed": false,
@@ -3003,7 +3382,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 62
+        "y": 69
       },
       "panels": [],
       "fieldConfig": {
@@ -3011,7 +3390,7 @@
       }
     },
     {
-      "id": 44,
+      "id": 50,
       "type": "stat",
       "title": "Timeout-cancel share",
       "description": "Of the orders that finished cleanly since restart, the share that died as OM-040 timeout-cancels - the resting maker order sat out its whole lifetime without filling - instead of filling (OM-000). A 48h audit measured 68% AS OF 2026-08-17 - RE-DERIVE before citing, do not treat as current: query the same two counters over a fresh window. REPORT-ONLY: the levers this number informs - the resting-order lifetime (order_manager.order_timeout_sec) and how far from the touch entries rest (grid_ladder.spacing_vol_mult / min_spacing_bps) - are execution geometry, FENCED by the accrual moratorium: moving them mints a new execution era and needs operator adjudication. This panel measures; it must never be used to tune them mid-cohort.",
@@ -3023,7 +3402,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 63
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -3086,7 +3465,7 @@
       ]
     },
     {
-      "id": 45,
+      "id": 51,
       "type": "timeseries",
       "title": "Why entries die (per hour)",
       "description": "Vetoes in the trailing hour for the five checks that actually fire (roster fixed 2026-08-28 - SZ-021/SZ-030/SZ-049 added, the never-fired PT-040/PT-041 dropped). The line on top is the check killing entries right now, no slope-reading required, and a restart dents one sample, not the view. CORRECTED 2026-09-05: this said the book was EXPECTED quiet at cut #8's bar of 0.8335. Cut #9 corrected that fee over-statement and the bar fell, so flat or low lines here are NOT explained by cost any more - do not dismiss them; cross-check Data age/Runner before quiet board as broken telemetry. Empty means: this reason code has not fired.",
@@ -3098,7 +3477,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 63
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -3278,7 +3657,7 @@
       ]
     },
     {
-      "id": 46,
+      "id": 52,
       "type": "bargauge",
       "title": "Were the vetoes right?",
       "description": "Counterfactual win rate of what each gate REJECTED (every veto is labeled; this is the corpus answering back), pooled per code with effective-n intervals. Read against the candidate baseline (liquiditybot_veto_baseline_rate): BELOW baseline = the veto selects real losers and earns its keep; AT baseline = the gate is not selecting on outcome at all; ABOVE = anti-selective - it rejects candidates that win MORE than average. FIXED 2026-08-28: a bar here is only trustworthy for a code reading COMPARABLE on 'Verdict comparability' below (era_overlap >= 0.5) - as of 2026-08-27 every code read CONFOUNDED_BASELINE or PARTIAL_OVERLAP there, so no code's bar is currently a proven example of either earning its keep or misfiring; read both panels together before citing one.",
@@ -3290,7 +3669,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 63
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -3344,7 +3723,7 @@
       ]
     },
     {
-      "id": 47,
+      "id": 53,
       "type": "stat",
       "title": "Anti-selective gates",
       "description": "How many veto codes are rejecting candidates that go on to win SIGNIFICANTLY more than baseline (disjoint Wilson intervals on effective n, era-COMPARABLE codes only - gate_efficacy_report's own bar). Anything above zero names a gate doing measurable harm; as of 2026-08-26 that read SZ-021 (crisis), whose vetoed candidates won at 0.51 against a 0.27 baseline. SUPERSEDED 2026-08-27: that comparison is CONFOUNDED_BASELINE (zero label_era overlap with the frozen baseline - docs/HANDOFF.md REG-6 CAVEAT), so this tile now reads zero for SZ-021 by construction, not because the question was resolved. The live per-code lens is 'Verdict comparability (label-era overlap vs baseline)' below - read that bargauge before trusting a zero here as a clean verdict rather than an unmeasured one.",
@@ -3356,7 +3735,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 71
+        "y": 78
       },
       "fieldConfig": {
         "defaults": {
@@ -3415,7 +3794,7 @@
       ]
     },
     {
-      "id": 48,
+      "id": 54,
       "type": "stat",
       "title": "Candidate baseline win rate",
       "description": "The un-gated candidate win rate the bars above are judged against (Wilson band on effective n rides the exporter as veto_baseline_lo/hi).",
@@ -3427,7 +3806,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 71
+        "y": 78
       },
       "fieldConfig": {
         "defaults": {
@@ -3482,7 +3861,7 @@
       ]
     },
     {
-      "id": 49,
+      "id": 55,
       "type": "bargauge",
       "title": "Verdict comparability (label-era overlap vs baseline)",
       "description": "Per-code label-era overlap of what each veto rejected against the frozen baseline, plus the admitted-vs-baseline headline as one more bar. Thresholds are gate_efficacy_report.py's OWN policy floors (ERA_OVERLAP_FLOOR/ERA_OVERLAP_MAJORITY, :111-112), not fitted to this data: red <0.05 = CONFOUNDED_BASELINE (this code's label_era mix shares almost none of the baseline's - no anti-selective/selective claim is measurable), yellow <0.5 = PARTIAL_OVERLAP (a minority of the baseline is drawn from this code's era - read with caution), green >=0.5 = COMPARABLE (the comparison is trustworthy). As of 2026-08-27 every code read red or yellow - 'Anti-selective gates' and 'Were the vetoes right?' above are reading an unmeasured population, not a clean one, until a bar here crosses green.",
@@ -3494,7 +3873,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 82
       },
       "fieldConfig": {
         "defaults": {

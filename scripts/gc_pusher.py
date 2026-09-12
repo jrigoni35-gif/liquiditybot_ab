@@ -34,6 +34,7 @@ import json
 import logging
 import math
 import os
+import re
 import subprocess  # nosec B404 - fixed argv, no shell (cohort_eval only)
 import sys
 import time
@@ -1431,6 +1432,91 @@ def _ceiling_bar_metrics(ts: float) -> list:
         return []
 
 
+
+OVERFIT_REPORT_PATH = Path(__file__).resolve().parents[1] / "outputs" \
+    / "overfit_report.md"
+# A battery run is a HUMAN/DoD action, not a bot tick: the report can be days
+# old and still be the newest truth. 36h is deliberately generous - it is not
+# a health threshold, it is the line past which a verdict stops describing the
+# corpus it claims to describe.
+OVERFIT_STALE_AFTER_SEC = 36 * 3600.0
+_OVERFIT_RUNG_RE = re.compile(r"^- \*\*(PASS|FAIL)\*\* ([A-Za-z0-9_\-]+)\s*:")
+
+
+def parse_overfit_report(text: str) -> dict:
+    """{rung -> True/False} from the emitted report, plus the summary counts.
+
+    The rung key is the token before ':' in the line title - the SAME
+    convention `scripts/overfit_check.armed_families` uses, so a rung that
+    arms here is the rung that arms there. INFO lines are deliberately not
+    parsed: they can never move PASS_N/FAIL_N or the exit code, so they are
+    not gate state.
+
+    Pure, so the parse is unit-testable without a battery run."""
+    rungs: dict = {}
+    for line in text.splitlines():
+        m = _OVERFIT_RUNG_RE.match(line)
+        if m:
+            rungs[m.group(2)] = (m.group(1) == "PASS")
+    return {"rungs": rungs,
+            "passed": sum(1 for v in rungs.values() if v),
+            "failed": sum(1 for v in rungs.values() if not v),
+            "armed": len(rungs)}
+
+
+def _overfit_gate_metrics(ts: float) -> list:
+    """Per-rung overfit-battery state, so a RED GATE IS VISIBLE ON A BOARD.
+
+    WHY THIS EXISTS (2026-09-12). Nothing in this pusher exported the overfit
+    battery - measured, `grep -c overfit_` returned 0 - so the boards and the
+    pager could not see a pre-registered gate go red. That is not academic:
+    that day OF-3 (pbo) went red and sat UNNOTICED behind OF-5's
+    operator-adjudicated red, because `overfit_check` exits 1 on ANY failing
+    rung and the record had an explanation ready for rc=1. A per-rung label is
+    the fix: `liquiditybot_overfit_rung_passed{rung="pbo"}` going to 0 cannot
+    hide behind `{rung="dsr"}` already sitting at 0.
+
+    THE STALENESS TRAP, AND WHY THIS FOLLOWS DL-6. `outputs/overfit_report.md`
+    is written only when a human runs the battery, so naively pushing its
+    contents would render a days-old verdict in healthy colour indefinitely -
+    exactly the Brier-incident mechanism the dashboard HIG warns about, and
+    the reason the learning board's stat tiles are instant queries. So this
+    borrows `collect()`'s DL-6 shape verbatim: age and a missing flag are
+    ALWAYS pushed, and past the staleness line it pushes the ALARM-ONLY batch
+    (age + stale=1) and RETURNS. No stale rung value ever masquerades as
+    current gate state.
+
+    Report-only: nothing reads these gauges back into any decision."""
+    out: list = []
+    try:
+        raw = OVERFIT_REPORT_PATH.read_text(encoding="utf-8", errors="replace")
+        mtime = OVERFIT_REPORT_PATH.stat().st_mtime
+    except OSError:
+        # The report has NEVER been written on this tree, or is unreadable.
+        # Push the absence explicitly - a missing series reads as "no panel",
+        # which is indistinguishable from "all green" on a board.
+        return [gauge("liquiditybot_overfit_report_missing", 1.0, ts=ts),
+                gauge("liquiditybot_overfit_stale", 1.0, ts=ts)]
+    age = max(0.0, ts - mtime)
+    out.append(gauge("liquiditybot_overfit_report_missing", 0.0, ts=ts))
+    out.append(gauge("liquiditybot_overfit_report_age_sec", age, ts=ts))
+    if age > OVERFIT_STALE_AFTER_SEC:
+        out.append(gauge("liquiditybot_overfit_stale", 1.0, ts=ts))
+        return out                      # DL-6: alarm-only, no stale values
+    out.append(gauge("liquiditybot_overfit_stale", 0.0, ts=ts))
+    p = parse_overfit_report(raw)
+    for rung, passed in sorted(p["rungs"].items()):
+        out.append(gauge("liquiditybot_overfit_rung_passed",
+                         1.0 if passed else 0.0, {"rung": rung}, ts))
+    out.append(gauge("liquiditybot_overfit_passed", float(p["passed"]), ts=ts))
+    out.append(gauge("liquiditybot_overfit_failed", float(p["failed"]), ts=ts))
+    # ARMED, not "total". CLAUDE.md: "The number to read is the ARMED count,
+    # never the exit code" - four of the seven rungs can fail to arm, and a
+    # battery where three fired and three passed reads identically to one
+    # where seven fired and three passed unless this is on the board.
+    out.append(gauge("liquiditybot_overfit_armed", float(p["armed"]), ts=ts))
+    return out
+
 def collect_aux(now: float | None = None) -> list:
     """The ledger-derived batch pushed beside collect()'s status batch.
     Each helper already returns [] on its own failure; this wrapper
@@ -1439,7 +1525,8 @@ def collect_aux(now: float | None = None) -> list:
     now = time.time() if now is None else now
     out: list = []
     for fn in (_orphan_ratio_metrics, _lineage_metrics, _cohort_metrics,
-               _veto_quality_metrics, _ceiling_bar_metrics):
+               _veto_quality_metrics, _ceiling_bar_metrics,
+               _overfit_gate_metrics):
         try:
             out.extend(fn(now))
         except Exception:
