@@ -401,10 +401,21 @@ to `247985f6`, 2026-08-20, i.e. never edited through cut #8, the readout,
 or cut #9, while the ERA-5 section 90 lines above it already said CLOSED.
 The file contradicted itself from the readout onward.)*
 
-**Era-6 (`exec_era 9-16ec821e`) is what accrues now** — from zero at the
-cut-#9 restart (2026-08-30T15:32:36Z), toward the same pre-registered
-n=50, on the same untouched machinery: `scripts/cohort_eval.py`, its
-bands and its selection rule are exactly as registered.
+**Era-6 (`exec_era 9-16ec821e`) accrued from zero at the cut-#9 restart
+(2026-08-30T15:32:36Z)** toward the pre-registered n=50, on the untouched
+machinery: `scripts/cohort_eval.py`, its bands and its selection rule
+exactly as registered.
+
+> **SUPERSEDED 2026-09-12 — era-6 IS NOT WHAT ACCRUES NOW.** This paragraph
+> read *"Era-6 … is what accrues now"* through cuts #10, #11 and #12. The
+> live era is **`12-10d4d0c2` (era-9)**, verified three ways: `core.fill_ledger.EXEC_ERA`,
+> `CLAUDE.md`'s heading *"Accrual moratorium — era-9 (cut #12 …)"*, and the
+> runner boot line `fees=15/30bps`. Era-6's numbers stay citable AS era-6 and
+> pool with nothing accruing. **The currency test did not catch this**:
+> `tests/test_docs_era_currency.py`'s `CURRENCY` regex matches
+> `currently|accruing now|now is|the cohort accruing`, and the literal string
+> *"is what accrues now"* matches none of them — the scan was broken, not clean.
+> Widening that regex is owed and is NOT done here.
 
 **Mechanism, so the printed lines are not misread** (verified by running
 the tool, 2026-09-05; no line numbers cited — they rot, and this file has
@@ -687,12 +698,28 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — **REFUTE
 
 ## STANDING FENCES (why your change may be refused)
 
-- **Era-6 moratorium** (era-4's, re-fenced at cut #8 and again at cut #9; CLAUDE.md heads it "Accrual moratorium — era-6". **Label corrected 2026-09-05 — it still read "Era-5" two cuts after era-5 was superseded. The TERMS below are unchanged; only the era name was stale.**) — anything touching entry decisioning, sizing,
-  stop/exit geometry, the fill simulator, fee booking, or order
-  lifecycle mints a new execution era and restarts accrual. Requires
-  operator adjudication. SAFE: measurement, reports, dashboards, tests,
-  telemetry, wiki, and bug fixes that don't change which orders are
-  placed or how they fill.
+- **Era-9 moratorium** (cut #12, FEE-4; CLAUDE.md heads it "Accrual
+  moratorium — era-9 (cut #12, FEE-4 …)"). **CLAUDE.md is the authority on
+  this list — read it there, this is a pointer.** Anything touching
+  **entry decisioning, position sizing, stop/exit geometry (placement,
+  nudges, time limits), the fill simulator, fee booking, the order
+  lifecycle, the universe, the hedger, the probe ticket, or the heat cap**
+  mints a new execution era and restarts accrual. Requires operator
+  adjudication. SAFE: measurement, reports, dashboards, tests, telemetry,
+  wiki, and bug fixes that don't change which orders are placed or how
+  they fill.
+  > **CORRECTED 2026-09-12, and the previous correction was the defect.**
+  > This bullet read *"Era-6 moratorium … CLAUDE.md heads it 'Accrual
+  > moratorium — era-6'. Label corrected 2026-09-05 … **The TERMS below are
+  > unchanged; only the era name was stale.**"* That last clause was FALSE.
+  > The terms had also changed: the list published here ran **six** axes
+  > while `CLAUDE.md` ran **ten**, omitting **the universe, the hedger, the
+  > probe ticket and the heat cap** — every one of them cut #11's own lever.
+  > A session reading the fence where CLAUDE.md's session-bridge sends it
+  > could have turned the hedger back on, changed the universe, moved the
+  > $60 probe ticket or touched the 0.35 heat cap believing all four SAFE,
+  > and restarted era-9 from zero. The 2026-09-05 pass renamed the era and
+  > certified the terms without diffing them.
 - **Model freeze** (2026-08-10 adjudication) — no new families,
   features, or meta-labeling. The retrain loop itself keeps running by
   design.
@@ -1092,7 +1119,7 @@ session must not have to rediscover:
    reads out, most of this docket gets cleared". Era-4 read out
    **COST_BOUND at n=54** and the docket was never touched: a trigger
    with no actor and no completion test. Executable form:
-   - **When a cohort reads out** — currently era-6; run
+   - **When a cohort reads out** — currently **era-9** (`12-10d4d0c2`; this line said era-6 until 2026-09-12, three cuts stale); run
      `python scripts/cohort_eval.py` and read the `CURRENT-ERA ACCRUAL`
      line — the session that observes it MUST, in that same session:
      (a) file the readout as a dated `docs/quant/` record; (b) walk the
