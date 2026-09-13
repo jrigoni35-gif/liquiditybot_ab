@@ -1,0 +1,122 @@
+[
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    loaded = re.search(r\"spec_from_file_location\", txt) is not None",
+    "new": "    loaded = True",
+    "pin": "test_a_path_named_in_a_string_is_not_a_subject"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    loaded = re.search(r\"spec_from_file_location\", txt) is not None",
+    "new": "    loaded = False",
+    "pin": "test_a_path_LOADED_by_spec_IS_a_subject"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "            if new_line == ln or src.count(ln) != 1:",
+    "new": "            if new_line == ln:",
+    "pin": "test_an_ambiguous_anchor_is_skipped_not_guessed"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    if res[\"n\"] == 0:",
+    "new": "    if res[\"n\"] == -1:",
+    "pin": "test_no_applicable_mutants_is_a_FAILURE"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    if res[\"caught\"] < res[\"n\"]:",
+    "new": "    if res[\"caught\"] > res[\"n\"]:",
+    "pin": "test_survivors_make_the_run_red"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        if cand.is_file():\n            mods.add(cand.relative_to(REPO).as_posix())",
+    "new": "        if cand.is_file() or True:\n            mods.add(cand.relative_to(REPO).as_posix())",
+    "pin": "test_a_subject_must_exist_on_disk"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        c, n = by_mod.get(mu[\"path\"], (0, 0))",
+    "new": "        c, n = by_mod.get(\"pooled\", (0, 0))",
+    "pin": "test_the_per_module_tally_attributes_survivors_correctly"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        if len(out) >= limit:",
+    "new": "        if len(out) >= limit * 10:",
+    "pin": "test_the_per_module_limit_is_honoured"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    except (tokenize.TokenError, SyntaxError, OSError, ValueError):\n        return set()",
+    "new": "    except (tokenize.TokenError, SyntaxError, OSError, ValueError):\n        return keep",
+    "pin": "test_a_file_that_will_not_tokenize_yields_nothing"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    \"STRING\", \"COMMENT\", \"FSTRING_START\", \"FSTRING_MIDDLE\", \"FSTRING_END\",",
+    "new": "    \"COMMENT\", \"FSTRING_START\", \"FSTRING_MIDDLE\", \"FSTRING_END\",",
+    "pin": "test_the_STRING_filter_covers_lines_that_are_ONLY_string"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    \"STRING\", \"COMMENT\", \"FSTRING_START\", \"FSTRING_MIDDLE\", \"FSTRING_END\",",
+    "new": "    \"STRING\", \"FSTRING_START\", \"FSTRING_MIDDLE\", \"FSTRING_END\",",
+    "pin": "test_a_comment_line_is_not_code"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "    \"STRING\", \"COMMENT\", \"FSTRING_START\", \"FSTRING_MIDDLE\", \"FSTRING_END\",",
+    "new": "    \"STRING\", \"COMMENT\", \"FSTRING_START\", \"FSTRING_END\",",
+    "pin": "test_an_fstring_is_not_a_STRING_token"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        if not any(lo <= m.start() < hi for lo, hi in spans):\n            return m",
+    "new": "        if True:\n            return m",
+    "pin": "test_no_mutant_lands_inside_a_COMMENT_on_a_code_line"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        if not any(lo <= m.start() < hi for lo, hi in spans):\n            return m",
+    "new": "        if any(lo <= m.start() < hi for lo, hi in spans):\n            return m",
+    "pin": "test_the_column_check_does_not_reject_everything"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "        pos = m.start() + 1",
+    "new": "        return None",
+    "pin": "test_a_REAL_comparison_later_on_the_line_is_still_reached"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "                    hi = c1 if row == r1 else 10 ** 9",
+    "new": "                    hi = c1 if row == r1 else 0",
+    "pin": "test_an_fstring_is_not_a_STRING_token"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "            if _SKIP_LINE.match(ln):\n                continue",
+    "new": "            if False:\n                continue",
+    "pin": "test_import_lines_are_skipped"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "                    lo = c0 if row == r0 else 0",
+    "new": "                    lo = c0 if row == r1 else 0",
+    "pin": "test_a_multiline_string_span_has_the_right_GEOMETRY"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "                    hi = c1 if row == r1 else 10 ** 9",
+    "new": "                    hi = c1 if row == r1 else 0",
+    "pin": "test_a_multiline_string_span_has_the_right_GEOMETRY"
+  },
+  {
+    "path": "scripts/mutation_sweep.py",
+    "old": "                    lo = c0 if row == r0 else 0",
+    "new": "                    lo = 0",
+    "pin": "test_a_multiline_string_span_has_the_right_GEOMETRY"
+  }
+]

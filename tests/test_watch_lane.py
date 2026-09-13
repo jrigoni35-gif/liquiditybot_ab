@@ -86,18 +86,33 @@ def test_the_enabled_state_is_deliberate_and_documented(shipped_cfg):
         "watch_lane.enabled carries no _doc explaining the choice")
 
 
-def test_if_enabled_the_pairs_are_off_universe_and_nonempty(shipped_cfg):
-    """The whole safety story is that watched != traded. If the lane is on,
-    that must hold IN THE SHIPPED CONFIG, not only inside WatchLane."""
+def test_the_configured_pairs_are_never_traded_pairs(shipped_cfg):
+    """The whole safety story is that watched != traded, and it must hold IN
+    THE SHIPPED CONFIG, not only inside WatchLane.
+
+    THE SKIP IS GONE, and removing it made this pin stronger rather than
+    weaker. It used to skip whenever the lane was disabled, which meant the
+    config could carry an overlapping pair list indefinitely and this file
+    would say nothing - the unsafe state would only be discovered by the act
+    of turning the lane on. A config that becomes unsafe the moment someone
+    flips a flag is already wrong, so the overlap check now runs
+    unconditionally and only the non-empty check is gated on `enabled`.
+
+    It also fixed a red: tests/test_skip_census.py ratchets the static skip
+    surface, the skip here took it 29 -> 30, and that census was not re-run
+    in the commit that added it. Its own rule offers raise-with-a-reason or
+    lower; lowering was available, so lowering is what happened.
+    """
     wl = shipped_cfg.get("watch_lane") or {}
-    if not wl.get("enabled"):
-        pytest.skip("lane disabled in the shipped config")
     pairs = wl.get("pairs") or []
-    assert pairs, "the lane is enabled with no pairs - it would do nothing"
     traded = set(shipped_cfg.get("exchanges", {}).get("kraken", {})
                  .get("trading_pairs") or [])
     overlap = sorted(set(pairs) & traded)
-    assert not overlap, f"watched pairs are also TRADED: {overlap}"
+    assert not overlap, (
+        f"watched pairs are also TRADED: {overlap} - unsafe whether or not "
+        f"watch_lane.enabled is currently true")
+    if wl.get("enabled"):
+        assert pairs, "the lane is enabled with no pairs - it would do nothing"
 
 
 def test_a_disabled_lane_is_still_reachable_as_a_state(shipped_cfg):
@@ -274,6 +289,50 @@ def test_the_throttle_holds(shipped_cfg):
     assert len(f.calls) == n, "the lane evaluated inside its throttle window"
 
 
+def test_the_throttle_boundary_is_exclusive(shipped_cfg):
+    """Found by scripts/mutation_sweep.py: `<` -> `<=` SURVIVED, because the
+    original throttle pin ticked at +1 and +59 of a 600 s window and never
+    probed the boundary itself. A generic sweep tests what the author was not
+    thinking about; the hand-picked mutants tested what he was."""
+    f = _Feed()
+    lane = WatchLane(_cfg(shipped_cfg, eval_every_sec=100.0), f)
+    lane.tick(NOW)                       # first eval, _last_eval = NOW
+    n = len(f.calls)
+    lane.tick(NOW + 99.999)              # inside the window: still throttled
+    assert len(f.calls) == n
+    lane.tick(NOW + 100.0)               # exactly AT the window: must fire
+    assert len(f.calls) > n, \
+        "the throttle held at exactly eval_every_sec - the boundary is `<`"
+
+
+def test_a_failed_build_leaves_the_lane_inert(shipped_cfg, monkeypatch):
+    """Found by scripts/mutation_sweep.py: `_engines_ok = False` -> `True` in
+    _build's except branch SURVIVED, because nothing in the file ever forced
+    an init failure. The branch is marked `pragma: no cover` for coverage,
+    which is exactly the kind of line a generic sweep still mutates.
+
+    A lane whose engines failed to construct must make NO venue calls and
+    label nothing - it must not limp along with half a labeler. The failure
+    is injected at the real seam: _build imports lazily, so replacing
+    HistoryStore makes the genuine except branch run.
+    """
+    import ml.history as hist
+
+    class _Boom:
+        def __init__(self, *a, **k):
+            raise RuntimeError("engine construction failed")
+
+    monkeypatch.setattr(hist, "HistoryStore", _Boom)
+    f = _Feed()
+    lane = WatchLane(_cfg(shipped_cfg), f)
+    assert lane._engines_ok is False
+    assert lane.snapshot()["ready"] is False
+    assert "RuntimeError" in lane.snapshot()["last_error"]
+    for i in range(3):
+        assert lane.tick(NOW + i) == "idle",             "a lane with no engines evaluated an asset anyway"
+    assert f.calls == [], "a lane with no engines still called the venue"
+
+
 def test_a_feed_exception_never_escapes(shipped_cfg):
     """It rides the trading loop's thread; a watch failure must not cost a
     cycle."""
@@ -293,6 +352,44 @@ def test_snapshot_publishes_the_isolation_properties(shipped_cfg):
     snap = WatchLane(_cfg(shipped_cfg), _Feed()).snapshot()
     assert snap["feeds_model"] is False
     assert snap["separate_corpus"] is True
+
+
+def test_a_disabled_lane_does_not_report_itself_ready(shipped_cfg):
+    """Found by scripts/mutation_sweep.py: `self.enabled and self.pairs` ->
+    `or` SURVIVED. test_a_disabled_lane_makes_no_feed_calls pins the REST
+    budget, which the mutant also satisfies - _due() gates on `enabled`
+    independently, so the lane stays quiet either way. What the mutant DOES
+    change is that a disabled lane builds its engines and then publishes
+    `ready: True` into status.json.
+
+    That is worth a pin on this repo's own terms: CLAUDE.md's mindset section
+    makes the measurement plane the first suspect, and a telemetry field
+    reading READY for a lane that is switched off is exactly a confident
+    instrument that is wrong. Checked before writing this: HistoryStore does
+    NOT create its file at init, so the mutant leaks no corpus - the cost is
+    the misleading field and wasted boot work, not a leak.
+    """
+    off = WatchLane(_cfg(shipped_cfg, enabled=False), _Feed()).snapshot()
+    assert off["enabled"] is False
+    assert off["ready"] is False,         "a switched-off lane published ready=True into status.json"
+
+    empty = WatchLane(_cfg(shipped_cfg, pairs=[]), _Feed()).snapshot()
+    assert empty["watched"] == 0
+    assert empty["ready"] is False,         "a lane with nothing to watch published ready=True"
+
+
+# The ONE surviving mutant in core/watch_lane.py that is NOT pinned, recorded
+# here so the next sweep reader does not re-investigate it:
+#
+#   `self._last_eval = 0.0` -> `1.0`  (WatchLane.__init__)
+#
+# EQUIVALENT, not a blind spot. `_due` compares `now - self._last_eval` against
+# `_eval_every`; `now` is epoch seconds (~1.79e9) and `_eval_every` is at most
+# an hour, so the first tick fires under either seed and every later tick uses
+# a real `now`. No test can separate them without a fabricated epoch near zero,
+# which would pin the fixture rather than the lane. This is the classic
+# equivalent-mutant case mutation testing has no general answer to - and the
+# right response is to say so, not to delete the operator.
 
 
 # ======================================================================
