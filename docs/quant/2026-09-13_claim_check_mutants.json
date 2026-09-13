@@ -1,0 +1,110 @@
+[
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if path in ign:\n                continue          # gitignored runtime state: not ours to find",
+    "new": "            if False:\n                continue          # gitignored runtime state: not ours to find",
+    "pin": "test_a_GITIGNORED_path_is_not_a_false_claim"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "    defused = _PATH.sub(lambda mm: \" \" * len(mm.group(0)), message)",
+    "new": "    defused = message",
+    "pin": "test_a_test_FILE_name_is_not_read_as_a_test_FUNCTION"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if n >= 0 and int(line) > n:",
+    "new": "            if n >= 0 and int(line) >= n:",
+    "pin": "test_a_line_number_inside_the_file_is_silent"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if n >= 0 and int(line) > n:",
+    "new": "            if n >= -1 and int(line) > n:",
+    "pin": "test_an_unreadable_blob_does_not_invent_a_line_finding"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        if not symbol_exists(sym):",
+    "new": "        if symbol_exists(sym):",
+    "pin": "test_an_unresolved_backticked_symbol_is_a_FALSE_claim"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        if _POINTER.search(window):\n            continue",
+    "new": "        if False:\n            continue",
+    "pin": "test_a_measurement_with_a_REDERIVE_POINTER_clears"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        findings.append((\"warn\", \"volatile-number\", m.group(0).strip()))",
+    "new": "        findings.append((\"error\", \"volatile-number\", m.group(0).strip()))",
+    "pin": "test_a_volatile_number_is_never_an_ERROR_by_default"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "    if warns and args.strict:\n        return FAIL_RC",
+    "new": "    if warns and not args.strict:\n        return FAIL_RC",
+    "pin": "test_strict_mode_turns_unrun_into_a_failure"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "    if bool(args.rev) == bool(args.message_file):",
+    "new": "    if bool(args.rev) and bool(args.message_file):",
+    "pin": "test_exactly_one_source_is_required"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        print(f\"[claim] cannot read the message: {exc}\")\n        return USAGE_RC",
+    "new": "        print(f\"[claim] cannot read the message: {exc}\")\n        return 0",
+    "pin": "test_an_unreadable_message_is_a_usage_error_not_a_pass"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        return re.search(pat, txt, re.M) is not None",
+    "new": "        return True",
+    "pin": "test_symbol_resolution_reads_source_and_does_not_import"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "    return True          # module not in this repo: not ours to judge",
+    "new": "    return False          # module not in this repo: not ours to judge",
+    "pin": "test_symbol_resolution_reads_source_and_does_not_import"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if path in parent_paths:\n                continue          # the commit DELETED or renamed it - honest",
+    "new": "            if False:\n                continue          # the commit DELETED or renamed it - honest",
+    "pin": "test_a_path_the_commit_DELETED_is_not_a_false_claim"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if elsewhere:",
+    "new": "            if not elsewhere:",
+    "pin": "test_a_MOVED_path_is_a_FALSE_claim"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        if name in known_tests or name in test_files():",
+    "new": "        if name in known_tests:",
+    "pin": "test_a_bare_test_FILE_basename_is_not_an_unknown_test"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "    r\"(?:(?!\\w[\\w.-]*\\.(?:\" + _EXT + r\")/)[A-Za-z_][\\w.-]*/)+\"",
+    "new": "    r\"(?:[A-Za-z_][\\w.-]*/)+\"",
+    "pin": "test_a_path_with_a_FILE_as_its_directory_is_prose_not_a_path"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "            if path.split(\"/\")[0] not in top_dirs:",
+    "new": "            if path.split(\"/\")[0] in top_dirs:",
+    "pin": "test_a_path_the_repo_NEVER_CARRIED_is_only_a_warning"
+  },
+  {
+    "path": "scripts/claim_check.py",
+    "old": "        findings.append((\"error\", \"unknown-test\", name))",
+    "new": "        pass",
+    "pin": "test_an_invented_test_name_is_a_FALSE_claim"
+  }
+]
