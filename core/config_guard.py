@@ -656,7 +656,20 @@ def _cost_stack_range_checks(config: dict) -> list:
                 for i, v in enumerate(node):
                     _sweep(v, f"{path}[{i}]")
             elif isinstance(node, (int, float)) and not isinstance(node, bool):
-                if not math.isfinite(float(node)):
+                # float() RAISES OverflowError on an int too large to convert,
+                # and a 400-digit JSON integer literal parses to exactly that
+                # (json.loads gives a Python int; only `1e400` gives inf).
+                # Letting it propagate takes the WHOLE validator down, so every
+                # other FATAL is lost with it - a crash instead of a diagnosis,
+                # and a regression of the property 1d7e9e5f shipped by name
+                # ("stop a typo crashing the validator"). An int beyond float
+                # range is not finite in any sense a threshold comparison
+                # cares about, so it is reported, not raised.
+                try:
+                    _ok = math.isfinite(float(node))
+                except (OverflowError, ValueError):
+                    _ok = False
+                if not _ok:
                     out.append(("FATAL",
                                 f"{path}={node!r} is not finite - every "
                                 f"comparison against it comes out False, so "
@@ -671,7 +684,14 @@ def _cost_stack_range_checks(config: dict) -> list:
             continue
         try:
             val = float(raw)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError added 2026-09-13: float() raises it on an int too
+            # large to convert, and a 400-digit JSON integer literal parses to
+            # exactly that (only 1e400 gives inf). It was NOT in this tuple, so
+            # validate() RAISED instead of returning findings and every other
+            # FATAL was lost with it - a crash instead of a diagnosis. Found by
+            # an adversarial review of the sweep added above, which had the
+            # same hole; this one is older and was the live crash.
             out.append(("FATAL", f"{key}={raw!r} is not a number - it {what}"))
             continue
         # NON-FINITE FAILS OPEN, so it is refused BEFORE the range test
@@ -718,7 +738,7 @@ def _cost_stack_range_checks(config: dict) -> list:
                     f"Legitimate as a deliberate choice, but every EV number "
                     f"below it is then computed without that charge - confirm "
                     f"this is intended and not a cleared field."))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
     return out
 
@@ -817,7 +837,7 @@ def validate(config: dict) -> list:
             continue
         try:
             _fv = float(_v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             fatal(f"risk.{_k} ({_v!r}) is not a number")
             continue
         if not math.isfinite(_fv) or _fv < 0:
@@ -3129,7 +3149,7 @@ def validate(config: dict) -> list:
     turb_lb = _f(config, "correlation.turbulence_lookback_days", 250)
     try:
         turb_lb = int(turb_lb)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         fatal(f"correlation.turbulence_lookback_days ({turb_lb!r}) is not an "
               f"integer number of days")
         turb_lb = 250

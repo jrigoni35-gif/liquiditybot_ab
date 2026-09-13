@@ -369,3 +369,61 @@ class TestGeneralNonFiniteSweep:
         c["pretrade"]["_note_doc"] = "not a number"
         assert [m for s, m in validate(c)
                 if s == "FATAL" and "_note_doc" in m] == []
+
+
+# ==========================================================================
+# THE VALIDATOR MUST NOT CRASH ON A HOSTILE CONFIG VALUE (2026-09-13)
+#
+# Found by an adversarial review of the non-finite sweep added the same day.
+# float() raises OverflowError on an int too large to convert, and a 400-digit
+# JSON integer literal parses to exactly that (only `1e400` yields inf). The
+# coercion guards caught (TypeError, ValueError) only, so validate() RAISED
+# instead of returning findings - and every OTHER finding was lost with it. A
+# crash is worse than a wrong answer here: it is a config error that produces
+# no diagnosis at all.
+#
+# This regresses the property commit 1d7e9e5f shipped by name ("stop a typo
+# crashing the validator"), which is why it is pinned rather than just fixed.
+# ==========================================================================
+
+_HOSTILE = [
+    pytest.param(10 ** 400, id="huge-positive-int"),
+    pytest.param(-(10 ** 400), id="huge-negative-int"),
+    pytest.param(float("inf"), id="inf"),
+    pytest.param(float("-inf"), id="-inf"),
+    pytest.param(float("nan"), id="nan"),
+    pytest.param("0.8x", id="non-numeric-string"),
+    pytest.param(None, id="none"),
+    pytest.param([1, 2], id="list"),
+]
+
+
+@pytest.mark.parametrize("bad", _HOSTILE)
+def test_validate_never_raises_on_a_hostile_value(shipped, bad):
+    """It may FATAL, it may WARN, it may stay silent - it may not RAISE."""
+    c = copy.deepcopy(shipped)
+    c["pretrade"]["impact_eta"] = bad
+    try:
+        validate(c)
+    except Exception as exc:            # noqa: BLE001 - that IS the assertion
+        raise AssertionError(
+            f"validate() raised {type(exc).__name__} on impact_eta={bad!r}; "
+            f"a crash loses every other finding in the same run") from exc
+
+
+def test_a_huge_int_is_reported_not_silently_dropped(shipped):
+    """Non-vacuity: not raising is not enough, it must still be REPORTED."""
+    c = copy.deepcopy(shipped)
+    c["pretrade"]["impact_eta"] = 10 ** 400
+    assert [m for s, m in validate(c)
+            if s == "FATAL" and "impact_eta" in m], \
+        "a 400-digit int validated clean"
+
+
+def test_the_disabling_zero_WARN_still_fires(shipped):
+    """NEGATIVE ARM: widening the except tuple must not swallow the legitimate
+    zero-disables-a-cost-term warning that shares the same try block."""
+    c = copy.deepcopy(shipped)
+    c["pretrade"]["impact_eta"] = 0.0
+    assert [m for s, m in validate(c)
+            if s == "WARN" and "impact_eta" in m and "DISABLES" in m]

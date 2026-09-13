@@ -255,21 +255,33 @@ class PreTradeGate:
         # is fenced here too rather than left to be noticed later.
         # PT_INVALID_INPUT, not a new code: it already means exactly this and
         # already fires for non-finite three lines up.
-        spread_cap = self.tier_max_spread_bps.get(ctx.tier, self.max_spread_bps)
+        # The spread threshold is fenced at ITS OWN site below, not here.
+        # Hoisting `spread_cap` above the staleness veto (as the first cut of
+        # this fence did) changes EXCEPTION ORDERING in the decision path: with
+        # a malformed tier_max_spread_bps the .get() raises AttributeError
+        # where a stale book previously returned a clean PT-020 refusal. A
+        # guard may not reorder the vetoes it protects.
+        def _fence(name, value):
+            if _fin(value):
+                return False
+            d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                 f"non-finite threshold {name}={value!r} - "
+                                 f"every veto compares with '>', which is "
+                                 f"False against NaN, so this guard would "
+                                 f"stop guarding silently"))
+            return True
+
         for _tn, _tv in (("max_data_staleness_ms", self.max_staleness_ms),
-                         (f"max_spread_bps[{ctx.tier}]", spread_cap),
                          ("min_order_usd", self.min_order_usd),
                          ("max_participation_of_depth", self.max_participation)):
-            if not _fin(_tv):
-                d.reasons.append(tag(Code.PT_INVALID_INPUT,
-                                     f"non-finite threshold {_tn}={_tv!r} - "
-                                     f"every veto compares with '>', which is "
-                                     f"False against NaN, so this guard would "
-                                     f"stop guarding silently"))
+            if _fence(_tn, _tv):
                 return d
         if ctx.staleness_ms > self.max_staleness_ms:
             d.reasons.append(tag(Code.PT_STALE_DATA,
                                  f"{ctx.staleness_ms:.0f}ms"))
+            return d
+        spread_cap = self.tier_max_spread_bps.get(ctx.tier, self.max_spread_bps)
+        if _fence(f"max_spread_bps[{ctx.tier}]", spread_cap):
             return d
         if ctx.spread_bps > spread_cap:
             d.reasons.append(tag(Code.PT_SPREAD_WIDE,
