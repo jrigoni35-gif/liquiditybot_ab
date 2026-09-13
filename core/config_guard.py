@@ -644,6 +644,30 @@ def _cost_stack_range_checks(config: dict) -> list:
         except (TypeError, ValueError):
             out.append(("FATAL", f"{key}={raw!r} is not a number - it {what}"))
             continue
+        # NON-FINITE FAILS OPEN, so it is refused BEFORE the range test
+        # (2026-09-13). `val < lo or val > hi` is False for NaN, so every
+        # bound in this list was permeable: injected, all five keys took a
+        # NaN with ZERO findings. It is reachable rather than theoretical -
+        # json.loads accepts a bare NaN AND json.dumps EMITS one, and the
+        # era-cut stagers write config with json.dumps, so the repo's own
+        # tooling can round-trip a NaN-bearing config silently.
+        #
+        # The consequence is a fail-OPEN in the decision path, measured on a
+        # live PreTradeGate built from the shipped config: baseline
+        # approved=False cost=54.300; with pretrade.impact_eta=NaN (or
+        # adverse_selection_kappa=NaN) approved=TRUE with cost=nan, because
+        # a NaN cost makes `edge < ratio*cost` False and PT-041 never fires.
+        # Same shape as RP-052 (cut #10 B3, "NaN flowed max(nan,0)->nan
+        # through"). Mirrors the isfinite idiom already used at :769.
+        if not math.isfinite(val):
+            out.append(("FATAL",
+                        f"{key}={raw!r} is not finite - it {what}, and a "
+                        f"non-finite value PASSES every range test (NaN "
+                        f"compares False to both bounds), then makes the "
+                        f"pre-trade cost NaN so the edge/cost gate PT-041 "
+                        f"cannot fire and the entry is APPROVED with an "
+                        f"unknown cost"))
+            continue
         if val < lo or val > hi:
             where = ("execution/pretrade.py clamps it into "
                      f"[{lo:g}, {hi:g}] and says nothing"

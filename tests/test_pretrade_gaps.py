@@ -292,3 +292,108 @@ def test_negative_spread_cannot_reduce_the_cost_stack():
         assert d_neg.est_cost_bps >= d_zero.est_cost_bps
     else:
         assert Code.PT_INVALID_INPUT.value in _reasons(d_neg)
+
+
+# ==========================================================================
+# C2 - the derived cost/edge fence (2026-09-13)
+#
+# evaluate() already refused non-finite INPUTS at :228-235 under
+# Code.PT_INVALID_INPUT. It did not refuse a non-finite DERIVED cost, and
+# `cost` sums six terms - two from config knobs never finite-checked
+# (impact_eta, adverse_selection_kappa) and one, `impact`, computed at RUNTIME
+# from ctx.adv_usd and ctx.sigma_daily_pct. So a config guard alone cannot
+# close it: adv_usd=NaN reaches cost with every declared input finite.
+#
+# Both profit gates are written `x < y`, which is False on NaN, so a NaN cost
+# satisfied BOTH and the entry was APPROVED with an unknown cost. An unknown
+# cost is not a small cost.
+# ==========================================================================
+
+import copy as _copy  # noqa: E402  (C2 block, kept beside its tests)
+import json as _json  # noqa: E402  (C2 block, kept beside its tests)
+import math as _math  # noqa: E402  (C2 block, kept beside its tests)
+from pathlib import Path as _Path  # noqa: E402  (C2 block, kept beside its tests)
+
+from execution.pretrade import PreTradeContext as _Ctx  # noqa: E402  (C2 block, kept beside its tests)
+from execution.pretrade import PreTradeGate as _Gate  # noqa: E402  (C2 block, kept beside its tests)
+
+_CFG_C2 = _json.loads(
+    (_Path(__file__).resolve().parent.parent / "config.json").read_text(
+        encoding="utf-8"))
+_BOOK_C2 = {"bids": [[100.0, 50.0], [99.9, 80.0]],
+            "asks": [[100.1, 50.0], [100.2, 80.0]]}
+
+
+def _ctx_c2(**over):
+    base = dict(kraken_book=_BOOK_C2, sigma_daily_pct=2.0, adv_usd=5e7,
+                liq_label="liquid", spread_bps=10.0, staleness_ms=200.0,
+                reduce_only_ok=True, tier=5)
+    base.update(over)
+    return _Ctx(**base)
+
+
+def _decide_c2(pt_over=None, ctx=None, **kw):
+    pt = _copy.deepcopy(_CFG_C2["pretrade"])
+    if pt_over:
+        pt.update(pt_over)
+    args = dict(exp_alpha_bps=30.0, fv_edge_bps=10.0, taker=False)
+    args.update(kw)
+    return _Gate(pt).evaluate("buy", 0.6, 100.0, ctx=ctx or _ctx_c2(), **args)
+
+
+class TestNonFiniteCostCannotApprove:
+    @pytest.mark.parametrize("key", ["impact_eta", "adverse_selection_kappa"])
+    def test_a_non_finite_config_knob_cannot_approve(self, key):
+        d = _decide_c2({key: float("nan")})
+        assert d.approved is False, \
+            f"{key}=NaN made cost NaN and the entry was APPROVED"
+        assert not _math.isfinite(d.est_cost_bps)
+
+    def test_a_RUNTIME_non_finite_cannot_approve(self):
+        """The case config_guard can never reach: adv_usd is a live input, and
+        every declared input passes the :228 fence."""
+        assert _decide_c2(ctx=_ctx_c2(adv_usd=float("nan"))).approved is False
+
+    def test_the_refusal_is_a_REGISTERED_code(self):
+        """CLAUDE.md invariant 6: a registered code, never a bare string."""
+        from core.codes import Code
+        d = _decide_c2({"impact_eta": float("nan")})
+        assert any(Code.PT_INVALID_INPUT.value in str(r) for r in d.reasons)
+
+    def test_the_shipped_decision_is_UNCHANGED_on_finite_input(self):
+        """NO-OP PROOF. This is entry-decisioning code under an accrual
+        moratorium, so the fence must be provably inert on every finite input.
+        Sweep the reachable grid and assert the fence never fires."""
+        n = 0
+        for alpha in (0.0, 5.0, 30.0, 200.0):
+            for fv in (0.0, 10.0, 100.0):
+                for spread in (0.5, 10.0, 60.0):
+                    for taker in (False, True):
+                        d = _decide_c2(ctx=_ctx_c2(spread_bps=spread),
+                                       exp_alpha_bps=alpha, fv_edge_bps=fv,
+                                       taker=taker)
+                        assert _math.isfinite(d.est_cost_bps)
+                        assert _math.isfinite(d.est_edge_bps)
+                        n += 1
+        assert n == 72
+
+    def test_a_FINITE_pair_that_OVERFLOWS_to_inf_is_caught(self):
+        """The edge half of the fence is NOT redundant, and mutation testing
+        proved it: deleting `or not _fin(edge)` initially survived every pin.
+
+        edge = max(alpha,0) + max(fv,0), and both inputs are already fenced at
+        :228 - but two FINITE floats can sum to inf (1e308 + 1e308). The input
+        fence cannot see that; only a check on the DERIVED value can. Without
+        it, `inf < ratio*cost` is False, PT-041 never fires, and the
+        entry is approved on an INFINITE edge."""
+        d = _decide_c2(exp_alpha_bps=1e308, fv_edge_bps=1e308)
+        assert d.approved is False
+        assert not _math.isfinite(d.est_edge_bps)
+        assert _math.isfinite(d.est_cost_bps), \
+            "cost must still be finite - this pin is about the EDGE half"
+
+    def test_exploring_does_not_bypass_the_finite_fence(self):
+        """exploring=True bypasses the two PROFIT gates by design. It must NOT
+        bypass a non-finite refusal - an unknown cost is not a thin edge."""
+        d = _decide_c2({"impact_eta": float("nan")}, exploring=True)
+        assert d.approved is False

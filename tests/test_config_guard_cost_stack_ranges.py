@@ -247,3 +247,63 @@ class TestMinEdgeCostRatioCeiling:
         """The fix must complete the one-sided guard, not replace it."""
         hits = _fatals(_with(shipped, _RATIO, 0.5), _RATIO)
         assert hits and "must be >= 1" in hits[0]
+
+
+# ==========================================================================
+# C2 - NON-FINITE VALUES FAILED OPEN THROUGH EVERY RANGE BOUND (2026-09-13)
+#
+# `val < lo or val > hi` is False for NaN, so all five bounds in the clamped
+# list were permeable: injected, every key took a NaN with ZERO findings.
+# Reachable rather than theoretical - json.loads accepts a bare NaN AND
+# json.dumps EMITS one, so the era-cut stagers (which write config with
+# json.dumps) can round-trip a NaN-bearing config silently.
+#
+# The consequence was a fail-OPEN in the DECISION PATH, measured on a live
+# PreTradeGate from the shipped config: baseline approved=False cost=54.300;
+# with pretrade.impact_eta=NaN, approved=TRUE cost=nan - because a NaN cost
+# makes `edge < ratio*cost` False so PT-041 never fires. Same shape as RP-052
+# (cut #10 B3, "NaN flowed max(nan,0)->nan through").
+# ==========================================================================
+
+_NONFINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+class TestNonFiniteFailsClosed:
+    @pytest.mark.parametrize("key", [
+        "impact_eta", "adverse_selection_kappa", "maker_fill_p0",
+        "p_fill_floor", "miss_cost_bps"])
+    @pytest.mark.parametrize("bad", _NONFINITE)
+    def test_every_clamped_knob_refuses_a_non_finite(self, shipped, key, bad):
+        hits = _fatals(_with(shipped, key, bad), key)
+        assert hits, f"{key}={bad} validated clean - the bound is permeable"
+        assert "not finite" in hits[0]
+
+    def test_the_shipped_config_is_unaffected(self, shipped):
+        """NEGATIVE ARM: the new check must not fire on what ships."""
+        assert [m for s, m in validate(shipped) if s == "FATAL"] == []
+
+    def test_a_finite_value_inside_the_window_still_passes(self, shipped):
+        """NEGATIVE ARM: the isfinite test must not shadow the range test."""
+        assert _fatals(_with(shipped, "impact_eta", 0.8), "impact_eta") == []
+
+    def test_a_finite_value_outside_the_window_still_FATALs_on_RANGE(
+            self, shipped):
+        """The two checks are distinct: an out-of-range FINITE value must
+        still report the RANGE failure, not be swallowed by the finite test."""
+        hits = _fatals(_with(shipped, "impact_eta", 8.0), "impact_eta")
+        assert hits
+        assert "not finite" not in hits[0], \
+            "a finite out-of-range value was reported as non-finite"
+
+    def test_a_non_numeric_value_still_reports_NOT_A_NUMBER(self, shipped):
+        """Ordering pin: the float() failure must precede the isfinite test,
+        so a string still says 'is not a number' rather than 'not finite'."""
+        hits = _fatals(_with(shipped, "impact_eta", "0.8x"), "impact_eta")
+        assert hits and "not a number" in hits[0]
+
+    def test_the_message_names_the_consequence_not_just_the_rule(
+            self, shipped):
+        """A guard message that says only 'invalid' teaches nobody why."""
+        hits = _fatals(_with(shipped, "impact_eta", float("nan")),
+                       "impact_eta")
+        assert "PT-041" in hits[0] and "APPROVED" in hits[0]

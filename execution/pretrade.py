@@ -318,6 +318,30 @@ class PreTradeGate:
         edge = max(exp_alpha_bps, 0.0) + max(fv_edge_bps, 0.0)
         d.est_cost_bps, d.est_edge_bps = cost, edge
 
+        # THE FENCE AT :228 GUARDS THE INPUTS; THIS GUARDS THE DERIVED TERMS
+        # (2026-09-13). `cost` is a sum of six terms, two of which come from
+        # config knobs never finite-checked (impact_eta, adverse_selection
+        # kappa) and one of which - `impact` - is computed at RUNTIME from
+        # ctx.adv_usd and ctx.sigma_daily_pct. So a config guard alone cannot
+        # close this: a non-finite can enter after every input passed.
+        #
+        # Measured fail-OPEN, shipped config, live gate: baseline
+        # approved=False cost=54.300; with impact_eta=NaN approved=TRUE
+        # cost=nan. Both profit gates below are written as `x < y`, which is
+        # False on NaN, so a NaN cost silently satisfies BOTH and the entry is
+        # approved with an unknown cost. Refusing is the only safe direction:
+        # an unknown cost is not a small cost.
+        #
+        # PT_INVALID_INPUT, not a new code - it already means exactly this and
+        # already fires for non-finite at :233. Standing precedent for the
+        # class: RP-052 (cut #10 B3).
+        if not _fin(cost) or not _fin(edge):
+            d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                 f"non-finite cost={cost!r} edge={edge!r} - "
+                                 f"the profit gates compare with '<', which "
+                                 f"is False on NaN, so this would APPROVE"))
+            return d
+
         ratio = self.min_edge_cost_ratio + max(extra_edge_ratio, 0.0)
         if edge < ratio * cost and not exploring:
             d.reasons.append(tag(Code.PT_EDGE_RATIO,
