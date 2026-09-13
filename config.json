@@ -1369,5 +1369,28 @@
       "_note": "optional grpcio; generate stubs per api/liquiditybot.proto. auth_token mirrors rest.auth_token: when set, every RPC must carry matching x-auth-token metadata"
     }
   },
-  "_dead_keys_doc": "UNREAD KEYS (config debug 2026-09-08). Method: the quoted key name, both quote styles, grepped over main.py runner.py core/ risk/ execution/ ml/ data/ regime/ strategies/ sentiment/ api/ (positive control \"trading_pairs\" hits main.py, runner.py, data/kraken_feed.py, strategies/liquidity_model.py; a string scan - dynamically built keys are invisible to it). Zero config reads: exchanges.{okx,binanceus,kraken}.read_only; exchanges.*.role; exchanges.okx.{api_key,api_secret,passphrase}; exchanges.binanceus.{api_key,api_secret} (data/kraken_feed.py resolves only kraken's own; data/ccxt_feed.py's hit is a strip-list); execution.venues.*.transport (class attribute in execution/venue_adapters.py); execution.fix.{sender_comp_id,target_comp_id,heartbeat_sec} (function parameters of execution/fix_codec.logon); system.timezone; ml.exploration.admission.budget.surcharge.base_window_labels (pinned null by tests/test_probe_budget.py; the surcharge _doc says null = reuse corpus_target_live, but no code reads it); assurance.audit_path and assurance.registry_dir (script-facing at most; exempt-pinned in tests/test_qa_isolation.py). NONE DELETED: a tracked-file deletion is a change of record, and none of these is load-bearing - the guard names absence only for keys whose code default would silently run (see core/config_guard.py's absent-key FATALs)."
+  "_dead_keys_doc": "UNREAD KEYS (config debug 2026-09-08). Method: the quoted key name, both quote styles, grepped over main.py runner.py core/ risk/ execution/ ml/ data/ regime/ strategies/ sentiment/ api/ (positive control \"trading_pairs\" hits main.py, runner.py, data/kraken_feed.py, strategies/liquidity_model.py; a string scan - dynamically built keys are invisible to it). Zero config reads: exchanges.{okx,binanceus,kraken}.read_only; exchanges.*.role; exchanges.okx.{api_key,api_secret,passphrase}; exchanges.binanceus.{api_key,api_secret} (data/kraken_feed.py resolves only kraken's own; data/ccxt_feed.py's hit is a strip-list); execution.venues.*.transport (class attribute in execution/venue_adapters.py); execution.fix.{sender_comp_id,target_comp_id,heartbeat_sec} (function parameters of execution/fix_codec.logon); system.timezone; ml.exploration.admission.budget.surcharge.base_window_labels (pinned null by tests/test_probe_budget.py; the surcharge _doc says null = reuse corpus_target_live, but no code reads it); assurance.audit_path and assurance.registry_dir (script-facing at most; exempt-pinned in tests/test_qa_isolation.py). NONE DELETED: a tracked-file deletion is a change of record, and none of these is load-bearing - the guard names absence only for keys whose code default would silently run (see core/config_guard.py's absent-key FATALs).",
+  "watch_lane": {
+    "_doc": "WATCH-AND-LABEL, NEVER TRADE (core/watch_lane.py, enabled 2026-09-13). Labels off-universe assets into outputs/watch_history.csv, a SEPARATE corpus the model does not read. Rationale: n_eff is additive across ASSETS and in nothing else (per-asset sum == pooled to 1e-6 on the h432 corpus); rows are ~4x redundant; the horizon lever buys ~1.47x and is cohort-resetting, and was independently killed 2026-09-13 (45 of 45 asset-horizon cells negative, best-horizon split 5/6/4 over 15 assets against a 33% null). Information flow fell 4.4x when the universe narrowed - 42.4 n_eff/day at 15 assets, 9.6 in era-9 at 4. NOT COHORT-RESETTING: the training corpus is not one of CLAUDE.md's ten fenced axes, the retrain loop is sanctioned there 'by design', and this lane never writes trading_pairs - the fenced axis is the UNIVERSE, and watching is not trading. Four leak channels into entry decisioning are cut and mutation-pinned in tests/test_watch_lane.py: on_label=None (GateStats), a separate file (asset_counts has no tag filter), its own candidate cap, shadow_store=None. PHASE 1 DOES NOT FEED THE MODEL - watch rows carry a different feature-availability profile (no cross-asset corr partner, no sentiment, Kraken-only fair value, all recorded per row via `avail`), so pooling them is a corpus-composition change that gets its own measurement and its own decision.",
+    "enabled": true,
+    "_pairs_doc": "The 11 assets that carry corpus history but are NOT traded since cut #11 narrowed the book to PAXG/ETH/BTC/LINK. All 11 appear in outputs/horizon_shadow.csv and in git history of trading_pairs; 10 verified live against Kraken AssetPairs 2026-09-13, and DOGE is Kraken's XDG - data/kraken_feed.py:35/:316 already carries that mapping. A pair listed here that is ALSO traded is dropped by computation in WatchLane.__init__, not trusted.",
+    "pairs": [
+      "ADA/USD",
+      "ARB/USD",
+      "AVAX/USD",
+      "DOGE/USD",
+      "DOT/USD",
+      "FLOW/USD",
+      "LTC/USD",
+      "MINA/USD",
+      "SOL/USD",
+      "SUI/USD",
+      "XRP/USD"
+    ],
+    "_eval_every_sec_doc": "ONE asset per tick, round-robin, so 11 pairs at 300s means each asset is scored about every 55 min - roughly 26 candidates/asset/day. Deliberately slow: n_eff is additive in ASSETS, and candidates inside one 36h label window are the redundancy that already wastes 91.3% of the main corpus. Breadth, not frequency. Three REST calls per evaluation (5m candles, book, daily candles) = 0.01 calls/s, against ~4.75s of cadence headroom in the runner's shared-thread telemetry block.",
+    "eval_every_sec": 300.0,
+    "max_open_candidates": 400,
+    "book_depth": 20,
+    "candle_interval_min": 5
+  }
 }

@@ -16,7 +16,6 @@ trading_pairs.
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -74,9 +73,41 @@ def _cfg(shipped, **over):
 # SHIPS DISABLED
 # ======================================================================
 
-def test_the_lane_ships_disabled(shipped_cfg):
-    """The shipped config must not carry an enabled lane."""
-    assert not (shipped_cfg.get("watch_lane") or {}).get("enabled", False)
+def test_the_enabled_state_is_deliberate_and_documented(shipped_cfg):
+    """This pin was `assert not enabled` until 2026-09-13, when the operator
+    turned the lane ON. It is REPLACED, not deleted: the property worth
+    holding is no longer "off" but "whatever it is, it is a deliberate,
+    documented choice" - an `enabled` flag that appeared without a rationale
+    beside it is the drift this file exists to catch."""
+    wl = shipped_cfg.get("watch_lane") or {}
+    assert "enabled" in wl, "watch_lane carries no explicit enabled flag"
+    assert isinstance(wl["enabled"], bool)
+    assert (wl.get("_doc") or "").strip(), (
+        "watch_lane.enabled carries no _doc explaining the choice")
+
+
+def test_if_enabled_the_pairs_are_off_universe_and_nonempty(shipped_cfg):
+    """The whole safety story is that watched != traded. If the lane is on,
+    that must hold IN THE SHIPPED CONFIG, not only inside WatchLane."""
+    wl = shipped_cfg.get("watch_lane") or {}
+    if not wl.get("enabled"):
+        pytest.skip("lane disabled in the shipped config")
+    pairs = wl.get("pairs") or []
+    assert pairs, "the lane is enabled with no pairs - it would do nothing"
+    traded = set(shipped_cfg.get("exchanges", {}).get("kraken", {})
+                 .get("trading_pairs") or [])
+    overlap = sorted(set(pairs) & traded)
+    assert not overlap, f"watched pairs are also TRADED: {overlap}"
+
+
+def test_a_disabled_lane_is_still_reachable_as_a_state(shipped_cfg):
+    """NEGATIVE ARM: turning it off must remain a working configuration, so
+    the operator can revert without code changes."""
+    c = json.loads(json.dumps(shipped_cfg))
+    c["watch_lane"] = dict(c.get("watch_lane") or {}, enabled=False)
+    lane = WatchLane(c, _Feed())
+    assert lane.enabled is False
+    assert lane.tick(NOW) == "idle"
 
 
 def test_absent_config_means_disabled(shipped_cfg):
