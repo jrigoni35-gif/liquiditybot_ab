@@ -789,3 +789,94 @@ def test_panel_factories_still_build_a_board():
     # and a rebuilt board must come out CLEAN of glass machinery too
     assert not any(p["type"] in _JS_PANEL_TYPES for p in built_panels), \
         "_board() re-grew a script-executing panel"
+
+
+# ==========================================================================
+# A "{{label}}" LEGEND OVER A BARE AGGREGATION RENDERS ONE ANONYMOUS SERIES
+# (2026-09-13)
+#
+# PromQL drops every label through a bare aggregation, so
+# `max(metric{job="liquiditybot"})` with legendFormat "{{rung}}" yields a
+# single unnamed series. The query succeeds, the tile draws, and the breakdown
+# the tile exists for is silently gone.
+#
+# Measured on panel 43 "Which gate is red": the shipped expr collapsed
+# {dof:1, dsr:0, pbo:1, purge:1, shuffle:1} to one bar at 1.0, so the ONE red
+# gate was invisible on the tile whose own description says it exists to stop
+# "a second failure hiding behind the first". On the board from
+# 2026-09-12T18:15:09Z until fixed.
+#
+# This pins the CLASS. The instance is one repointed call; the class is every
+# future panel that reaches for M() when it needed MBY().
+# ==========================================================================
+
+_AGGS = ("sum", "max", "min", "avg", "count", "stddev", "stdvar",
+         "topk", "bottomk", "quantile", "group")
+
+
+def _legend_labels(legend):
+    return set(re.findall(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}",
+                          legend or ""))
+
+
+def _is_bare_aggregation(expr):
+    """True when expr STARTS with an aggregation carrying no by/without.
+
+    Deliberately narrow - only the outermost call, only at the start, and any
+    by/without anywhere clears it. A false RED on a correct panel is how a pin
+    like this gets deleted instead of fixed.
+    """
+    e = (expr or "").strip()
+    for agg in _AGGS:
+        if e.startswith(agg + "(") or e.startswith(agg + " by") \
+                or e.startswith(agg + " without"):
+            return (" by " not in e and " by(" not in e
+                    and " without " not in e and " without(" not in e)
+    return False
+
+
+def test_no_panel_pairs_a_label_legend_with_a_bare_aggregation():
+    offenders = []
+    for fname in ALL_BOARDS:
+        board = _shipped(fname)
+        for panel in _all_panels(board):
+            for t in (panel.get("targets") or []):
+                labels = _legend_labels(t.get("legendFormat", ""))
+                if labels and _is_bare_aggregation(t.get("expr", "")):
+                    offenders.append(
+                        f"{fname} panel {panel.get('id')} "
+                        f"{panel.get('title')!r}: legend wants {sorted(labels)} "
+                        f"but the query aggregates them away -> {t.get('expr')}")
+    assert not offenders, (
+        "a legend names a label the query throws away, so the tile renders "
+        "ONE anonymous series:\n  " + "\n  ".join(offenders)
+        + "\n\nUse MBY(metric, label) in scripts/build_trading_dashboard.py, "
+          "never M(metric). Do NOT change M(): it has ~97 call sites and a "
+          "bare aggregation is correct for every single-series tile.")
+
+
+def test_the_bare_aggregation_detector_actually_fires():
+    """Non-vacuity, both arms - otherwise the scan above is unfalsifiable."""
+    assert _is_bare_aggregation('max(liquiditybot_overfit_rung_passed{job="x"})')
+    assert _is_bare_aggregation("sum(foo)")
+    assert not _is_bare_aggregation('max by (rung) (foo{job="x"})')
+    assert not _is_bare_aggregation("sum without (instance) (foo)")
+    assert not _is_bare_aggregation('foo{job="x"}')
+    assert not _is_bare_aggregation("")
+
+
+def test_the_legend_label_extractor_actually_fires():
+    assert _legend_labels("{{rung}}") == {"rung"}
+    assert _legend_labels("{{ asset }} / {{venue}}") == {"asset", "venue"}
+    assert _legend_labels("total") == set()
+    assert _legend_labels("") == set()
+
+
+def test_panel_43_specifically_breaks_out_by_rung():
+    """The instance, kept beside the class pin: this is the tile that stops a
+    second red hiding behind the first, so it is worth naming."""
+    hits = [t for p in _all_panels(_shipped(PROBLEMS)) if p.get("id") == 43
+            for t in (p.get("targets") or [])]
+    assert hits, "panel 43 not found"
+    assert any("by (rung)" in (t.get("expr") or "") for t in hits), \
+        "panel 43 aggregates the rung label away"

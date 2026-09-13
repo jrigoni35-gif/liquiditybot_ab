@@ -3070,7 +3070,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max(liquiditybot_overfit_rung_passed{job=\"liquiditybot\"})",
+          "expr": "max by (rung) (liquiditybot_overfit_rung_passed{job=\"liquiditybot\"})",
           "instant": true,
           "range": false,
           "legendFormat": "{{rung}}"

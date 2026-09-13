@@ -228,6 +228,27 @@ def M(metric, suffix=""):
     return f"max({metric}{JOB}){suffix}"
 
 
+def MBY(metric, label, suffix=""):
+    """`max by (label)` - for any panel whose legend is "{{label}}".
+
+    WHY THIS EXISTS (2026-09-13). M() is a BARE aggregation, and PromQL drops
+    every label through one of those. A panel that pairs M() with a
+    "{{something}}" legend therefore renders ONE anonymous series instead of
+    one per label, silently - the query succeeds, the tile draws, and the
+    breakdown the tile exists for is gone.
+
+    Measured on panel 43 ("Which gate is red"): the shipped expr was
+    `max(liquiditybot_overfit_rung_passed{job="liquiditybot"})`, which
+    collapses {dof:1, dsr:0, pbo:1, purge:1, shuffle:1} to a single 1.0 - so
+    the ONE red gate on the board was invisible on the tile built to stop a
+    second failure hiding behind the first.
+
+    M() is unchanged: it has 97 call sites and a bare max is correct for every
+    single-series tile. Use MBY only where a legend names a label.
+    """
+    return f"max by ({label}) ({metric}{JOB}){suffix}"
+
+
 def _t(expr, ref="A", instant=True, legend=None, fmt=None):
     t = {"refId": ref, "datasource": DS, "expr": expr,
          "instant": instant, "range": not instant}
@@ -1759,7 +1780,8 @@ def _author_problem():
          desc="Seconds since outputs/overfit_report.md was written. This is "
               "a DoD tool, not a bot tick, so a large age is a statement "
               "about the OPERATOR's cadence, not about the bot.")
-    bargauge("Which gate is red", M("liquiditybot_overfit_rung_passed"),
+    bargauge("Which gate is red",
+             MBY("liquiditybot_overfit_rung_passed", "rung"),
              8, 6, decimals=0, legend="{{rung}}", mn=0, mx=1,
              no_value="no fresh verdict",
              desc="One bar per pre-registered rung: 1 passed, 0 failed. This "
