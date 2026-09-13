@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import subprocess
+import subprocess  # nosec B404 - running a command IS this tool's job
 import sys
 from pathlib import Path
 
@@ -124,7 +124,11 @@ def main(argv=None) -> int:
     if not args.quiet:
         print(f"census: {len(before)} files under {roots}")
 
-    r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+    # nosec B603 - the subject command is supplied by the operator on this
+    # tool's own command line. Running it for real is the method: a source
+    # scan is exactly what failed on scripts/horizon_report.py.
+    r = subprocess.run(cmd, cwd=str(REPO),  # nosec B603
+                       capture_output=True, text=True)
     after = census(roots)
     d = diff(before, after)
 

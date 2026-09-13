@@ -36,7 +36,7 @@ a pytest run collected nothing (3).
 from __future__ import annotations
 
 import argparse
-import subprocess
+import subprocess  # nosec B404 - running a command IS this tool's job
 import sys
 from pathlib import Path
 
@@ -80,7 +80,12 @@ def main(argv=None) -> int:
     if cmd[0] == "pytest":
         cmd = [sys.executable, "-m"] + cmd
 
-    r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+    # nosec B603 - no shell, and that is the entire point of this file:
+    # a shell is what turns an exit code into the filter's exit code. The
+    # argv comes from this repo's own command line, never from a network
+    # or a file.
+    r = subprocess.run(cmd, cwd=str(REPO),  # nosec B603
+                       capture_output=True, text=True)
     out = (r.stdout or "") + (r.stderr or "")
     lines = out.splitlines()
 
