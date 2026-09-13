@@ -1,0 +1,38 @@
+[
+  {
+    "path": "scripts/mutate.py",
+    "old": "    reason = lock_held_by_other()\n    if reason:",
+    "new": "    reason = lock_held_by_other()\n    if not reason:",
+    "pin": "test_a_live_lock_blocks_a_second_mutation_run"
+  },
+  {
+    "path": "scripts/mutate.py",
+    "old": "    if age > _LOCK_STALE_SEC:\n        return \"\"",
+    "new": "    if age > _LOCK_STALE_SEC:\n        return \"stale but held\"",
+    "pin": "test_a_STALE_lock_fails_OPEN"
+  },
+  {
+    "path": "scripts/mutate.py",
+    "old": "    finally:\n        lk.unlink(missing_ok=True)",
+    "new": "    finally:\n        pass",
+    "pin": "test_the_lock_is_released_even_when_the_body_raises"
+  },
+  {
+    "path": "scripts/mutate.py",
+    "old": "        return f\"a malformed lock at {lock_path()}\"",
+    "new": "        return \"\"",
+    "pin": "test_a_malformed_lock_is_reported_not_ignored"
+  },
+  {
+    "path": "scripts/mutate.py",
+    "old": "    env = dict(os.environ, **{MUTATION_ENV: \"1\"})",
+    "new": "    env = dict(os.environ)",
+    "pin": "test_the_child_pytest_is_told_it_may_run"
+  },
+  {
+    "path": "scripts/mutate.py",
+    "old": "    return REPO / _LOCK_REL",
+    "new": "    return Path(_LOCK_REL)",
+    "pin": "test_a_live_lock_blocks_a_second_mutation_run"
+  }
+]

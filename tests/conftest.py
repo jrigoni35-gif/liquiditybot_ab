@@ -28,6 +28,7 @@ of months later in an operator's log.
 
 import os
 import sys
+import time as _time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -197,3 +198,45 @@ def _no_production_outputs_writes(request):
         warnings.warn(msg, stacklevel=1)
     else:
         pytest.fail(msg)
+
+
+# ======================================================================
+# A MUTATED WORKING TREE IS NOT A TEST RESULT
+# ======================================================================
+
+def pytest_sessionstart(session):
+    """Refuse to run while scripts/mutate.py owns the working tree.
+
+    MEASURED 2026-09-13. A full `pytest tests/` run overlapped by a few
+    seconds with a `scripts/mutation_sweep.py --all` smoke test, which plants
+    mutants in repo files and restores them. tests/test_probe_budget.py failed
+    on a mutant planted in core/audit.py; the suite reported 1 failed / 5365
+    passed; the test passed in isolation immediately afterwards. Nothing in
+    either tool said a word, and the result was indistinguishable from a real
+    regression.
+
+    A silent corruption that looks exactly like a real failure is the worst
+    artifact this repo can produce, so it is now a loud refusal. The harness
+    that HOLDS the lock sets LIQBOT_MUTATION_RUN for its own child pytest -
+    that run is the measurement and must proceed - so this stops everyone
+    except the tool that took the lock.
+
+    Fails OPEN on any unreadable or stale lock: a guard that can wedge the
+    entire battery on a leftover file would be worse than the bug.
+    """
+    if os.environ.get("LIQBOT_MUTATION_RUN"):
+        return
+    lock = _ROOT / "outputs" / ".mutating"
+    try:
+        raw = lock.read_text(encoding="utf-8").strip()
+        pid_s, ts_s = raw.split(None, 1)
+        age = _time.time() - float(ts_s)
+    except (OSError, ValueError):
+        return
+    if age > 3600.0:
+        return                      # stale: a crashed run, not a live one
+    raise pytest.UsageError(
+        f"REFUSING TO RUN: scripts/mutate.py (pid {pid_s}) has been mutating "
+        f"this working tree for {age:.0f}s. Test results against a mutated "
+        f"tree are meaningless and look exactly like real failures. Wait for "
+        f"it, or delete {lock} if that run is dead.")

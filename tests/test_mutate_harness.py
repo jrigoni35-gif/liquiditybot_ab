@@ -142,6 +142,153 @@ def test_an_absent_needle_is_reported_not_treated_as_caught(tmp_path,
     assert r["verdict"] == mut.NEEDLE_ABSENT
 
 
+# ======================================================================
+# THE WORKING-TREE LOCK
+# ======================================================================
+
+def _plant_lock(monkeypatch, tmp_path, age_sec: float = 0.0):
+    import os
+    import time
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    lock = mut.lock_path()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(f"{os.getpid()} {time.time() - age_sec}",
+                    encoding="utf-8")
+    return lock
+
+
+def test_a_live_lock_blocks_a_second_mutation_run(monkeypatch, tmp_path):
+    """This harness EDITS THE WORKING TREE. Two runs at once score each
+    other's edits, and anything else reading the repo sees code nobody wrote.
+
+    MEASURED 2026-09-13, on the author, within an hour of writing the sweep: a
+    full `pytest tests/` and a `mutation_sweep --all` smoke test overlapped for
+    seconds. tests/test_probe_budget.py failed on a mutant planted in
+    core/audit.py, the suite read 1 failed / 5365 passed, and the test passed
+    in isolation right afterwards. Neither tool said a word.
+    """
+    _plant_lock(monkeypatch, tmp_path)
+    assert mut.lock_held_by_other(), "a live lock was not seen"
+    with pytest.raises(RuntimeError, match="REFUSING TO MUTATE"):
+        with mut.tree_lock():
+            pass
+
+
+def test_a_STALE_lock_fails_OPEN(monkeypatch, tmp_path):
+    """NEGATIVE ARM, and it matters more than the positive one: a guard that
+    can wedge every future run on a leftover file from a crashed process is
+    worse than the bug it prevents. An hour-old lock is a dead run."""
+    _plant_lock(monkeypatch, tmp_path, age_sec=7200.0)
+    assert mut.lock_held_by_other() == ""
+    with mut.tree_lock():
+        pass
+
+
+def test_the_lock_is_released_even_when_the_body_raises(monkeypatch,
+                                                        tmp_path):
+    """A crashed run must not poison the tree for an hour. Same lesson as the
+    try/finally restore: a harness that dies mid-flight has to leave the repo
+    exactly as it found it."""
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    lock = mut.lock_path()
+    with pytest.raises(ValueError):
+        with mut.tree_lock():
+            assert lock.is_file(), "the lock was never taken"
+            raise ValueError("boom")
+    assert not lock.exists(), "a crashed run left the tree locked"
+
+
+def test_a_malformed_lock_is_reported_not_ignored(monkeypatch, tmp_path):
+    """An unparseable lock is not the same as no lock - something wrote it."""
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    lock = mut.lock_path()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("garbage", encoding="utf-8")
+    assert "malformed" in mut.lock_held_by_other()
+
+
+def test_the_child_pytest_is_told_it_may_run(monkeypatch, tmp_path):
+    """The harness holds the lock WHILE running pytest - that child IS the
+    measurement. It sets the marker conftest.py checks, so the guard stops
+    everyone except the tool that took the lock. Without this the harness
+    would deadlock against its own guard on the first mutant.
+    """
+    seen = {}
+
+    class _R:
+        returncode = 0
+        stdout = "1 passed"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        seen.update(kw.get("env") or {})
+        return _R()
+
+    # CLEAR IT FIRST. When this suite is itself run BY the harness, the marker
+    # is already in os.environ, so `dict(os.environ)` carries it and the test
+    # passes whether or not _pytest sets it. Measured: the mutant that removed
+    # the set SURVIVED for exactly that reason - the instrument's own
+    # environment leaking into the measurement.
+    monkeypatch.delenv(mut.MUTATION_ENV, raising=False)
+    monkeypatch.setattr(mut.subprocess, "run", fake_run)
+    mut._pytest("tests/test_x.py")
+    assert seen.get(mut.MUTATION_ENV) == "1", \
+        "the child pytest was not exempted - the harness blocks itself"
+
+
+def test_an_AMBIGUOUS_needle_is_refused_not_planted_at_the_first_hit(
+        tmp_path, monkeypatch):
+    """A needle matching more than once must be REFUSED, never planted at the
+    first hit. This is the same defect class the harness itself was written to
+    end: the plant lands somewhere the author did not mean, the pin does not
+    fire, and the run reports SURVIVED - a clean blind-spot claim about code
+    that was never touched.
+
+    MEASURED 2026-09-13, which is why this exists. Injecting `"ADA/USD",` into
+    config.json to test a watch-lane pin landed on skimmer.candidates instead
+    of watch_lane.pairs - the same string, 246 lines apart - and the harness
+    reported SURVIVED for a pin whose input had not changed. With a unique
+    needle the same pin CAUGHT it immediately.
+    """
+    src, test = _tree(tmp_path)
+    before = src.read_bytes()
+    src.write_bytes(b"MARK = 1\ndef f():\n    return 1\nOTHER = 1\n")
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    r = mut.run_one({"path": "subject.py", "old": "= 1",
+                     "new": "= 2", "pin": "returns_one"},
+                    str(test), verbose=False)
+    assert r["verdict"] == mut.AMBIGUOUS, \
+        f"planted a needle occurring 3x instead of refusing: {r}"
+    assert "2x" in r["detail"], "the report must say HOW MANY it found"
+    assert before is not None
+
+
+def test_a_UNIQUE_needle_is_still_planted(tmp_path, monkeypatch):
+    """NEGATIVE ARM: the uniqueness guard must not refuse ordinary work. A
+    guard that rejects everything and a clean run are the same observation
+    until separated."""
+    src, test = _tree(tmp_path)
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    r = mut.run_one({"path": "subject.py", "old": "return 1",
+                     "new": "return 2", "pin": "returns_one"},
+                    str(test), verbose=False)
+    assert r["verdict"] == mut.CAUGHT
+    assert src.read_text(encoding="utf-8") == "def f():\n    return 1\n"
+
+
+def test_AMBIGUOUS_is_never_scored_as_a_pass(tmp_path, monkeypatch):
+    """It is not CAUGHT and not SURVIVED - like PIN-NOT-SELECTED, it means
+    nothing was established. The CLI must exit nonzero on it, or a spec full
+    of ambiguous needles reports a clean sweep of nothing."""
+    src, test = _tree(tmp_path)
+    src.write_bytes(b"MARK = 1\ndef f():\n    return 1\nOTHER = 1\n")
+    monkeypatch.setattr(mut, "REPO", tmp_path)
+    rc = mut.main(["--test", str(test), "--mutant",
+                   f"subject.py {mut.SEP} = 1 {mut.SEP} = 2 "
+                   f"{mut.SEP} returns_one"])
+    assert rc != 0, "an ambiguous needle exited 0 - that reads as verified"
+
+
 def test_an_unselected_pin_is_reported_end_to_end(tmp_path, monkeypatch):
     """The 2026-09-13 false positive, reproduced against a real pytest run."""
     src, test = _tree(tmp_path)

@@ -40,10 +40,13 @@ baseline was not green.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
-import subprocess
+import os
+import subprocess  # nosec B404 - running pytest IS this tool's job
 import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -54,6 +57,7 @@ SURVIVED = "SURVIVED"
 NOT_SELECTED = "PIN-NOT-SELECTED"
 NEEDLE_ABSENT = "NEEDLE-ABSENT"
 RESTORE_FAILED = "RESTORE-FAILED"
+AMBIGUOUS = "AMBIGUOUS-NEEDLE"
 
 
 def _sha(path: Path) -> str:
@@ -91,13 +95,93 @@ def _drop_pyc(path: Path) -> None:
         pass
 
 
+_LOCK_REL = "outputs/.mutating"
+
+
+def lock_path() -> Path:
+    """Derived from REPO at CALL time, never frozen at import.
+
+    tests/conftest.py fails any test that writes into the production
+    `outputs/` tree, and it is right to: a test that scribbles there is
+    indistinguishable from the bot doing it. A module-level constant would
+    have meant every CLI pin here wrote a real lock file into the live tree -
+    the guard caught exactly that on the first run. Deriving it from REPO
+    means the redirect the tests ALREADY do moves the lock with it, which is
+    the fix that guard's own docstring asks for: point the path at tmp_path,
+    do not widen the allowlist.
+    """
+    return REPO / _LOCK_REL
+MUTATION_ENV = "LIQBOT_MUTATION_RUN"
+_LOCK_STALE_SEC = 3600.0
+
+
+def lock_held_by_other() -> str:
+    """Non-empty reason if another mutation run owns the tree right now.
+
+    WHY A LOCK AT ALL. This harness EDITS FILES IN THE WORKING TREE and
+    restores them. Anything else reading the repo while that is true gets
+    garbage, in both directions: the other reader fails on code nobody wrote,
+    and this harness scores a verdict against a tree someone else is changing.
+
+    MEASURED 2026-09-13, on the author, within an hour of writing the sweep: a
+    full `pytest tests/` run and a `mutation_sweep --all` smoke test overlapped
+    for a few seconds. tests/test_probe_budget.py failed on a mutant planted in
+    core/audit.py, the suite reported 1 failed / 5365 passed, and the test
+    passed in isolation immediately afterwards. Nothing in either tool said a
+    word. A silent corruption that looks exactly like a real failure is the
+    worst artifact this repo can produce, so it is now loud.
+    """
+    try:
+        raw = lock_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    try:
+        pid_s, ts_s = raw.split(None, 1)
+        age = time.time() - float(ts_s)
+    except ValueError:
+        return f"a malformed lock at {lock_path()}"
+    if age > _LOCK_STALE_SEC:
+        return ""                      # stale: a crashed run, take the tree
+    return (f"pid {pid_s} has been mutating this tree for {age:.0f}s "
+            f"({lock_path()})")
+
+
+@contextlib.contextmanager
+def tree_lock():
+    """Own the working tree for the duration of a mutation run."""
+    reason = lock_held_by_other()
+    if reason:
+        raise RuntimeError(
+            f"REFUSING TO MUTATE: {reason}. Two mutation runs on one tree "
+            f"score each other's edits. Wait, or delete the lock if that run "
+            f"is dead.")
+    lk = lock_path()
+    lk.parent.mkdir(parents=True, exist_ok=True)
+    lk.write_text(f"{os.getpid()} {time.time()}", encoding="utf-8")
+    print(f"[mutate] THE WORKING TREE IS BEING MUTATED ({lk}).")
+    print("[mutate] Do not run tests, builds or git operations against this "
+          "repo until this finishes.")
+    try:
+        yield
+    finally:
+        lk.unlink(missing_ok=True)
+
+
 def _pytest(test: str, k: str = "") -> tuple:
     """Return (rc, last_line). rc 5 means NO TESTS COLLECTED, which is the
     single most important distinction this module exists to make."""
     cmd = [sys.executable, "-m", "pytest", test, "-q"]
     if k:
         cmd += ["-k", k]
-    r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+    # nosec B603 - argv is built here from a repo-relative
+    # test path and sys.executable; no shell, no user input.
+    # The child pytest runs WHILE the lock is held - by design, it is this
+    # harness's own measurement. conftest.py refuses a locked tree unless this
+    # marker is set, so the guard stops everyone EXCEPT the tool that took the
+    # lock.
+    env = dict(os.environ, **{MUTATION_ENV: "1"})
+    r = subprocess.run(  # nosec B603
+        cmd, cwd=str(REPO), capture_output=True, text=True, env=env)
     out = (r.stdout or "").strip().splitlines()
     return r.returncode, (out[-1] if out else "")
 
@@ -169,6 +253,26 @@ def run_one(m: dict, test: str, verbose: bool = True) -> dict:
         res["detail"] = f"old text not found in {m['path']}"
         return res
 
+    # A NEEDLE THAT MATCHES MORE THAN ONCE IS REFUSED, not planted at the
+    # first hit. This harness exists because hand-rolled copies scored
+    # verdicts against the wrong edit, and `replace(old, new, 1)` is another
+    # way to do exactly that: the plant lands somewhere the author did not
+    # mean, the pin does not fire, and the run reports SURVIVED - a clean
+    # blind-spot claim about code that was never touched.
+    #
+    # MEASURED 2026-09-13. Injecting `"ADA/USD",` into config.json to test a
+    # watch-lane pin landed on skimmer.candidates (line 1132) instead of
+    # watch_lane.pairs (line 1378) - the same string, two blocks apart - and
+    # the harness reported SURVIVED for a pin whose input never changed.
+    # build_mutants() in scripts/mutation_sweep.py already refuses ambiguous
+    # anchors; a hand-written --mutant spec was getting no such check.
+    hits = original.count(m["old"])
+    if hits != 1:
+        res["verdict"] = AMBIGUOUS
+        res["detail"] = (f"old text occurs {hits}x in {m['path']} - refusing "
+                         f"to guess which. Extend the needle until unique.")
+        return res
+
     try:
         path.write_bytes(
             original.replace(m["old"], m["new"], 1).encode("utf-8"))
@@ -207,6 +311,20 @@ def main(argv=None) -> int:
         print("no mutants given")
         return 1
 
+    try:
+        lock = tree_lock()
+        lock.__enter__()
+    except RuntimeError as exc:
+        print(f"[mutate] {exc}")
+        return 2
+
+    try:
+        return _run_all(args, mutants)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _run_all(args, mutants) -> int:
     rc, line = _pytest(args.test)
     print(f"BASELINE  {args.test}  rc={rc}  {line}")
     if rc != 0:
