@@ -171,3 +171,79 @@ def test_every_clamped_pretrade_knob_is_guarded():
         "execution/pretrade.py silently clamps these, and core/config_guard.py "
         "does not refuse an out-of-range value for them - so a typo is "
         "rewritten instead of reported: " + ", ".join(missing))
+
+
+# ==========================================================================
+# C1 - min_edge_cost_ratio had a FLOOR and NO CEILING (2026-09-13)
+#
+# Injected before fixing, which is how it was confirmed rather than guessed:
+# ratio=13.0 and ratio=1000.0 BOTH validated with ZERO findings, while
+# ratio=0.5 correctly FATALed. One decimal slip boots a 10x entry bar, the
+# book silently stops entering, and the record reads "the market gave us
+# nothing". Same shape as the 2026-09-11 `clamped` extension one key over
+# (miss_cost_bps=999 -> zero findings) - and this key is NOT in that list,
+# because execution/pretrade.py:89 reads it with no clamp, unlike its four
+# neighbours at :110-116.
+#
+# THE BOUND IS DERIVED, NOT CHOSEN. PT-041 demands E[edge] >= ratio*cost; at
+# the sigma floor the bet's MAXIMUM payoff is pt_cost_mult*cost
+# (ml/labeling.barrier_geometry). Requiring the EXPECTED edge to reach the
+# MAXIMUM payoff is an empty acceptance region. Both sides scale with cost, so
+# the bound is cost-invariant and does not move at a fee re-book.
+# ==========================================================================
+
+_RATIO = "min_edge_cost_ratio"
+
+
+class TestMinEdgeCostRatioCeiling:
+    def test_the_shipped_config_is_clean(self, shipped):
+        """NEGATIVE ARM: the live value must not trip the new bound."""
+        assert _fatals(shipped, _RATIO) == []
+
+    def test_a_decimal_slip_is_caught(self, shipped):
+        hits = _fatals(_with(shipped, _RATIO, 13.0), _RATIO)
+        assert hits, "1.3 -> 13.0 validated clean; the ceiling is missing"
+        assert "empty acceptance region" in hits[0]
+
+    def test_an_absurd_ratio_is_caught(self, shipped):
+        assert _fatals(_with(shipped, _RATIO, 1000.0), _RATIO)
+
+    def test_the_bound_counts_the_autonomous_bump(self, shipped):
+        """execution/pretrade.py:321 adds the monitor's edge_ratio_bump, whose
+        ceiling is ml.monitor.edge_ratio_bump_max. The runner log carries
+        ratios in force of 1.30..1.70, so the bump HAS reached its full cap -
+        the EFFECTIVE ratio is the one that must be bounded. Both arms."""
+        mult = float(shipped["ml"]["label_pt_cost_mult"])
+        bump = float(shipped["ml"]["monitor"]["edge_ratio_bump_max"])
+        under, over = mult - bump - 0.05, mult - bump + 0.05
+        # needle on THIS bound only: at  the pre-existing conviction
+        # coherence check (config_guard.py:190) also fires and its message
+        # names min_edge_cost_ratio too. That check is real but names the
+        # WRONG remedy ("raise ev_cost_mult"), which is exactly how the audit
+        # showed a decimal slip survives with one companion edit - so this pin
+        # must not lean on it.
+        def _ceiling_hits(v):
+            return [m for m in _fatals(_with(shipped, _RATIO, v), _RATIO)
+                    if "empty acceptance region" in m]
+        assert _ceiling_hits(under) == [], (
+            f"ratio={under} + bump={bump} < {mult} must clear THIS bound")
+        assert _ceiling_hits(over), (
+            f"ratio={over} + bump={bump} >= {mult} must FATAL on THIS bound")
+
+    def test_the_bound_is_cost_invariant(self, shipped):
+        """A fee re-book moves cost but not the bound - both sides scale with
+        it. Halving the booked cost must not flip the verdict."""
+        slipped = _with(shipped, _RATIO, 13.0)
+        before = bool(_fatals(slipped, _RATIO))
+        assert before is True
+        slipped = copy.deepcopy(slipped)
+        slipped["ml"]["label_round_trip_cost_pct"] = float(
+            slipped["ml"]["label_round_trip_cost_pct"]) / 2.0
+        slipped["pretrade"]["maker_fee_bps"] = 7.5
+        slipped["pretrade"]["taker_fee_bps"] = 15.0
+        assert bool(_fatals(slipped, _RATIO)) is before
+
+    def test_the_original_floor_still_fires(self, shipped):
+        """The fix must complete the one-sided guard, not replace it."""
+        hits = _fatals(_with(shipped, _RATIO, 0.5), _RATIO)
+        assert hits and "must be >= 1" in hits[0]

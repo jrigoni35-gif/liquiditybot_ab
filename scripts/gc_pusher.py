@@ -1454,14 +1454,44 @@ def parse_overfit_report(text: str) -> dict:
 
     Pure, so the parse is unit-testable without a battery run."""
     rungs: dict = {}
+    collisions = 0
     for line in text.splitlines():
         m = _OVERFIT_RUNG_RE.match(line)
-        if m:
-            rungs[m.group(2)] = (m.group(1) == "PASS")
+        if not m:
+            continue
+        token, passed = m.group(2), (m.group(1) == "PASS")
+        if token in rungs:
+            # COLLISION - FAIL WINS (2026-09-13). Two rungs legitimately share
+            # the `dsr` token: the pooled OF-5 verdict
+            # (overfit_check.py:1772) and the deployed-era regression sentinel
+            # (:629). That sharing is DELIBERATE and documented at
+            # overfit_check.py:347-351 - a distinct name would either spam
+            # "NEWLY ARMED" every run or, in EXPECTED_ARMED, fire "ARMING
+            # REGRESSED" (exit 3) while the era is young - so the defect is
+            # here, in the consumer, not there.
+            #
+            # This dict was last-write-wins, which silenced the pair in BOTH
+            # directions. Injected: a sentinel PASS drove
+            # rung_passed{rung="dsr"} 0 -> 1.0 while the report still read
+            # FAIL, and overfit_failed 1 -> 0; a sentinel FAIL was
+            # byte-identical to the pooled red, so a genuine deployed-era
+            # regression was equally invisible. An anti-silencing alarm that
+            # can be silenced by its own family name is worse than none.
+            #
+            # AND-merge is the conservative resolution and the only one that
+            # preserves the documented family convention: the family is green
+            # only if every rung reporting under it is green.
+            rungs[token] = rungs[token] and passed
+            collisions += 1
+        else:
+            rungs[token] = passed
     return {"rungs": rungs,
             "passed": sum(1 for v in rungs.values() if v),
             "failed": sum(1 for v in rungs.values() if not v),
-            "armed": len(rungs)}
+            "armed": len(rungs),
+            # observable, so a future token collision is a number someone can
+            # see rather than a silent merge
+            "rung_collisions": collisions}
 
 
 def _overfit_gate_metrics(ts: float) -> list:

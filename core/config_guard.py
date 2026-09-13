@@ -958,6 +958,44 @@ def validate(config: dict) -> list:
               f"1x the edge/cost gate (PT-041) can approve trades whose "
               f"edge doesn't even cover cost, and at 0 the gate never fires "
               f"at all (edge is a sum of max(.,0) terms, never negative)")
+    # CEILING (2026-09-13). The guard above was ONE-SIDED for its whole life:
+    # injected, min_edge_cost_ratio=13.0 AND =1000.0 both validated with ZERO
+    # findings, while 0.5 correctly FATALed. A single decimal slip therefore
+    # boots a 10x entry bar, the book silently stops entering, and the record
+    # reads "the market gave us nothing". This is the same shape the `clamped`
+    # list above was extended for on 2026-09-11 (miss_cost_bps=999 -> zero
+    # findings); that list is for knobs the CODE clamps, and
+    # execution/pretrade.py:89 reads this one with NO clamp - unlike its four
+    # neighbours at :110-116 - so it needs its own bound.
+    #
+    # THE BOUND IS DERIVED, NOT CHOSEN. PT-041 demands E[edge] >= ratio*cost.
+    # At the sigma floor the MAXIMUM payoff of the bet is
+    # PT = pt_cost_mult*cost (ml/labeling.barrier_geometry). Requiring the
+    # EXPECTED edge to reach the MAXIMUM payoff is unsatisfiable for any bet
+    # with a nonzero loss probability, so `ratio >= pt_cost_mult` is an empty
+    # acceptance region. Both sides scale with cost, so the bound is
+    # COST-INVARIANT - it does not move at a fee re-book, which is the same
+    # property that makes the floor's break-even a constant 4/7.
+    #
+    # The effective ratio includes the monitor's autonomous bump
+    # (execution/pretrade.py:321 `ratio = self.min_edge_cost_ratio +
+    # max(extra_edge_ratio, 0.0)`), which ceilings at
+    # ml.monitor.edge_ratio_bump_max. Measured: the runner log carries ratios
+    # in force of 1.30 .. 1.70, i.e. the bump HAS historically reached its
+    # full 0.40 cap, so the effective ratio is the one to bound.
+    _bump_max = float(_f(config, "ml.monitor.edge_ratio_bump_max", 0.4))
+    _pt_cost_mult = float(_f(config, "ml.label_pt_cost_mult", 4.0))
+    _eff_ratio = pt_ratio + max(_bump_max, 0.0)
+    if _pt_cost_mult > 0.0 and _eff_ratio >= _pt_cost_mult:
+        fatal(f"pretrade.min_edge_cost_ratio={pt_ratio} + "
+              f"ml.monitor.edge_ratio_bump_max={_bump_max} = {_eff_ratio:g} "
+              f">= ml.label_pt_cost_mult={_pt_cost_mult:g}: PT-041 would "
+              f"require the EXPECTED edge to reach the bet's MAXIMUM payoff "
+              f"(the profit target is pt_cost_mult x cost at the sigma "
+              f"floor), which is an empty acceptance region - no candidate "
+              f"can clear it. Cost-invariant bound: it does not move at a fee "
+              f"re-book. If you meant to tighten the bar, raise it below "
+              f"{_pt_cost_mult:g} - {_bump_max:g}")
     pt_part = float(_f(config, "pretrade.max_participation_of_depth", 0.15))
     if not (0.0 < pt_part <= 1.0):
         fatal(f"pretrade.max_participation_of_depth={pt_part} must be in "

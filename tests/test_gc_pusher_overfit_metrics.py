@@ -173,3 +173,71 @@ def test_a_collector_failure_cannot_cost_the_status_batch(monkeypatch):
         raise RuntimeError("planted")
     monkeypatch.setattr(gp, "_overfit_gate_metrics", boom)
     gp.collect_aux(time.time())      # must not raise
+
+
+# ==========================================================================
+# C5 - the `dsr` family token is shared, and last-write-wins silenced the
+# anti-silencing sentinel IN BOTH DIRECTIONS (2026-09-13)
+#
+# Two rungs legitimately report under `dsr`: the pooled OF-5 verdict
+# (overfit_check.py:1772) and the deployed-era regression sentinel (:629).
+# The sharing is DELIBERATE and documented at overfit_check.py:347-351 - a
+# distinct name would spam "NEWLY ARMED" or fire "ARMING REGRESSED" (exit 3)
+# while the era is young - so the defect is in this consumer, not there.
+#
+# Injected before fixing: a sentinel PASS drove rung_passed{rung="dsr"}
+# 0 -> 1.0 while the report still read FAIL, and overfit_failed 1 -> 0; a
+# sentinel FAIL was byte-identical to the pooled red, so a genuine
+# deployed-era regression was equally invisible.
+# ==========================================================================
+
+_POOLED_FAIL = "- **FAIL** dsr: P(true SR > sr0) on conviction-only sample - x"
+_POOLED_PASS = "- **PASS** dsr: P(true SR > sr0) on conviction-only sample - x"
+_SENT_PASS = "- **PASS** dsr: deployed-era regression sentinel - ub95 >= 0"
+_SENT_FAIL = "- **FAIL** dsr: deployed-era regression sentinel - ub95 < 0"
+_OTHER = "- **PASS** pbo: DEPLOYED selection not dominated by luck - x"
+
+
+class TestDsrFamilyTokenCollision:
+    def test_a_sentinel_PASS_cannot_green_a_pooled_RED(self):
+        """The exact silencing that was measured."""
+        r = parse_overfit_report(_POOLED_FAIL + "\n" + _SENT_PASS)
+        assert r["rungs"]["dsr"] is False, \
+            "a sentinel PASS overwrote the pooled FAIL - the red is silenced"
+        assert r["failed"] == 1 and r["passed"] == 0
+
+    def test_the_silencing_is_order_independent(self):
+        """Emission order is an implementation detail of main(); the merge
+        must not depend on it."""
+        r = parse_overfit_report(_SENT_PASS + "\n" + _POOLED_FAIL)
+        assert r["rungs"]["dsr"] is False
+
+    def test_a_sentinel_FAIL_beside_a_pooled_PASS_is_also_caught(self):
+        """The OTHER direction, which is the one that matters when the pooled
+        red eventually clears: a deployed-era regression must not be hidden by
+        a green pooled verdict."""
+        r = parse_overfit_report(_POOLED_PASS + "\n" + _SENT_FAIL)
+        assert r["rungs"]["dsr"] is False
+        assert r["failed"] == 1
+
+    def test_both_green_stays_green(self):
+        """NEGATIVE ARM: the merge must not manufacture a red."""
+        r = parse_overfit_report(_POOLED_PASS + "\n" + _SENT_PASS)
+        assert r["rungs"]["dsr"] is True
+        assert r["passed"] == 1 and r["failed"] == 0
+
+    def test_collisions_are_counted_and_observable(self):
+        """A silent merge is how the next token collision hides. Zero when
+        tokens are distinct, non-zero when they are not - both arms."""
+        assert parse_overfit_report(
+            _POOLED_FAIL + "\n" + _OTHER)["rung_collisions"] == 0
+        assert parse_overfit_report(
+            _POOLED_FAIL + "\n" + _SENT_PASS)["rung_collisions"] == 1
+
+    def test_the_armed_count_follows_the_family_convention(self):
+        """armed counts FAMILIES, matching overfit_check.armed_families, which
+        deliberately treats both rungs as the `dsr` family. Two dsr lines plus
+        one pbo line is TWO families, not three."""
+        r = parse_overfit_report(
+            _POOLED_FAIL + "\n" + _SENT_PASS + "\n" + _OTHER)
+        assert r["armed"] == 2
