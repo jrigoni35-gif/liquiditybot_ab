@@ -60,6 +60,11 @@ CORPUS_PAIRS = [
 NEVER = {
     "status.json", "audit.jsonl", "signal_history.csv", "fills.csv",
     "events.jsonl", "runner.log", "horizon_shadow.csv", "state.json",
+    # watch_history.csv (core/watch_lane.py, 2026-09-13) - a CORPUS, and the
+    # lane accrues it slowly by design, so age is exactly the wrong signal to
+    # collect it on. Added in the commit that introduced the file rather than
+    # after the first silent deletion.
+    "watch_history.csv",
 }
 
 

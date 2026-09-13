@@ -291,6 +291,22 @@ class BotRunner:
         except Exception:                    # telemetry must never block boot
             log.exception("skimmer init failed - running without it")
             self.skimmer = None
+        # watch lane: labels assets we do NOT trade, into its OWN corpus, to
+        # buy the only thing that scales n_eff (breadth) without touching the
+        # universe. Runner-owned on purpose - the engine must hold no
+        # reference, which is what keeps a watch row out of GateStats and off
+        # the entry path. SHIPS DISABLED; with watch_lane.enabled false this
+        # is an object that returns "idle" and makes no venue calls.
+        try:
+            from core.watch_lane import WatchLane
+            self.watch_lane = WatchLane(
+                config,
+                getattr(self.bot, "kraken", None),
+                core_pairs=list(config.get("exchanges", {})
+                                .get("kraken", {}).get("trading_pairs", [])))
+        except Exception:                    # telemetry must never block boot
+            log.exception("watch_lane init failed - running without it")
+            self.watch_lane = None
         self.control = ControlChannel()
         # purge STALE commands queued before this runner existed: a leftover
         # "stop" from a previous life otherwise executes at boot and kills the
@@ -1407,6 +1423,10 @@ class BotRunner:
             # join the universe at the next restart
             "skimmer": _sk.snapshot()
             if (_sk := getattr(self, "skimmer", None)) is not None else {},
+            # watch lane: rows accrued off-universe, plus the isolation
+            # properties published as data rather than left to a docstring
+            "watch_lane": _wl.snapshot()
+            if (_wl := getattr(self, "watch_lane", None)) is not None else {},
             # per-asset consecutive-loss breaker: active pauses + streaks
             "circuit_breaker": bot.breaker.snapshot(now)
             if getattr(bot, "breaker", None) is not None else {},
@@ -1720,6 +1740,11 @@ class BotRunner:
                         # of telemetry — a skimmer fault never touches trading
                         if (_sk := getattr(self, "skimmer", None)) is not None:
                             _sk.evaluate(now)
+                        # watch-lane tick: at most ONE off-universe asset per
+                        # pass, self-throttled. tick() never raises - it rides
+                        # this thread and a watch fault must not cost a cycle.
+                        if (_wl := getattr(self, "watch_lane", None)) is not None:
+                            _wl.tick(now)
                         snap = self.build_status(now)
                         # write BEFORE publishing to the API threads: write()
                         # mutates snap (adds written_at), and a REST poll

@@ -116,6 +116,12 @@ _REDIRECTED_PATH_ATTRS = (
     # registered on introduction per this file's own rule above, not
     # discovered later as an unregistered-stamp defect.
     "SHADOW_WEIGHTS_PATH",
+    # WATCH_HISTORY_PATH (core/watch_lane.py, 2026-09-13): the watch lane's
+    # own corpus path. Registered ON INTRODUCTION per this file's rule above
+    # and per the SHADOW_WEIGHTS_PATH precedent, not discovered later as an
+    # 11th unregistered-path defect. Without it a test that drives
+    # WatchLane.tick() appends to the operator's real outputs/ tree.
+    "WATCH_HISTORY_PATH",
 )
 
 # Modules that must be PRESENT in sys.modules for the scan below to find
