@@ -392,6 +392,56 @@ def test_the_per_module_limit_is_honoured(tmp_path, monkeypatch):
 # Reporting - "nothing to mutate" is not a pass
 # ======================================================================
 
+def test_the_sweep_locks_ITS_OWN_tree_not_the_real_repo(tmp_path,
+                                                        monkeypatch):
+    """The working-tree lock must follow the REPO the sweep is pointed at.
+
+    scripts/mutate.py owns the lock, so a root resolved from THAT module's
+    REPO landed in the REAL outputs/ while these tests ran against a tmp tree,
+    and the repo's own outputs-write guard failed three of them.
+
+    Caught ONLY by the full suite. The lock was added to
+    scripts/mutation_sweep.py and this file was not re-run afterwards - the
+    single-file greens that followed were all on OTHER files. A green is only
+    as big as its corpus, and the corpus here was the wrong one.
+
+    IT PINS THE ARGUMENT, NOT THE FILE, and two earlier versions explain why.
+    The lock is TRANSIENT - taken and released inside the call - so no
+    after-the-fact filesystem check can see it:
+
+      * "the real lock does not exist" was green standalone and RED under
+        scripts/mutate.py, which legitimately HOLDS that lock while running
+        its own child pytest. A pin that cannot survive being run by the
+        harness is a pin the harness can never verify.
+      * "the real lock is unchanged" then SURVIVED the mutation that removes
+        the root entirely, in both directions: under the harness the sweep is
+        refused outright and creates nothing, and outside it the lock is
+        created and released again before the assertion runs.
+
+    So the observable contract is the CALL: the sweep must hand tree_lock its
+    own REPO. The in-the-wild detector for the real bug is tests/conftest.py's
+    outputs-write guard, which is what caught it - this pin is the one that
+    fails fast and names the cause.
+    """
+    import scripts.mutate as mut
+    seen = {}
+    real_lock = mut.tree_lock
+
+    def spy(root=None):
+        seen["root"] = root
+        return real_lock(root)
+
+    monkeypatch.setattr(ms, "tree_lock", spy)
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    _mod(tmp_path, "tests/test_e.py",
+         "import json\n\n\ndef test_x():\n    assert json\n")
+    ms.main(["--test", "tests/test_e.py"])
+    assert seen.get("root") == tmp_path, \
+        f"the sweep locked {seen.get('root')} while pointed at {tmp_path}"
+    assert not (tmp_path / "outputs" / ".mutating").exists(), \
+        "the sweep left its own lock behind"
+
+
 def test_no_applicable_mutants_is_a_FAILURE(tmp_path, monkeypatch, capsys):
     """Same class as pytest's exit 5, which scripts/checked.py exists to
     separate: a sweep that mutated nothing has established nothing. Reporting

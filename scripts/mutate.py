@@ -98,7 +98,7 @@ def _drop_pyc(path: Path) -> None:
 _LOCK_REL = "outputs/.mutating"
 
 
-def lock_path() -> Path:
+def lock_path(root: Path | None = None) -> Path:
     """Derived from REPO at CALL time, never frozen at import.
 
     tests/conftest.py fails any test that writes into the production
@@ -109,13 +109,20 @@ def lock_path() -> Path:
     means the redirect the tests ALREADY do moves the lock with it, which is
     the fix that guard's own docstring asks for: point the path at tmp_path,
     do not widen the allowlist.
+
+    ROOT IS A PARAMETER, not a lookup of this module's REPO. scripts/
+    mutation_sweep.py takes this lock too, and its tests redirect ITS REPO to a
+    tmp tree - so a lock resolved from this module's REPO landed in the real
+    outputs/ during those tests and the repo's outputs-write guard failed them.
+    Measured 2026-09-13, and only by the FULL suite: the sweep's own test file
+    was not re-run after the lock was added to it.
     """
-    return REPO / _LOCK_REL
+    return (root or REPO) / _LOCK_REL
 MUTATION_ENV = "LIQBOT_MUTATION_RUN"
 _LOCK_STALE_SEC = 3600.0
 
 
-def lock_held_by_other() -> str:
+def lock_held_by_other(root: Path | None = None) -> str:
     """Non-empty reason if another mutation run owns the tree right now.
 
     WHY A LOCK AT ALL. This harness EDITS FILES IN THE WORKING TREE and
@@ -132,30 +139,30 @@ def lock_held_by_other() -> str:
     worst artifact this repo can produce, so it is now loud.
     """
     try:
-        raw = lock_path().read_text(encoding="utf-8").strip()
+        raw = lock_path(root).read_text(encoding="utf-8").strip()
     except OSError:
         return ""
     try:
         pid_s, ts_s = raw.split(None, 1)
         age = time.time() - float(ts_s)
     except ValueError:
-        return f"a malformed lock at {lock_path()}"
+        return f"a malformed lock at {lock_path(root)}"
     if age > _LOCK_STALE_SEC:
         return ""                      # stale: a crashed run, take the tree
     return (f"pid {pid_s} has been mutating this tree for {age:.0f}s "
-            f"({lock_path()})")
+            f"({lock_path(root)})")
 
 
 @contextlib.contextmanager
-def tree_lock():
+def tree_lock(root: Path | None = None):
     """Own the working tree for the duration of a mutation run."""
-    reason = lock_held_by_other()
+    reason = lock_held_by_other(root)
     if reason:
         raise RuntimeError(
             f"REFUSING TO MUTATE: {reason}. Two mutation runs on one tree "
             f"score each other's edits. Wait, or delete the lock if that run "
             f"is dead.")
-    lk = lock_path()
+    lk = lock_path(root)
     lk.parent.mkdir(parents=True, exist_ok=True)
     lk.write_text(f"{os.getpid()} {time.time()}", encoding="utf-8")
     print(f"[mutate] THE WORKING TREE IS BEING MUTATED ({lk}).")

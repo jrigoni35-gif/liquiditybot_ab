@@ -502,7 +502,7 @@ def main(argv=None) -> int:
     # scripts/mutate.py's CLI would have left the actual offender unguarded -
     # a fix aimed at the symptom's neighbour rather than the symptom.
     try:
-        lock = tree_lock()
+        lock = tree_lock(REPO)   # the SWEEP's REPO, not mutate's - its tests redirect it
         lock.__enter__()
     except RuntimeError as exc:
         print(f"[sweep] {exc}")
