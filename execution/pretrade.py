@@ -239,11 +239,38 @@ class PreTradeGate:
             return d
 
         # ---- hard vetoes ------------------------------------------------
+        # A NON-FINITE THRESHOLD MAKES EVERY VETO BELOW FAIL OPEN (2026-09-13).
+        # Each veto is `value > threshold`, which is False when the THRESHOLD
+        # is NaN - so the guard silently stops guarding while the config still
+        # reads as configured. The :338 fence added earlier the same day does
+        # not help: it inspects the derived cost/edge and runs AFTER all of
+        # these. Measured on a live gate from the shipped config, in the lane
+        # era-9 actually uses (exploring=True, which bypasses PT-041/PT-040 by
+        # design, so these vetoes are the LAST line):
+        #     stale 1e6 ms, threshold OK              -> refused (PT-020)
+        #     stale 1e6 ms, max_data_staleness_ms=NaN -> APPROVED
+        #     $0.01 order, min_order_usd=NaN          -> APPROVED
+        # A non-finite participation cap is verdict-INVISIBLE - it does not
+        # approve anything by itself, it silently drops the size clamp, so it
+        # is fenced here too rather than left to be noticed later.
+        # PT_INVALID_INPUT, not a new code: it already means exactly this and
+        # already fires for non-finite three lines up.
+        spread_cap = self.tier_max_spread_bps.get(ctx.tier, self.max_spread_bps)
+        for _tn, _tv in (("max_data_staleness_ms", self.max_staleness_ms),
+                         (f"max_spread_bps[{ctx.tier}]", spread_cap),
+                         ("min_order_usd", self.min_order_usd),
+                         ("max_participation_of_depth", self.max_participation)):
+            if not _fin(_tv):
+                d.reasons.append(tag(Code.PT_INVALID_INPUT,
+                                     f"non-finite threshold {_tn}={_tv!r} - "
+                                     f"every veto compares with '>', which is "
+                                     f"False against NaN, so this guard would "
+                                     f"stop guarding silently"))
+                return d
         if ctx.staleness_ms > self.max_staleness_ms:
             d.reasons.append(tag(Code.PT_STALE_DATA,
                                  f"{ctx.staleness_ms:.0f}ms"))
             return d
-        spread_cap = self.tier_max_spread_bps.get(ctx.tier, self.max_spread_bps)
         if ctx.spread_bps > spread_cap:
             d.reasons.append(tag(Code.PT_SPREAD_WIDE,
                                  f"{ctx.spread_bps:.1f}bps > "

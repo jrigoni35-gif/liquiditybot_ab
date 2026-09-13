@@ -327,18 +327,19 @@ _BOOK_C2 = {"bids": [[100.0, 50.0], [99.9, 80.0]],
 def _ctx_c2(**over):
     base = dict(kraken_book=_BOOK_C2, sigma_daily_pct=2.0, adv_usd=5e7,
                 liq_label="liquid", spread_bps=10.0, staleness_ms=200.0,
-                reduce_only_ok=True, tier=5)
+                reduce_only_ok=True, tier="core")
     base.update(over)
     return _Ctx(**base)
 
 
-def _decide_c2(pt_over=None, ctx=None, **kw):
+def _decide_c2(pt_over=None, ctx=None, size=0.6, **kw):
     pt = _copy.deepcopy(_CFG_C2["pretrade"])
     if pt_over:
         pt.update(pt_over)
     args = dict(exp_alpha_bps=30.0, fv_edge_bps=10.0, taker=False)
     args.update(kw)
-    return _Gate(pt).evaluate("buy", 0.6, 100.0, ctx=ctx or _ctx_c2(), **args)
+    return _Gate(pt).evaluate("buy", size, 100.0,
+                              ctx=ctx or _ctx_c2(), **args)
 
 
 class TestNonFiniteCostCannotApprove:
@@ -397,3 +398,61 @@ class TestNonFiniteCostCannotApprove:
         bypass a non-finite refusal - an unknown cost is not a thin edge."""
         d = _decide_c2({"impact_eta": float("nan")}, exploring=True)
         assert d.approved is False
+
+
+class TestNonFiniteThresholdsFailClosed:
+    """C2b - each hard veto is `value > threshold`, which is False when the
+    THRESHOLD is NaN, so the guard stops guarding while the config still reads
+    as configured. These run BEFORE the :338 cost/edge fence and never reach
+    it. Measured in the exploring lane - the one era-9 entries use, where
+    PT-041/PT-040 are bypassed by design so these vetoes are the LAST line."""
+
+    @pytest.mark.parametrize("over,ctx_kw,size", [
+        ({"max_data_staleness_ms": float("nan")}, {"staleness_ms": 1e6}, 0.6),
+        ({"min_order_usd": float("nan")}, {}, 0.0001),
+        ({"max_participation_of_depth": float("nan")}, {}, 500.0),
+        ({"tier_max_spread_bps": {"core": float("nan"), "mid": 30,
+                                  "micro": 55}},
+         {"spread_bps": 500.0, "tier": "core"}, 0.6),
+    ])
+    def test_a_non_finite_threshold_cannot_approve(self, over, ctx_kw, size):
+        d = _decide_c2(over, ctx=_ctx_c2(**ctx_kw) if ctx_kw else None,
+                       exploring=True)
+        assert d.approved is False
+        assert any("non-finite threshold" in str(r) for r in d.reasons)
+
+    def test_the_refusal_uses_the_registered_code(self):
+        from core.codes import Code
+        d = _decide_c2({"min_order_usd": float("nan")}, size=0.0001,
+                       exploring=True)
+        assert any(Code.PT_INVALID_INPUT.value in str(r) for r in d.reasons)
+
+    def test_a_REAL_veto_still_fires_when_thresholds_are_finite(self):
+        """NEGATIVE ARM. The fence must not shadow the vetoes it protects."""
+        d = _decide_c2(ctx=_ctx_c2(staleness_ms=1e6), exploring=True)
+        assert d.approved is False
+        from core.codes import Code
+        assert any(Code.PT_STALE_DATA.value in str(r) for r in d.reasons)
+
+
+    def test_a_non_finite_max_spread_bps_is_INERT_at_a_mapped_tier(self):
+        """The audit's own correction, pinned so it is not re-litigated.
+
+        pretrade.py reads `tier_max_spread_bps.get(ctx.tier, max_spread_bps)`
+        and the shipped map covers every real tier {core, mid, micro}. So a
+        NaN in the FALLBACK max_spread_bps never reaches a comparison at a
+        mapped tier - it is inert, not a fail-open. Only the tier's OWN entry
+        opens PT-021, which the case above covers.
+        """
+        d = _decide_c2({"max_spread_bps": float("nan")},
+                       ctx=_ctx_c2(spread_bps=500.0, tier="core"),
+                       exploring=True)
+        assert d.approved is False
+        from core.codes import Code
+        assert any(Code.PT_SPREAD_WIDE.value in str(r) for r in d.reasons), \
+            "a mapped tier must still veto on its own finite cap"
+
+    def test_a_normal_order_still_approves(self):
+        """NEGATIVE ARM. Entry-decisioning code under a moratorium: the fence
+        must be inert on the shipped config."""
+        assert _decide_c2(exploring=True).approved is True

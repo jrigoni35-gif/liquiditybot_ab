@@ -306,4 +306,66 @@ class TestNonFiniteFailsClosed:
         """A guard message that says only 'invalid' teaches nobody why."""
         hits = _fatals(_with(shipped, "impact_eta", float("nan")),
                        "impact_eta")
-        assert "PT-041" in hits[0] and "APPROVED" in hits[0]
+        # TWO findings now fire for one bad key and both are correct: the
+        # general pretrade sweep (added with C2b) reports first, the
+        # clamped-list check second. Assert the consequence appears in ONE of
+        # them rather than pinning an ordering nothing guarantees.
+        assert any("PT-041" in m and "APPROVED" in m for m in hits), hits
+
+
+# ==========================================================================
+# C2b - the GENERAL non-finite sweep over the pretrade block (2026-09-13)
+#
+# The bounded `clamped` list covers five knobs. It did NOT cover the four
+# THRESHOLDS the hard vetoes compare against, and a non-finite threshold makes
+# its veto fail OPEN: measured, max_data_staleness_ms=NaN APPROVES a
+# 1,000,000 ms stale book in the exploring lane. Enumerating four more keys
+# would leave the same shape one key over - which is how both this defect and
+# the 2026-09-11 miss_cost_bps one arrived - so the sweep closes the CLASS.
+# ==========================================================================
+
+
+class TestGeneralNonFiniteSweep:
+    @pytest.mark.parametrize("key", [
+        "max_data_staleness_ms", "min_order_usd",
+        "max_participation_of_depth", "max_spread_bps"])
+    def test_a_veto_threshold_refuses_a_non_finite(self, shipped, key):
+        hits = [m for m in _fatals(_with(shipped, key, float("nan")), key)
+                if "not finite" in m]
+        assert hits, f"pretrade.{key}=NaN validated clean"
+
+    def test_a_NESTED_numeric_is_swept_too(self, shipped):
+        """The proof the sweep beats enumeration: tier_max_spread_bps is a MAP,
+        and its members are thresholds PT-021 compares against."""
+        c = copy.deepcopy(shipped)
+        c["pretrade"]["tier_max_spread_bps"]["core"] = float("nan")
+        hits = [m for s, m in validate(c)
+                if s == "FATAL" and "tier_max_spread_bps.core" in m]
+        assert hits, "a nested non-finite threshold was not swept"
+
+    def test_infinities_are_swept_as_well_as_nan(self, shipped):
+        for bad in (float("inf"), float("-inf")):
+            assert [m for m in _fatals(
+                _with(shipped, "min_order_usd", bad), "min_order_usd")
+                if "not finite" in m], f"{bad} passed"
+
+    def test_the_shipped_config_stays_clean(self, shipped):
+        """NEGATIVE ARM - the sweep walks every numeric leaf under pretrade,
+        so a false positive here would FATAL the live boot."""
+        assert [m for s, m in validate(shipped) if s == "FATAL"] == []
+
+    def test_a_bool_is_not_reported_as_non_finite(self, shipped):
+        """bool is a subclass of int; treating True as a number would produce
+        a nonsense finding on every flag in the block."""
+        c = copy.deepcopy(shipped)
+        c["pretrade"]["price_exit_leg"] = True
+        assert [m for s, m in validate(c)
+                if s == "FATAL" and "price_exit_leg" in m] == []
+
+    def test_underscore_doc_keys_are_skipped(self, shipped):
+        """The block is full of _doc strings; the sweep must not trip on them
+        or start reporting prose."""
+        c = copy.deepcopy(shipped)
+        c["pretrade"]["_note_doc"] = "not a number"
+        assert [m for s, m in validate(c)
+                if s == "FATAL" and "_note_doc" in m] == []

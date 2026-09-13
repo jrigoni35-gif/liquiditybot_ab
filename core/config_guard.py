@@ -635,6 +635,36 @@ def _cost_stack_range_checks(config: dict) -> list:
         ("pretrade.miss_cost_bps", 0.0, 20.0,
          "prices the opportunity cost of NOT filling, inside the same EV gate"),
     ]
+    # GENERAL NON-FINITE SWEEP over the whole pretrade block (2026-09-13).
+    # The bounded list below covers five knobs. It does NOT cover the four
+    # THRESHOLDS the hard vetoes compare against (max_data_staleness_ms,
+    # max_spread_bps / tier_max_spread_bps, min_order_usd,
+    # max_participation_of_depth), and a non-finite threshold makes its veto
+    # fail OPEN - measured: max_data_staleness_ms=NaN APPROVES a 1,000,000 ms
+    # stale book in the exploring lane. Enumerating four more keys would leave
+    # the same shape one key over, which is how this defect and the
+    # 2026-09-11 miss_cost_bps one both arrived, so this closes the CLASS:
+    # every numeric leaf under `pretrade`, including nested maps.
+    _pre = config.get("pretrade") if isinstance(config, dict) else None
+    if isinstance(_pre, dict):
+        def _sweep(node, path):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if not str(k).startswith("_"):
+                        _sweep(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    _sweep(v, f"{path}[{i}]")
+            elif isinstance(node, (int, float)) and not isinstance(node, bool):
+                if not math.isfinite(float(node)):
+                    out.append(("FATAL",
+                                f"{path}={node!r} is not finite - every "
+                                f"comparison against it comes out False, so "
+                                f"any gate or veto reading it stops guarding "
+                                f"SILENTLY while the config still reads as "
+                                f"configured"))
+        _sweep(_pre, "pretrade")
+
     for key, lo, hi, what in clamped:
         raw = _f(config, key, None)
         if raw is None:
