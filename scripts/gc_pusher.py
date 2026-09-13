@@ -1440,7 +1440,23 @@ OVERFIT_REPORT_PATH = Path(__file__).resolve().parents[1] / "outputs" \
 # a health threshold, it is the line past which a verdict stops describing the
 # corpus it claims to describe.
 OVERFIT_STALE_AFTER_SEC = 36 * 3600.0
-_OVERFIT_RUNG_RE = re.compile(r"^- \*\*(PASS|FAIL)\*\* ([A-Za-z0-9_\-]+)\s*:")
+# The token is EVERYTHING before the colon, which is exactly what
+# scripts/overfit_check.armed_families computes
+# (`str(name).split(":")[0].strip()`). The previous character class
+# `[A-Za-z0-9_\-]+` silently dropped every BRACKETED family - the
+# battery emits `gap[gbt]`, `plateau[gbt_d2_lr10]` and `monotone[gbt]`
+# at overfit_check.py:855/:860/:1443 - so a bracketed rung, including a
+# FAILING one, contributed nothing to passed/failed/armed and no tile
+# compensated, because overfit_failed is computed from this same parse.
+#
+# LATENT, NOT LIVE, and the distinction was measured rather than
+# assumed: this parser was introduced 2026-09-12 (5dc0b861); the only
+# reports on disk carrying bracketed rungs are archived ones stamped
+# 2026-07-08..07-18, two months earlier, and today's report emits five
+# rungs with no brackets. So no published number was ever wrong. It
+# would have armed the first time OF-1 (gap) or OF-4 (plateau) armed
+# again - OF-1 is informational only while exploration is on.
+_OVERFIT_RUNG_RE = re.compile(r"^- \*\*(PASS|FAIL)\*\* ([^\s:]+)\s*:")
 
 
 def parse_overfit_report(text: str) -> dict:

@@ -241,3 +241,131 @@ class TestDsrFamilyTokenCollision:
         r = parse_overfit_report(
             _POOLED_FAIL + "\n" + _SENT_PASS + "\n" + _OTHER)
         assert r["armed"] == 2
+
+
+import re  # noqa: E402  (C6 parity pin)
+
+
+# ==========================================================================
+# C6 - the rung regex dropped every BRACKETED family (2026-09-13)
+#
+# The battery emits bracketed family tokens at overfit_check.py:855
+# (plateau[...]), :860 (monotone[...]) and :1443 (gap[...]). The character
+# class `[A-Za-z0-9_\-]+` matched none of them, so a bracketed rung -
+# INCLUDING A FAILING ONE - contributed nothing to passed/failed/armed, and
+# no dashboard tile compensated because overfit_failed derives from this same
+# parse. CLAUDE.md calls the armed count "the number to read"; it was
+# under-countable by construction.
+#
+# LATENT, NOT LIVE - measured, not assumed. This parser landed 2026-09-12
+# (5dc0b861); the only bracketed reports on disk are archived, stamped
+# 2026-07-08..07-18. No published number was ever wrong.
+#
+# The pin below is PARITY WITH THE AUTHORITY, not a regex restatement: the
+# docstring says this uses "the SAME convention armed_families uses", so the
+# test asserts that sentence. A regex pin would drift from the thing it is
+# supposed to track - which is how the defect got here.
+# ==========================================================================
+
+def _armed_families_reference(lines):
+    """scripts/overfit_check.armed_families, applied to report LINES.
+
+    Imported rather than reimplemented where possible; falls back to the
+    documented one-liner so the pin still runs if the battery module cannot
+    be imported in this environment.
+    """
+    try:
+        import importlib.util
+        import sys as _sys
+        from pathlib import Path as _Path
+        root = _Path(__file__).resolve().parent.parent
+        spec = importlib.util.spec_from_file_location(
+            "_of_check", root / "scripts" / "overfit_check.py")
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            _sys.modules["_of_check"] = mod
+            spec.loader.exec_module(mod)
+            report = []
+            for ln in lines:
+                m = re.match(r"^- \*\*(PASS|FAIL)\*\* (.*)$", ln)
+                if m:
+                    report.append((m.group(1), m.group(2), ""))
+            return mod.armed_families(report)
+    except Exception:
+        pass
+    out = set()
+    for ln in lines:
+        m = re.match(r"^- \*\*(PASS|FAIL)\*\* (.*)$", ln)
+        if m:
+            out.add(m.group(2).split(":")[0].strip())
+    return out
+
+
+_BRACKETED = [
+    "- **PASS** gap[logistic]: OOF gap within memorization band - gap=+0.025",
+    "- **PASS** gap[gbt]: OOF gap within memorization band - gap=+0.074",
+    "- **FAIL** plateau[gbt_d2_lr10]: best not a knife-edge - peak=0.71",
+    "- **PASS** monotone[gbt]: stricter gate => fewer entries",
+]
+_PLAIN = [
+    "- **PASS** pbo: DEPLOYED selection not dominated by luck - pbo=0.19",
+    "- **FAIL** dsr: P(true SR > sr0) on conviction-only sample - dsr=0.006",
+]
+
+
+class TestBracketedRungFamilies:
+    def test_a_bracketed_family_is_parsed_at_all(self):
+        r = parse_overfit_report("\n".join(_BRACKETED))
+        assert r["armed"] == 4, f"bracketed rungs dropped: {r['rungs']}"
+        assert "gap[gbt]" in r["rungs"]
+        assert "plateau[gbt_d2_lr10]" in r["rungs"]
+
+    def test_a_FAILING_bracketed_rung_reaches_the_failed_count(self):
+        """The consequence that matters: a red that cannot be counted is a red
+        that cannot page anyone."""
+        with_it = parse_overfit_report("\n".join(_PLAIN + _BRACKETED))
+        without = parse_overfit_report("\n".join(
+            _PLAIN + [x for x in _BRACKETED if "plateau" not in x]))
+        assert with_it["failed"] == without["failed"] + 1, (
+            "a FAILING bracketed rung is invisible in the failed count")
+
+    def test_families_are_NOT_collapsed_to_their_stem(self):
+        """armed_families keeps gap[gbt] whole (split on ':' only), so three
+        gap variants are THREE families. Collapsing them would under-count
+        arming in the other direction."""
+        r = parse_overfit_report("\n".join(_BRACKETED))
+        assert "gap" not in r["rungs"]
+        assert {"gap[logistic]", "gap[gbt]"} <= set(r["rungs"])
+
+    def test_parity_with_armed_families_on_bracketed_input(self):
+        """THE LOAD-BEARING PIN. The docstring claims this parse uses the same
+        convention as overfit_check.armed_families. Assert the claim, so the
+        two cannot drift - drifting is exactly how C6 happened."""
+        lines = _PLAIN + _BRACKETED
+        assert set(parse_overfit_report("\n".join(lines))["rungs"]) == \
+            _armed_families_reference(lines)
+
+    def test_parity_holds_on_the_report_actually_on_disk(self):
+        """Non-vacuity against real data rather than only fixtures."""
+        from pathlib import Path as _P
+        rep = _P(__file__).resolve().parent.parent / "outputs" / "overfit_report.md"
+        if not rep.exists():
+            import pytest as _pt
+            _pt.skip("no overfit_report.md on disk")
+        text = rep.read_text(encoding="utf-8", errors="replace")
+        lines = [ln for ln in text.splitlines() if ln.startswith("- **")]
+        assert set(parse_overfit_report(text)["rungs"]) == \
+            _armed_families_reference(lines)
+
+    def test_plain_families_are_unchanged(self):
+        """NEGATIVE ARM: the widened class must not alter existing behaviour."""
+        r = parse_overfit_report("\n".join(_PLAIN))
+        assert set(r["rungs"]) == {"pbo", "dsr"}
+        assert (r["passed"], r["failed"], r["armed"]) == (1, 1, 2)
+
+    def test_an_INFO_line_is_still_not_a_rung(self):
+        """INFO lines can never move the exit code and must stay unparsed -
+        the widened class must not start swallowing them."""
+        r = parse_overfit_report(
+            "- **INFO** gap[gbt]: no viable folds\n" + _PLAIN[0])
+        assert set(r["rungs"]) == {"pbo"}
