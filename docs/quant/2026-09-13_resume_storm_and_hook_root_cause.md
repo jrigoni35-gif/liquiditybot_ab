@@ -161,3 +161,60 @@ the main checkout. This is the inverse of the vault's
 battery's own summary could not have told you, because its exit-code column
 was blank (a PowerShell `$args` parameter-shadowing bug in the harness, fixed
 mid-session); the gate verdicts here were read from the logs, not from rc.
+
+## 7. Activating the hook fix WITHOUT restarting the desktop app (21:30, verified)
+
+Section 3's fix was correct and inert. Measured why [K]: the app's root
+`claude.exe` processes were created 2026-09-13 18:41:04 local; the HKCU
+`Environment` key's `LastWriteTimeUtc` and `Python314\python3.exe`'s
+`CreationTimeUtc` are both 2026-09-14T01:44:49Z. The fix landed **63 min 45 s
+after** the process tree existed, and Windows offers no supported way to mutate
+a running process's environment block. The registry route can therefore never
+reach this session's hooks. Its value is for the NEXT app launch.
+
+**What actually reached them, with no restart and no config edit.** The hook's
+shell is a non-login `bash -c` (all 12 `hooks.json` entries are
+`bash "$CLAUDE_PLUGIN_ROOT/hooks/sg-python.sh" "<hook>.py"`). Its inherited
+PATH, read from the raw process environment, orders
+`...\Microsoft\WindowsApps` at **24** and `...\Python\Python314` at **34** —
+the pre-fix order. But position **22** is `...\Local\Programs\Python\Launcher`,
+which already exists, is already ahead of WindowsApps, and held only
+`py.exe`, `pyw.exe` and `pyshellext.amd64.dll`. Copying `python3.exe` there
+wins the lookup because **bash resolves PATH at exec time**: the environment
+was never changed, only the filesystem at a location the existing PATH already
+named. Nothing new was added to PATH, so no new precedence directory was
+created — the alternative, `~/bin` at PATH position 3, would have introduced a
+user-writable directory ahead of `system32` for every Git Bash process on this
+box. Directory ACL checked: SYSTEM, Administrators and the user only.
+
+**Mutation pair on the REAL hook command, real plugin root, synthetic Stop
+event on stdin [K]:**
+
+| arm | rc | stdout |
+|---|---|---|
+| without `Launcher\python3.exe` | 2 | the `[Errno 2]` of section 3, byte-identical to the live notifications |
+| with it | 0 | `{"metrics": {"pv": 20008, "skipped": true, "skip_reason": 3, "fire_index": 1, "diff_strategy_v2": true}}` |
+
+`skip_reason 3` is `not ENABLE_CODE_SECURITY_REVIEW or not HAS_API_CREDENTIALS`
+at `security_reminder_hook.py:1974` — reached only after the hook loads,
+parses the event, snapshots Stop state and enters its real review logic. An
+earlier run of the same command returned `skip_reason -2`, which is a **stdin
+JSON decode failure** at line 2275: the first synthetic payload was malformed
+and PowerShell's pipe was in the path. That reading would have been mistaken
+for a working hook. The instrument was the first suspect and it was the
+instrument.
+
+**The SDK step was not needed, contrary to the plan.** Running the SessionStart
+hook through the same shim returned rc 0 and
+`{"metrics": {"sdk_bootstrap": 1, "sdk_bootstrap_ms": 1013, "sdk_hook_py": 314}}`.
+`ensure_agent_sdk.py` defines `NOOP_VENV = 1` — the venv at
+`~/.claude/security/agent-sdk-venv` is already built and the SDK already
+imports from it. A `pip install` into Python314's site-packages would have been
+the wrong target entirely; the hook prepends that venv's site-packages itself.
+
+**What this could not see.** The credential gate means no end-to-end LLM review
+ran in the harness, only the load-parse-dispatch path. Whether a live hook has
+credentials is not established here; the live evidence is the absence of new
+`[Errno 2]` notifications after 21:30. Provenance for the copy is recorded in
+`Launcher\python3.exe.README.txt` — the file is installer-unowned and a Python
+repair will remove it, silently re-breaking all 12 hooks.
