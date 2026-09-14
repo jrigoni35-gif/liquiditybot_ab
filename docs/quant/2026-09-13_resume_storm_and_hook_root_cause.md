@@ -493,3 +493,78 @@ things a larger one would catch. It is strictly better than the zero reviews
 that have run on this box to date, and it is honest about when it did not run.
 Whether it joins the Definition of done is an operator decision and was not
 taken here.
+
+## 11. Which local model — decided by measurement on this box (2026-09-14 00:30)
+
+The operator asked which model best fits their hardware. Answered by running
+both candidates over one corpus rather than by quoting benchmarks, because
+published coding benchmarks measure code GENERATION and this task is
+vulnerability DETECTION.
+
+### 11a. The hardware is the constraint, and a live bot is part of it
+
+| component | value |
+|---|---|
+| GPU | RTX 3070 Ti, **8 GB VRAM** |
+| system RAM | 15.9 GB |
+| CPU | Ryzen 5 5600X, 6 cores |
+| free disk | 48 GB |
+
+`Win32_VideoController.AdapterRAM` reports **4 GB** — the known 32-bit cap
+artifact. The registry `HardwareInformation.qwMemorySize` reports **8 GB**,
+which is the real figure. Reading the first number would have halved the
+apparent ceiling. *Two routes, and they disagreed.*
+
+8 GB is a hard ceiling here for a second reason: **this machine runs the live
+runner.** A model that spills to system RAM competes with it on a 6-core CPU
+with 16 GB, and a starved heartbeat makes the supervisor relaunch the bot from
+the working tree. So "it runs if it offloads" is not acceptable, and dense
+models above roughly 8B at q4 are out on that basis, not on quality.
+
+### 11b. The harness: `scripts/local_review_eval.py` (SAFE)
+
+14 cases — **9 planted defects** (hardcoded secret, command injection, eval on
+untrusted input, SQL injection, unsafe pickle, path traversal, disabled TLS,
+credential logged, swallowed auth error) and **5 controls**.
+
+Three of the controls are the load-bearing ones: **SAFE look-alikes** — a
+parameterised query, a list-form `subprocess.run`, and `ast.literal_eval`.
+They contain all the dangerous vocabulary and are correct. **Recall alone is a
+gameable metric**: a model answering "CRITICAL | everything" scores 100%. The
+pins in `tests/test_local_review_eval.py` assert exactly that — the shouting
+model must show 100% false positives and the silent model 0% recall — so the
+score cannot be won by either degenerate strategy.
+
+### 11c. The result, two identical runs at temperature 0
+
+| model | recall | false pos | format | median |
+|---|---|---|---|---|
+| `qwen2.5:7b-instruct` (incumbent) | 8/9 | 2/5 | 10/14 | 0.5 s |
+| **`qwen2.5-coder:7b`** | **9/9** | 2/5 | **14/14** | **0.3 s** |
+
+Both 4.7 GB, same VRAM class, so the swap costs nothing. Better or equal on
+every axis. **The most robust difference is the format column**, not recall:
+14/14 means the prose-drift retry shim never fires, where the incumbent needed
+it on 4 of 14. The recall difference is a single case (path traversal) and
+should not be over-read at n=9.
+
+**What the upgrade did NOT fix, stated because it is the interesting part.**
+False positives are **tied at 2/5**, and both models flag the *same* two SAFE
+look-alikes: the list-form `subprocess.run` and `ast.literal_eval`. Both got
+the parameterised SQL right. So both are still partly matching vocabulary
+rather than reading code, and a code-specialised model did not repair that.
+Anyone reading this tool's output should expect false positives on correct
+defensive code.
+
+`DEFAULT_MODEL` in `scripts/local_security_review.py` now names the winner,
+with the table in a comment beside it and a pointer to re-derive.
+
+### 11d. What this could not establish
+
+n=14 is a small corpus and every case is synthetic and short; real diffs are
+longer and messier, and the one real diff reviewed so far returned NONE, which
+is unfalsified rather than verified. The corpus was written by the same author
+as the prompt, so it tests the pair, not the model alone. Only two models were
+compared — a research pass over the wider library was still running when this
+was written. And nothing here measures the thing that actually matters, which
+is whether either model would catch a defect in this repo that a human missed.

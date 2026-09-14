@@ -57,7 +57,22 @@ from local_llm_mcp import (  # noqa: E402  - path set above
 )
 
 DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
-DEFAULT_MODEL = "qwen2.5:7b-instruct"
+
+# Chosen by measurement, not reputation. `scripts/local_review_eval.py` ran
+# both over the same 14-case corpus twice, identically (temperature 0):
+#
+#   model                  recall   false-pos   format    median
+#   qwen2.5:7b-instruct      8/9       2/5       10/14     0.5 s
+#   qwen2.5-coder:7b         9/9       2/5       14/14     0.3 s
+#
+# Same 4.7 GB on disk, same VRAM class, so the upgrade is free. It is better
+# or equal on every axis, and the format column is the most robust difference:
+# 14/14 means the prose-drift retry shim never has to fire.
+# It did NOT fix discrimination - BOTH models flag the SAFE look-alike
+# controls (a list-form subprocess call and ast.literal_eval), so both are
+# still partly matching vocabulary rather than reading code. Re-derive with
+# `python scripts/local_review_eval.py --models a,b`.
+DEFAULT_MODEL = "qwen2.5-coder:7b"
 
 # Kept well under the model's context. A diff larger than this is truncated
 # and the truncation is REPORTED, never silent - a partial review that reads
