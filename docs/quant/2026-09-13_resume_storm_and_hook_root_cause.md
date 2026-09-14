@@ -218,3 +218,89 @@ credentials is not established here; the live evidence is the absence of new
 `[Errno 2]` notifications after 21:30. Provenance for the copy is recorded in
 `Launcher\python3.exe.README.txt` — the file is installer-unowned and a Python
 repair will remove it, silently re-breaking all 12 hooks.
+
+## 8. Adversarial review of sections 5-7, and two errata (22:05)
+
+Three hostile lenses over this session's own output. Both CRITICAL findings
+are defects in the work above, and both are corrected here rather than argued
+away.
+
+### 8a. CRITICAL — the shim could not load its own runtime. REPLACED.
+
+Section 7's fix placed a byte copy of `python.exe` in the Launcher directory.
+**A copy of `python.exe` outside its install directory cannot find
+`python314.dll` beside itself.** It started only because
+`...\Programs\Python\Python314` happens to sit on PATH. Mutation, one variable:
+
+| PATH | result |
+|---|---|
+| as shipped | rc 0, metrics |
+| `Python314` entries stripped | **exit -1073741515 = `0xC0000135 STATUS_DLL_NOT_FOUND`** |
+
+That failure is message-less, strictly worse than the readable `[Errno 2]` it
+replaced, and section 7's own provenance note called the PATH entry
+"redundant-but-harmless", which invites exactly the cleanup that triggers it.
+The original fix put `python3.exe` BESIDE `python.exe` for precisely this
+reason; relocating it for the precedence win silently traded that property
+away, and section 7 did not re-check it.
+
+**Replaced with a two-line `/bin/sh` script** named `python3` in the same
+directory, which `exec`s the interpreter by absolute path. Verified on the
+real hook command in both arms — rc 0 with a normal PATH, and **rc 0 again
+with `Python314` stripped from PATH entirely**, the arm that killed the
+binary. Two further gains: no 106 KB binary to drift out of version with the
+interpreter it names, and an extensionless script is found by shells that
+search PATH for exact names (the hooks' bash) and **not** by `cmd.exe` or
+PowerShell, so the fix now reaches the one consumer that needed it and nothing
+else. `Python314\python3.exe` stays — it sits beside its own DLL and is
+self-contained. Provenance: `Launcher\python3.README.txt`.
+
+### 8b. CRITICAL — a false verification claim shipped in a commit message.
+
+Commit `c189c462` states: *"The four suites that read docs/ ... pass, 107
+tests, rc 0."* **There are 32 such files, not four, and 675 tests, not 107.**
+The four came from a `grep ... | head`, and the truncation was read as the
+whole list — the sixth instance this session of an instrument answering
+truthfully about a scope nobody asked about.
+
+**The verdict is unchanged and the corrected run is green: 675 passed, 7
+skipped, 1 xfailed, rc 0**, across all 32 files that reference `docs/`,
+`HANDOFF` or `CODEBASE_TEMPLATE`. So nothing shipped broken. What shipped was
+a claim narrower than its evidence, in the one place that outlives the code.
+The history is pushed and is not being rewritten; this is the erratum.
+
+A second instrument note from the same run: the first attempt returned **rc 1
+with no failing test**. The cause was a pytest temp-directory teardown
+(`PermissionError [WinError 5]` unlinking `pytest-current`), not a result.
+`--basetemp` into the session scratchpad separates them. **An rc from a suite
+is a claim about the harness until the summary line is read.**
+
+### 8c. WARNING — 16 commits today were never security-reviewed, and will not be.
+
+The plugin's own log (`~/.claude/security/log.txt`) has **no live hook
+invocation before 20:31:48**, and that first entry is this session's manual
+full-path probe, not a hook. `origin/main` took **18 commits on 2026-09-13**,
+of which 16 landed before the fix — including `2dec30a3`, self-labelled
+CRITICAL, and four guard/validator changes. The hook's state file now
+baselines at `c189c462`, so the backlog is not covered retroactively and
+nothing will ever review it. **The outage's real cost is that gap, not the
+notification noise.** Remediation, if wanted, is a manual review over
+`4d58ad61..3f891c19`; it is not done here.
+
+### 8d. Lesser findings, recorded not fixed
+
+- **`docs/CODEBASE_TEMPLATE.md` is named and located like canon.** It sits
+  beside `ONBOARDING.md` and `INSTRUMENT_VERIFICATION_STANDARD.md`, and
+  `tests/test_docs_era_currency.py` `rglob`s it into a gate's corpus. Its
+  content carries zero refuter verdicts. The filename promises an authority
+  the first paragraph disclaims, and the filename is what gets read.
+- **Nothing detects the shim's loss.** The only signal is the notification
+  storm returning.
+- **Small, real increase in persistence surface.** `python3` for every Git
+  Bash process now resolves to a user-writable file rather than a
+  Microsoft-signed alias. The ACL is clean (SYSTEM / Administrators / user,
+  inherited, no `Users` or `Everyone`) and **`system32` precedes it on PATH**
+  (position 7 against 25), so no system binary is shadowed. Residual: anything
+  already holding the user's token gets code execution on every Write, Edit,
+  commit and push. Measured blast radius of the redirect itself is one
+  consumer — `install.sh` probes bare `python3` as an existence check.
