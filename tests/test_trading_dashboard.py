@@ -345,6 +345,31 @@ def _aux_emitted(tmp_path, monkeypatch) -> set:
         '"n_eff": 10.0, "anti_selective": False, "selective": True, '
         '"comparison": "OK", "era_overlap": 1.0}]}}))',
         encoding="utf-8")
+    # overfit gate (5dc0b861 2026-09-12, "put the overfit battery on a board"):
+    # the SAME fresh-worktree hole the veto family had above, missed when that
+    # family shipped - and it WEDGED THE DEPLOY PIPELINE. _overfit_gate_metrics
+    # reads OVERFIT_REPORT_PATH, which gc_pusher.py:1436 hardcodes to its own
+    # tree (`Path(__file__).resolve().parents[1] / "outputs"`, honouring no
+    # environment variable: `grep -c LB_OUTPUTS scripts/gc_pusher.py` = 0).
+    # auto_update tests incoming code in a FRESH WORKTREE whose outputs/ is
+    # empty, so the report is absent, the collector returns ONLY its two
+    # absence gauges (report_missing, stale), and every other
+    # liquiditybot_overfit_* key on the board reads as a metric gc_pusher can
+    # never emit. Measured 2026-09-14: the deploy gate had rejected every
+    # commit since 2026-09-12 on exactly that assertion, so the live runner
+    # sat on stale code while the fix for it could not deploy - CLAUDE.md's
+    # "a gate's release condition must never depend on the thing it blocks".
+    # Rebinding to a fixture does NOT weaken the assertion: a genuinely
+    # invented key still matches nothing here and still fails.
+    overfit = tmp_path / "overfit_report.md"
+    overfit.write_text(
+        "# Overfit audit - fixture\n"
+        "\n"
+        "- **PASS** shuffle: destroyed labels learn nothing OOF\n"
+        "- **FAIL** pbo: fixture failure, so passed/failed/armed are each "
+        "non-trivial\n",
+        encoding="utf-8")
+    monkeypatch.setattr(gp, "OVERFIT_REPORT_PATH", overfit)
     monkeypatch.setattr(gp, "RETRAIN_HISTORY_PATH", retrain)
     monkeypatch.setattr(gp, "MODEL_REGISTRY_PATH", registry)
     monkeypatch.setattr(gp, "COHORT_SCRIPT", cohort)
