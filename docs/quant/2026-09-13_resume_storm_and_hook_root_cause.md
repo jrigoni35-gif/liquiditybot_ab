@@ -425,3 +425,71 @@ all 940 contain reviewable code. `gc_pusher.log`'s missing date field leaves
 the storm-window metric question open by that route. OBJ-13 is undecided. And
 this section is itself a self-review of a self-review, which is the posture
 that produced every error above.
+
+## 10. The credential question, settled — and a reviewer that needs no credential (23:45)
+
+Section 9a established that the plugin's LLM review has never run because
+`HAS_API_CREDENTIALS` is false. The operator has no API key and asked whether
+anything could get them in, naming two candidates: a credential helper, and a
+restart. **Neither works, and the reason is documented, not speculative.**
+
+**A restart cannot help [K, official docs].** Claude Code injects a FIXED list
+of variables into hook subprocesses — `CLAUDE_PROJECT_DIR`,
+`CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_EFFORT`,
+`CLAUDE_CODE_REMOTE`, `CLAUDE_CODE_BRIDGE_SESSION_ID` — and no credential is on
+it; the hooks reference says that if a hook needs API credentials you must set
+them yourself. The authentication reference is more specific still:
+`apiKeyHelper`, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` apply to the CLI
+and the surfaces wrapping it, and **Claude Desktop does not read these
+environment variables at all — it uses OAuth.** This session runs in the
+desktop app. So the subscription's own auth is structurally unavailable to a
+hook subprocess, on any restart.
+
+**No credential helper exists in this session** — the loadable tool set carries
+nothing that brokers secrets through a password manager.
+
+**The plugin's README is wrong on this point.** It lists "A working API path
+(subscription, API key, or 3P provider config)", but the code requires
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a 3P provider flag. Subscription
+alone is not sufficient, and on Desktop it cannot become sufficient. That is an
+upstream documentation defect worth reporting, not a local misconfiguration.
+
+**What ships instead: `scripts/local_security_review.py` (SAFE).** It reviews a
+diff with the Ollama model already installed on this box
+(`qwen2.5:7b-instruct`, endpoint `127.0.0.1:11434`), so it needs no credential,
+no subscription and no network egress. It reuses `scripts/local_llm_mcp.py`'s
+client rather than growing a second one.
+
+Its load-bearing property is the one this whole session was about: **a run that
+could not happen never looks like a clean one.**
+
+| exit | meaning |
+|---|---|
+| 0 | reviewed, nothing found |
+| 1 | reviewed, findings reported |
+| 2 | COULD NOT REVIEW — model unreachable, empty diff, unparseable reply |
+
+`--self-test` plants a diff carrying a hardcoded live-format key, a
+`shell=True` interpolation and an `eval()`, and FAILS unless the reviewer names
+at least one. Measured: it names all three. **That is the difference between
+"0 findings" and "the scan is broken", made mechanical.**
+
+Two things the build measured that are worth keeping. A 7B model asked to
+review a long diff **drifts into prose**; the first real run returned a commit
+summary and the tool correctly refused to score it, so a single capped
+corrective retry was added (capped on purpose — a loop that retries until
+something parses would eventually accept a hallucination). And bandit's summary
+block **rolls up confidence, not severity**: its "High: 1" was a Low-severity
+B607 at high confidence, which is the exact misread CLAUDE.md's reading
+discipline names. Resolved with the repo's existing `# nosec B603 B607`
+convention for git plumbing, not with a new suppression.
+
+Gates on the new files: 20 pins pass, ruff clean, bandit clean on the file and
+on the full DoD scope, compileall clean. Ollama is already current (installed
+0.34.0; latest release v0.34.0, 2026-09-05), so no update is pending there.
+
+**Not claimed:** a 7B local model is not a frontier reviewer and will miss
+things a larger one would catch. It is strictly better than the zero reviews
+that have run on this box to date, and it is honest about when it did not run.
+Whether it joins the Definition of done is an operator decision and was not
+taken here.
