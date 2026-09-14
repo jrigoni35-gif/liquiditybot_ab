@@ -127,12 +127,33 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     1074) is not consumed by main.py/runner.py/core - configure_audit()
     owns the process-wide trail and every QA entrypoint calls it, so setting
     it here would be dead config. tests/test_qa_isolation.py pins that
-    exemption along with everything above."""
+    exemption along with everything above.
+
+    THE OPPOSITE FAILURE ALSO HAPPENED (2026-09-14): a key that config.json
+    DOES set, that the isolation test's walk DID see, and that was exempted
+    there on a written claim which was false (system.recording_dir - see the
+    inline comment at the redirect). An exemption is a claim about what
+    constructs a path; it decays exactly like any other comment, and only an
+    end-to-end test that drives the real writer can keep it honest."""
     d = TMP / f"smoke_out_{tag}"
     cfg["system"]["state_path"] = str(d / "state.json")
     cfg["system"]["weekly_ledger_path"] = str(d / "weekly_ledger.csv")
     cfg["system"]["monthly_ledger_path"] = str(d / "monthly_ledger.csv")
     cfg["system"]["fills_ledger_path"] = str(d / "fills.csv")
+    # TENTH instance (2026-09-14): outputs/recordings. runner.py:219-251 wraps
+    # every feed in a FeedRecorder whenever system.record_feeds is true
+    # (default-true) and opens the session sink at system.recording_dir, and
+    # section [20] below builds a real BotRunner on the production config -
+    # so every smoke boot wrote a 21-frame MockKraken fixture session into the
+    # live store, and the retain_files ring evicted a REAL recording to make
+    # room. tests/test_qa_isolation.py had EXEMPTED this key on the written
+    # claim that a QA bot "cannot reach feed recording"; the BotRunner call is
+    # the reach. Measured 2026-09-14: 46 of the 60 retained session sidecars
+    # carried the fixture's 10000.0 starting equity (re-derive with that
+    # classifier over outputs/recordings; the ring moves every boot).
+    # REDIRECT, do not disable: main.py:725 reads record_feeds for serial-feed
+    # mode, so clearing the flag would change engine behaviour under test.
+    cfg["system"]["recording_dir"] = str(d / "recordings")
     ml = cfg.setdefault("ml", {})
     ml["history_path"] = str(d / "history.csv")
     ml["model_path"] = str(d / "meta_model.json")

@@ -1,7 +1,9 @@
 """QA harnesses must never write to a production output file.
 
-This has now gone wrong EIGHT times - the first seven found only after they
-had corrupted a result, the eighth caught in review before it did - and
+This has now gone wrong TEN times - the first seven found only after they
+had corrupted a result, the eighth caught in review before it did, the ninth
+(the two singletons, own section below) after it had polluted the trail, the
+tenth found by an instrument audit after it had evicted real recordings - and
 every early fix was "add the one missing line to qa_redirect_paths" plus a
 comment saying it now covers everything:
 
@@ -39,6 +41,22 @@ comment saying it now covers everything:
                                 routes through qa_redirect_paths (the one
                                 list) via prepare_replay_config, pinned by
                                 the replay-family tests at the bottom.
+  outputs/recordings/           (tenth) every smoke boot (section [20] builds
+                                a real BotRunner on the production config) wrote a
+                                MockKraken fixture session into the live
+                                store, and the retain_files ring evicted a
+                                REAL recording per boot. The key WAS in
+                                config and WAS visible to the walk below - it
+                                had been added to _EXEMPT on the written
+                                claim that a QA bot "cannot reach feed
+                                recording" (runner.py:219-251 is the reach).
+                                Found 2026-09-14 by an audit of the
+                                fill-hazard report, whose corpus headline had
+                                counted the fixtures as sessions; measured
+                                46 of 60 retained sidecars were fixtures.
+                                The exemption was a comment. This file
+                                exists because a comment cannot fail - and
+                                one of its own comments had.
 
 A comment cannot fail. This test can. It asserts the INVARIANT rather than
 the seven known cases, so a path added to config.json next month is covered
@@ -78,11 +96,15 @@ _EXEMPT = {
     # the production ledger (ml/models.py:404 -> get_registry().register()).
     "assurance.audit_path",
     "assurance.registry_dir",
-    # Read only at runner.py:203, never by LiquidityBot - a QA bot that
-    # constructs the engine directly cannot reach feed recording. Same
-    # category as status.json / equity.csv / events.jsonl / skimmer_active,
-    # which are all constructed in runner.py (lines 308, 1700, 266) only.
-    "system.recording_dir",
+    # system.recording_dir WAS listed here until 2026-09-14, on the claim that
+    # "a QA bot that constructs the engine directly cannot reach feed
+    # recording". scripts/smoke_test.py:1416 constructs a BotRunner, and
+    # runner.py:219-251 is where recording is reached, so the claim was false
+    # for as long as it stood and the walk below was blind to a leak it could
+    # see. An exemption is a claim about what constructs a path. It is now a
+    # _KNOWN_LEAK_KEYS entry with an end-to-end test that drives the real
+    # recorder (test_a_runner_under_the_redirected_config_records_outside_
+    # outputs). Do not re-add it here.
 }
 
 OUTPUTS = (ROOT / "outputs").resolve()
@@ -164,6 +186,7 @@ _KNOWN_LEAK_KEYS = [
     "ml.model_path",
     "ml.multi_horizon.shadow_path",
     "ml.postmortem.paths_path",
+    "system.recording_dir",           # tenth instance, 2026-09-14
 ]
 
 
@@ -213,6 +236,70 @@ def test_a_fill_under_the_redirected_config_lands_outside_outputs(redirected):
     if before_bytes is not None:
         assert before.read_bytes() == before_bytes, (
             "production outputs/fills.csv changed during a redirected fill")
+
+
+def test_a_runner_under_the_redirected_config_records_outside_outputs(
+        redirected, monkeypatch, tmp_path):
+    """END-TO-END for the tenth instance: drive the real recorder.
+
+    The key-shape tests above go green the moment qa_redirect_paths sets
+    system.recording_dir; they cannot tell whether runner.py READS that key.
+    BotRunner.__init__ (runner.py:219-251) wraps every feed in a FeedRecorder
+    whenever system.record_feeds is true and opens the session sink at
+    system.recording_dir - that is the writer, so this constructs one.
+
+    Two assertions, and the second is the one that matters:
+      1. the sink the runner opened is not under the production outputs/;
+      2. it is under the REDIRECTED directory - not cwd-relative
+         outputs/recordings. The chdir below is a belt (every other BotRunner
+         test wears it, and it is the only reason the pytest suite never
+         leaked recordings while smoke_test.py did); a pass that relied on it
+         would prove nothing about the redirect. Asserting the redirected
+         parent separates "the redirect worked" from "chdir saved us".
+
+    The bot is a duck-typed double carrying only what __init__ touches on the
+    production-config path; nothing here polls a venue."""
+    import types
+
+    from core.state import PortfolioState
+    from runner import BotRunner
+
+    monkeypatch.chdir(tmp_path)
+    cfg, _ = redirected
+    assert cfg["system"].get("record_feeds"), (
+        "precondition: the production config records feeds - if this is ever "
+        "false the test exercises nothing and must be rewritten, not skipped")
+    redirected_dir = Path(cfg["system"]["recording_dir"]).resolve()
+    assert not _under_outputs(str(redirected_dir))
+
+    feed = types.SimpleNamespace()               # FeedRecorder only stores it
+    bot = types.SimpleNamespace(
+        okx=feed, binanceus=feed, kraken=feed,
+        state=PortfolioState(starting_capital=10_000.0),
+        _equity=lambda: 10_000.0, fault=None, poll_sec=0.0, dry_run=True,
+        entries_enabled=True)
+    r = BotRunner(cfg, bot=bot, start_paused=True, lock=None)  # type: ignore[arg-type]
+    try:
+        sink = r._rec_sink
+        assert sink is not None, (
+            "the recorder did not arm under the production config - this test "
+            "is not exercising the writer (recording setup is fail-soft; read "
+            "the captured log for the exception it swallowed)")
+        sink = Path(sink).resolve()
+        assert not _under_outputs(str(sink)), f"recorder opened {sink}"
+        assert sink.parent == redirected_dir, (
+            f"recorder opened {sink}, not under the redirected "
+            f"{redirected_dir} - runner.py is reading a different key than "
+            "qa_redirect_paths sets, and only the chdir kept this out of the "
+            "live store")
+        assert not (tmp_path / "outputs" / "recordings").exists(), (
+            "a cwd-relative outputs/recordings appeared: something still "
+            "resolves the default path")
+    finally:
+        for srv in (getattr(r, "rest_api", None), getattr(r, "grpc_api", None)):
+            stop = getattr(srv, "stop", None)
+            if callable(stop):
+                stop()
 
 
 @pytest.mark.parametrize("fn", ["configure_audit", "configure_registry"])
