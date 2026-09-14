@@ -619,3 +619,132 @@ attacker-controlled text reaching a model instructed to answer `NONE` when
 clean, which is an unguarded prompt-injection surface. Hardcoded-secret
 detection is already owned deterministically by `bandit`/`gitleaks` at zero
 VRAM, so the model's value is the classes a regex cannot express.
+
+## 13. The deploy was wedged for ten days, and unwedging it took two fixes (2026-09-14)
+
+Found during a routine status sweep, not by looking for it. The finding was
+that `outputs/auto_update_state.json` read `"outcome": "rejected"` with the
+deploy tree behind `origin/main`, and the last battery-verified deploy in a
+full-range scan of `outputs/auto_update.log` was **2026-09-04 10:58:21**.
+
+**Why it mattered more than it looked.** `scripts/auto_update.py:1049` calls
+`_signal_restart()` after a successful update, so the runner only picks up new
+code when a deploy lands. No deploy for ten days meant the live runner stayed
+on its 2026-09-12 18:27 boot, which is why the guards-fail-open fixes
+(`35cad93a`, `05985214`, `2dec30a3`) were committed, pushed, and **not
+running**.
+
+### 13a. Blocker one: a gate that required a file only a deploy creates
+
+`tests/test_dashboard_no_value.py::test_every_map_key_names_a_real_exporter_family`
+asserts every Grafana no-value map key prefixes a metric `gc_pusher` can emit.
+The `liquiditybot_overfit_*` family is emitted only when `OVERFIT_REPORT_PATH`
+exists, and that constant is hardcoded to the module's own tree
+(`gc_pusher.py:1436`, honouring no environment variable). **`auto_update` tests
+incoming code in a FRESH WORKTREE with an empty `outputs/`**, so the family was
+unemittable there and the assertion fired on every cycle.
+
+ONSET `5dc0b861` (2026-09-12), *"feat(telemetry): put the overfit battery on a
+board, staleness-gated (SAFE)"* — one commit added both the artifact reader and
+the map keys. **A SAFE-tagged telemetry change wedged the deploy pipeline.**
+
+**The fix completed a pattern the same helper already used.** A comment in
+`tests/test_trading_dashboard._aux_emitted` records that the veto family once
+vanished from the emitted universe in a fresh worktree, that these exact two
+tests caught it, and that the remedy was rebinding to a throwaway fixture. The
+overfit family shipped without that treatment; it now gets it. The assertion is
+NOT weakened — an invented key matches nothing even with the fixture present.
+
+Mutation pair, both arms, restore byte-compared: with the rebind and the
+artifact absent, both tests pass; with the rebind REMOVED and the artifact
+absent, both fail naming exactly the metrics the state file had been rejecting
+on.
+
+### 13b. Blocker two, revealed by fixing the first, and it was mine
+
+With pytest green the battery ran to completion for the first time (5,408
+passed) and stopped at the next gate: `DoD assurance-code rc=1: 49 passed, 1
+failed`, clause **"every --self-test has a negative arm and reports a rate"**,
+detail `null-arm-only self-tests: local_security_review.py`.
+
+It was right. The self-test written hours earlier planted three vulnerabilities
+and required a hit. **That proves the scan can fire and says nothing about
+whether it cries wolf** — the precise half-measurement this session spent a day
+insisting on, shipped by the same session.
+
+`scripts/instrument_contract.check_self_tests` requires exit 0 plus output
+matching a negative-arm pattern and a rate. The fix adds the real arm: canary
+plus two controls, reporting findings on planted defects and a false-positive
+rate on controls, failing on either. Live: 3 findings on 3 planted, 0 of 2
+controls wrongly flagged. Assurance then read **50 passed, 0 failed**.
+
+**The controls are deliberately the easy ones** — a docs edit and a pure
+rename. The hard controls (parameterised query, list-form subprocess,
+`ast.literal_eval`) stay in `scripts/local_review_eval.py`, where BOTH measured
+models flag 2 of 5. Putting a known-failing control into a deploy-blocking gate
+would have wedged the pipeline a third time; a bar nothing clears belongs where
+it is reported as a rate.
+
+**One trap avoided.** That self-test calls a local model from inside the deploy
+battery. If the endpoint is down it now prints UNVERIFIED, reports `0/2 arms
+exercised`, and exits 0 — an unreachable dependency is not evidence about the
+instrument, and a gate blocking on unrelated external state is the exact defect
+13a had just undone. A reachable model that gets an arm wrong still fails.
+Pinned both directions. Runtime measured at ~1.1 s against the contract's 60 s
+budget, so a cold model load still fits.
+
+### 13c. What the gate order actually is
+
+Established by reading `scripts/auto_update.py`, not by inference: the
+BLOCKING tier ends at `assurance-code`. `_ADVISORY_GATES` — `assurance-corpus`
+and `overfit` — carry the comment *"Never vetoes"* and run with `LB_OUTPUTS`
+pinned at the live tree, deliberately, because a bare worktree would let the
+corpus section pass vacuously. So once assurance-code is green there is no
+third blocker: fast-forward and `_signal_restart()` follow.
+
+### 13d. The standing consequence
+
+**With the pipeline working again, every push now costs a runner restart**
+within roughly fifteen minutes. That was not true for ten days, and it changes
+the calculus: batch changes rather than pushing piecemeal. `force_dry.on` is
+present, so a relaunch returns DRY_RUN.
+
+**Recurrence count.** CLAUDE.md's durable rule — *a gate's release condition
+must never depend on the thing it blocks* — now has at least a fifth measured
+instance, and 13a's onset was tagged SAFE by its author. The SAFE class is
+where this keeps happening because SAFE is what ships without adjudication.
+
+### 13e. The outcome, measured end to end (2026-09-14 13:32-13:35)
+
+| step | time | result |
+|---|---|---|
+| battery | 13:29:09 | rc 0, 5,411 passed, 15 skipped, 1 xfailed |
+| replay determinism | 13:31:29 | rc 0, 3 recordings, clean |
+| ruff / compileall / bandit / smoke | 13:31:29-13:31:58 | all rc 0 |
+| **assurance-code** | 13:32:07 | **rc 0, 50 passed, 0 failed** |
+| assurance-corpus (advisory) | 13:32:14 | rc 0, 51 passed |
+| **fast-forward** | 13:32:52 | `updated 3f891c19 -> 351b89aa (battery-verified)` |
+| soft stop | 13:32:52 | `sent stop - supervisor will relaunch on the new code` |
+| runner exit | 13:33:02 | `runner exited on the soft stop - clean restart` |
+| supervisor relaunch | 13:35:20 | `runner stale/absent -> relaunching` |
+| RUNNING confirmed | 13:35:35 | pid **21396**, DRY_RUN, cycle 2, status age 0 s |
+
+**First battery-verified deploy since 2026-09-04 10:58:21.** Deploy tree is
+level with `origin/main`; `force_dry.on` and `keepalive.on` both survived the
+restart, so the relaunch came back DRY_RUN as designed.
+
+**The restart is what mattered, not the fast-forward.** The runner had been on
+its 2026-09-12 18:27 boot as pid 14112. The guards-fail-open fixes were in the
+deploy tree the whole time and were not in the RUNNING PROCESS. They are now.
+
+Note the 128-second gap between the runner exiting (13:33:02) and the
+supervisor relaunching (13:35:20): the supervisor notices on its own cadence,
+so a deploy leaves a ~2 minute window with no runner. That is by design and is
+not a fault, but it is worth knowing before anyone reads a STOPPED status in
+that window as an incident.
+
+**Owed, not done:** `scripts/claim_check.py` accepts a pointer PHRASE with no
+path or command token, so `"Re-derive this number."` clears `--strict` while a
+named-but-nonexistent path is correctly caught. Default mode fired on 0 of the
+last 40 commits; `--strict` fired on 20 of 40. Measured 2026-09-14, recorded in
+§9d as OBJ-13 and still deferred.
