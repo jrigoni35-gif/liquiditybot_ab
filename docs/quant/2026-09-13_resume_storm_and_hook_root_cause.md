@@ -748,3 +748,46 @@ path or command token, so `"Re-derive this number."` clears `--strict` while a
 named-but-nonexistent path is correctly caught. Default mode fired on 0 of the
 last 40 commits; `--strict` fired on 20 of 40. Measured 2026-09-14, recorded in
 §9d as OBJ-13 and still deferred.
+
+### 13f. CORRECTION — 93.5% of the drought was NOT the gate (2026-09-14 16:30)
+
+Filed against this section's own interest, hours after it was written. §13's
+opening line reads *"The deploy was wedged for ten days"* in a section about a
+gate defect, which attributes the whole drought to the gate. **That is wrong
+for almost all of it, and there were TWO independent wedges, not one.**
+
+Outcome histogram over the inclusive window `2026-09-04 11:00:00` →
+`2026-09-13 21:44:00`, single log file, no rotation sibling [K]:
+
+| line | count |
+|---|---|
+| `already up to date` | 399 |
+| **`local is AHEAD of origin/main - nothing to deploy, runner untouched`** | **377** |
+| `local uncommitted changes present - NOT auto-updating` | 35 |
+| `git fetch failed - skipping (offline?)` | 2 |
+| **`new commit(s) on main`** (i.e. the battery ran at all) | **0** |
+
+| cause | bound | share |
+|---|---|---|
+| divergence: local main AHEAD of origin, commits never pushed | 2026-09-04 10:58:21 → last AHEAD line 2026-09-13 16:13:50 | **9 d 10 h 49 m, 93.5%** |
+| the gate defect §13a diagnoses | first rejection 2026-09-13 21:47:44 → deploy 2026-09-14 13:32:52 | **15 h 45 m, 6.5%** |
+
+**The first wedge is CLAUDE.md's OTHER durable rule**, the one right next to
+the gate rule: *"A PC-side commit that never reaches `main` wedges the deploy
+updater into `diverged`, which no battery can clear."* The updater compares
+local against `origin/main`; while local was AHEAD it correctly refused to do
+anything, 377 times, and **the battery never ran at all**. No gate change
+touches that, and §13a's fix would not have helped a single one of those nine
+days.
+
+The gate defect is real and §13a-§13e stand as written about it. What is
+corrected is the ATTRIBUTION and the headline number. **The honest summary is:
+nine and a half days of unpushed divergence, then sixteen hours of a genuine
+gate deadlock, and the session found the second while narrating the first.**
+
+**Why this matters beyond bookkeeping.** §13 was written into `docs/HANDOFF.md`
+— the file every session reads before acting — with the gate named as the
+cause of a ten-day outage. A future session reading that would harden the
+wrong thing. The measured lesson is the opposite of the one §13 implied: the
+dominant failure mode on this box is **commits that never reach `origin`**,
+not commits the gate refuses.
