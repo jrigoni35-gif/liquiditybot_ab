@@ -568,3 +568,54 @@ as the prompt, so it tests the pair, not the model alone. Only two models were
 compared — a research pass over the wider library was still running when this
 was written. And nothing here measures the thing that actually matters, which
 is whether either model would catch a defect in this repo that a human missed.
+
+## 12. The research pass, and a context ceiling it found by a wrong route (2026-09-14 01:15)
+
+A four-angle research workflow over the model landscape returned STAY: the pick
+already installed is the right one. It also raised one alarm, which was WRONG
+as stated and RIGHT underneath.
+
+**The alarm.** `OLLAMA_CONTEXT_LENGTH` is unset, so the server runs 4096
+tokens, and `DIFF_LIMIT` of 24,000 chars was said to be "7,000-8,000 tokens",
+so "the first real full-size diff will context-shift, dropping the system
+prompt, and the reviewer will return NONE on code it never saw."
+
+**Refuted on the numbers [K].** The server log's own counters: the largest
+prompt it has EVER seen is **2,050 tokens**, `truncated = 0` on every release
+line, and **zero** prompts have exceeded 4096. The 19,715-char real diff
+measured 2,050 tokens, i.e. **~9.6 chars/token**, not the 3.0-3.5 assumed. The
+estimate was tagged `[I]` and was wrong by roughly threefold, so the clean
+result reported earlier stands.
+
+**Right underneath, and fixed.** The guard did not exist. Density is
+content-dependent: minified or token-dense content approaches 3 chars/token,
+at which 24,000 chars WOULD overflow, and nothing would have said so - a
+context shift evicts the system prompt and yields a confident `NONE`. The
+review now **splits the diff one chunk per file** (`split_diff`), so prompt
+size stops depending on commit size at all, and `CHUNK_LIMIT` is derived from
+the server's real window rather than from taste: 4096 total, minus 1400
+generated, minus ~250 system, leaves ~2450 for the diff; at a worst-case 3
+chars/token that is ~7350, so the budget is 6000. A pin asserts that
+arithmetic and fails if anyone raises the limit without raising the context.
+
+`OLLAMA_CONTEXT_LENGTH=16384` is now written at USER scope. The running server
+still reports `n_ctx_slot = 4096`: **an environment write never reaches a live
+process**, which is the same lesson the hook PATH fix taught the night before,
+arriving by a different road. CHUNK_LIMIT was deliberately NOT raised on the
+strength of it.
+
+**A limitation the first real multi-file run exposed.** Reviewing `HEAD`
+produced 7 CRITICAL findings, every one of them inside
+`scripts/local_review_eval.py` - the corpus file whose deliberately vulnerable
+strings are inert test fixtures. True positives on the text, useless in
+context. **The reviewer cannot tell a fixture from live code**, and anyone
+wiring it into a gate must expect that.
+
+**Also recorded from the research, unverified here:** small models score
+~70% on "is something wrong" and 0-8% on locating the cause, so the
+`why it is exploitable` clause is the weakest thing the output contains;
+accuracy falls and false positives rise past ~42 lines; and the diff is
+attacker-controlled text reaching a model instructed to answer `NONE` when
+clean, which is an unguarded prompt-injection surface. Hardcoded-secret
+detection is already owned deterministically by `bandit`/`gitleaks` at zero
+VRAM, so the model's value is the classes a regex cannot express.

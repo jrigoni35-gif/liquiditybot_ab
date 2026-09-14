@@ -10,10 +10,16 @@ command` and then `LLM review disabled or no API credentials`. Restoring the
 hook restored INVOCATION, not REVIEW. See
 `docs/quant/2026-09-13_resume_storm_and_hook_root_cause.md` section 9a.
 
-This reviews a diff with the LOCAL model already on this machine
-(Ollama, `qwen2.5:7b-instruct`), so it needs no credential, no network egress
-and no subscription. It is NOT as strong as a frontier model. It is enormously
-stronger than the zero reviews that have run to date.
+This reviews a diff with the LOCAL model already on this machine (Ollama; the
+default is chosen by measurement - see DEFAULT_MODEL), so it needs no
+credential, no network egress and no subscription. It is NOT as strong as a
+frontier model. It is enormously stronger than the zero reviews that have run
+to date.
+
+The diff is reviewed ONE FILE AT A TIME. That is not a style choice: the
+server's context is 4096 tokens unless `OLLAMA_CONTEXT_LENGTH` says otherwise,
+and an over-long prompt is context-SHIFTED, which evicts the system prompt and
+produces a confident `NONE` about code the model never saw. See CHUNK_LIMIT.
 
 THE ONE PROPERTY THAT MATTERS
 -----------------------------
@@ -74,10 +80,34 @@ DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 # `python scripts/local_review_eval.py --models a,b`.
 DEFAULT_MODEL = "qwen2.5-coder:7b"
 
-# Kept well under the model's context. A diff larger than this is truncated
-# and the truncation is REPORTED, never silent - a partial review that reads
-# as a full one is the failure this file exists to avoid.
-DIFF_LIMIT = 24_000
+# PER-FILE budget, in characters. Derived from the SERVER's context, not from
+# taste. Measured on this box 2026-09-14: `OLLAMA_CONTEXT_LENGTH` is unset in
+# User, Machine and Process scope, so the server runs `n_ctx_slot = 4096` -
+# and that 4096 covers prompt AND generation together.
+#
+#   4096 total - 1400 generated (max_tokens) - ~250 system prompt = ~2450 for
+#   the diff. At a worst-case 3 chars/token that is ~7300 chars, so 6000 is
+#   the budget with headroom. (Observed density is far kinder - a 19,715-char
+#   diff measured 2050 tokens, ~9.6 chars/token - but budgeting on the
+#   observed case rather than the worst case is how a silent overflow gets
+#   shipped.)
+#
+# PENDING, 2026-09-14: `OLLAMA_CONTEXT_LENGTH=16384` has been written to the
+# USER environment, but the RUNNING server still reports `n_ctx_slot = 4096` -
+# an environment write never reaches a live process, the same lesson the hook
+# PATH fix taught this repo the night before. VRAM arithmetic says 16384 fits
+# (weights ~4466 MiB + KV 896 MiB at 56 KiB/token, against 8192 MiB total).
+#
+# DO NOT raise CHUNK_LIMIT on the strength of that env var. Restart Ollama,
+# confirm `n_ctx_slot = 16384` in %LOCALAPPDATA%\Ollama\server.log, and only
+# then raise it - budgeting against a context the server is not actually
+# serving is how a silent overflow ships. `tests/test_local_security_review.py`
+# pins the 4096 arithmetic and will fail loudly if this is raised alone.
+#
+# The OpenAI-compat `/v1/chat/completions` endpoint this uses cannot carry
+# `num_ctx` per request, so the env var is the only lever short of moving to
+# native `/api/chat`.
+CHUNK_LIMIT = 6_000
 
 EXIT_CLEAN, EXIT_FINDINGS, EXIT_CANNOT_REVIEW = 0, 1, 2
 
@@ -186,11 +216,36 @@ REFORMAT = (
 )
 
 
-def review(diff: str, base_url: str, model: str,
-           timeout: float = 180.0, retries: int = 1) -> list[str]:
-    body = truncate_content(diff, DIFF_LIMIT)
-    note = ("\n\n[NOTE: the diff was truncated for length; this review is "
-            "PARTIAL]" if len(diff) > DIFF_LIMIT else "")
+def split_diff(diff: str) -> list[str]:
+    """Split a unified diff into one chunk per file.
+
+    WHY THIS IS NOT OPTIONAL. The Ollama server runs at whatever
+    `OLLAMA_CONTEXT_LENGTH` says, and UNSET means **4096 tokens** (measured on
+    this box 2026-09-14: `n_ctx_slot = 4096` on every slot, the variable unset
+    in User, Machine and Process scope). A prompt over that is context-SHIFTED,
+    which silently evicts the system prompt that defines the output format -
+    and a model that has lost its instructions answers prose or `NONE`. That
+    is a clean-looking review of code the model never saw, which is precisely
+    the false green this tool exists to prevent.
+
+    Sending one file at a time keeps every prompt small regardless of how big
+    the commit is, so coverage does not depend on a character heuristic.
+    Measured here: diff text runs about **9.6 chars/token** (a 19,715-char
+    diff was 2,050 tokens), but dense or minified content approaches 3, so
+    CHUNK_LIMIT is set for the worst case rather than the observed one.
+    """
+    if not diff.strip():
+        return []
+    parts = re.split(r"(?m)^(?=diff --git )", diff)
+    chunks = [p for p in parts if p.strip()]
+    return chunks or [diff]
+
+
+def review_chunk(chunk: str, base_url: str, model: str,
+                 timeout: float, retries: int) -> list[str]:
+    body = truncate_content(chunk, CHUNK_LIMIT)
+    note = ("\n\n[NOTE: this file's diff was truncated for length; this "
+            "review is PARTIAL]" if len(chunk) > CHUNK_LIMIT else "")
     prompt = f"Review this diff.\n\n```diff\n{body}\n```{note}"
     last: Exception | None = None
     for attempt in range(retries + 1):
@@ -203,6 +258,17 @@ def review(diff: str, base_url: str, model: str,
         except ValueError as exc:
             last = exc
     raise ValueError(f"{last} (after {retries + 1} attempts)")
+
+
+def review(diff: str, base_url: str, model: str,
+           timeout: float = 180.0, retries: int = 1) -> list[str]:
+    """Review a whole diff, one file at a time. Any chunk that cannot be
+    reviewed raises - a partial sweep must never be reported as a clean one.
+    """
+    out: list[str] = []
+    for chunk in split_diff(diff):
+        out.extend(review_chunk(chunk, base_url, model, timeout, retries))
+    return out
 
 
 def _self_test(base_url: str, model: str) -> int:
@@ -260,9 +326,12 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CANNOT_REVIEW
 
     scope = a.rev or ("the index" if a.staged else "the working tree")
-    truncated = " (TRUNCATED - partial review)" if len(diff) > DIFF_LIMIT else ""
-    print(f"[review] {scope}: {len(diff)} bytes of diff{truncated}, "
-          f"model={a.model}")
+    chunks = split_diff(diff)
+    partial = sum(1 for c in chunks if len(c) > CHUNK_LIMIT)
+    truncated = (f" ({partial} file(s) TRUNCATED - partial review)"
+                 if partial else "")
+    print(f"[review] {scope}: {len(diff)} bytes across {len(chunks)} "
+          f"file(s){truncated}, model={a.model}")
     if not findings:
         print("[review] no findings. Run --self-test to confirm the scan "
               "can fire at all before reading this as clean.")

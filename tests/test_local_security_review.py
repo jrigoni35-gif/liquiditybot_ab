@@ -189,6 +189,80 @@ def test_retries_zero_means_a_single_attempt(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# per-file chunking: the guard against a SILENT context overflow
+# --------------------------------------------------------------------------
+
+_TWO_FILE_DIFF = (
+    "diff --git a/one.py b/one.py\n--- a/one.py\n+++ b/one.py\n@@ -1 +1 @@\n+a\n"
+    "diff --git a/two.py b/two.py\n--- a/two.py\n+++ b/two.py\n@@ -1 +1 @@\n+b\n")
+
+
+def test_diff_is_split_one_chunk_per_file():
+    chunks = lsr.split_diff(_TWO_FILE_DIFF)
+    assert len(chunks) == 2
+    assert chunks[0].startswith("diff --git a/one.py")
+    assert chunks[1].startswith("diff --git a/two.py")
+
+
+def test_empty_diff_splits_to_nothing():
+    assert lsr.split_diff("") == []
+    assert lsr.split_diff("   \n ") == []
+
+
+def test_a_diff_with_no_git_header_is_still_reviewed_as_one_chunk():
+    """Never drop content just because it is not shaped like a git diff."""
+    assert lsr.split_diff("just some text") == ["just some text"]
+
+
+def test_every_file_is_sent_in_its_own_request(monkeypatch):
+    seen = []
+    monkeypatch.setattr(lsr, "call_endpoint",
+                        lambda p, *a, **k: (seen.append(p["messages"][-1]["content"]), "NONE")[1])
+    lsr.review(_TWO_FILE_DIFF, lsr.DEFAULT_BASE_URL, lsr.DEFAULT_MODEL)
+    assert len(seen) == 2, "each file gets its own prompt, so none can overflow"
+    assert "one.py" in seen[0] and "two.py" not in seen[0]
+
+
+def test_findings_from_all_files_are_aggregated(monkeypatch):
+    monkeypatch.setattr(
+        lsr, "call_endpoint",
+        lambda p, *a, **k: "HIGH | x.py | hardcoded key | grants access")
+    assert len(lsr.review(_TWO_FILE_DIFF, lsr.DEFAULT_BASE_URL,
+                          lsr.DEFAULT_MODEL)) == 2
+
+
+def test_one_unreviewable_file_fails_the_WHOLE_review(monkeypatch):
+    """A partial sweep must never be reported as a clean one.
+
+    If file 1 reviews clean and file 2 cannot be reviewed, returning []
+    would print "no findings" for a commit half of which was never read.
+    """
+    calls = {"n": 0}
+
+    def _second_fails(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "NONE"
+        raise RuntimeError("endpoint died mid-sweep")
+
+    monkeypatch.setattr(lsr, "call_endpoint", _second_fails)
+    with pytest.raises(RuntimeError):
+        lsr.review(_TWO_FILE_DIFF, lsr.DEFAULT_BASE_URL, lsr.DEFAULT_MODEL)
+
+
+def test_chunk_limit_fits_the_measured_server_context():
+    """CHUNK_LIMIT must stay inside the 4096-token server window.
+
+    Budget: 4096 total - 1400 generated - ~250 system = ~2450 tokens for the
+    diff. At a worst-case 3 chars/token that is ~7350 chars. If someone raises
+    CHUNK_LIMIT past that without also raising OLLAMA_CONTEXT_LENGTH, prompts
+    start being context-shifted and the reviewer goes silently blind.
+    """
+    worst_case_tokens = lsr.CHUNK_LIMIT / 3
+    assert worst_case_tokens + 1400 + 250 < 4096
+
+
+# --------------------------------------------------------------------------
 # truncation must be announced, never silent
 # --------------------------------------------------------------------------
 
@@ -200,6 +274,6 @@ def test_oversized_diff_is_truncated_and_says_so(monkeypatch):
         return "NONE"
 
     monkeypatch.setattr(lsr, "call_endpoint", _cap)
-    lsr.review("x" * (lsr.DIFF_LIMIT + 5000), lsr.DEFAULT_BASE_URL,
-               lsr.DEFAULT_MODEL)
+    oversized = "diff --git a/x b/x" + "\n" + "x" * (lsr.CHUNK_LIMIT + 5000)
+    lsr.review(oversized, lsr.DEFAULT_BASE_URL, lsr.DEFAULT_MODEL)
     assert "PARTIAL" in seen["prompt"]
