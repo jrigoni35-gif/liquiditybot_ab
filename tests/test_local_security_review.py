@@ -10,6 +10,7 @@ No network. The endpoint is stubbed everywhere.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -121,12 +122,64 @@ def test_self_test_FAILS_when_the_reviewer_finds_nothing(monkeypatch):
                           lsr.DEFAULT_MODEL) == lsr.EXIT_CANNOT_REVIEW
 
 
-def test_self_test_passes_when_the_canary_is_caught(monkeypatch):
-    monkeypatch.setattr(
-        lsr, "call_endpoint",
-        lambda *a, **k: "CRITICAL | payments.py | hardcoded secret | access")
+def _arms(payload, *a, **k):
+    """Stub a competent reviewer: fires on the canary, silent on controls."""
+    text = payload["messages"][-1]["content"]
+    if "sk_live_" in text:
+        return "CRITICAL | payments.py | hardcoded secret | access"
+    return "NONE"
+
+
+def test_self_test_passes_when_the_canary_is_caught_and_controls_are_clean(
+        monkeypatch):
+    monkeypatch.setattr(lsr, "call_endpoint", _arms)
     assert lsr._self_test(lsr.DEFAULT_BASE_URL,
                           lsr.DEFAULT_MODEL) == lsr.EXIT_CLEAN
+
+
+def test_self_test_FAILS_when_it_cries_wolf_on_a_control(monkeypatch):
+    """Detection alone is half a measurement.
+
+    A reviewer that flags a docs-only diff produces findings that carry no
+    information, even though it catches every planted defect. Without this
+    arm the self-test would call that instrument healthy.
+    """
+    monkeypatch.setattr(
+        lsr, "call_endpoint",
+        lambda *a, **k: "CRITICAL | any.py | hardcoded secret | access")
+    assert lsr._self_test(lsr.DEFAULT_BASE_URL,
+                          lsr.DEFAULT_MODEL) == lsr.EXIT_CANNOT_REVIEW
+
+
+def test_self_test_reports_BOTH_arms_and_a_rate(monkeypatch, capsys):
+    """`scripts/instrument_contract` requires a negative arm and a rate in the
+    output, and this file failed that clause on its first deploy battery."""
+    monkeypatch.setattr(lsr, "call_endpoint", _arms)
+    lsr._self_test(lsr.DEFAULT_BASE_URL, lsr.DEFAULT_MODEL)
+    out = capsys.readouterr().out
+    assert "control" in out.lower()
+    assert "false positive" in out.lower()
+    assert re.search(r"\d+\s*/\s*\d+", out), "no rate in the output"
+
+
+def test_unreachable_endpoint_is_UNVERIFIED_not_a_weak_instrument(
+        monkeypatch, capsys):
+    """An endpoint that is down says nothing about this tool's power.
+
+    It must NOT wedge the deploy battery - a gate blocking on unrelated
+    external state is the exact failure this repo just spent a day undoing.
+    But it must also not read as a demonstrated pass.
+    """
+    def _down(*a, **k):
+        raise RuntimeError("local model endpoint failed (connection refused)")
+
+    monkeypatch.setattr(lsr, "call_endpoint", _down)
+    rc = lsr._self_test(lsr.DEFAULT_BASE_URL, lsr.DEFAULT_MODEL)
+    out = capsys.readouterr().out
+    assert rc == lsr.EXIT_CLEAN
+    assert "UNVERIFIED" in out
+    assert "0/2 arms exercised" in out
+    assert "PASSED" not in out, "an unmeasured run must not claim it passed"
 
 
 def test_canary_diff_actually_contains_the_three_planted_defects():

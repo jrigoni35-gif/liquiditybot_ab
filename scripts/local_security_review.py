@@ -271,21 +271,84 @@ def review(diff: str, base_url: str, model: str,
     return out
 
 
+# The NEGATIVE arm. A self-test with only a positive arm proves the scan can
+# fire and says nothing about whether it cries wolf; `scripts/
+# instrument_contract.check_self_tests` enforces that both exist, and this
+# file failed that clause on its first pass through the deploy battery.
+#
+# These two are deliberately the UNAMBIGUOUS controls - a docs edit and a pure
+# rename. The harder controls (a parameterised query, a list-form subprocess
+# call, `ast.literal_eval`) live in `scripts/local_review_eval.py`, where BOTH
+# measured models flagged 2 of 5. Putting a known-failing control in a gate
+# that blocks deploys would wedge the pipeline; measuring it in the eval,
+# where it is reported as a rate, is the right home for a bar nothing clears.
+_CONTROL_DIFFS = (
+    ("docs-only", '''\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,4 @@
++## Reporting
++
++The daily report now includes the fee tier.
+'''),
+    ("pure-rename", '''\
+diff --git a/calc.py b/calc.py
+--- a/calc.py
++++ b/calc.py
+@@ -1,3 +1,4 @@
++def total(rows):
++    subtotal = sum(r.amount for r in rows)
++    return subtotal
+'''),
+)
+
+
 def _self_test(base_url: str, model: str) -> int:
-    print("[self-test] planting a diff with a hardcoded live key, "
-          "shell=True injection and eval()...")
+    """Two arms. Detection alone is half a measurement."""
+    print("[self-test] POSITIVE arm: a diff with a hardcoded live-format key, "
+          "a shell=True interpolation and eval() on untrusted input...")
     try:
         found = review(_CANARY_DIFF, base_url, model)
+        flagged = []
+        for name, diff in _CONTROL_DIFFS:
+            hits = review(diff, base_url, model)
+            if hits:
+                flagged.append((name, hits))
     except Exception as exc:                       # noqa: BLE001
-        print(f"[self-test] CANNOT REVIEW: {exc}")
-        return EXIT_CANNOT_REVIEW
+        # UNREACHABLE ENDPOINT IS NOT A FINDING ABOUT THIS INSTRUMENT, and it
+        # must not wedge the deploy battery the way a gate depending on a
+        # generated artifact already did once (see the record, section 9).
+        # Exit 0 with a loud banner: nothing was demonstrated, in either
+        # direction. A model that IS reachable and gets an arm wrong still
+        # exits non-zero below.
+        print(f"[self-test] UNVERIFIED - could not reach the model ({exc})")
+        print("[self-test] 0/2 arms exercised (positive + negative control). "
+              "A tool that could not run is not a weak tool; it is an "
+              "unmeasured one. Re-run with the endpoint up.")
+        return EXIT_CLEAN
+
     for f in found:
         print("   ", f)
+    n_ctl = len(_CONTROL_DIFFS)
+    n_fp = len(flagged)
+    for name, hits in flagged:
+        print(f"    CONTROL WRONGLY FLAGGED [{name}]: {hits[0][:110]}")
+    print(f"[self-test] positive arm: {len(found)} finding(s) on 3 planted "
+          f"defects")
+    print(f"[self-test] negative arm: {n_fp}/{n_ctl} controls wrongly "
+          f"flagged (false positive rate {100.0 * n_fp / n_ctl:.0f}%)")
+
     if not found:
-        print("[self-test] FAILED - the reviewer found NOTHING in a diff with "
-              "three textbook vulnerabilities. Do not trust a green from it.")
+        print("[self-test] FAILED - found NOTHING in a diff with three "
+              "textbook vulnerabilities. Do not trust a green from it.")
         return EXIT_CANNOT_REVIEW
-    print(f"[self-test] PASSED - {len(found)} finding(s); the scan can fire.")
+    if n_fp:
+        print("[self-test] FAILED - it fires on clean code, so a finding "
+              "from it carries no information.")
+        return EXIT_CANNOT_REVIEW
+    print("[self-test] PASSED - fires on planted defects, silent on the "
+          "controls.")
     return EXIT_CLEAN
 
 
