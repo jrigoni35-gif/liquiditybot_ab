@@ -216,7 +216,7 @@ the wrong target entirely; the hook prepends that venv's site-packages itself.
 ran in the harness, only the load-parse-dispatch path. Whether a live hook has
 credentials is not established here; the live evidence is the absence of new
 `[Errno 2]` notifications after 21:30. Provenance for the copy is recorded in
-`Launcher\python3.exe.README.txt` — the file is installer-unowned and a Python
+`Launcher\python3.README.txt` — the file is installer-unowned and a Python
 repair will remove it, silently re-breaking all 12 hooks.
 
 ## 8. Adversarial review of sections 5-7, and two errata (22:05)
@@ -304,3 +304,124 @@ notification noise.** Remediation, if wanted, is a manual review over
   already holding the user's token gets code execution on every Write, Edit,
   commit and push. Measured blast radius of the redirect itself is one
   consumer — `install.sh` probes bare `python3` as an existence check.
+
+## 9. Red-team panel: 18 objections, and the one that inverts section 7 (23:05)
+
+Five mandated-position panelists prosecuted this session's own claims, then
+cross-examined each other. 37 objections raised, 2 withdrawn, **18 surviving**.
+I re-derived the load-bearing ones myself before answering; the dispositions
+below are mine and the measurements behind them are mine unless stated.
+
+**Concession rate 14 full + 3 partial of 18.** That is the panel's own health
+metric and it says this session was sloppy, not that the panel was generous.
+
+### 9a. THE HEADLINE — the hook fix restored DETECTION, not REVIEW
+
+**OBJ-3, BLOCKING. CONCEDED, and it inverts section 8c.** Section 8c said 16
+commits went unreviewed. The truth is worse and is not bounded by today.
+
+`HAS_API_CREDENTIALS` is `bool(ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN or
+_HAS_3P_PROVIDER_AT_LOAD)` (`hooks/llm.py:124-126`), and all three review
+entry points (`security_reminder_hook.py:1149`, `:1594`, `:1972`) bail on it.
+The plugin's own log is unambiguous [K, read 23:00]:
+
+    [21:40:00.214] Commit review: detected git commit in command
+    [21:40:00.245] Commit review: LLM review disabled or no API credentials
+    [21:44:52.058] / [21:44:52.098]   same pair
+    [22:06:52.430] / [22:06:52.463]   same pair
+
+Those three are **my own commits tonight, after the fix**. 39 `Stop hook: LLM
+review disabled or no API credentials` lines say the same, the most recent at
+22:52:57. `grep -i "vulns|findings|review complete|reviewed"` over the whole
+log returns **0**, and `.git/sg-reviewed-shas` does not exist.
+
+**No security review has ever completed on this box.** `git rev-list --count
+origin/main` = **940**. The unreviewed set is 940, not 16.
+
+And I had the evidence the whole time. I measured `skip_reason 3`, correctly
+named it "the API-credential gate", wrote that the hook "loaded, parsed the
+event and ran its Stop logic", and reported that as the hook WORKING. Both
+statements were true. Their conjunction was false. **What I actually fixed was
+the notification storm.** The right split is INVOCATION restored (real, mine,
+verified) versus REVIEW never ran (pre-existing, untouched, and not fixable
+without credentials in the hook's process environment).
+
+### 9b. Section 7's shim broke PowerShell, and I said it could not
+
+**OBJ-4, BLOCKING. CONCEDED, and MITIGATED.** Section 8a claimed the
+extensionless script is "not found by cmd.exe or PowerShell". Measured, that
+is false in both limbs:
+
+| probe | result |
+|---|---|
+| `Get-Command python3 -All` | lists `Launcher\python3` **first**, ahead of the WindowsApps alias |
+| `cmd /c "exit 7"` then `python3 --version` | no output, `$LASTEXITCODE` **still 7** |
+
+`$LASTEXITCODE` retaining the previous native command's value is a false-green
+generator: `python3 ...; if ($LASTEXITCODE -eq 0)` reads green on a call that
+never ran. Before the shim, PowerShell's `python3` worked via the alias, so
+this was a **regression I introduced while claiming the opposite**.
+
+Mitigation applied and verified: `Launcher\python3.cmd` forwards to the same
+interpreter. PowerShell now resolves the `.cmd` first and reports real exit
+codes (measured 0 on success, **3** on `sys.exit(3)`, no longer the stale 7).
+Git Bash still resolves the extensionless `python3`, and the real hook command
+still returns rc 0. Both files are load-bearing; the README says so.
+
+### 9c. The long-book row: premise stands, both consequences were wrong
+
+**OBJ-1 / OBJ-5 / OBJ-17, CONCEDED.** "Every long-book partial close reports
+realized P&L understated by 50 bps of closed notional" is **retracted**.
+`TierAction.realized_pnl` has exactly **two** attribute reads repo-wide, both
+tests (`tests/test_profit_tier_guards.py:85`, `tests/test_rev3.py:179`); the
+value is constructed and discarded. `state.realized_pnl_total` is a different
+attribute fed from fills, and `est_fee_bps` appears nowhere in `core/state.py`,
+`execution/order_manager.py` or the capital layer. I published that clause in
+five places under a "CONFIRMED four ways" banner that had verified only the
+premise. **The banner covered the input and was read as covering the output.**
+
+**OBJ-12 / OBJ-15 / OBJ-16, CONCEDED on substance, and independently
+reproduced here.** "Fail-conservative, a wider buffer holds an exit open
+longer and never tightens it" is false. Enumerating 960 states (entry 100,
+long, tier_closed × high_water × price × sigma): **224 install a different
+stop**. Stepping one tick turns that into a different EXIT in **6 of 8**
+probes — at 101.0 with tier 1 closed the corrected engine arms a floor at
+100.66 and exits on a tick to 100.65, while the shipped engine's floor sits at
+101.66, **arms nothing**, and holds. The 80 bps figure does not hold a
+protected position longer; it leaves the position **unprotected** through a
+band the booked tier would have closed at break-even.
+
+I contest OBJ-15's stronger form. "The installed long-book stop is IDENTICAL
+at 80 and 30 in every reachable state" does not survive the enumeration above.
+No invariant-5 issue either way: give-back, trail and the thesis stop are
+untouched and no exit is *gated*; one protective floor fails to arm.
+
+**OBJ-11, CONCEDED.** The same false sentence is in SHIPPED CODE, not only in
+my write-up: `risk/profit_tiers.py:240-242` says "fail conservative … never
+tighter … production never reaches this default at all", and
+`core/config_guard.py:881-882` repeats the second half. The long book reaches
+it. Both comments need correcting regardless of what happens to the value.
+
+### 9d. The rest of the docket
+
+| # | disposition | what I owe / did |
+|---|---|---|
+| OBJ-2 counts | **CONCEDE** | Re-derived two routes: **19** commits on 2026-09-13, not 18. `4d58ad61..3f891c19` = **15** and EXCLUDES the day's first commit; the inclusive range is `4d58ad61^..3f891c19` = **16**. My remediation range was off by one at the boundary that matters. "Four guard/validator changes" is 3 `fix(guard)` + 1 `fix(gates)`; state it that way or say 3. |
+| OBJ-6 gc_pusher | **PARTIAL** | Mechanism upheld: `OVERFIT_REPORT_PATH` is a hardcoded `parents[1]/"outputs"` at `:1436`. But `grep -c LB_OUTPUTS scripts/gc_pusher.py` = **0**, so saying it "does not honour `LB_OUTPUTS`" implies a variable it was never offered. Correct phrasing: the path is hardcoded and no environment variable redirects it. |
+| OBJ-7 measurement plane | **PARTIAL, with an instrument limit the objection did not name** | `gc_pusher.log` pushed `HTTP 200` every ~30 s straight through 19:50–19:59, and the supervisor relaunched the pusher from the stale tree at 19:56:40, so stale-tree metrics very likely reached Grafana. But **the log carries no date field and spans multiple days** (a second `19:50:08` appears 2,770 lines later), so no line in it can be attributed to a date without a second route. The objection's specific 19:54:20 / 19:57:57 stamps are not verifiable from this file, and neither is my "nothing was affected". Both claims are under-determined by this instrument. |
+| OBJ-8 claim_check | **CONCEDE** | `scripts/claim_check.py` shipped at 15:51, **5 h 53 m** before the offending commit, and I did not run it. Its `_VOLATILE` nouns are `passed|failed|tests?|rows?|files?|mutants?|findings?|anchors?|panels?|trips?|entries` — so "107 **tests**" WOULD have been flagged, while "four **suites**" and "16 **commits**" would not. It is absent from CLAUDE.md's Definition of done (`grep -c claim_check CLAUDE.md` = 0). |
+| OBJ-9 anchor | **CONCEDE, fixed** | `main.py:910` is the argument line; the construction is `:909-910`. The wrong anchor had propagated into `docs/HANDOFF.md` and an unamendable commit message. HANDOFF now reads `909-910`. |
+| OBJ-10 dangling name | **CONCEDE, fixed** | The shim's line 3 named `python3.exe.README.txt`, which does not exist; the same dead name was committed at `:219` of this file. Both now read `python3.README.txt`. |
+| OBJ-13 remedy is unfalsifiable | **DEFER** | Not independently verified. The claim is that `claim_check` default mode returned nonzero on 0 of the last 40 commits and that `--strict` is cleared by prose alone. If true it is a check that cannot fail, which is a catalogued class here. Owed: run the 40-commit sweep and a prose-injection probe. |
+| OBJ-14 stale law in my own brief | **CONCEDE** | The panel brief I wrote corrected the template's ERA-4 to ERA-9 but left its `n=50` registration truncated; `CLAUDE.md` registers **n=50 lean AND n=100 verdict**. My correction paragraph fixed one error and copied another. |
+| OBJ-18 citation range | **CONCEDE** | Plan item B1.25 cites `:243-244` for a claim that lives at `:241-242`; `:243-244` holds the EXPLICIT-0 note, which is correct and load-bearing. A mechanical editor executing B1.25 would delete the good note and leave the false claim standing. |
+
+### 9e. What this section could not see
+
+No credential was added and none should be added without the operator, so
+"review never ran" is established but not remedied. The 940-commit backlog is
+stated as a count of reachable commits on `origin/main`, not as a claim that
+all 940 contain reviewable code. `gc_pusher.log`'s missing date field leaves
+the storm-window metric question open by that route. OBJ-13 is undecided. And
+this section is itself a self-review of a self-review, which is the posture
+that produced every error above.

@@ -406,17 +406,34 @@ ratchet as `2·est_fee_bps + be_buffer_bps`:
 | 5 m | 30.0 | 66.0 bps (0.66%) |
 | long | 80.0 | **166.0 bps (1.66%)** |
 
-The second live consumer is `_estimate_realized_pnl` at `:393`, which books
-`est_fee_bps` against the closed notional — so every long-book partial close
-reports its realized P&L understated by 50 bps of that notional.
+**RETRACTED 2026-09-13 22:55 after a red-team panel.** This paragraph read:
+"The second live consumer is `_estimate_realized_pnl` at `:393`, which books
+`est_fee_bps` against the closed notional, so every long-book partial close
+reports its realized P&L understated by 50 bps of that notional." **Nothing
+reports it.** `TierAction.realized_pnl` has exactly TWO attribute reads
+repo-wide (`tests/test_profit_tier_guards.py:85`, `tests/test_rev3.py:179`),
+both tests; the value is constructed and discarded. `state.realized_pnl_total`
+is a different attribute fed from fills, and `est_fee_bps` appears nowhere in
+`core/state.py`, `execution/order_manager.py` or the capital layer. The
+"CONFIRMED four ways" banner above verified the PREMISE (80.0), never this
+consequence — and the clause had already been copied into four other places.
 
-**Direction, stated honestly: this is fail-conservative, not dangerous.** A
-wider buffer puts the break-even floor further above entry, which holds an
-exit open longer and never tightens it — exactly what the `:77` docstring
-says the default is for. Long-book tier 1 triggers at an 8% gain, so by the
-time the ratchet arms, a 1.66% floor sits far below market and may never
-bind. Whether it has ever engaged in live trading is still the [UNKNOWN]
-section (e) lists; this addendum resolves the floor's VALUE, not its history.
+**Direction — CORRECTED 2026-09-13 22:55, and it is NOT fail-conservative.**
+The original text here claimed a wider buffer "holds an exit open longer and
+never tightens it", echoing the `:77` docstring. **A red-team panel refuted it
+and an independent enumeration confirms the refutation.** 960 states (entry
+100, long, tier_closed × high_water × price × sigma): **224 install a DIFFERENT
+stop**, and stepping the path one tick makes that a different EXIT in **6 of 8**
+probes. At price 101.0 with tier 1 closed, the corrected engine arms a
+break-even floor at 100.66 and exits on a tick back to 100.65; the shipped
+engine, whose floor sits at 101.66, **arms nothing at all** and holds. So the
+80 bps figure does not hold a *protected* position longer — it leaves the
+position UNPROTECTED through a band the booked tier would have closed at
+break-even. "Never tighter" is false as a general statement, and it is false in
+SHIPPED COMMENTS at `risk/profit_tiers.py:77` and `:241-242`, not only here.
+No invariant-5 issue: give-back, trail and the 12% thesis stop are untouched
+and no exit is *gated*; one protective floor fails to arm. Whether this has
+engaged in live trading is still the [UNKNOWN] section (e) lists.
 
 **The guard's own claim is false for this path.** `core/config_guard.py:883`
 FATALs on an absent `profit_taking.est_fee_bps` and its comment says "this
