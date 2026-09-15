@@ -1,24 +1,24 @@
 {
-  "generated_at": 1789497089.9746659,
+  "generated_at": 1789500691.1079762,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789497087.0,
-    "duration_h": 1618.63
+    "end": 1789500677.0,
+    "duration_h": 1619.63
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 414,
-      "signal_records": 252,
+      "records": 422,
+      "signal_records": 255,
       "by_src": {
-        "exploration": 180,
+        "exploration": 188,
         "ml_governor": 94,
         "entry_sweep": 49,
-        "order_manager": 39,
+        "order_manager": 40,
         "long_book": 19,
-        "exit": 11,
         "conviction": 10,
+        "exit": 10,
         "startup": 5,
         "fault": 5,
         "engine": 1,
@@ -27,11 +27,11 @@
       "top_codes": [
         [
           "ML-070",
-          77
+          79
         ],
         [
           "SZ-051",
-          74
+          76
         ],
         [
           "EN-000",
@@ -43,7 +43,11 @@
         ],
         [
           "OM-000",
-          25
+          24
+        ],
+        [
+          "OM-040",
+          16
         ],
         [
           "ML-016",
@@ -54,35 +58,31 @@
           14
         ],
         [
-          "OM-040",
+          "ML-041",
           14
         ],
         [
-          "ML-041",
-          13
-        ],
-        [
-          "PT-061",
-          11
+          "SZ-049",
+          14
         ],
         [
           "SZ-052",
-          11
+          12
         ],
         [
-          "SZ-049",
-          11
+          "PT-061",
+          10
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.194,
+      "dominant_frac": 0.192,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 16644,
+      "records": 16591,
       "by_level": {
-        "INFO": 16500,
+        "INFO": 16447,
         "WARNING": 129,
         "ERROR": 8,
         "CRITICAL": 7
@@ -117,65 +117,65 @@
           4
         ],
         [
-          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
           "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Read timed out. (rea",
           3
         ],
         [
           "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
           3
+        ],
+        [
+          "control: stop  -> ok (runner=RUNNING)",
+          3
         ]
       ],
       "liquidity_tally": {
-        "thin": 2230,
-        "spoofy": 26
+        "thin": 2262,
+        "spoofy": 34
       },
-      "spoofy_frac": 0.012,
+      "spoofy_frac": 0.015,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1221,
+      "cycles_estimate": 1236,
       "feed_error_events": 11
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 776.88,
-    "equity_min": 776.77,
+    "equity_end": 776.99,
+    "equity_min": 776.65,
     "equity_max": 806.91,
-    "equity_range": 30.14,
+    "equity_range": 30.26,
     "capital_epochs": 5,
-    "epoch_samples": 187694,
+    "epoch_samples": 187928,
     "lifetime_equity_start": 25000.0,
-    "lifetime_equity_min": 776.77,
+    "lifetime_equity_min": 776.65,
     "lifetime_equity_max": 100000.03,
-    "lifetime_equity_range": 99223.26,
+    "lifetime_equity_range": 99223.38,
     "realized_pnl_total": -12.3,
     "fees_paid_total": 24.9792,
     "open_positions": 2,
-    "samples": 355485
+    "samples": 355719
   },
   "activity": {
-    "signal_rows_total": 29602,
+    "signal_rows_total": 29646,
     "live_labeled_trades": 450,
-    "candidate_rows": 29152
+    "candidate_rows": 29196
   },
   "audit": {
-    "records": 88799,
-    "signal_records": 35373,
+    "records": 88814,
+    "signal_records": 35383,
     "by_src": {
-      "exploration": 76548,
+      "exploration": 76556,
       "long_book": 3869,
-      "ml_governor": 3039,
-      "order_manager": 2238,
+      "ml_governor": 3043,
+      "order_manager": 2240,
       "conviction": 1219,
       "startup": 482,
       "fault": 477,
       "firewall": 372,
       "exit": 354,
-      "entry_sweep": 68,
+      "entry_sweep": 69,
       "engine": 65,
       "circuit_breaker": 56,
       "runner": 12
@@ -183,11 +183,11 @@
     "top_codes": [
       [
         "ML-070",
-        27849
+        27851
       ],
       [
         "SZ-051",
-        25340
+        25342
       ],
       [
         "SZ-047",
@@ -203,7 +203,7 @@
       ],
       [
         "ML-031",
-        1121
+        1122
       ],
       [
         "LB-050",
@@ -211,7 +211,7 @@
       ],
       [
         "OM-040",
-        830
+        832
       ],
       [
         "CV-030",
@@ -219,11 +219,11 @@
       ],
       [
         "ML-016",
-        527
+        528
       ],
       [
         "ML-041",
-        503
+        504
       ],
       [
         "CG-000",
@@ -231,7 +231,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.63,
+    "dominant_frac": 0.629,
     "retrain_requests": 227,
     "kill_switch_events": 9,
     "chain_ok": false,
@@ -240,28 +240,28 @@
     "chain_seams": 61,
     "chain_torn_tail": false,
     "chain_error": null,
-    "dup_seqs": 1714,
-    "fork_divergent_seqs": 1714,
+    "dup_seqs": 1718,
+    "fork_divergent_seqs": 1718,
     "fork_codes": {
-      "LB-010": 433,
+      "LB-010": 434,
       "SZ-051": 402,
       "ML-070": 401,
       "FW-050": 312,
       "OM-040": 307,
-      "LB-050": 285,
-      "CX-030": 283,
+      "LB-050": 287,
+      "CX-030": 284,
       "CV-010": 244,
       "SZ-049": 198,
       "FT-020": 162,
       "CG-000": 155,
-      "ML-031": 149,
+      "ML-031": 150,
       "OM-000": 93,
       "CV-030": 78,
       "EN-000": 68,
       "SZ-052": 51,
-      "ML-016": 45,
-      "ML-042": 43,
-      "ML-041": 40,
+      "ML-016": 46,
+      "ML-042": 44,
+      "ML-041": 41,
       "CV-000": 40,
       "PT-061": 32,
       "ML-032": 27,
@@ -341,10 +341,10 @@
     ]
   },
   "events": {
-    "records": 24324,
+    "records": 24654,
     "by_level": {
-      "INFO": 24124,
-      "WARNING": 180,
+      "INFO": 24451,
+      "WARNING": 183,
       "CRITICAL": 11,
       "ERROR": 9
     },
@@ -391,19 +391,19 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2998,
-      "spoofy": 28
+      "thin": 3064,
+      "spoofy": 36
     },
-    "spoofy_frac": 0.009,
+    "spoofy_frac": 0.012,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1830,
+    "cycles_estimate": 1874,
     "feed_error_events": 12
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.2485011104827595,
+    "champion_brier": 0.24857693731708028,
     "brier": "n/a",
     "history_rows": 450,
     "cold": false
@@ -427,7 +427,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 19244,
+      "triple_barrier_h432": 19288,
       "triple_barrier": 5328,
       "exit_sim": 2790,
       "legacy": 1781,
@@ -447,10 +447,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 29602,
+    "corpus_rows": 29646,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-15T17:20:00Z",
-    "corpus_span_days": 64.2,
+    "corpus_last_ts": "2026-09-15T18:45:00Z",
+    "corpus_span_days": 64.26,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -467,7 +467,7 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "1714 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 433, 'SZ-051': 402, 'ML-070': 401, 'FW-050': 312, 'OM-040': 307, 'LB-050': 285, 'CX-030': 283, 'CV-010': 244, 'SZ-049': 198, 'FT-020': 162, 'CG-000': 155, 'ML-031': 149, 'OM-000': 93, 'CV-030': 78, 'EN-000': 68, 'SZ-052': 51, 'ML-016': 45, 'ML-042': 43, 'ML-041': 40, 'CV-000': 40, 'PT-061': 32, 'ML-032': 27, 'ML-030': 19, 'LB-000': 16, 'SZ-053': 11, 'RT-010': 10, 'FT-010': 8, 'ML-076': 7, 'ML-050': 6, 'LB-021': 6, 'ML-040': 5, 'SZ-048': 3, 'SZ-047': 2, 'SZ-046': 2, 'LB-020': 2, 'OM-080': 1, 'OM-013': 1, 'RP-070': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "1718 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 434, 'SZ-051': 402, 'ML-070': 401, 'FW-050': 312, 'OM-040': 307, 'LB-050': 287, 'CX-030': 284, 'CV-010': 244, 'SZ-049': 198, 'FT-020': 162, 'CG-000': 155, 'ML-031': 150, 'OM-000': 93, 'CV-030': 78, 'EN-000': 68, 'SZ-052': 51, 'ML-016': 46, 'ML-042': 44, 'ML-041': 41, 'CV-000': 40, 'PT-061': 32, 'ML-032': 27, 'ML-030': 19, 'LB-000': 16, 'SZ-053': 11, 'RT-010': 10, 'FT-010': 8, 'ML-076': 7, 'ML-050': 6, 'LB-021': 6, 'ML-040': 5, 'SZ-048': 3, 'SZ-047': 2, 'SZ-046': 2, 'LB-020': 2, 'OM-080': 1, 'OM-013': 1, 'RP-070': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
