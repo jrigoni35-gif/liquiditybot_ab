@@ -1,26 +1,26 @@
 {
-  "generated_at": 1789432245.6973562,
+  "generated_at": 1789439463.248534,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789432231.0,
-    "duration_h": 1600.62
+    "end": 1789439449.0,
+    "duration_h": 1602.62
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 652,
-      "signal_records": 320,
+      "records": 640,
+      "signal_records": 308,
       "by_src": {
-        "exploration": 341,
-        "ml_governor": 100,
-        "order_manager": 65,
+        "exploration": 342,
+        "ml_governor": 95,
+        "order_manager": 56,
         "entry_sweep": 49,
-        "long_book": 44,
-        "conviction": 33,
-        "exit": 10,
-        "startup": 4,
-        "fault": 4,
+        "long_book": 43,
+        "conviction": 32,
+        "exit": 11,
+        "startup": 5,
+        "fault": 5,
         "engine": 1,
         "circuit_breaker": 1
       },
@@ -39,65 +39,85 @@
         ],
         [
           "ML-031",
-          45
-        ],
-        [
-          "OM-000",
-          36
+          43
         ],
         [
           "OM-040",
           29
         ],
         [
-          "LB-010",
-          28
-        ],
-        [
           "SZ-052",
           28
         ],
         [
-          "CV-030",
-          18
+          "OM-000",
+          27
         ],
         [
-          "ML-016",
-          16
-        ],
-        [
-          "ML-042",
-          16
+          "LB-010",
+          26
         ],
         [
           "CV-000",
+          17
+        ],
+        [
+          "CV-030",
+          15
+        ],
+        [
+          "ML-016",
+          15
+        ],
+        [
+          "ML-042",
           15
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.153,
+      "dominant_frac": 0.159,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 18612,
+      "records": 18640,
       "by_level": {
-        "INFO": 18477,
-        "WARNING": 120,
+        "INFO": 18500,
+        "WARNING": 125,
         "ERROR": 8,
         "CRITICAL": 7
       },
       "top_warnings": [
         [
           "ML-031: feature drift 25/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          8
+          7
         ],
         [
           "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          5
+          4
         ],
         [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+          4
+        ],
+        [
+          "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
+          4
+        ],
+        [
+          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+          4
+        ],
+        [
+          "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+          4
+        ],
+        [
+          "op-state INIT -> ARMED (startup validation passed)",
+          4
+        ],
+        [
+          "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
           4
         ],
         [
@@ -107,77 +127,57 @@
         [
           "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Read timed out. (rea",
           3
-        ],
-        [
-          "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-          3
-        ],
-        [
-          "control: stop  -> ok (runner=RUNNING)",
-          3
-        ],
-        [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          3
-        ],
-        [
-          "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
-          3
-        ],
-        [
-          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-          3
         ]
       ],
       "liquidity_tally": {
-        "thin": 1955,
+        "thin": 2009,
         "spoofy": 28
       },
       "spoofy_frac": 0.014,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1415,
-      "feed_error_events": 8
+      "cycles_estimate": 1419,
+      "feed_error_events": 10
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 781.13,
-    "equity_min": 780.36,
+    "equity_end": 780.34,
+    "equity_min": 780.33,
     "equity_max": 806.91,
-    "equity_range": 26.55,
+    "equity_range": 26.58,
     "capital_epochs": 5,
-    "epoch_samples": 183464,
+    "epoch_samples": 183919,
     "lifetime_equity_start": 25000.0,
-    "lifetime_equity_min": 780.36,
+    "lifetime_equity_min": 780.33,
     "lifetime_equity_max": 100000.03,
-    "lifetime_equity_range": 99219.67,
-    "realized_pnl_total": -8.52,
-    "fees_paid_total": 23.9463,
-    "open_positions": 5,
-    "samples": 351255
+    "lifetime_equity_range": 99219.7,
+    "realized_pnl_total": -9.61,
+    "fees_paid_total": 24.1236,
+    "open_positions": 4,
+    "samples": 351710
   },
   "activity": {
-    "signal_rows_total": 29407,
-    "live_labeled_trades": 445,
-    "candidate_rows": 28962
+    "signal_rows_total": 29409,
+    "live_labeled_trades": 446,
+    "candidate_rows": 28963
   },
   "audit": {
-    "records": 88689,
-    "signal_records": 35286,
+    "records": 88700,
+    "signal_records": 35297,
     "by_src": {
-      "exploration": 76514,
-      "long_book": 3867,
+      "exploration": 76515,
+      "long_book": 3869,
       "ml_governor": 3006,
-      "order_manager": 2224,
-      "conviction": 1217,
-      "startup": 481,
-      "fault": 476,
+      "order_manager": 2225,
+      "conviction": 1219,
+      "startup": 482,
+      "fault": 477,
       "firewall": 372,
-      "exit": 349,
+      "exit": 350,
       "engine": 65,
       "circuit_breaker": 56,
-      "entry_sweep": 50,
+      "entry_sweep": 52,
       "runner": 12
     },
     "top_codes": [
@@ -195,11 +195,11 @@
       ],
       [
         "LB-010",
-        2303
+        2304
       ],
       [
         "OM-000",
-        1398
+        1399
       ],
       [
         "ML-031",
@@ -227,7 +227,7 @@
       ],
       [
         "CG-000",
-        481
+        482
       ]
     ],
     "dominant_code": "SZ-047",
@@ -240,33 +240,33 @@
     "chain_seams": 61,
     "chain_torn_tail": false,
     "chain_error": null,
-    "dup_seqs": 1604,
-    "fork_divergent_seqs": 1604,
+    "dup_seqs": 1615,
+    "fork_divergent_seqs": 1615,
     "fork_codes": {
-      "LB-010": 409,
+      "LB-010": 411,
       "SZ-051": 394,
       "ML-070": 390,
       "FW-050": 312,
-      "OM-040": 297,
-      "LB-050": 263,
-      "CX-030": 260,
-      "CV-010": 242,
-      "SZ-049": 178,
-      "FT-020": 149,
-      "CG-000": 142,
+      "OM-040": 301,
+      "LB-050": 264,
+      "CX-030": 261,
+      "CV-010": 244,
+      "SZ-049": 179,
+      "FT-020": 151,
+      "CG-000": 144,
       "ML-031": 133,
-      "OM-000": 85,
+      "OM-000": 86,
       "CV-030": 78,
-      "EN-000": 50,
+      "EN-000": 52,
       "SZ-052": 47,
       "ML-016": 40,
+      "CV-000": 40,
       "ML-042": 39,
-      "CV-000": 38,
       "ML-041": 35,
-      "PT-061": 27,
+      "PT-061": 28,
       "ML-032": 24,
       "ML-030": 19,
-      "LB-000": 15,
+      "LB-000": 16,
       "SZ-053": 11,
       "RT-010": 10,
       "FT-010": 8,
@@ -340,10 +340,10 @@
     ]
   },
   "events": {
-    "records": 19738,
+    "records": 20384,
     "by_level": {
-      "INFO": 19587,
-      "WARNING": 135,
+      "INFO": 20222,
+      "WARNING": 146,
       "CRITICAL": 8,
       "ERROR": 8
     },
@@ -353,32 +353,32 @@
         9
       ],
       [
-        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         5
       ],
       [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        4
-      ],
-      [
         "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
-        4
+        5
       ],
       [
         "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-        4
+        5
       ],
       [
         "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
-        4
+        5
       ],
       [
         "op-state INIT -> ARMED (startup validation passed)",
-        4
+        5
       ],
       [
         "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
-        4
+        5
+      ],
+      [
+        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        5
       ],
       [
         "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
@@ -390,13 +390,13 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2043,
+      "thin": 2135,
       "spoofy": 28
     },
-    "spoofy_frac": 0.014,
+    "spoofy_frac": 0.013,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1447,
-    "feed_error_events": 8
+    "cycles_estimate": 1471,
+    "feed_error_events": 10
   },
   "model": {
     "monitor_level": 0,
@@ -404,14 +404,14 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.2367279255613664,
     "brier": "n/a",
-    "history_rows": 445,
+    "history_rows": 446,
     "cold": false
   },
   "postmortems": {
-    "count": 376,
+    "count": 377,
     "causes": {
       "underperformance": 251,
-      "alpha_wrong": 49,
+      "alpha_wrong": 50,
       "cost_overrun": 40,
       "regime_shift": 33,
       "whipsaw": 3
@@ -426,19 +426,19 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 19052,
+      "triple_barrier_h432": 19054,
       "triple_barrier": 5328,
       "exit_sim": 2787,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1320,
+    "fills_rows": 1321,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1030,
       "7-e7d5ca1a": 133,
       "9-16ec821e": 68,
-      "12-10d4d0c2": 58,
+      "12-10d4d0c2": 59,
       "8-ca55e2ba": 10,
       "10-a5acfe2d": 9,
       "11-6e584923": 8,
@@ -446,7 +446,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 29407,
+    "corpus_rows": 29409,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-14T22:10:00Z",
     "corpus_span_days": 63.4,
@@ -466,13 +466,13 @@
       "id": "SD-011",
       "severity": "warn",
       "title": "audit fork carries divergent payloads",
-      "detail": "1604 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 409, 'SZ-051': 394, 'ML-070': 390, 'FW-050': 312, 'OM-040': 297, 'LB-050': 263, 'CX-030': 260, 'CV-010': 242, 'SZ-049': 178, 'FT-020': 149, 'CG-000': 142, 'ML-031': 133, 'OM-000': 85, 'CV-030': 78, 'EN-000': 50, 'SZ-052': 47, 'ML-016': 40, 'ML-042': 39, 'CV-000': 38, 'ML-041': 35, 'PT-061': 27, 'ML-032': 24, 'ML-030': 19, 'LB-000': 15, 'SZ-053': 11, 'RT-010': 10, 'FT-010': 8, 'ML-076': 7, 'ML-050': 6, 'LB-021': 6, 'ML-040': 5, 'SZ-047': 2, 'SZ-046': 2, 'LB-020': 2, 'OM-080': 1, 'OM-013': 1, 'RP-070': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
+      "detail": "1615 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 411, 'SZ-051': 394, 'ML-070': 390, 'FW-050': 312, 'OM-040': 301, 'LB-050': 264, 'CX-030': 261, 'CV-010': 244, 'SZ-049': 179, 'FT-020': 151, 'CG-000': 144, 'ML-031': 133, 'OM-000': 86, 'CV-030': 78, 'EN-000': 52, 'SZ-052': 47, 'ML-016': 40, 'CV-000': 40, 'ML-042': 39, 'ML-041': 35, 'PT-061': 28, 'ML-032': 24, 'ML-030': 19, 'LB-000': 16, 'SZ-053': 11, 'RT-010': 10, 'FT-010': 8, 'ML-076': 7, 'ML-050': 6, 'LB-021': 6, 'ML-040': 5, 'SZ-047': 2, 'SZ-046': 2, 'LB-020': 2, 'OM-080': 1, 'OM-013': 1, 'RP-070': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete"
     },
     {
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '9-16ec821e': 68, '12-10d4d0c2': 58, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '9-16ec821e': 68, '12-10d4d0c2': 59, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-010",
