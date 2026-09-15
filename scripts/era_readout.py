@@ -91,6 +91,20 @@ N_VERDICT = 100
 SIZE_TOL = 0.02          # cohort_eval's fully-closed tolerance, kept identical
 FEE_NULL_CUT11 = -0.33   # cut-#11 registration: 55 bps x $60
 FEE_NULL_CUT12 = -0.27   # CLAUDE.md era-9 block: 45 bps x $60
+# OPERATOR ADJUDICATION 2026-09-15, recorded before the n=50 read point:
+#   * H0's -fee is the era's OWN MEASURED mean booked fee per trip, not a
+#     literal. It is never hardcoded here - it is recomputed from the
+#     population at read time, because the tier rolls and the exit/entry
+#     maker-taker mix moves. Today it is -0.2960 (49.3 bps of the $60.03
+#     median ticket, because every exit pays taker).
+#     NOTE, for the record: -0.296 is a LOWER bar for CONTINUE than the
+#     -0.27 it replaces (CI lo > -0.296 is easier than CI lo > -0.27). It is
+#     chosen because it is what the account actually paid, not because it is
+#     conservative - and that direction is disclosed rather than buried.
+#   * The selected population is the 5m book only (registration HYPOTHESIS,
+#     "$60 tickets"), not the pooled row. See SELECTED_POP.
+DEFAULT_FEE_NULL = "measured"
+SELECTED_POP = "stamp-pure, 5m book only (registration HYPOTHESIS)"
 FEW_BLOCKS = 5           # below this, print the read-the-sign-not-the-edges warning
 
 # Student-t 0.975 quantiles. scipy is NOT in the repo venv (same reason and
@@ -317,6 +331,39 @@ def cluster_t(trips: list[dict], key: str) -> dict:
             "lo": xbar - tq * se, "hi": xbar + tq * se}
 
 
+def resolve_fee_null(spec, measured: float) -> tuple[float, str]:
+    """H0's -fee, from a named source or a literal.
+
+    'measured' is the operator's 2026-09-15 adjudication and is recomputed at
+    every read - never frozen into a constant, because the venue tier rolls
+    and the maker/taker mix moves with the exit ladder.
+    """
+    if spec is None:
+        spec = DEFAULT_FEE_NULL
+    if isinstance(spec, str):
+        key = spec.strip().lower()
+        # A literal arrives as a STRING from argparse (--fee-null -0.41), so
+        # numbers are resolved before names or the documented literal form
+        # raises. Found by its own pin, 2026-09-15.
+        try:
+            return float(key), "operator --fee-null <literal>"
+        except ValueError:
+            pass
+        if key == "measured":
+            if measured != measured:                     # NaN: no trips yet
+                return FEE_NULL_CUT12, ("era measured UNAVAILABLE (no trips) - "
+                                        "fell back to CLAUDE.md cut-#12")
+            return measured, ("era MEASURED mean booked fee/trip "
+                              "(operator adjudication 2026-09-15)")
+        if key == "cut11":
+            return FEE_NULL_CUT11, "cut-#11 registration (55 bps x $60)"
+        if key == "cut12":
+            return FEE_NULL_CUT12, "CLAUDE.md era-9 block (cut-#12 45 bps x $60)"
+        raise ValueError(f"--fee-null: expected a number or one of "
+                         f"measured/cut11/cut12, got {spec!r}")
+    return float(spec), "operator --fee-null <literal>"
+
+
 def leave_one_day_out(trips: list[dict], key: str, reps: int, seed: int) -> dict:
     """Informational: how much does the interval depend on any single day?"""
     days = sorted({t["close_day"] for t in trips})
@@ -430,10 +477,15 @@ def render(res: dict) -> str:
          if c.get("era_measured_bps") == c.get("era_measured_bps") else ""))
     a("")
     a("MEMBERSHIP")
-    a("  The registration names NO BOOK. Neither row below is 'the' registered")
-    a("  population: the operator SELECTS one before the read point.")
+    a("  The registration names NO BOOK. The operator SELECTED the 5m-book row on")
+    a("  2026-09-15, before the n=50 read point: the registered HYPOTHESIS names")
+    a("  '$60 tickets', and the long book is a different strategy (12% thesis stops,")
+    a("  $31-47 tickets) that no cut's configuration includes. Disclosed cost of that")
+    a("  choice: the 5m row has the FRIENDLIER median, and at today's numbers it moves")
+    a("  the population out of a clean STOP and into the n=100 rule's hole (Q9).")
     for name, blk in res["populations"].items():
-        a(f"  {name:<46} n={blk['n']}")
+        mark = "  <- SELECTED (operator, 2026-09-15)" if name == SELECTED_POP else ""
+        a(f"  {name:<52} n={blk['n']}{mark}")
     op = res["open_or_partial"]
     a(f"  open / partially closed (not yet trips)       n={len(op)}" + (":" if op else ""))
     for e in op:
@@ -444,7 +496,7 @@ def render(res: dict) -> str:
         a(f"      {e['pid'][:8]}  {(e.get('symbol') or ''):<9} {e['reason']}")
     a("")
     for name, blk in res["populations"].items():
-        a(f"--- {name} ---")
+        a(f"--- {name}{'  [SELECTED]' if name == SELECTED_POP else ''} ---")
         if blk["n"] == 0:
             a("  (empty)")
             a("")
@@ -520,16 +572,14 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
         measured_bps = 1e4 * (-measured_fee) / med_ticket if med_ticket else float("nan")
     else:
         measured_fee = measured_bps = float("nan")
-    if fee_null is None:
-        fee_null, src = FEE_NULL_CUT12, "CLAUDE.md era-9 block (cut-#12 45 bps x $60)"
-    else:
-        src = "operator --fee-null"
+    fee_null, src = resolve_fee_null(fee_null, measured_fee)
     pops: dict[str, dict] = {}
-    pops["stamp-pure, all books (registration LETTER)"] = rules(pure, fee_null, reps, seed)
-    pops["stamp-pure, 5m book only (registration HYPOTHESIS)"] = rules(
+    # SELECTED first, by operator adjudication 2026-09-15.
+    pops[SELECTED_POP] = rules(
         [t for t in pure if t["book"] != "long"], fee_null, reps, seed)
+    pops["stamp-pure, all books (registration LETTER)"] = rules(pure, fee_null, reps, seed)
     pops["any-leg (closes in era, incl. straddlers)"] = rules(anyleg, fee_null, reps, seed)
-    pops["stamp-pure, long book only"] = rules(
+    pops["stamp-pure, long book only (NOT pooled - its own question)"] = rules(
         [t for t in pure if t["book"] == "long"], fee_null, reps, seed)
     proto = next((p["net"]["protocol"] for p in pops.values() if p.get("net")), "n/a")
     return {
@@ -553,8 +603,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--fills", default=str(ROOT / "outputs" / "fills.csv"))
     ap.add_argument("--era", default=None, help="exec_era stamp; default core.fill_ledger.EXEC_ERA")
-    ap.add_argument("--fee-null", type=float, default=None,
-                    help="H0 net $/trip; default CLAUDE.md's -0.27 (cut-#11 registered -0.33)")
+    ap.add_argument("--fee-null", default=None,
+                    help="H0 net $/trip: a number, or measured (default, operator "
+                         "adjudication 2026-09-15) | cut11 (-0.33) | cut12 (-0.27)")
     ap.add_argument("--reps", type=int, default=REPS)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--json", action="store_true")

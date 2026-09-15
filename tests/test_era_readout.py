@@ -33,9 +33,9 @@ import era_readout as er  # noqa: E402
 
 ERA = "12-test"
 LETTER = "stamp-pure, all books (registration LETTER)"
-HYPOTH = "stamp-pure, 5m book only (registration HYPOTHESIS)"
+HYPOTH = "stamp-pure, 5m book only (registration HYPOTHESIS)"  # = er.SELECTED_POP
 ANYLEG = "any-leg (closes in era, incl. straddlers)"
-LONGBK = "stamp-pure, long book only"
+LONGBK = "stamp-pure, long book only (NOT pooled - its own question)"
 
 COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side", "ordertype",
         "post_only", "attempt", "fill_size", "fill_price", "arrival_ref", "slip_bps",
@@ -433,10 +433,36 @@ def test_no_row_is_labelled_REGISTERED(ledger):
     page = er.render(res)
     assert "registration names NO BOOK" in page
     assert "LETTER" in page and "HYPOTHESIS" in page
+    # the selection is recorded on the page, with its disclosed cost
+    assert "SELECTED (operator, 2026-09-15)" in page
+    assert "FRIENDLIER median" in page and "hole" in page
+    assert list(res["populations"])[0] == er.SELECTED_POP
 
 
-def test_fee_null_defaults_to_claude_md_and_all_candidates_print(ledger):
+def test_fee_null_defaults_to_the_eras_MEASURED_fee(ledger):
+    """Operator adjudication 2026-09-15: H0 is what the account actually paid,
+    recomputed every read - never a frozen literal."""
     res = er.run(ledger(12, net_mean=0.1), ERA, None, reps=100, seed=7)
+    m = res["meta"]
+    assert m["fee_null"] == pytest.approx(-2 * FEE, abs=1e-9)
+    assert "MEASURED" in m["fee_null_source"]
+    assert er.SELECTED_POP == HYPOTH
+
+
+@pytest.mark.parametrize("spec,expect", [("cut11", -0.33), ("cut12", -0.27),
+                                         (-0.5, -0.5), ("-0.41", -0.41)])
+def test_fee_null_named_sources_and_literals(ledger, spec, expect):
+    res = er.run(ledger(8, net_mean=0.1), ERA, spec, reps=50, seed=7)
+    assert res["meta"]["fee_null"] == pytest.approx(expect)
+
+
+def test_fee_null_rejects_an_unknown_name(ledger):
+    with pytest.raises(ValueError, match="measured/cut11/cut12"):
+        er.run(ledger(8, net_mean=0.1), ERA, "whatever", reps=50, seed=7)
+
+
+def test_all_candidates_still_print(ledger):
+    res = er.run(ledger(12, net_mean=0.1), ERA, "cut12", reps=100, seed=7)
     m = res["meta"]
     assert m["fee_null"] == -0.27 and "CLAUDE.md" in m["fee_null_source"]
     c = m["fee_null_candidates"]
