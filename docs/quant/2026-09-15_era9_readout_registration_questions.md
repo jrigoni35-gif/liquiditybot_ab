@@ -89,6 +89,100 @@ on the 22 trips. **Without this the n=50 date arrives and the question is still 
   `cohort_eval`'s homogeneity verdict segments by a code constant and cannot see this. Decide whether era-9
   is still "one experiment" and record the answer.
 
+---
+
+# ADDENDUM, same day — Q8 to Q11, and two sharpenings
+
+**Added 2026-09-15T16:10Z after the instrument of Q7 was built and put through a blind
+reimplementation plus three mandated-position reviewers** (`scripts/era_readout.py`,
+`tests/test_era_readout.py`; verdict `ship_after_named_fixes`, all twelve fixes applied).
+Nothing below is a new opinion: each item is a property of the REGISTRATION that the
+instrument made visible by computing it. The register-decay discipline applies — Q1 to Q7
+above stand as written; these attach.
+
+## Q8. The registered interval under-covers, and today it disagrees with its own calibration.
+
+The registration names *"95% day-block bootstrap CI (UTC day of closing fill, 4,000 reps,
+seed 7)"*. The default reading of that is a **percentile** bootstrap. A percentile bootstrap
+over few clusters under-covers: simulated **~0.85 at 6 blocks** (today), **~0.92 at ~12**
+(about n=50), **~0.94 at ~24** (about n=100) [I — assumed error model]. So the n=50 clause
+*"act only if the CI excludes zero"* fires under H0 nearer **8–9%**, not 5%.
+
+This is not hypothetical. On today's ledger the two families **disagree about the answer**:
+
+| population | registered percentile CI | cluster-t (CR1, df=5) calibration |
+|---|---|---|
+| stamp-pure, all books | [−0.9247, **−0.1644**] — excludes zero | [−1.0775, **+0.0056**] — touches zero |
+| stamp-pure, 5m only | [−0.8941, **−0.1575**] — excludes zero | [−0.9910, **+0.0442**] — touches zero |
+
+**Decide now, not at the read point:** read the registered interval as written, accepting a
+disclosed ~8–9% false-action rate under H0 (the registration says it is *"powered to catch
+losing, not to certify small winning"*, so erring that way is arguably what you signed up
+for) — **or** minute an amendment to a cluster-robust t interval **before** the n=50 data
+exist. Choosing the family after seeing which one excludes zero is the single move a
+pre-registration exists to prevent. The instrument prints both and lets no rule read the
+calibration one.
+
+**Also inside Q8:** the n=50 clause says *"act on it"* and **names no action**. Name one, or
+strike the clause. As written it cannot be complied with or violated.
+
+## Q9. The n=100 rule has a hole, and the 5m-only row is sitting in it.
+
+The registered branches are: CONTINUE iff net > 0 and CI excludes −fee; STOP iff (gross mean
+≤ 0 **and** gross median ≤ 0); STOP iff (gross > 0 **and** net ≤ 0). The quadrant **gross
+mean ≤ 0, gross median > 0, net ≤ 0** matches none of them and falls to UNDETERMINED →
+extend-to-200 — *even when the net CI excludes zero from below*, i.e. even when the book is
+losing with a clear interval.
+
+Today's 5m-only row is exactly there: gross mean **−0.212%**, gross median **+0.457%**, net
+**−0.4734**. **What applies in that quadrant?** The letter says extend; the n=50 lean clause
+says act. The instrument follows the letter and appends a note naming the conflict.
+
+## Q10. Confirm "$60 tickets" and "majors only" are HYPOTHESIS wording, not filters.
+
+The population clause names neither. Measured on the stamp-pure population: tickets span
+**$31.27–$114.70** (median $60.03), and one ETH trip at $114.70 contributes **−$2.88 of the
+−$13.94** total net — about 21% of the loss from 4% of the trips. Entries include 9 shorts.
+Symbols are PAXG/ETH/BTC/LINK = the config universe.
+
+If either phrase is meant as a filter it is a **decision key**, it is cohort-resetting, and
+it must be registered explicitly — not applied silently by whoever runs the readout.
+
+## Q11. Two dependence models are printed and they disagree by 1.7×. (For era-10, not era-9.)
+
+The registered close-day blocks imply an SE inflation of **×1.08**; the overlap/uniqueness
+deflation on the same page implies **×1.80** (effective n 8.0 of 26). Both are on the page
+because both are true of different dependence; the rule uses the weaker one. **15 of 26 trips
+cross UTC midnight** and 32 of 67 overlapping trip-pairs sit in different blocks, so the
+registered interval does not see their shared market path.
+
+**Do not change this for era-9** — it is the registered method. For the era-10 registration,
+consider a moving-block or 2-day-block resample, decided in advance.
+
+## Sharpening Q1 (the null) — there are THREE candidates, not two
+
+cut-#11 registered **−0.33** (55 bps × $60) · CLAUDE.md cut-#12 **−0.27** (45 bps × $60) ·
+**era measured −0.2960** (49.3 bps of the $60.03 median ticket — because every exit pays
+taker). The instrument defaults to −0.27 and prints all three. The band **−0.296 to −0.27 is
+2.6 cents wide and can flip CONTINUE ↔ UNDETERMINED at n=100** at the SE this cohort will
+have. Pick one.
+
+## Sharpening Q3/Q4 (membership) — the choice flips which STOP clause can fire
+
+Not merely the count. Pooled (n=26) vs 5m-only (n=23):
+
+| | net median | gross median |
+|---|---|---|
+| all books (n=26) | **−0.4191** | **−0.364%** |
+| 5m only (n=23) | **+0.0033** | **+0.457%** |
+
+Both medians change sign. Since the no-gross-edge STOP branch requires gross mean **and**
+median ≤ 0, the book choice decides whether that branch is reachable at all. Three long-book
+trips ($31–47 tickets, 36–94 h stale-loser thesis exits, **0 wins of 3**, mean −$1.02) carry
+it. The instrument therefore labels **neither** row "REGISTERED" — it prints "registration
+LETTER" (cohort_eval pools books) and "registration HYPOTHESIS" ($60 5m probes) and requires
+you to select one.
+
 ## Expected outcome, stated in advance so it is not misread when it arrives
 
 The cost is certain (~$0.30/trip). Era-9 gross/trip is **−$0.11, CI [−$0.52, +$0.29], effective n ≈ 6** at
