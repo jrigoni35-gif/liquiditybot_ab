@@ -71,8 +71,12 @@ SHIPS DISABLED. `watch_lane.enabled` defaults False.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
 import time
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger("liquiditybot.watch_lane")
@@ -82,8 +86,30 @@ log = logging.getLogger("liquiditybot.watch_lane")
 # and in scripts/outputs_gc.py's NEVER set in the same commit that introduced
 # it, per this repo's own leak-class rule.
 WATCH_HISTORY_PATH = "outputs/watch_history.csv"
-
 _DEF_EVAL_EVERY_SEC = 300.0
+#: How often the pending pool is written. Not a tuning knob: the pool only
+#: changes on an evaluation, and evaluations are throttled to
+#: _DEF_EVAL_EVERY_SEC per pair, so anything shorter rewrites an unchanged
+#: file. 600 s bounds the worst-case loss to two evaluations.
+_DEF_SAVE_EVERY_SEC = 600.0
+
+#: Bar width the candidate horizon is counted in. MUST equal
+#: ml.walkforward.BAR_SECONDS; duplicated rather than imported because
+#: _load_state runs at boot and an unrelated import failure there would cost
+#: the pool it exists to restore. The duplication is PINNED, not trusted -
+#: see test_the_bar_width_here_matches_the_labellers.
+_BAR_SEC = 300.0
+
+#: A restored pool older than the candidate horizon is DROPPED. A candidate
+#: resolves within label_max_bars (36 h at 432 x 5 m); past that its vertical
+#: barrier has already expired in wall-clock terms and restoring it would
+#: feed the labeller bars separated from its own by a gap the size of the
+#: outage. Measured 2026-09-15: a 2.5-day-old pool written by a mutation
+#: test's planted defect was sitting in outputs/ at exactly the moment this
+#: restore path was about to ship, which is how this guard got written.
+#: Clock skew gets an hour of slack in the other direction; a stamp further
+#: in the FUTURE than that is a fabricated or corrupt file, not a clock.
+_CLOCK_SKEW_TOL_SEC = 3600.0
 _DEF_MAX_OPEN = 400
 _DEF_DEPTH = 20
 _DEF_INTERVAL = 5
@@ -106,6 +132,17 @@ class WatchLane:
         self._evals = 0
         self._errors = 0
         self._last_error = ""
+        self._save_every = float(cfg.get("save_every_sec",
+                                         _DEF_SAVE_EVERY_SEC))
+        self._last_save = 0.0
+        self._restored = 0
+        self._saves = 0
+        self._stale_dropped = 0
+        # default mirrors _build's own ml.label_max_bars fallback; set for
+        # real in _build, but _load_state must never read an absent attribute
+        self._max_bars = 432
+        # NOT resolved here. See _state_path().
+        self._state_path_cfg = str(cfg.get("state_path") or "")
 
         # THE UNIVERSE IS EXCLUDED BY COMPUTATION, NOT BY TRUST. Whatever the
         # operator lists, anything currently traded is dropped - so a careless
@@ -142,9 +179,9 @@ class WatchLane:
             ml_cfg["max_open_candidates"] = int(
                 cfg.get("max_open_candidates", _DEF_MAX_OPEN))
 
+            self._max_bars = int(ml_cfg.get("label_max_bars", 432))
             self._store = HistoryStore(
-                WATCH_HISTORY_PATH,
-                max_bars=int(ml_cfg.get("label_max_bars", 432)))
+                WATCH_HISTORY_PATH, max_bars=self._max_bars)
             # CHANNELS 1 and 4: on_label=None cuts GateStats, shadow_store=None
             # keeps horizon_shadow.csv one population. Both are positional-safe
             # defaults; they are passed EXPLICITLY so the cut is visible at the
@@ -159,10 +196,152 @@ class WatchLane:
                 (config or {}).get("liquidity_regime", {}))
             self._macro = MacroRegimeEngine((config or {}).get("regime", {}))
             self._engines_ok = True
+            self._load_state()
         except Exception as exc:            # pragma: no cover - boot safety
             self._engines_ok = False
             self._last_error = f"{type(exc).__name__}: {exc}"
             log.exception("watch_lane init failed - lane disabled this boot")
+
+    # ------------------------------------------------------------------
+    def _state_path(self) -> str:
+        """The pending pool lives BESIDE the corpus, resolved at call time.
+
+        Not bound in __init__, and that is the whole point. WATCH_HISTORY_PATH
+        is a module constant that callers redirect by monkeypatching the
+        module (tests/test_watch_lane.py:184, :256); a state path frozen at
+        construction does not follow that redirect, so a tmp_path test wrote
+        outputs/watch_lane_state.json into the PRODUCTION tree. conftest's
+        tripwire caught it on the first run - the ELEVENTH instance of this
+        repo's QA-writes-production class, and the first committed by the
+        session that catalogued the other ten.
+
+        Deriving from the corpus path means one redirect covers both, which
+        is also what the data wants: the pending pool and the corpus it
+        drains into are the same lane's state.
+
+        In production this resolves to outputs/watch_history_state.json.
+        That value is deliberately NOT also a module constant. A constant
+        nothing reads, holding a production path, is bait: conftest redirects
+        only the attribute names it has REGISTERED, so the first caller to
+        reach for the obvious-looking constant instead of this method writes
+        into the operator's tree with nothing flagging it - the same class
+        this method's existence was bought by. One such constant was written
+        here and deleted before it shipped.
+
+        Deliberately NOT core/persistence.py either: that module hands the
+        ENGINE its state, and channel 3 of the isolation contract above is
+        that this lane's pool never meets the engine's.
+
+        KNOWN GAP, deliberately not widened here (mid-accrual): neither
+        WATCH_HISTORY_PATH nor this path appears in config.json, so
+        tests/test_qa_isolation.py's generic *_path walk cannot see either -
+        the exact "absence of a key is not absence of a write" trap its own
+        docstring names. Lifting both into config is a separate change.
+        """
+        if self._state_path_cfg:
+            return self._state_path_cfg
+        base = Path(WATCH_HISTORY_PATH)
+        return str(base.with_name(base.stem + "_state.json"))
+
+    # ------------------------------------------------------------------
+    def _load_state(self) -> None:
+        """Restore the pending candidate pool across a restart.
+
+        WHY. A watch candidate needs up to label_max_bars (36 h at 432 x 5 m)
+        to resolve and this process does not live that long, so before this
+        every restart discarded the pending pool.
+
+        The cost is not merely a smaller corpus. A pool that dies with the
+        process keeps only the candidates that resolve INSIDE one process
+        lifetime, which selects on SHORT TIME TO RESOLUTION - i.e. on
+        volatility, which this repo's own resolution-vs-direction work
+        identifies as the half of the triple-barrier label carrying no
+        directional information. An unpersisted pool does not just lose rows;
+        it BIASES the ones it keeps, in the exact direction that makes them
+        worthless. That argument is from MECHANISM and needs no row count.
+
+        NO ROW COUNT IS WRITTEN HERE, DELIBERATELY. An earlier version of
+        this docstring said "the lane had written 12 rows in total", carried
+        in from a workflow summary and never re-derived. It was refuted the
+        same day by two independent routes - the live snapshot's
+        rows_labeled and outputs/watch_history.csv's own line count - which
+        disagree with each other by 9 and with 12 by two orders of
+        magnitude. Re-derive from those two; do not re-cite 12.
+
+        Fail-soft by construction: any error leaves an empty pool, which is
+        precisely the pre-fix behaviour. CandidateLabeler.restore() does its
+        own FEATURE_SCHEMA_VERSION check and drops a stale-semantics pool.
+        """
+        try:
+            if self._labeler is None:
+                return
+            p = Path(self._state_path())
+            if not p.exists():
+                return
+            d = json.loads(p.read_text(encoding="utf-8"))
+            lab = (d or {}).get("labeler") or {}
+            if not lab:
+                return
+            # AGE GATE. restore() checks the feature SCHEMA; nothing checked
+            # the CLOCK. A pool older than the candidate horizon holds only
+            # candidates whose vertical barrier has already expired, and
+            # feeding them to the labeller resumes a bar series across a gap
+            # the size of the outage - a silent corruption of exactly the
+            # rows this persistence exists to win. Dropping is fail-soft to
+            # the pre-2026-09-15 behaviour, and it is COUNTED so a reader can
+            # tell "nothing to restore" from "refused to restore".
+            saved_at = float((d or {}).get("saved_at") or 0.0)
+            age = time.time() - saved_at
+            horizon = float(self._max_bars) * _BAR_SEC
+            if saved_at <= 0.0 or age > horizon or age < -_CLOCK_SKEW_TOL_SEC:
+                self._stale_dropped = len(lab.get("cands") or [])
+                self._last_error = (
+                    f"restore: pool age {age / 3600.0:.1f}h outside "
+                    f"[-1.0, {horizon / 3600.0:.1f}]h - dropped "
+                    f"{self._stale_dropped} candidate(s)")
+                log.warning("watch_lane: %s", self._last_error)
+                return
+            self._labeler.restore(lab)
+            self._restored = len(lab.get("cands") or [])
+            if self._restored:
+                log.info("watch_lane: restored %d pending candidate(s)",
+                         self._restored)
+        except Exception as exc:            # pragma: no cover - boot safety
+            self._last_error = f"restore: {type(exc).__name__}: {exc}"
+            log.warning("watch_lane: pending pool not restored (%s) - "
+                        "starting empty, the pre-2026-09-15 behaviour", exc)
+
+    # ------------------------------------------------------------------
+    def _save_state(self, now: float) -> None:
+        """Atomically write the pending pool. Never raises.
+
+        Atomic because a torn file would be restored at the next boot as a
+        partial pool WITHOUT complaining - the same silent-corruption shape
+        the repo's snapshot machinery exists to prevent.
+        """
+        try:
+            if self._labeler is None:
+                return
+            p = Path(self._state_path())
+            p.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"schema": 1, "saved_at": now,
+                       "labeler": self._labeler.to_dict()}
+            fd, tmp = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(payload, fh)
+                os.replace(tmp, p)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            self._saves += 1
+            self._last_save = now
+        except Exception as exc:            # pragma: no cover - loop safety
+            self._last_error = f"save: {type(exc).__name__}: {exc}"
+            log.warning("watch_lane: pending pool not saved (%s)", exc)
 
     # ------------------------------------------------------------------
     def _due(self, now: float) -> Optional[str]:
@@ -186,7 +365,10 @@ class WatchLane:
             pair = self._due(now)
             if pair is None:
                 return "idle"
-            return self._evaluate(pair, now)
+            out = self._evaluate(pair, now)
+            if now - self._last_save >= self._save_every:
+                self._save_state(now)
+            return out
         except Exception as exc:            # pragma: no cover - loop safety
             self._errors += 1
             self._last_error = f"{type(exc).__name__}: {exc}"
@@ -270,6 +452,18 @@ class WatchLane:
             "rows_labeled": int(self._rows),
             "errors": int(self._errors),
             "last_error": self._last_error[:120],
+            # pending-pool persistence (2026-09-15). `pending` is how many
+            # candidates are awaiting a barrier right now; before the pool was
+            # persisted this was discarded on every restart, so the corpus was
+            # selected on fast resolution. Read `restored_on_boot` after a
+            # relaunch to confirm the fix is live rather than trusting it.
+            "pending": int(len(getattr(self._labeler, "_cands", []) or []))
+            if self._labeler is not None else 0,
+            "restored_on_boot": int(self._restored),
+            # DROPPED, not missing: distinguishes "there was no pool" from
+            # "there was one and it was too old to trust".
+            "stale_dropped": int(self._stale_dropped),
+            "saves": int(self._saves),
             # the isolation properties, published so a board can watch them
             # rather than a reader having to trust this docstring
             "feeds_model": False,

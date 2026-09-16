@@ -178,3 +178,21 @@ def test_live_corpus_is_never_a_candidate(tmp_path, monkeypatch):
     names = {i["file"] for i in res["items"]}
     assert "signal_history.csv" not in names
     assert not (names & gc.NEVER)
+
+
+def test_the_watch_lanes_pending_pool_is_never_collectable():
+    """DERIVED, not spelled. The lane's state path is computed from its
+    corpus path at call time, so a pin that hardcodes the basename would go
+    quietly vacuous the day someone renames the corpus - and the failure it
+    is guarding against is invisible: deleting the pool loses no existing
+    row, it loses every row those pending candidates were going to become,
+    and presents as 'the lane just stopped labelling'."""
+    from pathlib import Path as _P
+
+    from core.watch_lane import WATCH_HISTORY_PATH
+    corpus = _P(WATCH_HISTORY_PATH)
+    assert corpus.name in gc.NEVER, "the corpus itself fell out of NEVER"
+    state = corpus.with_name(corpus.stem + "_state.json").name
+    assert state in gc.NEVER, (
+        f"the watch lane's pending pool ({state}) is not in outputs_gc.NEVER "
+        f"- a future rotation pattern would make it collectable")

@@ -269,6 +269,162 @@ def test_a_watch_row_is_written_and_labeled(shipped_cfg, tmp_path,
     assert lane.snapshot()["rows_labeled"] >= 1
 
 
+# ======================================================================
+# THE PENDING POOL SURVIVES A RESTART (2026-09-15)
+#
+# Before this, every restart discarded the pool. A watch candidate needs up
+# to 36 h to resolve and the process does not live that long, so the ONLY
+# rows that ever reached the corpus were fast barrier touches - a corpus
+# selected on volatility, which is the half of the signal this repo's own
+# resolution-vs-direction work says carries no directional information. The
+# lane was not just slow; the rows it kept were the wrong ones.
+# ======================================================================
+
+def test_the_pending_pool_survives_a_restart(shipped_cfg, tmp_path,
+                                             monkeypatch):
+    """END-TO-END, and the arm that matters: a SECOND lane object - what a
+    relaunch builds - must inherit the first one's pending candidates."""
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+
+    import time
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    assert "+1" in lane.tick(NOW), "no candidate registered"
+    assert lane.snapshot()["pending"] >= 1
+    # SAVED AT THE WALL CLOCK, not at NOW. NOW is a fixed fixture epoch and
+    # is ~2.5 days in the past, which the restore path's age gate correctly
+    # refuses (the gate drops a pool older than label_max_bars x 5 m = 36 h).
+    # Decoupling saved_at from the bar timestamps is a fixture convenience -
+    # the gate reads only saved_at - and the gate itself is pinned below.
+    lane._save_state(time.time())               # the throttle fires at 600 s
+    state = Path(lane._state_path())
+    assert state.exists(), "no state written"
+
+    reborn = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    assert reborn.snapshot()["restored_on_boot"] >= 1, "pool NOT restored"
+    assert reborn.snapshot()["pending"] >= 1
+
+
+def test_without_the_saved_state_a_restart_starts_empty(shipped_cfg, tmp_path,
+                                                        monkeypatch):
+    """The NEGATIVE arm. Without this, the pin above could pass because the
+    second lane re-registered the candidate itself rather than restoring it."""
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    lane.tick(NOW)
+    lane._save_state(NOW)
+    Path(lane._state_path()).unlink()           # the pre-fix world
+    reborn = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    assert reborn.snapshot()["restored_on_boot"] == 0
+    assert reborn.snapshot()["pending"] == 0
+
+
+def test_the_state_file_follows_the_corpus_and_never_lands_in_production(
+        shipped_cfg, tmp_path, monkeypatch):
+    """The path pin. A state path bound at __init__ does NOT follow the
+    module-level redirect these tests use, and wrote
+    outputs/watch_lane_state.json into the production tree - caught by
+    conftest's tripwire on the first run, the ELEVENTH instance of this
+    repo's QA-writes-production class."""
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    sp = Path(lane._state_path())
+    assert sp.parent == out.parent, "state file left the corpus's directory"
+    assert "outputs" not in sp.parts[:-1] or str(tmp_path) in str(sp)
+    lane.tick(NOW)
+    lane._save_state(NOW)
+    assert sp.exists() and sp.stat().st_size > 0
+
+    # This pin's FIRST form asserted `not (ROOT/"outputs"/
+    # "watch_history_state.json").exists()`, and that was wrong twice over.
+    # (1) In production that file is exactly where the live lane's pool
+    #     BELONGS, so the assertion goes red the day this ships and then
+    #     keeps blaming this test for the bot working correctly.
+    # (2) An absence check cannot tell "this test wrote it" from "anyone
+    #     ever wrote it", so it misattributes whatever it does catch.
+    # The WRITE claim is not this test's to make: conftest's audit hook
+    # watches open / os.rename / os.replace / os.remove and fails the
+    # OFFENDING test by name - it already covers the mkstemp+os.replace
+    # pair _save_state uses. What is left here is a PATH claim, which is
+    # deterministic, order-independent and production-independent.
+    assert not sp.resolve().is_relative_to((ROOT / "outputs").resolve()),         f"state path resolves inside the production tree: {sp}"
+
+    # The mutant this pin exists to kill: a path bound at __init__. Re-point
+    # the corpus constant AFTER construction - a call-time derivation follows
+    # it, a frozen one does not. Nothing else in the file probes this.
+    moved = tmp_path / "moved" / "watch_history.csv"
+    moved.parent.mkdir()
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(moved))
+    assert Path(lane._state_path()).parent == moved.parent,         "state path frozen at construction - it does not follow the corpus"
+
+
+def test_a_corrupt_state_file_leaves_the_lane_working(shipped_cfg, tmp_path,
+                                                      monkeypatch):
+    """Fail-soft: a torn or hand-edited file must cost the pool, never the
+    lane. The pre-fix behaviour (empty pool) is the floor, not a crash."""
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    probe = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    Path(probe._state_path()).write_text("{not json", encoding="utf-8")
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    assert lane.snapshot()["ready"], "a bad state file disabled the lane"
+    assert lane.snapshot()["restored_on_boot"] == 0
+    assert "+1" in lane.tick(NOW), "lane cannot work after a bad restore"
+
+
+def test_the_save_is_atomic_and_leaves_no_temp_behind(shipped_cfg, tmp_path,
+                                                      monkeypatch):
+    """A torn state file would be restored at the next boot as a PARTIAL pool
+    without complaining - the silent-corruption shape the repo's snapshot
+    machinery exists to prevent.
+
+    The FIRST form of this pin asserted only "no *.tmp is left" and "the
+    result parses". A plain open(p, "w") + json.dump satisfies BOTH, so a
+    mutation sweep that replaced the whole mkstemp/os.replace block with a
+    direct write SURVIVED all 29 tests: the pin was decorative, checking the
+    mechanism's litter rather than the property the mechanism buys.
+
+    What atomicity actually buys is that a write dying MIDWAY leaves the
+    PREVIOUS file intact - and "w" truncates before the first byte is
+    written. So the pin now kills a save mid-serialisation and reads the old
+    pool back byte-for-byte. The failure is injected at the real seam
+    (to_dict returns something json cannot encode), not by patching the
+    shared json module out from under the interpreter.
+    """
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    lane.tick(NOW)
+
+    # A good save first, so there is a previous pool to preserve.
+    lane._save_state(NOW)
+    sp = Path(lane._state_path())
+    good = sp.read_bytes()
+    assert good and json.loads(good.decode("utf-8"))
+    assert not list(tmp_path.glob("*.tmp")), "temp file left behind"
+    saves = lane.snapshot()["saves"]
+
+    # Now make the NEXT save die partway through encoding.
+    class _Unserialisable:
+        pass
+
+    monkeypatch.setattr(lane._labeler, "to_dict",
+                        lambda: {"bars": _Unserialisable()})
+    lane._save_state(NOW + 1)               # never raises, by contract
+
+    assert sp.read_bytes() == good,         "a failed save CORRUPTED the previous pool - the write is not atomic"
+    assert not list(tmp_path.glob("*.tmp")), "a failed save left a temp behind"
+    assert lane.snapshot()["saves"] == saves,         "a failed save was counted as a save"
+    assert "save:" in (lane.snapshot().get("last_error") or ""),         "a failed save was silent - nothing to see in the snapshot"
+
+
 def test_one_asset_per_tick(shipped_cfg):
     """REST budget: the lane rides the trading loop's thread, so it evaluates
     at most one asset per tick and round-robins."""
@@ -407,3 +563,66 @@ def test_the_corpus_is_never_garbage_collected():
     """It accrues slowly by design, so age is exactly the wrong signal."""
     src = (ROOT / "scripts" / "outputs_gc.py").read_text(encoding="utf-8")
     assert '"watch_history.csv"' in src
+
+def test_a_pool_older_than_the_candidate_horizon_is_dropped_and_counted(
+        shipped_cfg, tmp_path, monkeypatch):
+    """A candidate resolves within label_max_bars (36 h at 432 x 5 m). Past
+    that its vertical barrier has already expired in wall-clock terms, and
+    restoring it resumes the labeller's bar series across a gap the size of
+    the outage - silently corrupting the very rows this persistence exists
+    to win. restore() checks the feature SCHEMA; nothing checked the CLOCK.
+
+    NOT HYPOTHETICAL. A 2.5-day-old pool written by a mutation test's
+    planted production-path defect was sitting in outputs/ at the moment
+    this restore path was about to ship, and would have been read as live.
+    """
+    import time
+
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    lane.tick(NOW)
+    assert lane.snapshot()["pending"] >= 1
+    horizon = 432 * 300.0
+    lane._save_state(time.time() - (horizon + 3600.0))
+
+    reborn = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    snap = reborn.snapshot()
+    assert snap["restored_on_boot"] == 0, "a stale pool was restored"
+    assert snap["stale_dropped"] >= 1,         "the drop was silent - 'no pool' and 'refused the pool' read alike"
+    assert "age" in snap["last_error"], snap["last_error"]
+    assert snap["ready"], "a stale pool disabled the lane"
+
+
+def test_a_pool_stamped_in_the_future_is_dropped(shipped_cfg, tmp_path,
+                                                 monkeypatch):
+    """The other side of the gate. An hour of slack absorbs clock skew; a
+    stamp further ahead than that is a fabricated or corrupt file, and a
+    one-sided age check would accept every one of them."""
+    import time
+
+    import core.watch_lane as mod
+    out = tmp_path / "watch_history.csv"
+    monkeypatch.setattr(mod, "WATCH_HISTORY_PATH", str(out))
+    lane = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    lane.tick(NOW)
+    lane._save_state(time.time() + 7200.0)
+
+    reborn = mod.WatchLane(_cfg(shipped_cfg), _Feed(n5=460))
+    assert reborn.snapshot()["restored_on_boot"] == 0
+    assert reborn.snapshot()["stale_dropped"] >= 1
+
+
+def test_the_bar_width_here_matches_the_labellers():
+    """_BAR_SEC is duplicated rather than imported (an import failure at boot
+    would cost the pool the restore exists to save). A duplicated constant is
+    only safe while something compares it to its source."""
+    from ml.walkforward import BAR_SECONDS
+
+    import core.watch_lane as mod
+    assert mod._BAR_SEC == BAR_SECONDS, (
+        f"watch_lane._BAR_SEC={mod._BAR_SEC} has drifted from "
+        f"ml.walkforward.BAR_SECONDS={BAR_SECONDS} - the age gate's horizon "
+        f"is wrong by that ratio")
+

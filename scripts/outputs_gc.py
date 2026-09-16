@@ -65,6 +65,16 @@ NEVER = {
     # collect it on. Added in the commit that introduced the file rather than
     # after the first silent deletion.
     "watch_history.csv",
+    # watch_history_state.json (core/watch_lane.py, 2026-09-15) - the lane's
+    # PENDING POOL: candidates registered and not yet resolved. Deleting it
+    # does not lose a corpus row, it loses every row those candidates were
+    # GOING to become, silently and with no error anywhere. No CORPUS_PAIRS
+    # pattern matches a .json today, so this is defence in depth rather than
+    # a live hole - registered in the commit that introduced the file, per
+    # the same rule that put watch_history.csv here, because the first
+    # *.json rotation pattern anyone adds would make it collectable and the
+    # failure would present as "the lane just stopped labelling".
+    "watch_history_state.json",
 }
 
 
