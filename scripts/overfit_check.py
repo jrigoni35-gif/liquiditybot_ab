@@ -716,6 +716,122 @@ def synthetic_benchmark(n: int | None = None, seed: int = 11):
     return X, y
 
 
+def dof_effective_n(sig, res, n_features: int, label: str = "") -> dict:
+    """OF-7's rows-per-feature at EFFECTIVE n, printed beside the nominal one.
+
+    WHY THIS EXISTS (2026-09-15). OF-7 gates on NOMINAL rows: rows/feature =
+    n / d against a floor of 10. CLAUDE.md's own measurement standard says
+    any statistic over overlapping label windows must report EFFECTIVE n,
+    and OF-7's rows are maximally overlapping - one per 5m bar, each label
+    spanning up to ml.label_max_bars. So the one gate built to catch an
+    under-determined model reads a row count the model does not have, and
+    reads it green. That is the degraded-gate shape this repo's own
+    definition-of-done section warns about: a green is only as big as its
+    corpus.
+
+    IT REPORTS. IT NEVER RE-GATES. Moving OF-7's floor, or swapping the
+    quantity the floor is applied to, is a silent re-registration of a
+    pre-registered gate - the exact move the overfit-discipline section
+    forbids ("DO NOT 'fix' any of these by lowering a floor"; raising the
+    bar on a different quantity is that same move wearing a hat). The
+    check() beside this call is untouched and its numbers stay byte-
+    identical. This is an info() line and it cannot move PASS_N/FAIL_N or
+    the exit code.
+
+    ONE BOUND, NOT THE ANSWER. The route is ASSET-BLIND: the same
+    cohort_effective_n this file already uses for the OF-5 sentinel, fed
+    each row's [signal_ts, resolution_ts] span. It counts two rows on
+    DIFFERENT assets that merely overlap in time as concurrent, and two
+    different assets' label paths are not one path - so this is a LOWER
+    bound on n_eff and therefore a PESSIMISTIC rows/feature. The per-asset
+    route is the upper bound and cannot be computed at this seam: the
+    training tuple (X, y, w, sig, res) carries no asset column, and
+    widening load_training_data's arity to add one is a stable-interface
+    change (invariant 7), not a report tweak. The record already holds
+    competing derivations spanning roughly an order of magnitude, so this
+    prints its route and its DIRECTION and claims nothing more.
+    """
+    out: dict = {"n": 0, "n_features": int(n_features), "available": False,
+                 "route": "asset-blind (lower bound on n_eff)",
+                 "label": label}
+    # THE SYNTHETIC PATH HANDS BACK None, NOT EMPTY ARRAYS. load_dataset
+    # returns (Xs, ys, None, None, None, ...) on the synthetic benchmark -
+    # its own docstring says so in as many words - and the first version of
+    # this function took len(sig) OUTSIDE the try, so len(None) raised a
+    # TypeError that CRASHED THE WHOLE BATTERY to a non-zero exit. Eight
+    # suite tests caught it; the live-corpus run this was developed against
+    # never could, because on that path sig and res are real arrays. A
+    # report-only line taking down the gate it reports on is the worst
+    # possible failure for SAFE-class code, and the guard is deliberately
+    # the FIRST statement that touches either argument.
+    if sig is None or res is None:
+        out["reason"] = ("no label times (sig/res are None) - the SYNTHETIC "
+                         "benchmark carries no signal_history correspondence, "
+                         "so there is no concurrency to measure here; this is "
+                         "the expected reading on that corpus, not a defect")
+        return out
+    n = int(len(sig))
+    out["n"] = n
+    if n == 0 or n_features <= 0:
+        out["reason"] = f"no usable rows (n={n}, d={n_features})"
+        return out
+    if len(res) != n:
+        # Distinct from the empty case ON PURPOSE. Folding the two together
+        # printed "no usable rows (n=2, d=3)" for a length MISMATCH - a
+        # message that names neither the mismatch nor the other length, and
+        # so sends the reader looking for an empty corpus that is not the
+        # problem. Falling through instead would raise inside the zip and
+        # be swallowed by the except below as a bare ValueError repr, which
+        # is the same silence with a worse string.
+        out["reason"] = (f"signal/resolution arrays disagree: "
+                         f"len(sig)={n}, len(res)={len(res)}")
+        return out
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        # ml.corpus.effective_n, NOT scripts.cohort_eval.cohort_effective_n.
+        # The first draft used cohort_effective_n because this file already
+        # imports it for the OF-5 sentinel, and it WEDGED THE BATTERY: that
+        # function is written for a cohort of ~50 TRIPS and is O(n^3) - an
+        # outer loop over spans, a middle loop over ~2n sorted endpoints,
+        # and an inner full rescan of every span inside both. Measured on
+        # this corpus (19,203 usable spans) that is ~1.4e13 operations; the
+        # run was killed after 16 minutes having printed nothing. The
+        # canonical route here is the bar-grid one - per-(asset, 5m-bar)
+        # concurrency, de Prado AFML ch.4, the same helper gate_truth_report
+        # has used since 2026-07-29 - and it is O(total bar-visits): 3.4e6
+        # on the same corpus, seven orders of magnitude less. Reusing a
+        # neighbour's helper is not free; its complexity is part of its
+        # interface.
+        from ml.corpus import effective_n as _corpus_effective_n
+        rows = [{"signal_ts": float(a), "ts": float(b)}
+                for a, b in zip(sig, res, strict=True)]
+        # Degenerate rows are KEPT in the concurrency count - a zero-length label
+        # still occupies its bar and still crowds its neighbours - but if
+        # NONE of them has a real span the corpus carries no duration at all
+        # and the reading is meaningless rather than merely small.
+        usable = sum(1 for r in rows if r["ts"] > r["signal_ts"])
+        if not usable:
+            out["reason"] = ("no row has resolution_ts > signal_ts - every "
+                             "label span is degenerate, so concurrency is "
+                             "undefined")
+            return out
+        n_eff_raw, _mean_u = _corpus_effective_n(rows)
+    except Exception as exc:                               # noqa: BLE001
+        out["reason"] = f"{type(exc).__name__}: {exc}"
+        return out
+    # Clamp to [1, n]: n_eff can never exceed the nominal count, and a
+    # zero would make the SE-inflation ratio divide by zero.
+    n_eff = max(min(float(n_eff_raw), float(n)), 1.0)
+    out.update({"available": True,
+                "n_eff": round(n_eff, 1),
+                "spans_used": usable,
+                "mean_uniqueness": round(n_eff / n, 4),
+                "rows_per_feature_nominal": round(n / n_features, 2),
+                "rows_per_feature_effective": round(n_eff / n_features, 2),
+                "se_inflation": round((n / n_eff) ** 0.5, 2)})
+    return out
+
+
 def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
                  history_path: "str | None" = None,
                  ml_cfg: "dict | None" = None):
@@ -1609,6 +1725,26 @@ def main() -> int:
     check("dof: not starved (>=10 rows per feature)", not dof["starved"],
           f"rows/feature={dof['rows_per_feature']:.1f} "
           f"({dof['n_rows']} rows / {dof['n_features']} features)")
+    # The gate above is NOMINAL and stays that way (see dof_effective_n's
+    # docstring for why re-gating would be a silent re-registration). This
+    # line says how big that green actually is.
+    _dn = dof_effective_n(sig, res, dof["n_features"],
+                          label="synthetic" if on_synthetic else "live")
+    if _dn.get("available"):
+        _synth = (" — SYNTHETIC corpus: this qualifies the machinery, not "
+                  "the market" if on_synthetic else "")
+        info("dof EFFECTIVE n (report-only; the gate above reads NOMINAL)",
+             f"rows/feature nominal={_dn['rows_per_feature_nominal']:.2f} vs "
+             f"effective={_dn['rows_per_feature_effective']:.2f} "
+             f"(n={_dn['n']} -> n_eff={_dn['n_eff']}, mean uniqueness "
+             f"{_dn['mean_uniqueness']:.3f}); an SE on nominal n is "
+             f"optimistic by x{_dn['se_inflation']:.2f}. Route: "
+             f"{_dn['route']} — the floor of 10 is NOT applied to it and "
+             f"nothing here moves PASS/FAIL." + _synth)
+    else:
+        info("dof EFFECTIVE n",
+             f"UNAVAILABLE ({_dn.get('reason', 'unknown')}) — OF-7's "
+             f"rows/feature above is NOMINAL and unqualified")
     # SCAN COVERAGE (2026-08-31): dead_feature_frac is only evidence about
     # features the fitted GBT actually consulted. Measured on the live
     # corpus: early stopping left the fit consulting 15/64 features across

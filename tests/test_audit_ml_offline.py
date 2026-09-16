@@ -806,3 +806,228 @@ def test_overfit_check_reads_the_configured_corpus_and_ships_deployed_parity(
     assert np.array_equal(calls["model_space_pbo"]["res"], res)
     assert np.array_equal(calls["model_space_pbo"]["sample_weight"], w)
     assert np.array_equal(calls["feature_dof_report"]["sample_weight"], w)
+
+# ---------------------------------------------------------------------------
+# OF-7 reports EFFECTIVE n (2026-09-15). The gate itself is NOT re-registered:
+# every pin below either measures the new report-only line or pins that the
+# old check still reads the nominal count it was registered on.
+# ---------------------------------------------------------------------------
+
+def test_dof_effective_n_equals_nominal_when_labels_never_overlap():
+    """The calibration arm. Disjoint label spans ARE independent, so the
+    deflation must be exactly 1.0 - not merely 'close'. Without this arm a
+    dof_effective_n that always returned n would pass every other pin.
+
+    DISJOINT MEANS DISJOINT AT BAR RESOLUTION. The route quantises to
+    ml.corpus._UNIQ_GRID_SEC (300 s), so two labels 100 s apart share a bar
+    and ARE concurrent by this measure - the first version of this fixture
+    used 50 s spans at 100 s spacing and read n_eff=14 of 40, which is the
+    helper being right and the fixture being wrong. Spacing here is a full
+    bar, which is also the corpus's own resolution (median live span 35,464
+    s ~ 118 bars, so the quantisation is irrelevant at OF-7's real scale).
+    """
+    import scripts.overfit_check as oc
+    n = 40
+    sig = [float(i * 600) for i in range(n)]
+    res = [float(i * 600 + 300) for i in range(n)]
+    d = oc.dof_effective_n(sig, res, 4)
+    assert d["available"]
+    assert abs(d["n_eff"] - n) < 1e-6, "disjoint labels were deflated"
+    assert abs(d["se_inflation"] - 1.0) < 1e-6
+    assert abs(d["rows_per_feature_effective"]
+               - d["rows_per_feature_nominal"]) < 1e-6
+
+
+def test_dof_effective_n_collapses_when_every_label_shares_one_path():
+    """The other end. N rows on ONE identical span are one observation, and
+    that is the whole reason this line exists."""
+    import scripts.overfit_check as oc
+    n = 40
+    d = oc.dof_effective_n([0.0] * n, [1000.0] * n, 4)
+    assert d["available"]
+    assert d["n_eff"] <= 1.5, f"fully concurrent rows kept n_eff={d['n_eff']}"
+    assert d["rows_per_feature_effective"] < d["rows_per_feature_nominal"]
+    assert d["se_inflation"] > 4.0, "the SE inflation was not reported"
+
+
+def test_of7_still_gates_on_the_nominal_count_it_was_registered_on():
+    """THE REGISTRATION PIN, and the reason the rest of this is an info()
+    line. Build a corpus that is comfortably un-starved nominally and
+    badly starved effectively; OF-7's `starved` verdict must be unmoved.
+
+    Re-pointing a pre-registered gate at a different quantity after seeing
+    the data is the move CLAUDE.md's overfit-discipline section forbids -
+    raising the bar on a new quantity is lowering a floor wearing a hat.
+    If someone later wires the effective figure into `starved`, this pin
+    goes red and the conversation happens before the change ships."""
+    import scripts.overfit_check as oc
+    X, y, w = _weighted_world(n=400, seed=7)
+    dof = feature_dof_report(X, y, ["f0", "f1", "f2"], label_span=8,
+                             n_splits=4, sample_weight=w)
+    assert dof["rows_per_feature"] >= 10.0
+    assert dof["starved"] is False, "nominal precondition broke"
+
+    # same rows, all concurrent -> effectively starved many times over
+    eff = oc.dof_effective_n([0.0] * len(y), [1000.0] * len(y),
+                             dof["n_features"])
+    assert eff["available"]
+    assert eff["rows_per_feature_effective"] < 10.0, "fixture not starved"
+    assert dof["starved"] is False,         "OF-7's gate moved onto the effective count - that is a silent "         "re-registration of a pre-registered gate"
+
+
+def test_dof_effective_n_says_so_instead_of_guessing_when_spans_are_degenerate():
+    """Fail LOUD, not silently-nominal. A corpus whose resolution stamps
+    never exceed their signal stamps carries no concurrency information,
+    and the caller must be told that rather than handed n_eff == n."""
+    import scripts.overfit_check as oc
+    d = oc.dof_effective_n([5.0, 6.0, 7.0], [5.0, 6.0, 7.0], 3)
+    assert d["available"] is False
+    assert "degenerate" in d["reason"] or "resolution_ts" in d["reason"]
+    assert "rows_per_feature_effective" not in d
+
+    # A LENGTH MISMATCH is a different fault and must say so. Dropping the
+    # guard still yields available=False (the zip raises and the broad
+    # except swallows it), so asserting only that flag left the guard
+    # untested - a mutation sweep proved it by deleting the guard with no
+    # pin going red. What the guard actually buys is the message.
+    mismatched = oc.dof_effective_n([1.0, 2.0], [5.0], 3)
+    assert mismatched["available"] is False
+    assert "len(sig)=2" in mismatched["reason"], mismatched["reason"]
+    assert "len(res)=1" in mismatched["reason"], mismatched["reason"]
+    assert "Error" not in mismatched["reason"],         "the mismatch escaped the guard and came back as a raw exception"
+
+    empty = oc.dof_effective_n([], [], 3)
+    assert empty["available"] is False
+
+
+def test_dof_effective_n_never_claims_more_evidence_than_rows_exist(monkeypatch):
+    """The clamp. n_eff > n would read as evidence nobody collected, and
+    would flip se_inflation below 1.0 - an SE claimed BETTER than nominal,
+    from a deflation whose entire job is to make it worse.
+
+    THE CLAMP MUST BE INJECTED TO BE TESTED. Real uniqueness is <= 1 per
+    row, so a healthy upstream can never return n_eff > n and an honest
+    fixture cannot exercise the clamp: a mutation sweep deleted it and all
+    six pins stayed green. The clamp is defence against a BROKEN upstream,
+    so the broken upstream is what the pin has to supply.
+    """
+    import scripts.overfit_check as oc
+    n = 12
+    sig = [float(i) for i in range(n)]
+    res = [float(i) + 0.5 for i in range(n)]
+
+    d = oc.dof_effective_n(sig, res, 3)          # honest arm
+    assert d["available"]
+    assert d["n_eff"] <= n
+    assert d["se_inflation"] >= 1.0
+
+    import ml.corpus as mc
+    monkeypatch.setattr(mc, "effective_n", lambda rows: (10_000.0, 1.0))
+    blown = oc.dof_effective_n(sig, res, 3)
+    assert blown["n_eff"] <= n,         "an upstream n_eff larger than the row count was passed through"
+    assert blown["se_inflation"] >= 1.0,         "the SE was reported BETTER than nominal - the clamp is gone"
+
+    monkeypatch.setattr(mc, "effective_n", lambda rows: (0.0, 0.0))
+    zeroed = oc.dof_effective_n(sig, res, 3)
+    assert zeroed["n_eff"] >= 1.0, "n_eff of 0 would divide by zero"
+
+
+def test_dof_effective_n_names_its_route_as_a_bound_not_an_answer():
+    """Provenance. The asset-blind route counts two different assets'
+    overlapping labels as one path, so it is a LOWER bound on n_eff. A
+    reader who takes it for THE effective n under-reads the corpus; the
+    dict has to carry its own direction."""
+    import scripts.overfit_check as oc
+    d = oc.dof_effective_n([0.0, 1.0], [10.0, 11.0], 2)
+    assert "asset-blind" in d["route"]
+    assert "lower bound" in d["route"]
+
+def test_dof_effective_n_stays_cheap_on_a_corpus_sized_input():
+    """THE PIN THIS FUNCTION WAS MISSING, and the defect is mine.
+
+    The first draft reused scripts.cohort_eval.cohort_effective_n because
+    scripts/overfit_check.py already imports it for the OF-5 sentinel. That
+    helper is written for a cohort of ~50 TRIPS and is O(n^3): an outer loop
+    over spans, a middle loop over ~2n sorted endpoints, and a full rescan
+    of every span inside both. OF-7's input is the TRAINING CORPUS - 19,203
+    usable spans measured live, i.e. ~1.4e13 operations. The battery was
+    killed after 16 minutes having printed nothing, and because its stdout
+    was block-buffered to a file there was no partial output to diagnose
+    from; the wedge was found by reading the callee, not by watching it.
+
+    A neighbour's helper is not free just because it is already imported:
+    its COMPLEXITY is part of its interface, and nothing in this repo's
+    gates measures that. This pin does, at a size no unit test would
+    otherwise reach. The bar-grid route runs the real 19k corpus in ~0.8 s;
+    the O(n^3) route at 2,500 spans alone is ~3e10 operations and cannot
+    finish inside this budget.
+
+    THE CALL RUNS IN A JOINABLE DAEMON THREAD, not inline. An elapsed-time
+    assertion placed after the call can only catch a SLOWDOWN; it cannot
+    catch the actual failure mode, which is that the call never returns and
+    takes the whole suite with it. join(timeout) turns a hang into a red.
+    """
+    import threading
+    import time
+
+    import scripts.overfit_check as oc
+    n = 2_500
+    sig = [float(i * 60) for i in range(n)]
+    res = [float(i * 60 + 36_000) for i in range(n)]   # heavily overlapping
+    box: dict = {}
+
+    def _run():
+        box["d"] = oc.dof_effective_n(sig, res, 64)
+
+    th = threading.Thread(target=_run, daemon=True)
+    t0 = time.time()
+    th.start()
+    th.join(20.0)
+    elapsed = time.time() - t0
+    assert not th.is_alive(), (
+        f"dof_effective_n had not returned after {elapsed:.0f}s on {n} "
+        f"overlapping spans - that is the O(n^3) route, not the bar-grid one")
+    d = box["d"]
+    assert d["available"], d.get("reason")
+    # and it must still be MEASURING, not short-circuiting to nominal
+    assert d["n_eff"] < n, "heavily overlapping spans were not deflated"
+
+def test_dof_effective_n_quantises_to_the_five_minute_bar():
+    """The quantisation is a PROPERTY, not an artefact, and a reader who
+    does not know it will misread a small-span corpus as more dependent
+    than it is. Sub-bar separation is concurrency by this measure; the
+    route's grid is the same 5 m bar the corpus itself is built on."""
+    import scripts.overfit_check as oc
+    n = 12
+    tight = oc.dof_effective_n([float(i * 10) for i in range(n)],
+                               [float(i * 10 + 5) for i in range(n)], 4)
+    spaced = oc.dof_effective_n([float(i * 600) for i in range(n)],
+                                [float(i * 600 + 300) for i in range(n)], 4)
+    assert tight["available"] and spaced["available"]
+    assert tight["n_eff"] < spaced["n_eff"],         "sub-bar-spaced labels were not treated as concurrent"
+    assert abs(spaced["n_eff"] - n) < 1e-6
+
+def test_dof_effective_n_survives_the_synthetic_paths_none_label_times():
+    """load_dataset returns (Xs, ys, None, None, None, ...) on the SYNTHETIC
+    benchmark - its own docstring says so in as many words - and the first
+    version of dof_effective_n took len(sig) OUTSIDE its try, so len(None)
+    raised a TypeError that CRASHED THE WHOLE BATTERY to a non-zero exit.
+
+    A REPORT-ONLY LINE TAKING DOWN THE GATE IT REPORTS ON is the worst
+    failure available to SAFE-class code, and the live-corpus run this was
+    developed against could never have shown it: on that path sig and res
+    are real arrays. Eight suite tests did catch it - every one of them by
+    running the battery as a SUBPROCESS, costing 3m45s to say 'TypeError'.
+    This pin says the same thing in microseconds and names the cause, which
+    is the difference between a gate that catches a defect and a gate
+    someone will be tempted to skip.
+    """
+    import scripts.overfit_check as oc
+    for sig, res in ((None, None), (None, [1.0, 2.0]), ([1.0, 2.0], None)):
+        d = oc.dof_effective_n(sig, res, 64)          # must not raise
+        assert d["available"] is False, (sig, res)
+        assert d["n"] == 0, (sig, res)
+        assert "None" in d["reason"] or "label times" in d["reason"], d
+        # and the caller's formatting path must survive the result too
+        assert "rows_per_feature_effective" not in d
+
