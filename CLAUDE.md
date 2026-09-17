@@ -179,6 +179,40 @@ is an operator docket item, not law. Until it reads out:
   horizon only and a DELIBERATE width change would mix two geometries under
   one era; CONC-1 behind it. Other candidates live on the HANDOFF docket,
   never here.
+- **THE PRICE OF A MINT — read this before calling one (added 2026-09-16).**
+  This file enumerates exhaustively what IS cohort-resetting and, until this
+  bullet, never once said what calling one COSTS. Twelve boundaries in 37.9
+  days at a median 2.43-day interval is the measured behaviour of a system
+  with an UNPRICED action: every other rule here assumes a boundary is rare,
+  and nothing made it rare. A mint costs three things, all measured
+  2026-09-16 and all AS-OF — re-derive with `scripts/discard_ledger.py`,
+  `scripts/era_readout.py` and `scripts/cohort_eval.py`, never quote these:
+  (1) **the accrual clock goes to zero** — 1 of 6 closed eras has ever
+  reached the n=50 lean and **ZERO has ever reached the n=100 verdict**, the
+  longest era ever run being 16.1 days against the ~26.6 a verdict needs;
+  (2) **trips already banked leave the gate** — measured 77.9–78.2% of every
+  trip carrying a stamp, by two independent reconstructions; (3) **trips in
+  flight are CENSORED, at a rate that rises as eras shorten** — 11.1% lost at
+  a 16.1-day era, 57.1% at 2.6 days, 83.3% at 2.2, 100.0% at 1.1. Rate and
+  era length are NOT independent: a short era does not merely accrue less, it
+  throws away most of what it did accrue.
+  **THEREFORE, binding:** a mint must be JUSTIFIED IN WRITING against that
+  price, in the same decision record that authorises it, and an era runs a
+  **MINIMUM OF 14 DAYS** (the lean needs ~12.7–13.5 at the measured rate)
+  before a discretionary boundary may be called. Exactly two things break the
+  minimum — a **SAFETY INVARIANT** (hard invariants 1–7 above) and a **WRONG
+  VENUE CONSTANT** making the bot trade on a false cost. Nothing else, and
+  "we learned something interesting" is not a safety invariant.
+  **Why this bullet exists:** four of the last five boundaries were fee
+  re-bookings, and three of those were the MEASUREMENT PLANE correcting its
+  own earlier misreading of a venue constant — not the strategy changing. The
+  law did not require those resets; the absence of a price permitted them.
+  Note the interaction with the fee rule above: the tier rolled Tier 3 → Tier
+  5 in the ten days 2026-08-29 → 2026-09-08, so under the practice this
+  bullet replaces, **the fee tier moves faster than a cohort can finish.**
+  Deferring a known-wrong fee to the next boundary carries a real, named cost
+  (~10 bps per round trip of conservative bias); carry it deliberately rather
+  than paying the reset instead.
 - **SAFE**: measurement/report tools, dashboards, tests, wiki, telemetry
   export, and bug fixes that do not alter which orders are placed or how
   they fill.
