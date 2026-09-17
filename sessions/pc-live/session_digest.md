@@ -2,11 +2,11 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-17 05:32 UTC (1653.65h, ~986 cycles)
-- Equity (current capital epoch): $800.00 -> $771.64 (range $35.35) | 5 epochs lifetime, range $99,228.47 | realized PnL (post-close-fee) $-17.38 | fees (all legs) $26.96
+- Window: 2026-07-10 07:53 UTC -> 2026-09-17 06:32 UTC (1654.65h, ~986 cycles)
+- Equity (current capital epoch): $800.00 -> $771.67 (range $35.44) | 5 epochs lifetime, range $99,228.56 | realized PnL (post-close-fee) $-17.38 | fees (all legs) $26.96
 - Activity: 3 open | 458 live labeled trades | 29665 candidates | 388 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 458 | cold=False
-- Audit: 89305 records (35768 non-routine) | dominant SZ-047 (62% of non-routine) | chain=SEAMS(61, benign) | retrain_requests 233
+- Audit: 89307 records (35770 non-routine) | dominant SZ-047 (62% of non-routine) | chain=SEAMS(61, benign) | retrain_requests 233
 - Liquidity: spoofy 2% of non-liquid cycles | feed errors 4
 - Recent (48h lens): 592 audit records | dominant LB-010 (21% of non-routine) | retrain_requests 8 | spoofy 2% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 83, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1345 rows) | pooling_hazard=True (source fills.exec_era)
