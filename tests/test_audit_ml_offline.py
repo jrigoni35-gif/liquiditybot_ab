@@ -1031,3 +1031,78 @@ def test_dof_effective_n_survives_the_synthetic_paths_none_label_times():
         # and the caller's formatting path must survive the result too
         assert "rows_per_feature_effective" not in d
 
+def test_dof_effective_n_is_byte_identical_without_a_loader_figure():
+    """BEHAVIOUR-PRESERVING DEFAULT. The per-asset route is opt-in: a caller
+    that passes nothing must get exactly what it got before, or this became a
+    silent change to every existing reader."""
+    import scripts.overfit_check as oc
+    sig = [float(i * 600) for i in range(20)]
+    res = [float(i * 600 + 300) for i in range(20)]
+    d = oc.dof_effective_n(sig, res, 4)
+    assert d["available"]
+    assert d["n_eff_per_asset"] is None
+    assert d["rows_per_feature_per_asset"] is None
+    assert d["route_spread"] is None
+    assert "asset-blind" in d["route"]
+
+
+def test_dof_effective_n_reports_the_pair_when_given_the_loaders_figure():
+    """The correction itself. The production loader computes de Prado
+    uniqueness PER (asset, 5m bar); this seam's rows carry no asset key, so
+    its own route collapses every asset onto one path. Measured 2026-09-16
+    the two disagree by ~26x on the live corpus, and printing only the
+    pessimistic end reads as 'this model is hopeless'."""
+    import scripts.overfit_check as oc
+    n = 20
+    sig = [float(i * 600) for i in range(n)]
+    res = [float(i * 600 + 300) for i in range(n)]
+    d = oc.dof_effective_n(sig, res, 4, loader_mean_uniqueness=0.5)
+    assert d["n_eff_per_asset"] == 10.0          # 20 rows x 0.5
+    assert d["rows_per_feature_per_asset"] == 2.5
+    assert d["route_spread"] is not None
+    # the per-asset figure can never exceed the nominal row count
+    big = oc.dof_effective_n(sig, res, 4, loader_mean_uniqueness=99.0)
+    assert big["n_eff_per_asset"] <= n
+
+
+def test_the_loader_stash_is_cleared_on_the_synthetic_path(monkeypatch,
+                                                           tmp_path):
+    """THE LEAK PIN. LAST_LOAD_STATS is module-level, so a per-asset
+    uniqueness from a previous LIVE load would otherwise still be sitting
+    there when a synthetic run reads it - a number describing a corpus that
+    run never touched, printed beside synthetic rows with no way to tell.
+    The synthetic branch must clear it."""
+    import scripts.overfit_check as oc
+    oc.LAST_LOAD_STATS.clear()
+    oc.LAST_LOAD_STATS["mean_uniqueness"] = 0.4242      # a stale live value
+    oc.load_dataset(force_synthetic=True,
+                    history_path=str(tmp_path / "absent.csv"))
+    assert "mean_uniqueness" not in oc.LAST_LOAD_STATS,         "a live per-asset uniqueness leaked into a synthetic run"
+
+
+def test_emit_effective_n_prints_both_routes_or_says_why_not():
+    """The two lines are the deliverable. Asserted on the EMITTED text
+    because that is what the operator reads, but driven through the real
+    function rather than scraped from a rendered report."""
+    import scripts.overfit_check as oc
+    lines = []
+    n = 20
+    sig = [float(i * 600) for i in range(n)]
+    res = [float(i * 600 + 300) for i in range(n)]
+    dof = {"n_features": 4}
+
+    oc.LAST_LOAD_STATS.clear()
+    oc.LAST_LOAD_STATS["mean_uniqueness"] = 0.5
+    oc.emit_effective_n(dof, sig, res, False, lambda a, b: lines.append((a, b)))
+    joined = " ".join(a + " " + b for a, b in lines)
+    assert "THE OTHER ROUTE" in joined
+    assert "per-asset rows/feature" in joined
+    assert "NEITHER is adjudicated" in joined
+
+    lines.clear()
+    oc.LAST_LOAD_STATS.clear()
+    oc.emit_effective_n(dof, sig, res, False, lambda a, b: lines.append((a, b)))
+    joined = " ".join(a + " " + b for a, b in lines)
+    assert "UNAVAILABLE" in joined, "a missing route was passed over in silence"
+    assert "LOWER BOUND standing alone" in joined
+

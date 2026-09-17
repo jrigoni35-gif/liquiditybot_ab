@@ -716,7 +716,19 @@ def synthetic_benchmark(n: int | None = None, seed: int = 11):
     return X, y
 
 
-def dof_effective_n(sig, res, n_features: int, label: str = "") -> dict:
+#: Loader telemetry from the most recent load_dataset() call.
+#: NOT a return value, deliberately: load_dataset's 7-tuple is unpacked
+#: POSITIONALLY by three callers (scripts/ground_truth_metrics.py,
+#: scripts/pbo_row_sensitivity.py and main() below), so widening it would
+#: break two of them - invariant 7, public interfaces stay stable. Cleared on
+#: every call, including the synthetic branch, because a STALE per-asset
+#: uniqueness leaking into a synthetic run would be a number describing a
+#: corpus that run never touched.
+LAST_LOAD_STATS: dict = {}
+
+
+def dof_effective_n(sig, res, n_features: int, label: str = "",
+                    loader_mean_uniqueness: "float | None" = None) -> dict:
     """OF-7's rows-per-feature at EFFECTIVE n, printed beside the nominal one.
 
     WHY THIS EXISTS (2026-09-15). OF-7 gates on NOMINAL rows: rows/feature =
@@ -737,6 +749,17 @@ def dof_effective_n(sig, res, n_features: int, label: str = "") -> dict:
     check() beside this call is untouched and its numbers stay byte-
     identical. This is an info() line and it cannot move PASS_N/FAIL_N or
     the exit code.
+
+    TWO ROUTES, REPORTED AS A PAIR (2026-09-16). The first version printed
+    ONLY the asset-blind figure. That was honest - its own route string said
+    "lower bound" - but it was the wrong DEFAULT. The PRODUCTION LOADER
+    already computes de Prado uniqueness per (asset, 5m bar): the same
+    algorithm, with the asset key this seam lacks, published as
+    mean_uniqueness. Measured 2026-09-16 the two disagree by roughly 26x on
+    the same corpus (0.0033 asset-blind against the loader's 0.0837), and the
+    battery was printing the pessimistic end - which reads as "this model is
+    hopeless" when the honest report is a PAIR. Pass loader_mean_uniqueness
+    to get both; omit it and every existing key is byte-identical.
 
     ONE BOUND, NOT THE ANSWER. The route is ASSET-BLIND: the same
     cohort_effective_n this file already uses for the OF-5 sentinel, fed
@@ -822,14 +845,79 @@ def dof_effective_n(sig, res, n_features: int, label: str = "") -> dict:
     # Clamp to [1, n]: n_eff can never exceed the nominal count, and a
     # zero would make the SE-inflation ratio divide by zero.
     n_eff = max(min(float(n_eff_raw), float(n)), 1.0)
+    # The per-asset route, when the caller supplies the loader's own
+    # figure. NOT recomputed here: the loader has the asset key and this
+    # seam does not, so recomputing would mint a THIRD number with no way
+    # to choose between them.
+    per_asset = None
+    if (isinstance(loader_mean_uniqueness, (int, float))
+            and loader_mean_uniqueness > 0):
+        per_asset = max(min(float(loader_mean_uniqueness) * n, float(n)), 1.0)
     out.update({"available": True,
                 "n_eff": round(n_eff, 1),
+                "n_eff_per_asset": (round(per_asset, 1)
+                                    if per_asset is not None else None),
+                "rows_per_feature_per_asset": (
+                    round(per_asset / n_features, 2)
+                    if per_asset is not None else None),
+                "route_spread": (round(per_asset / n_eff, 1)
+                                 if per_asset is not None and n_eff else None),
                 "spans_used": usable,
                 "mean_uniqueness": round(n_eff / n, 4),
                 "rows_per_feature_nominal": round(n / n_features, 2),
                 "rows_per_feature_effective": round(n_eff / n_features, 2),
                 "se_inflation": round((n / n_eff) ** 0.5, 2)})
     return out
+
+
+def emit_effective_n(dof: dict, sig, res, on_synthetic: bool, emit) -> dict:
+    """OF-7's two effective-n lines. Extracted from main() ON PURPOSE.
+
+    Adding the second route pushed main()'s cyclomatic complexity to 41
+    against ruff's C901 ceiling of 40, and the honest fix for "this function
+    does one thing too many" is to move the thing out, never to raise the
+    ceiling - the same rule this repo applies to measurement floors.
+
+    `emit` is main()'s info() so the lines land in the same report. Returns
+    the dict so a caller (or a test) can assert on the numbers rather than
+    scraping the rendered text - a text pin here would be satisfied by this
+    docstring, which is a measured recurrence in this repo.
+    """
+    dn = dof_effective_n(sig, res, dof["n_features"],
+                         label="synthetic" if on_synthetic else "live",
+                         loader_mean_uniqueness=LAST_LOAD_STATS.get(
+                             "mean_uniqueness"))
+    if not dn.get("available"):
+        emit("dof EFFECTIVE n",
+             f"UNAVAILABLE ({dn.get('reason', 'unknown')}) — OF-7's "
+             f"rows/feature above is NOMINAL and unqualified")
+        return dn
+    synth = (" — SYNTHETIC corpus: this qualifies the machinery, not the "
+             "market" if on_synthetic else "")
+    emit("dof EFFECTIVE n (report-only; the gate above reads NOMINAL)",
+         f"rows/feature nominal={dn['rows_per_feature_nominal']:.2f} vs "
+         f"effective={dn['rows_per_feature_effective']:.2f} "
+         f"(n={dn['n']} -> n_eff={dn['n_eff']}, mean uniqueness "
+         f"{dn['mean_uniqueness']:.3f}); an SE on nominal n is optimistic "
+         f"by x{dn['se_inflation']:.2f}. Route: {dn['route']} — the floor "
+         f"of 10 is NOT applied to it and nothing here moves PASS/FAIL."
+         + synth)
+    if dn.get("rows_per_feature_per_asset") is not None:
+        emit("dof EFFECTIVE n — THE OTHER ROUTE (read the PAIR)",
+             f"per-asset rows/feature="
+             f"{dn['rows_per_feature_per_asset']:.2f} "
+             f"(n_eff={dn['n_eff_per_asset']}, from the production loader's "
+             f"own mean_uniqueness, which keys concurrency per (asset, 5m "
+             f"bar) as this seam cannot). The routes differ by "
+             f"x{dn['route_spread']} on the SAME corpus and NEITHER is "
+             f"adjudicated — asset-blind is a lower bound, per-asset an "
+             f"upper. Quote the PAIR with its routes, never one number.")
+    else:
+        emit("dof EFFECTIVE n — THE OTHER ROUTE",
+             "per-asset route UNAVAILABLE (the loader published no "
+             "mean_uniqueness for this load) — the figure above is a LOWER "
+             "BOUND standing alone")
+    return dn
 
 
 def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
@@ -909,7 +997,13 @@ def load_dataset(min_rows: int | None = None, force_synthetic: bool = False,
         # mirrors the deployed ladder at the real live-row count.
         n_live = int((store.last_load_stats or {}).get(
             "live_clean", store.source_counts().get("live", 0)))
+        LAST_LOAD_STATS.clear()
+        LAST_LOAD_STATS.update(store.last_load_stats or {})
         return X, y, w, sig, res, f"live history ({len(X)} rows)", n_live
+    # SYNTHETIC: clear the stash. The benchmark has no signal_history
+    # correspondence, so a per-asset uniqueness carried over from a previous
+    # live load would describe a corpus this run never read.
+    LAST_LOAD_STATS.clear()
     Xs, ys = synthetic_benchmark()
     # NOT "live rows": len(X) is the LOADED row count (candidate + live,
     # post-filter). Mislabelling it cost a session's diagnosis on
@@ -1728,23 +1822,7 @@ def main() -> int:
     # The gate above is NOMINAL and stays that way (see dof_effective_n's
     # docstring for why re-gating would be a silent re-registration). This
     # line says how big that green actually is.
-    _dn = dof_effective_n(sig, res, dof["n_features"],
-                          label="synthetic" if on_synthetic else "live")
-    if _dn.get("available"):
-        _synth = (" — SYNTHETIC corpus: this qualifies the machinery, not "
-                  "the market" if on_synthetic else "")
-        info("dof EFFECTIVE n (report-only; the gate above reads NOMINAL)",
-             f"rows/feature nominal={_dn['rows_per_feature_nominal']:.2f} vs "
-             f"effective={_dn['rows_per_feature_effective']:.2f} "
-             f"(n={_dn['n']} -> n_eff={_dn['n_eff']}, mean uniqueness "
-             f"{_dn['mean_uniqueness']:.3f}); an SE on nominal n is "
-             f"optimistic by x{_dn['se_inflation']:.2f}. Route: "
-             f"{_dn['route']} — the floor of 10 is NOT applied to it and "
-             f"nothing here moves PASS/FAIL." + _synth)
-    else:
-        info("dof EFFECTIVE n",
-             f"UNAVAILABLE ({_dn.get('reason', 'unknown')}) — OF-7's "
-             f"rows/feature above is NOMINAL and unqualified")
+    emit_effective_n(dof, sig, res, on_synthetic, info)
     # SCAN COVERAGE (2026-08-31): dead_feature_frac is only evidence about
     # features the fitted GBT actually consulted. Measured on the live
     # corpus: early stopping left the fit consulting 15/64 features across
