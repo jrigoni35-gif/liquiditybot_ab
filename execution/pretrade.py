@@ -402,9 +402,24 @@ class PreTradeGate:
                                  f"< {self.ev_min_bps:.2f} floor"))
             return d
 
-        # dry-run exploration that would have failed a profit gate is TAKEN for
-        # the label, but the bypass is recorded so it is auditable and the
-        # operator sees a net-thin learning trade as exactly that.
+        # Dry-run exploration that would have failed a profit gate is TAKEN
+        # for the label, and the bypass is TAGGED here.
+        #
+        # THIS COMMENT USED TO CLAIM THE TAG WAS AUDITABLE. IT IS NOT, and the
+        # claim was measured false on 2026-09-16: PT-050 has ZERO records in
+        # the hash-chained audit trail (89,254 records, full-range) and ZERO
+        # in signal_history.disp. The tag lands in `d.reasons`, and every
+        # consumer of `.reasons` in main.py sits on a NOT-approved branch - so
+        # on the approved path, which is the only path that reaches this line,
+        # nothing reads it. The operator therefore cannot recover how many
+        # probes took the EV bypass from any persisted artifact; that number
+        # is currently unrecoverable, not merely hard to find.
+        #
+        # The tag is kept because it is correct and because the durable-
+        # recording fix belongs with the wider disposition-observability gap
+        # (SZ-*, RP-*, GL-* are all logger-only too), not bolted on here. What
+        # is NOT kept is a comment asserting a guarantee the code does not
+        # provide - a false claim in shipped source outlives the code.
         if exploring and (edge < ratio * cost or ev < self.ev_min_bps):
             d.reasons.append(tag(Code.PT_EXPLORE_BYPASS,
                                  f"edge {edge:.1f}/cost {cost:.1f} EV {ev:+.2f} "

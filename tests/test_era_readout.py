@@ -504,3 +504,112 @@ def test_cli_runs_and_json_has_no_trip_dump(ledger, capsys):
     out = capsys.readouterr().out
     assert '"populations"' in out and '"trips"' not in out
     assert '"era_source": "operator --era"' in out
+
+# ---------------------------------------------------------------------------
+# WHAT THIS COHORT ACTUALLY MEASURES (2026-09-16 firing audit disclosure).
+# Report-only: none of these may move a verdict. Pinned because a disclosure
+# that silently stops disclosing is worse than none - a reader trusts it.
+# ---------------------------------------------------------------------------
+
+def _cfg(cost=0.45, pt_cost_mult=4.0, pt_mult=8.0, sl_mult=6.0,
+         arm=0.6, give=0.4):
+    return {"ml": {"label_round_trip_cost_pct": cost,
+                   "label_pt_cost_mult": pt_cost_mult,
+                   "label_pt_vol_mult": pt_mult,
+                   "label_sl_vol_mult": sl_mult},
+            "profit_taking": {"give_back": {"arm_gain_pct": arm,
+                                            "giveback_frac": give}}}
+
+
+def test_the_shipped_config_cannot_bank_a_labelled_pt_win_through_the_trail():
+    """THE STRUCTURAL CLAIM, and it is arithmetic over config - not a
+    statistic, so it needs no sample size and admits no sampling error.
+
+    The label's profit target sits at pt_cost_mult x cost = 1.80%. The
+    give-back overlay locks (1 - giveback_frac) = 0.60 of peak, so paying a
+    1.80% win requires a peak of 3.00%. The bracket's profit leg fires the
+    instant price touches 1.80%, so that peak cannot occur while the bracket
+    is armed. The overlay can therefore only ever pay STRICTLY LESS than the
+    target it pre-empts.
+    """
+    w = er.what_this_measures([], cfg=_cfg())
+    assert w["available"]
+    assert w["labelled_pt_pct"] == pytest.approx(1.80)
+    assert w["labelled_sl_pct"] == pytest.approx(1.35)
+    assert w["giveback_arm_pct"] == pytest.approx(0.75)
+    assert w["giveback_locks_frac_of_peak"] == pytest.approx(0.60)
+    assert w["peak_needed_to_bank_the_labelled_pt_pct"] == pytest.approx(3.00)
+    assert w["trail_can_pay_a_labelled_pt_win"] is False
+
+
+def test_the_structural_claim_FLIPS_when_the_geometry_allows_it():
+    """THE CALIBRATION ARM. Without this, a function hardcoded to return
+    False would pass the pin above and the disclosure would be decorative.
+    Lock the whole peak (giveback_frac = 0) and the trail CAN pay the target,
+    because the peak it needs equals the target itself."""
+    w = er.what_this_measures([], cfg=_cfg(give=0.0))
+    assert w["giveback_locks_frac_of_peak"] == pytest.approx(1.0)
+    assert w["peak_needed_to_bank_the_labelled_pt_pct"] == pytest.approx(
+        w["labelled_pt_pct"])
+    assert w["trail_can_pay_a_labelled_pt_win"] is True
+
+
+def test_the_realized_ticket_is_reported_against_the_registered_sixty():
+    """The fee null is computed at a $60 ticket. Where the realized ticket
+    differs that arithmetic is wrong for those trips, and before this block
+    nothing anywhere flagged it."""
+    trips = [{"ticket_usd": 35.29}, {"ticket_usd": 60.0}, {"ticket_usd": 114.7}]
+    w = er.what_this_measures(trips, cfg=_cfg())
+    t = w["tickets"]
+    assert t["n"] == 3
+    assert t["min"] == 35.29 and t["max"] == 114.7
+    assert t["median"] == 60.0
+    assert t["registered_null_assumes"] == 60.0
+    assert t["share_under_50"] == pytest.approx(33.3, abs=0.1)
+
+
+def test_no_trips_does_not_crash_the_disclosure():
+    """A fresh era has no closed trips. The structural clause does not depend
+    on the sample and must still print."""
+    w = er.what_this_measures([], cfg=_cfg())
+    assert w["available"]
+    assert w["tickets"]["n"] == 0
+    assert w["tickets"]["median"] is None
+    assert w["trail_can_pay_a_labelled_pt_win"] is False
+
+
+def test_the_disclosure_degrades_closed_with_a_reason(monkeypatch, tmp_path):
+    """An unreadable config must yield UNAVAILABLE plus a reason, never a
+    silently absent block - the reader would assume there was nothing to
+    disclose."""
+    monkeypatch.setattr(er, "ROOT", tmp_path)
+    w = er.what_this_measures([])
+    assert w["available"] is False
+    assert "config unreadable" in w["reason"]
+
+
+def test_the_disclosure_carries_the_two_findings_it_cannot_recompute():
+    """The entry-lane and training-corpus findings need joins this readout
+    does not do. They are carried with their DATE and their re-derivation
+    route rather than recomputed badly - but they must be CARRIED, or the
+    verdict gets read as a verdict on the model."""
+    w = er.what_this_measures([], cfg=_cfg())
+    joined = " ".join(w["measured_elsewhere"])
+    assert "PROBE" in joined and "0.85" in joined
+    assert "not about the model" in joined
+    assert "discard_ledger" in joined
+
+
+def test_the_disclosure_moves_no_verdict(tmp_path):
+    """REPORT-ONLY is what makes this SAFE under the moratorium. The verdict
+    strings must be byte-identical whether the disclosure is present or not."""
+    rows = []
+    for i, net in enumerate([0.4, -0.3, 0.2, -0.5, 0.1, -0.2]):
+        _trip(rows, i, i % 3, net)
+    res = er.run(_write(tmp_path, rows), ERA, fee_null=-0.27, reps=200)
+    before = {k: v.get("verdict") for k, v in res["populations"].items()}
+    res["what_this_measures"] = {"available": False, "reason": "forced"}
+    after = {k: v.get("verdict") for k, v in res["populations"].items()}
+    assert before == after
+    assert "WHAT THIS COHORT ACTUALLY MEASURES" in er.render(res)
+

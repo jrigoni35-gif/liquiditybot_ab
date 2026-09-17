@@ -458,6 +458,100 @@ def rules(trips: list[dict], fee_null: float, reps: int, seed: int) -> dict:
     return out
 
 
+def what_this_measures(trips: list[dict], cfg: dict | None = None) -> dict:
+    """WHAT THE COHORT ACTUALLY MEASURES, printed beside the verdict.
+
+    WHY (2026-09-16 firing audit). The registration names a statistic and a
+    read point. It does NOT describe the lane that is producing the trips,
+    and three measured facts make the cohort something other than what a
+    reader will assume it is. None of them is a defect in the bot - the
+    machine obeys its own config exactly, and the audit found ZERO hard-
+    invariant breaches. All three are the LAW describing a machine that has
+    since changed underneath it.
+
+    This function CHANGES NO VERDICT. It is a disclosure block, computed at
+    render time, and every clause below is either arithmetic over the shipped
+    config or a statistic over the trips already reconstructed. Where a fact
+    needed a join this readout does not do, it is stated with its date and
+    its provenance instead of being recomputed badly.
+    """
+    out: dict = {"available": False}
+    if cfg is None:
+        # `cfg` is injectable ONLY so the structural claim below can be
+        # exercised BOTH ways in a test. The production path always reads the
+        # shipped config; a pin that could not flip the claim would be a pin
+        # on an arithmetic identity, not on the code.
+        try:
+            cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:                # noqa: BLE001
+            out["reason"] = f"config unreadable: {type(exc).__name__}"
+            return out
+    ml = cfg.get("ml") or {}
+    gb = ((cfg.get("profit_taking") or {}).get("give_back") or {})
+    cost = float(ml.get("label_round_trip_cost_pct") or 0.0)
+    pt_mult = float(ml.get("label_pt_vol_mult") or 0.0)
+    sl_mult = float(ml.get("label_sl_vol_mult") or 0.0)
+    pt_cost_mult = float(ml.get("label_pt_cost_mult") or 0.0)
+    arm_gain = float(gb.get("arm_gain_pct") or 0.0)
+    give_frac = float(gb.get("giveback_frac") or 0.0)
+
+    # The labelled bet at the cost floor (the normal case: any 5m sigma below
+    # cost/2). barrier_geometry floors the SIGMA, so pt_floor reduces to
+    # pt_cost_mult * cost and the pt:sl ratio is preserved by construction.
+    pt_floor = pt_cost_mult * cost / 1.0 if pt_mult else 0.0
+    sigma_floor = (pt_cost_mult * cost / pt_mult) if pt_mult else 0.0
+    sl_floor = sl_mult * sigma_floor
+    # The senior overlay. Arms at max(arm_gain, arm_vol_mult*sigma,
+    # cost/(1-giveback_frac)); at low sigma the cost term binds. When it
+    # fires it locks (1 - giveback_frac) of peak.
+    arm = max(arm_gain, cost / (1.0 - give_frac)) if give_frac < 1.0 else arm_gain
+    lock = 1.0 - give_frac
+    peak_needed = (pt_floor / lock) if lock > 0 else float("inf")
+
+    tickets = sorted(float(t.get("ticket_usd") or 0.0) for t in trips
+                     if (t.get("ticket_usd") or 0) > 0)
+    out.update({
+        "available": True,
+        "labelled_pt_pct": round(pt_floor, 4),
+        "labelled_sl_pct": round(sl_floor, 4),
+        "giveback_arm_pct": round(arm, 4),
+        "giveback_locks_frac_of_peak": round(lock, 3),
+        "peak_needed_to_bank_the_labelled_pt_pct": round(peak_needed, 4),
+        # THE STRUCTURAL CLAIM, and it is arithmetic, not statistics: the
+        # bracket's profit leg fires the instant price touches the labelled
+        # PT, so a peak large enough for the trail to PAY that size can never
+        # occur while the bracket is armed.
+        "trail_can_pay_a_labelled_pt_win": peak_needed <= pt_floor,
+        "tickets": {
+            "n": len(tickets),
+            "min": round(tickets[0], 2) if tickets else None,
+            "median": (round(statistics.median(tickets), 2)
+                       if tickets else None),
+            "max": round(tickets[-1], 2) if tickets else None,
+            "registered_null_assumes": 60.0,
+            "share_under_50": (round(100.0 * sum(1 for t in tickets
+                                                 if t < 50.0) / len(tickets), 1)
+                               if tickets else None),
+        },
+        "measured_elsewhere": [
+            ("ENTRY LANE: every era-12 five-minute entry measured on "
+             "2026-09-16 was an exploration PROBE admitted on a model-free "
+             "token budget with p_win substituted at 0.85, both profit gates "
+             "bypassed. The model's own calibrated number cannot reach 0.85 "
+             "at the shipped shrinkage (it would need p_cal > 1.0), so NO "
+             "retrain changes which trades are taken. Whatever this readout "
+             "concludes, it concludes it about that lane - not about the "
+             "model."),
+            ("TRAINING CORPUS: 47.4% of era-12 live closes were filed with "
+             "barrier='realized' under label_era='exit_sim' and are dropped "
+             "by the training filter. The outcomes the account actually "
+             "experiences are largely not the outcomes the model learns "
+             "from. Re-derive with scripts/discard_ledger.py."),
+        ],
+    })
+    return out
+
+
 def render(res: dict) -> str:
     L: list[str] = []
     a = L.append
@@ -553,6 +647,48 @@ def render(res: dict) -> str:
     a("  * The n=100 rule has a HOLE: gross mean <= 0 with gross median > 0 and net <= 0")
     a("    matches no CONTINUE/STOP clause and routes to UNDETERMINED.")
     a("  * The registration is 'powered to catch losing, not to certify small winning'.")
+    a("")
+    w = res.get("what_this_measures") or {}
+    a("WHAT THIS COHORT ACTUALLY MEASURES (2026-09-16 firing audit)")
+    a("  The bot obeys its configuration exactly and the audit found ZERO hard-")
+    a("  invariant breaches. What follows is the LAW describing a machine that has")
+    a("  changed underneath it. None of it moves a verdict; all of it changes how a")
+    a("  verdict should be READ.")
+    if not w.get("available"):
+        a(f"  UNAVAILABLE ({w.get('reason', 'unknown')}) - read the audit record.")
+    else:
+        t = w["tickets"]
+        a("  * THE LABELLED BET vs THE TRADED EXIT. At the cost floor the label's")
+        a(f"    profit target is {w['labelled_pt_pct']:.2f}% and its stop "
+          f"{w['labelled_sl_pct']:.2f}%. The give-back overlay arms at "
+          f"{w['giveback_arm_pct']:.2f}% and")
+        a(f"    locks {w['giveback_locks_frac_of_peak']:.2f} of peak, so banking a "
+          f"{w['labelled_pt_pct']:.2f}% win through it needs a peak of")
+        a(f"    {w['peak_needed_to_bank_the_labelled_pt_pct']:.2f}% - but the bracket's "
+          f"profit leg fires at {w['labelled_pt_pct']:.2f}%.")
+        a("    CAN THE TRAIL EVER PAY A LABELLED-PT-SIZED WIN WHILE THE BRACKET IS")
+        a(f"    ARMED?  {'YES' if w['trail_can_pay_a_labelled_pt_win'] else 'NO'}"
+          "  <- arithmetic over the shipped config, not a statistic.")
+        a(f"  * THE TICKET IS NOT $60. Realized notional over these trips: "
+          f"min ${t['min']}, median ${t['median']}, max ${t['max']}"
+          + (f"; {t['share_under_50']}% under $50." if t["share_under_50"] is not None
+             else "."))
+        a(f"    The fee null above is computed at a ${t['registered_null_assumes']:.0f} "
+          "ticket. Where the realized ticket differs, that")
+        a("    arithmetic is wrong for those trips and nothing else flags it.")
+        # Wrap on WORD boundaries. The first version sliced at a fixed column
+        # and printed "admit ted" / "p_c al" - an operator-facing disclosure
+        # that is hard to read is a disclosure that gets skipped.
+        for note in w.get("measured_elsewhere") or []:
+            line, first = "", True
+            for word in note.split():
+                if len(line) + len(word) + 1 > 92:
+                    a(("  * " if first else "    ") + line)
+                    line, first = word, False
+                else:
+                    line = f"{line} {word}".strip()
+            if line:
+                a(("  * " if first else "    ") + line)
     a("Report-only. No order path was read or touched.")
     return "\n".join(L)
 
@@ -596,6 +732,10 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
         "excluded": rec["excluded"],
         "open_or_partial": rec["open_or_partial"],
         "trips": {"pure": pure, "anyleg_extra": rec["anyleg_extra"]},
+        # Computed over the SELECTED population (stamp-pure 5m), which is the
+        # one the verdict is read from - not over `pure`, which pools books.
+        "what_this_measures": what_this_measures(
+            [t for t in pure if t["book"] != "long"]),
     }
 
 
