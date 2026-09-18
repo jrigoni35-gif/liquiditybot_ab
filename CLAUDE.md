@@ -6,8 +6,11 @@ INVARIANT below, stop and say so instead of complying.
 
 ## Hard invariants (never weaken, never "temporarily" bypass)
 
-1. `system.dry_run` defaults to **true**. No code path, config default,
-   test fixture, or control command may set it false at runtime. The only
+1. `system.dry_run` defaults to **true**. No engine code path, config
+   default, or control command may set it false at runtime. (The SAFE
+   battery harness `scripts/smoke_test.py` deliberately sets it False at
+   :1491/:1508/:2028 to exercise the live path — that harness is the one
+   named exemption, not a loophole; it never runs in the engine.) The only
    road to live has **FOUR** steps, not three: delete the
    `outputs/force_dry.on` sentinel (or boot `--fresh`, which clears it) →
    config `dry_run:false` → restart → typed `ARM LIVE`.
@@ -25,7 +28,7 @@ INVARIANT below, stop and say so instead of complying.
 3. Kraken is the **sole execution venue**. OKX / Binance.US / ccxt /
    moomoo are read-only data. IBKR/DMA/prime/FIX adapters exist as
    hard-off stubs.
-   **The enforcement is a DENY-LIST in `main.py` (~:861), not the venue
+   **The enforcement is a DENY-LIST in `main.py` (~:871), not the venue
    adapter.** If the feed handed to `OrderManager` is one of the real
    read-only venue classes — OKX / BinanceUS / Moomoo / WebData / Context /
    ccxt — engine construction RAISES `VN_ROGUE_EXECUTION`. `FeedRecorder`
@@ -160,9 +163,11 @@ points are REGISTERED as at cut #11: **n=50 = the lean** (sign + CI, act
 only if the CI excludes zero); **n=100 = the verdict** (CONTINUE iff net > 0
 with CI excluding −fee; STOP on no-gross-edge or cost-bound — and STOP does
 NOT revert to the hedged 12-asset book, which is the measured loss
-channel). Expected under H0 (coin flip): −fee/trip ≈ −$0.27 at a $60
-ticket, ≈ −$0.8/day at the ~3 entries/day observed on 09-08 (n=50 in
-~2–3 weeks). The LONG BOOK (`long_book.enabled`, BTC/ETH accumulation with
+channel). Expected under H0 (coin flip): −fee/trip ≈ −$0.2851 at a $60
+ticket (the era-MEASURED null the registration adopted 2026-09-15; the
+−$0.27 cut-#12 figure is one generation stale — re-derive with
+`scripts/era_readout.py`, never recall), ≈ −$0.8/day at the ~3
+entries/day observed on 09-08 (n=50 in ~2–3 weeks). The LONG BOOK (`long_book.enabled`, BTC/ETH accumulation with
 12% thesis stops) shares the heat cap and the slot count with this book
 and holds 2 of 5 slots at the cut; it is in no cut's "untouched" list and
 is an operator docket item, not law. Until it reads out:
@@ -184,7 +189,11 @@ is an operator docket item, not law. Until it reads out:
   bullet, never once said what calling one COSTS. Twelve boundaries in 37.9
   days at a median 2.43-day interval is the measured behaviour of a system
   with an UNPRICED action: every other rule here assumes a boundary is rare,
-  and nothing made it rare. A mint costs three things, all measured
+  and nothing made it rare. (As of 2026-09-18 the 12/37.9/2.43 figures and
+  the censoring ladder below have NO committed derivation in docs/quant —
+  the git-pickaxe route was tried and did NOT reproduce them; they stand as
+  recall pending an owed measurement. Re-derive before citing them.) A mint
+  costs three things, all measured
   2026-09-16 and all AS-OF — re-derive with `scripts/discard_ledger.py`,
   `scripts/era_readout.py` and `scripts/cohort_eval.py`, never quote these:
   (1) **the accrual clock goes to zero** — 1 of 6 closed eras has ever
@@ -222,6 +231,21 @@ is an operator docket item, not law. Until it reads out:
 - Model-side investment is FROZEN per the 2026-08-10 operator
   adjudication (no new families, features, or meta-labeling); the
   retrain loop itself continues by design.
+- **WHAT THE LAW DOES NOT NAME (mirrored 2026-09-18, from HANDOFF's
+  09-16 firing audit).** The 09-16 audit found ZERO hard-invariant
+  breaches and stated the drift precisely: *"the bot is SAFE and is
+  not running the experiment the law describes."* Four mechanisms
+  shape live outcomes without being named anywhere above — the
+  **grid entry ladder** (`execution/grid_ladder.py`, GL-* codes), the
+  **inventory-derisk overlay**, the **watch lane**, and the **circuit
+  breaker**. Every era-12 5m entry is a grid-ladder exploration probe
+  admitted at forced p_win=0.85 with the profit gates bypassed;
+  realized tickets ran $35.29–$114.70 against the registered $60 null;
+  LB-031's 12% thesis stop has fired zero times ever. This file governs
+  the rails it names; those four are real, load-bearing, and live
+  OUTSIDE the text above. Read HANDOFF's ERA-9 WATCH and OPEN DOCKET
+  before citing this law as a complete description of the running
+  system; the law-vs-reality gap is documented drift, not violation.
 
 ## Definition of done (every change, every session)
 
@@ -267,9 +291,13 @@ ran on.
   evidence-gated to a single family, which makes "PBO measures the deployed
   selection rule" *vacuous* while only one family qualifies; **OF-4** plateau
   is inert whenever the replay recording opens no positions (a plateau test
-  with zero entries cannot tell a plateau from a cliff); **OF-5** DSR defers
-  below its conviction-trade floor. None is a failure; all four are gates that
-  could not fire. **The number to read is the ARMED count, never the exit
+  with zero entries cannot tell a plateau from a cliff); **OF-5** DSR —
+  the era-12 sub-sentinel DEFERS below its conviction-trade floor, but the
+  pooled-conviction DSR (n≈33) ARMS and is RED (dsr≈0.003), and that red
+  is the operator-SETTLED state (vault, 2026-09-13) — a green elsewhere
+  never lifts it. None of the four arming conditions is a failure; all
+  four are gates that could not fire. **The number to read is the ARMED
+  count, never the exit
   code** — `passed 3, failed 0` reads identically whether seven gates fired
   and three passed or three fired and four were dark.
 - Any statistic over **concurrent** trips or overlapping label windows must

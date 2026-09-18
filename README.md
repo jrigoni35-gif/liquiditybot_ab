@@ -53,7 +53,7 @@ in DRY RUN — paper trading; no real orders can be placed until you set
 
 ```bash
 pip install -r requirements.txt       # bot dependencies
-python scripts/smoke_test.py          # 205 checks, no network
+python scripts/smoke_test.py          # 220 checks, no network
 
 python runner.py                      # the bot
 ```
@@ -206,7 +206,7 @@ aren't in the frames).
 ## Security
 
 Audited with bandit + pip-audit + manual threat-model review:
-**0 static-analysis issues, 0 known dependency CVEs; suites: 345 pytest + 205 smoke + 47 assurance checks.**
+**0 static-analysis issues, 0 known dependency CVEs; suites: 5524 pytest + 220 smoke + 47 assurance checks.**
 The primary attack surface is untrusted inbound *data*. All external feed
 data — exchange books/candles and web/RSS/JSON — is sanitized at the
 boundary: non-finite numbers (NaN/Inf) rejected, poisoned/crossed order
@@ -239,7 +239,7 @@ anything:
 python -m venv .venv
 # Windows:  .venv\Scripts\activate      Linux/macOS:  source .venv/bin/activate
 pip install -r requirements.txt
-python scripts/smoke_test.py        # 205 checks, no network needed
+python scripts/smoke_test.py        # 220 checks, no network needed
 ```
 
 ### What gets installed, and why
