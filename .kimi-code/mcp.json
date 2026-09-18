@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "coinpaprika": {
+      "type": "sse",
+      "url": "https://mcp.coinpaprika.com/sse",
+      "_doc": "Same operator-approved read-only market-data server as liquiditybot_ab/.mcp.json (2026-07-24). Tooling only; the bot runtime never consumes MCP. Untrusted-input boundary applies."
+    },
+    "githits": {
+      "command": "npx",
+      "args": ["-y", "githits@0.16.1", "mcp", "start"],
+      "deferred": true,
+      "_doc": "Same pinned build as the Claude-side config. Session from 2026-09-10 LAPSED ~2026-09-17; rerun `npx githits@0.16.1 login` interactively to restore. deferred:true keeps its 15 tool schemas out of context until needed (requires tool-select experimental flag)."
+    },
+    "mythos-router": {
+      "command": "mythos",
+      "args": ["mcp"],
+      "_doc": "SWD verified-write receipts; policy at liquiditybot_ab/.mythos/policy.json blocks outputs/**, config.json, .git. Tooling only. Parity with the Claude-side config."
+    }
+  }
+}
