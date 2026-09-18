@@ -2,13 +2,13 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-18 15:34 UTC (1687.69h, ~1916 cycles)
-- Equity (current capital epoch): $800.00 -> $774.00 (range $35.96) | 5 epochs lifetime, range $99,229.08 | realized PnL (post-close-fee) $-16.67 | fees (all legs) $28.37
+- Window: 2026-07-10 07:53 UTC -> 2026-09-18 16:34 UTC (1688.69h, ~1930 cycles)
+- Equity (current capital epoch): $800.00 -> $774.29 (range $35.96) | 5 epochs lifetime, range $99,229.08 | realized PnL (post-close-fee) $-16.67 | fees (all legs) $28.37
 - Activity: 3 open | 463 live labeled trades | 30330 candidates | 392 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 463 | cold=False
-- Audit: 89593 records (36030 non-routine) | dominant SZ-047 (62% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 238
+- Audit: 89600 records (36037 non-routine) | dominant SZ-047 (62% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 239
 - Liquidity: spoofy 2% of non-liquid cycles | feed errors 5
-- Recent (48h lens): 464 audit records | dominant EN-000 (12% of non-routine) | retrain_requests 8 | spoofy 2% (non-liquid)
+- Recent (48h lens): 454 audit records | dominant EN-000 (12% of non-routine) | retrain_requests 8 | spoofy 2% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 94, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1356 rows) | pooling_hazard=True (source fills.exec_era)
 - RAW signal-file span (signal_ts, all 30793 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-18T14:10:00Z (67.07d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
