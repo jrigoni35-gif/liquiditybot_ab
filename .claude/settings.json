@@ -9,6 +9,28 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pytest_pipe_guard.py\" || python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pytest_pipe_guard.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_on_edit.py\" || python \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_on_edit.py\""
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -22,7 +44,15 @@
       "Bash(/root/.local/bin/pyright *)",
       "Bash(.venv/bin/bandit *)",
       "Bash(.venv/bin/python -m compileall *)",
-      "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__list_triggers"
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(.venv/Scripts/python.exe scripts/smoke_test.py)",
+      "Bash(.venv/Scripts/python.exe scripts/assurance_check.py)",
+      "Bash(.venv/Scripts/python.exe scripts/overfit_check.py)",
+      "Bash(.venv/Scripts/python.exe -m ruff check *)",
+      "Bash(.venv/Scripts/python.exe -m compileall *)",
+      "Bash(.venv/Scripts/ruff.exe check *)",
+      "Bash(.venv/Scripts/bandit.exe *)",
+      "Bash(.venv/Scripts/pyright.exe *)"
     ]
   },
   "enabledPlugins": {

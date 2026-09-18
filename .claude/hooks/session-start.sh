@@ -27,13 +27,44 @@ PY=.venv/bin/python
 if [ ! -x "$PY" ]; then
   python3 -m venv .venv || log "venv create FAILED (bot may not start)"
 fi
-if ! "$PY" -c "import main" 2>/dev/null; then
-  log "installing dependencies"
+# THE PROBE MUST COVER WHAT THE SUITE NEEDS, NOT JUST THE ENGINE (2026-09-03).
+# `import main` alone was STRUCTURALLY BLIND to the dependency whose absence
+# actually bricks the battery: tests/test_dependency_hygiene.py forbids pandas
+# at engine scope ON PURPOSE, so `import main` is GUARANTEED never to touch it.
+# The two rules are each correct and jointly blind. Measured cost: a container
+# reported "dependencies already present", and `pytest tests/` then collected
+# 4,541 tests and ran ZERO - "Interrupted: 3 errors during collection", rc=2.
+# So the probe now asks the engine AND the analysis stack separately, and says
+# which is missing instead of claiming readiness it never checked.
+#
+# pandas/pyarrow/polars stay OUT of requirements.txt deliberately - engine
+# scope must not depend on them (that is the hygiene rule) - but they belong
+# in the venv, which tests/test_dependency_hygiene.py's own docstring states:
+# "it ships in the venv for offline analysis". Absent, ~51 tests skip and
+# scripts/rpe_factor.py's --self-test cannot run at all.
+_need_engine=0; _need_analysis=0
+"$PY" -c "import main" 2>/dev/null || _need_engine=1
+"$PY" -c "import pandas, pyarrow, polars" 2>/dev/null || _need_analysis=1
+if [ "$_need_engine" = 1 ]; then
+  log "installing engine dependencies"
   "$PY" -m pip install -q --upgrade pip          || log "pip upgrade failed (continuing)"
   "$PY" -m pip install -q -r requirements.txt     || log "requirements install failed (continuing)"
   "$PY" -m pip install -q pytest ruff bandit      || log "tooling install failed (continuing)"
+fi
+if [ "$_need_analysis" = 1 ]; then
+  log "installing analysis stack (scripts/tests scope; NOT requirements.txt)"
+  "$PY" -m pip install -q pandas pyarrow polars   || log "analysis stack install failed (continuing)"
+fi
+# Report what is ACTUALLY importable now - a readiness line that was never
+# checked is the artifact this whole block exists to stop producing.
+_eng=missing; _ana=missing
+"$PY" -c "import main" 2>/dev/null && _eng=ok
+"$PY" -c "import pandas, pyarrow, polars" 2>/dev/null && _ana=ok
+if [ "$_eng" = ok ] && [ "$_ana" = ok ]; then
+  log "dependencies ready (engine ok, analysis stack ok)"
 else
-  log "dependencies already present - skipping pip"
+  log "dependencies INCOMPLETE - engine=$_eng analysis=$_ana; the suite will \
+run in DEGRADED form (optional-dep tests skip). This line is the warning."
 fi
 
 # --- 2. code continuity (fast-forward only, best-effort) -------------------
@@ -169,18 +200,53 @@ fi
 # The restore in step 3 only recovers rows as fresh as the last PUSH. This
 # sidecar (scripts/telemetry_backup.py) exports + pushes the growing bundle on
 # an interval, tied to the bot's lifecycle so it can't stall the way an
-# external scheduled trigger does when the session dies. Default ON in cloud;
-# set LB_BACKUP_DISABLED=1 to opt out, LB_BACKUP_DRYRUN=1 to bundle without
-# pushing. Working-tree-safe (isolated worktree) and fail-safe by design.
-# Label 'cloud-mirror': this side's outputs/ is a RECONSTRUCTION from
-# imported bundles, not the canonical corpus — the PC pushes the live file
-# under 'pc-live' (pc_supervisor cadence). Found 2026-07-18: the mirror
-# pushing as 'hourly-latest' shadowed the real corpus with a stale copy
-# stamped fresh, hiding a 639-row durability gap.
-if [ "${LB_BACKUP_DISABLED:-}" != "1" ] \
-   && ! pgrep -f "[t]elemetry_backup\.py" >/dev/null 2>&1; then
-  setsid nohup env LB_BACKUP_LABEL="${LB_BACKUP_LABEL:-cloud-mirror}" \
+# external scheduled trigger does when the session dies.
+# Working-tree-safe (isolated worktree) and fail-safe by design.
+#
+# ONE WRITER PER BUNDLE LABEL (ISO-1, 2026-09-03). The sidecar exists to
+# protect rows THIS box generated. Since the 2026-07-17 one-bot directive the
+# cloud launches no runner, so it generates NONE — its outputs/ is a pure
+# RECONSTRUCTION of what it imported. Measured 2026-09-03: the local corpus,
+# the pc-live bundle and the cloud-mirror bundle were ALL exactly 23,586 rows;
+# the mirror carried zero rows the PC lacked. So re-exporting the PC's own
+# corpus under a second label bought no durability — and it cost isolation,
+# because every cloud container hard-coded the SAME label 'cloud-mirror' and
+# `hostname` is 'vm' in all of them. N containers therefore raced ONE branch
+# path, last-writer-wins (measured: three pushes in ten minutes, only one of
+# them this container's; docs/quant/2026-09-03_workspace_isolation.md §3).
+# The 2026-07-18 label split separated cloud from PC; it never separated
+# cloud from cloud.
+#
+# So the sidecar now follows the same flag as the runner it exists to protect,
+# and when a runner IS opted in the label carries a per-container suffix so
+# two opted-in containers cannot collide either. Escape hatches unchanged:
+# LB_BACKUP_DISABLED=1 forces off, LB_BACKUP_DRYRUN=1 bundles without pushing,
+# LB_BACKUP_LABEL overrides the name; LB_BACKUP_FORCE=1 runs the sidecar
+# without a cloud runner (for a session that deliberately generates rows).
+if [ "${LB_BACKUP_DISABLED:-}" = "1" ]; then
+  log "learning-durability sidecar OFF (LB_BACKUP_DISABLED=1)"
+elif [ -z "${LB_CLOUD_RUNNER:-}" ] && [ -z "${LB_BACKUP_FORCE:-}" ]; then
+  log "one-bot mode: learning-durability sidecar retired - no cloud runner, so this box generates no rows to protect and the PC owns pc-live (LB_CLOUD_RUNNER=1 or LB_BACKUP_FORCE=1 opts back in)"
+elif pgrep -f "[t]elemetry_backup\.py" >/dev/null 2>&1; then
+  log "learning-durability sidecar already alive - leaving it"
+else
+  # Per-container label: a shared constant is what made N writers invisible.
+  # Persisted under ~/.liquiditybot (outside the repo and outside the bundle
+  # allow-list) so it survives a container PAUSE and stays ONE label per box.
+  if [ -z "${LB_BACKUP_LABEL:-}" ]; then
+    _IDF="${HOME:-/root}/.liquiditybot/backup-label"
+    if [ ! -s "$_IDF" ]; then
+      mkdir -p "$(dirname "$_IDF")"
+      printf 'cloud-%s' \
+        "$(od -An -tx1 -N4 /dev/urandom 2>/dev/null | tr -d ' \n')" > "$_IDF"
+    fi
+    LB_BACKUP_LABEL="$(cat "$_IDF")"
+    # an unreadable/empty id file must never silently become the old shared
+    # constant - fall back to a per-process name instead of colliding
+    [ -n "$LB_BACKUP_LABEL" ] || LB_BACKUP_LABEL="cloud-$$"
+  fi
+  setsid nohup env LB_BACKUP_LABEL="$LB_BACKUP_LABEL" \
     "$PY" scripts/telemetry_backup.py \
     >> outputs/telemetry_backup.log 2>&1 < /dev/null &
-  log "learning-durability backup sidecar relaunched (label cloud-mirror)"
+  log "learning-durability backup sidecar relaunched (label $LB_BACKUP_LABEL)"
 fi
