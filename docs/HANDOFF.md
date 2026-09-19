@@ -575,6 +575,20 @@ route had already failed). The law's flag stays for 12/37.9; the median
 ---
 
 ## OPEN DOCKET — adjudicate together at the boundary
+- **SCALING GOVERNOR — DESIGN + SAFE INSTRUMENT, behavior half
+  boundary-gated (2026-09-19).** The institutional diagnosis's economic
+  fix, pre-registered: a cost floor (kill line = fee+adverse bps at the
+  binding tier, 60.5 now / ~17 at a maker-rebate shape), the tier roll
+  as an explicit scaling asset (120→45 bps across the verified ladder),
+  and quarter-Kelly edge-conditional size fed ONLY by the registration
+  trip view. AS-OF 09-19 the measured edge (−$0.43/trip, n=40) sizes
+  **$0.00** — the governor working, not failing. Sizing is
+  cohort-resetting: ships only at a boundary behind `scaling.enabled`.
+  SAFE half shipped: `scripts/scaling_report.py` (9 tests; three
+  instrument defects caught and fixed during its own build — fees-only
+  "net", ladder-split notional imbalance, interpreter without numpy —
+  per the instrument-first law). Design + pre-registered inputs:
+  `docs/quant/2026-09-19_scaling_system_design.md`.
 - **THE n=100 VERDICT RULE HAS A HOLE (surfaced by the readout itself,
   2026-09-19; decide BEFORE any readout can land in it).** The registered
   n=100 rule reads "CONTINUE iff net > 0 with the CI excluding −fee;
