@@ -123,6 +123,12 @@ _REDIRECTED_PATH_ATTRS = (
     # 11th unregistered-path defect. Without it a test that drives
     # WatchLane.tick() appends to the operator's real outputs/ tree.
     "WATCH_HISTORY_PATH",
+    # _FEE_PROPOSAL_REL_PATH (execution/order_manager.py, 2026-09-19,
+    # decisioning-coupling R3): fee_recon mismatch PROPOSAL file. Registered
+    # ON INTRODUCTION per this file's rule above; without it a test that
+    # drives check_fee_reconciliation past a real mismatch writes
+    # outputs/fee_recon/latest_proposal.json into the operator's tree.
+    "_FEE_PROPOSAL_REL_PATH",
 )
 
 # Modules that must be PRESENT in sys.modules for the scan below to find
