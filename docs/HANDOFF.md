@@ -562,6 +562,22 @@ docket — batch these, do not mint seven):
 6. **ALGO-5** stays REFUSED ("do not arm", two independent resolutions)
    — a queue position, not a mandate. Do not re-arm it in the bundle.
 
+**RULING LOG — 2026-09-19, expedited-mint request DENIED-WITH-REASON.**
+The operator requested immediate authorization to mint non-SAFE changes
+same-day. Institutional ruling: denied with reason, on the record (not
+silently refused). Reason: the era-9 14-day minimum opens 09-22 in the
+same window the n=50 lean becomes readable, and the full scope is already
+pre-staged in this section — no information is gained by breaching the
+moratorium today and quantifiable governance credibility is lost. The
+three days 09-19→09-22 were spent on rehearsal, not system changes:
+a dry-run merge of `fix/decisioning-coupling-r123` into main surfaced
+one real conflict (`tests/test_coupling_r123.py`), resolved in favor of
+the held branch, with 31 tests green on the merge and net diff reduced
+to R2-only (+137/−9). If the operator overrides this ruling on 09-22,
+use the ruling block in the R2 draft decision record as the override
+record — same paper trail, opposite verdict. Full window procedure:
+`docs/quant/2026-09-19_boundary_runbook.md`.
+
 **Owed-measurement update, 2026-09-19.** The moratorium's "12 boundaries
 in 37.9 days, median 2.43-day interval" (flagged 09-18 as recall pending
 an owed measurement) is now HALF re-derived from fills.csv era stamps
