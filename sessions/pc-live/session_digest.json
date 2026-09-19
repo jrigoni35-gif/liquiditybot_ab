@@ -1,20 +1,20 @@
 {
-  "generated_at": 1789852527.538751,
+  "generated_at": 1789856132.6932547,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789852514.0,
-    "duration_h": 1717.36
+    "end": 1789856128.0,
+    "duration_h": 1718.36
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 517,
-      "signal_records": 361,
+      "records": 510,
+      "signal_records": 357,
       "by_src": {
-        "exploration": 177,
-        "ml_governor": 92,
-        "order_manager": 90,
+        "exploration": 173,
+        "ml_governor": 91,
+        "order_manager": 88,
         "long_book": 59,
         "entry_sweep": 49,
         "conviction": 30,
@@ -26,15 +26,19 @@
       "top_codes": [
         [
           "ML-070",
-          68
+          67
         ],
         [
           "SZ-051",
-          67
+          66
         ],
         [
           "EN-000",
           49
+        ],
+        [
+          "OM-000",
+          45
         ],
         [
           "ML-031",
@@ -42,11 +46,7 @@
         ],
         [
           "OM-040",
-          45
-        ],
-        [
-          "OM-000",
-          45
+          43
         ],
         [
           "LB-000",
@@ -58,11 +58,11 @@
         ],
         [
           "SZ-052",
-          21
+          20
         ],
         [
           "SZ-049",
-          20
+          19
         ],
         [
           "CV-000",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.136,
-      "retrain_requests": 8,
+      "dominant_frac": 0.137,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 6222,
+      "records": 6509,
       "by_level": {
-        "INFO": 6165,
-        "WARNING": 52,
+        "INFO": 6449,
+        "WARNING": 55,
         "CRITICAL": 3,
         "ERROR": 2
       },
@@ -92,15 +92,15 @@
           3
         ],
         [
+          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
+        ],
+        [
           "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           2
         ],
         [
           "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps', 'depth_log']",
-          2
-        ],
-        [
-          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           2
         ],
         [
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 1572,
-        "spoofy": 174
+        "thin": 1634,
+        "spoofy": 213
       },
-      "spoofy_frac": 0.1,
+      "spoofy_frac": 0.115,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 742,
+      "cycles_estimate": 783,
       "feed_error_events": 3
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 772.95,
+    "equity_end": 772.91,
     "equity_min": 770.95,
     "equity_max": 806.91,
     "equity_range": 35.96,
     "capital_epochs": 5,
-    "epoch_samples": 210500,
+    "epoch_samples": 210735,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 770.95,
     "lifetime_equity_max": 100000.03,
@@ -154,27 +154,27 @@
     "realized_pnl_total": -14.05,
     "fees_paid_total": 29.5823,
     "open_positions": 4,
-    "samples": 378291
+    "samples": 378526
   },
   "activity": {
-    "signal_rows_total": 31036,
+    "signal_rows_total": 31075,
     "live_labeled_trades": 469,
-    "candidate_rows": 30567
+    "candidate_rows": 30606
   },
   "audit": {
-    "records": 89902,
-    "signal_records": 36200,
+    "records": 89904,
+    "signal_records": 36202,
     "by_src": {
       "exploration": 76883,
       "long_book": 4126,
-      "ml_governor": 3232,
+      "ml_governor": 3233,
       "order_manager": 2389,
       "conviction": 1255,
       "startup": 486,
       "fault": 483,
       "exit": 373,
       "firewall": 372,
-      "entry_sweep": 168,
+      "entry_sweep": 169,
       "engine": 65,
       "circuit_breaker": 57,
       "runner": 13
@@ -202,7 +202,7 @@
       ],
       [
         "ML-031",
-        1217
+        1218
       ],
       [
         "LB-050",
@@ -340,10 +340,10 @@
     ]
   },
   "events": {
-    "records": 6222,
+    "records": 6509,
     "by_level": {
-      "INFO": 6165,
-      "WARNING": 52,
+      "INFO": 6449,
+      "WARNING": 55,
       "CRITICAL": 3,
       "ERROR": 2
     },
@@ -353,15 +353,15 @@
         3
       ],
       [
+        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        3
+      ],
+      [
         "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
         2
       ],
       [
         "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'spread_bps', 'depth_log']",
-        2
-      ],
-      [
-        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
@@ -390,12 +390,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 1572,
-      "spoofy": 174
+      "thin": 1634,
+      "spoofy": 213
     },
-    "spoofy_frac": 0.1,
+    "spoofy_frac": 0.115,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 742,
+    "cycles_estimate": 783,
     "feed_error_events": 3
   },
   "model": {
@@ -426,7 +426,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 20667,
+      "triple_barrier_h432": 20706,
       "triple_barrier": 5328,
       "exit_sim": 2801,
       "legacy": 1781,
@@ -446,10 +446,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 31036,
+    "corpus_rows": 31075,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-19T16:00:00Z",
-    "corpus_span_days": 68.14,
+    "corpus_last_ts": "2026-09-19T20:30:00Z",
+    "corpus_span_days": 68.33,
     "signal_ts_missing": 0
   },
   "streams_present": {
