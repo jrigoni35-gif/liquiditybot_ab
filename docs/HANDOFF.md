@@ -498,7 +498,89 @@ project; it is also the reason the project can ever answer anything.
 
 ---
 
+## 09-22 BOUNDARY PRE-STAGING (built 2026-09-19 by the Kimi session)
+
+**Why this section exists.** On 2026-09-22 two gates open on the same
+window: the era-9 **14-day minimum** (cut #12 was 2026-09-08) and the
+**n=50 lean** (40/50 as of 09-19T18:48Z at the observed ~3 entries/day).
+Everything an operator needs to run the boundary in one sitting is
+pre-staged here; nothing in this section decides anything.
+
+**STALE-LINE REPAIR, 2026-09-19.** THE GATE above still says the
+registered statistic "is computed by NO script … build the SAFE sibling
+before the date (owed 118)". That is no longer true: `scripts/era_readout.py`
+ships the registration (cuts 256043b06, 993d77cee, 2f09e369) and is the
+instrument named below. Read THE GATE for the questions; run the readout
+for the numbers.
+
+**Live numbers, AS-OF 2026-09-19T18:48Z** (`python scripts/era_readout.py`
+— re-derive before citing; these WILL be stale on 09-22):
+- SELECTED row (5m book, operator choice 09-15): **n=40/50**; 4 trips
+  open; 1 excluded (`0526a410`, the duplicate-runner double exit).
+- net **−$0.43/trip**, 95% CI **[−0.71, −0.17]** — excludes zero already,
+  sign robust to leave-one-day-out, z=−3.00. Shown for calibration only;
+  the registration binds the lean to n=50.
+- Fee null IN FORCE: **−$0.273/trip** (era-measured, adjudicated 09-15).
+- Flip math for the last ~10 trips: they must average **> +$1.72/trip**
+  (vs −$0.43 to date) to pull the n=50 CI above zero. A STOP lean is the
+  preparation, not a prediction.
+
+**The 09-22 adjudication queue** (generational rule: one boundary, one
+docket — batch these, do not mint seven):
+1. **n=50 lean read** — run `era_readout.py`; the readout NAMES the
+   decision, the operator makes it. STOP does NOT revert to the hedged
+   12-asset book (the measured loss channel).
+2. **R2 — frozen tier 2–4 triggers** — held on
+   `fix/decisioning-coupling-r123` @ `bc9e3856` since 2026-09-19, 9/9
+   green on its surface. Decision record drafted:
+   `docs/quant/2026-09-19_r2_frozen_tier_triggers_decision_record_draft.md`.
+   It is NOT a safety invariant nor a wrong-venue constant, so minting it
+   needs the written justification the moratorium demands — the draft is
+   that justification, awaiting the operator's ruling and the n=50 read.
+3. **LONG BOOK (a) keep-and-account vs (b) `enabled=false`** — row below
+   in OPEN DOCKET, unchanged; its SAFE half (book stamp on the ledger)
+   remains pre-boundary work if anyone takes it before the read.
+4. **Duplicate-runner exit fix** — behavior half ships only with the
+   boundary; SAFE instruments (integrity report blind to two `PT-061` per
+   pid; `cohort_eval` drops the doubled trip silently) are pre-boundary.
+5. **n=100 rule HOLE — NEW (see OPEN DOCKET row)** — decide the
+   tiebreaker or accept UNDETERMINED BEFORE any readout can land in it.
+6. **ALGO-5** stays REFUSED ("do not arm", two independent resolutions)
+   — a queue position, not a mandate. Do not re-arm it in the bundle.
+
+**Owed-measurement update, 2026-09-19.** The moratorium's "12 boundaries
+in 37.9 days, median 2.43-day interval" (flagged 09-18 as recall pending
+an owed measurement) is now HALF re-derived from fills.csv era stamps
+(`exec_era`, epoch ts): **median gap 2.43 d — reproduced EXACTLY** on the
+stamped subset. **12/37.9 does NOT reproduce from fills stamps**: 7
+stamped eras (4,7,8,9,10,11,12), 6 boundaries over 30.0 d — eras 1–3, 5, 6
+predate stamping and no on-box instrument dates them (the git-pickaxe
+route had already failed). The law's flag stays for 12/37.9; the median
+2.43 is now measured, and the law may cite it as such.
+
+---
+
 ## OPEN DOCKET — adjudicate together at the boundary
+- **THE n=100 VERDICT RULE HAS A HOLE (surfaced by the readout itself,
+  2026-09-19; decide BEFORE any readout can land in it).** The registered
+  n=100 rule reads "CONTINUE iff net > 0 with the CI excluding −fee;
+  STOP on no-gross-edge or cost-bound". The readout discloses the gap:
+  **gross mean ≤ 0 with gross median > 0 and net ≤ 0 matches NO clause**
+  and routes to UNDETERMINED. Decision owed: (a) accept UNDETERMINED as a
+  possible verdict and pre-register what it triggers (extend? stop?),
+  or (b) pre-register a tiebreaker clause now. Changing the registration
+  mid-era is itself an adjudication — this row is the written notice the
+  moratorium requires. Pre-staged context: 09-22 BOUNDARY PRE-STAGING
+  section above.
+- **DUPLICATE-RUNNER SAFE INSTRUMENTS ARE PRE-BOUNDARY WORK (split from
+  the 09-15 row, 2026-09-19).** The 09-15 row couples two SAFE instrument
+  gaps with the cohort-resetting behavior fix; the instruments do NOT
+  need the boundary: (i) the integrity report is blind to two `PT-061`
+  per pid (the doubled-exit signature went unseen), (ii) `cohort_eval`
+  drops the `0526a410` trip silently at its size check. Both are
+  measurement-plane fixes (SAFE class); the exit-loop-while-lock-lost
+  behavior fix stays boundary-gated. Owed under the same 09-15 record:
+  `docs/quant/2026-09-15_duplicate_runner_double_exit.md`.
 - **A DUPLICATE LIVE RUNNER CLOSED ONE POSITION TWICE — the fix narrows
   invariant 5 (2026-09-15).** `0526a410` PAXG, 2026-09-10 06:58Z: two
   full-size exits 3.3 s apart from two live processes (audit seqs 85264-85267
