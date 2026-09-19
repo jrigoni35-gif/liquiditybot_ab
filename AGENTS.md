@@ -339,6 +339,17 @@ paths `pathlib`, encodings explicit, and suites green under
   lose the thread — reread this file and README before large changes.
 - Deliverable = clean zip (no `.venv`, no `__pycache__`) rebuilt from a
   tree that just passed the full matrix, verified by fresh-extract run.
+- Token-frugal handoffs (token spend follows plaintext, not compressed
+  bytes — xz/DEFLATE buy storage, never context):
+  * diffs over files: send hunks, never whole-file dumps when a patch
+    tells the story; reads of an unchanged 900-line module cost ~100x
+    the 10-line change against it.
+  * transit-only stripping: docstrings/comments may be dropped from a
+    throwaway copy an agent reads for shape only — the canonical tree
+    is never touched, and any edit targets the pristine source.
+  * route by law file: load only the module the task touches; the
+    module separation (core/ risk/ execution/) is the localization
+    code, and re-reading it whole is the expensive failure mode.
 
 ## SESSION BRIDGE (read `docs/HANDOFF.md` before acting)
 
