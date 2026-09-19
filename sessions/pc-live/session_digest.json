@@ -1,24 +1,24 @@
 {
-  "generated_at": 1789784061.7514315,
+  "generated_at": 1789787662.7095158,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789784055.673,
-    "duration_h": 1698.34
+    "end": 1789787657.377,
+    "duration_h": 1699.34
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 375,
-      "signal_records": 321,
+      "records": 392,
+      "signal_records": 330,
       "by_src": {
-        "ml_governor": 87,
-        "exploration": 86,
-        "order_manager": 56,
+        "exploration": 95,
+        "ml_governor": 89,
+        "order_manager": 61,
         "long_book": 55,
         "entry_sweep": 48,
         "conviction": 27,
-        "exit": 7,
+        "exit": 8,
         "fault": 5,
         "startup": 3,
         "runner": 1
@@ -34,19 +34,19 @@
         ],
         [
           "OM-000",
-          39
+          40
         ],
         [
           "ML-070",
-          24
+          27
+        ],
+        [
+          "SZ-051",
+          26
         ],
         [
           "LB-000",
           24
-        ],
-        [
-          "SZ-051",
-          23
         ],
         [
           "LB-021",
@@ -54,6 +54,10 @@
         ],
         [
           "OM-040",
+          21
+        ],
+        [
+          "SZ-049",
           17
         ],
         [
@@ -61,28 +65,24 @@
           17
         ],
         [
-          "SZ-049",
-          16
-        ],
-        [
           "SZ-053",
           15
         ],
         [
           "ML-016",
-          11
+          12
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.15,
+      "dominant_frac": 0.145,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 888,
+      "records": 1329,
       "by_level": {
-        "INFO": 882,
-        "WARNING": 6
+        "INFO": 1319,
+        "WARNING": 10
       },
       "top_warnings": [
         [
@@ -108,55 +108,71 @@
         [
           "auto-retrain: 20401 rows (25 new)",
           1
+        ],
+        [
+          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
+          1
+        ],
+        [
+          "ML-074: trailing 24h label prior 0.78 skews from corpus prior 0.37 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+          1
+        ],
+        [
+          "ML-080: exit-reason mix drift tvd=0.468 over trailing 24h (477/30652 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+          1
+        ],
+        [
+          "auto-retrain: 20428 rows (28 new)",
+          1
         ]
       ],
       "liquidity_tally": {
-        "thin": 204,
+        "thin": 312,
         "spoofy": 58
       },
-      "spoofy_frac": 0.221,
+      "spoofy_frac": 0.157,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 136,
+      "cycles_estimate": 202,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 773.92,
+    "equity_end": 773.64,
     "equity_min": 770.95,
     "equity_max": 806.91,
     "equity_range": 35.96,
     "capital_epochs": 5,
-    "epoch_samples": 206033,
+    "epoch_samples": 206268,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 770.95,
     "lifetime_equity_max": 100000.03,
     "lifetime_equity_range": 99229.08,
-    "realized_pnl_total": -15.71,
-    "fees_paid_total": 28.7051,
-    "open_positions": 3,
-    "samples": 373824
+    "realized_pnl_total": -16.45,
+    "fees_paid_total": 28.8129,
+    "open_positions": 2,
+    "samples": 374059
   },
   "activity": {
-    "signal_rows_total": 30874,
-    "live_labeled_trades": 465,
-    "candidate_rows": 30409
+    "signal_rows_total": 30902,
+    "live_labeled_trades": 466,
+    "candidate_rows": 30436
   },
   "audit": {
-    "records": 89668,
-    "signal_records": 36079,
+    "records": 89687,
+    "signal_records": 36090,
     "by_src": {
-      "exploration": 76760,
+      "exploration": 76769,
       "long_book": 4122,
-      "ml_governor": 3196,
-      "order_manager": 2347,
+      "ml_governor": 3199,
+      "order_manager": 2352,
       "conviction": 1252,
       "startup": 485,
       "fault": 482,
       "firewall": 372,
-      "exit": 369,
-      "entry_sweep": 148,
+      "exit": 370,
+      "entry_sweep": 149,
       "engine": 65,
       "circuit_breaker": 57,
       "runner": 13
@@ -164,11 +180,11 @@
     "top_codes": [
       [
         "ML-070",
-        27919
+        27922
       ],
       [
         "SZ-051",
-        25409
+        25412
       ],
       [
         "SZ-047",
@@ -180,11 +196,11 @@
       ],
       [
         "OM-000",
-        1464
+        1465
       ],
       [
         "ML-031",
-        1198
+        1199
       ],
       [
         "LB-050",
@@ -192,7 +208,7 @@
       ],
       [
         "OM-040",
-        881
+        885
       ],
       [
         "CV-030",
@@ -200,11 +216,11 @@
       ],
       [
         "ML-016",
-        549
+        550
       ],
       [
         "ML-041",
-        524
+        525
       ],
       [
         "CG-000",
@@ -322,10 +338,10 @@
     ]
   },
   "events": {
-    "records": 888,
+    "records": 1329,
     "by_level": {
-      "INFO": 882,
-      "WARNING": 6
+      "INFO": 1319,
+      "WARNING": 10
     },
     "top_warnings": [
       [
@@ -351,15 +367,31 @@
       [
         "auto-retrain: 20401 rows (25 new)",
         1
+      ],
+      [
+        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
+        1
+      ],
+      [
+        "ML-074: trailing 24h label prior 0.78 skews from corpus prior 0.37 (>0.25) \u2014 one-sided batch; watch calibration (detection only, weights unt",
+        1
+      ],
+      [
+        "ML-080: exit-reason mix drift tvd=0.468 over trailing 24h (477/30652 rows) exceeds 0.30 - recent-window reason mix diverges from the trailin",
+        1
+      ],
+      [
+        "auto-retrain: 20428 rows (28 new)",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 204,
+      "thin": 312,
       "spoofy": 58
     },
-    "spoofy_frac": 0.221,
+    "spoofy_frac": 0.157,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 136,
+    "cycles_estimate": 202,
     "feed_error_events": 0
   },
   "model": {
@@ -368,7 +400,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.2407581793827709,
     "brier": "n/a",
-    "history_rows": 465,
+    "history_rows": 466,
     "cold": false
   },
   "postmortems": {
@@ -390,18 +422,18 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 20508,
+      "triple_barrier_h432": 20536,
       "triple_barrier": 5328,
       "exit_sim": 2798,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1361,
+    "fills_rows": 1362,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1030,
       "7-e7d5ca1a": 133,
-      "12-10d4d0c2": 99,
+      "12-10d4d0c2": 100,
       "9-16ec821e": 68,
       "8-ca55e2ba": 10,
       "10-a5acfe2d": 9,
@@ -410,10 +442,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 30874,
+    "corpus_rows": 30902,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-18T22:15:00Z",
-    "corpus_span_days": 67.4,
+    "corpus_last_ts": "2026-09-19T01:35:00Z",
+    "corpus_span_days": 67.54,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -436,7 +468,7 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 99, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 100, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-010",
