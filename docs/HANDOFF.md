@@ -521,9 +521,19 @@ for the numbers.
   sign robust to leave-one-day-out, z=−3.00. Shown for calibration only;
   the registration binds the lean to n=50.
 - Fee null IN FORCE: **−$0.273/trip** (era-measured, adjudicated 09-15).
-- Flip math for the last ~10 trips: they must average **> +$1.72/trip**
-  (vs −$0.43 to date) to pull the n=50 CI above zero. A STOP lean is the
-  preparation, not a prediction.
+- Flip math for the last ~10 trips: they must average **> +$2.92/trip**
+  (vs −$0.43 to date) to pull the n=50 CI entirely above zero — derivation:
+  CI half-width at n=50 ≈ 0.268×√(40/50) ≈ $0.24, so the final mean must
+  exceed +$0.24; 50×0.24 = +$12.00 total against the current −$17.20 banked
+  leaves +$29.20 on the last 10. *(Corrected 2026-09-19 within the hour
+  filed: the first draft said +$1.72, which only zeroes the mean — a CI
+  of [−0.24, +0.24] still includes zero and flips nothing. The +$1.72
+  figure answered an easier question than the registration asks.)*
+  Per-trip sd ≈ $0.87, so +$2.92 is a **~3.9σ event under stationarity**
+  (P ≈ 1 in 20,000). A STOP lean is the preparation, not a prediction —
+  and non-stationarity (a real regime change in the last 10 trips) is the
+  only honest escape hatch, which is why the registration reads the
+  number at n=50 rather than extrapolating this one.
 
 **The 09-22 adjudication queue** (generational rule: one boundary, one
 docket — batch these, do not mint seven):
