@@ -89,7 +89,10 @@ Three layers, all measurement-plane:
 1. **Intake contract (the part the operator flagged).** The judge reads a
    frozen bundle per case: `fills.csv` slice + `audit.jsonl` window +
    `status.json` + the era_readout row + scaling_report output + the new
-   kline corpus slice. Each field stamped population/sample, stamped/derived,
+   kline corpus slice. **Superseded into a full integration design same
+   day: `docs/quant/2026-09-19_institutional_integration.md`** — the judge's
+   bundle becomes the four ledgers (IS ledger, shadow-governor divergence,
+   attribution, era readout) sewn into the bot's real seams. Each field stamped population/sample, stamped/derived,
    censored/complete. No live reads mid-judgment.
 2. **Committee.** Desk roles instead of generic lenses: Portfolio/Pooling
    desk, Margin/Heat desk, Inventory/Contribution desk, Swing-anatomy desk,

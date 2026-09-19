@@ -570,6 +570,12 @@ venue cross-check: ~7-9 bps USD/USDT basis); (2) institutional-judge prep —
 `docs/quant/2026-09-19_institutional_judge_prep.md` + vendored reference
 `research/vendor/TradingAgents/` (PM + risk-committee pattern). Both are
 measurement-plane only; any route to decisioning is a docket adjudication.
+Same day: analysis pair `docs/quant/2026-09-19_missed_positions.md` +
+`2026-09-19_oracle_regret.md` (funnel 8040→58; oracle grades every logged
+decision; expired-unfilled orders 87% PT-first = the miss pool), and the
+integration design `2026-09-19_institutional_integration.md` (decision-event
+capture, IS ledger, shadow inventory governor, attribution; judge reads the
+four ledgers; land order inside).
 
 **FULL DoD MATRIX ON THE PREP TREE (2026-09-19 ~21:20Z).** pytest 6-chunk
 (-n 12): ~5,528 passed; TWO failures found and FIXED same-session —
