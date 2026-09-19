@@ -1629,10 +1629,14 @@ class LiquidityBot:
         legacy triggers / trail_pct; the sampler's own EWMA) — arming input
         only; the fire path never blocks an exit."""
         st = self.vol.state(asset)
-        # getattr tolerance mirrors the restored-Position convention: only
-        # the real VolState carries the placeholder-vs-measured distinction
-        # (field always present, default False); a duck-typed stub that
+        # The guard itself now lives on VolState (sigma_bar_pct_measured,
+        # regime/vol_regime.py): this method is a thin delegate plus the
+        # getattr tolerance for duck-typed stubs that predate the property
+        # - only the real VolState carries the placeholder-vs-measured
+        # distinction (field always present, default False); a stub that
         # supplies sigma_bar_pct without the flag means the number.
+        if hasattr(st, "sigma_bar_pct_measured"):
+            return st.sigma_bar_pct_measured
         return st.sigma_bar_pct if getattr(st, "measured", True) else None
 
     def _px(self, symbol: str, price: float) -> str:
