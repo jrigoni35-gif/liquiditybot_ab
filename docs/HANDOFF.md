@@ -1408,3 +1408,11 @@ session must not have to rediscover:
      a shipped cut) gets re-pointed to a live authority or struck in the
      session that notices it — a fence whose condition has already fired
      reads to the next session as a fence that has expired.
+6. **Concurrency discipline (2026-09-19).** Multiple operator-side
+   sessions commit to main concurrently. Before committing, run
+   `git log --oneline --since=today` and reconcile against your
+   session's base — two sessions editing the same file collide at
+   commit time. Measured: `566d4e81` + `3f05526d` landed mid-session
+   from a parallel lane (both by the operator's own identity, SAFE and
+   benign); unannounced, and invisible to any session that never
+   re-read the log.
