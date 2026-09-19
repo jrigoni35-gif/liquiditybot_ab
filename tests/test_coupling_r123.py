@@ -11,11 +11,13 @@ R3: OrderManager.check_fee_reconciliation persists a mismatch as a
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from core.persistence import position_from_dict, position_to_dict
 from core.state import Position
+from execution import order_manager as om_mod
 from execution.order_manager import OrderManager
 from regime.vol_regime import VolState
 from risk.profit_tiers import ProfitTierEngine
@@ -125,12 +127,19 @@ def _om(feed, maker=40.0, taker=80.0):
         dry_run=True, pair_meta={"XXBTZUSD": {"price_decimals": 2}})
 
 
+def _proposal_path() -> Path:
+    # read via the module attr, not a hardcoded relative path: the conftest
+    # _sidecar_logs_to_tmp redirect points it at this test's tmp dir during
+    # the battery, so the literal outputs/fee_recon/... shape only exists
+    # in production.
+    return Path(om_mod._FEE_PROPOSAL_REL_PATH)
+
+
 def test_r3_mismatch_writes_proposal(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     om = _om(_Feed(25.0, 50.0))          # venue cheaper, but far past 1bp tol
     om.check_fee_reconciliation(now=1000.0)
-    prop = json.loads((tmp_path / "outputs/fee_recon/latest_proposal.json")
-                      .read_text())
+    prop = json.loads(_proposal_path().read_text())
     assert prop["applied"] is False
     assert prop["recon"]["mismatched_pairs"] == ["XXBTZUSD"]
     # fail-conservative: both configured sources proposed together at the
@@ -144,4 +153,4 @@ def test_r3_no_mismatch_no_proposal(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     om = _om(_Feed(40.0, 80.0))          # venue matches config exactly
     om.check_fee_reconciliation(now=1000.0)
-    assert not (tmp_path / "outputs/fee_recon").exists()
+    assert not _proposal_path().exists()
