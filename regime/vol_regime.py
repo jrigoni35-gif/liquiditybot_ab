@@ -17,6 +17,7 @@ absolute number.
 
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -48,6 +49,22 @@ class VolState:
     # arithmetic armed the give-back ratchet on a 0.18% peak 38s after a
     # restart and exited a restored position (LINK 3ea2a851, 2026-07-28).
     measured: bool = False
+
+    @property
+    def sigma_bar_pct_measured(self) -> Optional[float]:
+        """sigma_bar_pct, or None while the fast estimate has not yet been
+        computed from real candles this session. THE ONE guard against the
+        placeholder-default defect (LINK 3ea2a851, 2026-07-28): consumers
+        whose geometry scales off per-bar vol must treat an unmeasured
+        state as "no vol feed" and take their own designed fallback, never
+        do arithmetic on the 0.05 placeholder. Centralizing the guard on
+        the producer (instead of at every call site, the old
+        main._measured_sigma pattern) makes it impossible to consume the
+        placeholder by accident: a raw `sigma_bar_pct` read remains
+        available only for paths that genuinely want the default (venue
+        formatting, telemetry), and every decision-geometry path routes
+        through this property."""
+        return self.sigma_bar_pct if self.measured else None
 
 
 class VolRegimeEngine:

@@ -31,8 +31,10 @@ venue-reject accounting surfaced in status().
 
 import decimal
 import hashlib
+import json
 import logging
 import math
+import os
 import time
 import uuid
 from collections import deque
@@ -56,6 +58,12 @@ _LEGAL = {
     "filled": set(), "cancelled": set(), "expired": set(),
 }
 _HISTORY_CAP = 512          # bounded terminal-order retention
+# decisioning-coupling R3 (2026-09-19): fee_recon mismatches are persisted
+# HERE as a machine-readable PROPOSAL (never auto-applied - lifted-threshold
+# discipline: a venue-read fee must never silently become the gate). The
+# operator reviews and merges the proposed bps into config.json by hand.
+_FEE_PROPOSAL_REL_PATH = os.path.join("outputs", "fee_recon",
+                                      "latest_proposal.json")
 # FEE-3 remedy: TradeVolume tier-context keys (data/kraken_feed.py
 # get_trade_fee_tiers) copied verbatim onto every OM-080 pair payload and
 # the status fee_recon block. Additive; None when the venue omits them.
@@ -901,9 +909,88 @@ class OrderManager:
                                       self.fee_recon_tolerance_bps,
                                       "volume_30d": volume_30d,
                                       "volume_currency": volume_currency})
+                # R3: the same mismatch, persisted as an operator-actionable
+                # proposal (see _write_fee_proposal for the contract).
+                self._write_fee_proposal(now, pair_results, mismatched,
+                                         volume_30d, volume_currency)
         except Exception:                            # noqa: BLE001
             log.debug("fee reconciliation skipped: unexpected error",
                      exc_info=True)
+
+    def _write_fee_proposal(self, now: float, pair_results: dict,
+                            mismatched: list, volume_30d,
+                            volume_currency) -> None:
+        """R3 (2026-09-19): persist a fee-tier mismatch as a machine-readable
+        PROPOSAL at outputs/fee_recon/latest_proposal.json (relative to the
+        process cwd, i.e. the repo root under every shipped start script).
+
+        The drift loop this closes: order_manager books at config bps,
+        pretrade EV-gates at config bps, the venue reports the actual tier
+        - and until now the reconciliation could only WARN, leaving the
+        operator to transcribe numbers out of the audit payload by hand.
+
+        Contract (defense in depth, mirroring check_fee_reconciliation's
+        own discipline):
+          - PROPOSAL ONLY, never applied: this file is never read back by
+            any decision path. A venue-read fee must never silently become
+            the gate (lifted-threshold discipline) - a human merges the
+            proposed values into config.json and config_guard re-validates.
+          - NEVER raises into the caller: any I/O/format error is debug-
+            logged and dropped; the recon WARN + audit event above already
+            fired, so a lost proposal degrades to the pre-R3 behavior.
+          - atomic: written to a temp file and os.replace()d, so a reader
+            never sees a partial proposal.
+          - overwritten each mismatch: ONE stable path the operator can
+            watch, not an ever-growing pile of timestamped files.
+
+        Proposed values are per-side MAXIMA over the mismatched pairs
+        (fail-conservative: the higher estimate books more cost and gates
+        MORE trades until the operator reviews), and both configured
+        sources (order_manager.*, pretrade.*) are proposed together since
+        config_guard treats their divergence as an error."""
+        try:
+            prop_maker = max(pair_results[p]["maker_actual_bps"]
+                             for p in mismatched)
+            prop_taker = max(pair_results[p]["taker_actual_bps"]
+                             for p in mismatched)
+            proposal = {
+                "generated_ts": now,
+                "applied": False,
+                "note": ("PROPOSAL ONLY - never read by any decision path. "
+                         "Review and merge into config.json by hand; "
+                         "config_guard re-validates on next start."),
+                "recon": {"verdict": "mismatch",
+                          "mismatched_pairs": mismatched,
+                          "volume_30d": volume_30d,
+                          "volume_currency": volume_currency,
+                          "pairs": pair_results},
+                "currently_configured": {
+                    "order_manager": {"maker_fee_bps": self.maker_fee_bps,
+                                      "taker_fee_bps": self.taker_fee_bps},
+                    "pretrade": {
+                        "maker_fee_bps": self.pretrade_maker_fee_bps,
+                        "taker_fee_bps": self.pretrade_taker_fee_bps}},
+                "proposed_config_values": {
+                    # both sources move together (config_guard FATALs a
+                    # divergence between them); per-side max over the
+                    # mismatched pairs, fail-conservative.
+                    "order_manager.maker_fee_bps": prop_maker,
+                    "order_manager.taker_fee_bps": prop_taker,
+                    "pretrade.maker_fee_bps": prop_maker,
+                    "pretrade.taker_fee_bps": prop_taker},
+            }
+            path = _FEE_PROPOSAL_REL_PATH
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(proposal, fh, indent=2, sort_keys=True)
+            os.replace(tmp, path)
+            log.info("fee recon proposal written to %s "
+                     "(maker %.2f / taker %.2f bps, %d pair(s)) - "
+                     "review and merge into config.json by hand",
+                     path, prop_maker, prop_taker, len(mismatched))
+        except Exception:                            # noqa: BLE001
+            log.debug("fee recon proposal write failed", exc_info=True)
 
     def _timed_private(self, endpoint: str, data: dict):
         t0 = time.monotonic()
