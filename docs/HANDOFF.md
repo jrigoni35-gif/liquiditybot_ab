@@ -537,6 +537,10 @@ for the numbers.
 
 **The 09-22 adjudication queue** (generational rule: one boundary, one
 docket — batch these, do not mint seven):
+0. **Read the framing memo first** — `docs/quant/2026-09-19_institutional_diagnosis.md`
+   (fee-stack vs median gross, serial-live cost, label/live mismatch,
+   governance scale, and what an institution would change). Not a
+   decision document; it is the mile-away context the ruling sits in.
 1. **n=50 lean read** — run `era_readout.py`; the readout NAMES the
    decision, the operator makes it. STOP does NOT revert to the hedged
    12-asset book (the measured loss channel).
