@@ -133,13 +133,13 @@ def _readout_params(root: Path) -> dict:
     registration's own trip reconstruction (stamp-pure, book-segmented).
     Falls back to the loose raw-fill matcher with a loud disclaimer."""
     import json
-    import subprocess
+    import subprocess  # nosec B404 - fixed argv, repo venv interpreter, repo-local script
     import sys
     # era_readout needs numpy: prefer the repo venv interpreter
     venv_py = (root / ".venv" / "Scripts" / "python.exe")
     interp = str(venv_py) if venv_py.exists() else sys.executable
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603 - fixed argv: <repo venv python> scripts/era_readout.py --json; 300s timeout
             [interp, str(root / "scripts" / "era_readout.py"), "--json"],
             cwd=root, capture_output=True, text=True, timeout=300)
         if out.returncode != 0:

@@ -6,14 +6,14 @@ text is compact summaries and read-trigger pointers. Verification at the
 end proves the no-loss claim mechanically.
 """
 import re
-import subprocess
+import subprocess  # nosec B404 - fixed git argv, pinned worktree path, no untrusted input
 from pathlib import Path
 
 WT = Path(r"C:\Users\haird\Documents\liquiditybot\liquiditybot_ab\.claude\worktrees\decisioning-r123")
-orig_claude = subprocess.run(
+orig_claude = subprocess.run(  # nosec B607 B603 - fixed argv (git -C <pinned worktree> show main:CLAUDE.md)
     ["git", "-C", str(WT), "show", "main:CLAUDE.md"],
     capture_output=True, text=True, check=True).stdout.replace("\r\n", "\n")
-orig_agents = subprocess.run(
+orig_agents = subprocess.run(  # nosec B607 B603 - fixed argv (git -C <pinned worktree> show main:AGENTS.md)
     ["git", "-C", str(WT), "show", "main:AGENTS.md"],
     capture_output=True, text=True, check=True).stdout.replace("\r\n", "\n")
 

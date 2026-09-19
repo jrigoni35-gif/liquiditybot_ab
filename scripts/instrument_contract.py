@@ -104,10 +104,20 @@ def dod_commands() -> list[str]:
     the cohort boundary rather than restating it.
     """
     txt = _read(ROOT / "CLAUDE.md")
-    m = re.search(r"##\s*Definition of done(.+?)(?=\n##\s|\Z)", txt, re.S)
-    if not m:
+    # 2026-09-19: the spine split (8095d1612) gave CLAUDE.md TWO headings
+    # matching this regex - a pointer ("## Definition of done -
+    # docs/law/definition_of_done.md") and the real command list
+    # ("## Definition of done (every change, every session)"). The first
+    # cut searched the pointer's empty body and returned [] - a VACUOUS
+    # parse that the battery then reported as green ("0 findings" vs "the
+    # scan is broken" are the same observation until separated - C2 above).
+    # Parse EVERY matching section and concatenate; the verb filter below
+    # already discards the pointer's backticked docs path.
+    blocks = [m.group(1) for m in re.finditer(
+        r"##\s*Definition of done[^\n]*?\n(.*?)(?=\n##\s|\Z)", txt, re.S)]
+    if not blocks:
         return []
-    block = m.group(1)
+    block = "\n".join(blocks)
     # A COMMAND STARTS WITH A VERB. The first cut extracted every
     # scripts/*.py it saw inside the block and reported three false
     # positives: quant_trials.py (an ARGUMENT to ruff, not a command) and

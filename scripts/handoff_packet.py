@@ -26,7 +26,7 @@ what the instrument could not measure.
 """
 import argparse
 import ast
-import subprocess
+import subprocess  # nosec B404 - fixed git argv, repo cwd, timeout-capped, no untrusted input
 import sys
 import time
 from pathlib import Path
@@ -111,7 +111,7 @@ def diff_hunks(root: Path, since: str | None, line_cap: int = 400) -> str:
     if not since:
         return ""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B607 B603 - fixed argv (git diff <since> -- globs); repo cwd, 60s timeout
             ["git", "diff", since, "--", "*.py", "*.md", "*.json"],
             cwd=root, capture_output=True, text=True, timeout=60)
         if out.returncode != 0:
@@ -132,7 +132,11 @@ def _module_candidates(task: str, root: Path, diff: str) -> list[Path]:
     docstring), plus modules named in the diff. Top 3 win."""
     keys = _keywords(task)
     scored: dict[Path, int] = {}
-    skip = {".venv", ".git", "__pycache__", ".claude", "worktrees", "outputs"}
+    # `vendor` added 2026-09-19: research/vendor/ holds third-party reference
+    # clones (gitignored, never shipped) whose finance vocabulary otherwise
+    # competes with real modules for every routing keyword.
+    skip = {".venv", ".git", "__pycache__", ".claude", "worktrees", "outputs",
+            "vendor"}
     for p in root.rglob("*.py"):
         try:
             rel_parts = p.relative_to(root).parts
@@ -184,7 +188,7 @@ def build_packet(task: str, root: Path, since: str | None = "main") -> str:
 
     branch = ""
     try:
-        branch = subprocess.run(
+        branch = subprocess.run(  # nosec B607 B603 - fixed argv (git branch --show-current); repo cwd, 15s timeout
             ["git", "branch", "--show-current"], cwd=root,
             capture_output=True, text=True, timeout=15).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):

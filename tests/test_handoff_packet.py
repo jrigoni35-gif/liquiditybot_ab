@@ -89,7 +89,16 @@ def test_diff_hunks_returns_patch_not_whole_files(tmp_path):
 
 # --- 4. packet assembly -------------------------------------------------
 
-def test_packet_on_real_repo_fee_task():
+def test_packet_on_real_repo_fee_task(monkeypatch):
+    # Pin the diff input to EMPTY: the routing contract under test is
+    # keyword scoring, but build_packet boosts modules in the working-tree
+    # diff by +5 - so with a dirty tree, any in-flight .py edit with a
+    # scorable name jumps the top-3 and this test flakes on UNRELATED
+    # uncommitted work (measured 2026-09-19: four edited helper scripts
+    # knocked order_manager out of the packet). A gate that reddens on the
+    # caller's uncommitted state is the worktree/bandit phantom one level
+    # down; the real-repo integration stays, the diff becomes a constant.
+    monkeypatch.setattr(hp, "diff_hunks", lambda root, since, line_cap=400: "")
     out = hp.build_packet("fee reconciliation mismatch proposal",
                           REPO, since="main")
     assert "HANDOFF PACKET" in out

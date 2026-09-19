@@ -46,6 +46,17 @@ def test_dod_parse_finds_the_real_gates():
         assert expected in named, f"DoD gate {expected} not parsed"
 
 
+def test_dod_parse_is_never_vacuous():
+    """An empty parse is a BROKEN DETECTOR, not a clean tree. Latent case
+    2026-09-19: the spine split (8095d1612) gave CLAUDE.md a pointer heading
+    '## Definition of done - docs/law/...' ahead of the real command list;
+    parsing the first match's empty body returned [] and every consumer of
+    dod_commands() passed VACUOUSLY - C2's own failure mode, one level up."""
+    assert ic.dod_commands(), (
+        "DoD parse returned zero gates - the scan is broken, "
+        "not the tree clean")
+
+
 def test_a_script_passed_as_an_argument_is_not_a_command():
     """quant_trials.py appears inside the ruff invocation's file list. It is
     a lint TARGET, not a gate the battery must run."""
