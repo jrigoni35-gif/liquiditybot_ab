@@ -1,24 +1,24 @@
 {
-  "generated_at": 1789830914.4034078,
+  "generated_at": 1789834515.698008,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789830905.0,
-    "duration_h": 1711.36
+    "end": 1789834505.0,
+    "duration_h": 1712.36
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 506,
-      "signal_records": 352,
+      "records": 509,
+      "signal_records": 355,
       "by_src": {
-        "exploration": 180,
-        "ml_governor": 89,
-        "order_manager": 85,
-        "long_book": 56,
+        "exploration": 177,
+        "ml_governor": 88,
+        "order_manager": 88,
+        "long_book": 58,
         "entry_sweep": 49,
-        "conviction": 28,
-        "exit": 8,
+        "conviction": 29,
+        "exit": 9,
         "fault": 6,
         "startup": 4,
         "runner": 1
@@ -41,20 +41,20 @@
           45
         ],
         [
+          "OM-000",
+          44
+        ],
+        [
           "OM-040",
           44
         ],
         [
-          "OM-000",
-          41
-        ],
-        [
           "LB-000",
-          25
+          26
         ],
         [
           "LB-021",
-          22
+          23
         ],
         [
           "SZ-052",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.139,
-      "retrain_requests": 8,
+      "dominant_frac": 0.138,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 4600,
+      "records": 4937,
       "by_level": {
-        "INFO": 4554,
-        "WARNING": 43,
+        "INFO": 4890,
+        "WARNING": 44,
         "CRITICAL": 2,
         "ERROR": 1
       },
@@ -129,52 +129,52 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 1073,
+        "thin": 1150,
         "spoofy": 121
       },
-      "spoofy_frac": 0.101,
+      "spoofy_frac": 0.095,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 520,
+      "cycles_estimate": 556,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 774.15,
+    "equity_end": 773.95,
     "equity_min": 770.95,
     "equity_max": 806.91,
     "equity_range": 35.96,
     "capital_epochs": 5,
-    "epoch_samples": 209084,
+    "epoch_samples": 209321,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 770.95,
     "lifetime_equity_max": 100000.03,
     "lifetime_equity_range": 99229.08,
-    "realized_pnl_total": -16.03,
-    "fees_paid_total": 29.3359,
-    "open_positions": 3,
-    "samples": 376875
+    "realized_pnl_total": -14.05,
+    "fees_paid_total": 29.5046,
+    "open_positions": 2,
+    "samples": 377112
   },
   "activity": {
-    "signal_rows_total": 30988,
-    "live_labeled_trades": 468,
-    "candidate_rows": 30520
+    "signal_rows_total": 31005,
+    "live_labeled_trades": 469,
+    "candidate_rows": 30536
   },
   "audit": {
-    "records": 89868,
-    "signal_records": 36170,
+    "records": 89877,
+    "signal_records": 36179,
     "by_src": {
       "exploration": 76877,
-      "long_book": 4123,
-      "ml_governor": 3222,
-      "order_manager": 2383,
-      "conviction": 1253,
+      "long_book": 4125,
+      "ml_governor": 3223,
+      "order_manager": 2386,
+      "conviction": 1254,
       "startup": 486,
       "fault": 483,
-      "exit": 372,
+      "exit": 373,
       "firewall": 372,
-      "entry_sweep": 162,
+      "entry_sweep": 163,
       "engine": 65,
       "circuit_breaker": 57,
       "runner": 13
@@ -198,11 +198,11 @@
       ],
       [
         "OM-000",
-        1470
+        1473
       ],
       [
         "ML-031",
-        1211
+        1212
       ],
       [
         "LB-050",
@@ -214,7 +214,7 @@
       ],
       [
         "CV-030",
-        776
+        777
       ],
       [
         "ML-016",
@@ -340,10 +340,10 @@
     ]
   },
   "events": {
-    "records": 4600,
+    "records": 4937,
     "by_level": {
-      "INFO": 4554,
-      "WARNING": 43,
+      "INFO": 4890,
+      "WARNING": 44,
       "CRITICAL": 2,
       "ERROR": 1
     },
@@ -390,12 +390,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 1073,
+      "thin": 1150,
       "spoofy": 121
     },
-    "spoofy_frac": 0.101,
+    "spoofy_frac": 0.095,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 520,
+    "cycles_estimate": 556,
     "feed_error_events": 1
   },
   "model": {
@@ -404,7 +404,7 @@
     "kelly_mult": 1.0,
     "champion_brier": 0.24068669511657548,
     "brier": "n/a",
-    "history_rows": 468,
+    "history_rows": 469,
     "cold": false
   },
   "postmortems": {
@@ -426,18 +426,18 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 20620,
+      "triple_barrier_h432": 20636,
       "triple_barrier": 5328,
-      "exit_sim": 2800,
+      "exit_sim": 2801,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1367,
+    "fills_rows": 1369,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1030,
       "7-e7d5ca1a": 133,
-      "12-10d4d0c2": 105,
+      "12-10d4d0c2": 107,
       "9-16ec821e": 68,
       "8-ca55e2ba": 10,
       "10-a5acfe2d": 9,
@@ -446,10 +446,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 30988,
+    "corpus_rows": 31005,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-19T08:54:12Z",
-    "corpus_span_days": 67.85,
+    "corpus_last_ts": "2026-09-19T13:40:00Z",
+    "corpus_span_days": 68.04,
     "signal_ts_missing": 0
   },
   "streams_present": {
@@ -472,7 +472,7 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 105, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 107, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-010",
