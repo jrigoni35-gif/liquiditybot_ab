@@ -24,6 +24,22 @@ decision record for that override is the R2 draft's ruling block.
 - **Unverified at rehearsal time** (verify on the day): full chunked
   battery on the merged result, pyright on the R2 files. See below.
 
+## Environment drift check (added 2026-09-19, from a real failure)
+
+Before step 1, machine-check the files whose silent corruption broke
+tooling on 09-19 without touching the bot:
+
+```
+python -c "import json; [json.load(open(f, encoding='utf-8')) for f in ('.mcp.json', 'config.json')]; print('env JSON OK')"
+```
+
+On 09-19 an unescaped inner quote in `.mcp.json`'s GitHits `_doc`
+(auth-lapse note) made the file unparseable — no test caught it because
+no test loads it; the first symptom was an agent failing to dispatch.
+A red here is a hard stop: fix the JSON before anything else, since
+`config_guard` only validates `config.json` at bot start and nothing
+validates `.mcp.json` at all.
+
 ## The window, in order (each step names its own verification)
 
 1. **Read the lean.** `python scripts/era_readout.py`. The readout
