@@ -562,6 +562,39 @@ docket — batch these, do not mint seven):
 6. **ALGO-5** stays REFUSED ("do not arm", two independent resolutions)
    — a queue position, not a mandate. Do not re-arm it in the bundle.
 
+**09-22 OPENING PREPS (built 2026-09-19, SAFE-class, nothing wired).** Two
+load-bearing preps staged beside this queue: (1) swing-mechanics dataset —
+`research/corpus/binance_vision/` (1m+5m klines, 4 core pairs, 2024-01→2026-09-18,
+0 gaps) + `docs/quant/2026-09-19_dataset_prep.md` (incl. Kraken↔Binance
+venue cross-check: ~7-9 bps USD/USDT basis); (2) institutional-judge prep —
+`docs/quant/2026-09-19_institutional_judge_prep.md` + vendored reference
+`research/vendor/TradingAgents/` (PM + risk-committee pattern). Both are
+measurement-plane only; any route to decisioning is a docket adjudication.
+
+**FULL DoD MATRIX ON THE PREP TREE (2026-09-19 ~21:20Z).** pytest 6-chunk
+(-n 12): ~5,528 passed; TWO failures found and FIXED same-session —
+(a) `test_docs_era_currency`: the dataset prep doc quoted the readout's
+"era-12" stamp-key phrasing beside a currency marker; reworded to cite the
+EXEC_ERA derivation instead of a bare ordinal (test's own instruction).
+(b) `test_instrument_contract`: LATENT GATE HOLE, pre-existing at HEAD
+since the spine split (8095d1612) — CLAUDE.md gained a pointer heading
+"## Definition of done - docs/law/..." ahead of the real command list, and
+`instrument_contract.dod_commands()` parsed the pointer's empty body,
+returning [] — every consumer (incl. assurance C1) passed VACUOUSLY.
+Parser now concatenates ALL matching sections (verb filter already
+discards the pointer's docs path); non-vacuity regression pin added
+(`test_dod_parse_is_never_vacuous`). smoke 220/0 · assurance 51/0 (with
+the repaired parser — the C1 check has teeth again) · overfit 3 passed /
+2 failed = the two DOCUMENTED reds, unchanged: OF-3 pbo (today 0.69,
+6 configs/70 splits — unstable rung, docket row stands,
+`pbo_row_sensitivity.py` owed; it exceeds a 300s window) and OF-5 DSR
+(0.006, sr -0.22, n=35 — operator ruled KEEP POOLING 09-11, guarded) ·
+ruff clean on DoD scope + new files · pyright 0/0/0 shipped scope ·
+bandit: 0 from new files (`vendor` name-exclusion added to pyproject for
+research/vendor; 12 High = pre-existing HEAD baseline in 3 helper
+scripts) · compileall clean. Moratorium intact: zero shipped decisioning
+code touched; both fixes are tests/docs/measurement-plane.
+
 **RULING LOG — 2026-09-19, expedited-mint request DENIED-WITH-REASON.**
 The operator requested immediate authorization to mint non-SAFE changes
 same-day. Institutional ruling: denied with reason, on the record (not

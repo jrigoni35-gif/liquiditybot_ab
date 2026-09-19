@@ -121,4 +121,10 @@ skips = ["B101"]
 # a measurement study - a gate reading a corpus nothing ships, reddening a cut
 # whose shipped code was clean. `tests/test_ofi_feature.py` and
 # `tests/test_bracket_divergence.py` already skip `outputs` for this reason.
-exclude_dirs = [".venv", "tests", ".worktrees", ".claude", "outputs"]
+# `vendor` added 2026-09-19: vendored third-party reference clones
+# (research/vendor/TradingAgents et al., gitignored) are READING material for
+# agent research, never shipped, never imported by the engine - the same "a
+# corpus nothing ships must never redden a gate" rule as `outputs` above.
+# Bandit matches exclude_dirs on the directory NAME, so the bare name
+# `vendor` is what actually excludes research/vendor/*.
+exclude_dirs = [".venv", "tests", ".worktrees", ".claude", "outputs", "vendor"]
