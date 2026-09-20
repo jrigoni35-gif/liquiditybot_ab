@@ -3,13 +3,14 @@ import json
 import time
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from core.audit import configure_audit, get_audit
-from core.codes import Code
-from core.fill_ledger import EXEC_ERA
-from scripts.gate_ecology import (
+pd = pytest.importorskip("pandas")  # optional analysis stack — hygiene law
+
+from core.audit import configure_audit, get_audit  # noqa: E402
+from core.codes import Code  # noqa: E402
+from core.fill_ledger import EXEC_ERA  # noqa: E402
+from scripts.gate_ecology import (  # noqa: E402
     PASSED_STACK,
     REFUSAL_CHAIN_TORN,
     REFUSAL_CORPUS_MISSING,
