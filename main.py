@@ -1949,15 +1949,23 @@ class LiquidityBot:
     def _de_event(asset: str, v: dict, now: float) -> dict:
         """One per-arrival decision-event seed (DE-010 payload element).
         decision_mid = best bid/ask midpoint of the combined view book;
-        empty side -> "" + mid_available False, never a fabricated 0."""
-        book = (v or {}).get("order_book") or {}
-        bids, asks = book.get("bids") or [], book.get("asks") or []
-        mid = (bids[0][0] + asks[0][0]) / 2.0 if bids and asks else 0.0
-        return {"asset": asset, "ts": now,
-                "decision_mid": f"{mid:.10g}" if mid > 0 else "",
-                "mid_available": bool(mid > 0),
-                "direction": "", "confidence": "", "gates": {},
-                "absorb": ""}
+        empty side -> "" + mid_available False, never a fabricated 0.
+        Never raises into the entry loop: on ANY exception returns the
+        minimal seed (telemetry must fail safe, not break decisioning)."""
+        try:
+            book = (v or {}).get("order_book") or {}
+            bids, asks = book.get("bids") or [], book.get("asks") or []
+            mid = (bids[0][0] + asks[0][0]) / 2.0 if bids and asks else 0.0
+            return {"asset": asset, "ts": now,
+                    "decision_mid": f"{mid:.10g}" if mid > 0 else "",
+                    "mid_available": bool(mid > 0),
+                    "direction": "", "confidence": "", "gates": {},
+                    "absorb": ""}
+        except Exception:              # pragma: no cover - defensive only
+            log.exception("DE-010 seed build failed")
+            return {"asset": asset, "ts": now, "decision_mid": "",
+                    "mid_available": False, "direction": "",
+                    "confidence": "", "gates": {}, "absorb": ""}
 
     def _de_append(self, ev: dict) -> None:
         """Guarded exactly like _absorb: telemetry never breaks the loop."""
@@ -1969,8 +1977,11 @@ class LiquidityBot:
     def _flush_decision_events(self, now: float) -> None:
         """One DE-010 audit record per hour carrying the arrival vector.
         Same rate-limit discipline as EN-000 (core/codes.py:673-679).
-        Buffer is kept on emit failure and retried next hour; on process
-        stop up to one hour of buffered events is lost - named, accepted."""
+        _de_emitted stamps only on SUCCESS, so a failed emit keeps the
+        buffer and retries on the NEXT CYCLE (not next hour - the hourly
+        gate re-arms only after a success), while a success re-arms the
+        hourly gate. On process stop up to one hour of buffered events
+        is lost - named, accepted."""
         if not self._de_events:
             return
         if now - self._de_emitted < 3600.0:
@@ -4738,7 +4749,10 @@ class LiquidityBot:
 
             _de["absorb"] = "passed_gate_stack"
             _de["direction"] = str(signal.direction or "")
-            _de["confidence"] = round(float(signal.confidence), 3)
+            try:
+                _de["confidence"] = round(float(signal.confidence), 3)
+            except (TypeError, ValueError):
+                _de["confidence"] = ""      # telemetry never raises here
             _de["gates"] = {k: bool(x) for k, x in
                             (signal.gates_passed or {}).items()}
             self._de_append(_de)
