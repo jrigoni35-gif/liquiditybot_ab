@@ -1,23 +1,23 @@
 {
-  "generated_at": 1789895787.6043804,
+  "generated_at": 1789899388.58295,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789895773.0,
-    "duration_h": 1729.38
+    "end": 1789899382.0,
+    "duration_h": 1730.38
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 449,
-      "signal_records": 290,
+      "records": 440,
+      "signal_records": 281,
       "by_src": {
         "exploration": 183,
-        "ml_governor": 85,
-        "order_manager": 76,
-        "entry_sweep": 52,
-        "long_book": 25,
-        "conviction": 14,
+        "ml_governor": 82,
+        "order_manager": 75,
+        "entry_sweep": 53,
+        "long_book": 21,
+        "conviction": 12,
         "exit": 10,
         "startup": 2,
         "fault": 2
@@ -45,7 +45,7 @@
         ],
         [
           "OM-000",
-          32
+          31
         ],
         [
           "SZ-049",
@@ -57,35 +57,39 @@
         ],
         [
           "LB-000",
-          12
+          10
         ],
         [
           "ML-016",
-          11
-        ],
-        [
-          "ML-042",
           10
         ],
         [
           "PT-061",
           10
+        ],
+        [
+          "ML-042",
+          9
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.169,
+      "dominant_frac": 0.174,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 9392,
+      "records": 9674,
       "by_level": {
-        "INFO": 9303,
-        "WARNING": 82,
+        "INFO": 9584,
+        "WARNING": 83,
         "CRITICAL": 5,
         "ERROR": 2
       },
       "top_warnings": [
+        [
+          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          4
+        ],
         [
           "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           4
@@ -100,10 +104,6 @@
         ],
         [
           "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          3
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           3
         ],
         [
@@ -128,24 +128,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 2266,
-        "spoofy": 264
+        "thin": 2346,
+        "spoofy": 290
       },
-      "spoofy_frac": 0.104,
+      "spoofy_frac": 0.11,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1058,
+      "cycles_estimate": 1093,
       "feed_error_events": 4
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 770.54,
+    "equity_end": 770.48,
     "equity_min": 770.42,
     "equity_max": 806.91,
     "equity_range": 36.49,
     "capital_epochs": 5,
-    "epoch_samples": 213314,
+    "epoch_samples": 213552,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 770.42,
     "lifetime_equity_max": 100000.03,
@@ -153,27 +153,27 @@
     "realized_pnl_total": -17.0,
     "fees_paid_total": 30.3061,
     "open_positions": 2,
-    "samples": 381105
+    "samples": 381343
   },
   "activity": {
-    "signal_rows_total": 31294,
+    "signal_rows_total": 31296,
     "live_labeled_trades": 473,
-    "candidate_rows": 30821
+    "candidate_rows": 30823
   },
   "audit": {
-    "records": 89970,
-    "signal_records": 36258,
+    "records": 89973,
+    "signal_records": 36261,
     "by_src": {
       "exploration": 76900,
       "long_book": 4126,
-      "ml_governor": 3254,
+      "ml_governor": 3255,
       "order_manager": 2396,
       "conviction": 1255,
       "startup": 487,
       "fault": 484,
       "exit": 377,
       "firewall": 372,
-      "entry_sweep": 184,
+      "entry_sweep": 186,
       "engine": 65,
       "circuit_breaker": 57,
       "runner": 13
@@ -201,7 +201,7 @@
       ],
       [
         "ML-031",
-        1228
+        1229
       ],
       [
         "LB-050",
@@ -339,14 +339,18 @@
     ]
   },
   "events": {
-    "records": 9392,
+    "records": 9674,
     "by_level": {
-      "INFO": 9303,
-      "WARNING": 82,
+      "INFO": 9584,
+      "WARNING": 83,
       "CRITICAL": 5,
       "ERROR": 2
     },
     "top_warnings": [
+      [
+        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        4
+      ],
       [
         "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         4
@@ -361,10 +365,6 @@
       ],
       [
         "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        3
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
       ],
       [
@@ -389,12 +389,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2266,
-      "spoofy": 264
+      "thin": 2346,
+      "spoofy": 290
     },
-    "spoofy_frac": 0.104,
+    "spoofy_frac": 0.11,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1058,
+    "cycles_estimate": 1093,
     "feed_error_events": 4
   },
   "model": {
@@ -425,7 +425,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 20925,
+      "triple_barrier_h432": 20927,
       "triple_barrier": 5328,
       "exit_sim": 2801,
       "legacy": 1781,
@@ -445,7 +445,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 31294,
+    "corpus_rows": 31296,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-20T02:35:00Z",
     "corpus_span_days": 68.58,
