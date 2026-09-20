@@ -1221,6 +1221,8 @@ class LiquidityBot:
         # "everything was absorbed before the first disposition mark".
         self._entry_absorb: dict = {}
         self._entry_absorb_emitted = 0.0    # monotonic of the last EN-000 tick
+        self._de_events = []            # DE-010 per-arrival buffer
+        self._de_emitted = 0.0          # monotonic of the last DE-010 tick
         self._explore_rng = random.Random(int(  # nosec B311 - epsilon sampling, not crypto
             config.get("system", {}).get("seed", 42)))
         self._stop_hit: dict = {}           # position_id -> bool
@@ -1942,6 +1944,45 @@ class LiquidityBot:
                             dict(self._entry_absorb))
         except Exception:              # pragma: no cover - defensive only
             log.exception("EN-000 emit failed")
+
+    @staticmethod
+    def _de_event(asset: str, v: dict, now: float) -> dict:
+        """One per-arrival decision-event seed (DE-010 payload element).
+        decision_mid = best bid/ask midpoint of the combined view book;
+        empty side -> "" + mid_available False, never a fabricated 0."""
+        book = (v or {}).get("order_book") or {}
+        bids, asks = book.get("bids") or [], book.get("asks") or []
+        mid = (bids[0][0] + asks[0][0]) / 2.0 if bids and asks else 0.0
+        return {"asset": asset, "ts": now,
+                "decision_mid": f"{mid:.10g}" if mid > 0 else "",
+                "mid_available": bool(mid > 0),
+                "direction": "", "confidence": "", "gates": {},
+                "absorb": ""}
+
+    def _de_append(self, ev: dict) -> None:
+        """Guarded exactly like _absorb: telemetry never breaks the loop."""
+        try:
+            self._de_events.append(ev)
+        except Exception:              # pragma: no cover - defensive only
+            log.exception("DE-010 buffer append failed")
+
+    def _flush_decision_events(self, now: float) -> None:
+        """One DE-010 audit record per hour carrying the arrival vector.
+        Same rate-limit discipline as EN-000 (core/codes.py:673-679).
+        Buffer is kept on emit failure and retried next hour; on process
+        stop up to one hour of buffered events is lost - named, accepted."""
+        if not self._de_events:
+            return
+        if now - self._de_emitted < 3600.0:
+            return
+        try:
+            get_audit().log("entry_sweep", Code.DE_DECISION_EVENTS,
+                            "per-arrival decision events (hourly batch)",
+                            {"events": list(self._de_events)})
+            self._de_events = []
+            self._de_emitted = now
+        except Exception:              # pragma: no cover - defensive only
+            log.exception("DE-010 emit failed")
 
     def _ledger_fill(self, order, event, fees_delta: float,
                      now: float) -> None:
@@ -4594,6 +4635,7 @@ class LiquidityBot:
         # cumulative EN-000 tick; rate-limited inside, placed BEFORE the
         # watchdog return so a sweep that never reaches the loop still reports
         self._emit_absorb_summary(now)
+        self._flush_decision_events(now)
         if not self.entries_enabled:
             can_enter = False
         if self.watchdog.state.entries_blocked:
@@ -4614,8 +4656,11 @@ class LiquidityBot:
             # (now living for hours, not ~25s) must not block the 5m
             # book's own entries on the same asset.
             self._absorb("arrivals")
+            _de = self._de_event(asset, v, now)
             if self.orders.has_open(asset, "entry", book="5m"):
                 self._absorb(Code.EN_OPEN_ENTRY)
+                _de["absorb"] = Code.EN_OPEN_ENTRY.value
+                self._de_append(_de)
                 continue
 
             signal = self.gates.evaluate_asset(asset, v)
@@ -4685,7 +4730,18 @@ class LiquidityBot:
             }
             if not signal.all_confirmed or not signal.direction:
                 self._absorb(Code.EN_SIGNAL_UNCONFIRMED)
+                _de["absorb"] = Code.EN_SIGNAL_UNCONFIRMED.value
+                _de["gates"] = {k: bool(x) for k, x in
+                                (signal.gates_passed or {}).items()}
+                self._de_append(_de)
                 continue
+
+            _de["absorb"] = "passed_gate_stack"
+            _de["direction"] = str(signal.direction or "")
+            _de["confidence"] = round(float(signal.confidence), 3)
+            _de["gates"] = {k: bool(x) for k, x in
+                            (signal.gates_passed or {}).items()}
+            self._de_append(_de)
 
             macro_state = self.macro.state(asset)
             vol_state = self.vol.state(asset)

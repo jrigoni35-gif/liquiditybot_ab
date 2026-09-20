@@ -688,6 +688,15 @@ class Code(str, Enum):
                                      # gave no direction. The single largest
                                      # absorber, and the one nothing recorded.
 
+    # ---- decision-event capture (DE) — the gradeability hole's closer -----
+    # THE HOLE THIS CLOSES. EN-000 is counts-only by design (above), so
+    # pre-DE-010 arrivals left no per-arrival record: 82.6% of era-9's
+    # decision population is ungradeable (census, docs/quant/..._gradeability_census.md).
+    # Same volume discipline as EN-000: events BUFFER and emit as ONE hourly
+    # record carrying the per-arrival vector. Loss window on process stop:
+    # up to one hour of buffered events - named, accepted.
+    DE_DECISION_EVENTS = "DE-010"    # hourly batch of per-arrival decision events
+
 
 def tag(code: Code, detail: str) -> str:
     """Canonical 'CODE: detail' string used in reasons lists and audit. Also
