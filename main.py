@@ -1540,7 +1540,8 @@ class LiquidityBot:
             ref_price=mark, equity=equity,
             book=self.kraken_books.get(asset) or {},
             sigma_bar_pct=vol_state.sigma_bar_pct,
-            meta={"p_win": meta_t.get("p_win", 0.0),
+            meta={"book": "5m",  # desk label for fills.csv attribution (A2)
+                  "p_win": meta_t.get("p_win", 0.0),
                   "edge_bps": meta_t.get("edge_bps", 0.0),
                   "est_cost_bps": meta_t.get("est_cost_bps", 0.0),
                   "features": meta_t.get("features"),
@@ -5180,7 +5181,8 @@ class LiquidityBot:
                 equity=equity,
                 book=self.kraken_books.get(asset) or {},
                 sigma_bar_pct=vol_state.sigma_bar_pct,
-                meta={"p_win": p_win, "edge_bps": decision.est_edge_bps,
+                meta={"book": "5m",  # desk label for fills.csv attribution (A2)
+                    "p_win": p_win, "edge_bps": decision.est_edge_bps,
                     "est_cost_bps": decision.est_cost_bps,
                     "features": feats, "probe": explored,
                     "candidate_id": cand_id or "",
@@ -6099,7 +6101,8 @@ class LiquidityBot:
                 equity=equity,
                 book=book,
                 sigma_bar_pct=vol_state.sigma_bar_pct,
-                meta={"p_win": p_win,
+                meta={"book": "5m",  # desk label for fills.csv attribution (A2)
+                      "p_win": p_win,
                       # deeper rungs rest strictly further from fair value:
                       # their edge grows by the offset
                       "edge_bps": decision.est_edge_bps + rung.offset_bps,
