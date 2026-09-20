@@ -554,6 +554,9 @@ docket — batch these, do not mint seven):
 3. **LONG BOOK (a) keep-and-account vs (b) `enabled=false`** — row below
    in OPEN DOCKET, unchanged; its SAFE half (book stamp on the ledger)
    remains pre-boundary work if anyone takes it before the read.
+   **(TAKEN 2026-09-19: `2cbaabad` stamps `book="5m"` on new 5 m fills;
+   what remains is the (a)/(b) ruling plus the `cohort_eval` book
+   segmentation — Lane B.)**
 4. **Duplicate-runner exit fix** — behavior half ships only with the
    boundary; SAFE instruments (integrity report blind to two `PT-061` per
    pid; `cohort_eval` drops the doubled trip silently) are pre-boundary.
@@ -630,6 +633,13 @@ route had already failed). The law's flag stays for 12/37.9; the median
 ---
 
 ## OPEN DOCKET — adjudicate together at the boundary
+- **GRADEABILITY RETRO-PATH — the pre-DE-010 population is lost by
+  construction (2026-09-19; SAFE, waiting on Lane B).** The census's
+  L=60,574 EN-020+EN-030 absorbs carry no per-arrival record and can
+  NEVER be graded; the D=17,051 deep-pipeline bucket is retro-gradeable
+  ONLY via the Lane-B Kraken-OHLC proxy (455 CV records carry an asset).
+  What it waits for: the Lane-B attribution / IS-ledger plan. Authority:
+  `docs/quant/2026-09-19_gradeability_census.md`.
 - **SCALING GOVERNOR — DESIGN + SAFE INSTRUMENT, behavior half
   boundary-gated (2026-09-19).** The institutional diagnosis's economic
   fix, pre-registered: a cost floor (kill line = fee+adverse bps at the
@@ -721,7 +731,12 @@ trips are not the 5 m book's trips, **and `cohort_eval` WOULD pool them:**
 never populates (`core/fill_ledger.py:239-249`, by design "book=None"),
 and `cohort_eval.py` does not segment by book [K, 23:40Z] — any long-book
 close during era-9 lands in the cohort. Stamp the book on the ledger
-(SAFE, provenance only) before the n=50 read, and segment. Options: (a)
+(SAFE, provenance only) before the n=50 read, and segment. **STAMP HALF
+SHIPPED 2026-09-19 (`2cbaabad`)** — `book="5m"` now lands on every new
+5 m fill's ledger row at the three 5 m meta sites (the long book was
+already stamped; era-9 fills written before the stamp keep `book=None`).
+What this row still waits for: the `cohort_eval` by-book segmentation
+(Lane B) and the (a)/(b) adjudication itself. Options: (a)
 keep it and write it INTO the era-9 slot/heat accounting explicitly; (b)
 `enabled=false` at a boundary so the readable-sign book is the 5 m book
 alone — `enabled` gates only the ADD cycle (`main.py` `_long_book_cycle`
@@ -1295,6 +1310,9 @@ verification is paid for twice.
 
 | what | verdict | record |
 |---|---|---|
+| **Era-9 gradeability census — the hole measured exactly (09-19)** *(SAFE — measurement plane)* | N=**77,676** arrivals since the cut-#12 restart (EN-000 restart-aware deltas): gradeable priced entries **g=51** (0.066%), lost-forever **L=60,574** (EN-020+EN-030 absorbs; no per-arrival record exists by construction), deep-pipeline **D=17,051**; reconciliation pins held (L+g+D==N; refuses CHAIN_TORN / NO_EN000_IN_WINDOW / CENSUS_INCONSISTENT). **The plan's prior "82.6% ungradeable" estimate is superseded — measured 99.93%** on an exact population basis. DE-010 coverage read 0 at census time. | `docs/quant/2026-09-19_gradeability_census.md`; `scripts/gradeability_census.py`; commit 15046109 |
+| **DE-010 per-arrival decision-event capture live in the engine (09-19)** *(SAFE — additive telemetry)* | Registered `Code.DE_DECISION_EVENTS`; hourly `{"events":[...]}` batch beside EN-000 carrying asset/ts/decision_mid/mid_available/direction/confidence/gates/absorb per arrival; capture guarded so telemetry never raises into the entry loop; ≤1 h loss window on process stop named in the registry comment. **The gradeability hole stops regrowing from the first post-capture boot**; coverage reads off the census's `de010_coverage` line on re-run. | commits 9b02b465 + 5e83ebc3; `core/codes.py`, `main.py:1948-1985`, `tests/test_decision_events.py` |
+| **fills.csv `book` column populated for new 5m fills (09-19)** *(SAFE — ledger label only)* | `book="5m"` stamped as first key at the three 5m entry meta sites (algo-child / main entry / grid rung); the long book was already stamped. **Attribution across desks is unblocked for NEW fills**; pre-existing rows keep `book=None`. Ships the stamp half of the LONG BOOK docket row — its `cohort_eval` segmentation half survives there. | commit 2cbaabad; `main.py`, `tests/test_book_stamp.py` |
 | **THE TRADED EXIT IS NOT THE LABELLED BET — arithmetic, not statistics (09-16)** *(REQUIRES ADJUDICATION to change; the MEASUREMENT is SAFE and shipped)* | At the cost floor the label's PT is **1.80%** and SL **1.35%**. The give-back overlay arms at **0.75%** and locks **0.60 of peak**, so banking a 1.80% win *through the trail* needs a peak of **3.00%** — while the bracket's profit leg fires the instant price touches 1.80%. **The trail can therefore NEVER pay a labelled-PT-sized win while the bracket is armed.** Ledger, era-12: 12 trips exited "tier trail" at mean **+$0.1439**, 12/12 wins; 12 closed at "tb_sl" at mean **−$1.5263**, 0/12 — a **10.6:1** asymmetry needing a **91.4%** win rate against **43.8%** observed. And **47.4%** of era-12 live closes are filed `barrier='realized'` / `label_era='exit_sim'` and DROPPED by the training filter. `scripts/era_readout.py` now computes and prints this beside every verdict. **NOT ESTABLISHED:** at n=20 resolved live trips the live-vs-candidate gap is not statistically separated (Wilson [2.8%, 30.1%]) — "the overlay censored a winner" and "the market never offered one" remain the same observation. The instrument that would separate them (persisting peak unrealized gain per position) is SAFE and does not exist. | firing audit 2026-09-16, 16 agents; `scripts/era_readout.what_this_measures`; commit 2f09e369 |
 | **THE COHORT IS NOT MEASURING THE MODEL (09-16)** *(REQUIRES ADJUDICATION — entry decisioning)* | Every era-12 five-minute entry is an exploration **probe** admitted on a model-free token budget with `p_win` substituted at **0.85** and both profit gates bypassed. The model's own calibrated number **cannot reach 0.85** at the shipped shrinkage — it would need a probability above 1.0 — so **no retrain changes which trades are taken**. Whatever the n=50 lean and n=100 verdict conclude, they conclude it about a seeded control arm with profit gating off. Also: the registered null assumes a **$60** ticket while realized notional runs **$35.29–$114.70** (median $61.18, 10.3% under $50), because the grid ladder splits the sizer's approval into rungs. Both now print in the readout. | firing audit 2026-09-16; commit 2f09e369 |
 | **ZERO HARD-INVARIANT BREACHES — the machine is safe (09-16)** *(no action)* | A 16-agent audit looked for breaches in both directions and found none. 1,340/1,340 legs ever written are LIMIT orders; hedger off; universe exactly the four configured pairs; `dry_run` true with the sentinel present on all 482 session starts; all 48 audit codes resolve in `core/codes.py`; 0 `VN-*` in 89,254 records. **Six claimed breaches were adjudicated and all six FELL** (PT-050 auditability, the ALGO-7 stop nudge, the overlay-vs-`_doc` claim, the $35.29 tickets, `long_book.closed_live`, and a "24.63 h outage" that was 21.05–21.18 h of which the BOX was down 5m18s). What survives is law-vs-reality drift, not violation: CLAUDE.md never names the grid ladder, the inventory-derisk overlay that actually kills long-book positions, the watch lane, or the circuit breaker; LB-031's documented 12% thesis stop has fired **zero times ever**. | firing audit 2026-09-16 |
