@@ -535,6 +535,27 @@ for the numbers.
   only honest escape hatch, which is why the registration reads the
   number at n=50 rather than extrapolating this one.
 
+**PLAN-2 INSTRUMENTS SHIPPED, 2026-09-20** (span `f6f53c1a..88f7bfc8`,
+SAFE plane; matrix: suite green in 3 chunks — 2 known load-flakes green
+standalone, smoke 220/0, assurance 51/0, overfit 3/2 = the two
+documented reds, ruff/pyright/bandit/compileall clean):
+- `scripts/reject_inference_bounds.py` + record
+  `docs/quant/2026-09-20_reject_inference_bounds.md` — era-window Manski
+  bound **[−1201.34, +1111.34] net bps/arrival**; DR taken mean
+  **+20.65 bps** on 38 covered gradeable entries; deep-pipeline gate
+  importance UNIDENTIFIED pre-DE-010 (by construction).
+- `scripts/gate_ecology.py` + record
+  `docs/quant/2026-09-20_gate_ecology.md` — EN-030 absorb **78.09% FLAT
+  across vol regimes** (74.1/78.0/79.1/77.1) — not a vol artifact;
+  conditional attribution UNIDENTIFIED pre-DE-010; netting shadow ~3.1%
+  of gross offsettable.
+- **DE-010 is LIVE** since the 2026-09-20 ~07:00Z runner boot and was
+  born carrying `propensity: 1.0` (verified in the chain); era
+  continuity preserved (EXEC_ERA `12-10d4d0c2` unchanged).
+- OWED before the boundary: corpus re-pull (manifest ends
+  2026-09-18 23:59Z; arrivals past it are UNMEASURABLE for both
+  instruments), then re-run both scripts fresh on 09-22.
+
 **The 09-22 adjudication queue** (generational rule: one boundary, one
 docket — batch these, do not mint seven):
 0. **Read the framing memo first** — `docs/quant/2026-09-19_institutional_diagnosis.md`
