@@ -127,3 +127,49 @@ docket. Nothing enters decisioning without the chain.
 4. SG-010 shadow governor (Seam 3) — shadow-only.
 5. Judge committee over the four ledgers (Seam 5) — advisory.
 → Boundary-gated: anything the ledgers argue INTO decisioning.
+
+## Desk instruments beyond the five seams (added 2026-09-19 eve, operator-asked)
+
+What a full desk runs that the seams above do not cover, in priority
+order. Same discipline: measurement SAFE, decisioning boundary.
+
+1. **Benchmark TCA against the consolidated tape.** Desks grade
+   execution against NBBO, never their own venue's mid alone. We hold
+   OKX / Binance.US / ccxt read-only (invariant 3) and use them for
+   nothing gradeable. Instrument: off-venue benchmark mid stamped on
+   every decision/fill event, so Seam 2's execution and delay legs read
+   "Kraken fill vs consolidated mid" — also audits the fee floor's
+   honesty and catches venue dislocations the A–S engine cannot see.
+   SAFE: the feeds are already wired; this is logging.
+2. **Stress replay / scenario grid (historical VaR-ES).** Replay the
+   current book + inventory rules over corpus crash windows; report
+   drawdown, ES, time-underwater. The risk module knows current heat;
+   nothing has measured what era-9's rules do in a 2024-08-05-style
+   unwind. Corpus is local (2024-01→2026-09, 1m). SAFE reads; any rule
+   it argues in is boundary.
+3. **Treasury / collateral desk** (the operator's margin-management
+   ask, mapped to spot reality — our collateral IS the cash/inventory
+   mix). Missing measurements: idle-cash drag per era; Kraken
+   volume-tier position (30d maker volume vs next fee boundary — desks
+   manage to tiers; we pay the floor and never look up); fiat/
+   stablecoin mix cost. Report-plane; acting on it is boundary
+   (sizing/universe).
+4. **Portfolio allocator shadow** (Kelly / drawdown governor across the
+   three desks). Prerequisite: Seam 4's `book` stamp + attribution.
+   SAFE half: shadow Kelly/drawdown fractions logged per era under the
+   SG-010 watch-lane discipline. Live allocation is cohort-resetting,
+   no exceptions.
+5. **Event calendar ingestion** (crypto corporate-actions: unlocks,
+   listings/delistings, funding prints, macro prints). Universe changes
+   are boundary; a calendar as sentiment/regime input and replay
+   annotation is SAFE data plumbing. Lowest priority; highest
+   "how did we not see that coming" insurance.
+
+**Deliberately absent — by law, not oversight:** derivatives overlay
+(perps/options; Kraken sole venue + no withdrawals ⇒ Kraken Futures
+unreachable — the beta-weighted hedger is the ceiling), cross-venue
+execution/SOR (deny-list; read-only feeds become benchmarks under item
+1, never routes), leverage/margin lending (spot book, withdrawal
+endpoints denied). Already covered so nobody re-adds them: pre-trade
+risk gateway (assurance/guard stack + kill switches = the 15c3-5
+analogue), post-trade reconciliation (fee recon, hash-chained ledger).
