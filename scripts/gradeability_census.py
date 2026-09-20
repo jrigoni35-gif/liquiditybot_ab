@@ -1,8 +1,9 @@
 """scripts/gradeability_census.py - the era-9 decision-population census.
 
-WHY THIS EXISTS. 82.6% of era-9's decision population is ungradeable
-(measured 2026-09-19): EN-000 carries counts only, so pre-DE-010 arrivals
-have no per-arrival record BY CONSTRUCTION. This census sizes the hole
+WHY THIS EXISTS. The census this script runs measured 99.93% of era-9
+arrivals ungradeable (2026-09-19): EN-000 carries counts only, so
+pre-DE-010 arrivals have no per-arrival record BY CONSTRUCTION. This
+census sizes the hole
 exactly - by absorb key, with hard reconciliation - and derives the field
 list DE-010 must carry so the hole never regrows. Report-plane: reads
 outputs/, writes only its dated doc. Refuses rather than approximates.
@@ -31,6 +32,7 @@ REFUSAL_CHAIN_TORN = "CHAIN_TORN"
 REFUSAL_NO_EN000 = "NO_EN000_IN_WINDOW"
 REFUSAL_INCONSISTENT = "CENSUS_INCONSISTENT"
 REFUSAL_NO_FILLS = "NO_FILLS"
+REFUSAL_AUDIT_UNREADABLE = "AUDIT_UNREADABLE"
 
 # cut-#12 runner restart (era-9 accrual begins), docs/HANDOFF.md.
 CUT12_FLOOR = datetime(2026, 9, 8, tzinfo=timezone.utc).timestamp()
@@ -59,12 +61,20 @@ def read_chain(path):
     adopted fork's prev points at an earlier verified record or GENESIS.
     Those are adopted and reading continues; a prev that resolves NOWHERE
     (a committed record deleted under its successor) is tamper -> refusal.
-    An unparseable FINAL line is a crash-torn tail: the verified prefix is
-    kept; real content past the break makes it tamper. Never a partial.
+    A line that parses as JSON but is not a dict is the SAME torn class as
+    unparseable bytes (core/audit.py:_parse_record) - never an uncaught
+    AttributeError. An unparseable FINAL line is a crash-torn tail: the
+    verified prefix is kept; real content past the break makes it tamper.
+    A missing/unreadable path returns REFUSAL_AUDIT_UNREADABLE (a clean
+    refusal), never a traceback. Never a partial.
     """
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return REFUSAL_AUDIT_UNREADABLE   # missing/unreadable: clean refusal
     records, seen = [], {_GENESIS}
     prev_h, broken = _GENESIS, False
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for line in lines:
         line = line.strip().strip("\x00").strip()
         if not line:
             continue                     # torn-tail fragment guard
@@ -75,6 +85,9 @@ def read_chain(path):
         except ValueError:
             broken = True                # crash mid-append candidate
             continue
+        if not isinstance(rec, dict):
+            broken = True                # non-dict JSON: TORN, same class
+            continue                     # (core/audit.py:_parse_record)
         h = rec.get("h")
         body = json.dumps({k: v for k, v in rec.items() if k != "h"},
                           sort_keys=True, default=str)
@@ -92,6 +105,18 @@ def read_chain(path):
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_since(raw: str) -> float:
+    """--since: epoch seconds (all digits, optionally one dot) or ISO 8601.
+    A naive ISO stamp reads as UTC, the trail's own timezone."""
+    s = raw.strip()
+    if s.replace(".", "", 1).isdigit():
+        return float(s)
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def en000_deltas(records, since: float) -> dict:
@@ -138,6 +163,8 @@ def census(*, audit_path, fills_path, since, doc_path) -> dict:
     records = read_chain(audit_path)
     if records is None:
         return {"refused": REFUSAL_CHAIN_TORN}
+    if isinstance(records, str):
+        return {"refused": records}      # REFUSAL_AUDIT_UNREADABLE
     keys = en000_deltas(records, since)
     if not keys:
         return {"refused": REFUSAL_NO_EN000}
@@ -154,7 +181,8 @@ def census(*, audit_path, fills_path, since, doc_path) -> dict:
         "gradeable": g, "lost_forever": lost, "deep_pipeline": deep,
         "cv_records_with_asset": cv_records(records, since),
         "de010_coverage": sum(len((r.get("data") or {}).get("events") or [])
-                              for r in records if r.get("code") == "DE-010"),
+                              for r in records if r.get("code") == "DE-010"
+                              and r.get("ts", 0) >= since),
         "de010_fields_derived": list(GRADER_NEEDS),
     }
     if doc_path:
@@ -192,13 +220,10 @@ def main() -> int:
     ap.add_argument("--audit", default="outputs/audit.jsonl")
     ap.add_argument("--fills", default="outputs/fills.csv")
     ap.add_argument("--since", default=None,
-                    help="epoch or YYYY-MM-DD (default: cut-#12 floor)")
+                    help="epoch seconds or ISO 8601 (default: cut-#12 floor)")
     ap.add_argument("--doc", default=None)
     ns = ap.parse_args()
-    since = (float(ns.since) if ns.since and ns.since[0].isdigit()
-             and len(ns.since) > 10 else
-             datetime.fromisoformat(ns.since).replace(
-                 tzinfo=timezone.utc).timestamp()) if ns.since else CUT12_FLOOR
+    since = _parse_since(ns.since) if ns.since else CUT12_FLOOR
     out = census(audit_path=ns.audit, fills_path=ns.fills,
                  since=since, doc_path=ns.doc)
     if out["refused"]:

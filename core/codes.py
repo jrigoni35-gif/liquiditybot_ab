@@ -690,8 +690,10 @@ class Code(str, Enum):
 
     # ---- decision-event capture (DE) — the gradeability hole's closer -----
     # THE HOLE THIS CLOSES. EN-000 is counts-only by design (above), so
-    # pre-DE-010 arrivals left no per-arrival record: 82.6% of era-9's
-    # decision population is ungradeable (census, docs/quant/..._gradeability_census.md).
+    # pre-DE-010 arrivals left no per-arrival record: 99.93% of era-9
+    # arrivals were ungradeable at census
+    # (docs/quant/2026-09-19_gradeability_census.md: 77,676 arrivals,
+    # 51 gradeable).
     # Same volume discipline as EN-000: events BUFFER and emit as ONE hourly
     # record carrying the per-arrival vector. Loss window on process stop:
     # up to one hour of buffered events - named, accepted.
