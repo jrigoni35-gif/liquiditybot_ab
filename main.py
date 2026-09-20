@@ -1957,16 +1957,22 @@ class LiquidityBot:
             book = (v or {}).get("order_book") or {}
             bids, asks = book.get("bids") or [], book.get("asks") or []
             mid = (bids[0][0] + asks[0][0]) / 2.0 if bids and asks else 0.0
+            # propensity: constant 1.0 - under the current deterministic
+            # policy the taken action's propensity is 1.0. Anti-Zimbardo
+            # rule (spec 2026-09-20 desk-instruments-plan2 §2): propensity
+            # logging must PRECEDE any exploration scaling, so the schema
+            # is born carrying it.
             return {"asset": asset, "ts": now,
                     "decision_mid": f"{mid:.10g}" if mid > 0 else "",
                     "mid_available": bool(mid > 0),
                     "direction": "", "confidence": "", "gates": {},
-                    "absorb": ""}
+                    "absorb": "", "propensity": 1.0}
         except Exception:              # pragma: no cover - defensive only
             log.exception("DE-010 seed build failed")
             return {"asset": asset, "ts": now, "decision_mid": "",
                     "mid_available": False, "direction": "",
-                    "confidence": "", "gates": {}, "absorb": ""}
+                    "confidence": "", "gates": {}, "absorb": "",
+                    "propensity": 1.0}
 
     def _de_append(self, ev: dict) -> None:
         """Guarded exactly like _absorb: telemetry never breaks the loop."""

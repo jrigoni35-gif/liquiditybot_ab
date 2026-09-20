@@ -30,9 +30,12 @@ def test_de_event_mid_from_book():
     v = {"order_book": {"bids": [[1999.0, 1.0]], "asks": [[2001.0, 1.0]]}}
     ev = LiquidityBot._de_event("ETH", v, 1_700_000_000.0)
     assert ev["decision_mid"] == "2000" and ev["mid_available"] is True
+    # Lane C: born carrying the key; deterministic policy ⇒ propensity 1.0
+    assert ev["propensity"] == 1.0
     ev2 = LiquidityBot._de_event("ETH", {"order_book": {"bids": [], "asks": []}},
                                  1_700_000_000.0)
     assert ev2["decision_mid"] == "" and ev2["mid_available"] is False
+    assert "propensity" in ev2
 
 
 def test_arrivals_buffered_and_batched_hourly(tmp_path):
@@ -46,6 +49,7 @@ def test_arrivals_buffered_and_batched_hourly(tmp_path):
     n_arrivals = bot.entry_absorb_status()["arrivals"]
     assert len(bot._de_events) == n_arrivals
     assert all(e["absorb"] == "EN-030" for e in bot._de_events)
+    assert all("propensity" in e for e in bot._de_events)
     bot._flush_decision_events(t + 3601.0)   # past the hourly gate
     recs = [json.loads(line) for line in
             (tmp_path / "audit.jsonl").read_text().splitlines()]
@@ -78,6 +82,7 @@ def test_passed_gate_stack_absorb_tag(tmp_path, monkeypatch):
         assert e["absorb"] == "passed_gate_stack"
         assert e["direction"] == "long"
         assert e["confidence"] == 0.61
+        assert "propensity" in e
 
 
 def test_en020_open_entry_absorb_tag(tmp_path):
