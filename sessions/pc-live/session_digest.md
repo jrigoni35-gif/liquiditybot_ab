@@ -2,13 +2,13 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-20 07:16 UTC (1727.38h, ~983 cycles)
-- Equity (current capital epoch): $800.00 -> $770.52 (range $36.49) | 5 epochs lifetime, range $99,229.61 | realized PnL (post-close-fee) $-17.00 | fees (all legs) $30.31
+- Window: 2026-07-10 07:53 UTC -> 2026-09-20 08:16 UTC (1728.38h, ~1017 cycles)
+- Equity (current capital epoch): $800.00 -> $770.49 (range $36.49) | 5 epochs lifetime, range $99,229.61 | realized PnL (post-close-fee) $-17.00 | fees (all legs) $30.31
 - Activity: 2 open | 473 live labeled trades | 30819 candidates | 400 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 473 | cold=False
-- Audit: 89965 records (36253 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 245
+- Audit: 89967 records (36255 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 245
 - Liquidity: spoofy 11% of non-liquid cycles | feed errors 4
-- Recent (48h lens): 478 audit records | dominant EN-000 (15% of non-routine) | retrain_requests 8 | spoofy 11% (non-liquid)
+- Recent (48h lens): 468 audit records | dominant EN-000 (16% of non-routine) | retrain_requests 8 | spoofy 11% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '7-e7d5ca1a': 133, '12-10d4d0c2': 115, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1377 rows) | pooling_hazard=True (source fills.exec_era)
 - RAW signal-file span (signal_ts, all 31292 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-20T02:35:00Z (68.58d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
