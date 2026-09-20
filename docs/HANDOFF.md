@@ -552,9 +552,18 @@ documented reds, ruff/pyright/bandit/compileall clean):
 - **DE-010 is LIVE** since the 2026-09-20 ~07:00Z runner boot and was
   born carrying `propensity: 1.0` (verified in the chain); era
   continuity preserved (EXEC_ERA `12-10d4d0c2` unchanged).
-- OWED before the boundary: corpus re-pull (manifest ends
-  2026-09-18 23:59Z; arrivals past it are UNMEASURABLE for both
-  instruments), then re-run both scripts fresh on 09-22.
+- Corpus re-pull DONE 2026-09-20 ~23:10Z (manifest now ends
+  2026-09-19 23:59Z, +1,440 rows/symbol, 0 gaps/dupes; local data,
+  gitignored). Pass-2 numbers appended to both records: N=87,620,
+  bound [−1211.3, +1121.3], gradeable DR mean +3.47 bps (n=42 covered
+  — pass-1's +20.65 was 38 covered; small-n calibration only), and
+  §2 gate co-failure now IDENTIFIED on 7,600 captured events
+  (sole-absorber 0–6.0% vs marginal fails 30.9–57.9% — multi-gate
+  absorption measured; WHY they co-fail still unidentified).
+  Still owed on 09-22: one more re-pull — the live DE-010 batch clears
+  the 36h coverability horizon 2026-09-21 ~19:00Z.
+- Pushed to origin 2026-09-20 (local was 33 ahead — the documented
+  auto-updater wedge condition; un-wedged).
 
 **The 09-22 adjudication queue** (generational rule: one boundary, one
 docket — batch these, do not mint seven):

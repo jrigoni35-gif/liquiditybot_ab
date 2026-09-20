@@ -140,3 +140,17 @@ That is the input to the 09-22 boundary's n=50/n=100 lean ruling: the
 absorbed population's value is bounded, the bounds are wide, and DE-010
 (now capturing: 4 events, all post-corpus) is the only road to narrowing
 them.
+
+
+---
+
+## Pass 2 — 2026-09-20 ~23:17Z, corpus extended to 2026-09-19 23:59Z
+
+Trigger: corpus re-pull (`scripts/fetch_binance_vision_1m.py`, +1,440 rows/symbol, 0 gaps/dupes) closed the 09-19 tail. (Full stdout archived local-only at `outputs/research/bounds_pass2.txt`; outputs/ is gitignored — the numbers below are the durable copy.)
+
+- arrivals **N = 87,620** (covered 60,592; uncovered tail **27,028** — counted via EN-000 deltas, UNMEASURABLE, not imputed). Coverable window ends at corpus_end − 36 h horizon = 2026-09-18T11:59Z; the tail is everything since.
+- era-window Manski bound: **[−1211.3, +1121.3]** net bps/arrival (pass 1: [−1201.34, +1111.34]) — widened slightly with the extra day; descriptive p50 = −45.0 (exactly the round-trip fee).
+- gradeable g = 55 (42 covered + 13 censored): DR taken mean **+3.47 bps** (pass 1: +20.65 on 38 covered). Four newly covered entries moved the mean 17 bps — all gradeable means are small-n calibration, never verdicts.
+- CV stratum 460 (444 covered + 16 censored): [−249.31, +159.31].
+- DE-010 stratum: **7,600 captured events, 0 covered** — all postdate the coverable window; first coverage requires the corpus to clear their ts + 36 h (earliest possible: a 09-22 re-pull covers the 09-20 07:00Z batch).
+- Gate importance: EN-030 = the era interval [−1211.3, +1121.3] (width 2,332.6); deep-pipeline gates remain UNIDENTIFIED.

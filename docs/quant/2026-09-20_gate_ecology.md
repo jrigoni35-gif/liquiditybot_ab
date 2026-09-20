@@ -85,3 +85,16 @@ The echo-coupling hypothesis is **not confirmed and not refuted** by what is ide
 3. The n=4 captured batch shows universal multi-gate co-failure (no sole absorber), direction-consistent with coupled flow/trend/v3 gates — but n=4 is an anecdote, and v3_agreement/v3_evidence are plausibly structurally related.
 
 Evidence, stated flatly: the absorb pattern is consistent with correct independent rejection in a fee-dominated regime; echo-coupling remains UNIDENTIFIED pending post-capture accrual. Read at the 09-22 boundary with a refreshed corpus; the registered read points (n=50 lean / n=100 verdict) apply to the DE-010-captured population, not to this file.
+
+
+---
+
+## Pass 2 — 2026-09-20 23:17Z, corpus extended + DE-010 accrual
+
+Two things changed since pass 1 (~07:29Z): corpus extended to 2026-09-19 23:59Z (§3 now joins 195 ticks with **0 corpus gaps**), and DE-010 accrual went from 4 events to **7,600** — §2 is now IDENTIFIED on the captured population. (Full stdout archived local-only at `outputs/research/ecology_pass2.txt`; outputs/ is gitignored — the numbers below are the durable copy.)
+
+- §1: N = 87,620 over 191.6 h (~457/h); EN-030 68,158 (**77.79%**); captured-event absorb mix EN-030 5,668 / passed_gate_stack 1,932 → **74.6% absorbed among captured**, mildly below the era rate.
+- §2 (now identified, n=7,600): **sole-absorber rates 0–6.0% across all eight gates while marginal fail rates run 30.9–57.9%** — absorption is overwhelmingly multi-gate. Top co-failures: v3_agreement × v3_evidence 37.9%, if_3_directional_burst × v3_agreement 35.1%, if_3 × v3_evidence 32.2%. Echo-coupling read: co-failure dominance is now MEASURED, not hypothesized. What remains unidentified is *why* they co-fail — genuinely correlated market features (correct common signal) vs consuming each other's outputs (echo-feud). Separating those needs per-gate counterfactual re-grading — a candidate instrument for a future adjudicated mint, NOT SAFE-plane today.
+- §3: absorb flat across vol regimes stands — 74.07 / 78.43 / 77.59 / 77.10 (low/normal/elevated/extreme).
+- §4 WSLS shadow: still UNIDENTIFIED — all 7,600 captured events postdate the coverable window.
+- §5 netting shadow: era fills 121; time-weighted gross 96,342 vs net 90,440 USD·h; offsettable **2,951 USD·h (~3.1% of gross)**; peak offsettable $97.94; residual open BTC −0.00050881 still resting.
